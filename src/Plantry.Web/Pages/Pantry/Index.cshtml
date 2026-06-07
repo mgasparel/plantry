@@ -1,0 +1,23 @@
+@page
+@model Plantry.Web.Pages.Pantry.IndexModel
+@{
+    ViewData["Title"] = "Pantry";
+}
+
+<div class="empty-state">
+    <svg class="empty-state__icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <rect x="8" y="16" width="48" height="36" rx="4" stroke="currentColor" stroke-width="2"/>
+        <path d="M8 24h48" stroke="currentColor" stroke-width="2"/>
+        <path d="M24 16V10a8 8 0 0 1 16 0v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="32" cy="38" r="6" stroke="currentColor" stroke-width="2"/>
+        <path d="M32 35v6M29 38h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <h2 class="empty-state__title">Your pantry is empty</h2>
+    <p class="empty-state__body">
+        Add your first item manually, or photograph a receipt to stock up all at once.
+    </p>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;justify-content:center">
+        <a href="/Intake/Manual" class="btn btn--primary">Add item manually</a>
+        <a href="/Intake/Receipt" class="btn btn--secondary">Scan a receipt</a>
+    </div>
+</div>

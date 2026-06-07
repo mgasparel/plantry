@@ -1,0 +1,40 @@
+@page
+@model Plantry.Web.Pages.Account.LoginModel
+@{
+    ViewData["Title"] = "Sign in";
+    Layout = "~/Pages/Shared/_AuthLayout.cshtml";
+}
+
+<div class="auth-card">
+    <div class="auth-card__logo">
+        <span class="logo-wordmark">Plantry</span>
+    </div>
+    <h1 class="auth-card__heading">Welcome back</h1>
+
+    <form method="post" class="form-stack" novalidate>
+        <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+        <div class="field">
+            <label asp-for="Input.Email" class="field__label">Email</label>
+            <input asp-for="Input.Email" class="field__input" type="email" autocomplete="email" />
+            <span asp-validation-for="Input.Email" class="field__error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Input.Password" class="field__label">Password</label>
+            <input asp-for="Input.Password" class="field__input" type="password" autocomplete="current-password" />
+            <span asp-validation-for="Input.Password" class="field__error"></span>
+        </div>
+
+        <div class="field field--inline">
+            <input asp-for="Input.RememberMe" type="checkbox" />
+            <label asp-for="Input.RememberMe">Keep me signed in</label>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--full">Sign in</button>
+    </form>
+
+    <p class="auth-card__footer">
+        No account? <a href="/Account/Register">Create one</a>
+    </p>
+</div>

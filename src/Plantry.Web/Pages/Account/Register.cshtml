@@ -1,0 +1,47 @@
+@page
+@model Plantry.Web.Pages.Account.RegisterModel
+@{
+    ViewData["Title"] = "Create account";
+    Layout = "~/Pages/Shared/_AuthLayout.cshtml";
+}
+
+<div class="auth-card">
+    <div class="auth-card__logo">
+        <span class="logo-wordmark">Plantry</span>
+    </div>
+    <h1 class="auth-card__heading">Create your household</h1>
+
+    <form method="post" class="form-stack" novalidate>
+        <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+        <div class="field">
+            <label asp-for="Input.HouseholdName" class="field__label">Household name</label>
+            <input asp-for="Input.HouseholdName" class="field__input" placeholder="e.g. The Smiths" autocomplete="off" />
+            <span asp-validation-for="Input.HouseholdName" class="field__error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Input.Email" class="field__label">Email</label>
+            <input asp-for="Input.Email" class="field__input" type="email" autocomplete="email" />
+            <span asp-validation-for="Input.Email" class="field__error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Input.DisplayName" class="field__label">Your name</label>
+            <input asp-for="Input.DisplayName" class="field__input" autocomplete="name" />
+            <span asp-validation-for="Input.DisplayName" class="field__error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Input.Password" class="field__label">Password</label>
+            <input asp-for="Input.Password" class="field__input" type="password" autocomplete="new-password" />
+            <span asp-validation-for="Input.Password" class="field__error"></span>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--full">Create account</button>
+    </form>
+
+    <p class="auth-card__footer">
+        Already have an account? <a href="/Account/Login">Sign in</a>
+    </p>
+</div>

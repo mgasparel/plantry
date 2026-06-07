@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "slice/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: plantry_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Install Aspire workload
+        run: dotnet workload install aspire
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # ── L1: Domain unit tests ─────────────────────────────────────────────
+      - name: Unit tests
+        run: >
+          dotnet test tests/Plantry.Tests.Unit
+          --no-build --configuration Release
+          --collect:"XPlat Code Coverage"
+          --results-directory coverage/unit
+
+      # ── L1: Architecture boundary tests ──────────────────────────────────
+      - name: Architecture tests
+        run: >
+          dotnet test tests/Plantry.Tests.Architecture
+          --no-build --configuration Release
+
+      # ── L3: Integration tests (Testcontainers; real Postgres) ─────────────
+      - name: Integration tests
+        env:
+          PLANTRY_TEST_CONNECTION: "Host=localhost;Database=plantry_test;Username=test;Password=test"
+        run: >
+          dotnet test tests/Plantry.Tests.Integration
+          --no-build --configuration Release
+          --collect:"XPlat Code Coverage"
+          --results-directory coverage/integration
+
+      # ── Coverage gate ─────────────────────────────────────────────────────
+      - name: Coverage report
+        uses: danielpalme/ReportGenerator-GitHub-Action@5
+        with:
+          reports: "coverage/**/*.xml"
+          targetdir: "coverage/report"
+          reporttypes: "HtmlInline;Cobertura"
+
+      - name: Check coverage threshold
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: coverage/report/Cobertura.xml
+          badge: false
+          thresholds: "70 85"   # warn at 70%, fail at 85% for domain projects
+          fail_below_min: true
+
+      # ── E2E tests run separately (needs running app; skipped on PRs) ──────
+      # Triggered via workflow_dispatch or on main merges via a separate job.

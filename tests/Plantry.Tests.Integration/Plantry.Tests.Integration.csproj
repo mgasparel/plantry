@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="Respawn" Version="6.2.1" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.4.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.19.1" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.1" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Identity\Plantry.Identity.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Catalog\Plantry.Catalog.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Inventory\Plantry.Inventory.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Inventory.Infrastructure\Plantry.Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Pricing\Plantry.Pricing.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Pricing.Infrastructure\Plantry.Pricing.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Shopping\Plantry.Shopping.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Shopping.Infrastructure\Plantry.Shopping.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Intake\Plantry.Intake.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

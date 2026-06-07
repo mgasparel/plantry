@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="hearth">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] — Plantry</title>
+    <link rel="stylesheet" href="~/css/plenish.css" asp-append-version="true" />
+</head>
+<body class="app-body">
+
+    @* Desktop sidebar (hidden below md breakpoint via CSS) *@
+    <nav class="sidebar" aria-label="Main navigation">
+        <div class="sidebar__brand">
+            <a href="/Pantry" class="logo-wordmark">Plantry</a>
+        </div>
+        <ul class="sidebar__nav" role="list">
+            <li>
+                <a href="/Pantry" class="sidebar__link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Pantry") == true ? "sidebar__link--active" : "")">
+                    Pantry
+                </a>
+            </li>
+            <li>
+                <a href="/Intake" class="sidebar__link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Intake") == true ? "sidebar__link--active" : "")">
+                    Add stock
+                </a>
+            </li>
+            <li>
+                <a href="/Shopping" class="sidebar__link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Shopping") == true ? "sidebar__link--active" : "")">
+                    Shopping
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar__footer">
+            <a href="/Settings" class="sidebar__link">Settings</a>
+            <form method="post" action="/Account/Logout" style="margin:0">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="sidebar__link sidebar__link--button">Sign out</button>
+            </form>
+        </div>
+    </nav>
+
+    @* Main content column *@
+    <div class="app-content">
+        <header class="topbar">
+            <h1 class="topbar__title">@ViewData["Title"]</h1>
+        </header>
+        <main id="main-content" class="page-content">
+            @RenderBody()
+        </main>
+    </div>
+
+    @* Mobile bottom nav (hidden above md breakpoint via CSS) *@
+    <nav class="bottom-nav" aria-label="Mobile navigation">
+        <a href="/Pantry" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Pantry") == true ? "bottom-nav__item--active" : "")">
+            <span>Pantry</span>
+        </a>
+        <a href="/Intake" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Intake") == true ? "bottom-nav__item--active" : "")">
+            <span>Add</span>
+        </a>
+        <a href="/Shopping" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Shopping") == true ? "bottom-nav__item--active" : "")">
+            <span>Shopping</span>
+        </a>
+        <a href="/Settings" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Settings") == true ? "bottom-nav__item--active" : "")">
+            <span>Settings</span>
+        </a>
+    </nav>
+
+    <script src="~/js/alpine.min.js" defer></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

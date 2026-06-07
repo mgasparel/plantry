@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="10.0.7" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.2.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+    <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />
+    <ProjectReference Include="..\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Catalog\Plantry.Catalog.csproj" />
+    <ProjectReference Include="..\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Inventory\Plantry.Inventory.csproj" />
+    <ProjectReference Include="..\Plantry.Inventory.Infrastructure\Plantry.Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Pricing\Plantry.Pricing.csproj" />
+    <ProjectReference Include="..\Plantry.Pricing.Infrastructure\Plantry.Pricing.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Shopping\Plantry.Shopping.csproj" />
+    <ProjectReference Include="..\Plantry.Shopping.Infrastructure\Plantry.Shopping.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Intake\Plantry.Intake.csproj" />
+    <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.ServiceDefaults\Plantry.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

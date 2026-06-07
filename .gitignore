@@ -1,0 +1,32 @@
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.csproj.user
+
+# NuGet
+*.nupkg
+**/[Pp]ackages/*
+
+# Test / mutation testing output
+TestResults/
+StrykerOutput/
+
+# Personal tooling config
+.claude/settings.local.json
+.playwright/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Agent Skill Output
+.reviews
+.preflight
