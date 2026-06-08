@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Plantry.Catalog.Infrastructure;
@@ -11,9 +12,11 @@ using Plantry.Catalog.Infrastructure;
 namespace Plantry.Catalog.Infrastructure.Migrations
 {
     [DbContext(typeof(CatalogDbContext))]
-    partial class CatalogDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260607150556_AddProductTables")]
+    partial class AddProductTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -28,10 +31,6 @@ namespace Plantry.Catalog.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
-
-                    b.Property<DateTimeOffset?>("ArchivedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("archived_at");
 
                     b.Property<int?>("DefaultDueDays")
                         .HasColumnType("integer")
@@ -64,10 +63,6 @@ namespace Plantry.Catalog.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
-
-                    b.Property<DateTimeOffset?>("ArchivedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("archived_at");
 
                     b.Property<Guid>("HouseholdId")
                         .HasColumnType("uuid")
@@ -174,8 +169,7 @@ namespace Plantry.Catalog.Infrastructure.Migrations
                         .HasColumnName("id");
 
                     b.Property<decimal>("Factor")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)")
+                        .HasColumnType("numeric")
                         .HasColumnName("factor");
 
                     b.Property<Guid>("FromUnitId")
@@ -224,8 +218,7 @@ namespace Plantry.Catalog.Infrastructure.Migrations
                         .HasColumnName("product_id");
 
                     b.Property<decimal?>("SizeQuantity")
-                        .HasPrecision(12, 3)
-                        .HasColumnType("numeric(12,3)")
+                        .HasColumnType("numeric")
                         .HasColumnName("size_quantity");
 
                     b.Property<Guid?>("SizeUnitId")

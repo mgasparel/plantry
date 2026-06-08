@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Plantry.Catalog.Application;
+using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
@@ -65,6 +67,11 @@ builder.Services.ConfigureApplicationCookie(opts =>
 builder.Services.AddScoped<IClock, SystemClock>();
 builder.Services.AddScoped<IHouseholdRepository, HouseholdRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, CatalogReferenceDataSeeder>();
+builder.Services.AddScoped<IUnitRepository, UnitRepository>();
+builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
+builder.Services.AddScoped<ILocationRepository, LocationRepository>();
+builder.Services.AddScoped<IProductRepository, ProductRepository>();
+builder.Services.AddScoped<ProductQueryService>();
 
 var app = builder.Build();
 

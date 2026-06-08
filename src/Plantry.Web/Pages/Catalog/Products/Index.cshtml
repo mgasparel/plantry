@@ -1,0 +1,39 @@
+@page
+@model Plantry.Web.Pages.Catalog.Products.IndexModel
+@{
+    ViewData["Title"] = "Products";
+}
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Products</h2>
+        <a href="/Catalog/Products/Create" class="btn btn--primary">Add a product</a>
+    </div>
+
+    @if (Model.Products.Count == 0)
+    {
+        <p class="empty-state">No products yet — add your first one above.</p>
+    }
+    else
+    {
+        <ul class="catalog-list" role="list">
+            @foreach (var product in Model.Products.OrderBy(p => p.Name))
+            {
+                <li class="catalog-list__item">
+                    <a class="catalog-list__primary" href="/Catalog/Products/Detail/@product.Id.Value">@product.Name</a>
+                    <span class="catalog-list__secondary">
+                        @(product.CategoryName ?? "Uncategorized") &middot; default unit @product.DefaultUnitCode
+                        @if (product.IsParent)
+                        {
+                            <text>&middot; parent (groups variants)</text>
+                        }
+                        @if (product.IsVariant)
+                        {
+                            <text>&middot; variant</text>
+                        }
+                    </span>
+                </li>
+            }
+        </ul>
+    }
+</section>

@@ -1,0 +1,50 @@
+@page
+@model Plantry.Web.Pages.Catalog.Categories.IndexModel
+@{
+    ViewData["Title"] = "Categories";
+}
+
+<div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Categories</h2>
+    @if (Model.Categories.Count == 0)
+    {
+        <p class="empty-state">No categories yet — add your first one below.</p>
+    }
+    else
+    {
+        <ul class="catalog-list" role="list" data-sortable-list="@Url.Page("./Index", "Reorder")">
+            @foreach (var category in Model.Categories.OrderBy(c => c.SortOrder).ThenBy(c => c.Name))
+            {
+                <li class="catalog-list__item" draggable="true" data-id="@category.Id.Value" data-sort-order="@category.SortOrder">
+                    <span class="catalog-list__drag-handle" aria-hidden="true" title="Drag to reorder">&#x2630;</span>
+                    <span class="catalog-list__primary">@category.Name</span>
+                    <span class="catalog-list__secondary">
+                        @(category.DefaultDueDays is { } days ? $"Default expiry: {days} days" : "No default expiry")
+                    </span>
+                    <form method="post" asp-page-handler="Delete" asp-route-id="@category.Id.Value" class="catalog-list__action">
+                        <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
+                    </form>
+                </li>
+            }
+        </ul>
+    }
+</section>
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Add a category</h2>
+    <form method="post" asp-page-handler="Create" class="form-stack">
+        <div class="field field--inline">
+            <label asp-for="Input.Name" class="field__label">Name</label>
+            <input asp-for="Input.Name" class="field__input" placeholder="e.g. Dairy" />
+            <span asp-validation-for="Input.Name" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultDueDays" class="field__label">Default expiry (days)</label>
+            <input asp-for="Input.DefaultDueDays" class="field__input" type="number" min="0" />
+            <span asp-validation-for="Input.DefaultDueDays" class="field__error"></span>
+        </div>
+        <button type="submit" class="btn btn--primary">Add category</button>
+    </form>
+</section>

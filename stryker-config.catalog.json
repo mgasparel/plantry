@@ -1,0 +1,25 @@
+{
+  "stryker-config": {
+    "project": "Plantry.Catalog",
+    "test-projects": [
+      "tests/Plantry.Tests.Unit/Plantry.Tests.Unit.csproj"
+    ],
+    "target-framework": "net9.0",
+    "reporters": ["html", "progress"],
+    "mutation-level": "Advanced",
+    "threshold": {
+      "high": 90,
+      "low": 75,
+      "break": 60
+    },
+    "since": {
+      "enabled": false,
+      "target": "main"
+    },
+    "ignore-methods": [
+      "ToString",
+      "GetHashCode",
+      "GetEqualityComponents"
+    ]
+  }
+}

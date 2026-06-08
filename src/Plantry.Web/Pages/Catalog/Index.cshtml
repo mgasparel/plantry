@@ -1,0 +1,28 @@
+@page
+@model Plantry.Web.Pages.Catalog.IndexModel
+@{
+    ViewData["Title"] = "Catalog";
+}
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Catalog</h2>
+    <p>Manage the products, units, categories, and locations your household uses to track stock.</p>
+    <ul class="catalog-list" role="list">
+        <li class="catalog-list__item">
+            <a class="catalog-list__primary" href="/Catalog/Products">Products</a>
+            <span class="catalog-list__secondary">SKUs, conversions, expiry defaults, parent/variant groups</span>
+        </li>
+        <li class="catalog-list__item">
+            <a class="catalog-list__primary" href="/Catalog/Units">Units</a>
+            <span class="catalog-list__secondary">Mass, volume, and count units used for sizing and conversions</span>
+        </li>
+        <li class="catalog-list__item">
+            <a class="catalog-list__primary" href="/Catalog/Categories">Categories</a>
+            <span class="catalog-list__secondary">Group products and set default expiry windows</span>
+        </li>
+        <li class="catalog-list__item">
+            <a class="catalog-list__primary" href="/Catalog/Locations">Locations</a>
+            <span class="catalog-list__secondary">Where stock lives — pantry shelves, fridges, freezers</span>
+        </li>
+    </ul>
+</section>

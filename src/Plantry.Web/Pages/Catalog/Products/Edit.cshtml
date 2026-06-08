@@ -1,0 +1,60 @@
+@page "{id:guid}"
+@model Plantry.Web.Pages.Catalog.Products.EditModel
+@{
+    ViewData["Title"] = "Edit product";
+}
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Edit @Model.Input.Name</h2>
+
+    <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+    <form method="post" class="form-stack">
+        <div class="field field--inline">
+            <label asp-for="Input.Name" class="field__label">Name</label>
+            <input asp-for="Input.Name" class="field__input" />
+            <span asp-validation-for="Input.Name" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultUnitId" class="field__label">Default unit</label>
+            <select asp-for="Input.DefaultUnitId" class="field__input" asp-items="Model.UnitOptions">
+                <option value="">— Select a unit —</option>
+            </select>
+            <span asp-validation-for="Input.DefaultUnitId" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.CategoryId" class="field__label">Category</label>
+            <select asp-for="Input.CategoryId" class="field__input" asp-items="Model.CategoryOptions">
+                <option value="">— None —</option>
+            </select>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultLocationId" class="field__label">Default location</label>
+            <select asp-for="Input.DefaultLocationId" class="field__input" asp-items="Model.LocationOptions">
+                <option value="">— None —</option>
+            </select>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultDueDays" class="field__label">Default expiry (days)</label>
+            <input asp-for="Input.DefaultDueDays" class="field__input" type="number" min="0" />
+            <span asp-validation-for="Input.DefaultDueDays" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultDueDaysAfterOpening" class="field__label">Expiry after opening (days)</label>
+            <input asp-for="Input.DefaultDueDaysAfterOpening" class="field__input" type="number" min="0" />
+            <span asp-validation-for="Input.DefaultDueDaysAfterOpening" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultDueDaysAfterFreezing" class="field__label">Expiry after freezing (days)</label>
+            <input asp-for="Input.DefaultDueDaysAfterFreezing" class="field__input" type="number" min="0" />
+            <span asp-validation-for="Input.DefaultDueDaysAfterFreezing" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultDueDaysAfterThawing" class="field__label">Expiry after thawing (days)</label>
+            <input asp-for="Input.DefaultDueDaysAfterThawing" class="field__input" type="number" min="0" />
+            <span asp-validation-for="Input.DefaultDueDaysAfterThawing" class="field__error"></span>
+        </div>
+        <button type="submit" class="btn btn--primary">Save changes</button>
+        <a href="/Catalog/Products/Detail/@Model.Id.Value" class="btn btn--ghost">Cancel</a>
+    </form>
+</section>

@@ -29,6 +29,11 @@
                     Shopping
                 </a>
             </li>
+            <li>
+                <a href="/Catalog" class="sidebar__link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Catalog") == true ? "sidebar__link--active" : "")">
+                    Catalog
+                </a>
+            </li>
         </ul>
         <div class="sidebar__footer">
             <a href="/Settings" class="sidebar__link">Settings</a>
@@ -59,6 +64,9 @@
         </a>
         <a href="/Shopping" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Shopping") == true ? "bottom-nav__item--active" : "")">
             <span>Shopping</span>
+        </a>
+        <a href="/Catalog" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Catalog") == true ? "bottom-nav__item--active" : "")">
+            <span>Catalog</span>
         </a>
         <a href="/Settings" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Settings") == true ? "bottom-nav__item--active" : "")">
             <span>Settings</span>

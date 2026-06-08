@@ -1,0 +1,51 @@
+@page
+@model Plantry.Web.Pages.Catalog.Units.IndexModel
+@{
+    ViewData["Title"] = "Units";
+}
+
+<div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+@foreach (var group in Model.Units.GroupBy(u => u.Dimension))
+{
+    <section class="catalog-section">
+        <h2 class="catalog-section__heading">@group.Key</h2>
+        <ul class="catalog-list" role="list">
+            @foreach (var unit in group.OrderBy(u => u.Name))
+            {
+                <li class="catalog-list__item">
+                    <span class="catalog-list__primary">@unit.Name</span>
+                    <span class="catalog-list__secondary">@unit.Code</span>
+                    <span class="catalog-list__meta">×@unit.FactorToBase.ToString("0.######") @(unit.IsBase ? "(base)" : "")</span>
+                </li>
+            }
+        </ul>
+    </section>
+}
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Add a custom unit</h2>
+    <form method="post" asp-page-handler="Create" class="form-stack">
+        <div class="field field--inline">
+            <label asp-for="Input.Code" class="field__label">Code</label>
+            <input asp-for="Input.Code" class="field__input" placeholder="e.g. bunch" />
+            <span asp-validation-for="Input.Code" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.Name" class="field__label">Full name</label>
+            <input asp-for="Input.Name" class="field__input" placeholder="e.g. bunch" />
+            <span asp-validation-for="Input.Name" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.Dimension" class="field__label">Dimension</label>
+            <select asp-for="Input.Dimension" class="field__input" asp-items="Html.GetEnumSelectList<Plantry.Catalog.Domain.Dimension>()"></select>
+            <span asp-validation-for="Input.Dimension" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.FactorToBase" class="field__label">Factor to base unit</label>
+            <input asp-for="Input.FactorToBase" class="field__input" type="number" step="any" />
+            <span asp-validation-for="Input.FactorToBase" class="field__error"></span>
+        </div>
+        <button type="submit" class="btn btn--primary">Add unit</button>
+    </form>
+</section>

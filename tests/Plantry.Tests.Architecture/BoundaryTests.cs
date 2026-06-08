@@ -31,6 +31,15 @@ public sealed class BoundaryTests
         "Plantry.Intake",
     ];
 
+    private static readonly string[] CatalogSiblingContexts =
+    [
+        "Plantry.Identity",
+        "Plantry.Inventory",
+        "Plantry.Pricing",
+        "Plantry.Shopping",
+        "Plantry.Intake",
+    ];
+
     [Fact]
     public void Identity_Domain_Should_Not_Reference_Infrastructure_Packages()
     {
@@ -70,6 +79,48 @@ public sealed class BoundaryTests
 
         Assert.True(result.IsSuccessful,
             "Identity domain references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Catalog_Domain_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Catalog.Domain")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Catalog domain references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Catalog_Application_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Catalog.Application")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Catalog application references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Catalog_Domain_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Catalog.Domain")
+            .Should().NotHaveDependencyOnAny(CatalogSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Catalog domain references sibling contexts:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 

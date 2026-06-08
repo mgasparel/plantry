@@ -83,11 +83,17 @@ E2E tests require a running instance of the app and are not part of the standard
 
 ### Mutation testing
 
-Domain logic in `Plantry.SharedKernel` is checked with [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/):
+Domain logic in `Plantry.SharedKernel` and `Plantry.Catalog` (the conversion-resolution and
+product-invariant core — `UnitConverter`, `Product`, `ExpiryDefaultResolver`) is checked with
+[Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/). Stryker mutates one
+source project per run, so each domain has its own config:
 
 ```sh
 dotnet stryker --config-file stryker-config.json
+dotnet stryker --config-file stryker-config.catalog.json
 ```
+
+A surviving mutant is a test gap — the threshold breaks the build below 60% mutation score.
 
 ---
 

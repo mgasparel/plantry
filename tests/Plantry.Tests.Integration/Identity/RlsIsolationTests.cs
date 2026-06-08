@@ -78,8 +78,8 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
 
         var units = await catalogDb.Units.ToListAsync();
 
-        Assert.All(units, u => Assert.Equal(_householdA.Value, u.HouseholdId));
-        Assert.DoesNotContain(units, u => u.HouseholdId == _householdB.Value);
+        Assert.All(units, u => Assert.Equal(_householdA, u.HouseholdId));
+        Assert.DoesNotContain(units, u => u.HouseholdId == _householdB);
     }
 
     [Fact(DisplayName = "EF query filter: household B cannot see household A's categories")]
@@ -92,8 +92,8 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
 
         var categories = await catalogDb.Categories.ToListAsync();
 
-        Assert.All(categories, c => Assert.Equal(_householdB.Value, c.HouseholdId));
-        Assert.DoesNotContain(categories, c => c.HouseholdId == _householdA.Value);
+        Assert.All(categories, c => Assert.Equal(_householdB, c.HouseholdId));
+        Assert.DoesNotContain(categories, c => c.HouseholdId == _householdA);
     }
 
     [Fact(DisplayName = "Postgres RLS backstop: raw SQL with wrong app.household_id returns no rows")]
@@ -164,8 +164,8 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         var locations = await catalogDb.Locations.IgnoreQueryFilters().ToListAsync();
 
         Assert.NotEmpty(locations);
-        Assert.All(locations, l => Assert.Equal(_householdA.Value, l.HouseholdId));
-        Assert.DoesNotContain(locations, l => l.HouseholdId == _householdB.Value);
+        Assert.All(locations, l => Assert.Equal(_householdA, l.HouseholdId));
+        Assert.DoesNotContain(locations, l => l.HouseholdId == _householdB);
     }
 
     [Fact(DisplayName = "RLS backstop (live path): no tenant context => strict catalog policy returns no rows")]

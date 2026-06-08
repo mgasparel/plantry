@@ -1,0 +1,42 @@
+@page
+@model Plantry.Web.Pages.Catalog.Products.CreateModel
+@{
+    ViewData["Title"] = "Add a product";
+}
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Add a product</h2>
+
+    <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+    <form method="post" class="form-stack">
+        <div class="field field--inline">
+            <label asp-for="Input.Name" class="field__label">Name</label>
+            <input asp-for="Input.Name" class="field__input" placeholder="e.g. Whole milk" />
+            <span asp-validation-for="Input.Name" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultUnitId" class="field__label">Default unit</label>
+            <select asp-for="Input.DefaultUnitId" class="field__input" asp-items="Model.UnitOptions">
+                <option value="">— Select a unit —</option>
+            </select>
+            <span asp-validation-for="Input.DefaultUnitId" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.CategoryId" class="field__label">Category</label>
+            <select asp-for="Input.CategoryId" class="field__input" asp-items="Model.CategoryOptions">
+                <option value="">— None —</option>
+            </select>
+            <span asp-validation-for="Input.CategoryId" class="field__error"></span>
+        </div>
+        <div class="field field--inline">
+            <label asp-for="Input.DefaultLocationId" class="field__label">Default location</label>
+            <select asp-for="Input.DefaultLocationId" class="field__input" asp-items="Model.LocationOptions">
+                <option value="">— None —</option>
+            </select>
+            <span asp-validation-for="Input.DefaultLocationId" class="field__error"></span>
+        </div>
+        <button type="submit" class="btn btn--primary">Add product</button>
+        <a href="/Catalog/Products" class="btn btn--ghost">Cancel</a>
+    </form>
+</section>

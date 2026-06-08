@@ -336,6 +336,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ── Forms ─────────────────────────────────────────────────────────────────── */
 .form-stack { display: flex; flex-direction: column; gap: var(--space-4); }
+.form-stack--row { flex-direction: row; align-items: center; }
 
 .field { display: flex; flex-direction: column; gap: var(--space-1); }
 .field--inline { flex-direction: row; align-items: center; gap: var(--space-2); }
@@ -476,6 +477,55 @@ button { font-family: inherit; cursor: pointer; }
 .badge-expiry--ok      { background: var(--color-success-bg); color: var(--color-success); }
 .badge-expiry--soon    { background: var(--color-warning-bg); color: var(--color-expiry-soon); }
 .badge-expiry--urgent  { background: var(--color-danger-bg);  color: var(--color-expiry-urgent); }
+
+/* ── Catalog sections / lists ──────────────────────────────────────────────── */
+.catalog-section { margin-bottom: var(--space-8); }
+
+.catalog-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.catalog-section__header .catalog-section__heading { margin-bottom: 0; }
+
+.catalog-section__heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  margin-bottom: var(--space-4);
+}
+
+.catalog-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.catalog-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.catalog-list__item:last-child { border-bottom: none; }
+
+.catalog-list__primary { font-weight: 600; color: var(--color-text); }
+.catalog-list__secondary { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.catalog-list__meta { color: var(--color-text-muted); font-size: var(--font-size-xs); margin-left: auto; }
+.catalog-list__action { margin-left: auto; }
+
+.catalog-list__drag-handle {
+  cursor: grab;
+  color: var(--color-text-muted);
+  line-height: 1;
+  user-select: none;
+}
+.catalog-list__item[draggable="true"]:active .catalog-list__drag-handle { cursor: grabbing; }
+.catalog-list__item--dragging { opacity: 0.5; }
 
 /* ── Inline SVG icon sprites (defined once, used via <use>) ─────────────────── */
 /* Icons are inlined in _Layout.cshtml as an SVG sprite */
