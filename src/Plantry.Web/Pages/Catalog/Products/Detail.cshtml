@@ -1,4 +1,4 @@
-@page "{id:guid}"
+@page "/Catalog/Products/{id:guid}"
 @model Plantry.Web.Pages.Catalog.Products.DetailModel
 @{
     ViewData["Title"] = Model.Product?.Name ?? "Product";
@@ -7,17 +7,18 @@
 
 <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
-<section class="catalog-section">
-    <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">
-            @product.Name
-            @if (product.IsArchived)
-            {
-                <span class="catalog-list__meta">(archived)</span>
-            }
-        </h2>
-        <div class="form-stack form-stack--row">
-            <a href="/Catalog/Products/Edit/@product.Id.Value" class="btn btn--ghost btn--sm">Edit</a>
+<div class="card">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">
+                @product.Name
+                @if (product.IsArchived)
+                {
+                    <span class="catalog-list__meta">(archived)</span>
+                }
+            </h3>
+        </div>
+        <div class="card__head-actions">
             @if (product.IsArchived)
             {
                 <form method="post" asp-page-handler="Unarchive" asp-route-id="@product.Id.Value">
@@ -32,164 +33,204 @@
             }
         </div>
     </div>
-
-    <ul class="catalog-list" role="list">
-        <li class="catalog-list__item">
-            <span class="catalog-list__primary">Category</span>
-            <span class="catalog-list__secondary">@(product.CategoryName ?? "Uncategorized")</span>
-        </li>
-        <li class="catalog-list__item">
-            <span class="catalog-list__primary">Default unit</span>
-            <span class="catalog-list__secondary">@product.DefaultUnitCode</span>
-        </li>
-        <li class="catalog-list__item">
-            <span class="catalog-list__primary">Default location</span>
-            <span class="catalog-list__secondary">@(product.DefaultLocationName ?? "—")</span>
-        </li>
-        <li class="catalog-list__item">
-            <span class="catalog-list__primary">Expiry defaults</span>
-            <span class="catalog-list__secondary">
-                Ambient: @(product.DefaultDueDays?.ToString() ?? "—") days &middot;
-                After opening: @(product.DefaultDueDaysAfterOpening?.ToString() ?? "—") days &middot;
-                After freezing: @(product.DefaultDueDaysAfterFreezing?.ToString() ?? "—") days &middot;
-                After thawing: @(product.DefaultDueDaysAfterThawing?.ToString() ?? "—") days
-            </span>
-        </li>
-    </ul>
-</section>
-
-<section class="catalog-section">
-    <h2 class="catalog-section__heading">Parent / variant group</h2>
-
-    @if (product.ParentName is { } parentName)
-    {
-        <ul class="catalog-list" role="list">
-            <li class="catalog-list__item">
-                <span class="catalog-list__primary">Variant of</span>
-                <span class="catalog-list__secondary">@parentName</span>
-                <form method="post" asp-page-handler="Detach" asp-route-id="@product.Id.Value" class="catalog-list__action">
-                    <button type="submit" class="btn btn--ghost btn--sm">Detach from parent</button>
-                </form>
-            </li>
-        </ul>
-    }
-    else if (product.Variants.Count > 0)
-    {
-        <p class="empty-state">This product groups the following variants — it cannot itself hold stock.</p>
-        <ul class="catalog-list" role="list">
-            @foreach (var variant in product.Variants)
-            {
-                <li class="catalog-list__item">
-                    <a href="/Catalog/Products/Detail/@variant.Id.Value" class="catalog-list__primary">@variant.Name</a>
-                </li>
-            }
-        </ul>
-    }
-    else
-    {
-        <p class="empty-state">Standalone product — not part of a parent/variant group.</p>
-        <form method="post" asp-page-handler="MakeVariant" asp-route-id="@product.Id.Value" class="form-stack form-stack--row">
-            <div class="field field--inline">
-                <label asp-for="VariantInput.ParentProductId" class="field__label">Make a variant of</label>
-                <select asp-for="VariantInput.ParentProductId" class="field__input" asp-items="Model.ParentOptions">
-                    <option value="">— Select a product —</option>
-                </select>
-                <span asp-validation-for="VariantInput.ParentProductId" class="field__error"></span>
+    <div class="card__body">
+        <form method="post" class="form-stack">
+            <div class="form-grid">
+                <field asp-for="Input.Name" stacked full>
+                    <input asp-for="Input.Name" class="field__input" />
+                    <span asp-validation-for="Input.Name" class="field__error"></span>
+                </field>
+                <field asp-for="Input.CategoryId" stacked>
+                    <select asp-for="Input.CategoryId" class="field__input" asp-items="Model.CategoryOptions">
+                        <option value="">— None —</option>
+                    </select>
+                </field>
+                <field asp-for="Input.DefaultUnitId" stacked>
+                    <select asp-for="Input.DefaultUnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Select a unit —</option>
+                    </select>
+                    <span asp-validation-for="Input.DefaultUnitId" class="field__error"></span>
+                </field>
+                <field asp-for="Input.DefaultLocationId" stacked full>
+                    <select asp-for="Input.DefaultLocationId" class="field__input" asp-items="Model.LocationOptions">
+                        <option value="">— None —</option>
+                    </select>
+                </field>
+                <field asp-for="Input.DefaultDueDays" stacked>
+                    <div class="form-grid__unit-suffix">
+                        <input asp-for="Input.DefaultDueDays" class="field__input" type="number" min="0" />
+                        <span class="form-grid__unit-suffix__label">days</span>
+                    </div>
+                    <span asp-validation-for="Input.DefaultDueDays" class="field__error"></span>
+                </field>
+                <field asp-for="Input.DefaultDueDaysAfterOpening" stacked>
+                    <div class="form-grid__unit-suffix">
+                        <input asp-for="Input.DefaultDueDaysAfterOpening" class="field__input" type="number" min="0" />
+                        <span class="form-grid__unit-suffix__label">days</span>
+                    </div>
+                    <span asp-validation-for="Input.DefaultDueDaysAfterOpening" class="field__error"></span>
+                </field>
+                <field asp-for="Input.DefaultDueDaysAfterFreezing" stacked>
+                    <div class="form-grid__unit-suffix">
+                        <input asp-for="Input.DefaultDueDaysAfterFreezing" class="field__input" type="number" min="0" />
+                        <span class="form-grid__unit-suffix__label">days</span>
+                    </div>
+                    <span asp-validation-for="Input.DefaultDueDaysAfterFreezing" class="field__error"></span>
+                </field>
+                <field asp-for="Input.DefaultDueDaysAfterThawing" stacked>
+                    <div class="form-grid__unit-suffix">
+                        <input asp-for="Input.DefaultDueDaysAfterThawing" class="field__input" type="number" min="0" />
+                        <span class="form-grid__unit-suffix__label">days</span>
+                    </div>
+                    <span asp-validation-for="Input.DefaultDueDaysAfterThawing" class="field__error"></span>
+                </field>
             </div>
-            <button type="submit" class="btn btn--ghost btn--sm">Make variant</button>
+            <div>
+                <button type="submit" class="btn btn--primary">Save changes</button>
+            </div>
         </form>
-    }
-</section>
+    </div>
+</div>
 
-<section class="catalog-section">
-    <h2 class="catalog-section__heading">SKUs</h2>
-
-    @if (product.Skus.Count == 0)
-    {
-        <p class="empty-state">No SKUs yet — add a pack size below.</p>
-    }
-    else
-    {
-        <ul class="catalog-list" role="list">
-            @foreach (var sku in product.Skus)
-            {
+<div class="card">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">Parent / variant group</h3>
+        </div>
+    </div>
+    <div class="card__body">
+        @if (product.ParentName is { } parentName)
+        {
+            <ul class="catalog-list" role="list">
                 <li class="catalog-list__item">
-                    <span class="catalog-list__primary">@sku.Label</span>
-                    <span class="catalog-list__secondary">
-                        @(sku.SizeQuantity is { } qty ? $"{qty.ToString("0.###")} {sku.SizeUnitCode}" : "No declared size")
-                    </span>
-                    <form method="post" asp-page-handler="RemoveSku" asp-route-id="@product.Id.Value" asp-route-skuId="@sku.Id.Value" class="catalog-list__action">
-                        <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
+                    <span class="catalog-list__primary">Variant of</span>
+                    <span class="catalog-list__secondary">@parentName</span>
+                    <form method="post" asp-page-handler="Detach" asp-route-id="@product.Id.Value" class="catalog-list__action">
+                        <button type="submit" class="btn btn--ghost btn--sm">Detach from parent</button>
                     </form>
                 </li>
-            }
-        </ul>
-    }
+            </ul>
+        }
+        else if (product.Variants.Count > 0)
+        {
+            <p class="empty-state">This product groups the following variants — it cannot itself hold stock.</p>
+            <ul class="catalog-list" role="list">
+                @foreach (var variant in product.Variants)
+                {
+                    <li class="catalog-list__item">
+                        <a href="/Catalog/Products/@variant.Id.Value" class="catalog-list__primary">@variant.Name</a>
+                    </li>
+                }
+            </ul>
+        }
+        else
+        {
+            <p class="empty-state">Standalone product — not part of a parent/variant group.</p>
+            <form method="post" asp-page-handler="MakeVariant" asp-route-id="@product.Id.Value" class="form-stack form-stack--row">
+                <div class="field field--inline">
+                    <label asp-for="VariantInput.ParentProductId" class="field__label">Make a variant of</label>
+                    <select asp-for="VariantInput.ParentProductId" class="field__input" asp-items="Model.ParentOptions">
+                        <option value="">— Select a product —</option>
+                    </select>
+                    <span asp-validation-for="VariantInput.ParentProductId" class="field__error"></span>
+                </div>
+                <button type="submit" class="btn btn--ghost btn--sm">Make variant</button>
+            </form>
+        }
+    </div>
+</div>
 
-    <form method="post" asp-page-handler="AddSku" asp-route-id="@product.Id.Value" class="form-stack">
-        <div class="field field--inline">
-            <label asp-for="SkuInput.Label" class="field__label">Label</label>
-            <input asp-for="SkuInput.Label" class="field__input" placeholder="e.g. 2 L carton" />
-            <span asp-validation-for="SkuInput.Label" class="field__error"></span>
+<div class="card">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">SKUs</h3>
         </div>
-        <div class="field field--inline">
-            <label asp-for="SkuInput.SizeQuantity" class="field__label">Size quantity</label>
-            <input asp-for="SkuInput.SizeQuantity" class="field__input" type="number" step="any" min="0" />
-            <span asp-validation-for="SkuInput.SizeQuantity" class="field__error"></span>
-        </div>
-        <div class="field field--inline">
-            <label asp-for="SkuInput.SizeUnitId" class="field__label">Size unit</label>
-            <select asp-for="SkuInput.SizeUnitId" class="field__input" asp-items="Model.UnitOptions">
-                <option value="">— None —</option>
-            </select>
-        </div>
-        <button type="submit" class="btn btn--primary">Add SKU</button>
-    </form>
-</section>
+    </div>
+    <div class="card__body">
+        @if (product.Skus.Count > 0)
+        {
+            <ul class="catalog-list" role="list">
+                @foreach (var sku in product.Skus)
+                {
+                    <li class="catalog-list__item">
+                        <span class="catalog-list__primary">@sku.Label</span>
+                        <span class="catalog-list__secondary">
+                            @(sku.SizeQuantity is { } qty ? $"{qty.ToString("0.###")} {sku.SizeUnitCode}" : "No declared size")
+                        </span>
+                        <form method="post" asp-page-handler="RemoveSku" asp-route-id="@product.Id.Value" asp-route-skuId="@sku.Id.Value" class="catalog-list__action">
+                            <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
+                        </form>
+                    </li>
+                }
+            </ul>
+        }
+        <form method="post" asp-page-handler="AddSku" asp-route-id="@product.Id.Value" class="form-stack">
+            <div class="form-grid">
+                <field asp-for="SkuInput.Label" stacked full>
+                    <input asp-for="SkuInput.Label" class="field__input" placeholder="e.g. 2 L carton" />
+                    <span asp-validation-for="SkuInput.Label" class="field__error"></span>
+                </field>
+                <field asp-for="SkuInput.SizeQuantity" stacked>
+                    <input asp-for="SkuInput.SizeQuantity" class="field__input" type="number" step="any" min="0" />
+                    <span asp-validation-for="SkuInput.SizeQuantity" class="field__error"></span>
+                </field>
+                <field asp-for="SkuInput.SizeUnitId" stacked>
+                    <select asp-for="SkuInput.SizeUnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— None —</option>
+                    </select>
+                </field>
+            </div>
+            <div>
+                <button type="submit" class="btn btn--primary">Add SKU</button>
+            </div>
+        </form>
+    </div>
+</div>
 
-<section class="catalog-section">
-    <h2 class="catalog-section__heading">Conversions</h2>
-    <p>Product-specific conversions for cross-dimension or density relationships (e.g. "1 cup flour = 120 g").</p>
-
-    @if (product.Conversions.Count == 0)
-    {
-        <p class="empty-state">No product-specific conversions yet.</p>
-    }
-    else
-    {
-        <ul class="catalog-list" role="list">
-            @foreach (var conversion in product.Conversions)
-            {
-                <li class="catalog-list__item">
-                    <span class="catalog-list__primary">1 @conversion.FromUnitCode = @conversion.Factor.ToString("0.######") @conversion.ToUnitCode</span>
-                    <form method="post" asp-page-handler="RemoveConversion" asp-route-id="@product.Id.Value" asp-route-conversionId="@conversion.Id.Value" class="catalog-list__action">
-                        <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
-                    </form>
-                </li>
-            }
-        </ul>
-    }
-
-    <form method="post" asp-page-handler="AddConversion" asp-route-id="@product.Id.Value" class="form-stack">
-        <div class="field field--inline">
-            <label asp-for="ConversionInput.FromUnitId" class="field__label">From unit</label>
-            <select asp-for="ConversionInput.FromUnitId" class="field__input" asp-items="Model.UnitOptions">
-                <option value="">— Select a unit —</option>
-            </select>
-            <span asp-validation-for="ConversionInput.FromUnitId" class="field__error"></span>
+<div class="card">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">Conversions</h3>
+            <p class="card__head-sub">Product-specific cross-dimension relationships (e.g. "1 cup flour = 120 g").</p>
         </div>
-        <div class="field field--inline">
-            <label asp-for="ConversionInput.ToUnitId" class="field__label">To unit</label>
-            <select asp-for="ConversionInput.ToUnitId" class="field__input" asp-items="Model.UnitOptions">
-                <option value="">— Select a unit —</option>
-            </select>
-            <span asp-validation-for="ConversionInput.ToUnitId" class="field__error"></span>
-        </div>
-        <div class="field field--inline">
-            <label asp-for="ConversionInput.Factor" class="field__label">Factor</label>
-            <input asp-for="ConversionInput.Factor" class="field__input" type="number" step="any" min="0" />
-            <span asp-validation-for="ConversionInput.Factor" class="field__error"></span>
-        </div>
-        <button type="submit" class="btn btn--primary">Add conversion</button>
-    </form>
-</section>
+    </div>
+    <div class="card__body">
+        @if (product.Conversions.Count > 0)
+        {
+            <ul class="catalog-list" role="list">
+                @foreach (var conversion in product.Conversions)
+                {
+                    <li class="catalog-list__item">
+                        <span class="catalog-list__primary">1 @conversion.FromUnitCode = @conversion.Factor.ToString("0.######") @conversion.ToUnitCode</span>
+                        <form method="post" asp-page-handler="RemoveConversion" asp-route-id="@product.Id.Value" asp-route-conversionId="@conversion.Id.Value" class="catalog-list__action">
+                            <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
+                        </form>
+                    </li>
+                }
+            </ul>
+        }
+        <form method="post" asp-page-handler="AddConversion" asp-route-id="@product.Id.Value" class="form-stack">
+            <div class="form-grid">
+                <field asp-for="ConversionInput.FromUnitId" stacked>
+                    <select asp-for="ConversionInput.FromUnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Select a unit —</option>
+                    </select>
+                    <span asp-validation-for="ConversionInput.FromUnitId" class="field__error"></span>
+                </field>
+                <field asp-for="ConversionInput.ToUnitId" stacked>
+                    <select asp-for="ConversionInput.ToUnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Select a unit —</option>
+                    </select>
+                    <span asp-validation-for="ConversionInput.ToUnitId" class="field__error"></span>
+                </field>
+                <field asp-for="ConversionInput.Factor" stacked full>
+                    <input asp-for="ConversionInput.Factor" class="field__input" type="number" step="any" min="0" />
+                    <span asp-validation-for="ConversionInput.Factor" class="field__error"></span>
+                </field>
+            </div>
+            <div>
+                <button type="submit" class="btn btn--primary">Add conversion</button>
+            </div>
+        </form>
+    </div>
+</div>

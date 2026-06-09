@@ -1,0 +1,121 @@
+@model Plantry.Web.Pages.Shared.DataGridViewModel
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@functions {
+    static string AlignClass(GridAlign align) => align switch
+    {
+        GridAlign.Center => " data-grid__cell--center",
+        GridAlign.End => " data-grid__cell--end",
+        _ => "",
+    };
+
+    static string ToneClass(BadgeTone tone) => tone switch
+    {
+        BadgeTone.Info => "badge--info",
+        BadgeTone.Success => "badge--success",
+        BadgeTone.Warning => "badge--warning",
+        BadgeTone.Danger => "badge--danger",
+        _ => "badge--neutral",
+    };
+}
+@{
+    // True when any visible action mutates state — only then is a page antiforgery token required
+    // for the htmx POST (the global hook in htmx-antiforgery.js reads the hidden input this emits).
+    var needsToken = Model.Rows.Any(r => r.Cells.Any(c => c.Kind == GridCellKind.Actions && c.Items.Any(a => a.IsPost)));
+}
+<div class="data-grid" id="@Model.Id">
+@if (Model.Rows.Count == 0)
+{
+    <p class="empty-state">@Model.EmptyMessage</p>
+}
+else
+{
+    <table class="data-grid__table">
+        @if (Model.Caption is { } caption)
+        {
+            <caption class="data-grid__caption">@caption</caption>
+        }
+        <thead>
+            <tr>
+                @foreach (var col in Model.Columns)
+                {
+                    var headerClass = $"data-grid__header{AlignClass(col.Align)}";
+                    if (col.SortKey is { } sortKey && Model.SortUrl is { } sortUrl)
+                    {
+                        var isActive = Model.CurrentSort?.Key == sortKey;
+                        var descending = isActive && Model.CurrentSort!.Descending;
+                        // Clicking an inactive column sorts ascending; clicking the active column flips direction.
+                        var nextDesc = (isActive && !descending).ToString().ToLowerInvariant();
+                        var ariaSort = !isActive ? "none" : descending ? "descending" : "ascending";
+                        // SortUrl is expected to already carry a handler (e.g. "?handler=Sort"), so append with '&'.
+                        var href = $"{sortUrl}&sort={sortKey}&desc={nextDesc}";
+                        <th scope="col" class="@headerClass" aria-sort="@ariaSort">
+                            <button type="button" class="data-grid__sort"
+                                    hx-get="@href" hx-target="#@Model.Id" hx-swap="outerHTML">
+                                <span>@col.Header</span>
+                                <span class="data-grid__caret" aria-hidden="true">@(isActive ? descending ? "▾" : "▴" : "")</span>
+                            </button>
+                        </th>
+                    }
+                    else
+                    {
+                        <th scope="col" class="@headerClass">@col.Header</th>
+                    }
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in Model.Rows)
+            {
+                <tr>
+                    @for (var i = 0; i < row.Cells.Count; i++)
+                    {
+                        var cell = row.Cells[i];
+                        var align = i < Model.Columns.Count ? Model.Columns[i].Align : GridAlign.Start;
+                        <td class="data-grid__cell@(AlignClass(align))">
+                            @switch (cell.Kind)
+                            {
+                                case GridCellKind.Text:
+                                    @cell.Value
+                                    break;
+                                case GridCellKind.Muted:
+                                    <span class="data-grid__muted">@cell.Value</span>
+                                    break;
+                                case GridCellKind.Link:
+                                    <a class="data-grid__link" href="@cell.Url">@cell.Value</a>
+                                    break;
+                                case GridCellKind.Badge:
+                                    <span class="badge @ToneClass(cell.Tone)">@cell.Value</span>
+                                    break;
+                                case GridCellKind.Actions:
+                                    foreach (var action in cell.Items)
+                                    {
+                                        if (action.IsPost)
+                                        {
+                                            <button type="button" class="btn btn--sm btn--ghost data-grid__action"
+                                                    hx-post="@action.Url"
+                                                    hx-confirm="@action.Confirm"
+                                                    hx-target="@(action.RemovesRow ? "closest tr" : null)"
+                                                    hx-swap="@(action.RemovesRow ? "outerHTML" : null)">@action.Label</button>
+                                        }
+                                        else
+                                        {
+                                            <a class="btn btn--sm btn--ghost data-grid__action" href="@action.Url">@action.Label</a>
+                                        }
+                                    }
+                                    break;
+                            }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+@if (needsToken)
+{
+    // The htmx delete POST needs the antiforgery token present on the page; htmx-antiforgery.js
+    // reads this hidden input and attaches it as the RequestVerificationToken header.
+    var tokens = Antiforgery.GetAndStoreTokens(ViewContext.HttpContext);
+    <input type="hidden" name="@tokens.FormFieldName" value="@tokens.RequestToken" />
+}
+</div>

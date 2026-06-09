@@ -95,8 +95,8 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             await page.WaitForURLAsync("**/Pantry**");
 
-            var titleAfterLogin = await page.Locator(".topbar__title").TextContentAsync();
-            Assert.Contains("Pantry", titleAfterLogin, StringComparison.OrdinalIgnoreCase);
+            var titleAfterLogin = await page.Locator(".empty-state__title").TextContentAsync();
+            Assert.Contains("pantry", titleAfterLogin, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

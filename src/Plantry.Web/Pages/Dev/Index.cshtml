@@ -1,0 +1,212 @@
+@page
+@model Plantry.Web.Pages.Dev.IndexModel
+@{
+    ViewData["Title"] = "Components";
+}
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Component gallery</h2>
+    <p>
+        Development-only page (hidden and 404'd outside <code>Development</code> — see
+        <code>DevPagesGateMiddleware</code>) for building and browsing reusable UI primitives
+        away from any real feature page. Demo data only — nothing here touches Catalog.
+    </p>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Field row</h2>
+    </div>
+    <p>
+        <code>&lt;field&gt;</code> lays out a label and its control as one row in a fixed
+        two-column grid — every row aligns, unlike <code>.field--inline</code> (a flex row where
+        each label is sized to its own text). The control markup passes through untouched, so
+        <code>asp-for</code>, <code>asp-items</code>, and <code>asp-validation-for</code> keep
+        working exactly as they do today.
+    </p>
+
+    <form method="post" class="form-stack">
+        <field asp-for="FieldRowDemo.Name">
+            <input asp-for="FieldRowDemo.Name" class="field__input" placeholder="e.g. Whole milk" />
+            <span asp-validation-for="FieldRowDemo.Name" class="field__error"></span>
+        </field>
+        <field asp-for="FieldRowDemo.Quantity">
+            <input asp-for="FieldRowDemo.Quantity" class="field__input" type="number" step="any" min="0" />
+            <span asp-validation-for="FieldRowDemo.Quantity" class="field__error"></span>
+        </field>
+        <field asp-for="FieldRowDemo.Unit">
+            <select asp-for="FieldRowDemo.Unit" class="field__input" asp-items="Model.UnitOptions">
+                <option value="">— Select a unit —</option>
+            </select>
+            <span asp-validation-for="FieldRowDemo.Unit" class="field__error"></span>
+        </field>
+    </form>
+
+    <pre class="code-sample"><code>@("<field asp-for=\"Input.Name\">\n    <input asp-for=\"Input.Name\" class=\"field__input\" placeholder=\"e.g. Whole milk\" />\n    <span asp-validation-for=\"Input.Name\" class=\"field__error\"></span>\n</field>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Card</h2>
+    </div>
+    <p>
+        <code>.card</code> groups a titled section of content into a bordered surface with
+        consistent internal spacing. <code>.card__head</code> carries the title (and optional
+        subtitle via <code>.card__head-sub</code>) plus any right-aligned actions in
+        <code>.card__head-actions</code>. Content lives in <code>.card__body</code>. Because
+        Razor partials can't slot arbitrary children, card is a pure CSS pattern — write the
+        wrapper markup directly wherever a section needs it.
+    </p>
+
+    <div class="card" style="max-width: 28rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Section title</h3>
+                <p class="card__head-sub">An optional one-line description below the title.</p>
+            </div>
+            <div class="card__head-actions">
+                <button class="btn btn--sm btn--secondary">Action</button>
+            </div>
+        </div>
+        <div class="card__body">
+            Card body content — any child markup goes here.
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"card\">\n  <div class=\"card__head\">\n    <div>\n      <h3 class=\"card__head-title\">Section title</h3>\n      <p class=\"card__head-sub\">Optional subtitle</p>   <!-- omit if none -->\n    </div>\n    <div class=\"card__head-actions\">                    <!-- omit if no actions -->\n      <button class=\"btn btn--sm btn--secondary\">Action</button>\n    </div>\n  </div>\n  <div class=\"card__body\">\n    <!-- content -->\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Form grid field</h2>
+    </div>
+    <p>
+        <code>&lt;field stacked&gt;</code> is an alternative layout for <code>&lt;field&gt;</code>:
+        the label sits above the control (rather than left of it), making it suitable for the
+        two-column <code>.form-grid</code> container used in product-editor cards. Add
+        <code>full</code> to span both columns. The <code>.form-grid__unit-suffix</code> wrapper
+        pins a short unit label inside the right edge of an input — useful for numeric fields
+        whose unit context isn't already clear from the label.
+    </p>
+
+    <div class="card" style="max-width: 36rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Details</h3>
+            </div>
+        </div>
+        <div class="card__body">
+            <form method="post" class="form-grid">
+                <field asp-for="FormGridDemo.Name" stacked full>
+                    <input asp-for="FormGridDemo.Name" class="field__input" placeholder="e.g. Whole milk" />
+                    <span asp-validation-for="FormGridDemo.Name" class="field__error"></span>
+                </field>
+                <field asp-for="FormGridDemo.Category" stacked>
+                    <select asp-for="FormGridDemo.Category" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Select —</option>
+                    </select>
+                </field>
+                <field asp-for="FormGridDemo.Unit" stacked>
+                    <select asp-for="FormGridDemo.Unit" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Select —</option>
+                    </select>
+                </field>
+                <field asp-for="FormGridDemo.Par" stacked>
+                    <div class="form-grid__unit-suffix">
+                        <input asp-for="FormGridDemo.Par" class="field__input" type="number" step="any" min="0" />
+                        <span class="form-grid__unit-suffix__label">g</span>
+                    </div>
+                    <span asp-validation-for="FormGridDemo.Par" class="field__error"></span>
+                </field>
+            </form>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"form-grid\">\n  <field asp-for=\"Input.Name\" stacked full>\n    <input asp-for=\"Input.Name\" class=\"field__input\" />\n    <span asp-validation-for=\"Input.Name\" class=\"field__error\"></span>\n  </field>\n  <field asp-for=\"Input.Par\" stacked>\n    <div class=\"form-grid__unit-suffix\">\n      <input asp-for=\"Input.Par\" class=\"field__input\" type=\"number\" />\n      <span class=\"form-grid__unit-suffix__label\">g</span>\n    </div>\n    <span asp-validation-for=\"Input.Par\" class=\"field__error\"></span>\n  </field>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Searchable select</h2>
+    </div>
+    <p>
+        <code>&lt;searchable-select&gt;</code> is a type-to-filter replacement for
+        <code>&lt;select&gt;</code> over long option lists. A hidden input carries the value that
+        actually posts (bound via <code>asp-for</code>); Alpine owns the popover/keyboard state
+        and htmx swaps the option list as you type — try searching for "milk" or "pasta" below.
+    </p>
+
+    <form method="post" class="form-stack" style="max-width: 28rem">
+        <field asp-for="SearchableSelectDemo.Item">
+            <searchable-select asp-for="SearchableSelectDemo.Item"
+                               items="Model.GroceryOptions"
+                               search-url="/Dev?handler=FilterGroceries"
+                               placeholder="Search groceries…" />
+        </field>
+    </form>
+
+    <pre class="code-sample"><code>@("<searchable-select asp-for=\"Input.Item\"\n                   items=\"Model.GroceryOptions\"\n                   search-url=\"/Dev?handler=FilterGroceries\"\n                   placeholder=\"Search groceries…\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Index list</h2>
+    </div>
+    <p>
+        <code>_IndexList</code> extracts the primary/secondary/meta row pattern repeated across
+        <code>Catalog/Index</code>, <code>Products/Index</code>, and Product Detail — including
+        the empty state.
+    </p>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Populated</h3>
+    <partial name="Shared/_IndexList" model="Model.PopulatedList" />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Empty state</h3>
+    <partial name="Shared/_IndexList" model="Model.EmptyList" />
+
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_IndexList\" model=\"Model.MyListViewModel\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Sortable list</h2>
+    </div>
+    <p>
+        <code>_SortableList</code> renders a <code>.catalog-list</code> whose items can be
+        dragged into a new order. Alpine (<code>wwwroot/js/sortable-list.js</code>) owns the
+        drag interaction — tracking the dragged item and reordering the DOM as the pointer moves
+        over siblings — and on drop, htmx posts the new order as a repeated <code>ids</code>
+        field to the handler named by <code>ReorderUrl</code>, which reassigns sort orders as
+        multiples of ten. This demo's handler accepts the post but doesn't persist anything, so
+        reloading the page always returns to the seeded order.
+    </p>
+
+    <partial name="Shared/_SortableList" model="Model.SortableListDemo" />
+
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_SortableList\"\n         model=\"new SortableListViewModel(Model.MyItems, Url.Page(\"./Index\", \"Reorder\"), \"Nothing to reorder yet.\")\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Data grid</h2>
+    </div>
+    <p>
+        <code>_DataGrid</code> renders a reusable, reflection-free table. The page maps each domain
+        object to typed cells from a closed vocabulary (<code>Text</code>, <code>Muted</code>,
+        <code>Link</code>, <code>Badge</code>) plus a first-class <code>Actions</code> cell — so the
+        partial owns every <code>&lt;td&gt;</code> while the compiler still checks the whole
+        page→grid contract. <strong>Sortable headers</strong> (Name, Category) htmx-GET a
+        <code>Sort</code> handler that re-orders server-side and swaps the whole table back, marked
+        up with <code>aria-sort</code>. The <strong>Edit</strong> link navigates to the real
+        <code>/Catalog/Products/Edit/{id}</code> route and the product name links to
+        <code>/Catalog/Products/Detail/{id}</code> — these are demo GUIDs, so following them 404s,
+        but they exercise the real URL shape. <strong>Delete</strong> is an htmx POST (the app's
+        first) carrying the antiforgery token via the global
+        <code>htmx-antiforgery.js</code> hook; on confirm it swaps its own <code>&lt;tr&gt;</code>
+        out. This demo's handlers persist nothing, so a reload restores the seeded rows.
+    </p>
+
+    <partial name="Shared/_DataGrid" model="Model.ProductGrid" />
+
+    <pre class="code-sample"><code>@("Rows: products.Select(p => new GridRow(\n[\n    GridCell.Link(p.Name, $\"/Catalog/Products/Detail/{p.Id}\"),\n    GridCell.Text(p.Category),\n    p.IsParent ? GridCell.Badge(\"Parent\", BadgeTone.Info) : GridCell.Muted(\"—\"),\n    GridCell.Actions(\n        GridAction.Link(\"Edit\", $\"/Catalog/Products/Edit/{p.Id}\"),\n        GridAction.Post(\"Delete\", Url.Page(\"./Index\", \"Delete\", new { id = p.Id }),\n            confirm: $\"Delete {p.Name}?\", removesRow: true)),\n])).ToList()")</code></pre>
+</section>

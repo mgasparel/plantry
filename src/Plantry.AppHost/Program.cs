@@ -11,8 +11,9 @@ if (builder.Environment.IsDevelopment())
 
 var plantryDb = postgres.AddDatabase("plantrydb");
 
-builder.AddProject<Projects.Plantry_Web>("plantry-web")
+var plantryWeb = builder.AddProject<Projects.Plantry_Web>("plantry-web")
     .WithReference(plantryDb)
-    .WaitFor(plantryDb);
+    .WaitFor(plantryDb)
+    .WithSeedCommands();
 
 builder.Build().Run();

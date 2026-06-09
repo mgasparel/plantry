@@ -1,3 +1,45 @@
+@inject IWebHostEnvironment Env
+@{
+    var pagePath = ViewContext.RouteData.Values["page"]?.ToString() ?? "";
+    var segments = pagePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    var actionNames = new HashSet<string> { "Index", "Create", "Edit", "Detail" };
+    var crumbLabels = new Dictionary<string, string>
+    {
+        ["Pantry"] = "Pantry",
+        ["Intake"] = "Intake",
+        ["Shopping"] = "Shopping",
+        ["Catalog"] = "Catalog",
+        ["Products"] = "Products",
+        ["Categories"] = "Categories",
+        ["Units"] = "Units",
+        ["Locations"] = "Locations",
+        ["Settings"] = "Settings",
+        ["Dev"] = "Components",
+    };
+    var crumbIcons = new Dictionary<string, string>
+    {
+        ["Pantry"] = "pantry",
+        ["Intake"] = "receipt",
+        ["Shopping"] = "cart",
+        ["Catalog"] = "tag",
+        ["Settings"] = "settings",
+        ["Dev"] = "components",
+    };
+    var parents = segments.Length > 0 && actionNames.Contains(segments[^1])
+        ? segments[..^1]
+        : segments;
+    var title = ViewData["Title"]?.ToString() ?? "";
+    if (parents.Length > 0 && crumbLabels.TryGetValue(parents[^1], out var lastLabel) && lastLabel == title)
+    {
+        parents = parents[..^1];
+    }
+    var crumbIcon = parents.Length > 0 ? crumbIcons.GetValueOrDefault(parents[0]) : crumbIcons.GetValueOrDefault(segments.FirstOrDefault() ?? "");
+
+    string NavActive(string prefix) =>
+        ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith(prefix) == true ? " sidebar__link--active" : "";
+    string BottomNavActive(string prefix) =>
+        ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith(prefix) == true ? " bottom-nav__item--active" : "";
+}
 <!DOCTYPE html>
 <html lang="en" data-theme="hearth">
 <head>
@@ -8,6 +50,32 @@
 </head>
 <body class="app-body">
 
+    @* Icon sprite — referenced via <svg class="icon"><use href="#i-NAME"/></svg> *@
+    <svg style="display:none" aria-hidden="true">
+        <symbol id="i-pantry" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 9v12" />
+        </symbol>
+        <symbol id="i-receipt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 3h14v18l-2.5-1.6L14 21l-2-1.6L10 21l-2.5-1.6L5 21V3Z" /><path d="M9 8h6M9 12h6" />
+        </symbol>
+        <symbol id="i-cart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="9" cy="20" r="1.4" /><circle cx="18" cy="20" r="1.4" /><path d="M2 3h2.2l2.3 12.2a1 1 0 0 0 1 .8h9.3a1 1 0 0 0 1-.8L20 7H6" />
+        </symbol>
+        <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12V4h8l9 9-8 8-9-9Z" /><circle cx="7.5" cy="7.5" r="1.3" />
+        </symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" /><path d="M19.4 13a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V19a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 17.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1-2.7H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.7 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 4.6V4a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 .9 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z" />
+        </symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5M21 12H9" />
+        </symbol>
+        <symbol id="i-components" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </symbol>
+    </svg>
+
     @* Desktop sidebar (hidden below md breakpoint via CSS) *@
     <nav class="sidebar" aria-label="Main navigation">
         <div class="sidebar__brand">
@@ -15,31 +83,41 @@
         </div>
         <ul class="sidebar__nav" role="list">
             <li>
-                <a href="/Pantry" class="sidebar__link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Pantry") == true ? "sidebar__link--active" : "")">
-                    Pantry
+                <a href="/Pantry" class="sidebar__link@(NavActive("/Pantry"))">
+                    <svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg> Pantry
                 </a>
             </li>
             <li>
-                <a href="/Intake" class="sidebar__link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Intake") == true ? "sidebar__link--active" : "")">
-                    Add stock
+                <a href="/Intake" class="sidebar__link@(NavActive("/Intake"))">
+                    <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg> Add stock
                 </a>
             </li>
             <li>
-                <a href="/Shopping" class="sidebar__link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Shopping") == true ? "sidebar__link--active" : "")">
-                    Shopping
+                <a href="/Shopping" class="sidebar__link@(NavActive("/Shopping"))">
+                    <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg> Shopping
                 </a>
             </li>
             <li>
-                <a href="/Catalog" class="sidebar__link @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Catalog") == true ? "sidebar__link--active" : "")">
-                    Catalog
+                <a href="/Catalog" class="sidebar__link@(NavActive("/Catalog"))">
+                    <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg> Catalog
                 </a>
             </li>
         </ul>
         <div class="sidebar__footer">
-            <a href="/Settings" class="sidebar__link">Settings</a>
+            @if (Env.IsDevelopment())
+            {
+                <a href="/Dev" class="sidebar__link@(NavActive("/Dev"))">
+                    <svg class="icon" aria-hidden="true"><use href="#i-components" /></svg> Components
+                </a>
+            }
+            <a href="/Settings" class="sidebar__link">
+                <svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg> Settings
+            </a>
             <form method="post" action="/Account/Logout" style="margin:0">
                 @Html.AntiForgeryToken()
-                <button type="submit" class="sidebar__link sidebar__link--button">Sign out</button>
+                <button type="submit" class="sidebar__link sidebar__link--button">
+                    <svg class="icon" aria-hidden="true"><use href="#i-logout" /></svg> Sign out
+                </button>
             </form>
         </div>
     </nav>
@@ -47,7 +125,17 @@
     @* Main content column *@
     <div class="app-content">
         <header class="topbar">
-            <h1 class="topbar__title">@ViewData["Title"]</h1>
+            <div class="crumb">
+                @if (!string.IsNullOrEmpty(crumbIcon))
+                {
+                    <svg class="icon" aria-hidden="true"><use href="#i-@crumbIcon" /></svg>
+                }
+                @foreach (var parent in parents)
+                {
+                    @(crumbLabels.GetValueOrDefault(parent, parent)) <span class="crumb-sep">/</span>
+                }
+                <b>@title</b>
+            </div>
         </header>
         <main id="main-content" class="page-content">
             @RenderBody()
@@ -56,23 +144,36 @@
 
     @* Mobile bottom nav (hidden above md breakpoint via CSS) *@
     <nav class="bottom-nav" aria-label="Mobile navigation">
-        <a href="/Pantry" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Pantry") == true ? "bottom-nav__item--active" : "")">
+        <a href="/Pantry" class="bottom-nav__item@(BottomNavActive("/Pantry"))">
+            <svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg>
             <span>Pantry</span>
         </a>
-        <a href="/Intake" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Intake") == true ? "bottom-nav__item--active" : "")">
+        <a href="/Intake" class="bottom-nav__item@(BottomNavActive("/Intake"))">
+            <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg>
             <span>Add</span>
         </a>
-        <a href="/Shopping" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Shopping") == true ? "bottom-nav__item--active" : "")">
+        <a href="/Shopping" class="bottom-nav__item@(BottomNavActive("/Shopping"))">
+            <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>
             <span>Shopping</span>
         </a>
-        <a href="/Catalog" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Catalog") == true ? "bottom-nav__item--active" : "")">
+        <a href="/Catalog" class="bottom-nav__item@(BottomNavActive("/Catalog"))">
+            <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
             <span>Catalog</span>
         </a>
-        <a href="/Settings" class="bottom-nav__item @(ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith("/Settings") == true ? "bottom-nav__item--active" : "")">
+        <a href="/Settings" class="bottom-nav__item@(BottomNavActive("/Settings"))">
+            <svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg>
             <span>Settings</span>
         </a>
     </nav>
 
+    <script src="~/js/htmx.min.js" defer></script>
+    <script src="~/js/htmx-antiforgery.js" defer></script>
+    @* Alpine.data registrations must load BEFORE alpine.min.js: Alpine dispatches 'alpine:init'
+       and starts synchronously the moment its script runs (the DOM is already parsed by the
+       time a deferred script executes), so anything registering components must already be
+       listening — registering after Alpine has loaded is too late and fails silently. *@
+    <script src="~/js/searchable-select.js" defer></script>
+    <script src="~/js/sortable-list.js" defer></script>
     <script src="~/js/alpine.min.js" defer></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>

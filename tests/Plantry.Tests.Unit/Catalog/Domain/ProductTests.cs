@@ -181,6 +181,86 @@ public sealed class ProductTests
             product.SetExpiryDefaults(dueDays, afterOpening, afterFreezing, afterThawing, Clock));
     }
 
+    // ── InheritFrom (parent → variant handshake) ─────────────────────────────
+
+    [Fact]
+    public void InheritFrom_Copies_Unset_Expiry_Defaults_From_Parent()
+    {
+        var parent = NewProduct("Parent");
+        parent.SetExpiryDefaults(7, 3, 90, 2, Clock);
+        var variant = NewProduct("Variant");
+
+        variant.InheritFrom(parent, Clock);
+
+        Assert.Equal(7, variant.DefaultDueDays);
+        Assert.Equal(3, variant.DefaultDueDaysAfterOpening);
+        Assert.Equal(90, variant.DefaultDueDaysAfterFreezing);
+        Assert.Equal(2, variant.DefaultDueDaysAfterThawing);
+    }
+
+    [Fact]
+    public void InheritFrom_Leaves_Already_Set_Expiry_Defaults_Untouched()
+    {
+        var parent = NewProduct("Parent");
+        parent.SetExpiryDefaults(7, 3, 90, 2, Clock);
+        var variant = NewProduct("Variant");
+        variant.SetExpiryDefaults(1, null, null, null, Clock);
+
+        variant.InheritFrom(parent, Clock);
+
+        Assert.Equal(1, variant.DefaultDueDays);
+        Assert.Equal(3, variant.DefaultDueDaysAfterOpening);
+        Assert.Equal(90, variant.DefaultDueDaysAfterFreezing);
+        Assert.Equal(2, variant.DefaultDueDaysAfterThawing);
+    }
+
+    [Fact]
+    public void InheritFrom_Copies_Parent_Conversions_When_Variant_Has_None()
+    {
+        var parent = NewProduct("Parent");
+        var fromUnit = Plantry.Catalog.Domain.UnitId.New();
+        var toUnit = Plantry.Catalog.Domain.UnitId.New();
+        parent.AddConversion(fromUnit, toUnit, 120m, Clock);
+        var variant = NewProduct("Variant");
+
+        variant.InheritFrom(parent, Clock);
+
+        var conversion = Assert.Single(variant.Conversions);
+        Assert.Equal(fromUnit, conversion.FromUnitId);
+        Assert.Equal(toUnit, conversion.ToUnitId);
+        Assert.Equal(120m, conversion.Factor);
+        Assert.Equal(variant.Id, conversion.ProductId);
+        Assert.Equal(variant.HouseholdId, conversion.HouseholdId);
+    }
+
+    [Fact]
+    public void InheritFrom_Does_Not_Copy_Conversions_When_Variant_Already_Has_Its_Own()
+    {
+        var parent = NewProduct("Parent");
+        parent.AddConversion(Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 120m, Clock);
+        var variant = NewProduct("Variant");
+        var ownConversion = variant.AddConversion(Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 4m, Clock);
+
+        variant.InheritFrom(parent, Clock);
+
+        Assert.Same(ownConversion, Assert.Single(variant.Conversions));
+    }
+
+    [Fact]
+    public void InheritFrom_Is_A_NoOp_When_Parent_Has_Nothing_To_Inherit()
+    {
+        var parent = NewProduct("Parent");
+        var variant = NewProduct("Variant");
+
+        variant.InheritFrom(parent, Clock);
+
+        Assert.Null(variant.DefaultDueDays);
+        Assert.Null(variant.DefaultDueDaysAfterOpening);
+        Assert.Null(variant.DefaultDueDaysAfterFreezing);
+        Assert.Null(variant.DefaultDueDaysAfterThawing);
+        Assert.Empty(variant.Conversions);
+    }
+
     // ── SKUs ─────────────────────────────────────────────────────────────────
 
     [Fact]

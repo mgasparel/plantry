@@ -11,10 +11,10 @@
 > (documentation, ownership, history, decisions). **Always verify against
 > actual source files before making changes** — the index may be stale.
 
-Last indexed: 2026-06-07 (commit c7c7d1c). Confidence: 100%.
+Last indexed: 2026-06-09 (commit bf21a2b). Confidence: 100%.
 ### Architecture
-Plantry is a multi-tenant household management and meal planning platform that ingests user identity, catalog items, and household configurations, processes them through a domain-driven .NET backend utilizing Row-Level Security (RLS) and shared kernel abstractions, and serves a collaborative web interface orchestrated via .NET Aspire. The system is designed to allow multiple households to securely manage their shared pantries, grocery catalogs, and user profiles within a single database deployment. By leveraging strict tenant isolation at the database connection level, the platform ensures that household data remains securely partitioned while providing a cohesive, cloud-ready application architecture. The application is bootstrapped and orchestrated through two primary entry points:
-    The .NET Aspire AppHost project.
+Plantry is a multi-tenant household inventory and catalog management system that ingests user-driven catalog commands and identity configurations, processes them through a Domain-Driven Design (DDD) pipeline with Row-Level Security (RLS) data isolation, and serves responsive web interfaces and persistent relational database states orchestrated via .NET Aspire. The platform allows multiple households to securely manage their shared pantries, categorize products, track inventory levels, and process domain events in an isolated, tenant-aware environment. The codebase is structured around two primary entry points that bootstrap the orchestration and web presentation layers:
+    The orchestration entry point powered by .NET Aspire. It configures, links, and launches the application's distributed components (such as databases, redis caches, and web projects) in both development and production environments.
 ### Entry Points
 - `src/Plantry.AppHost/Program.cs`
 - `src/Plantry.Web/Program.cs`
@@ -25,12 +25,12 @@ Plantry is a multi-tenant household management and meal planning platform that i
 **Infra:** .NET Aspire### Architectural Layers
 | Layer | Files | Purpose |
 |-------|-------|---------|
-| Web User Interface | 7 | Implements the ASP.NET Core Razor Pages and page models for user… |
-| Database and Infrastructure | 7 | Manages Entity Framework Core database contexts, migrations, and data access… |
-| DevOps and Agent Configuration | 39 | Contains CI/CD workflows, deployment references, and AI agent skill definitions… |
-| Application and Multi-Tenancy | 24 | Defines core application logic, commands, service defaults, and multi-tenancy… |
-| Domain Model Core | 9 | Houses the core Domain-Driven Design (DDD) primitives, base classes, and domain… |
-| Integration and E2E Testing | 5 | Contains integration, end-to-end, architecture, and security tests along with… |
+| UI | 15 |  |
+| Data | 15 |  |
+| Config | 40 |  |
+| Application | 30 |  |
+| Service | 24 |  |
+| Test | 20 |  |
 
 ### Guided Tour (12 steps)
 1. **README.md** — `README.md`
@@ -40,11 +40,21 @@ Plantry is a multi-tenant household management and meal planning platform that i
 5. **Household.cs** — `src/Plantry.Identity/Domain/Household.cs`
 6. **AppUser.cs** — `src/Plantry.Identity.Infrastructure/AppUser.cs`
 ... and 6 more steps
+### Hotspots (High Churn)
+| File | Churn | 90d Commits | Owner |
+|------|-------|-------------|-------|
+| `src/Plantry.Web/wwwroot/css/plenish.css` | 100.0th %ile | 6 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Dev/Index.cshtml` | 82.7th %ile | 4 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Shared/_Layout.cshtml` | 82.0th %ile | 6 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Dev/Index.cshtml.cs` | 80.6th %ile | 5 | Michael Gasparelli |
 
 ## Code health
-Hotspot health: 9.94/10 (stable) ·
-Average: 9.94/10 ·
-Worst: 8.44/10 (`src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs`)
+Hotspot health: 7.9/10 (stable) ·
+Average: 9.55/10 ·
+Worst: 5.75/10 (`src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs`)
+
+### Critical biomarkers
+- `src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs` — brain method (OnModelCreating) — impact −0.6
 
 ### Repowise MCP Tools
 

@@ -1,0 +1,32 @@
+@model Plantry.Web.Pages.Shared.IndexListViewModel
+
+@if (Model.Items.Count == 0)
+{
+    <p class="empty-state">@Model.EmptyMessage</p>
+}
+else
+{
+    <ul class="catalog-list" role="list">
+        @foreach (var item in Model.Items)
+        {
+            <li class="catalog-list__item">
+                @if (item.Href is { } href)
+                {
+                    <a class="catalog-list__primary" href="@href">@item.Primary</a>
+                }
+                else
+                {
+                    <span class="catalog-list__primary">@item.Primary</span>
+                }
+                @if (item.Secondary is { } secondary)
+                {
+                    <span class="catalog-list__secondary">@secondary</span>
+                }
+                @if (item.Meta is { } meta)
+                {
+                    <span class="catalog-list__meta">@meta</span>
+                }
+            </li>
+        }
+    </ul>
+}

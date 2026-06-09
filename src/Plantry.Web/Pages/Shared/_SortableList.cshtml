@@ -1,0 +1,28 @@
+@model Plantry.Web.Pages.Shared.SortableListViewModel
+
+@if (Model.Items.Count == 0)
+{
+    <p class="empty-state">@Model.EmptyMessage</p>
+}
+else
+{
+    <ul class="catalog-list" role="list" x-data="sortableList('@Model.ReorderUrl')" x-on:dragover.prevent="onDragOver($event)">
+        @foreach (var item in Model.Items.OrderBy(i => i.SortOrder))
+        {
+            <li class="catalog-list__item"
+                draggable="true"
+                data-id="@item.Id"
+                data-sort-order="@item.SortOrder"
+                :class="{ 'catalog-list__item--dragging': dragging === $el.dataset.id }"
+                x-on:dragstart="onDragStart($el)"
+                x-on:dragend="onDragEnd()">
+                <span class="catalog-list__drag-handle" aria-hidden="true" title="Drag to reorder">&#x2630;</span>
+                <span class="catalog-list__primary">@item.Primary</span>
+                @if (item.Secondary is { } secondary)
+                {
+                    <span class="catalog-list__secondary">@secondary</span>
+                }
+            </li>
+        }
+    </ul>
+}

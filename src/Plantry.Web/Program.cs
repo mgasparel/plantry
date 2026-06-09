@@ -8,6 +8,7 @@ using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Dev;
 using Plantry.Web.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -73,6 +74,9 @@ builder.Services.AddScoped<ILocationRepository, LocationRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<ProductQueryService>();
 
+if (builder.Environment.IsDevelopment())
+    builder.Services.AddScoped<FakeDataSeeder>();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -91,6 +95,10 @@ if (app.Environment.IsDevelopment())
         .Options;
     await using (var catalogDb = new CatalogDbContext(catalogMigrateOpts))
         await catalogDb.Database.MigrateAsync();
+
+    // Auto-seed on first startup: no-ops if the demo user already exists.
+    await using var seedScope = app.Services.CreateAsyncScope();
+    await seedScope.ServiceProvider.GetRequiredService<FakeDataSeeder>().SeedAsync();
 }
 
 if (!app.Environment.IsDevelopment())
@@ -99,12 +107,30 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+app.UseDevPagesGate();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRls();
+
+if (app.Environment.IsDevelopment())
+{
+    // Dev-only endpoints for the Aspire dashboard seed commands.
+    // Gated by DevPagesGateMiddleware above (returns 404 in non-Development).
+    app.MapPost("/Dev/Seed", async (FakeDataSeeder seeder, CancellationToken ct) =>
+    {
+        await seeder.SeedAsync(ct);
+        return Results.Ok();
+    });
+
+    app.MapPost("/Dev/Reset", async (FakeDataSeeder seeder, CancellationToken ct) =>
+    {
+        await seeder.ResetAndSeedAsync(ct);
+        return Results.Ok();
+    });
+}
 
 app.MapStaticAssets();
 app.MapRazorPages().WithStaticAssets();
