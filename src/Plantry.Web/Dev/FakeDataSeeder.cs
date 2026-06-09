@@ -7,6 +7,7 @@ using Plantry.Catalog.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
+using Plantry.Inventory.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -25,6 +26,7 @@ public sealed class FakeDataSeeder(
     TenantContext tenant,
     CatalogDbContext catalogDb,
     PlantryIdentityDbContext identityDb,
+    InventoryDbContext inventoryDb,
     IClock clock)
 {
     public const string DemoEmail = "demo@plantry.dev";
@@ -203,6 +205,12 @@ public sealed class FakeDataSeeder(
             ArmTenant(hid.Value);
             try
             {
+                // Inventory first (its rows soft-reference catalog products by Guid, so no FK forces
+                // an order). Delete child-first to avoid the journal→stock_entry FK firing mid-cascade.
+                await inventoryDb.StockJournalEntries.ExecuteDeleteAsync(ct);
+                await inventoryDb.StockEntries.ExecuteDeleteAsync(ct);
+                await inventoryDb.ProductStocks.ExecuteDeleteAsync(ct);
+
                 // Product cascade FK handles product_skus and product_conversions.
                 await catalogDb.Products.ExecuteDeleteAsync(ct);
                 await catalogDb.Locations.ExecuteDeleteAsync(ct);
@@ -227,6 +235,7 @@ public sealed class FakeDataSeeder(
         tenant.Set(id);
         catalogDb.SetHouseholdId(id);
         identityDb.SetHouseholdId(id);
+        inventoryDb.SetHouseholdId(id);
     }
 
     private void DisarmTenant()
@@ -234,6 +243,7 @@ public sealed class FakeDataSeeder(
         tenant.Clear();
         catalogDb.SetHouseholdId(Guid.Empty);
         identityDb.SetHouseholdId(Guid.Empty);
+        inventoryDb.SetHouseholdId(Guid.Empty);
     }
 
     // ── Static seed data ──────────────────────────────────────────────────────────

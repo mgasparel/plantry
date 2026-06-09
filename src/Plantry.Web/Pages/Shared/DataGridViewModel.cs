@@ -30,7 +30,8 @@ public sealed record GridSort(string Key, bool Descending);
 /// identically rather than re-deriving the risky bits per row.
 /// </summary>
 public sealed record GridAction(
-    string Label, string Url, bool IsPost = false, string? Confirm = null, bool RemovesRow = false)
+    string Label, string Url, bool IsPost = false, string? Confirm = null, bool RemovesRow = false,
+    bool IsHxGet = false, string? HxTarget = null, string? HxSwap = null)
 {
     /// <summary>A plain navigation action (edit, jump-to-detail) — just an anchor.</summary>
     public static GridAction Link(string label, string url) => new(label, url);
@@ -38,6 +39,14 @@ public sealed record GridAction(
     /// <summary>A mutating action (delete) — an htmx POST with token, optional confirm, and optional row-removal swap.</summary>
     public static GridAction Post(string label, string url, string? confirm = null, bool removesRow = false) =>
         new(label, url, IsPost: true, Confirm: confirm, RemovesRow: removesRow);
+
+    /// <summary>An htmx GET that loads content into a target element (e.g. open a slide-in sheet).</summary>
+    public static GridAction HxGet(string label, string url, string hxTarget, string hxSwap = "innerHTML") =>
+        new(label, url, IsHxGet: true, HxTarget: hxTarget, HxSwap: hxSwap);
+
+    /// <summary>A mutating htmx POST that swaps a specific target element rather than removing the row.</summary>
+    public static GridAction PostTo(string label, string url, string hxTarget, string hxSwap = "outerHTML", string? confirm = null) =>
+        new(label, url, IsPost: true, Confirm: confirm, HxTarget: hxTarget, HxSwap: hxSwap);
 }
 
 /// <summary>

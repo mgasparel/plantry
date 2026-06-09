@@ -1,5 +1,6 @@
 using Plantry.Catalog.Infrastructure;
 using Plantry.Identity.Infrastructure;
+using Plantry.Inventory.Infrastructure;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Web.Tenancy;
@@ -15,7 +16,8 @@ namespace Plantry.Web.Tenancy;
 public sealed class RlsMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(
-        HttpContext context, TenantContext tenant, CatalogDbContext catalogDb, PlantryIdentityDbContext identityDb)
+        HttpContext context, TenantContext tenant, CatalogDbContext catalogDb,
+        PlantryIdentityDbContext identityDb, InventoryDbContext inventoryDb)
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
@@ -23,10 +25,11 @@ public sealed class RlsMiddleware(RequestDelegate next)
             if (hid.HasValue)
             {
                 var id = hid.Value.Value;
-                tenant.Set(id);               // arms Postgres RLS via the connection interceptor
-                catalogDb.SetHouseholdId(id); // feeds the Catalog EF query filter
-                identityDb.SetHouseholdId(id); // feeds the Household EF query filter
-                // Additional contexts (Inventory, Pricing, etc.) added here in later slices
+                tenant.Set(id);                 // arms Postgres RLS via the connection interceptor
+                catalogDb.SetHouseholdId(id);   // feeds the Catalog EF query filter
+                identityDb.SetHouseholdId(id);  // feeds the Household EF query filter
+                inventoryDb.SetHouseholdId(id); // feeds the Inventory EF query filter
+                // Additional contexts (Pricing, Shopping, etc.) added here in later slices
             }
         }
 

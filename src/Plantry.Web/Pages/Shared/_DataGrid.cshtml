@@ -89,13 +89,22 @@ else
                                 case GridCellKind.Actions:
                                     foreach (var action in cell.Items)
                                     {
-                                        if (action.IsPost)
+                                        if (action.IsHxGet)
                                         {
+                                            <button type="button" class="btn btn--sm btn--ghost data-grid__action"
+                                                    hx-get="@action.Url"
+                                                    hx-target="@action.HxTarget"
+                                                    hx-swap="@(action.HxSwap ?? "innerHTML")">@action.Label</button>
+                                        }
+                                        else if (action.IsPost)
+                                        {
+                                            var target = action.HxTarget ?? (action.RemovesRow ? "closest tr" : null);
+                                            var swap = action.HxSwap ?? (action.RemovesRow ? "outerHTML" : null);
                                             <button type="button" class="btn btn--sm btn--ghost data-grid__action"
                                                     hx-post="@action.Url"
                                                     hx-confirm="@action.Confirm"
-                                                    hx-target="@(action.RemovesRow ? "closest tr" : null)"
-                                                    hx-swap="@(action.RemovesRow ? "outerHTML" : null)">@action.Label</button>
+                                                    hx-target="@target"
+                                                    hx-swap="@swap">@action.Label</button>
                                         }
                                         else
                                         {

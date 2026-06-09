@@ -11,10 +11,9 @@
 > (documentation, ownership, history, decisions). **Always verify against
 > actual source files before making changes** — the index may be stale.
 
-Last indexed: 2026-06-09 (commit bf21a2b). Confidence: 100%.
+Last indexed: 2026-06-09 (commit d9e106c). Confidence: 100%.
 ### Architecture
-Plantry is a multi-tenant household inventory and catalog management system that ingests user-driven catalog commands and identity configurations, processes them through a Domain-Driven Design (DDD) pipeline with Row-Level Security (RLS) data isolation, and serves responsive web interfaces and persistent relational database states orchestrated via .NET Aspire. The platform allows multiple households to securely manage their shared pantries, categorize products, track inventory levels, and process domain events in an isolated, tenant-aware environment. The codebase is structured around two primary entry points that bootstrap the orchestration and web presentation layers:
-    The orchestration entry point powered by .NET Aspire. It configures, links, and launches the application's distributed components (such as databases, redis caches, and web projects) in both development and production environments.
+Plantry is a multi-tenant household inventory and catalog management system that ingests user web requests and catalog updates, processes them through a Domain-Driven Design (DDD) pipeline featuring row-level security (RLS) tenancy isolation, and persists transactional domain events and catalog state to a relational database while serving a responsive web interface. The application is structured as a modular monolith utilizing .NET Aspire for local orchestration and service dependency management. It enforces strict data boundaries between different households using a custom Entity Framework Core connection interceptor that dynamically applies tenant-specific security contexts at the database level. The .NET Aspire AppHost entry point.
 ### Entry Points
 - `src/Plantry.AppHost/Program.cs`
 - `src/Plantry.Web/Program.cs`
@@ -43,14 +42,14 @@ Plantry is a multi-tenant household inventory and catalog management system that
 ### Hotspots (High Churn)
 | File | Churn | 90d Commits | Owner |
 |------|-------|-------------|-------|
-| `src/Plantry.Web/wwwroot/css/plenish.css` | 100.0th %ile | 6 | Michael Gasparelli |
-| `src/Plantry.Web/Pages/Dev/Index.cshtml` | 82.7th %ile | 4 | Michael Gasparelli |
-| `src/Plantry.Web/Pages/Shared/_Layout.cshtml` | 82.0th %ile | 6 | Michael Gasparelli |
-| `src/Plantry.Web/Pages/Dev/Index.cshtml.cs` | 80.6th %ile | 5 | Michael Gasparelli |
+| `src/Plantry.Web/wwwroot/css/plenish.css` | 100.0th %ile | 7 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Dev/Index.cshtml` | 82.9th %ile | 4 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Shared/_Layout.cshtml` | 82.1th %ile | 6 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Dev/Index.cshtml.cs` | 80.7th %ile | 5 | Michael Gasparelli |
 
 ## Code health
 Hotspot health: 7.9/10 (stable) ·
-Average: 9.55/10 ·
+Average: 9.54/10 ·
 Worst: 5.75/10 (`src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs`)
 
 ### Critical biomarkers

@@ -77,8 +77,8 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/Pantry**");
 
             // ── Step 3: Empty state is shown ──────────────────────────────────────
-            var emptyTitle = await page.Locator(".empty-state__title").TextContentAsync();
-            Assert.Contains("empty", emptyTitle, StringComparison.OrdinalIgnoreCase);
+            var emptyTitle = await page.Locator(".empty-state").TextContentAsync();
+            Assert.Contains("Nothing here yet", emptyTitle, StringComparison.OrdinalIgnoreCase);
 
             // ── Step 4: Sign out, then sign back in ───────────────────────────────
 
@@ -95,8 +95,8 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             await page.WaitForURLAsync("**/Pantry**");
 
-            var titleAfterLogin = await page.Locator(".empty-state__title").TextContentAsync();
-            Assert.Contains("pantry", titleAfterLogin, StringComparison.OrdinalIgnoreCase);
+            var titleAfterLogin = await page.Locator(".empty-state").TextContentAsync();
+            Assert.Contains("Nothing here yet", titleAfterLogin, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

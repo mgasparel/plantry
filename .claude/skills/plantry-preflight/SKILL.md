@@ -55,7 +55,7 @@ same report; a failing stage is the last thing written to it. This mirrors
    - If everything passes, record the summary and continue.
 
 4. **Stage 3 — Code review.** Invoke the `plantry-code-review` skill. It writes
-   its own report to `./reviews/{timestamp}-{branch}.md` — note that path, and
+   its own report — note that path, and
    pull its overall pass/fail judgement and the headline findings (grouped by
    gate, with severities) into this report as a summary. Do not duplicate its
    entire contents; link to its file instead.

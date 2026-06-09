@@ -1,0 +1,72 @@
+@model Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel
+@using Plantry.Inventory.Application
+@using Plantry.Web.Pages.Shared
+@{
+    var id = Model.Detail.ProductId;
+    string DeltaText(StockJournalRow r) => $"{(r.Delta > 0 ? "+" : "")}{r.Delta.ToString("0.###")} {r.UnitCode}";
+
+    var lotsGrid = new DataGridViewModel(
+        Id: "lots-grid",
+        Columns:
+        [
+            new("Quantity"),
+            new("Expiry"),
+            new("Location"),
+            new("Purchased"),
+            new("", Align: GridAlign.End),
+        ],
+        Rows: [.. Model.Detail.Lots.Select(lot => new GridRow(
+        [
+            GridCell.Text($"{lot.Quantity.ToString("0.###")} {lot.UnitCode}"),
+            lot.ExpiryDate is { } exp ? GridCell.Text(exp.ToString("d MMM yyyy")) : GridCell.Muted("—"),
+            lot.LocationName is { } loc ? GridCell.Text(loc) : GridCell.Muted("—"),
+            lot.PurchasedAt is { } pur ? GridCell.Text(pur.ToString("d MMM yyyy")) : GridCell.Muted("—"),
+            GridCell.Actions(
+                GridAction.HxGet("Use",
+                    Url.Page("./Detail", "ConsumeSheet", new { id, entryId = lot.EntryId.Value })!,
+                    "#sheet-host"),
+                GridAction.PostTo("Discard",
+                    Url.Page("./Detail", "Discard", new { id, entryId = lot.EntryId.Value })!,
+                    "#stock-detail", "outerHTML")
+            ),
+        ]))],
+        EmptyMessage: "No stock on hand.");
+
+    var historyGrid = new DataGridViewModel(
+        Id: "history-grid",
+        Columns:
+        [
+            new("When"),
+            new("Change"),
+            new("Reason"),
+            new("Source"),
+        ],
+        Rows: [.. Model.Detail.History.Select(row => new GridRow(
+        [
+            GridCell.Text(row.OccurredAt.ToLocalTime().ToString("d MMM yyyy HH:mm")),
+            GridCell.Text(DeltaText(row)),
+            GridCell.Text(row.Reason.ToString()),
+            row.SourceType is { } src ? GridCell.Text(src.ToString()) : GridCell.Muted("—"),
+        ]))],
+        EmptyMessage: "No movements recorded yet.");
+}
+<div id="stock-detail" class="stock-detail" @(Model.Oob ? "hx-swap-oob=true" : "")>
+    @if (Model.Notice is { } notice)
+    {
+        <div class="alert alert--info" role="status">@notice</div>
+    }
+
+    <section class="catalog-section">
+        <h2 class="catalog-section__heading">Lots</h2>
+        <partial name="Shared/_DataGrid" model="lotsGrid" />
+    </section>
+
+    <section class="catalog-section">
+        <h2 class="catalog-section__heading">History</h2>
+        <partial name="Shared/_DataGrid" model="historyGrid" />
+    </section>
+</div>
+@if (Model.Oob)
+{
+    <p id="product-total" class="pantry-detail__total" hx-swap-oob="true">@Model.Detail.TotalQuantity.ToString("0.###") @Model.Detail.DisplayUnitCode in stock</p>
+}

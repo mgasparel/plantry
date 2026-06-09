@@ -1,0 +1,21 @@
+@page "{id:guid}"
+@model Plantry.Web.Pages.Pantry.Products.DetailModel
+@{
+    ViewData["Title"] = Model.Detail?.Name ?? "Product";
+}
+
+<div class="pantry-detail__header">
+    <div>
+        <h1 class="pantry-detail__title">@Model.Detail!.Name</h1>
+        <p id="product-total" class="pantry-detail__total">@Model.Detail.TotalQuantity.ToString("0.###") @Model.Detail.DisplayUnitCode in stock</p>
+    </div>
+    <button type="button" class="btn btn--primary"
+            hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id = Model.ProductId })"
+            hx-target="#sheet-host" hx-swap="innerHTML">
+        Consume
+    </button>
+</div>
+
+<partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null)" />
+
+<div id="sheet-host"></div>

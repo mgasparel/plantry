@@ -8,6 +8,9 @@ public interface IProductRepository
     /// <summary>Active (non-archived) products, for the default catalog list view.</summary>
     Task<List<Product>> ListActiveAsync(CancellationToken ct = default);
 
+    /// <summary>Loads the specified products with their conversion rules in a single query — for batch paths that need converters.</summary>
+    Task<List<Product>> ListWithConversionsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default);
+
     /// <summary>
     /// Every variant of <paramref name="parentId"/> — <b>including archived ones</b>, with their
     /// conversions loaded. Cross-aggregate parent/variant consistency (the denormalized

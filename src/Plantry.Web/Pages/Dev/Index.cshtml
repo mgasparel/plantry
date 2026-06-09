@@ -150,6 +150,66 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Segmented control</h2>
+    </div>
+    <p>
+        <code>.seg-ctrl</code> is a pill-bordered group of mutually exclusive options built on
+        visually-hidden radio inputs. The checked segment is filled with the accent colour; hover
+        highlights unchecked options. Font size and vertical padding match <code>.field__input</code>
+        so it aligns naturally in a toolbar row alongside search fields and selects. Pair with
+        <code>hx-include</code> and a filter handler exactly as the Pantry toolbar does.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: var(--space-4); max-width: 36rem">
+        <div>
+            <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0 0 var(--space-2)">3 options (default)</p>
+            <div class="seg-ctrl" role="group" aria-label="Example filter">
+                <label class="seg-ctrl__item">
+                    <input type="radio" name="demo-expiry-1" value="" checked />
+                    <span>All</span>
+                </label>
+                <label class="seg-ctrl__item">
+                    <input type="radio" name="demo-expiry-1" value="soon" />
+                    <span>Expiring soon</span>
+                </label>
+                <label class="seg-ctrl__item">
+                    <input type="radio" name="demo-expiry-1" value="expired" />
+                    <span>Expired</span>
+                </label>
+            </div>
+        </div>
+
+        <div>
+            <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0 0 var(--space-2)">Alongside a <code>.field__input</code> select — heights should be flush</p>
+            <div style="display: flex; align-items: center; gap: var(--space-3)">
+                <div class="seg-ctrl" role="group" aria-label="Example filter 2">
+                    <label class="seg-ctrl__item">
+                        <input type="radio" name="demo-expiry-2" value="" checked />
+                        <span>All</span>
+                    </label>
+                    <label class="seg-ctrl__item">
+                        <input type="radio" name="demo-expiry-2" value="soon" />
+                        <span>Expiring soon</span>
+                    </label>
+                    <label class="seg-ctrl__item">
+                        <input type="radio" name="demo-expiry-2" value="expired" />
+                        <span>Expired</span>
+                    </label>
+                </div>
+                <select class="field__input" style="width: auto; min-width: 10rem">
+                    <option>All categories</option>
+                    <option>Dairy &amp; Eggs</option>
+                    <option>Frozen</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"seg-ctrl\" role=\"group\" aria-label=\"Filter by expiry\">\n  <label class=\"seg-ctrl__item\">\n    <input type=\"radio\" name=\"expiry\" value=\"\" class=\"pantry-filter\" checked\n           hx-get=\"...\" hx-trigger=\"change\" hx-target=\"#list\" hx-swap=\"outerHTML\"\n           hx-include=\".pantry-filter\" />\n    <span>All</span>\n  </label>\n  <label class=\"seg-ctrl__item\">\n    <input type=\"radio\" name=\"expiry\" value=\"soon\" class=\"pantry-filter\"\n           hx-get=\"...\" hx-trigger=\"change\" hx-target=\"#list\" hx-swap=\"outerHTML\"\n           hx-include=\".pantry-filter\" />\n    <span>Expiring soon</span>\n  </label>\n  <label class=\"seg-ctrl__item\">\n    <input type=\"radio\" name=\"expiry\" value=\"expired\" class=\"pantry-filter\"\n           hx-get=\"...\" hx-trigger=\"change\" hx-target=\"#list\" hx-swap=\"outerHTML\"\n           hx-include=\".pantry-filter\" />\n    <span>Expired</span>\n  </label>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Index list</h2>
     </div>
     <p>

@@ -30,6 +30,22 @@ public sealed class AppHostFixture : IAsyncLifetime
             .WaitAsync(TimeSpan.FromMinutes(2));
 
         BaseUrl = _app.GetEndpoint("plantry-web").ToString().TrimEnd('/');
+
+        // Poll until the web server is actually serving requests, not just "Running" at the
+        // process level. Under full-suite load (integration tests competing for Docker),
+        // the process can enter Running state while still completing DB migrations.
+        using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(2);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                var r = await http.GetAsync("/Account/Login");
+                if ((int)r.StatusCode < 500) break;
+            }
+            catch { }
+            await Task.Delay(TimeSpan.FromSeconds(2));
+        }
     }
 
     public async Task DisposeAsync() => await _app.DisposeAsync();

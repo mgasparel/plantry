@@ -1,0 +1,152 @@
+using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
+
+namespace Plantry.Inventory.Domain;
+
+/// <summary>
+/// The Inventory aggregate root (inventory.md, ADR-010) — one per product per household, keyed
+/// <c>(household_id, product_id)</c>. Owns its <see cref="StockEntry"/> lots and emits the immutable
+/// <see cref="StockJournalEntry"/> rows for every quantity movement. It is the concurrency anchor:
+/// a multi-lot FEFO consume serializes on this one row (<c>FOR UPDATE</c> in the repository), with
+/// <c>xmin</c> as the optimistic backstop.
+///
+/// All stock removal flows through the single <see cref="Consume"/> primitive (ADR-011); intake
+/// flows through <see cref="AddStock"/>. Transfer/freeze/thaw/open are Slice 3.
+/// </summary>
+public sealed class ProductStock : AggregateRoot<ProductStockId>
+{
+    public HouseholdId HouseholdId { get; private set; }
+    public Guid ProductId { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public DateTimeOffset UpdatedAt { get; private set; }
+
+    private readonly List<StockEntry> _entries = [];
+    private readonly List<StockJournalEntry> _journal = [];
+    public IReadOnlyList<StockEntry> Entries => _entries.AsReadOnly();
+    public IReadOnlyList<StockJournalEntry> Journal => _journal.AsReadOnly();
+
+    private ProductStock() { } // EF
+
+    private ProductStock(HouseholdId householdId, Guid productId, DateTimeOffset now)
+    {
+        HouseholdId = householdId;
+        ProductId = productId;
+        Id = new ProductStockId(householdId.Value, productId);
+        CreatedAt = now;
+        UpdatedAt = now;
+    }
+
+    /// <summary>Begins tracking stock for a product in a household (no lots yet).</summary>
+    public static ProductStock Start(HouseholdId householdId, Guid productId, IClock clock) =>
+        new(householdId, productId, clock.UtcNow);
+
+    /// <summary>The lots that can still be consumed, in FEFO order (the order <see cref="Consume"/> uses).</summary>
+    public IEnumerable<StockEntry> ActiveLotsFefo() => OrderFefo(_entries.Where(e => e.IsActive));
+
+    /// <summary>
+    /// FEFO total order (inventory.md resolved-call #3): soonest expiry first, <b>nulls last</b>
+    /// (null = "no expiry", consumed last — not "unknown"), then <c>created_at</c>, then
+    /// <c>entry_id</c> so the order is total and deterministic even for lots that share an expiry
+    /// and creation instant (e.g. a bulk intake commit).
+    /// </summary>
+    private static IEnumerable<StockEntry> OrderFefo(IEnumerable<StockEntry> lots) =>
+        lots
+            .OrderBy(e => e.ExpiryDate is null)          // false (0) before true (1) ⇒ nulls last
+            .ThenBy(e => e.ExpiryDate ?? DateOnly.MaxValue)
+            .ThenBy(e => e.CreatedAt)
+            .ThenBy(e => e.Id.Value);
+
+    /// <summary>
+    /// Records intake of a new lot (DM-11/13): creates a <see cref="StockEntry"/> and appends a
+    /// positive <c>Purchase</c> journal row. <paramref name="expiryDate"/> is already materialized
+    /// by the caller (the expiry-default chain runs at the page/application boundary).
+    /// </summary>
+    public StockEntry AddStock(
+        decimal quantity, Guid unitId, Guid locationId, Guid userId, IClock clock,
+        Guid? skuId = null, DateOnly? expiryDate = null, DateOnly? purchasedAt = null,
+        StockSourceType sourceType = StockSourceType.Manual, Guid? sourceRef = null)
+    {
+        if (quantity <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(quantity), "Intake quantity must be positive.");
+
+        var now = clock.UtcNow;
+        var entry = StockEntry.Create(HouseholdId, ProductId, skuId, quantity, unitId, locationId, expiryDate, purchasedAt, now);
+        _entries.Add(entry);
+        _journal.Add(StockJournalEntry.Record(
+            HouseholdId, ProductId, entry.Id, +quantity, unitId,
+            StockReason.Purchase, sourceType, sourceRef, now, userId));
+        UpdatedAt = now;
+        return entry;
+    }
+
+    /// <summary>
+    /// The single consumption primitive (ADR-011). Converts <paramref name="amount"/> from
+    /// <paramref name="unitId"/> into each lot's unit, deducts FEFO across lots (or only
+    /// <paramref name="targetEntry"/> when set — "this carton is empty/spoiled"), writes one signed
+    /// removal journal row per lot touched, and reports any <see cref="ConsumeOutcome.ShortfallAmount"/>.
+    ///
+    /// Conversion is resolved in a planning pass <b>before</b> any lot is mutated, so an unresolvable
+    /// unit fails loudly with the <see cref="IQuantityConverter"/>'s <see cref="Error"/> and leaves
+    /// the aggregate untouched. Never over-deducts.
+    /// </summary>
+    public Result<ConsumeOutcome> Consume(
+        decimal amount, Guid unitId, StockReason reason, IQuantityConverter converter,
+        Guid userId, IClock clock, Guid? sourceRef = null, StockSourceType? sourceType = null,
+        StockEntryId? targetEntry = null)
+    {
+        if (amount <= 0m)
+            return Error.Custom("Inventory.InvalidConsumeAmount", "Consume amount must be positive.");
+        if (!reason.IsRemoval())
+            return Error.Custom("Inventory.InvalidConsumeReason", "Consume cannot record a Purchase; use AddStock.");
+
+        var candidates = targetEntry is { } target
+            ? _entries.Where(e => e.Id == target && e.IsActive).ToList()
+            : OrderFefo(_entries.Where(e => e.IsActive)).ToList();
+
+        if (targetEntry is { } missing && candidates.Count == 0)
+            return Error.Custom("Inventory.LotNotFound", $"No active lot '{missing}' to consume from.");
+
+        // Planning pass — resolve conversions and decide the per-lot split without mutating anything.
+        var plan = new List<(StockEntry Lot, decimal TakeInLotUnit, decimal TakeInRequestUnit)>();
+        var remaining = amount; // in the requested unit
+        foreach (var lot in candidates)
+        {
+            if (remaining <= 0m) break;
+
+            var neededInLot = converter.Convert(remaining, unitId, lot.UnitId);
+            if (neededInLot.IsFailure) return neededInLot.Error;
+
+            var takeInLot = Math.Min(lot.Quantity, neededInLot.Value);
+
+            var takeInRequest = converter.Convert(takeInLot, lot.UnitId, unitId);
+            if (takeInRequest.IsFailure) return takeInRequest.Error;
+
+            plan.Add((lot, takeInLot, takeInRequest.Value));
+            remaining -= takeInRequest.Value;
+        }
+
+        // Apply pass — mutate lots and append journal rows.
+        var now = clock.UtcNow;
+        var deductions = new List<LotDeduction>(plan.Count);
+        foreach (var (lot, takeInLot, _) in plan)
+        {
+            lot.Deduct(takeInLot, clock);
+            _journal.Add(StockJournalEntry.Record(
+                HouseholdId, ProductId, lot.Id, -takeInLot, lot.UnitId,
+                reason, sourceType, sourceRef, now, userId));
+            deductions.Add(new LotDeduction(lot.Id, takeInLot, lot.UnitId));
+        }
+
+        if (plan.Count > 0) UpdatedAt = now;
+
+        var shortfall = remaining > 0m ? remaining : 0m;
+        return new ConsumeOutcome(deductions, shortfall, unitId);
+    }
+
+    // Identity is the composite (household_id, product_id); EF maps those columns as the key and
+    // does not populate the base Id on materialization, so compare on the real key properties.
+    public override bool Equals(object? obj) =>
+        obj is ProductStock other && HouseholdId == other.HouseholdId && ProductId == other.ProductId;
+
+    public override int GetHashCode() => HashCode.Combine(HouseholdId, ProductId);
+}

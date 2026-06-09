@@ -40,6 +40,17 @@ public sealed class BoundaryTests
         "Plantry.Intake",
     ];
 
+    // Inventory must not reach into any sibling — Plantry.Catalog included. That exclusion is what
+    // forces the unit-conversion + Catalog-read needs through the Port + Web-adapter seam (Slice 2).
+    private static readonly string[] InventorySiblingContexts =
+    [
+        "Plantry.Identity",
+        "Plantry.Catalog",
+        "Plantry.Pricing",
+        "Plantry.Shopping",
+        "Plantry.Intake",
+    ];
+
     [Fact]
     public void Identity_Domain_Should_Not_Reference_Infrastructure_Packages()
     {
@@ -121,6 +132,62 @@ public sealed class BoundaryTests
 
         Assert.True(result.IsSuccessful,
             "Catalog domain references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Inventory_Domain_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Inventory.Domain")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Inventory domain references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Inventory_Application_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Inventory.Application")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Inventory application references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Inventory_Domain_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Inventory.Domain")
+            .Should().NotHaveDependencyOnAny(InventorySiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Inventory domain references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Inventory_Application_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Inventory.Application")
+            .Should().NotHaveDependencyOnAny(InventorySiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Inventory application references sibling contexts:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 

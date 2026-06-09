@@ -1,0 +1,59 @@
+@model Plantry.Web.Pages.Pantry.IndexModel
+
+<div class="sheet" x-data="{ close() { document.getElementById('sheet-host').innerHTML = '' } }" role="dialog" aria-modal="true" aria-label="Add stock">
+    <div class="sheet__overlay" x-on:click="close()"></div>
+    <div class="sheet__panel">
+        <header class="sheet__header">
+            <h2 class="sheet__title">Add stock</h2>
+            <button type="button" class="sheet__close" aria-label="Close"
+                    x-on:click="close()">&times;</button>
+        </header>
+
+        <form class="form-stack" hx-post="@Url.Page("./Index", "AddStock")"
+              hx-target="#sheet-host" hx-swap="innerHTML">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+            <div class="form-grid">
+                <field asp-for="Input.ProductId" stacked full label="Product">
+                    <searchable-select asp-for="Input.ProductId"
+                                       items="Model.ProductOptions"
+                                       search-url="@Url.Page("./Index", "FilterProducts")"
+                                       placeholder="Search products…" />
+                    <span asp-validation-for="Input.ProductId" class="field__error"></span>
+                </field>
+
+                @* TODO (Slice 6): extract quantity + unit selector into a shared partial — reused by import review, recipe authoring, and cook substitution. *@
+                <field asp-for="Input.Quantity" stacked label="Quantity">
+                    <input asp-for="Input.Quantity" class="field__input" type="number" step="any" min="0" placeholder="e.g. 500" />
+                    <span asp-validation-for="Input.Quantity" class="field__error"></span>
+                </field>
+
+                <field asp-for="Input.UnitId" stacked label="Unit">
+                    <select asp-for="Input.UnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Unit —</option>
+                    </select>
+                    <span asp-validation-for="Input.UnitId" class="field__error"></span>
+                </field>
+
+                <field asp-for="Input.LocationId" stacked full label="Location">
+                    <select asp-for="Input.LocationId" class="field__input" asp-items="Model.LocationOptions">
+                        <option value="">— Select a location —</option>
+                    </select>
+                    <span asp-validation-for="Input.LocationId" class="field__error"></span>
+                </field>
+
+                <field asp-for="Input.ExpiryDate" stacked full label="Expiry (optional)">
+                    <input asp-for="Input.ExpiryDate" class="field__input" type="date" />
+                    <span class="field__hint">Leave blank to use the product's default.</span>
+                </field>
+            </div>
+
+            <div class="sheet__actions">
+                <button type="submit" class="btn btn--primary">Add to pantry</button>
+                <button type="button" class="btn btn--ghost"
+                        x-on:click="close()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

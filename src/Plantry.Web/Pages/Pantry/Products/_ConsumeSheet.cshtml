@@ -1,0 +1,54 @@
+@model Plantry.Web.Pages.Pantry.Products.DetailModel
+@using Plantry.Inventory.Domain
+
+<div class="sheet" x-data="{ close() { document.getElementById('sheet-host').innerHTML = '' } }" role="dialog" aria-modal="true" aria-label="Consume stock">
+    <div class="sheet__overlay" x-on:click="close()"></div>
+    <div class="sheet__panel">
+        <header class="sheet__header">
+            <h2 class="sheet__title">Use or discard stock</h2>
+            <button type="button" class="sheet__close" aria-label="Close"
+                    x-on:click="close()">&times;</button>
+        </header>
+
+        <form class="form-stack" hx-post="@Url.Page("./Detail", "Consume", new { id = Model.ProductId })"
+              hx-target="#sheet-host" hx-swap="innerHTML">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="Input.TargetEntryId" />
+            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+            @if (Model.Input.TargetEntryId is not null)
+            {
+                <p class="field__hint">Acting on a single lot.</p>
+            }
+
+            <div class="field field--inline">
+                <label asp-for="Input.Amount" class="field__label">Amount</label>
+                <input asp-for="Input.Amount" class="field__input" type="number" step="any" min="0" />
+                <span asp-validation-for="Input.Amount" class="field__error"></span>
+            </div>
+
+            <div class="field field--inline">
+                <label asp-for="Input.UnitId" class="field__label">Unit</label>
+                <select asp-for="Input.UnitId" class="field__input" asp-items="Model.UnitOptions">
+                    <option value="">— Select a unit —</option>
+                </select>
+                <span asp-validation-for="Input.UnitId" class="field__error"></span>
+            </div>
+
+            <div class="field field--inline">
+                <label asp-for="Input.Reason" class="field__label">Reason</label>
+                <select asp-for="Input.Reason" class="field__input">
+                    <option value="@StockReason.Consumed">Used</option>
+                    <option value="@StockReason.Discarded">Discarded / wasted</option>
+                    <option value="@StockReason.Correction">Correction</option>
+                </select>
+            </div>
+
+            <div class="sheet__actions">
+                <button type="submit" class="btn btn--primary">Confirm</button>
+                <button type="button" class="btn btn--ghost"
+                        x-on:click="close()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

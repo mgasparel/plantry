@@ -6,9 +6,13 @@ using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
+using Plantry.Inventory.Application;
+using Plantry.Inventory.Domain;
+using Plantry.Inventory.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Dev;
+using Plantry.Web.Inventory;
 using Plantry.Web.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -46,6 +50,11 @@ builder.Services.AddDbContext<CatalogDbContext>((sp, opts) =>
             npgsql => npgsql.MigrationsAssembly("Plantry.Catalog.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 
+builder.Services.AddDbContext<InventoryDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.Inventory.Infrastructure"))
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+
 builder.Services.AddIdentity<AppUser, IdentityRole>(opts =>
     {
         opts.Password.RequireDigit = false;
@@ -74,6 +83,14 @@ builder.Services.AddScoped<ILocationRepository, LocationRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<ProductQueryService>();
 
+// Inventory context: repository, read models, and the two Web-side adapters that supply the
+// cross-context seams (unit conversion + Catalog reads) so the Inventory projects stay
+// dependency-free of Catalog (PHASE-1-PLAN.md Slice 2, Stage D).
+builder.Services.AddScoped<IProductStockRepository, ProductStockRepository>();
+builder.Services.AddScoped<InventoryQueryService>();
+builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
+builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
+
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();
 
@@ -95,6 +112,12 @@ if (app.Environment.IsDevelopment())
         .Options;
     await using (var catalogDb = new CatalogDbContext(catalogMigrateOpts))
         await catalogDb.Database.MigrateAsync();
+
+    var inventoryMigrateOpts = new DbContextOptionsBuilder<InventoryDbContext>()
+        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Inventory.Infrastructure"))
+        .Options;
+    await using (var inventoryDb = new InventoryDbContext(inventoryMigrateOpts))
+        await inventoryDb.Database.MigrateAsync();
 
     // Auto-seed on first startup: no-ops if the demo user already exists.
     await using var seedScope = app.Services.CreateAsyncScope();

@@ -1,0 +1,4 @@
+@model Plantry.Web.Pages.Pantry.PantryListPartialModel
+<div id="pantry-list" @(Model.Oob ? "hx-swap-oob=true" : "")>
+    <partial name="Shared/_DataGrid" model="Model.Grid" />
+</div>
