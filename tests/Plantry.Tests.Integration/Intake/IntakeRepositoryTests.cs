@@ -161,6 +161,40 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Null(receipt);
     }
 
+    [Fact(DisplayName = "ImportLine suggestion fields round-trip through EF")]
+    public async Task ImportLine_SuggestionFields_RoundTrip()
+    {
+        var sugProductId = Guid.NewGuid();
+        ImportSessionId sessionId;
+
+        await using (var ctx = NewIntakeDb())
+        {
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            session.AddLine(1, "Milk 2L", SuggestedConfidence.High, null,
+                suggestedProductId: sugProductId,
+                suggestedProductName: "Milk",
+                suggestedQuantity: 2m,
+                suggestedUnitLabel: "L",
+                suggestedPrice: 3.49m);
+            sessionId = session.Id;
+
+            await ctx.ImportSessions.AddAsync(session);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var loaded = await ctx2.ImportSessions
+            .Include(s => s.Lines)
+            .SingleAsync(s => s.Id == sessionId);
+
+        var line = Assert.Single(loaded.Lines);
+        Assert.Equal(sugProductId, line.SuggestedProductId);
+        Assert.Equal("Milk", line.SuggestedProductName);
+        Assert.Equal(2m, line.SuggestedQuantity);
+        Assert.Equal("L", line.SuggestedUnitLabel);
+        Assert.Equal(3.49m, line.SuggestedPrice);
+    }
+
     private DbContextOptions<IntakeDbContext> IntakeOptions() =>
         new DbContextOptionsBuilder<IntakeDbContext>().UseNpgsql(db.ConnectionString).Options;
 

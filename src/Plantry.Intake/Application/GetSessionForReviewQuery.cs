@@ -19,7 +19,12 @@ public sealed record ReviewLineView(
     decimal? Price,
     bool IsNewProduct,
     string? NewProductName,
-    Guid? NewProductCategoryId);
+    Guid? NewProductCategoryId,
+    Guid? SuggestedProductId,
+    string? SuggestedProductName,
+    decimal? SuggestedQuantity,
+    string? SuggestedUnitLabel,
+    decimal? SuggestedPrice);
 
 /// <summary>
 /// The session header plus its lines and the Catalog reference data (dropdown options) needed to render
@@ -73,7 +78,12 @@ public sealed class GetSessionForReviewQuery(
                 l.Price,
                 l.IsNewProduct,
                 l.NewProductName,
-                l.NewProductCategoryId))
+                l.NewProductCategoryId,
+                l.SuggestedProductId,
+                l.SuggestedProductName,
+                l.SuggestedQuantity,
+                l.SuggestedUnitLabel,
+                l.SuggestedPrice))
             .ToList();
 
         return new SessionReviewView(

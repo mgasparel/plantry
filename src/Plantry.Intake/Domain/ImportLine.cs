@@ -17,6 +17,11 @@ public sealed class ImportLine : Entity<ImportLineId>
     public string ReceiptText { get; private set; } = string.Empty;
     public SuggestedConfidence SuggestedConfidence { get; private set; }
     public string? RawParse { get; private set; }
+    public Guid? SuggestedProductId { get; private set; }
+    public string? SuggestedProductName { get; private set; }
+    public decimal? SuggestedQuantity { get; private set; }
+    public string? SuggestedUnitLabel { get; private set; }
+    public decimal? SuggestedPrice { get; private set; }
 
     // User-resolved fields
     public Guid? ProductId { get; private set; }
@@ -53,7 +58,12 @@ public sealed class ImportLine : Entity<ImportLineId>
         int lineNo,
         string receiptText,
         SuggestedConfidence confidence,
-        string? rawParse) =>
+        string? rawParse,
+        Guid? suggestedProductId = null,
+        string? suggestedProductName = null,
+        decimal? suggestedQuantity = null,
+        string? suggestedUnitLabel = null,
+        decimal? suggestedPrice = null) =>
         new()
         {
             Id = id,
@@ -63,6 +73,11 @@ public sealed class ImportLine : Entity<ImportLineId>
             ReceiptText = receiptText,
             SuggestedConfidence = confidence,
             RawParse = rawParse,
+            SuggestedProductId = suggestedProductId,
+            SuggestedProductName = suggestedProductName,
+            SuggestedQuantity = suggestedQuantity,
+            SuggestedUnitLabel = suggestedUnitLabel,
+            SuggestedPrice = suggestedPrice,
             Status = LineStatus.Pending,
         };
 

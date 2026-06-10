@@ -248,10 +248,11 @@ public sealed class ReviewModel(
             .ToList();
 
         var unitCodeById = reference.Units.ToDictionary(u => u.Id, u => u.Code);
+        var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
         var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
 
         Rows = Session.Lines
-            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, productNameById))
+            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById))
             .ToList();
 
         return null;
@@ -281,6 +282,7 @@ public sealed class ReviewModel(
             return RowError(lineId, result.Error.Description);
 
         await LoadAsync(ct);
+        ViewData["IncludeCommitBarOob"] = true;
         return RowPartial(lineId);
     }
 
@@ -315,20 +317,70 @@ public sealed class ReviewModel(
 /// <summary>Couples the shared <see cref="ImportLineRowViewModel"/> (the swap-target VM the partial needs) with
 /// the original <see cref="ReviewLineView"/> so the page can pre-populate the full edit drawer (unit, location,
 /// category, price — fields the shared partial's lightweight drawer does not carry).</summary>
-public sealed record ReviewRowModel(ReviewLineView Line, ImportLineRowViewModel RowViewModel)
+public sealed record ReviewRowModel(
+    ReviewLineView Line,
+    ImportLineRowViewModel RowViewModel,
+    Guid? PrefillProductId,
+    string? PrefillProductName,
+    decimal? PrefillQuantity,
+    Guid? PrefillUnitId,
+    decimal? PrefillPrice)
 {
+    /// <summary>
+    /// Pure prefill computation — no URL or HTTP context needed. Applies the priority chain:
+    /// user-resolved fields first, AI suggestions for Pending lines as fallback. Only uses
+    /// <paramref name="unitIdByCode"/> (label → Guid) and <paramref name="productNameById"/>
+    /// (Guid → name); the display unit code lookup uses the broader <c>unitCodeById</c> in
+    /// <see cref="From"/> after this call.
+    /// </summary>
+    public static (Guid? ProductId, string? ProductName, decimal? Qty, Guid? UnitId, decimal? Price) ComputePrefill(
+        ReviewLineView line,
+        IReadOnlyDictionary<string, Guid> unitIdByCode,
+        IReadOnlyDictionary<Guid, string> productNameById)
+    {
+        var isPending = line.Status == LineStatus.Pending;
+
+        // Pre-fill product: user-resolved first; for Pending lines fall back to AI suggestion,
+        // but only when the suggested ID actually resolves in the catalog — a phantom ID would
+        // show a name in the row summary while leaving the drawer's product dropdown empty.
+        Guid? prefillProductId = line.IsNewProduct ? null
+            : line.ProductId
+              ?? (isPending && line.SuggestedProductId is { } sugPid && productNameById.ContainsKey(sugPid)
+                  ? sugPid : (Guid?)null);
+
+        string? prefillProductName = line.IsNewProduct ? null
+            : prefillProductId is { } ppid && productNameById.TryGetValue(ppid, out var ppname)
+                ? ppname
+                : (isPending ? line.SuggestedProductName : null);
+
+        // Pre-fill qty/unit/price: user-resolved first; fall back to AI suggestion for Pending lines.
+        var prefillQty = line.Quantity ?? (isPending ? line.SuggestedQuantity : null);
+
+        Guid? prefillUnitId = line.UnitId
+            ?? (isPending && line.SuggestedUnitLabel is { } lbl && unitIdByCode.TryGetValue(lbl, out var sugUid)
+                ? sugUid
+                : (Guid?)null);
+
+        var prefillPrice = line.Price ?? (isPending ? line.SuggestedPrice : null);
+
+        return (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillPrice);
+    }
+
     public static ReviewRowModel From(
         ReviewLineView line,
         IUrlHelper url,
         Guid sessionId,
         IReadOnlyDictionary<Guid, string> unitCodeById,
+        IReadOnlyDictionary<string, Guid> unitIdByCode,
         IReadOnlyDictionary<Guid, string> productNameById)
     {
-        string? productName = line.IsNewProduct
-            ? line.NewProductName
-            : line.ProductId is { } pid && productNameById.TryGetValue(pid, out var name) ? name : null;
+        var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillPrice) =
+            ComputePrefill(line, unitIdByCode, productNameById);
 
-        var unitCode = line.UnitId is { } uid && unitCodeById.TryGetValue(uid, out var code) ? code : "";
+        // Display name: new-product intent uses the chosen name; everything else uses the pre-fill.
+        string? productName = line.IsNewProduct ? line.NewProductName : prefillProductName;
+
+        var unitCode = prefillUnitId is { } uid && unitCodeById.TryGetValue(uid, out var code) ? code : "";
 
         var vm = new ImportLineRowViewModel(
             LineId: line.LineId.ToString(),
@@ -336,9 +388,9 @@ public sealed record ReviewRowModel(ReviewLineView Line, ImportLineRowViewModel 
             RawText: line.ReceiptText,
             Confidence: line.SuggestedConfidence,
             Status: line.Status,
-            Quantity: line.Quantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "—",
+            Quantity: prefillQty?.ToString("0.###", CultureInfo.InvariantCulture) ?? "—",
             Unit: unitCode,
-            Price: line.Price is { } p ? p.ToString("C", CultureInfo.CurrentCulture) : "—",
+            Price: prefillPrice is { } p ? p.ToString("C", CultureInfo.CurrentCulture) : "—",
             Expiry: line.ExpiryDate?.ToString("d MMM", CultureInfo.CurrentCulture) ?? "—",
             CreatedNew: line.IsNewProduct,
             ConfirmUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!,
@@ -346,6 +398,6 @@ public sealed record ReviewRowModel(ReviewLineView Line, ImportLineRowViewModel 
             RestoreUrl: url.Page("./Review", "RestoreLine", new { Id = sessionId, lineId = line.LineId })!,
             SaveUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!);
 
-        return new ReviewRowModel(line, vm);
+        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillPrice);
     }
 }

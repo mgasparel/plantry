@@ -12,10 +12,20 @@ public sealed class ImportLineTests
     private static readonly Guid LocationId = Guid.CreateVersion7();
     private static readonly IClock Clock = SystemClock.Instance;
 
-    private static ImportLine MakeLine(SuggestedConfidence confidence = SuggestedConfidence.High)
+    private static ImportLine MakeLine(SuggestedConfidence confidence = SuggestedConfidence.High) =>
+        MakeLineWithSuggestions(confidence);
+
+    private static ImportLine MakeLineWithSuggestions(
+        SuggestedConfidence confidence = SuggestedConfidence.High,
+        Guid? suggestedProductId = null,
+        string? suggestedProductName = null,
+        decimal? suggestedQuantity = null,
+        string? suggestedUnitLabel = null,
+        decimal? suggestedPrice = null)
     {
         var session = ImportSession.Start(Household, ImportSourceType.Receipt, Guid.CreateVersion7(), Clock);
-        return session.AddLine(1, "500g Flour", confidence, """{"qty":500}""");
+        return session.AddLine(1, "500g Flour", confidence, """{"qty":500}""",
+            suggestedProductId, suggestedProductName, suggestedQuantity, suggestedUnitLabel, suggestedPrice);
     }
 
     [Fact]
@@ -259,5 +269,43 @@ public sealed class ImportLineTests
         line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, null);
 
         Assert.Equal(originalRaw, line.RawParse);
+    }
+
+    [Fact]
+    public void Create_Carries_Suggestion_Fields()
+    {
+        var sugId = Guid.CreateVersion7();
+        var line = MakeLineWithSuggestions(
+            suggestedProductId: sugId,
+            suggestedProductName: "Oat Milk",
+            suggestedQuantity: 2m,
+            suggestedUnitLabel: "L",
+            suggestedPrice: 3.49m);
+
+        Assert.Equal(sugId, line.SuggestedProductId);
+        Assert.Equal("Oat Milk", line.SuggestedProductName);
+        Assert.Equal(2m, line.SuggestedQuantity);
+        Assert.Equal("L", line.SuggestedUnitLabel);
+        Assert.Equal(3.49m, line.SuggestedPrice);
+    }
+
+    [Fact]
+    public void Confirm_Does_Not_Mutate_Suggestion_Fields()
+    {
+        var sugId = Guid.CreateVersion7();
+        var line = MakeLineWithSuggestions(
+            suggestedProductId: sugId,
+            suggestedProductName: "Oat Milk",
+            suggestedQuantity: 2m,
+            suggestedUnitLabel: "L",
+            suggestedPrice: 3.49m);
+
+        line.Confirm(ProductId, null, 5m, UnitId, LocationId, null, 9.99m);
+
+        Assert.Equal(sugId, line.SuggestedProductId);
+        Assert.Equal("Oat Milk", line.SuggestedProductName);
+        Assert.Equal(2m, line.SuggestedQuantity);
+        Assert.Equal("L", line.SuggestedUnitLabel);
+        Assert.Equal(3.49m, line.SuggestedPrice);
     }
 }

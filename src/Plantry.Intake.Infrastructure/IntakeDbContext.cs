@@ -88,6 +88,11 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.RawParse)
                 .HasColumnName("raw_parse")
                 .HasColumnType("jsonb");
+            b.Property(l => l.SuggestedProductId).HasColumnName("suggested_product_id");
+            b.Property(l => l.SuggestedProductName).HasColumnName("suggested_product_name").HasMaxLength(200);
+            b.Property(l => l.SuggestedQuantity).HasColumnName("suggested_quantity").HasPrecision(12, 3);
+            b.Property(l => l.SuggestedUnitLabel).HasColumnName("suggested_unit_label").HasMaxLength(20);
+            b.Property(l => l.SuggestedPrice).HasColumnName("suggested_price").HasPrecision(12, 2);
             b.Property(l => l.ProductId).HasColumnName("product_id");
             b.Property(l => l.SkuId).HasColumnName("sku_id");
             b.Property(l => l.Quantity).HasColumnName("quantity").HasPrecision(12, 3);

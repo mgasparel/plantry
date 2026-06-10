@@ -22,9 +22,9 @@
     // Alpine drawer state. `createNew` toggles between resolving to an existing catalog product and the §2d
     // create path; it starts in create mode only when the line is already a confirmed new-product intent.
     var startOpen = row.IsUnmatched;
-    var qtyValue = line.Quantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "";
+    var qtyValue = rowModel.PrefillQuantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "";
     var expiryValue = line.ExpiryDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
-    var priceValue = line.Price?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+    var priceValue = rowModel.PrefillPrice?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
     var newNameValue = line.NewProductName ?? "";
 
     var alpineState = System.Text.Json.JsonSerializer.Serialize(new
@@ -46,6 +46,7 @@
     {
         alpineState = System.Text.Json.JsonSerializer.Serialize(new { open = true, createNew = line.IsNewProduct });
     }
+    var includeCommitBarOob = ViewData["IncludeCommitBarOob"] is true;
 }
 <div id="@row.DomId" class="import-row @stateClass" x-data="@alpineState">
     @if (!string.IsNullOrEmpty(rowError))
@@ -161,7 +162,9 @@
                             @{
                                 var listboxId = $"edit-product-{row.LineId}-listbox";
                                 var initialProduct = line.IsNewProduct ? null
-                                    : line.ProductId is { } pid ? page.ProductOptions.FirstOrDefault(o => o.Value == pid.ToString()) : null;
+                                    : rowModel.PrefillProductId is { } prefillPid
+                                        ? page.ProductOptions.FirstOrDefault(o => o.Value == prefillPid.ToString())
+                                        : null;
                                 var searchUrl = Url.Page("./Review", "FilterProducts", new { Id = page.Id });
                             }
                             <div class="searchable-select" x-data="searchableSelect()"
@@ -225,7 +228,7 @@
                                 <option value="">— Unit —</option>
                                 @foreach (var u in page.UnitOptions)
                                 {
-                                    var sel = line.UnitId?.ToString() == u.Value;
+                                    var sel = rowModel.PrefillUnitId?.ToString() == u.Value;
                                     <option value="@u.Value" selected="@sel">@u.Text</option>
                                 }
                             </select>
@@ -276,3 +279,10 @@
         </div>
     }
 </div>
+@if (includeCommitBarOob)
+{
+    <div id="commit-bar" class="review__commit" hx-swap-oob="outerHTML"
+         hx-target="#review-alert" hx-swap="innerHTML">
+        <partial name="Shared/_CommitBar" model="Model.BuildCommitBar()" />
+    </div>
+}

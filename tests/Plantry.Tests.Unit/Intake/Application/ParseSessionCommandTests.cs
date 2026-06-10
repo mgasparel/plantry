@@ -24,10 +24,11 @@ public sealed class ParseSessionCommandTests
     [Fact]
     public async Task Lands_A_Ready_Session_With_One_Line_Per_Parsed_Item()
     {
+        var milkId = Guid.CreateVersion7();
         var parser = new FakeReceiptParser(new ReceiptParseResult("Superstore",
         [
             new ParsedLine(1, "Flour 1kg", null, null, 1m, null, 4.99m, "high", """{"line":1}"""),
-            new ParsedLine(2, "Milk 2L", "Milk", Guid.CreateVersion7(), 2m, null, 3.49m, "low", """{"line":2}"""),
+            new ParsedLine(2, "Milk 2L", "Milk", milkId, 2m, "L", 3.49m, "low", """{"line":2}"""),
         ]));
         var hints = new FakeCatalogHintProvider(new ProductHint(Guid.CreateVersion7(), "Flour", []));
         var repo = new FakeImportSessionRepository();
@@ -42,6 +43,14 @@ public sealed class ParseSessionCommandTests
         Assert.Equal(2, session.Lines.Count);
         Assert.Equal(SuggestedConfidence.High, session.Lines.Single(l => l.LineNo == 1).SuggestedConfidence);
         Assert.Equal(SuggestedConfidence.Low, session.Lines.Single(l => l.LineNo == 2).SuggestedConfidence);
+
+        // AI suggestion fields land on each line.
+        var milkLine = session.Lines.Single(l => l.LineNo == 2);
+        Assert.Equal(milkId, milkLine.SuggestedProductId);
+        Assert.Equal("Milk", milkLine.SuggestedProductName);
+        Assert.Equal(2m, milkLine.SuggestedQuantity);
+        Assert.Equal("L", milkLine.SuggestedUnitLabel);
+        Assert.Equal(3.49m, milkLine.SuggestedPrice);
 
         // The receipt image is persisted as the 1:1 record of the attempt.
         Assert.Single(repo.Receipts);

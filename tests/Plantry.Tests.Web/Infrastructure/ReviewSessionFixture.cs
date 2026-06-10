@@ -67,7 +67,9 @@ public static class ReviewSessionFixture
         var session = ImportSession.Start(
             HouseholdId.From(householdId), ImportSourceType.Receipt, userId: Guid.Empty, clock);
 
-        var matched = session.AddLine(1, "WHOLE MILK 2L", SuggestedConfidence.High, rawPayload: null);
+        var matched = session.AddLine(1, "WHOLE MILK 2L", SuggestedConfidence.High, rawPayload: null,
+            suggestedProductId: MilkProductId, suggestedProductName: "Milk",
+            suggestedQuantity: 2m, suggestedUnitLabel: "L", suggestedPrice: 3.99m);
         var unmatched = session.AddLine(2, "MYSTERY ITEM XZ", SuggestedConfidence.None, rawPayload: null);
         var lowConf = session.AddLine(3, "ORG BREAD LOAF", SuggestedConfidence.Low, rawPayload: null);
         var confirmedHigh = session.AddLine(4, "FREE RANGE EGGS", SuggestedConfidence.High, rawPayload: null);

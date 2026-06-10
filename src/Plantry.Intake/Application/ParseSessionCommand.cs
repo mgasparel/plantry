@@ -52,7 +52,8 @@ public sealed class ParseSessionCommand(
         }
 
         foreach (var line in parse.Lines)
-            session.AddLine(line.LineNo, line.ReceiptText, MapConfidence(line.Confidence), line.RawJson);
+            session.AddLine(line.LineNo, line.ReceiptText, MapConfidence(line.Confidence), line.RawJson,
+                line.SuggestedProductId, line.SuggestedProductName, line.Quantity, line.UnitLabel, line.Price);
 
         session.MarkReady(parse.MerchantText, clock.UtcNow);
         await sessions.SaveChangesAsync(ct);

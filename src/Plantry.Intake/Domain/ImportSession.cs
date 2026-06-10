@@ -38,7 +38,16 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
             UpdatedAt = clock.UtcNow,
         };
 
-    public ImportLine AddLine(int lineNo, string receiptText, SuggestedConfidence confidence, string? rawPayload)
+    public ImportLine AddLine(
+        int lineNo,
+        string receiptText,
+        SuggestedConfidence confidence,
+        string? rawPayload,
+        Guid? suggestedProductId = null,
+        string? suggestedProductName = null,
+        decimal? suggestedQuantity = null,
+        string? suggestedUnitLabel = null,
+        decimal? suggestedPrice = null)
     {
         var line = ImportLine.Create(
             ImportLineId.New(),
@@ -47,7 +56,12 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
             lineNo,
             receiptText,
             confidence,
-            rawPayload);
+            rawPayload,
+            suggestedProductId,
+            suggestedProductName,
+            suggestedQuantity,
+            suggestedUnitLabel,
+            suggestedPrice);
         _lines.Add(line);
         return line;
     }

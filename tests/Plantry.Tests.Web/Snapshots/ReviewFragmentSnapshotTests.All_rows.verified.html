@@ -3,7 +3,7 @@
 		<div class="import-row__main">
 			<div class="import-row__id">
 				<div class="import-row__name">
-					<span class="import-row__unrecognized">Unrecognized item</span>
+					<span class="import-row__product">Milk</span>
 				</div>
 				<div class="import-row__raw">
 					<span class="import-row__raw-tag">receipt</span>
@@ -12,13 +12,13 @@
 			</div>
 			<div class="import-row__meta">
 				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—<span class="import-row__meta-unit">
-						</span>
+					<div class="import-row__meta-value">2<span class="import-row__meta-unit">
+							L</span>
 					</div>
 					<div class="import-row__meta-label">qty</div>
 				</div>
 				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—</div>
+					<div class="import-row__meta-value">$3.99</div>
 					<div class="import-row__meta-label">price</div>
 				</div>
 				<div class="import-row__meta-cell">
@@ -62,8 +62,8 @@
 					<div class="form-grid__field form-grid__field--full" x-show="!createNew">
 						<label class="form-grid__field__label">Product</label>
 						<div class="form-grid__field__control">
-							<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false">
-								<input type="hidden" name="Edit.ProductId" value="" x-ref="hidden">
+							<div class="searchable-select" x-data="searchableSelect()" data-initial-label="Milk" @click.outside="open = false" @keydown.escape="open = false">
+								<input type="hidden" name="Edit.ProductId" value="Guid_3" x-ref="hidden">
 								<div class="searchable-select__control">
 									<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_1-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_1-listbox" hx-swap="innerHTML" hx-params="q">
 								</div>
@@ -93,7 +93,7 @@
 					<div class="form-grid__field">
 						<label class="form-grid__field__label">Quantity</label>
 						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" value="">
+							<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" value="2">
 						</div>
 					</div>
 					<div class="form-grid__field">
@@ -102,7 +102,7 @@
 							<select class="field__input" name="Edit.UnitId">
 								<option value="">— Unit —</option>
 								<option value="Guid_7">ea — Each</option>
-								<option value="Guid_8">L — Litre</option>
+								<option value="Guid_8" selected="selected">L — Litre</option>
 							</select>
 						</div>
 					</div>
@@ -124,7 +124,7 @@
 					<div class="form-grid__field">
 						<label class="form-grid__field__label">Price (optional)</label>
 						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Price" value="">
+							<input class="field__input" type="number" step="any" min="0" name="Edit.Price" value="3.99">
 						</div>
 					</div>
 				</div>
