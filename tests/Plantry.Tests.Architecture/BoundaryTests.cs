@@ -191,6 +191,136 @@ public sealed class BoundaryTests
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
+    private static readonly string[] PricingSiblingContexts =
+    [
+        "Plantry.Identity",
+        "Plantry.Catalog",
+        "Plantry.Inventory",
+        "Plantry.Shopping",
+        "Plantry.Intake",
+    ];
+
+    private static readonly string[] IntakeSiblingContexts =
+    [
+        "Plantry.Identity",
+        "Plantry.Catalog",
+        "Plantry.Inventory",
+        "Plantry.Pricing",
+        "Plantry.Shopping",
+    ];
+
+    [Fact]
+    public void Pricing_Domain_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Pricing.Domain")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Pricing domain references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Pricing_Application_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Pricing.Application")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Pricing application references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Pricing_Domain_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Pricing.Domain")
+            .Should().NotHaveDependencyOnAny(PricingSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Pricing domain references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Pricing_Application_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Pricing.Application")
+            .Should().NotHaveDependencyOnAny(PricingSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Pricing application references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Intake_Domain_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Intake.Domain")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Intake domain references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Intake_Application_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Intake.Application")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Intake application references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Intake_Domain_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Intake.Domain")
+            .Should().NotHaveDependencyOnAny(IntakeSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Intake domain references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Intake_Application_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Intake.Application")
+            .Should().NotHaveDependencyOnAny(IntakeSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Intake application references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
     [Fact]
     public void DbContexts_Should_Reside_In_Infrastructure_Namespaces()
     {

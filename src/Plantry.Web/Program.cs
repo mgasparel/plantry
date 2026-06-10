@@ -9,10 +9,17 @@ using Plantry.Identity.Infrastructure;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
+using Plantry.Intake.Application;
+using Plantry.Intake.Domain;
+using Plantry.Intake.Infrastructure;
+using Plantry.Pricing.Application;
+using Plantry.Pricing.Domain;
+using Plantry.Pricing.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Dev;
 using Plantry.Web.Inventory;
+using Plantry.Web.Pricing;
 using Plantry.Web.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -91,6 +98,22 @@ builder.Services.AddScoped<InventoryQueryService>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 
+// Pricing context
+builder.Services.AddDbContext<PricingDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.Pricing.Infrastructure"))
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+builder.Services.AddScoped<IPriceObservationRepository, PriceObservationRepository>();
+builder.Services.AddScoped<IUnitPriceCalculator, UnitPriceCalculatorAdapter>();
+builder.Services.AddScoped<PricingQueries>();
+
+// Intake context
+builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
+
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();
 
@@ -118,6 +141,18 @@ if (app.Environment.IsDevelopment())
         .Options;
     await using (var inventoryDb = new InventoryDbContext(inventoryMigrateOpts))
         await inventoryDb.Database.MigrateAsync();
+
+    var pricingMigrateOpts = new DbContextOptionsBuilder<PricingDbContext>()
+        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Pricing.Infrastructure"))
+        .Options;
+    await using (var pricingDb = new PricingDbContext(pricingMigrateOpts))
+        await pricingDb.Database.MigrateAsync();
+
+    var intakeMigrateOpts = new DbContextOptionsBuilder<IntakeDbContext>()
+        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
+        .Options;
+    await using (var intakeDb = new IntakeDbContext(intakeMigrateOpts))
+        await intakeDb.Database.MigrateAsync();
 
     // Auto-seed on first startup: no-ops if the demo user already exists.
     await using var seedScope = app.Services.CreateAsyncScope();

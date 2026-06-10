@@ -1,4 +1,3 @@
-using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Respawn;
@@ -45,7 +44,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(conn, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = ["identity", "catalog", "inventory"],
+            SchemasToInclude = ["identity", "catalog", "inventory", "pricing", "intake"],
         });
     }
 
@@ -78,6 +77,18 @@ public sealed class PostgresFixture : IAsyncLifetime
             .Options;
         await using var inventoryDb = new Plantry.Inventory.Infrastructure.InventoryDbContext(inventoryOpts);
         await inventoryDb.Database.MigrateAsync();
+
+        var pricingOpts = new DbContextOptionsBuilder<Plantry.Pricing.Infrastructure.PricingDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+        await using var pricingDb = new Plantry.Pricing.Infrastructure.PricingDbContext(pricingOpts);
+        await pricingDb.Database.MigrateAsync();
+
+        var intakeOpts = new DbContextOptionsBuilder<Plantry.Intake.Infrastructure.IntakeDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+        await using var intakeDb = new Plantry.Intake.Infrastructure.IntakeDbContext(intakeOpts);
+        await intakeDb.Database.MigrateAsync();
     }
 }
 
