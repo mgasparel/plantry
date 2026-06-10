@@ -46,8 +46,8 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                         .HasColumnName("observed_at");
 
                     b.Property<decimal>("Price")
-                        .HasPrecision(12, 4)
-                        .HasColumnType("numeric(12,4)")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
                         .HasColumnName("price");
 
                     b.Property<Guid>("ProductId")

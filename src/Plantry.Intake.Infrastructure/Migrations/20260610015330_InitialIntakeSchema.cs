@@ -21,7 +21,7 @@ namespace Plantry.Intake.Infrastructure.Migrations
                 {
                     session_id = table.Column<Guid>(type: "uuid", nullable: false),
                     household_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    source_type = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    source_type = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
                     user_id = table.Column<Guid>(type: "uuid", nullable: false),
                     status = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
                     merchant_text = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
@@ -54,7 +54,7 @@ namespace Plantry.Intake.Infrastructure.Migrations
                     unit_id = table.Column<Guid>(type: "uuid", nullable: true),
                     location_id = table.Column<Guid>(type: "uuid", nullable: true),
                     expiry_date = table.Column<DateOnly>(type: "date", nullable: true),
-                    price = table.Column<decimal>(type: "numeric(12,4)", precision: 12, scale: 4, nullable: true),
+                    price = table.Column<decimal>(type: "numeric(12,2)", precision: 12, scale: 2, nullable: true),
                     status = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
                     journal_id = table.Column<Guid>(type: "uuid", nullable: true),
                     price_observation_id = table.Column<Guid>(type: "uuid", nullable: true),
@@ -108,11 +108,72 @@ namespace Plantry.Intake.Infrastructure.Migrations
                 schema: "intake",
                 table: "import_session",
                 column: "household_id");
+
+            // Upgrade single-column FKs to composite (household_id, session_id) per G6-2 convention.
+            migrationBuilder.Sql(@"
+                ALTER TABLE intake.import_session
+                    ADD CONSTRAINT uq_import_session_household_session UNIQUE (household_id, session_id);
+
+                ALTER TABLE intake.import_line
+                    DROP CONSTRAINT ""FK_import_line_import_session_session_id"";
+
+                ALTER TABLE intake.import_line
+                    ADD CONSTRAINT fk_import_line_import_session
+                    FOREIGN KEY (household_id, session_id)
+                    REFERENCES intake.import_session (household_id, session_id)
+                    ON DELETE CASCADE;
+
+                ALTER TABLE intake.import_receipt
+                    DROP CONSTRAINT ""FK_import_receipt_import_session_session_id"";
+
+                ALTER TABLE intake.import_receipt
+                    ADD CONSTRAINT fk_import_receipt_import_session
+                    FOREIGN KEY (household_id, session_id)
+                    REFERENCES intake.import_session (household_id, session_id)
+                    ON DELETE CASCADE;
+            ");
+
+            // source_type is a closed set — enforce it at the DB.
+            migrationBuilder.Sql(@"
+                ALTER TABLE intake.import_session
+                    ADD CONSTRAINT ck_import_session_source_type
+                    CHECK (source_type IN ('Receipt'));
+            ");
+
+            migrationBuilder.Sql(@"
+                ALTER TABLE intake.import_session ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE intake.import_session FORCE ROW LEVEL SECURITY;
+                CREATE POLICY household_isolation ON intake.import_session
+                  USING (household_id = NULLIF(current_setting('app.household_id', true), '')::uuid);
+
+                ALTER TABLE intake.import_line ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE intake.import_line FORCE ROW LEVEL SECURITY;
+                CREATE POLICY household_isolation ON intake.import_line
+                  USING (household_id = NULLIF(current_setting('app.household_id', true), '')::uuid);
+
+                ALTER TABLE intake.import_receipt ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE intake.import_receipt FORCE ROW LEVEL SECURITY;
+                CREATE POLICY household_isolation ON intake.import_receipt
+                  USING (household_id = NULLIF(current_setting('app.household_id', true), '')::uuid);
+
+                GRANT USAGE ON SCHEMA intake TO app_user;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA intake TO app_user;
+                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA intake TO app_user;
+            ");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql(@"
+                REVOKE ALL ON ALL TABLES IN SCHEMA intake FROM app_user;
+                REVOKE ALL ON ALL SEQUENCES IN SCHEMA intake FROM app_user;
+                REVOKE USAGE ON SCHEMA intake FROM app_user;
+                DROP POLICY IF EXISTS household_isolation ON intake.import_session;
+                DROP POLICY IF EXISTS household_isolation ON intake.import_line;
+                DROP POLICY IF EXISTS household_isolation ON intake.import_receipt;
+            ");
+
             migrationBuilder.DropTable(
                 name: "import_line",
                 schema: "intake");

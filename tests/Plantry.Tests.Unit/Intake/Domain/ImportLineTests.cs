@@ -14,7 +14,7 @@ public sealed class ImportLineTests
 
     private static ImportLine MakeLine(SuggestedConfidence confidence = SuggestedConfidence.High)
     {
-        var session = ImportSession.Start(Household, "Receipt", Guid.CreateVersion7(), Clock);
+        var session = ImportSession.Start(Household, ImportSourceType.Receipt, Guid.CreateVersion7(), Clock);
         return session.AddLine(1, "500g Flour", confidence, """{"qty":500}""");
     }
 
@@ -95,8 +95,9 @@ public sealed class ImportLineTests
         var priceObsId = Guid.CreateVersion7();
         var createdProductId = Guid.CreateVersion7();
 
-        line.MarkCommitted(journalId, priceObsId, createdProductId);
+        var result = line.MarkCommitted(journalId, priceObsId, createdProductId);
 
+        Assert.True(result.IsSuccess);
         Assert.Equal(LineStatus.Committed, line.Status);
         Assert.Equal(journalId, line.JournalId);
         Assert.Equal(priceObsId, line.PriceObservationId);
@@ -109,10 +110,34 @@ public sealed class ImportLineTests
         var line = MakeLine();
         line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, null);
 
-        line.MarkCommitted(Guid.NewGuid(), null);
+        var result = line.MarkCommitted(Guid.NewGuid(), null);
 
+        Assert.True(result.IsSuccess);
         Assert.Equal(LineStatus.Committed, line.Status);
         Assert.Null(line.PriceObservationId);
+    }
+
+    [Fact]
+    public void MarkCommitted_Fails_When_Line_Is_Not_Confirmed()
+    {
+        var line = MakeLine(); // Pending
+
+        var result = line.MarkCommitted(Guid.NewGuid(), null);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmed", result.Error.Code);
+    }
+
+    [Fact]
+    public void MarkCommitted_Fails_When_Line_Is_Dismissed()
+    {
+        var line = MakeLine();
+        line.Dismiss();
+
+        var result = line.MarkCommitted(Guid.NewGuid(), null);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmed", result.Error.Code);
     }
 
     [Fact]

@@ -30,7 +30,11 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
                 .HasConversion(id => id.Value, v => HouseholdId.From(v))
                 .HasColumnName("household_id")
                 .IsRequired();
-            b.Property(s => s.SourceType).HasColumnName("source_type").HasMaxLength(50).IsRequired();
+            b.Property(s => s.SourceType)
+                .HasConversion(t => t.ToDbValue(), v => ImportSourceTypeExtensions.Parse(v))
+                .HasColumnName("source_type")
+                .HasMaxLength(20)
+                .IsRequired();
             b.Property(s => s.UserId).HasColumnName("user_id").IsRequired();
             b.Property(s => s.Status)
                 .HasConversion(s => s.ToDbValue(), v => ImportStatusExtensions.Parse(v))
@@ -90,7 +94,7 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.UnitId).HasColumnName("unit_id");
             b.Property(l => l.LocationId).HasColumnName("location_id");
             b.Property(l => l.ExpiryDate).HasColumnName("expiry_date");
-            b.Property(l => l.Price).HasColumnName("price").HasPrecision(12, 4);
+            b.Property(l => l.Price).HasColumnName("price").HasPrecision(12, 2);
             b.Property(l => l.Status)
                 .HasConversion(s => s.ToDbValue(), v => LineStatusExtensions.Parse(v))
                 .HasColumnName("status")

@@ -16,17 +16,10 @@ public sealed class UnitPriceCalculatorAdapter(IUnitRepository units) : IUnitPri
     public async Task<decimal?> TryNormalizeAsync(
         decimal price, decimal quantity, Guid unitId, CancellationToken ct = default)
     {
-        try
-        {
-            var unit = await units.FindAsync(UnitId.From(unitId), ct);
-            if (unit is null || quantity <= 0m || unit.FactorToBase <= 0m)
-                return null;
-
-            return price / (quantity * unit.FactorToBase);
-        }
-        catch
-        {
+        var unit = await units.FindAsync(UnitId.From(unitId), ct);
+        if (unit is null || quantity <= 0m || unit.FactorToBase <= 0m)
             return null;
-        }
+
+        return price / (quantity * unit.FactorToBase);
     }
 }

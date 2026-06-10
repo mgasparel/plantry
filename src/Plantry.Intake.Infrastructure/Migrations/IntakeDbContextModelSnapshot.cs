@@ -54,8 +54,8 @@ namespace Plantry.Intake.Infrastructure.Migrations
                         .HasColumnName("location_id");
 
                     b.Property<decimal?>("Price")
-                        .HasPrecision(12, 4)
-                        .HasColumnType("numeric(12,4)")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
                         .HasColumnName("price");
 
                     b.Property<Guid?>("PriceObservationId")
@@ -187,8 +187,8 @@ namespace Plantry.Intake.Infrastructure.Migrations
 
                     b.Property<string>("SourceType")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("source_type");
 
                     b.Property<string>("Status")

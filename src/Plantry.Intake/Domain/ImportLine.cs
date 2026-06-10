@@ -85,11 +85,15 @@ public sealed class ImportLine : Entity<ImportLineId>
         return Result.Success();
     }
 
-    public void MarkCommitted(Guid journalId, Guid? priceObservationId, Guid? createdProductId = null)
+    public Result MarkCommitted(Guid journalId, Guid? priceObservationId, Guid? createdProductId = null)
     {
+        if (Status != LineStatus.Confirmed)
+            return Error.Custom("Intake.LineNotConfirmed", "Only confirmed lines can be committed.");
+
         JournalId = journalId;
         PriceObservationId = priceObservationId;
         CreatedProductId = createdProductId;
         Status = LineStatus.Committed;
+        return Result.Success();
     }
 }

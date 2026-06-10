@@ -23,7 +23,7 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                     household_id = table.Column<Guid>(type: "uuid", nullable: false),
                     product_id = table.Column<Guid>(type: "uuid", nullable: false),
                     sku_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    price = table.Column<decimal>(type: "numeric(12,4)", precision: 12, scale: 4, nullable: false),
+                    price = table.Column<decimal>(type: "numeric(12,2)", precision: 12, scale: 2, nullable: false),
                     quantity = table.Column<decimal>(type: "numeric(12,3)", precision: 12, scale: 3, nullable: false),
                     unit_id = table.Column<Guid>(type: "uuid", nullable: false),
                     unit_price = table.Column<decimal>(type: "numeric(12,6)", precision: 12, scale: 6, nullable: true),
@@ -50,11 +50,29 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                 table: "price_observation",
                 columns: new[] { "household_id", "sku_id", "observed_at" },
                 filter: "sku_id IS NOT NULL");
+
+            migrationBuilder.Sql(@"
+                ALTER TABLE pricing.price_observation ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE pricing.price_observation FORCE ROW LEVEL SECURITY;
+                CREATE POLICY household_isolation ON pricing.price_observation
+                  USING (household_id = NULLIF(current_setting('app.household_id', true), '')::uuid);
+
+                GRANT USAGE ON SCHEMA pricing TO app_user;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pricing TO app_user;
+                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pricing TO app_user;
+            ");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql(@"
+                REVOKE ALL ON ALL TABLES IN SCHEMA pricing FROM app_user;
+                REVOKE ALL ON ALL SEQUENCES IN SCHEMA pricing FROM app_user;
+                REVOKE USAGE ON SCHEMA pricing FROM app_user;
+                DROP POLICY IF EXISTS household_isolation ON pricing.price_observation;
+            ");
+
             migrationBuilder.DropTable(
                 name: "price_observation",
                 schema: "pricing");

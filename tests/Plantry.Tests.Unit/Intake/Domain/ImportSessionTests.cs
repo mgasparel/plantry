@@ -11,7 +11,7 @@ public sealed class ImportSessionTests
     private static readonly IClock Clock = SystemClock.Instance;
 
     private static ImportSession Started() =>
-        ImportSession.Start(Household, "Receipt", UserId, Clock);
+        ImportSession.Start(Household, ImportSourceType.Receipt, UserId, Clock);
 
     [Fact]
     public void Start_Creates_Session_In_Parsing_Status()

@@ -113,6 +113,13 @@ the Plantry-specific gates.
 - The recurring composite widget — catalog search + cascading unit load + quantity —
   should be a shared server partial / units endpoint, not copy-pasted per screen (it
   appears in manual add, import review, recipe authoring, cook substitution, shopping).
+- **Component library is the single source of truth.** `src/Plantry.Web/Pages/Dev/Index.cshtml`
+  is the definitive catalogue of every reusable Razor tag helper/partial and canonical
+  CSS pattern (cards, segmented controls, buttons, field rows, etc.). Flag any markup
+  that re-implements a pattern already in the library instead of using the canonical
+  form, and flag any new component added directly to a feature page that bypasses the
+  library. New components must be added to the library first, then consumed by feature
+  pages — if a PR adds both without that order, call it out as advisory.
 
 ## Gate 6 — Persistence conventions
 

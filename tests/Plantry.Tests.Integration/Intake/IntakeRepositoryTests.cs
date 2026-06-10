@@ -35,7 +35,7 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
 
         await using (var ctx = NewIntakeDb())
         {
-            var session = ImportSession.Start(_household, "Receipt", _userId, Clock);
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
             session.AddLine(1, "500g Flour", SuggestedConfidence.High, """{"qty":500}""");
             session.AddLine(2, "2x Milk", SuggestedConfidence.Low, null);
             sessionId = session.Id;
@@ -73,7 +73,7 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
 
         await using (var ctx = NewIntakeDb())
         {
-            var session = ImportSession.Start(_household, "Receipt", _userId, Clock);
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
             sessionId = session.Id;
             await ctx.ImportSessions.AddAsync(session);
 
@@ -100,7 +100,7 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
 
         await using (var ctx = NewIntakeDb())
         {
-            var session = ImportSession.Start(_household, "Receipt", _userId, Clock);
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
             session.AddLine(1, "Eggs", SuggestedConfidence.High, null);
             sessionId = session.Id;
             await ctx.ImportSessions.AddAsync(session);
@@ -131,7 +131,7 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
 
         await using (var ctxA = NewIntakeDbFor(householdA))
         {
-            var session = ImportSession.Start(householdA, "Receipt", _userId, Clock);
+            var session = ImportSession.Start(householdA, ImportSourceType.Receipt, _userId, Clock);
             await ctxA.ImportSessions.AddAsync(session);
             await ctxA.SaveChangesAsync();
         }
@@ -148,7 +148,7 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
 
         await using (var ctx = NewIntakeDb())
         {
-            var session = ImportSession.Start(_household, "Receipt", _userId, Clock);
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
             sessionId = session.Id;
             await ctx.ImportSessions.AddAsync(session);
             await ctx.SaveChangesAsync();

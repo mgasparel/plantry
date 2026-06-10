@@ -5,7 +5,9 @@
 $projects = @(
     "Plantry.SharedKernel",
     "Plantry.Catalog",
-    "Plantry.Inventory"
+    "Plantry.Inventory",
+    "Plantry.Pricing",
+    "Plantry.Intake"
 )
 
 $results = [ordered]@{}
@@ -27,4 +29,4 @@ foreach ($project in $results.Keys) {
     }
 }
 
-exit ($anyFailed ? 1 : 0)
+if ($anyFailed) { exit 1 } else { exit 0 }

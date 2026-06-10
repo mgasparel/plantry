@@ -30,7 +30,7 @@ public sealed class PricingDbContext(DbContextOptions<PricingDbContext> options)
                 .IsRequired();
             b.Property(p => p.ProductId).HasColumnName("product_id").IsRequired();
             b.Property(p => p.SkuId).HasColumnName("sku_id");
-            b.Property(p => p.Price).HasColumnName("price").HasPrecision(12, 4).IsRequired();
+            b.Property(p => p.Price).HasColumnName("price").HasPrecision(12, 2).IsRequired();
             b.Property(p => p.Quantity).HasColumnName("quantity").HasPrecision(12, 3).IsRequired();
             b.Property(p => p.UnitId).HasColumnName("unit_id").IsRequired();
             b.Property(p => p.UnitPrice).HasColumnName("unit_price").HasPrecision(12, 6);

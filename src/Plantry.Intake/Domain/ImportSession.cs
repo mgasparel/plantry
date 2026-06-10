@@ -11,7 +11,7 @@ namespace Plantry.Intake.Domain;
 public sealed class ImportSession : AggregateRoot<ImportSessionId>
 {
     public HouseholdId HouseholdId { get; private set; }
-    public string SourceType { get; private set; } = string.Empty;
+    public ImportSourceType SourceType { get; private set; }
     public Guid UserId { get; private set; }
     public ImportStatus Status { get; private set; }
     public string? MerchantText { get; private set; }
@@ -26,7 +26,7 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
 
     private ImportSession() { } // EF
 
-    public static ImportSession Start(HouseholdId householdId, string sourceType, Guid userId, IClock clock) =>
+    public static ImportSession Start(HouseholdId householdId, ImportSourceType sourceType, Guid userId, IClock clock) =>
         new()
         {
             Id = ImportSessionId.New(),
