@@ -1,13 +1,12 @@
 {
   "stryker-config": {
-    "project": "Plantry.SharedKernel",
     "test-projects": [
       "tests/Plantry.Tests.Unit/Plantry.Tests.Unit.csproj"
     ],
-    "target-framework": "net9.0",
-    "reporters": ["html", "progress"],
+    "target-framework": "net10.0",
+    "reporters": ["html", "progress", "json", "markdown"],
     "mutation-level": "Advanced",
-    "threshold": {
+    "thresholds": {
       "high": 90,
       "low": 75,
       "break": 60
