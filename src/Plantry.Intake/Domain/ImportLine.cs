@@ -127,6 +127,20 @@ public sealed class ImportLine : Entity<ImportLineId>
         return Result.Success();
     }
 
+    /// <summary>
+    /// Restores a dismissed line back to <see cref="LineStatus.Pending"/> (the SPEC §2e "Add anyway" action),
+    /// so the user can resolve it again. Only a dismissed line can be restored — an already-committed line is
+    /// final, and confirming/pending lines have nothing to restore.
+    /// </summary>
+    public Result Restore()
+    {
+        if (Status != LineStatus.Dismissed)
+            return Error.Custom("Intake.LineNotDismissed", "Only a dismissed line can be restored.");
+
+        Status = LineStatus.Pending;
+        return Result.Success();
+    }
+
     public Result MarkCommitted(Guid journalId, Guid? priceObservationId, Guid? createdProductId = null)
     {
         if (Status != LineStatus.Confirmed)

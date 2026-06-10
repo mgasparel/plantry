@@ -1,0 +1,3 @@
+# Verify writes *.received.* on a snapshot mismatch; these are transient and must never be committed.
+# The *.verified.* baselines under Snapshots/ ARE committed.
+*.received.*

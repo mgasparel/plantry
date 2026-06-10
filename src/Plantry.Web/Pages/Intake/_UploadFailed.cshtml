@@ -1,0 +1,14 @@
+@model Plantry.Web.Pages.Intake.UploadFailedModel
+
+@* Parse-failure state (session staged as Failed). Surfaces the soft-fail message and offers a
+   re-upload affordance that swaps the upload form back into #upload-region. *@
+<div class="empty-state" role="alert">
+    <svg class="empty-state__icon" aria-hidden="true"><use href="#i-alert" /></svg>
+    <div class="empty-state__title">We couldn't read that receipt</div>
+    <p class="empty-state__body">@Model.Message</p>
+    <button type="button" class="btn btn--primary"
+            hx-get="@Url.Page("./Upload", "Retry")"
+            hx-target="#upload-region" hx-swap="innerHTML">
+        Try another photo
+    </button>
+</div>

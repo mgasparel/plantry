@@ -1,0 +1,75 @@
+@page "{id:guid}"
+@using System.Globalization
+@using Plantry.Intake.Domain
+@model Plantry.Web.Pages.Intake.ReviewModel
+@{
+    ViewData["Title"] = "Review receipt";
+
+    var lines = Model.Session.Lines;
+    var receiptTotal = lines.Where(l => l.Status != LineStatus.Dismissed).Sum(l => l.Price ?? 0m);
+}
+
+<div class="review">
+    @* ── Left: the scanned receipt (page-scoped, re-expressed from the design proto in plenish conventions) *@
+    <aside class="review__receipt rcpt-pane">
+        <div class="rcpt-meta-top">
+            <span class="rcpt-via">
+                <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg> Scanned receipt
+            </span>
+        </div>
+        <div class="receipt">
+            <div class="rcpt-store">
+                <div class="rcpt-store-name">@(string.IsNullOrWhiteSpace(Model.Session.MerchantText) ? "Receipt" : Model.Session.MerchantText)</div>
+            </div>
+            <hr class="rcpt-rule" />
+            @foreach (var l in lines)
+            {
+                <div class="rcpt-line @(l.Status == LineStatus.Dismissed ? "dim" : "")">
+                    <span class="rl-name">@l.ReceiptText</span>
+                    <span class="rl-price">@(l.Price?.ToString("0.00", CultureInfo.InvariantCulture) ?? "")</span>
+                </div>
+            }
+            <hr class="rcpt-rule" />
+            <div class="rcpt-foot">
+                <div class="rcpt-line rcpt-total">
+                    <span class="rl-name">TOTAL</span>
+                    <span class="rl-price">@receiptTotal.ToString("0.00", CultureInfo.InvariantCulture)</span>
+                </div>
+            </div>
+            <div class="rcpt-barcode"></div>
+        </div>
+    </aside>
+
+    @* ── Right: the reviewable line rows + sticky commit bar *@
+    <section class="review__lines">
+        <div class="review__head">
+            <h1 class="review__title">Review &amp; confirm</h1>
+            <p class="review__sub">
+                We read this receipt for you. Check each match, fix anything that's off, then add it all to your pantry.
+                Nothing is added until you commit.
+            </p>
+        </div>
+
+        <div id="review-alert" aria-live="polite"></div>
+
+        @if (lines.Count == 0)
+        {
+            <p class="review__empty">No line items were found on this receipt.</p>
+        }
+        else
+        {
+            <div class="review__rows">
+                @foreach (var rowModel in Model.Rows)
+                {
+                    ViewData["Row"] = rowModel;
+                    <partial name="_ReviewRow" model="Model" view-data="ViewData" />
+                }
+            </div>
+        }
+
+        <div class="review__commit"
+             hx-target="#review-alert" hx-swap="innerHTML">
+            <partial name="Shared/_CommitBar" model="Model.BuildCommitBar()" />
+        </div>
+    </section>
+</div>

@@ -124,11 +124,19 @@ builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
-builder.Services.AddScoped<IReceiptParser, GeminiReceiptParser>();
+
+// The real Gemini parser is the production default. The fake is a deterministic, no-network,
+// no-API-key parser registered ONLY when AI:UseFakeParser=true — set solely by the E2E AppHost so the
+// upload→review→commit journey is testable without a live AI call. Never enable this outside tests.
+if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseFakeParser"))
+    builder.Services.AddScoped<IReceiptParser, FakeReceiptParser>();
+else
+    builder.Services.AddScoped<IReceiptParser, GeminiReceiptParser>();
 builder.Services.AddScoped<ICatalogHintProvider, CatalogHintProvider>();
 builder.Services.AddScoped<ICreateProductPort, CreateProductAdapter>();
 builder.Services.AddScoped<IAddStockPort, AddStockAdapter>();
 builder.Services.AddScoped<IRecordPricePort, RecordPriceAdapter>();
+builder.Services.AddScoped<IReviewReferenceDataProvider, ReviewReferenceDataProvider>();
 
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();

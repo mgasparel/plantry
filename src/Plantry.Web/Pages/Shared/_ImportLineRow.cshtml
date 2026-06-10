@@ -1,0 +1,178 @@
+@using Plantry.Intake.Domain
+@model Plantry.Web.Pages.Shared.ImportLineRowViewModel
+
+@*
+    One reviewable import line — the htmx swap target for the intake review form. State is driven
+    off LineStatus + whether a product is linked (see ImportLineRowViewModel); the row carries an
+    inline edit drawer with Alpine `draft` state (ADR-005 unsaved-row-edit). The hx-post URLs and
+    handlers below are placeholders — the real intake commands/pages do not exist yet.
+
+    consumed by plantry-75u
+*@
+
+@{
+    var stateClass = Model.Status switch
+    {
+        LineStatus.Confirmed => "import-row--confirmed",
+        LineStatus.Dismissed => "import-row--dismissed",
+        LineStatus.Committed => "import-row--committed",
+        _ => Model.IsMatched ? "import-row--matched" : "import-row--unmatched",
+    };
+    var startOpen = Model.IsUnmatched;
+
+    // Serialize the Alpine x-data via JSON so string values (e.g. "Hershey's") are escaped
+    // correctly — Razor then HTML-encodes the attribute. Hand-built single-quoted JS would break.
+    var alpineState = System.Text.Json.JsonSerializer.Serialize(new
+    {
+        open = startOpen,
+        draft = new
+        {
+            product = Model.ProductName ?? "",
+            qty = Model.Quantity,
+            unit = Model.Unit,
+            expiry = Model.Expiry,
+        },
+    });
+}
+
+<div id="@Model.DomId"
+     class="import-row @stateClass"
+     x-data="@alpineState">
+
+    <div class="import-row__main">
+        <div class="import-row__id">
+            <div class="import-row__name">
+                @if (Model.ProductName is { } name)
+                {
+                    <span class="import-row__product">@name</span>
+                    @if (Model.CreatedNew)
+                    {
+                        <span class="import-row__new">· new product</span>
+                    }
+                }
+                else
+                {
+                    <span class="import-row__unrecognized">Unrecognized item</span>
+                }
+            </div>
+            <div class="import-row__raw">
+                <span class="import-row__raw-tag">receipt</span>
+                <span>@Model.RawText</span>
+            </div>
+        </div>
+
+        <div class="import-row__meta">
+            <div class="import-row__meta-cell">
+                <div class="import-row__meta-value">@Model.Quantity<span class="import-row__meta-unit"> @Model.Unit</span></div>
+                <div class="import-row__meta-label">qty</div>
+            </div>
+            <div class="import-row__meta-cell">
+                <div class="import-row__meta-value">@Model.Price</div>
+                <div class="import-row__meta-label">price</div>
+            </div>
+            <div class="import-row__meta-cell">
+                <div class="import-row__meta-value">@Model.Expiry</div>
+                <div class="import-row__meta-label">expires</div>
+            </div>
+            <div class="import-row__conf">
+                @if (!Model.IsUnmatched)
+                {
+                    <partial name="Shared/_ConfidenceBadge" model="Model.Confidence" />
+                }
+            </div>
+        </div>
+
+        <div class="import-row__act">
+            @if (Model.IsMatched)
+            {
+                <button type="button" class="btn btn--secondary btn--sm"
+                        hx-post="@Model.ConfirmUrl" hx-target="#@Model.DomId" hx-swap="outerHTML">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirm
+                </button>
+            }
+            else if (Model.IsConfirmed)
+            {
+                <span class="import-row__confirmed-flag">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirmed
+                </span>
+            }
+            else if (Model.IsDismissed)
+            {
+                <button type="button" class="btn btn--ghost btn--sm"
+                        hx-post="@Model.RestoreUrl" hx-target="#@Model.DomId" hx-swap="outerHTML">
+                    Add anyway
+                </button>
+            }
+            else if (Model.IsCommitted)
+            {
+                <span class="import-row__locked">
+                    <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg> Added
+                </span>
+            }
+
+            @if (!Model.IsCommitted)
+            {
+                <button type="button" class="import-row__toggle" @@click="open = !open" :aria-expanded="open" aria-label="Edit line">
+                    <svg class="icon" aria-hidden="true"><use href="#i-components" /></svg>
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (!Model.IsCommitted)
+    {
+        <div class="import-row__edit" x-show="open" x-cloak>
+            @*
+                The edit drawer reuses the design-system controls: the stacked `.form-grid__field`
+                layout produced by `<field stacked>` and the `.field__input` styling. Product
+                resolution reuses the `<searchable-select>` component; because this partial is an
+                htmx swap target rather than a model-bound form, the feature page (plantry-75u)
+                wires `<searchable-select asp-for="…">` against its own page model — here the
+                control's rendered structure is shown with a draft-bound text input.
+            *@
+            <div class="import-row__edit-grid">
+                <div class="form-grid__field form-grid__field--full">
+                    <label class="form-grid__field__label">Product</label>
+                    <div class="form-grid__field__control">
+                        <div class="searchable-select">
+                            <div class="searchable-select__control">
+                                <input type="text" class="field__input" role="combobox" autocomplete="off"
+                                       x-model="draft.product"
+                                       placeholder="@(Model.ProductName is null ? "Find or create a product…" : "Change match…")" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-grid__field">
+                    <label class="form-grid__field__label">Quantity</label>
+                    <div class="form-grid__field__control">
+                        <input class="field__input" type="number" step="any" min="0" x-model="draft.qty" />
+                    </div>
+                </div>
+
+                <div class="form-grid__field">
+                    <label class="form-grid__field__label">Expires</label>
+                    <div class="form-grid__field__control">
+                        <input class="field__input" type="date" x-model="draft.expiry" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="import-row__edit-foot">
+                <button type="button" class="btn btn--ghost btn--sm import-row__edit-danger"
+                        hx-post="@Model.DismissUrl" hx-target="#@Model.DomId" hx-swap="outerHTML">
+                    Not pantry stock — remove
+                </button>
+                <span class="import-row__edit-spacer"></span>
+                @* Alpine binds the live draft into hx-vals (as a JSON string) right before htmx
+                   serialises the request, so the unsaved edits post with the confirm. *@
+                <button type="button" class="btn btn--primary btn--sm"
+                        hx-post="@Model.SaveUrl" hx-target="#@Model.DomId" hx-swap="outerHTML"
+                        x-bind:hx-vals="JSON.stringify(draft)">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirm item
+                </button>
+            </div>
+        </div>
+    }
+</div>

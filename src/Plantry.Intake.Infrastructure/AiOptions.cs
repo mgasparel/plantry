@@ -14,4 +14,12 @@ public sealed class AiOptions
     public string BaseUrl { get; set; } = "https://openrouter.ai/api/v1";
     public string ApiKey { get; set; } = string.Empty;
     public string Model { get; set; } = "google/gemini-2.5-flash";
+
+    /// <summary>
+    /// Test-only seam: when true, the Web host registers a deterministic, no-network fake
+    /// <c>IReceiptParser</c> instead of the real Gemini parser, so the end-to-end intake journey runs
+    /// without any AI call or API key. Defaults to false — production always uses the real parser. Set
+    /// only by the E2E AppHost (plantry-zbk); never enable it outside a test run.
+    /// </summary>
+    public bool UseFakeParser { get; set; } = false;
 }

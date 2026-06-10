@@ -74,6 +74,18 @@
             <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
             <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
         </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+        </symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        </symbol>
+        <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+        </symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="11" width="16" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+        </symbol>
     </svg>
 
     @* Desktop sidebar (hidden below md breakpoint via CSS) *@
@@ -90,6 +102,11 @@
             <li>
                 <a href="/Intake" class="sidebar__link@(NavActive("/Intake"))">
                     <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg> Add stock
+                </a>
+            </li>
+            <li>
+                <a href="/Intake/Upload" class="sidebar__link@(NavActive("/Intake/Upload"))">
+                    <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg> Scan receipt
                 </a>
             </li>
             <li>
@@ -151,6 +168,10 @@
         <a href="/Intake" class="bottom-nav__item@(BottomNavActive("/Intake"))">
             <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg>
             <span>Add</span>
+        </a>
+        <a href="/Intake/Upload" class="bottom-nav__item@(BottomNavActive("/Intake/Upload"))">
+            <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg>
+            <span>Scan</span>
         </a>
         <a href="/Shopping" class="bottom-nav__item@(BottomNavActive("/Shopping"))">
             <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>

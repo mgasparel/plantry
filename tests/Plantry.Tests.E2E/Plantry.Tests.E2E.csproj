@@ -12,12 +12,17 @@
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="Microsoft.Playwright" Version="1.52.0" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Plantry.AppHost\Plantry.AppHost.csproj" />
+    <!-- Referenced for the FakeReceiptParser constants the intake journey test asserts on (merchant
+         text). The AI:UseFakeParser seam that activates that parser is set on the web resource in
+         AppHostFixture; this reference is for test-side constants only. -->
+    <ProjectReference Include="..\..\src\Plantry.Web\Plantry.Web.csproj" />
   </ItemGroup>
 
   <ItemGroup>

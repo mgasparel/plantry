@@ -1,0 +1,29 @@
+@using Plantry.Intake.Domain
+@model SuggestedConfidence
+
+@*
+    Renders the AI catalog-match confidence for one import line as a tonal badge.
+    Maps SuggestedConfidence → label + icon + tone, reusing the existing `.badge` system
+    (no new colour tokens). High = matched (success), Low = check the match (warning),
+    None = no match (danger). Take the value directly:
+        <partial name="Shared/_ConfidenceBadge" model="line.Confidence" />
+*@
+
+@switch (Model)
+{
+    case SuggestedConfidence.High:
+        <span class="badge badge-confidence--high" title="Matched a catalog product with high confidence">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Matched
+        </span>
+        break;
+    case SuggestedConfidence.Low:
+        <span class="badge badge-confidence--low" title="A likely match was found — please check it">
+            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> Check match
+        </span>
+        break;
+    default:
+        <span class="badge badge-confidence--none" title="No catalog match found">
+            <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg> No match
+        </span>
+        break;
+}

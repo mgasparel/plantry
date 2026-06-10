@@ -1,0 +1,33 @@
+@page
+@model Plantry.Web.Pages.Intake.UploadModel
+@{
+    ViewData["Title"] = "Add stock";
+}
+
+@*
+    SPEC §2a — receipt upload. The form posts the image to the Parse handler (synchronous AI parse).
+    While the request is in flight, Alpine shows an inline scanning state (driven by htmx request
+    lifecycle events). On Ready the handler returns HX-Redirect to the review form; on Failed it
+    swaps in the failure fragment with a re-upload affordance.
+*@
+<div class="card" x-data="{ scanning: false }"
+     x-on:htmx:before-request="scanning = true"
+     x-on:htmx:after-request="scanning = false">
+    <div class="card__head">
+        <h1 class="card__head-title">Scan a receipt</h1>
+        <p class="card__head-sub">Snap or upload a grocery receipt — we'll read the items for you to review.</p>
+    </div>
+    <div class="card__body">
+        @* Form region — hidden while scanning so the two states never overlap. *@
+        <div id="upload-region" x-show="!scanning">
+            <partial name="_UploadForm" model="Model" />
+        </div>
+
+        @* Scanning state — page-level, shown only during the in-flight parse request. *@
+        <div class="empty-state" x-show="scanning" x-cloak aria-live="polite">
+            <div class="spinner spinner--lg" role="status" aria-hidden="true"></div>
+            <div class="empty-state__title">Reading your receipt…</div>
+            <p class="empty-state__body">This takes a few seconds while we pick out the items. Hang tight.</p>
+        </div>
+    </div>
+</div>

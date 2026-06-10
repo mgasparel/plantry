@@ -1,0 +1,23 @@
+@model Plantry.Web.Pages.Intake.UploadModel
+
+@* Upload form fragment. Re-rendered into #upload-region on validation/pre-parse errors; on success
+   the handler returns HX-Redirect (Ready) or swaps in _UploadFailed (Failed). *@
+<form class="form-stack" method="post" enctype="multipart/form-data"
+      hx-post="@Url.Page("./Upload", "Parse")"
+      hx-target="#upload-region" hx-swap="innerHTML"
+      hx-encoding="multipart/form-data">
+    @Html.AntiForgeryToken()
+    <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+    <field asp-for="Receipt" stacked full label="Receipt photo">
+        <input asp-for="Receipt" class="field__input" type="file"
+               accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" />
+        <span class="field__hint">A clear, flat photo works best. Max 10 MB.</span>
+        <span asp-validation-for="Receipt" class="field__error"></span>
+    </field>
+
+    <div class="form-stack--row">
+        <button type="submit" class="btn btn--primary">Scan receipt</button>
+        <a href="/Pantry" class="btn btn--ghost">Cancel</a>
+    </div>
+</form>

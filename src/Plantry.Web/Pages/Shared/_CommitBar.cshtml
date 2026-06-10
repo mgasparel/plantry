@@ -1,0 +1,44 @@
+@model Plantry.Web.Pages.Shared.CommitBarViewModel
+
+@*
+    Sticky footer for the intake review form: shows how many lines are resolved (confirmed) out of
+    the total, a primary Commit action and a Discard action. The Commit button is disabled until
+    every line is resolved. hx-post URLs are placeholders — the real intake commands/pages do not
+    exist yet.
+
+    consumed by plantry-75u
+*@
+
+<div class="commit-bar">
+    <div class="commit-bar__progress">
+        <div class="commit-bar__count">
+            <span class="commit-bar__count-done">@Model.Confirmed</span>
+            <span class="commit-bar__count-total">/ @Model.Total confirmed</span>
+        </div>
+        <div class="commit-bar__track" role="progressbar"
+             aria-valuemin="0" aria-valuemax="@Model.Total" aria-valuenow="@Model.Confirmed"
+             aria-label="Lines confirmed">
+            <div class="commit-bar__fill" style="width: @(Model.Percent)%"></div>
+        </div>
+        @if (Model.Remaining > 0)
+        {
+            <span class="commit-bar__hint">@Model.Remaining left to review</span>
+        }
+        else
+        {
+            <span class="commit-bar__hint commit-bar__hint--ready">All lines reviewed</span>
+        }
+    </div>
+
+    <div class="commit-bar__actions">
+        <button type="button" class="btn btn--ghost commit-bar__discard"
+                hx-post="@Model.DiscardUrl" hx-confirm="Discard this import? Nothing will be added to your pantry.">
+            Discard
+        </button>
+        <button type="button" class="btn btn--primary"
+                hx-post="@Model.CommitUrl" disabled="@(Model.CanCommit ? null : "disabled")">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            Commit @Model.Total to pantry
+        </button>
+    </div>
+</div>

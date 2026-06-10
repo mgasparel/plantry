@@ -1,4 +1,5 @@
 @page
+@using Plantry.Intake.Domain
 @model Plantry.Web.Pages.Dev.IndexModel
 @{
     ViewData["Title"] = "Components";
@@ -269,4 +270,79 @@
     <partial name="Shared/_DataGrid" model="Model.ProductGrid" />
 
     <pre class="code-sample"><code>@("Rows: products.Select(p => new GridRow(\n[\n    GridCell.Link(p.Name, $\"/Catalog/Products/Detail/{p.Id}\"),\n    GridCell.Text(p.Category),\n    p.IsParent ? GridCell.Badge(\"Parent\", BadgeTone.Info) : GridCell.Muted(\"—\"),\n    GridCell.Actions(\n        GridAction.Link(\"Edit\", $\"/Catalog/Products/Edit/{p.Id}\"),\n        GridAction.Post(\"Delete\", Url.Page(\"./Index\", \"Delete\", new { id = p.Id }),\n            confirm: $\"Delete {p.Name}?\", removesRow: true)),\n])).ToList()")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Confidence badge</h2>
+    </div>
+    <p>
+        <code>_ConfidenceBadge</code> renders the AI catalog-match confidence for an import line as a
+        tonal badge. It takes a <code>SuggestedConfidence</code> directly and maps it to label + icon
+        + tone, reusing the existing <code>.badge</code> system — <strong>High</strong> = "Matched"
+        (success), <strong>Low</strong> = "Check match" (warning), <strong>None</strong> = "No match"
+        (danger). No new colour tokens were introduced; the three
+        <code>.badge-confidence--*</code> modifiers reuse <code>--color-*-bg</code>.
+    </p>
+
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center">
+        <partial name="Shared/_ConfidenceBadge" model="SuggestedConfidence.High" />
+        <partial name="Shared/_ConfidenceBadge" model="SuggestedConfidence.Low" />
+        <partial name="Shared/_ConfidenceBadge" model="SuggestedConfidence.None" />
+    </div>
+
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_ConfidenceBadge\" model=\"line.Confidence\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Import line row</h2>
+    </div>
+    <p>
+        <code>_ImportLineRow</code> is the htmx swap target for one reviewable line on the intake
+        review form. Its visual state is derived from <code>LineStatus</code> plus whether a catalog
+        product is linked, covering all five states below. Each non-committed row carries an inline
+        edit drawer (toggle on the right) with Alpine <code>draft</code> state — the ADR-005
+        unsaved-row-edit case — reusing the <code>.form-grid__field</code> /
+        <code>.field__input</code> / <code>.searchable-select</code> styling. The action and
+        drawer <code>hx-post</code> URLs are placeholders here; the real intake commands and review
+        page are owned by <code>plantry-75u</code>.
+    </p>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Matched — Pending + High confidence</h3>
+    <partial name="Shared/_ImportLineRow" model="Model.MatchedRow" />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Unmatched — Pending, no match (drawer opens by default)</h3>
+    <partial name="Shared/_ImportLineRow" model="Model.UnmatchedRow" />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">New product — Confirmed, created new</h3>
+    <partial name="Shared/_ImportLineRow" model="Model.NewProductRow" />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Dismissed — not pantry stock</h3>
+    <partial name="Shared/_ImportLineRow" model="Model.DismissedRow" />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Committed — locked, no actions</h3>
+    <partial name="Shared/_ImportLineRow" model="Model.CommittedRow" />
+
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_ImportLineRow\" model=\"lineViewModel\" />\n\n// state is derived from LineStatus + whether ProductName is set:\n//   Pending + High        → matched   (Confirm action + confidence badge)\n//   Pending + None/Low     → unmatched (resolve via searchable-select)\n//   Confirmed (+ CreatedNew) → confirmed (· new product accent)\n//   Dismissed              → dismissed (dimmed, Add anyway)\n//   Committed              → committed (locked, no actions)")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Commit bar</h2>
+    </div>
+    <p>
+        <code>_CommitBar</code> is the sticky footer of the intake review form: a
+        <code>confirmed / total</code> progress readout with a bar, a primary Commit button, and a
+        Discard action. The Commit button stays disabled until every line is resolved. The
+        <code>hx-post</code> URLs are placeholders here (owned by <code>plantry-75u</code>).
+    </p>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">In progress (Commit disabled)</h3>
+    <partial name="Shared/_CommitBar" model="Model.CommitBarPartial" />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin-top: var(--space-5)">All reviewed (Commit enabled)</h3>
+    <partial name="Shared/_CommitBar" model="Model.CommitBarReady" />
+
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_CommitBar\"\n         model=\"new CommitBarViewModel(confirmed, total, commitUrl, discardUrl)\" />")</code></pre>
 </section>

@@ -585,6 +585,20 @@ button { font-family: inherit; cursor: pointer; }
 .badge-expiry--soon    { background: var(--color-warning-bg); color: var(--color-expiry-soon); }
 .badge-expiry--urgent  { background: var(--color-danger-bg);  color: var(--color-expiry-urgent); }
 
+/* ── Spinner (loading indicator) ──────────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spinner-rotate 0.7s linear infinite;
+}
+.spinner--lg { width: 2.5rem; height: 2.5rem; border-width: 3px; }
+@keyframes spinner-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.5s; } }
+
 /* ── Tonal badge (generic) ─────────────────────────────────────────────────── */
 .badge {
   display: inline-flex;
@@ -600,6 +614,15 @@ button { font-family: inherit; cursor: pointer; }
 .badge--success { background: var(--color-success-bg); color: var(--color-success); }
 .badge--warning { background: var(--color-warning-bg); color: var(--color-warning); }
 .badge--danger  { background: var(--color-danger-bg);  color: var(--color-danger); }
+
+/* ── Confidence badge (AI catalog-match) ───────────────────────────────────── */
+/* Reuses the existing tonal `--color-*-bg` tokens — no new colour tokens. */
+.badge-confidence--high { background: var(--color-success-bg); color: var(--color-success); }
+.badge-confidence--low  { background: var(--color-warning-bg); color: var(--color-warning); }
+.badge-confidence--none { background: var(--color-danger-bg);  color: var(--color-danger); }
+.badge-confidence--high .icon,
+.badge-confidence--low  .icon,
+.badge-confidence--none .icon { width: 0.9em; height: 0.9em; }
 
 /* ── Catalog sections / lists ──────────────────────────────────────────────── */
 .catalog-section { margin-bottom: var(--space-8); }
@@ -906,6 +929,287 @@ button { font-family: inherit; cursor: pointer; }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: 1fr; }
   .form-grid__field--full { grid-column: 1; }
+}
+
+/* ── Import line row (intake review form) ──────────────────────────────────── */
+.import-row {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+/* State accents via a left border — colour reuses existing tonal tokens. */
+.import-row--matched   { border-left: 3px solid var(--color-success); }
+.import-row--confirmed { border-left: 3px solid var(--color-success); background: var(--color-success-bg); }
+.import-row--unmatched { border-left: 3px solid var(--color-danger); }
+.import-row--committed { border-left: 3px solid var(--color-border); background: var(--color-bg-subtle); }
+.import-row--dismissed { border-left: 3px solid var(--color-border); opacity: 0.6; }
+
+.import-row__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+.import-row__id { flex: 1 1 auto; min-width: 0; }
+
+.import-row__name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.import-row__new { color: var(--color-accent); font-weight: 600; font-size: var(--font-size-sm); }
+.import-row__unrecognized { color: var(--color-danger); font-weight: 600; }
+
+.import-row__raw {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.import-row__raw-tag {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  font-size: 0.65rem;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+}
+
+.import-row__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-shrink: 0;
+}
+.import-row__meta-cell { text-align: right; }
+.import-row__meta-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+.import-row__meta-unit { font-size: var(--font-size-xs); color: var(--color-text-muted); font-weight: 500; }
+.import-row__meta-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+.import-row__conf { width: 7rem; display: flex; justify-content: flex-end; }
+
+.import-row__act {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.import-row__confirmed-flag,
+.import-row__locked {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.import-row__confirmed-flag { color: var(--color-success); }
+.import-row__locked { color: var(--color-text-muted); }
+
+.import-row__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+.import-row__toggle:hover { background: var(--color-bg-subtle); color: var(--color-text); }
+
+.import-row__edit {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-4);
+}
+.import-row__edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+.import-row__edit-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.import-row__edit-spacer { flex: 1 1 auto; }
+.import-row__edit-danger { color: var(--color-danger); }
+.import-row__edit-danger:hover { background: var(--color-danger-bg); }
+
+@media (max-width: 640px) {
+  .import-row__main { flex-wrap: wrap; }
+  .import-row__meta { gap: var(--space-4); }
+  .import-row__edit-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Commit bar (sticky review-form footer) ────────────────────────────────── */
+.commit-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  z-index: 20;
+}
+
+.commit-bar__progress { flex: 1 1 auto; min-width: 0; }
+.commit-bar__count { font-size: var(--font-size-sm); }
+.commit-bar__count-done { font-weight: 700; color: var(--color-text); }
+.commit-bar__count-total { color: var(--color-text-muted); }
+
+.commit-bar__track {
+  margin-top: var(--space-1);
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-subtle);
+  overflow: hidden;
+}
+.commit-bar__fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-base);
+}
+
+.commit-bar__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.commit-bar__hint--ready { color: var(--color-success); font-weight: 600; }
+
+.commit-bar__actions { display: flex; align-items: center; gap: var(--space-3); flex-shrink: 0; }
+.commit-bar__discard { color: var(--color-text-muted); }
+.commit-bar [disabled] { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+  .commit-bar { flex-direction: column; align-items: stretch; }
+  .commit-bar__actions { justify-content: space-between; }
+}
+
+/* ── Intake review form (SPEC §2e) — two-column: scanned receipt left, lines right ─── */
+.review {
+  display: grid;
+  grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.review__lines { display: flex; flex-direction: column; min-width: 0; }
+.review__head { margin-bottom: var(--space-4); }
+.review__title { font-size: var(--font-size-2xl); font-weight: 700; margin: 0 0 var(--space-1); }
+.review__sub { color: var(--color-text-muted); margin: 0; max-width: 48ch; }
+.review__empty { color: var(--color-text-muted); padding: var(--space-6); text-align: center; }
+.review__rows { margin-bottom: var(--space-4); }
+.review__commit { position: sticky; bottom: var(--space-4); }
+
+/* Receipt panel — a paper-like rendering of the scanned receipt, re-expressed from the design
+   proto in plenish tokens. Sticky so it stays visible while the user works down the line rows. */
+.review__receipt {
+  position: sticky;
+  top: var(--space-4);
+}
+.rcpt-pane { display: flex; flex-direction: column; align-items: center; }
+.rcpt-meta-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.rcpt-via {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-weight: 500;
+}
+.receipt {
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  padding: var(--space-6) var(--space-5);
+  color: var(--color-text);
+}
+.rcpt-store { text-align: center; margin-bottom: var(--space-3); }
+.rcpt-store-name {
+  font-family: var(--font-sans, inherit);
+  font-weight: 700;
+  font-size: var(--font-size-lg);
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+.rcpt-rule { border: none; border-top: 1px dashed var(--color-border); margin: var(--space-3) 0; }
+.rcpt-line {
+  display: flex;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  border-radius: var(--radius-sm);
+}
+.rcpt-line .rl-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rcpt-line .rl-price { font-variant-numeric: tabular-nums; }
+.rcpt-line.dim { opacity: 0.4; text-decoration: line-through; }
+.rcpt-foot { font-size: var(--font-size-sm); }
+.rcpt-total { font-weight: 700; }
+.rcpt-barcode {
+  height: 2.25rem;
+  margin: var(--space-4) 0 var(--space-1);
+  background: repeating-linear-gradient(90deg,
+    var(--color-text) 0 2px, transparent 2px 4px,
+    var(--color-text) 4px 5px, transparent 5px 9px,
+    var(--color-text) 9px 12px, transparent 12px 14px);
+  opacity: 0.85;
+}
+
+/* Per-row error banner (shown when a line command fails — the row is swapped back with the message). */
+.import-row__error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-bottom: 1px solid var(--color-border);
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+}
+
+/* Resolution-mode toggle (existing product vs new product) inside the row edit drawer. */
+.review-row__mode { margin-bottom: var(--space-4); }
+
+@media (max-width: 900px) {
+  .review { grid-template-columns: 1fr; }
+  .review__receipt { position: static; }
+  .review__receipt .receipt { max-width: 22rem; margin: 0 auto; }
 }
 
 /* ── Inline SVG icon sprites (defined once, used via <use>) ─────────────────── */

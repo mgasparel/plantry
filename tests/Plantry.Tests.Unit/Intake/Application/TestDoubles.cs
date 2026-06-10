@@ -111,3 +111,15 @@ internal sealed class FakeRecordPricePort : IRecordPricePort
         return Task.FromResult(Guid.CreateVersion7());
     }
 }
+
+/// <summary>Returns canned review reference data and records that it was asked.</summary>
+internal sealed class FakeReviewReferenceDataProvider(ReviewReferenceData? data = null) : IReviewReferenceDataProvider
+{
+    public int Calls { get; private set; }
+
+    public Task<ReviewReferenceData> GetAsync(CancellationToken ct = default)
+    {
+        Calls++;
+        return Task.FromResult(data ?? new ReviewReferenceData([], [], [], []));
+    }
+}

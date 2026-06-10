@@ -4,6 +4,7 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Plantry.Intake.Domain;
 using Plantry.Web.Pages.Shared;
 using Plantry.Web.TagHelpers;
 
@@ -71,6 +72,42 @@ public sealed class IndexModel : PageModel
         EmptyMessage: "No products yet — add your first one above.");
 
     public IndexListViewModel EmptyList { get; } = new([], EmptyMessage: "Nothing here yet — this is the empty state.");
+
+    // ── Import review components (intake review form) ─────────────────────────
+    // Placeholder hx-post URLs — the real intake commands/pages do not exist yet (plantry-75u).
+    private static ImportLineRowViewModel DemoRow(
+        string id, string? product, string raw, SuggestedConfidence conf, LineStatus status,
+        string qty, string unit, string price, string expiry, bool createdNew = false) =>
+        new(
+            LineId: id, ProductName: product, RawText: raw, Confidence: conf, Status: status,
+            Quantity: qty, Unit: unit, Price: price, Expiry: expiry, CreatedNew: createdNew,
+            ConfirmUrl: "#", DismissUrl: "#", RestoreUrl: "#", SaveUrl: "#");
+
+    public ImportLineRowViewModel MatchedRow { get; } = DemoRow(
+        "demo-matched", "Whole milk 2L", "MILK WHL 2L", SuggestedConfidence.High, LineStatus.Pending,
+        "1", "each", "$3.49", "Jun 12");
+
+    public ImportLineRowViewModel UnmatchedRow { get; } = DemoRow(
+        "demo-unmatched", null, "ORGNC SNCK BAR 6PK", SuggestedConfidence.None, LineStatus.Pending,
+        "1", "each", "$5.99", "—");
+
+    public ImportLineRowViewModel NewProductRow { get; } = DemoRow(
+        "demo-new", "Sourdough loaf", "SRDGH LOAF", SuggestedConfidence.Low, LineStatus.Confirmed,
+        "1", "each", "$4.25", "Jun 9", createdNew: true);
+
+    public ImportLineRowViewModel DismissedRow { get; } = DemoRow(
+        "demo-dismissed", null, "BTL DEPOSIT", SuggestedConfidence.None, LineStatus.Dismissed,
+        "1", "each", "$0.10", "—");
+
+    public ImportLineRowViewModel CommittedRow { get; } = DemoRow(
+        "demo-committed", "Free-range eggs", "EGGS FR 12", SuggestedConfidence.High, LineStatus.Committed,
+        "1", "dozen", "$4.80", "Jun 20");
+
+    public CommitBarViewModel CommitBarPartial { get; } = new(
+        Confirmed: 3, Total: 5, CommitUrl: "#", DiscardUrl: "#");
+
+    public CommitBarViewModel CommitBarReady { get; } = new(
+        Confirmed: 5, Total: 5, CommitUrl: "#", DiscardUrl: "#");
 
     /// <summary>Built in OnGet rather than as a property initializer — Url.Page needs the page context, which isn't available yet during construction.</summary>
     public SortableListViewModel SortableListDemo { get; private set; } = null!;

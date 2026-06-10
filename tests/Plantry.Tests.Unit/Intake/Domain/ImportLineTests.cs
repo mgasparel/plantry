@@ -160,6 +160,43 @@ public sealed class ImportLineTests
     }
 
     [Fact]
+    public void Restore_Returns_Dismissed_Line_To_Pending()
+    {
+        var line = MakeLine();
+        line.Dismiss();
+
+        var result = line.Restore();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(LineStatus.Pending, line.Status);
+    }
+
+    [Fact]
+    public void Restore_Fails_When_Line_Is_Not_Dismissed()
+    {
+        var line = MakeLine(); // Pending
+
+        var result = line.Restore();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotDismissed", result.Error.Code);
+    }
+
+    [Fact]
+    public void Restore_Fails_When_Line_Is_Committed()
+    {
+        var line = MakeLine();
+        line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, null);
+        line.MarkCommitted(Guid.NewGuid(), null);
+
+        var result = line.Restore();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotDismissed", result.Error.Code);
+        Assert.Equal(LineStatus.Committed, line.Status); // unchanged
+    }
+
+    [Fact]
     public void MarkCommitted_Records_Linkage_And_Transitions_To_Committed()
     {
         var line = MakeLine();
