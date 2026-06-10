@@ -6,7 +6,7 @@
     ViewData["Title"] = "Review receipt";
 
     var lines = Model.Session.Lines;
-    var receiptTotal = lines.Where(l => l.Status != LineStatus.Dismissed).Sum(l => l.Price ?? 0m);
+    var receiptTotal = lines.Where(l => l.Status != LineStatus.Dismissed).Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
 }
 
 <div class="review">
@@ -26,7 +26,7 @@
             {
                 <div class="rcpt-line @(l.Status == LineStatus.Dismissed ? "dim" : "")">
                     <span class="rl-name">@l.ReceiptText</span>
-                    <span class="rl-price">@(l.Price?.ToString("0.00", CultureInfo.InvariantCulture) ?? "")</span>
+                    <span class="rl-price">@((l.Price ?? l.SuggestedPrice)?.ToString("0.00", CultureInfo.InvariantCulture) ?? "")</span>
                 </div>
             }
             <hr class="rcpt-rule" />
