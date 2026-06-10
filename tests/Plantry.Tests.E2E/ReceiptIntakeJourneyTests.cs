@@ -85,13 +85,14 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await page.GotoAsync($"{BaseUrl}/Intake/Upload");
             await page.WaitForURLAsync("**/Intake/Upload");
 
+            // SetInputFilesAsync dispatches the change event, which triggers the Alpine
+            // x-on:change handler ($el.form.requestSubmit()) — no separate submit button exists.
             await page.SetInputFilesAsync("input[type=file][name='Receipt']", new FilePayload
             {
                 Name = "receipt.png",
                 MimeType = "image/png",
                 Buffer = TinyPngBytes(),
             });
-            await page.ClickAsync("button:has-text('Scan receipt')");
 
             // The Parse handler runs the (fake) parse synchronously and HX-Redirects to the review form.
             await page.WaitForURLAsync("**/Intake/Review/**");
