@@ -195,6 +195,89 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(3.49m, line.SuggestedPrice);
     }
 
+    [Fact(DisplayName = "ListRecentAsync returns Ready, Committed, Failed — excludes Parsing and Discarded")]
+    public async Task ListRecentAsync_Returns_Visible_Statuses_Only()
+    {
+        var statuses = new[] { ImportStatus.Ready, ImportStatus.Committed, ImportStatus.Failed,
+                               ImportStatus.Parsing, ImportStatus.Discarded };
+
+        await using (var ctx = NewIntakeDb())
+        {
+            foreach (var status in statuses)
+            {
+                var s = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+                // Advance to target status via the domain transitions
+                if (status == ImportStatus.Ready || status == ImportStatus.Committed)
+                    s.MarkReady("Shop", DateTimeOffset.UtcNow);
+                if (status == ImportStatus.Committed)
+                    s.MarkCommitted(DateTimeOffset.UtcNow);
+                if (status == ImportStatus.Failed)
+                    s.MarkParsingFailed("oops");
+                if (status == ImportStatus.Discarded)
+                    s.Discard();
+                await ctx.ImportSessions.AddAsync(s);
+            }
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var repo = new ImportSessionRepository(ctx2);
+        var recent = await repo.ListRecentAsync(_household);
+
+        Assert.Equal(3, recent.Count);
+        Assert.All(recent, s => Assert.Contains(s.Status,
+            new[] { ImportStatus.Ready, ImportStatus.Committed, ImportStatus.Failed }));
+    }
+
+    [Fact(DisplayName = "ListRecentAsync orders by CreatedAt descending and respects take")]
+    public async Task ListRecentAsync_OrderedNewestFirst_And_TakeRespected()
+    {
+        var sessionIds = new List<ImportSessionId>();
+        var baseTime = DateTimeOffset.UtcNow.AddDays(-5);
+
+        await using (var ctx = NewIntakeDb())
+        {
+            for (var i = 0; i < 5; i++)
+            {
+                var s = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+                s.MarkReady($"Shop {i}", baseTime.AddDays(i));
+                sessionIds.Add(s.Id);
+                await ctx.ImportSessions.AddAsync(s);
+            }
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var repo = new ImportSessionRepository(ctx2);
+        var recent = await repo.ListRecentAsync(_household, take: 3);
+
+        Assert.Equal(3, recent.Count);
+        // Newest three: indices 4, 3, 2
+        Assert.True(recent[0].CreatedAt >= recent[1].CreatedAt);
+        Assert.True(recent[1].CreatedAt >= recent[2].CreatedAt);
+    }
+
+    [Fact(DisplayName = "ListRecentAsync is tenant-scoped: household B cannot see household A sessions")]
+    public async Task ListRecentAsync_TenantScoped()
+    {
+        var householdA = HouseholdId.New();
+        var householdB = HouseholdId.New();
+
+        await using (var ctxA = NewIntakeDbFor(householdA))
+        {
+            var s = ImportSession.Start(householdA, ImportSourceType.Receipt, _userId, Clock);
+            s.MarkReady("Shop A", DateTimeOffset.UtcNow);
+            await ctxA.ImportSessions.AddAsync(s);
+            await ctxA.SaveChangesAsync();
+        }
+
+        await using var ctxB = NewIntakeDbFor(householdB);
+        var repo = new ImportSessionRepository(ctxB);
+        var recent = await repo.ListRecentAsync(householdB);
+
+        Assert.Empty(recent);
+    }
+
     private DbContextOptions<IntakeDbContext> IntakeOptions() =>
         new DbContextOptionsBuilder<IntakeDbContext>().UseNpgsql(db.ConnectionString).Options;
 

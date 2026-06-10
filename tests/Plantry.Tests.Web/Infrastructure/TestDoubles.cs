@@ -34,6 +34,8 @@ public sealed class FakeImportSessionRepository(ITenantContext tenant, ImportSes
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task<List<ImportSession>> ListPendingAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(new List<ImportSession>());
+    public Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default) =>
+        Task.FromResult(new List<ImportSession>());
 }
 
 /// <summary>Returns the fixed review reference data (dropdown options) the fragments render against.</summary>

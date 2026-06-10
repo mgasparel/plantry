@@ -346,3 +346,110 @@
 
     <pre class="code-sample"><code>@("<partial name=\"Shared/_CommitBar\"\n         model=\"new CommitBarViewModel(confirmed, total, commitUrl, discardUrl)\" />")</code></pre>
 </section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Dropzone</h2>
+    </div>
+    <p>
+        <code>.dropzone</code> is the receipt upload target on the intake landing page. It holds a
+        visual receipt illustration (<code>.dz-illus</code> lines), a heading, a hint, and two
+        action buttons. The <code>.drag</code> modifier class (toggled by Alpine) highlights the
+        border during an active drag. The actual file input lives in a child partial
+        (<code>_UploadForm</code>) whose <code>hx-post</code> drives the scanning flow.
+    </p>
+    <div class="dropzone" style="max-width: 640px">
+        <div class="dz-visual">
+            <div class="dz-illus">
+                <div style="padding-top: 20px">
+                    @foreach (var w in new[] { 60, 80, 45, 75, 55, 85, 40, 70 })
+                    {
+                        <div class="dz-illus-line" style="width: @(w)%; margin-top: 9px;"></div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="dz-content">
+            <h3>Drop a receipt photo to start</h3>
+            <p>JPG, PNG or PDF — or a snapshot straight from your phone.</p>
+            <div class="dz-actions">
+                <button type="button" class="btn btn--primary">
+                    <svg class="icon" aria-hidden="true"><use href="#i-camera" /></svg> Upload receipt
+                </button>
+                <button type="button" class="btn btn--ghost">
+                    <svg class="icon" aria-hidden="true"><use href="#i-image" /></svg> Use sample receipt
+                </button>
+            </div>
+            <p class="dz-or">Or forward it to <code>inbox@example.plenish.app</code> and it'll be waiting when you open the app.</p>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"dropzone\" x-data=\"{ drag: false }\"\n     x-on:dragover.prevent=\"drag = true\"\n     x-on:dragleave=\"drag = false\"\n     x-on:drop.prevent=\"drag = false\"\n     :class=\"{ drag }\">\n  <div class=\"dz-visual\">...</div>\n  <div class=\"dz-content\">\n    <h3>Drop a receipt photo to start</h3>\n    <p>JPG, PNG or PDF...</p>\n    <div class=\"dz-actions\">\n      <button class=\"btn btn--primary\">Upload receipt</button>\n      <button class=\"btn btn--ghost\">Use sample receipt</button>\n    </div>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recent-intake row</h2>
+    </div>
+    <p>
+        <code>.recent-row</code> is a single row in the intake landing page's history list. Each row
+        has a receipt icon badge (<code>.recent-ico</code>), a store name + timestamp block
+        (<code>.recent-main</code>), and either a <strong>Resume</strong> button (for a
+        <code>Ready</code> session still in review) or a monospaced amount (<code>.recent-amt</code>)
+        for committed sessions. Rows are stacked inside a <code>.panel</code> element.
+    </p>
+    <div class="panel" style="max-width: 420px">
+        <h4>Recent intakes</h4>
+        <div class="recent-row">
+            <div class="recent-ico"><svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg></div>
+            <div class="recent-main">
+                <div class="recent-title">Hillcrest Market</div>
+                <div class="recent-sub">Today · being reviewed</div>
+            </div>
+            <a href="#" class="btn btn--secondary btn--sm">Resume</a>
+        </div>
+        <div class="recent-row">
+            <div class="recent-ico"><svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg></div>
+            <div class="recent-main">
+                <div class="recent-title">Costco Wholesale</div>
+                <div class="recent-sub">Sun Jun 1</div>
+            </div>
+            <div class="recent-amt">$214.30</div>
+        </div>
+        <div class="recent-row">
+            <div class="recent-ico"><svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg></div>
+            <div class="recent-main">
+                <div class="recent-title">Unknown store</div>
+                <div class="recent-sub">Sat May 31 · failed</div>
+            </div>
+            <div class="recent-amt">—</div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"panel\">\n  <h4>Recent intakes</h4>\n  <div class=\"recent-row\">\n    <div class=\"recent-ico\"><svg class=\"icon\"><use href=\"#i-receipt\" /></svg></div>\n    <div class=\"recent-main\">\n      <div class=\"recent-title\">Store name</div>\n      <div class=\"recent-sub\">When</div>\n    </div>\n    <!-- Resume button (Ready) or amount (Committed/Failed) -->\n    <a href=\"...\" class=\"btn btn--secondary btn--sm\">Resume</a>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Stat grid</h2>
+    </div>
+    <p>
+        <code>.stat-grid</code> lays out 2–4 numeric stats in a two-column grid inside a
+        <code>.panel</code>. Each stat has a large number (<code>.stat-num</code>) and a label
+        (<code>.stat-lbl</code>). Monetary values use the <code>--mono</code> modifier on
+        <code>.stat-num</code> for tabular numerals. An optional <code>.stat-footer</code> strip
+        below the grid shows a secondary metric (e.g. "Average review time").
+    </p>
+    <div class="panel" style="max-width: 420px">
+        <h4>This month</h4>
+        <div class="stat-grid">
+            <div class="stat"><div class="stat-num stat-num--mono">$842</div><div class="stat-lbl">Groceries logged</div></div>
+            <div class="stat"><div class="stat-num">7</div><div class="stat-lbl">Receipts scanned</div></div>
+            <div class="stat"><div class="stat-num">128</div><div class="stat-lbl">Items in pantry</div></div>
+            <div class="stat"><div class="stat-num">9</div><div class="stat-lbl">Expiring this week</div></div>
+        </div>
+        <div class="stat-footer">
+            <svg class="icon" aria-hidden="true" style="color: var(--color-accent)"><use href="#i-clock" /></svg>
+            Average review time this month: <strong>52s</strong>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"stat-grid\">\n  <div class=\"stat\">\n    <div class=\"stat-num stat-num--mono\">$842</div>\n    <div class=\"stat-lbl\">Groceries logged</div>\n  </div>\n  ...\n</div>\n<div class=\"stat-footer\">\n  <svg class=\"icon\"><use href=\"#i-clock\"/></svg>\n  Average review time: <strong>52s</strong>\n</div>")</code></pre>
+</section>

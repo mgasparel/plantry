@@ -29,4 +29,15 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
             .Include(s => s.Lines)
             .Where(s => s.HouseholdId == householdId && s.Status == ImportStatus.Ready)
             .ToListAsync(ct);
+
+    public Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default) =>
+        db.ImportSessions
+            .Include(s => s.Lines)
+            .Where(s => s.HouseholdId == householdId &&
+                        (s.Status == ImportStatus.Ready ||
+                         s.Status == ImportStatus.Committed ||
+                         s.Status == ImportStatus.Failed))
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(take)
+            .ToListAsync(ct);
 }

@@ -29,6 +29,7 @@
 
   --color-text:        #2b2b28;
   --color-text-muted:  #6d685d;
+  --color-text-faint:  #9c9587;
   --color-text-on-accent: #fbf8f1;
 
   --color-accent:      #3d5a40;
@@ -1210,6 +1211,98 @@ button { font-family: inherit; cursor: pointer; }
   .review { grid-template-columns: 1fr; }
   .review__receipt { position: static; }
   .review__receipt .receipt { max-width: 22rem; margin: 0 auto; }
+}
+
+/* ── Intake landing page ─────────────────────────────────────────────────────── */
+.intake-wrap { max-width: 940px; margin: 0 auto; padding: 46px 32px 60px; }
+.intake-head h1 { font-size: 33px; letter-spacing: -0.025em; margin: 0 0 8px; font-weight: 700; }
+.intake-head p { font-size: 16px; color: var(--color-text-muted); margin: 0 0 30px; max-width: 56ch; }
+
+.dropzone {
+  border: 1.5px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 40px;
+  display: flex;
+  gap: 30px;
+  align-items: center;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.dropzone.drag { border-color: var(--color-accent); background: var(--color-accent-subtle); }
+.dz-visual { width: 168px; height: 200px; flex: none; position: relative; }
+.dz-illus {
+  position: absolute; inset: 0;
+  background: var(--color-surface);
+  border-radius: 10px 10px 8px 8px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border);
+  transform: rotate(-4deg);
+  overflow: hidden;
+}
+.dz-illus::before {
+  content: "";
+  position: absolute; left: 0; right: 0; top: 0; height: 10px;
+  background: radial-gradient(circle at 6px -2px, transparent 6px, var(--color-surface) 6.5px) repeat-x;
+  background-size: 12px 10px;
+}
+.dz-illus-line { height: 6px; background: var(--color-border); border-radius: 3px; margin: 0 18px; }
+.dz-content { flex: 1; min-width: 0; }
+.dz-content h3 { margin: 0 0 6px; font-size: 19px; letter-spacing: -0.01em; }
+.dz-content p { margin: 0 0 18px; color: var(--color-text-muted); font-size: 14.5px; }
+.dz-actions { display: flex; gap: 11px; flex-wrap: wrap; }
+.dz-or { color: var(--color-text-faint); font-size: 13px; margin: 16px 0 0; }
+.dz-or code {
+  font-family: var(--font-mono);
+  background: var(--color-surface-2);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.intake-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 32px; }
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+}
+.panel h4 {
+  margin: 0 0 14px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  font-weight: 600;
+}
+.recent-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 0;
+  border-top: 1px solid var(--color-border);
+}
+.recent-row:first-of-type { border-top: none; }
+.recent-ico {
+  width: 34px; height: 34px; border-radius: var(--radius-md); flex: none;
+  background: var(--color-surface-2); display: grid; place-items: center; color: var(--color-text-muted);
+}
+.recent-main { flex: 1; min-width: 0; }
+.recent-title { font-weight: 600; font-size: 14px; }
+.recent-sub { font-size: 12.5px; color: var(--color-text-faint); }
+.recent-amt { font-family: var(--font-mono); font-size: 13.5px; color: var(--color-text-muted); }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.stat-num { font-size: 27px; font-weight: 700; letter-spacing: -0.02em; }
+.stat-num--mono { font-family: var(--font-mono); }
+.stat-lbl { font-size: 12.5px; color: var(--color-text-faint); margin-top: 2px; }
+.stat-footer {
+  margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border);
+  font-size: 13px; color: var(--color-text-muted);
+  display: flex; gap: 9px; align-items: center;
+}
+.stat-footer strong { color: var(--color-text); }
+
+@media (max-width: 700px) {
+  .dropzone { flex-direction: column; padding: 28px 20px; }
+  .dz-visual { width: 100%; height: 80px; }
+  .intake-cols { grid-template-columns: 1fr; }
 }
 
 /* ── Inline SVG icon sprites (defined once, used via <use>) ─────────────────── */

@@ -44,6 +44,14 @@ internal sealed class FakeImportSessionRepository : IImportSessionRepository
 
     public Task<List<ImportSession>> ListPendingAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(Sessions.Where(s => s.HouseholdId == householdId && s.Status == ImportStatus.Ready).ToList());
+
+    public Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default) =>
+        Task.FromResult(Sessions
+            .Where(s => s.HouseholdId == householdId &&
+                        (s.Status == ImportStatus.Ready || s.Status == ImportStatus.Committed || s.Status == ImportStatus.Failed))
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(take)
+            .ToList());
 }
 
 /// <summary>Returns a canned parse result (or error) and records the hints it was handed.</summary>

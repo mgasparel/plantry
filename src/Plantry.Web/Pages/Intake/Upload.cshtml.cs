@@ -26,6 +26,7 @@ public sealed class UploadModel(
     IClock clock,
     ITenantContext tenant) : PageModel
 {
+    public IReadOnlyList<RecentIntakeRow> RecentIntakes { get; private set; } = [];
     /// <summary>Accepted image content types — keeps obviously-wrong uploads off the AI pipeline.</summary>
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -39,8 +40,11 @@ public sealed class UploadModel(
     [Required(ErrorMessage = "Choose a receipt photo to upload.")]
     public IFormFile? Receipt { get; set; }
 
-    public void OnGet()
+    public async Task OnGetAsync(CancellationToken ct)
     {
+        if (tenant.HouseholdId is { } hid)
+            RecentIntakes = await new GetRecentSessionsQuery(sessions)
+                .ExecuteAsync(HouseholdId.From(hid), take: 8, ct);
     }
 
     /// <summary>Re-upload affordance from the failure fragment: swaps a fresh, empty form back in.</summary>
@@ -48,6 +52,42 @@ public sealed class UploadModel(
     {
         Receipt = null;
         return Partial("_UploadForm", this);
+    }
+
+    /// <summary>
+    /// Submits a built-in sample receipt through the same parse pipeline as a real upload.
+    /// Available in Development when AI:UseSampleParser=true; returns a model error otherwise so
+    /// the button degrades gracefully rather than throwing.
+    /// </summary>
+    public async Task<IActionResult> OnPostSampleAsync(CancellationToken ct)
+    {
+        // Placeholder bytes — the SampleReceiptParser ignores image content entirely.
+        byte[] sampleBytes = [0xFF, 0xD8, 0xFF, 0xE0]; // minimal JPEG header
+
+        var cmd = new ParseSessionCommand(
+            sampleBytes, "image/jpeg", CurrentUserId,
+            sessions, parser, hints, clock, tenant);
+
+        var result = await cmd.ExecuteAsync(ct);
+        if (result.IsFailure)
+        {
+            ModelState.AddModelError(string.Empty, result.Error.Description);
+            return Partial("_UploadForm", this);
+        }
+
+        var sessionId = result.Value;
+        var session = await sessions.FindAsync(sessionId, ct);
+
+        if (session is null || session.Status == ImportStatus.Failed)
+        {
+            return Partial("_UploadFailed", new UploadFailedModel(
+                sessionId,
+                session?.ParseError ?? "The sample receipt couldn't be parsed. Is UseSampleParser enabled?"));
+        }
+
+        var reviewUrl = Url.Page("/Intake/Review", new { id = sessionId.Value })!;
+        Response.Headers["HX-Redirect"] = reviewUrl;
+        return new EmptyResult();
     }
 
     public async Task<IActionResult> OnPostParseAsync(CancellationToken ct)

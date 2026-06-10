@@ -10,4 +10,11 @@ public interface IImportSessionRepository
     Task<ImportReceipt?> FindReceiptAsync(ImportSessionId sessionId, CancellationToken ct = default);
     Task SaveChangesAsync(CancellationToken ct = default);
     Task<List<ImportSession>> ListPendingAsync(HouseholdId householdId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the most recent <paramref name="take"/> sessions for the household across all
+    /// terminal and in-progress statuses (Ready, Committed, Failed), ordered newest first.
+    /// Excludes Parsing and Discarded sessions.
+    /// </summary>
+    Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default);
 }

@@ -1,33 +1,169 @@
 @page
 @model Plantry.Web.Pages.Intake.UploadModel
+@using Plantry.Intake.Domain
 @{
-    ViewData["Title"] = "Add stock";
+    ViewData["Title"] = "Add groceries";
 }
 
 @*
-    SPEC §2a — receipt upload. The form posts the image to the Parse handler (synchronous AI parse).
-    While the request is in flight, Alpine shows an inline scanning state (driven by htmx request
-    lifecycle events). On Ready the handler returns HX-Redirect to the review form; on Failed it
-    swaps in the failure fragment with a re-upload affordance.
+    SPEC §2a — receipt upload landing page. Three regions:
+    1. Header — "Add groceries" title + subtitle.
+    2. Dropzone — drag/drop + click upload with receipt illustration; wraps the existing
+       _UploadForm partial (hx-post → OnPostParseAsync). Alpine drives the scanning overlay
+       and drag highlight; the Ready flow HX-Redirects to Review, Failed swaps _UploadFailed.
+    3. Two side-by-side panels:
+       - Recent intakes (functional) — tenant-scoped session history; Ready shows Resume.
+       - This month (placeholder) — static stat grid, real aggregation deferred.
 *@
-<div class="card" x-data="{ scanning: false }"
-     x-on:htmx:before-request="scanning = true"
-     x-on:htmx:after-request="scanning = false">
-    <div class="card__head">
-        <h1 class="card__head-title">Scan a receipt</h1>
-        <p class="card__head-sub">Snap or upload a grocery receipt — we'll read the items for you to review.</p>
+
+<div class="intake-wrap" x-data="{ scanning: false }"
+     x-on:htmx:before-request.window="scanning = true"
+     x-on:htmx:after-request.window="scanning = false">
+
+    <div class="intake-head">
+        <h1>Add groceries</h1>
+        <p>Snap your receipt and Plenish reads every line, matches it to your catalog, and queues it for a quick review. A full grocery run, logged in under a minute.</p>
     </div>
-    <div class="card__body">
-        @* Form region — hidden while scanning so the two states never overlap. *@
-        <div id="upload-region" x-show="!scanning">
-            <partial name="_UploadForm" model="Model" />
+
+    @* ── Dropzone ─────────────────────────────────────────────────────────── *@
+    <div class="dropzone"
+         x-bind:class="{ drag: $data.dragging }"
+         x-data="{ dragging: false }"
+         x-on:dragover.prevent="dragging = true"
+         x-on:dragleave="dragging = false"
+         x-on:drop.prevent="dragging = false; $refs.fileInput.files = $event.dataTransfer.files; $refs.uploadForm.requestSubmit()">
+
+        <div class="dz-visual">
+            <div class="dz-illus">
+                <div style="padding-top: 20px">
+                    <div class="dz-illus-line" style="width: 60%"></div>
+                    <div class="dz-illus-line" style="width: 80%; margin-top: 9px"></div>
+                    <div class="dz-illus-line" style="width: 45%; margin-top: 9px"></div>
+                    <div class="dz-illus-line" style="width: 75%; margin-top: 9px"></div>
+                    <div class="dz-illus-line" style="width: 55%; margin-top: 9px"></div>
+                    <div class="dz-illus-line" style="width: 85%; margin-top: 9px"></div>
+                    <div class="dz-illus-line" style="width: 40%; margin-top: 9px"></div>
+                    <div class="dz-illus-line" style="width: 70%; margin-top: 9px"></div>
+                </div>
+            </div>
         </div>
 
-        @* Scanning state — page-level, shown only during the in-flight parse request. *@
-        <div class="empty-state" x-show="scanning" x-cloak aria-live="polite">
-            <div class="spinner spinner--lg" role="status" aria-hidden="true"></div>
-            <div class="empty-state__title">Reading your receipt…</div>
-            <p class="empty-state__body">This takes a few seconds while we pick out the items. Hang tight.</p>
+        <div class="dz-content">
+            @* Scanning overlay — visible while the AI parse is in-flight. *@
+            <div x-show="$root.scanning" x-cloak class="empty-state" aria-live="polite">
+                <div class="spinner spinner--lg" role="status" aria-hidden="true"></div>
+                <div class="empty-state__title">Reading your receipt…</div>
+                <p class="empty-state__body">This takes a few seconds while we pick out the items. Hang tight.</p>
+            </div>
+
+            @* Upload form — hidden while scanning. *@
+            <div id="upload-region" x-show="!$root.scanning">
+                <h3>Drop a receipt photo to start</h3>
+                <p>JPG, PNG or PDF — or a snapshot straight from your phone.</p>
+                <div class="dz-actions">
+                    <button type="button" class="btn btn--primary"
+                            x-on:click="$refs.fileInput.click()">
+                        <svg class="icon" aria-hidden="true"><use href="#i-camera" /></svg> Upload receipt
+                    </button>
+                    <button type="button" class="btn btn--ghost"
+                            hx-post="@Url.Page("./Upload", "Sample")"
+                            hx-target="#upload-region"
+                            hx-swap="innerHTML">
+                        <svg class="icon" aria-hidden="true"><use href="#i-image" /></svg> Use sample receipt
+                    </button>
+                </div>
+                <p class="dz-or">Or forward it to <code>inbox&#64;household.plenish.app</code> and it'll be waiting when you open the app.</p>
+            </div>
+
+            @* Hidden form — file input wired to the drag handler and the Upload button. *@
+            <form x-ref="uploadForm" method="post" enctype="multipart/form-data" style="display:none"
+                  hx-post="@Url.Page("./Upload", "Parse")"
+                  hx-target="#upload-region" hx-swap="innerHTML"
+                  hx-encoding="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <input x-ref="fileInput" type="file" name="Receipt"
+                       accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+                       x-on:change="$el.form.requestSubmit()" />
+            </form>
         </div>
     </div>
+
+    @* ── Two panels ───────────────────────────────────────────────────────── *@
+    <div class="intake-cols">
+
+        @* Recent intakes — functional, tenant-scoped *@
+        <div class="panel">
+            <h4>Recent intakes</h4>
+            @if (!Model.RecentIntakes.Any())
+            {
+                <p style="font-size: 13.5px; color: var(--color-text-faint); margin: 0">No receipts yet — upload your first one above.</p>
+            }
+            else
+            {
+                foreach (var row in Model.RecentIntakes)
+                {
+                    <div class="recent-row">
+                        <div class="recent-ico">
+                            <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg>
+                        </div>
+                        <div class="recent-main">
+                            <div class="recent-title">@(row.Store ?? "Unknown store")</div>
+                            <div class="recent-sub">@FormatWhen(row.CreatedAt, row.Status)</div>
+                        </div>
+                        @if (row.Status == ImportStatus.Ready)
+                        {
+                            <a href="/Intake/Review?id=@row.Id.Value" class="btn btn--secondary btn--sm">Resume</a>
+                        }
+                        else
+                        {
+                            <div class="recent-amt">@FormatAmount(row.Amount)</div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+
+        @* This month — placeholder stats *@
+        <div class="panel">
+            <h4>This month</h4>
+            <div class="stat-grid">
+                <div class="stat"><div class="stat-num stat-num--mono">—</div><div class="stat-lbl">Groceries logged</div></div>
+                <div class="stat"><div class="stat-num">—</div><div class="stat-lbl">Receipts scanned</div></div>
+                <div class="stat"><div class="stat-num">—</div><div class="stat-lbl">Items in pantry</div></div>
+                <div class="stat"><div class="stat-num">—</div><div class="stat-lbl">Expiring this week</div></div>
+            </div>
+            <div class="stat-footer">
+                <svg class="icon" aria-hidden="true" style="color: var(--color-accent)"><use href="#i-clock" /></svg>
+                Average review time this month: <strong>—</strong>
+            </div>
+        </div>
+
+    </div>
 </div>
+
+@functions {
+    private string FormatWhen(DateTimeOffset createdAt, ImportStatus status)
+    {
+        var local = createdAt.ToLocalTime();
+        var today = DateTimeOffset.Now.Date;
+        var date = local.Date;
+
+        var suffix = status switch
+        {
+            ImportStatus.Ready => " · being reviewed",
+            ImportStatus.Failed => " · failed",
+            _ => string.Empty,
+        };
+
+        if (date == today)
+            return "Today" + suffix;
+        if (date == today.AddDays(-1))
+            return "Yesterday" + suffix;
+        if ((today - date).TotalDays < 7)
+            return local.ToString("ddd MMM d") + suffix;
+        return local.ToString("MMM d, yyyy") + suffix;
+    }
+
+    private static string FormatAmount(decimal? amount) =>
+        amount.HasValue ? $"${amount.Value:F2}" : "—";
+}
