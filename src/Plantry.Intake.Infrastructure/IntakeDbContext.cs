@@ -95,6 +95,8 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.LocationId).HasColumnName("location_id");
             b.Property(l => l.ExpiryDate).HasColumnName("expiry_date");
             b.Property(l => l.Price).HasColumnName("price").HasPrecision(12, 2);
+            b.Property(l => l.NewProductName).HasColumnName("new_product_name").HasMaxLength(200);
+            b.Property(l => l.NewProductCategoryId).HasColumnName("new_product_category_id");
             b.Property(l => l.Status)
                 .HasConversion(s => s.ToDbValue(), v => LineStatusExtensions.Parse(v))
                 .HasColumnName("status")

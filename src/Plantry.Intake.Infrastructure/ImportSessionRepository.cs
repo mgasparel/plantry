@@ -9,6 +9,9 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
     public async Task AddAsync(ImportSession session, CancellationToken ct = default) =>
         await db.ImportSessions.AddAsync(session, ct);
 
+    public async Task AddReceiptAsync(ImportReceipt receipt, CancellationToken ct = default) =>
+        await db.ImportReceipts.AddAsync(receipt, ct);
+
     public Task<ImportSession?> FindAsync(ImportSessionId sessionId, CancellationToken ct = default) =>
         db.ImportSessions
             .Include(s => s.Lines)

@@ -27,6 +27,16 @@ public sealed class ImportLine : Entity<ImportLineId>
     public DateOnly? ExpiryDate { get; private set; }
     public decimal? Price { get; private set; }
 
+    // New-product intent (ADR-010 create-at-commit): when the user resolves an unmatched line to a
+    // brand-new product, ProductId stays null and the product is created by CommitSessionCommand — so no
+    // orphan product is left behind if the session is never committed. The purchase UnitId doubles as the
+    // new product's default unit.
+    public string? NewProductName { get; private set; }
+    public Guid? NewProductCategoryId { get; private set; }
+
+    /// <summary>A confirmed line whose product does not yet exist — created at commit time.</summary>
+    public bool IsNewProduct => ProductId is null && NewProductName is not null;
+
     public LineStatus Status { get; private set; }
 
     // Linkage written by CommitSessionCommand
@@ -67,6 +77,38 @@ public sealed class ImportLine : Entity<ImportLineId>
 
         ProductId = productId;
         SkuId = skuId;
+        Quantity = quantity;
+        UnitId = unitId;
+        LocationId = locationId;
+        ExpiryDate = expiryDate;
+        Price = price;
+        // Resolving to an existing product clears any prior new-product intent.
+        NewProductName = null;
+        NewProductCategoryId = null;
+        Status = LineStatus.Confirmed;
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Confirms the line against a product that does not exist yet (the §2d unmatched create/link path).
+    /// The product is created by <c>CommitSessionCommand</c>; <see cref="ProductId"/> stays null until
+    /// then. The purchase <paramref name="unitId"/> becomes the new product's default unit.
+    /// </summary>
+    public Result ConfirmAsNew(
+        string newProductName, Guid newProductCategoryId, decimal quantity, Guid unitId, Guid locationId,
+        DateOnly? expiryDate, decimal? price)
+    {
+        if (Status == LineStatus.Dismissed)
+            return Error.Custom("Intake.LineAlreadyDismissed", "Cannot confirm a dismissed line.");
+        if (Status == LineStatus.Committed)
+            return Error.Custom("Intake.LineAlreadyCommitted", "Cannot re-confirm an already committed line.");
+        if (string.IsNullOrWhiteSpace(newProductName))
+            return Error.Custom("Intake.MissingProductName", "A new product needs a name.");
+
+        ProductId = null;
+        SkuId = null;
+        NewProductName = newProductName.Trim();
+        NewProductCategoryId = newProductCategoryId;
         Quantity = quantity;
         UnitId = unitId;
         LocationId = locationId;

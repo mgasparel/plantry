@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "server",
-  "dolt_database": "plantry",
-  "project_id": "0df8c812-116b-42ff-b39e-a324139a00ab"
-}

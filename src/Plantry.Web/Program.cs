@@ -18,6 +18,8 @@ using Plantry.Pricing.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Dev;
+using Plantry.Web.Events;
+using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.Pricing;
 using Plantry.Web.Tenancy;
@@ -90,9 +92,7 @@ builder.Services.AddScoped<ILocationRepository, LocationRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<ProductQueryService>();
 
-// Inventory context: repository, read models, and the two Web-side adapters that supply the
-// cross-context seams (unit conversion + Catalog reads) so the Inventory projects stay
-// dependency-free of Catalog (PHASE-1-PLAN.md Slice 2, Stage D).
+// Inventory context
 builder.Services.AddScoped<IProductStockRepository, ProductStockRepository>();
 builder.Services.AddScoped<InventoryQueryService>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
@@ -107,12 +107,28 @@ builder.Services.AddScoped<IPriceObservationRepository, PriceObservationReposito
 builder.Services.AddScoped<IUnitPriceCalculator, UnitPriceCalculatorAdapter>();
 builder.Services.AddScoped<PricingQueries>();
 
-// Intake context
+// Intake context (hero AI receipt flow — ADR-007/ADR-010). The dispatch interceptor drains domain
+// events (e.g. ImportSessionCommittedEvent) after a successful SaveChanges; the AI parser, the four
+// cross-context port adapters, and the event handler are the seams ParseSessionCommand /
+// CommitSessionCommand are constructed over.
+builder.Services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
+builder.Services.AddScoped<DomainEventDispatchInterceptor>();
+builder.Services.AddScoped<IDomainEventHandler<ImportSessionCommittedEvent>, ImportSessionCommittedLogHandler>();
+
 builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
-        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+        .AddInterceptors(
+            sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
+            sp.GetRequiredService<DomainEventDispatchInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
+
+builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
+builder.Services.AddScoped<IReceiptParser, GeminiReceiptParser>();
+builder.Services.AddScoped<ICatalogHintProvider, CatalogHintProvider>();
+builder.Services.AddScoped<ICreateProductPort, CreateProductAdapter>();
+builder.Services.AddScoped<IAddStockPort, AddStockAdapter>();
+builder.Services.AddScoped<IRecordPricePort, RecordPriceAdapter>();
 
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();

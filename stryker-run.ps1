@@ -7,7 +7,8 @@ $projects = @(
     "Plantry.Catalog",
     "Plantry.Inventory",
     "Plantry.Pricing",
-    "Plantry.Intake"
+    "Plantry.Intake",
+    "Plantry.Intake.Infrastructure"
 )
 
 $results = [ordered]@{}

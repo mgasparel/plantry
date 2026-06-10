@@ -63,6 +63,79 @@ public sealed class ImportLineTests
     }
 
     [Fact]
+    public void ConfirmAsNew_Sets_New_Product_Intent_And_Leaves_ProductId_Null()
+    {
+        var line = MakeLine();
+        var categoryId = Guid.CreateVersion7();
+
+        var result = line.ConfirmAsNew("  Oat Milk  ", categoryId, 2m, UnitId, LocationId, null, 4.49m);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(LineStatus.Confirmed, line.Status);
+        Assert.True(line.IsNewProduct);
+        Assert.Null(line.ProductId);
+        Assert.Equal("Oat Milk", line.NewProductName); // trimmed
+        Assert.Equal(categoryId, line.NewProductCategoryId);
+        Assert.Equal(2m, line.Quantity);
+        Assert.Equal(UnitId, line.UnitId);
+        Assert.Equal(LocationId, line.LocationId);
+        Assert.Equal(4.49m, line.Price);
+    }
+
+    [Fact]
+    public void ConfirmAsNew_Fails_When_Line_Is_Dismissed()
+    {
+        var line = MakeLine();
+        line.Dismiss();
+
+        var result = line.ConfirmAsNew("Oat Milk", Guid.CreateVersion7(), 1m, UnitId, LocationId, null, null);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineAlreadyDismissed", result.Error.Code);
+    }
+
+    [Fact]
+    public void ConfirmAsNew_Fails_When_Line_Is_Already_Committed()
+    {
+        var line = MakeLine();
+        line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, null);
+        line.MarkCommitted(Guid.NewGuid(), null);
+
+        var result = line.ConfirmAsNew("Oat Milk", Guid.CreateVersion7(), 1m, UnitId, LocationId, null, null);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineAlreadyCommitted", result.Error.Code);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ConfirmAsNew_Fails_When_Name_Is_Blank(string blankName)
+    {
+        var line = MakeLine();
+
+        var result = line.ConfirmAsNew(blankName, Guid.CreateVersion7(), 1m, UnitId, LocationId, null, null);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.MissingProductName", result.Error.Code);
+        Assert.Equal(LineStatus.Pending, line.Status); // not transitioned
+    }
+
+    [Fact]
+    public void Confirm_Clears_Prior_New_Product_Intent()
+    {
+        var line = MakeLine();
+        line.ConfirmAsNew("Oat Milk", Guid.CreateVersion7(), 1m, UnitId, LocationId, null, null);
+
+        line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, null);
+
+        Assert.False(line.IsNewProduct);
+        Assert.Equal(ProductId, line.ProductId);
+        Assert.Null(line.NewProductName);
+        Assert.Null(line.NewProductCategoryId);
+    }
+
+    [Fact]
     public void Dismiss_Sets_Status_To_Dismissed()
     {
         var line = MakeLine();

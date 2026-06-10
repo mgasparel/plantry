@@ -23,7 +23,8 @@ public sealed class AddStockCommand(
     IProductStockRepository stocks,
     ICatalogReadFacade catalog,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    StockSourceType sourceType = StockSourceType.Manual)
 {
     public async Task<Result<StockEntryId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -47,7 +48,7 @@ public sealed class AddStockCommand(
         var entry = stock.AddStock(
             quantity, unitId, locationId, userId, clock,
             skuId: skuId, expiryDate: expiryDate, purchasedAt: purchasedAt,
-            sourceType: StockSourceType.Manual);
+            sourceType: sourceType);
 
         if (isNew)
         {
@@ -59,7 +60,7 @@ public sealed class AddStockCommand(
                 entry = stock.AddStock(
                     quantity, unitId, locationId, userId, clock,
                     skuId: skuId, expiryDate: expiryDate, purchasedAt: purchasedAt,
-                    sourceType: StockSourceType.Manual);
+                    sourceType: sourceType);
                 await stocks.SaveChangesAsync(ct);
             }
         }

@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The AI:ApiKey is supplied via user-secrets (dev) / env config (prod), never committed. -->
+    <UserSecretsId>plantry-web-2026</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

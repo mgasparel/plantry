@@ -35,6 +35,7 @@ Thumbs.db
 .repowise/
 
 # Beads / Dolt files (added by bd init)
+.beads/
 .dolt/
 *.db
 .beads-credential-key

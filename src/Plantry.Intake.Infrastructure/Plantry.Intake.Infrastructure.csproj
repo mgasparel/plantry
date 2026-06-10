@@ -8,11 +8,18 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageReference Include="OpenAI" Version="2.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.*" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.Intake\Plantry.Intake.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exposes GeminiReceiptParser.MapResponse for L1 fixture-based parser tests (no live API). -->
+    <InternalsVisibleTo Include="Plantry.Tests.Unit" />
   </ItemGroup>
 
 </Project>
