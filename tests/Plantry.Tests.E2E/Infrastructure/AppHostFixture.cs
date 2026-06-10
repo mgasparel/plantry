@@ -38,6 +38,7 @@ public sealed class AppHostFixture : IAsyncLifetime
             .OfType<ProjectResource>()
             .Single(r => r.Name == "plantry-web");
         appHost.CreateResourceBuilder(webResource)
+            .WithEnvironment("AI__UseSampleParser", "false")
             .WithEnvironment("AI__UseFakeParser", "true");
 
         _app = await appHost.BuildAsync();
