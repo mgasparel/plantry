@@ -23,6 +23,8 @@ public sealed class Money : ValueObject
 
     public static Money Zero(string currency) => new(0, currency);
 
+    public bool IsZero() => MinorUnits == 0;
+
     public static Money FromDecimal(decimal amount, string currency, int decimalPlaces = 2)
     {
         var factor = (long)Math.Pow(10, decimalPlaces);

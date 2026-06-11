@@ -13,7 +13,7 @@
     },
     "since": {
       "enabled": false,
-      "target": "main"
+      "target": "mutation-checkpoint"
     },
     "mutate": [
       "src/**",

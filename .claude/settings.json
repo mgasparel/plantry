@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(repowise distill *)",
+      "Bash(repowise expand *)"
+    ]
+  },
   "hooks": {
     "PreCompact": [
       {

@@ -3,7 +3,8 @@
 parse-report.py — Stryker mutation report parser for Plantry
 
 Usage:
-  python parse-report.py                    # auto-find newest report under StrykerOutput/
+  python parse-report.py                    # aggregate mode: latest report per project
+  python parse-report.py <project-name>     # latest report for one project
   python parse-report.py <path-to-json>     # use a specific mutation-report.json
 
 Output: Structured markdown consumed by the stryker-report skill.
@@ -25,14 +26,32 @@ STATUSES = ("Killed", "Survived", "NoCoverage", "Timeout", "Ignored", "CompileEr
 SCORE_STATUSES = {"Killed", "Survived", "Timeout"}  # denominator
 
 
-def find_latest_report(root: Path) -> Path | None:
-    pattern = str(root / "StrykerOutput" / "*" / "reports" / "mutation-report.json")
+def find_latest_report(root: Path, project: str | None = None) -> Path | None:
+    """Find the most recent report for a named project (new layout: StrykerOutput/<Project>/<ts>/...)."""
+    if project:
+        pattern = str(root / "StrykerOutput" / project / "*" / "reports" / "mutation-report.json")
+    else:
+        # Legacy single-project layout: StrykerOutput/<timestamp>/reports/mutation-report.json
+        pattern = str(root / "StrykerOutput" / "*" / "reports" / "mutation-report.json")
     reports = glob.glob(pattern)
     if not reports:
         return None
-    # Directory name is a timestamp (YYYY-MM-DD.HH-mm-ss) — lexicographic = chronological
     reports.sort(key=lambda p: Path(p).parent.parent.name, reverse=True)
     return Path(reports[0])
+
+
+def find_all_latest_reports(root: Path) -> dict[str, Path]:
+    """Find the most recent report for every project under StrykerOutput/<Project>/."""
+    pattern = str(root / "StrykerOutput" / "*" / "*" / "reports" / "mutation-report.json")
+    reports = glob.glob(pattern)
+    latest: dict[str, Path] = {}
+    for r in reports:
+        p = Path(r)
+        project = p.parent.parent.parent.name  # StrykerOutput/<Project>/<ts>/reports/
+        ts = p.parent.parent.name
+        if project not in latest or ts > latest[project].parent.parent.name:
+            latest[project] = p
+    return latest
 
 
 def relative(path: str, root: str) -> str:
@@ -91,18 +110,8 @@ def group_mutants(mutants: list[dict]) -> tuple[list[dict], int]:
     return grouped, placeholder_count
 
 
-def main() -> int:
-    root = Path(__file__).parent.parent.parent.parent  # skills/../../../ = code/
-
-    if len(sys.argv) > 1:
-        report_path = Path(sys.argv[1])
-    else:
-        report_path = find_latest_report(root)
-        if report_path is None:
-            print("ERROR: No mutation-report.json found under StrykerOutput/.")
-            print("Run `.\\stryker-run.ps1` or `dotnet stryker --project <Name>` first.")
-            return 1
-
+def print_report(report_path: Path, root: Path, project_label: str | None = None) -> int:
+    """Parse and print one mutation-report.json. Returns 0 on success, 1 on error."""
     if not report_path.exists():
         print(f"ERROR: Report not found: {report_path}")
         return 1
@@ -121,7 +130,6 @@ def main() -> int:
     totals: dict[str, int] = {s: 0 for s in STATUSES}
     file_stats: list[dict] = []
     migration_files: list[str] = []
-    config_issues: list[str] = []
 
     for fpath, fdata in data["files"].items():
         rel = relative(fpath, project_root)
@@ -153,7 +161,8 @@ def main() -> int:
     global_score = (totals["Killed"] / global_scored * 100) if global_scored > 0 else None
 
     # ── Header ───────────────────────────────────────────────────────────────
-    print(f"## Mutation Report — {rel_report}  ({timestamp})")
+    header = project_label if project_label else rel_report
+    print(f"## Mutation Report — {header}  ({timestamp})")
     print()
 
     score_display = f"{global_score:.1f}%" if global_score is not None else "N/A"
@@ -251,7 +260,7 @@ def main() -> int:
             print(f"- {a}")
         print()
 
-    # ── Summary stats for Claude ──────────────────────────────────────────────
+    # ── Summary stats ─────────────────────────────────────────────────────────
     print("---")
     print(f"_Files with survived mutants (actionable): {len(actionable)}_")
     print(f"_Total survived to kill: {totals['Survived']}_")
@@ -259,6 +268,44 @@ def main() -> int:
         print(f"_Migration files (skip): {len(migration_files)}_")
 
     return 0
+
+
+def main() -> int:
+    root = Path(__file__).parent.parent.parent.parent  # skills/../../../ = code/
+
+    # ── Explicit path argument ────────────────────────────────────────────────
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        arg_path = Path(arg)
+        if arg_path.suffix == ".json" or arg_path.exists():
+            return print_report(arg_path, root)
+        # Treat as project name
+        report_path = find_latest_report(root, project=arg)
+        if report_path is None:
+            print(f"ERROR: No mutation-report.json found for project '{arg}' under StrykerOutput/.")
+            return 1
+        return print_report(report_path, root, project_label=arg)
+
+    # ── Aggregate mode (no argument) ──────────────────────────────────────────
+    project_reports = find_all_latest_reports(root)
+    if not project_reports:
+        # Fallback: try legacy single-project layout
+        legacy = find_latest_report(root)
+        if legacy:
+            return print_report(legacy, root)
+        print("ERROR: No mutation-report.json found under StrykerOutput/.")
+        print("Run `.\\stryker-run.ps1` or `dotnet stryker --project <Name>` first.")
+        return 1
+
+    exit_code = 0
+    for project in sorted(project_reports):
+        print(f"---\n# Project: {project}\n")
+        result = print_report(project_reports[project], root, project_label=project)
+        if result != 0:
+            exit_code = result
+        print()
+
+    return exit_code
 
 
 if __name__ == "__main__":
