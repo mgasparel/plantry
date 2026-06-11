@@ -59,4 +59,32 @@ public sealed class ProductStockAddStockTests
 
         Assert.Throws<ArgumentOutOfRangeException>(() => stock.AddStock(quantity, Unit, Location, User, clock));
     }
+
+    [Fact(DisplayName = "Start sets the composite identity and initial tracking properties")]
+    public void Start_Sets_Composite_Id_And_Properties()
+    {
+        var clock = new MutableClock();
+
+        var stock = ProductStock.Start(Household, Product, clock);
+
+        Assert.Equal(Household, stock.HouseholdId);
+        Assert.Equal(Product, stock.ProductId);
+        Assert.Equal(clock.UtcNow, stock.CreatedAt);
+        Assert.Equal(clock.UtcNow, stock.UpdatedAt);
+        Assert.Empty(stock.Entries);
+        Assert.Empty(stock.Journal);
+    }
+
+    [Fact(DisplayName = "Equals and GetHashCode use the composite (HouseholdId, ProductId) key")]
+    public void Equals_And_GetHashCode_Use_Composite_Key()
+    {
+        var clock = new MutableClock();
+        var a = ProductStock.Start(Household, Product, clock);
+        var b = ProductStock.Start(Household, Product, clock);   // same composite key
+        var other = ProductStock.Start(HouseholdId.New(), Product, clock); // different household
+
+        Assert.Equal(a, b);
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
+        Assert.NotEqual(a, other);
+    }
 }

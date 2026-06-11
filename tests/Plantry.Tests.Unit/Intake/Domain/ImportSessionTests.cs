@@ -157,4 +157,16 @@ public sealed class ImportSessionTests
         Assert.True(result.IsFailure);
         Assert.Equal("Intake.InvalidTransition", result.Error.Code);
     }
+
+    [Fact]
+    public void Discard_Succeeds_From_Failed_Status()
+    {
+        var session = Started();
+        session.MarkParsingFailed("timeout");
+
+        var result = session.Discard();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ImportStatus.Discarded, session.Status);
+    }
 }
