@@ -176,4 +176,19 @@ public sealed class CategoryCommandsTests
         Assert.True(result.IsSuccess);
         Assert.Equal(0, dairy.SortOrder);
     }
+
+    [Fact]
+    public async Task UpdateCategoryCommand_Allows_Rename_To_Same_Name()
+    {
+        var householdId = Plantry.SharedKernel.HouseholdId.New();
+        var repo = new FakeCategoryRepository();
+        var category = Category.Create(householdId, "Dairy");
+        repo.Items.Add(category);
+
+        // Renaming to the current name must not be treated as a duplicate.
+        var result = await new UpdateCategoryCommand(category.Id, "Dairy", null, 0, repo).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Dairy", category.Name);
+    }
 }

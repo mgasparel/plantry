@@ -119,4 +119,107 @@ public sealed class InventoryQueryServiceTests
 
         Assert.Null(detail);
     }
+
+    [Fact]
+    public async Task ListPantry_Returns_Empty_When_No_Household_In_Context()
+    {
+        var stocks = new FakeProductStockRepository();
+
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), household: null).ListPantryAsync();
+
+        Assert.Empty(pantry);
+    }
+
+    [Fact]
+    public async Task ListPantry_Skips_Products_Missing_From_Catalog()
+    {
+        var orphanProductId = Guid.CreateVersion7();
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), orphanProductId, Clock);
+        stock.AddStock(100m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock);
+
+        var pantry = await Service(stocks, new FakeCatalogReadFacade(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        Assert.Empty(pantry);
+    }
+
+    [Fact]
+    public async Task ListPantry_Shows_Multiple_When_Lots_Span_Different_Locations()
+    {
+        var secondLocation = Guid.CreateVersion7();
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(100m, _grams, _location, _user, Clock);
+        stock.AddStock(100m, _grams, secondLocation, _user, Clock);
+        stocks.Items.Add(stock);
+
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        var item = Assert.Single(pantry);
+        Assert.Equal("Multiple", item.LocationDisplay);
+    }
+
+    [Fact]
+    public async Task ListPantry_Sets_ExpiryTone_None_When_No_Lots_Have_Dates()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(100m, _grams, _location, _user, Clock, expiryDate: null);
+        stocks.Items.Add(stock);
+
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        var item = Assert.Single(pantry);
+        Assert.Equal(ExpiryTone.None, item.ExpiryTone);
+        Assert.Null(item.SoonestExpiry);
+    }
+
+    [Fact]
+    public async Task ListPantry_Falls_Back_To_Lot_Unit_When_Conversion_To_Display_Unit_Fails()
+    {
+        var ea = Guid.CreateVersion7();
+        var catalog = Catalog();
+        catalog.UnitCodes[ea] = "ea";
+
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(3m, ea, _location, _user, Clock);   // product default is "g"; lots are "ea"
+        stocks.Items.Add(stock);
+
+        // FactorQuantityConverter with no factors → ea→g fails, total stays 0 → fallback triggers
+        var converter = new FactorQuantityConverter([]);
+        var pantry = await Service(stocks, catalog, converter, _household).ListPantryAsync();
+
+        var item = Assert.Single(pantry);
+        Assert.Equal(3m, item.TotalQuantity);
+        Assert.Equal("ea", item.DisplayUnitCode);
+    }
+
+    [Fact]
+    public async Task FindDetail_Returns_Null_When_Stock_Not_Found()
+    {
+        var stocks = new FakeProductStockRepository();
+
+        var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).FindDetailAsync(_productId);
+
+        Assert.Null(detail);
+    }
+
+    [Fact]
+    public async Task FindDetail_Shows_Unknown_Product_Name_And_Question_Mark_Unit_When_Not_In_Catalog()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(100m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock);
+
+        var detail = await Service(stocks, new FakeCatalogReadFacade(), new IdentityQuantityConverter(), _household)
+            .FindDetailAsync(_productId);
+
+        Assert.NotNull(detail);
+        Assert.Equal("Unknown product", detail!.Name);
+        Assert.Equal("?", detail.DisplayUnitCode);
+        Assert.Equal(0m, detail.TotalQuantity);
+    }
 }
