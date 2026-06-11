@@ -15,6 +15,12 @@
       "enabled": false,
       "target": "main"
     },
+    "mutate": [
+      "src/**",
+      "!src/**/Migrations/**",
+      "!src/**/*DbContext.cs",
+      "!src/**/*DbContextFactory.cs"
+    ],
     "ignore-methods": [
       "ToString",
       "GetHashCode",
