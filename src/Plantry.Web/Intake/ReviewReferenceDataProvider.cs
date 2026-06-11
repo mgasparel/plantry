@@ -30,7 +30,8 @@ public sealed class ReviewReferenceDataProvider(
             .Select(p => new ReviewProductOption(
                 p.Id.Value,
                 p.Name,
-                unitCodesById.TryGetValue(p.DefaultUnitId, out var code) ? code : "?"))
+                unitCodesById.TryGetValue(p.DefaultUnitId, out var code) ? code : "?",
+                p.DefaultLocationId?.Value))
             .ToList();
 
         var unitOptions = activeUnits

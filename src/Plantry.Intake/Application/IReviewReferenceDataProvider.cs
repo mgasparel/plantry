@@ -12,7 +12,7 @@ public interface IReviewReferenceDataProvider
     Task<ReviewReferenceData> GetAsync(CancellationToken ct = default);
 }
 
-public sealed record ReviewProductOption(Guid Id, string Name, string DefaultUnitCode);
+public sealed record ReviewProductOption(Guid Id, string Name, string DefaultUnitCode, Guid? DefaultLocationId);
 
 public sealed record ReviewUnitOption(Guid Id, string Code, string Name);
 

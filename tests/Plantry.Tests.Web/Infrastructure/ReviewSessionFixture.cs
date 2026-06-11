@@ -41,9 +41,9 @@ public static class ReviewSessionFixture
     public static ReviewReferenceData ReferenceData() => new(
         Products:
         [
-            new ReviewProductOption(MilkProductId, "Milk", "L"),
-            new ReviewProductOption(BreadProductId, "Bread", "ea"),
-            new ReviewProductOption(EggsProductId, "Eggs", "ea"),
+            new ReviewProductOption(MilkProductId, "Milk", "L", DefaultLocationId: FridgeLocationId),
+            new ReviewProductOption(BreadProductId, "Bread", "ea", DefaultLocationId: null),
+            new ReviewProductOption(EggsProductId, "Eggs", "ea", DefaultLocationId: FridgeLocationId),
         ],
         Units:
         [

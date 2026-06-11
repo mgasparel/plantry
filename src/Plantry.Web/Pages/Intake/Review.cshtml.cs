@@ -250,9 +250,10 @@ public sealed class ReviewModel(
         var unitCodeById = reference.Units.ToDictionary(u => u.Id, u => u.Code);
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
         var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
+        var productDefaultLocationById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultLocationId);
 
         Rows = Session.Lines
-            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById))
+            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById, productDefaultLocationById))
             .ToList();
 
         return null;
@@ -324,6 +325,7 @@ public sealed record ReviewRowModel(
     string? PrefillProductName,
     decimal? PrefillQuantity,
     Guid? PrefillUnitId,
+    Guid? PrefillLocationId,
     decimal? PrefillPrice)
 {
     /// <summary>
@@ -333,10 +335,11 @@ public sealed record ReviewRowModel(
     /// (Guid → name); the display unit code lookup uses the broader <c>unitCodeById</c> in
     /// <see cref="From"/> after this call.
     /// </summary>
-    public static (Guid? ProductId, string? ProductName, decimal? Qty, Guid? UnitId, decimal? Price) ComputePrefill(
+    public static (Guid? ProductId, string? ProductName, decimal? Qty, Guid? UnitId, Guid? LocationId, decimal? Price) ComputePrefill(
         ReviewLineView line,
         IReadOnlyDictionary<string, Guid> unitIdByCode,
-        IReadOnlyDictionary<Guid, string> productNameById)
+        IReadOnlyDictionary<Guid, string> productNameById,
+        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById)
     {
         var isPending = line.Status == LineStatus.Pending;
 
@@ -361,9 +364,15 @@ public sealed record ReviewRowModel(
                 ? sugUid
                 : (Guid?)null);
 
+        // Pre-fill location: user-resolved first; fall back to the matched product's default for Pending lines.
+        Guid? prefillLocationId = line.LocationId
+            ?? (isPending && prefillProductId is { } locPid && productDefaultLocationById.TryGetValue(locPid, out var defLoc)
+                ? defLoc
+                : (Guid?)null);
+
         var prefillPrice = line.Price ?? (isPending ? line.SuggestedPrice : null);
 
-        return (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillPrice);
+        return (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice);
     }
 
     public static ReviewRowModel From(
@@ -372,10 +381,11 @@ public sealed record ReviewRowModel(
         Guid sessionId,
         IReadOnlyDictionary<Guid, string> unitCodeById,
         IReadOnlyDictionary<string, Guid> unitIdByCode,
-        IReadOnlyDictionary<Guid, string> productNameById)
+        IReadOnlyDictionary<Guid, string> productNameById,
+        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById)
     {
-        var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillPrice) =
-            ComputePrefill(line, unitIdByCode, productNameById);
+        var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice) =
+            ComputePrefill(line, unitIdByCode, productNameById, productDefaultLocationById);
 
         // Display name: new-product intent uses the chosen name; everything else uses the pre-fill.
         string? productName = line.IsNewProduct ? line.NewProductName : prefillProductName;
@@ -398,6 +408,6 @@ public sealed record ReviewRowModel(
             RestoreUrl: url.Page("./Review", "RestoreLine", new { Id = sessionId, lineId = line.LineId })!,
             SaveUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!);
 
-        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillPrice);
+        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice);
     }
 }

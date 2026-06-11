@@ -395,7 +395,7 @@ public sealed class ReviewCommandsTests
         var repo = RepoWith(session);
 
         var reference = new ReviewReferenceData(
-            [new ReviewProductOption(_productId, "Flour", "kg")],
+            [new ReviewProductOption(_productId, "Flour", "kg", DefaultLocationId: null)],
             [new ReviewUnitOption(_unitId, "kg", "Kilogram")],
             [new ReviewLocationOption(_locationId, "Pantry")],
             [new ReviewCategoryOption(_categoryId, "Baking")]);

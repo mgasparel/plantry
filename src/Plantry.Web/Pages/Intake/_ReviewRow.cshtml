@@ -242,7 +242,7 @@
                                 <option value="">— Location —</option>
                                 @foreach (var loc in page.LocationOptions)
                                 {
-                                    var sel = line.LocationId?.ToString() == loc.Value;
+                                    var sel = rowModel.PrefillLocationId?.ToString() == loc.Value;
                                     <option value="@loc.Value" selected="@sel">@loc.Text</option>
                                 }
                             </select>
