@@ -125,14 +125,17 @@ builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
-// The real Gemini parser is the production default. Two deterministic, no-network seams replace it:
+// The real Gemini parser is the production default. Three deterministic alternatives replace it:
 //  • AI:UseSampleParser=true → SampleReceiptParser, a real scanned receipt for local UI iteration (dev only);
 //  • AI:UseFakeParser=true   → FakeReceiptParser, the fixed E2E journey fixture (set only by the E2E AppHost).
-// Sample takes precedence over fake. Never enable either outside dev/test.
+//  • no AI:ApiKey configured → DisabledReceiptParser, lets the app start with a locked-feature UI instead of crashing.
+// Sample takes precedence over fake. Never enable either seam outside dev/test.
 if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseSampleParser"))
     builder.Services.AddScoped<IReceiptParser, SampleReceiptParser>();
 else if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseFakeParser"))
     builder.Services.AddScoped<IReceiptParser, FakeReceiptParser>();
+else if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IReceiptParser, DisabledReceiptParser>();
 else
     builder.Services.AddScoped<IReceiptParser, GeminiReceiptParser>();
 builder.Services.AddScoped<ICatalogHintProvider, CatalogHintProvider>();

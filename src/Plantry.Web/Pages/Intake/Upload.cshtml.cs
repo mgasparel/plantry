@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
+using Plantry.Web.Intake;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -27,6 +28,7 @@ public sealed class UploadModel(
     ITenantContext tenant) : PageModel
 {
     public IReadOnlyList<RecentIntakeRow> RecentIntakes { get; private set; } = [];
+    public bool AiAvailable => parser is not DisabledReceiptParser;
     /// <summary>Accepted image content types — keeps obviously-wrong uploads off the AI pipeline.</summary>
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {

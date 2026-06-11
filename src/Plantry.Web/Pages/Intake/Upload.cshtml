@@ -25,6 +25,22 @@
         <p>Snap your receipt and Plenish reads every line, matches it to your catalog, and queues it for a quick review. A full grocery run, logged in under a minute.</p>
     </div>
 
+    @if (!Model.AiAvailable)
+    {
+        @* Locked state — no AI API key configured. *@
+        <div class="dropzone">
+            <div class="dz-content">
+                <div class="empty-state">
+                    <svg class="empty-state__icon" aria-hidden="true"><use href="#i-lock" /></svg>
+                    <div class="empty-state__title">Receipt scanning isn't set up</div>
+                    <p class="empty-state__body">An AI API key is required to scan receipts. Set one with <code>dotnet user-secrets set "AI:ApiKey" "&lt;key&gt;"</code> and restart the app.</p>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+
     @* ── Dropzone ─────────────────────────────────────────────────────────── *@
     <div class="dropzone"
          x-bind:class="{ drag: $data.dragging }"
@@ -87,6 +103,8 @@
             </form>
         </div>
     </div>
+
+    } @* end else (AiAvailable) *@
 
     @* ── Two panels ───────────────────────────────────────────────────────── *@
     <div class="intake-cols">
