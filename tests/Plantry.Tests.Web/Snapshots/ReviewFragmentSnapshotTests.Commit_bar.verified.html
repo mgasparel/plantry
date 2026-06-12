@@ -1,23 +1,24 @@
 ﻿<div class="commit-bar">
-	<div class="commit-bar__progress">
-		<div class="commit-bar__count">
-			<span class="commit-bar__count-done">3</span>
-			<span class="commit-bar__count-total">/ 6 confirmed</span>
-		</div>
-		<div class="commit-bar__track" role="progressbar" aria-valuemin="0" aria-valuemax="6" aria-valuenow="3" aria-label="Lines confirmed">
-			<div class="commit-bar__fill" style="width: 50%"></div>
-		</div>
-		<span class="commit-bar__hint">3 left to review</span>
+	<button type="button" class="btn btn--ghost commit-bar__cancel" hx-post="/Intake/Review/Guid_1?handler=Discard" hx-confirm="Discard this import? Nothing will be added to your pantry.">
+		Cancel
+	</button>
+	<span class="commit-bar__spacer"></span>
+	<span class="commit-bar__warn">
+		<svg class="icon" aria-hidden="true">
+			<use href="#i-alert"></use>
+		</svg>
+		3 to resolve
+	</span>
+	<div class="commit-bar__summary">
+		Adding
+		<b>3</b>
+		items ·
+		<b class="mono">$12.74</b>
 	</div>
-	<div class="commit-bar__actions">
-		<button type="button" class="btn btn--ghost commit-bar__discard" hx-post="/Intake/Review/Guid_1?handler=Discard" hx-confirm="Discard this import? Nothing will be added to your pantry.">
-			Discard
-		</button>
-		<button type="button" class="btn btn--primary" hx-post="/Intake/Review/Guid_1?handler=Commit" disabled="disabled">
-			<svg class="icon" aria-hidden="true">
-				<use href="#i-check"></use>
-			</svg>
-			Commit 6 to pantry
-		</button>
-	</div>
+	<button type="button" class="btn btn--primary" hx-post="/Intake/Review/Guid_1?handler=Commit" disabled="disabled">
+		<svg class="icon" aria-hidden="true">
+			<use href="#i-check"></use>
+		</svg>
+		Add to pantry
+	</button>
 </div>

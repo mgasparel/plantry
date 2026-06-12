@@ -35,11 +35,11 @@ public sealed class SampleReceiptParser : IReceiptParser
 
     private static readonly SampleLine[] Lines =
     [
-        new(1, "05995030018 BECE MARG W-AVOC", "Margarine - Becel Vegan", 1.000m, null, 7.99m),
+        new(1, "05995030018 BECE MARG W-AVOC", "Butter",                  1.000m, null, 7.99m),
         new(2, "06038366414 LARGE EGGS",       null,                      1.000m, null, 3.93m),
         new(3, "06148300741 CRANBERRIES",      null,                      1.000m, null, 6.00m),
         new(4, "4012 ORANGE NAVEL LG",         null,                      0.255m, "kg", 1.40m),
-        new(5, "4663 ONION WHITE",             "Onion White",             0.230m, "kg", 1.52m),
+        new(5, "4663 ONION WHITE",             "Onions",                  0.230m, "kg", 1.52m),
         new(6, "4664 TOV GH RED",              null,                      0.355m, "kg", 2.34m),
         new(7, "4693 PEP JALEPANO HOT",        null,                      0.040m, "kg", 0.44m),
         new(8, "2278110 SALMON MAPLE",         "Salmon fillet",           1.000m, null, 9.98m),
@@ -71,7 +71,11 @@ public sealed class SampleReceiptParser : IReceiptParser
                 Quantity: l.Quantity,
                 UnitLabel: l.UnitLabel,
                 Price: l.Price,
-                Confidence: l.SuggestedName is null ? "none" : "high",
+                // Confidence tracks resolution, not just intent: a suggested name that resolves to a
+                // real catalog id is a "high" match (populates the product dropdown); a name that no
+                // longer resolves degrades to "low" (a name-only hint) rather than masquerading as a
+                // confident match with an empty dropdown; no suggestion at all is "none".
+                Confidence: suggestedId is not null ? "high" : l.SuggestedName is null ? "none" : "low",
                 RawJson: null);
         }).ToList();
 

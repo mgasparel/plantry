@@ -1,0 +1,114 @@
+@using System.Globalization
+@using Plantry.Intake.Domain
+@model Plantry.Web.Pages.Intake.ReviewModel
+@*
+    The review header (title + filter chips + progress) and the grouped row list. This is the htmx swap
+    target (#rev-body) for every row action: a confirm/dismiss/restore re-renders the WHOLE region so the
+    chips, the per-section counts and a row's section membership all re-derive from the server's
+    partitioning in one pass — they can't drift from the progress bar the way an in-place row swap let them.
+
+    Rendered for the initial page (Review.cshtml) and as each row action's response (Review.cshtml.cs).
+    On a row action the response also carries the OOB commit-bar (it lives outside #rev-body); the
+    IncludeCommitBarOob flag keeps that twin out of the initial render, where Review.cshtml renders the
+    canonical commit bar.
+*@
+@{
+    var lines = Model.Session.Lines;
+    var needsRows = Model.NeedsReviewRows;
+    var readyRows = Model.ReadyRows;
+    var skippedRows = Model.SkippedRows;
+    var progress = Model.BuildProgress();
+    var totalStock = progress.Total;
+
+    var store = Model.StoreLabel;
+    var sessionDate = Model.Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture);
+
+    var includeCommitBarOob = ViewData["IncludeCommitBarOob"] is true;
+}
+
+<div class="rev-head">
+    <div class="rev-title-row">
+        <div class="rev-title">
+            <h2>Review import</h2>
+            <p>@store · @sessionDate · @totalStock items to add</p>
+        </div>
+        <span class="rev-title-row__spacer"></span>
+        <div class="chips">
+            <button type="button" class="fchip"
+                    :class="filter === 'all' ? 'on f-ready' : ''"
+                    @@click="filter = 'all'">All @totalStock</button>
+            <button type="button" class="fchip"
+                    :class="filter === 'review' ? 'on f-review' : ''"
+                    @@click="filter = 'review'">
+                <span class="dotc" style="background: var(--color-warning)"></span>
+                Needs review @needsRows.Count
+            </button>
+            <button type="button" class="fchip"
+                    :class="filter === 'ready' ? 'on f-ready' : ''"
+                    @@click="filter = 'ready'">
+                <span class="dotc" style="background: var(--color-success)"></span>
+                Ready @readyRows.Count
+            </button>
+        </div>
+    </div>
+
+    <partial name="_ReviewProgress" model="progress" />
+</div>
+
+@if (lines.Count == 0)
+{
+    <p class="review__empty">No line items were found on this receipt.</p>
+}
+else
+{
+    <div class="rev-list">
+        @* Needs your review *@
+        <div x-show="filter === 'all' || filter === 'review'">
+            @if (needsRows.Count > 0)
+            {
+                <div class="sec-label">Needs your review <span class="sec-label__count">· @needsRows.Count</span></div>
+                @foreach (var rowModel in needsRows)
+                {
+                    ViewData["Row"] = rowModel;
+                    <partial name="_ReviewRow" model="Model" view-data="ViewData" />
+                }
+            }
+        </div>
+
+        @* Matched & ready *@
+        <div x-show="filter === 'all' || filter === 'ready'">
+            @if (readyRows.Count > 0)
+            {
+                <div class="sec-label">Matched &amp; ready <span class="sec-label__count">· @readyRows.Count</span></div>
+                @foreach (var rowModel in readyRows)
+                {
+                    ViewData["Row"] = rowModel;
+                    <partial name="_ReviewRow" model="Model" view-data="ViewData" />
+                }
+            }
+        </div>
+
+        @* Skipped — not inventory *@
+        <div x-show="filter === 'all'">
+            @if (skippedRows.Count > 0)
+            {
+                <div class="sec-label">Skipped — not inventory <span class="sec-label__count">· @skippedRows.Count</span></div>
+                @foreach (var rowModel in skippedRows)
+                {
+                    ViewData["Row"] = rowModel;
+                    <partial name="_ReviewRow" model="Model" view-data="ViewData" />
+                }
+            }
+        </div>
+    </div>
+}
+
+@if (includeCommitBarOob)
+{
+    @* The commit bar lives outside #rev-body, so refresh it out-of-band — same partial and counts the
+       initial render uses (Review.cshtml). *@
+    <div id="commit-bar" class="review__commit" hx-swap-oob="outerHTML"
+         hx-target="#review-alert" hx-swap="innerHTML">
+        <partial name="Shared/_CommitBar" model="Model.BuildCommitBar()" />
+    </div>
+}

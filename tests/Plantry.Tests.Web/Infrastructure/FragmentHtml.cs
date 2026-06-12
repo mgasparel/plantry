@@ -37,7 +37,7 @@ public static class FragmentHtml
     public static string AllRows(string pageHtml)
     {
         var doc = Parser.ParseDocument(pageHtml);
-        var rows = doc.QuerySelector(".review__rows")
+        var rows = doc.QuerySelector(".rev-list")
             ?? throw new InvalidOperationException("No review rows container found.");
         return Pretty(rows);
     }

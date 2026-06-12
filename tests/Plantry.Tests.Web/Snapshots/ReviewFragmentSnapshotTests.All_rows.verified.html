@@ -1,809 +1,1066 @@
-﻿<div class="review__rows">
-	<div id="import-line-Guid_1" class="import-row import-row--matched" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
-		<div class="import-row__main">
-			<div class="import-row__id">
-				<div class="import-row__name">
-					<span class="import-row__product">Milk</span>
+﻿<div class="rev-list">
+	<div x-show="filter === 'all' || filter === 'review'">
+		<div class="sec-label">Needs your review
+			<span class="sec-label__count">· 3</span>
+		</div>
+		<div id="import-line-Guid_1" class="import-row import-row--matched" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
+			<div class="import-row__main">
+				<div class="cat-chip cat-chip--neutral">?</div>
+				<div class="import-row__id">
+					<div class="import-row__name">
+						<span class="import-row__product">Milk</span>
+					</div>
+					<div class="import-row__raw">
+						<span class="import-row__raw-tag">receipt</span>
+						<span>WHOLE MILK 2L</span>
+					</div>
 				</div>
-				<div class="import-row__raw">
-					<span class="import-row__raw-tag">receipt</span>
-					<span>WHOLE MILK 2L</span>
+				<div class="import-row__meta">
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">2<span class="import-row__meta-unit">
+								L</span>
+						</div>
+						<div class="import-row__meta-label">qty</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">$3.99</div>
+						<div class="import-row__meta-label">price</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">—</div>
+						<div class="import-row__meta-label">expires</div>
+					</div>
+					<div class="import-row__conf">
+						<span class="badge badge-confidence--high" title="Matched a catalog product with high confidence">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Matched
+						</span>
+					</div>
+				</div>
+				<div class="import-row__act">
+					<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
+						<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+						<input type="hidden" name="Id" value="Guid_2">
+						<input type="hidden" name="Edit.LineId" value="Guid_1">
+						<input type="hidden" name="Edit.CreateNew" value="false">
+						<input type="hidden" name="Edit.ProductId" value="Guid_3">
+						<input type="hidden" name="Edit.Quantity" value="2">
+						<input type="hidden" name="Edit.UnitId" value="Guid_4">
+						<input type="hidden" name="Edit.LocationId" value="Guid_5">
+						<input type="hidden" name="Edit.Price" value="3.99">
+						<button type="submit" class="btn btn--secondary btn--sm">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Confirm
+						</button>
+					</form>
+					<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
+						<svg class="icon import-row__chev" :class="{ 'import-row__chev--open': open }" aria-hidden="true">
+							<use href="#i-chevron"></use>
+						</svg>
+					</button>
 				</div>
 			</div>
-			<div class="import-row__meta">
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">2<span class="import-row__meta-unit">
-							L</span>
+			<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
+				<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
+					<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+					<input type="hidden" name="Id" value="Guid_2">
+					<input type="hidden" name="Edit.LineId" value="Guid_1">
+					<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
+					<div class="import-row__edit-grid">
+						<div class="form-grid__field form-grid__field--full" x-show="!createNew">
+							<label class="form-grid__field__label">Product</label>
+							<div class="form-grid__field__control">
+								<div class="searchable-select" x-data="searchableSelect()" data-initial-label="Milk" @click.outside="open = false" @keydown.escape="open = false">
+									<input type="hidden" name="Edit.ProductId" value="Guid_3" x-ref="hidden">
+									<div class="searchable-select__control">
+										<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_1-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_1-listbox" hx-swap="innerHTML" hx-params="q">
+									</div>
+									<ul class="searchable-select__listbox" id="edit-product-Guid_1-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
+										<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
+										<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
+										<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+									</ul>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
+							<label class="form-grid__field__label">New product name</label>
+							<div class="form-grid__field__control">
+								<input class="field__input" name="Edit.NewProductName" value="" placeholder="WHOLE MILK 2L">
+							</div>
+						</div>
+						<div class="form-grid__field" x-show="createNew">
+							<label class="form-grid__field__label">Category</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.NewProductCategoryId">
+									<option value="">— Category —</option>
+									<option value="Guid_8">Dairy</option>
+								</select>
+							</div>
+						</div>
+						<div class="review-row__mode-toggle">
+							<button type="button" class="btn btn--ghost btn--sm" x-show="!createNew" @click="createNew = true">+ Add as new product</button>
+							<button type="button" class="btn btn--ghost btn--sm" x-show="createNew" @click="createNew = false">← Use existing product</button>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Quantity</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ v: 2 }">
+									<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
+									<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Location</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.LocationId">
+									<option value="">— Location —</option>
+									<option value="Guid_5" selected="selected">Fridge</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Expires</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ d: null, adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+&quot;T12:00&quot;);t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }">
+									<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d">
+									<button type="button" class="qty-btn" @click="adj(1)" aria-label="Later">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<input type="hidden" name="Edit.Price" value="3.99">
+						<div class="form-grid__field" style="grid-column: span 4">
+							<label class="form-grid__field__label">Unit</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.UnitId">
+									<option value="">— Unit —</option>
+									<option value="Guid_9">ea — Each</option>
+									<option value="Guid_4" selected="selected">L — Litre</option>
+								</select>
+							</div>
+						</div>
 					</div>
-					<div class="import-row__meta-label">qty</div>
+					<div class="import-row__edit-foot">
+						<div class="import-row__edit-foot-summary">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-location"></use>
+							</svg>
+							Goes to
+							<strong>Fridge</strong>
+						</div>
+						<span class="import-row__edit-spacer"></span>
+						<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_1&amp;handler=DismissLine" hx-target="#rev-body" hx-swap="innerHTML">
+							Not pantry stock — remove
+						</button>
+						<button type="submit" class="btn btn--primary btn--sm">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Confirm item
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+		<div id="import-line-Guid_10" class="import-row import-row--unmatched" x-data="{&quot;open&quot;:true,&quot;createNew&quot;:false}">
+			<div class="import-row__main">
+				<div class="cat-chip cat-chip--neutral">?</div>
+				<div class="import-row__id">
+					<div class="import-row__name">
+						<span class="import-row__unrecognized">Unrecognized item</span>
+					</div>
+					<div class="import-row__raw">
+						<span class="import-row__raw-tag">receipt</span>
+						<span>MYSTERY ITEM XZ</span>
+					</div>
 				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">$3.99</div>
-					<div class="import-row__meta-label">price</div>
+				<div class="import-row__meta">
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">—<span class="import-row__meta-unit">
+							</span>
+						</div>
+						<div class="import-row__meta-label">qty</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">—</div>
+						<div class="import-row__meta-label">price</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">—</div>
+						<div class="import-row__meta-label">expires</div>
+					</div>
+					<div class="import-row__conf">
+						<span class="badge badge-confidence--none" title="No catalog match found">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-search"></use>
+							</svg>
+							No match
+						</span>
+					</div>
 				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—</div>
-					<div class="import-row__meta-label">expires</div>
+				<div class="import-row__act">
+					<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
+						<svg class="icon import-row__chev" :class="{ 'import-row__chev--open': open }" aria-hidden="true">
+							<use href="#i-chevron"></use>
+						</svg>
+					</button>
 				</div>
-				<div class="import-row__conf">
-					<span class="badge badge-confidence--high" title="Matched a catalog product with high confidence">
+			</div>
+			<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
+				<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
+					<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+					<input type="hidden" name="Id" value="Guid_2">
+					<input type="hidden" name="Edit.LineId" value="Guid_10">
+					<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
+					<div class="import-row__edit-grid">
+						<div class="form-grid__field form-grid__field--full" x-show="!createNew">
+							<label class="form-grid__field__label">Product</label>
+							<div class="form-grid__field__control">
+								<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false">
+									<input type="hidden" name="Edit.ProductId" value="" x-ref="hidden">
+									<div class="searchable-select__control">
+										<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_10-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_10-listbox" hx-swap="innerHTML" hx-params="q">
+									</div>
+									<ul class="searchable-select__listbox" id="edit-product-Guid_10-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
+										<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
+										<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
+										<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+									</ul>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
+							<label class="form-grid__field__label">New product name</label>
+							<div class="form-grid__field__control">
+								<input class="field__input" name="Edit.NewProductName" value="" placeholder="MYSTERY ITEM XZ">
+							</div>
+						</div>
+						<div class="form-grid__field" x-show="createNew">
+							<label class="form-grid__field__label">Category</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.NewProductCategoryId">
+									<option value="">— Category —</option>
+									<option value="Guid_8">Dairy</option>
+								</select>
+							</div>
+						</div>
+						<div class="review-row__mode-toggle">
+							<button type="button" class="btn btn--ghost btn--sm" x-show="!createNew" @click="createNew = true">+ Add as new product</button>
+							<button type="button" class="btn btn--ghost btn--sm" x-show="createNew" @click="createNew = false">← Use existing product</button>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Quantity</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ v: null }">
+									<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
+									<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Location</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.LocationId">
+									<option value="">— Location —</option>
+									<option value="Guid_5">Fridge</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Expires</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ d: null, adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+&quot;T12:00&quot;);t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }">
+									<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d">
+									<button type="button" class="qty-btn" @click="adj(1)" aria-label="Later">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Unit</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.UnitId">
+									<option value="">— Unit —</option>
+									<option value="Guid_9">ea — Each</option>
+									<option value="Guid_4">L — Litre</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Price (optional)</label>
+							<div class="form-grid__field__control">
+								<input class="field__input" type="number" step="any" min="0" name="Edit.Price">
+							</div>
+						</div>
+					</div>
+					<div class="import-row__edit-foot">
+						<div class="import-row__edit-foot-summary">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-location"></use>
+							</svg>
+							Goes to
+							<strong>—</strong>
+						</div>
+						<span class="import-row__edit-spacer"></span>
+						<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_10&amp;handler=DismissLine" hx-target="#rev-body" hx-swap="innerHTML">
+							Not pantry stock — remove
+						</button>
+						<button type="submit" class="btn btn--primary btn--sm">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Confirm item
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+		<div id="import-line-Guid_11" class="import-row import-row--unmatched" x-data="{&quot;open&quot;:true,&quot;createNew&quot;:false}">
+			<div class="import-row__main">
+				<div class="cat-chip cat-chip--neutral">?</div>
+				<div class="import-row__id">
+					<div class="import-row__name">
+						<span class="import-row__unrecognized">Unrecognized item</span>
+					</div>
+					<div class="import-row__raw">
+						<span class="import-row__raw-tag">receipt</span>
+						<span>ORG BREAD LOAF</span>
+					</div>
+				</div>
+				<div class="import-row__meta">
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">—<span class="import-row__meta-unit">
+							</span>
+						</div>
+						<div class="import-row__meta-label">qty</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">—</div>
+						<div class="import-row__meta-label">price</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">—</div>
+						<div class="import-row__meta-label">expires</div>
+					</div>
+					<div class="import-row__conf">
+						<span class="badge badge-confidence--low" title="A likely match was found — please check it">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-alert"></use>
+							</svg>
+							Check match
+						</span>
+					</div>
+				</div>
+				<div class="import-row__act">
+					<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
+						<svg class="icon import-row__chev" :class="{ 'import-row__chev--open': open }" aria-hidden="true">
+							<use href="#i-chevron"></use>
+						</svg>
+					</button>
+				</div>
+			</div>
+			<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
+				<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
+					<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+					<input type="hidden" name="Id" value="Guid_2">
+					<input type="hidden" name="Edit.LineId" value="Guid_11">
+					<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
+					<div class="import-row__edit-grid">
+						<div class="form-grid__field form-grid__field--full" x-show="!createNew">
+							<label class="form-grid__field__label">Product</label>
+							<div class="form-grid__field__control">
+								<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false">
+									<input type="hidden" name="Edit.ProductId" value="" x-ref="hidden">
+									<div class="searchable-select__control">
+										<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_11-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_11-listbox" hx-swap="innerHTML" hx-params="q">
+									</div>
+									<ul class="searchable-select__listbox" id="edit-product-Guid_11-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
+										<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
+										<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
+										<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+									</ul>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
+							<label class="form-grid__field__label">New product name</label>
+							<div class="form-grid__field__control">
+								<input class="field__input" name="Edit.NewProductName" value="" placeholder="ORG BREAD LOAF">
+							</div>
+						</div>
+						<div class="form-grid__field" x-show="createNew">
+							<label class="form-grid__field__label">Category</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.NewProductCategoryId">
+									<option value="">— Category —</option>
+									<option value="Guid_8">Dairy</option>
+								</select>
+							</div>
+						</div>
+						<div class="review-row__mode-toggle">
+							<button type="button" class="btn btn--ghost btn--sm" x-show="!createNew" @click="createNew = true">+ Add as new product</button>
+							<button type="button" class="btn btn--ghost btn--sm" x-show="createNew" @click="createNew = false">← Use existing product</button>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Quantity</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ v: null }">
+									<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
+									<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Location</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.LocationId">
+									<option value="">— Location —</option>
+									<option value="Guid_5">Fridge</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Expires</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ d: null, adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+&quot;T12:00&quot;);t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }">
+									<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d">
+									<button type="button" class="qty-btn" @click="adj(1)" aria-label="Later">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Unit</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.UnitId">
+									<option value="">— Unit —</option>
+									<option value="Guid_9">ea — Each</option>
+									<option value="Guid_4">L — Litre</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Price (optional)</label>
+							<div class="form-grid__field__control">
+								<input class="field__input" type="number" step="any" min="0" name="Edit.Price">
+							</div>
+						</div>
+					</div>
+					<div class="import-row__edit-foot">
+						<div class="import-row__edit-foot-summary">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-location"></use>
+							</svg>
+							Goes to
+							<strong>—</strong>
+						</div>
+						<span class="import-row__edit-spacer"></span>
+						<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_11&amp;handler=DismissLine" hx-target="#rev-body" hx-swap="innerHTML">
+							Not pantry stock — remove
+						</button>
+						<button type="submit" class="btn btn--primary btn--sm">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Confirm item
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+	<div x-show="filter === 'all' || filter === 'ready'">
+		<div class="sec-label">Matched &amp; ready
+			<span class="sec-label__count">· 3</span>
+		</div>
+		<div id="import-line-Guid_12" class="import-row import-row--confirmed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
+			<div class="import-row__main">
+				<div class="cat-chip cat-chip--neutral">?</div>
+				<div class="import-row__id">
+					<div class="import-row__name">
+						<span class="import-row__product">Eggs</span>
+					</div>
+					<div class="import-row__raw">
+						<span class="import-row__raw-tag">receipt</span>
+						<span>FREE RANGE EGGS</span>
+					</div>
+				</div>
+				<div class="import-row__meta">
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">12<span class="import-row__meta-unit">
+								ea</span>
+						</div>
+						<div class="import-row__meta-label">qty</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">$4.50</div>
+						<div class="import-row__meta-label">price</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">1 Jul</div>
+						<div class="import-row__meta-label">expires</div>
+					</div>
+					<div class="import-row__conf">
+						<span class="badge badge-confidence--high" title="Matched a catalog product with high confidence">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Matched
+						</span>
+					</div>
+				</div>
+				<div class="import-row__act">
+					<span class="import-row__confirmed-flag">
 						<svg class="icon" aria-hidden="true">
 							<use href="#i-check"></use>
 						</svg>
 						Matched
 					</span>
+					<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
+						<svg class="icon import-row__chev" :class="{ 'import-row__chev--open': open }" aria-hidden="true">
+							<use href="#i-chevron"></use>
+						</svg>
+					</button>
 				</div>
 			</div>
-			<div class="import-row__act">
-				<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-components"></use>
-					</svg>
-				</button>
-			</div>
-		</div>
-		<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
-			<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
-				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-				<input type="hidden" name="Id" value="Guid_2">
-				<input type="hidden" name="Edit.LineId" value="Guid_1">
-				<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
-				<div class="review-row__mode seg-ctrl" role="group" aria-label="Resolution mode">
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_1" :checked="!createNew" @change="createNew = false">
-						<span>Existing product</span>
-					</label>
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_1" :checked="createNew" @change="createNew = true">
-						<span>New product</span>
-					</label>
-				</div>
-				<div class="import-row__edit-grid">
-					<div class="form-grid__field form-grid__field--full" x-show="!createNew">
-						<label class="form-grid__field__label">Product</label>
-						<div class="form-grid__field__control">
-							<div class="searchable-select" x-data="searchableSelect()" data-initial-label="Milk" @click.outside="open = false" @keydown.escape="open = false">
-								<input type="hidden" name="Edit.ProductId" value="Guid_3" x-ref="hidden">
-								<div class="searchable-select__control">
-									<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_1-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_1-listbox" hx-swap="innerHTML" hx-params="q">
+			<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
+				<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
+					<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+					<input type="hidden" name="Id" value="Guid_2">
+					<input type="hidden" name="Edit.LineId" value="Guid_12">
+					<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
+					<div class="import-row__edit-grid">
+						<div class="form-grid__field form-grid__field--full" x-show="!createNew">
+							<label class="form-grid__field__label">Product</label>
+							<div class="form-grid__field__control">
+								<div class="searchable-select" x-data="searchableSelect()" data-initial-label="Eggs" @click.outside="open = false" @keydown.escape="open = false">
+									<input type="hidden" name="Edit.ProductId" value="Guid_7" x-ref="hidden">
+									<div class="searchable-select__control">
+										<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_12-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_12-listbox" hx-swap="innerHTML" hx-params="q">
+									</div>
+									<ul class="searchable-select__listbox" id="edit-product-Guid_12-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
+										<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
+										<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
+										<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+									</ul>
 								</div>
-								<ul class="searchable-select__listbox" id="edit-product-Guid_1-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
-									<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
-									<li role="option" data-value="Guid_4" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
-									<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
-								</ul>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
+							<label class="form-grid__field__label">New product name</label>
+							<div class="form-grid__field__control">
+								<input class="field__input" name="Edit.NewProductName" value="" placeholder="FREE RANGE EGGS">
+							</div>
+						</div>
+						<div class="form-grid__field" x-show="createNew">
+							<label class="form-grid__field__label">Category</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.NewProductCategoryId">
+									<option value="">— Category —</option>
+									<option value="Guid_8">Dairy</option>
+								</select>
+							</div>
+						</div>
+						<div class="review-row__mode-toggle">
+							<button type="button" class="btn btn--ghost btn--sm" x-show="!createNew" @click="createNew = true">+ Add as new product</button>
+							<button type="button" class="btn btn--ghost btn--sm" x-show="createNew" @click="createNew = false">← Use existing product</button>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Quantity</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ v: 12 }">
+									<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
+									<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Location</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.LocationId">
+									<option value="">— Location —</option>
+									<option value="Guid_5" selected="selected">Fridge</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Expires</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ d: '2026-07-01', adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+&quot;T12:00&quot;);t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }">
+									<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d">
+									<button type="button" class="qty-btn" @click="adj(1)" aria-label="Later">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<input type="hidden" name="Edit.Price" value="4.5">
+						<div class="form-grid__field" style="grid-column: span 4">
+							<label class="form-grid__field__label">Unit</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.UnitId">
+									<option value="">— Unit —</option>
+									<option value="Guid_9" selected="selected">ea — Each</option>
+									<option value="Guid_4">L — Litre</option>
+								</select>
 							</div>
 						</div>
 					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">New product name</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" name="Edit.NewProductName" value="" placeholder="WHOLE MILK 2L">
+					<div class="import-row__edit-foot">
+						<div class="import-row__edit-foot-summary">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-location"></use>
+							</svg>
+							Goes to
+							<strong>Fridge</strong>
 						</div>
+						<span class="import-row__edit-spacer"></span>
+						<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_12&amp;handler=DismissLine" hx-target="#rev-body" hx-swap="innerHTML">
+							Not pantry stock — remove
+						</button>
+						<button type="submit" class="btn btn--primary btn--sm">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Confirm item
+						</button>
 					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">Category</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.NewProductCategoryId">
-								<option value="">— Category —</option>
-								<option value="Guid_6">Dairy</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Quantity</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" value="2">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Unit</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.UnitId">
-								<option value="">— Unit —</option>
-								<option value="Guid_7">ea — Each</option>
-								<option value="Guid_8" selected="selected">L — Litre</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Location</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.LocationId">
-								<option value="">— Location —</option>
-								<option value="Guid_9" selected="selected">Fridge</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Expires</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="date" name="Edit.ExpiryDate" value="">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Price (optional)</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Price" value="3.99">
-						</div>
-					</div>
-				</div>
-				<div class="import-row__edit-foot">
-					<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_1&amp;handler=DismissLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
-						Not pantry stock — remove
-					</button>
-					<span class="import-row__edit-spacer"></span>
-					<button type="submit" class="btn btn--primary btn--sm">
-						<svg class="icon" aria-hidden="true">
-							<use href="#i-check"></use>
-						</svg>
-						Confirm item
-					</button>
-				</div>
-			</form>
-		</div>
-	</div>
-	<div id="import-line-Guid_10" class="import-row import-row--unmatched" x-data="{&quot;open&quot;:true,&quot;createNew&quot;:false}">
-		<div class="import-row__main">
-			<div class="import-row__id">
-				<div class="import-row__name">
-					<span class="import-row__unrecognized">Unrecognized item</span>
-				</div>
-				<div class="import-row__raw">
-					<span class="import-row__raw-tag">receipt</span>
-					<span>MYSTERY ITEM XZ</span>
-				</div>
+				</form>
 			</div>
-			<div class="import-row__meta">
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—<span class="import-row__meta-unit">
+		</div>
+		<div id="import-line-Guid_13" class="import-row import-row--confirmed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:true}">
+			<div class="import-row__main">
+				<div class="cat-chip cat-chip--neutral">?</div>
+				<div class="import-row__id">
+					<div class="import-row__name">
+						<span class="import-row__product">Sourdough Loaf</span>
+						<span class="import-row__new">· new product</span>
+					</div>
+					<div class="import-row__raw">
+						<span class="import-row__raw-tag">receipt</span>
+						<span>ARTISAN SOURDOUGH</span>
+					</div>
+				</div>
+				<div class="import-row__meta">
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">1<span class="import-row__meta-unit">
+								ea</span>
+						</div>
+						<div class="import-row__meta-label">qty</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">$5.25</div>
+						<div class="import-row__meta-label">price</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">1 Jul</div>
+						<div class="import-row__meta-label">expires</div>
+					</div>
+					<div class="import-row__conf">
+						<span class="badge badge-confidence--none" title="No catalog match found">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-search"></use>
+							</svg>
+							No match
 						</span>
 					</div>
-					<div class="import-row__meta-label">qty</div>
 				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—</div>
-					<div class="import-row__meta-label">price</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—</div>
-					<div class="import-row__meta-label">expires</div>
-				</div>
-				<div class="import-row__conf">
-				</div>
-			</div>
-			<div class="import-row__act">
-				<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-components"></use>
-					</svg>
-				</button>
-			</div>
-		</div>
-		<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
-			<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#import-line-Guid_10" hx-swap="outerHTML">
-				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-				<input type="hidden" name="Id" value="Guid_2">
-				<input type="hidden" name="Edit.LineId" value="Guid_10">
-				<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
-				<div class="review-row__mode seg-ctrl" role="group" aria-label="Resolution mode">
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_10" :checked="!createNew" @change="createNew = false">
-						<span>Existing product</span>
-					</label>
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_10" :checked="createNew" @change="createNew = true">
-						<span>New product</span>
-					</label>
-				</div>
-				<div class="import-row__edit-grid">
-					<div class="form-grid__field form-grid__field--full" x-show="!createNew">
-						<label class="form-grid__field__label">Product</label>
-						<div class="form-grid__field__control">
-							<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false">
-								<input type="hidden" name="Edit.ProductId" value="" x-ref="hidden">
-								<div class="searchable-select__control">
-									<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_10-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_10-listbox" hx-swap="innerHTML" hx-params="q">
-								</div>
-								<ul class="searchable-select__listbox" id="edit-product-Guid_10-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
-									<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
-									<li role="option" data-value="Guid_4" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
-									<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
-								</ul>
-							</div>
-						</div>
-					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">New product name</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" name="Edit.NewProductName" value="" placeholder="MYSTERY ITEM XZ">
-						</div>
-					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">Category</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.NewProductCategoryId">
-								<option value="">— Category —</option>
-								<option value="Guid_6">Dairy</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Quantity</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" value="">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Unit</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.UnitId">
-								<option value="">— Unit —</option>
-								<option value="Guid_7">ea — Each</option>
-								<option value="Guid_8">L — Litre</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Location</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.LocationId">
-								<option value="">— Location —</option>
-								<option value="Guid_9">Fridge</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Expires</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="date" name="Edit.ExpiryDate" value="">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Price (optional)</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Price" value="">
-						</div>
-					</div>
-				</div>
-				<div class="import-row__edit-foot">
-					<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_10&amp;handler=DismissLine" hx-target="#import-line-Guid_10" hx-swap="outerHTML">
-						Not pantry stock — remove
-					</button>
-					<span class="import-row__edit-spacer"></span>
-					<button type="submit" class="btn btn--primary btn--sm">
-						<svg class="icon" aria-hidden="true">
-							<use href="#i-check"></use>
-						</svg>
-						Confirm item
-					</button>
-				</div>
-			</form>
-		</div>
-	</div>
-	<div id="import-line-Guid_11" class="import-row import-row--unmatched" x-data="{&quot;open&quot;:true,&quot;createNew&quot;:false}">
-		<div class="import-row__main">
-			<div class="import-row__id">
-				<div class="import-row__name">
-					<span class="import-row__unrecognized">Unrecognized item</span>
-				</div>
-				<div class="import-row__raw">
-					<span class="import-row__raw-tag">receipt</span>
-					<span>ORG BREAD LOAF</span>
-				</div>
-			</div>
-			<div class="import-row__meta">
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—<span class="import-row__meta-unit">
-						</span>
-					</div>
-					<div class="import-row__meta-label">qty</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—</div>
-					<div class="import-row__meta-label">price</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—</div>
-					<div class="import-row__meta-label">expires</div>
-				</div>
-				<div class="import-row__conf">
-				</div>
-			</div>
-			<div class="import-row__act">
-				<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-components"></use>
-					</svg>
-				</button>
-			</div>
-		</div>
-		<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
-			<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#import-line-Guid_11" hx-swap="outerHTML">
-				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-				<input type="hidden" name="Id" value="Guid_2">
-				<input type="hidden" name="Edit.LineId" value="Guid_11">
-				<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
-				<div class="review-row__mode seg-ctrl" role="group" aria-label="Resolution mode">
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_11" :checked="!createNew" @change="createNew = false">
-						<span>Existing product</span>
-					</label>
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_11" :checked="createNew" @change="createNew = true">
-						<span>New product</span>
-					</label>
-				</div>
-				<div class="import-row__edit-grid">
-					<div class="form-grid__field form-grid__field--full" x-show="!createNew">
-						<label class="form-grid__field__label">Product</label>
-						<div class="form-grid__field__control">
-							<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false">
-								<input type="hidden" name="Edit.ProductId" value="" x-ref="hidden">
-								<div class="searchable-select__control">
-									<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_11-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_11-listbox" hx-swap="innerHTML" hx-params="q">
-								</div>
-								<ul class="searchable-select__listbox" id="edit-product-Guid_11-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
-									<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
-									<li role="option" data-value="Guid_4" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
-									<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
-								</ul>
-							</div>
-						</div>
-					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">New product name</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" name="Edit.NewProductName" value="" placeholder="ORG BREAD LOAF">
-						</div>
-					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">Category</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.NewProductCategoryId">
-								<option value="">— Category —</option>
-								<option value="Guid_6">Dairy</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Quantity</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" value="">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Unit</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.UnitId">
-								<option value="">— Unit —</option>
-								<option value="Guid_7">ea — Each</option>
-								<option value="Guid_8">L — Litre</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Location</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.LocationId">
-								<option value="">— Location —</option>
-								<option value="Guid_9">Fridge</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Expires</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="date" name="Edit.ExpiryDate" value="">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Price (optional)</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Price" value="">
-						</div>
-					</div>
-				</div>
-				<div class="import-row__edit-foot">
-					<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_11&amp;handler=DismissLine" hx-target="#import-line-Guid_11" hx-swap="outerHTML">
-						Not pantry stock — remove
-					</button>
-					<span class="import-row__edit-spacer"></span>
-					<button type="submit" class="btn btn--primary btn--sm">
-						<svg class="icon" aria-hidden="true">
-							<use href="#i-check"></use>
-						</svg>
-						Confirm item
-					</button>
-				</div>
-			</form>
-		</div>
-	</div>
-	<div id="import-line-Guid_12" class="import-row import-row--confirmed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
-		<div class="import-row__main">
-			<div class="import-row__id">
-				<div class="import-row__name">
-					<span class="import-row__product">Eggs</span>
-				</div>
-				<div class="import-row__raw">
-					<span class="import-row__raw-tag">receipt</span>
-					<span>FREE RANGE EGGS</span>
-				</div>
-			</div>
-			<div class="import-row__meta">
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">12<span class="import-row__meta-unit">
-							ea</span>
-					</div>
-					<div class="import-row__meta-label">qty</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">$4.50</div>
-					<div class="import-row__meta-label">price</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">1 Jul</div>
-					<div class="import-row__meta-label">expires</div>
-				</div>
-				<div class="import-row__conf">
-					<span class="badge badge-confidence--high" title="Matched a catalog product with high confidence">
+				<div class="import-row__act">
+					<span class="import-row__confirmed-flag">
 						<svg class="icon" aria-hidden="true">
 							<use href="#i-check"></use>
 						</svg>
 						Matched
 					</span>
+					<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
+						<svg class="icon import-row__chev" :class="{ 'import-row__chev--open': open }" aria-hidden="true">
+							<use href="#i-chevron"></use>
+						</svg>
+					</button>
 				</div>
 			</div>
-			<div class="import-row__act">
-				<span class="import-row__confirmed-flag">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-check"></use>
-					</svg>
-					Confirmed
-				</span>
-				<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-components"></use>
-					</svg>
-				</button>
-			</div>
-		</div>
-		<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
-			<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#import-line-Guid_12" hx-swap="outerHTML">
-				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-				<input type="hidden" name="Id" value="Guid_2">
-				<input type="hidden" name="Edit.LineId" value="Guid_12">
-				<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
-				<div class="review-row__mode seg-ctrl" role="group" aria-label="Resolution mode">
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_12" :checked="!createNew" @change="createNew = false">
-						<span>Existing product</span>
-					</label>
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_12" :checked="createNew" @change="createNew = true">
-						<span>New product</span>
-					</label>
-				</div>
-				<div class="import-row__edit-grid">
-					<div class="form-grid__field form-grid__field--full" x-show="!createNew">
-						<label class="form-grid__field__label">Product</label>
-						<div class="form-grid__field__control">
-							<div class="searchable-select" x-data="searchableSelect()" data-initial-label="Eggs" @click.outside="open = false" @keydown.escape="open = false">
-								<input type="hidden" name="Edit.ProductId" value="Guid_5" x-ref="hidden">
-								<div class="searchable-select__control">
-									<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_12-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_12-listbox" hx-swap="innerHTML" hx-params="q">
+			<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
+				<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
+					<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+					<input type="hidden" name="Id" value="Guid_2">
+					<input type="hidden" name="Edit.LineId" value="Guid_13">
+					<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
+					<div class="import-row__edit-grid">
+						<div class="form-grid__field form-grid__field--full" x-show="!createNew">
+							<label class="form-grid__field__label">Product</label>
+							<div class="form-grid__field__control">
+								<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false">
+									<input type="hidden" name="Edit.ProductId" value="" x-ref="hidden">
+									<div class="searchable-select__control">
+										<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_13-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_13-listbox" hx-swap="innerHTML" hx-params="q">
+									</div>
+									<ul class="searchable-select__listbox" id="edit-product-Guid_13-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
+										<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
+										<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
+										<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+									</ul>
 								</div>
-								<ul class="searchable-select__listbox" id="edit-product-Guid_12-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
-									<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
-									<li role="option" data-value="Guid_4" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
-									<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
-								</ul>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
+							<label class="form-grid__field__label">New product name</label>
+							<div class="form-grid__field__control">
+								<input class="field__input" name="Edit.NewProductName" value="Sourdough Loaf" placeholder="ARTISAN SOURDOUGH">
+							</div>
+						</div>
+						<div class="form-grid__field" x-show="createNew">
+							<label class="form-grid__field__label">Category</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.NewProductCategoryId">
+									<option value="">— Category —</option>
+									<option value="Guid_8" selected="selected">Dairy</option>
+								</select>
+							</div>
+						</div>
+						<div class="review-row__mode-toggle">
+							<button type="button" class="btn btn--ghost btn--sm" x-show="!createNew" @click="createNew = true">+ Add as new product</button>
+							<button type="button" class="btn btn--ghost btn--sm" x-show="createNew" @click="createNew = false">← Use existing product</button>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Quantity</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ v: 1 }">
+									<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
+									<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Location</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.LocationId">
+									<option value="">— Location —</option>
+									<option value="Guid_5" selected="selected">Fridge</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Expires</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ d: '2026-07-01', adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+&quot;T12:00&quot;);t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }">
+									<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d">
+									<button type="button" class="qty-btn" @click="adj(1)" aria-label="Later">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<input type="hidden" name="Edit.Price" value="5.25">
+						<div class="form-grid__field" style="grid-column: span 4">
+							<label class="form-grid__field__label">Unit</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.UnitId">
+									<option value="">— Unit —</option>
+									<option value="Guid_9" selected="selected">ea — Each</option>
+									<option value="Guid_4">L — Litre</option>
+								</select>
 							</div>
 						</div>
 					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">New product name</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" name="Edit.NewProductName" value="" placeholder="FREE RANGE EGGS">
+					<div class="import-row__edit-foot">
+						<div class="import-row__edit-foot-summary">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-location"></use>
+							</svg>
+							Goes to
+							<strong>Fridge</strong>
+							<span class="import-row__new">· new product</span>
 						</div>
+						<span class="import-row__edit-spacer"></span>
+						<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_13&amp;handler=DismissLine" hx-target="#rev-body" hx-swap="innerHTML">
+							Not pantry stock — remove
+						</button>
+						<button type="submit" class="btn btn--primary btn--sm">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Confirm item
+						</button>
 					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">Category</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.NewProductCategoryId">
-								<option value="">— Category —</option>
-								<option value="Guid_6">Dairy</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Quantity</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" value="12">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Unit</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.UnitId">
-								<option value="">— Unit —</option>
-								<option value="Guid_7" selected="selected">ea — Each</option>
-								<option value="Guid_8">L — Litre</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Location</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.LocationId">
-								<option value="">— Location —</option>
-								<option value="Guid_9" selected="selected">Fridge</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Expires</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="date" name="Edit.ExpiryDate" value="2026-07-01">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Price (optional)</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Price" value="4.5">
-						</div>
-					</div>
-				</div>
-				<div class="import-row__edit-foot">
-					<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_12&amp;handler=DismissLine" hx-target="#import-line-Guid_12" hx-swap="outerHTML">
-						Not pantry stock — remove
-					</button>
-					<span class="import-row__edit-spacer"></span>
-					<button type="submit" class="btn btn--primary btn--sm">
-						<svg class="icon" aria-hidden="true">
-							<use href="#i-check"></use>
-						</svg>
-						Confirm item
-					</button>
-				</div>
-			</form>
-		</div>
-	</div>
-	<div id="import-line-Guid_13" class="import-row import-row--confirmed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:true}">
-		<div class="import-row__main">
-			<div class="import-row__id">
-				<div class="import-row__name">
-					<span class="import-row__product">Sourdough Loaf</span>
-					<span class="import-row__new">· new product</span>
-				</div>
-				<div class="import-row__raw">
-					<span class="import-row__raw-tag">receipt</span>
-					<span>ARTISAN SOURDOUGH</span>
-				</div>
-			</div>
-			<div class="import-row__meta">
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">1<span class="import-row__meta-unit">
-							ea</span>
-					</div>
-					<div class="import-row__meta-label">qty</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">$5.25</div>
-					<div class="import-row__meta-label">price</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">1 Jul</div>
-					<div class="import-row__meta-label">expires</div>
-				</div>
-				<div class="import-row__conf">
-					<span class="badge badge-confidence--none" title="No catalog match found">
-						<svg class="icon" aria-hidden="true">
-							<use href="#i-search"></use>
-						</svg>
-						No match
-					</span>
-				</div>
-			</div>
-			<div class="import-row__act">
-				<span class="import-row__confirmed-flag">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-check"></use>
-					</svg>
-					Confirmed
-				</span>
-				<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-components"></use>
-					</svg>
-				</button>
+				</form>
 			</div>
 		</div>
-		<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
-			<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#import-line-Guid_13" hx-swap="outerHTML">
-				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-				<input type="hidden" name="Id" value="Guid_2">
-				<input type="hidden" name="Edit.LineId" value="Guid_13">
-				<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
-				<div class="review-row__mode seg-ctrl" role="group" aria-label="Resolution mode">
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_13" :checked="!createNew" @change="createNew = false">
-						<span>Existing product</span>
-					</label>
-					<label class="seg-ctrl__item">
-						<input type="radio" name="mode-Guid_13" :checked="createNew" @change="createNew = true">
-						<span>New product</span>
-					</label>
-				</div>
-				<div class="import-row__edit-grid">
-					<div class="form-grid__field form-grid__field--full" x-show="!createNew">
-						<label class="form-grid__field__label">Product</label>
-						<div class="form-grid__field__control">
-							<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false">
-								<input type="hidden" name="Edit.ProductId" value="" x-ref="hidden">
-								<div class="searchable-select__control">
-									<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_13-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_13-listbox" hx-swap="innerHTML" hx-params="q">
-								</div>
-								<ul class="searchable-select__listbox" id="edit-product-Guid_13-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
-									<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
-									<li role="option" data-value="Guid_4" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
-									<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
-								</ul>
-							</div>
-						</div>
+		<div id="import-line-Guid_14" class="import-row import-row--committed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
+			<div class="import-row__main">
+				<div class="cat-chip cat-chip--neutral">?</div>
+				<div class="import-row__id">
+					<div class="import-row__name">
+						<span class="import-row__product">Milk</span>
 					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">New product name</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" name="Edit.NewProductName" value="Sourdough Loaf" placeholder="ARTISAN SOURDOUGH">
-						</div>
-					</div>
-					<div class="form-grid__field" x-show="createNew">
-						<label class="form-grid__field__label">Category</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.NewProductCategoryId">
-								<option value="">— Category —</option>
-								<option value="Guid_6" selected="selected">Dairy</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Quantity</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" value="1">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Unit</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.UnitId">
-								<option value="">— Unit —</option>
-								<option value="Guid_7" selected="selected">ea — Each</option>
-								<option value="Guid_8">L — Litre</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Location</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" name="Edit.LocationId">
-								<option value="">— Location —</option>
-								<option value="Guid_9" selected="selected">Fridge</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Expires</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="date" name="Edit.ExpiryDate" value="2026-07-01">
-						</div>
-					</div>
-					<div class="form-grid__field">
-						<label class="form-grid__field__label">Price (optional)</label>
-						<div class="form-grid__field__control">
-							<input class="field__input" type="number" step="any" min="0" name="Edit.Price" value="5.25">
-						</div>
+					<div class="import-row__raw">
+						<span class="import-row__raw-tag">receipt</span>
+						<span>BUTTER 250G</span>
 					</div>
 				</div>
-				<div class="import-row__edit-foot">
-					<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_13&amp;handler=DismissLine" hx-target="#import-line-Guid_13" hx-swap="outerHTML">
-						Not pantry stock — remove
-					</button>
-					<span class="import-row__edit-spacer"></span>
-					<button type="submit" class="btn btn--primary btn--sm">
-						<svg class="icon" aria-hidden="true">
-							<use href="#i-check"></use>
-						</svg>
-						Confirm item
-					</button>
-				</div>
-			</form>
-		</div>
-	</div>
-	<div id="import-line-Guid_14" class="import-row import-row--dismissed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
-		<div class="import-row__main">
-			<div class="import-row__id">
-				<div class="import-row__name">
-					<span class="import-row__unrecognized">Unrecognized item</span>
-				</div>
-				<div class="import-row__raw">
-					<span class="import-row__raw-tag">receipt</span>
-					<span>PLASTIC BAG</span>
-				</div>
-			</div>
-			<div class="import-row__meta">
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—<span class="import-row__meta-unit">
+				<div class="import-row__meta">
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">1<span class="import-row__meta-unit">
+								L</span>
+						</div>
+						<div class="import-row__meta-label">qty</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">$2.99</div>
+						<div class="import-row__meta-label">price</div>
+					</div>
+					<div class="import-row__meta-cell">
+						<div class="import-row__meta-value">1 Jul</div>
+						<div class="import-row__meta-label">expires</div>
+					</div>
+					<div class="import-row__conf">
+						<span class="badge badge-confidence--low" title="A likely match was found — please check it">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-alert"></use>
+							</svg>
+							Check match
 						</span>
 					</div>
-					<div class="import-row__meta-label">qty</div>
 				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—</div>
-					<div class="import-row__meta-label">price</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">—</div>
-					<div class="import-row__meta-label">expires</div>
-				</div>
-				<div class="import-row__conf">
-					<span class="badge badge-confidence--none" title="No catalog match found">
+				<div class="import-row__act">
+					<span class="import-row__locked">
 						<svg class="icon" aria-hidden="true">
-							<use href="#i-search"></use>
+							<use href="#i-lock"></use>
 						</svg>
-						No match
+						Added
 					</span>
 				</div>
 			</div>
-			<div class="import-row__act">
-				<button type="button" class="btn btn--ghost btn--sm" hx-post="/Intake/Review/Guid_2?lineId=Guid_14&amp;handler=RestoreLine" hx-target="#import-line-Guid_14" hx-swap="outerHTML">
+			<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
+				<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
+					<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+					<input type="hidden" name="Id" value="Guid_2">
+					<input type="hidden" name="Edit.LineId" value="Guid_14">
+					<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
+					<div class="import-row__edit-grid">
+						<div class="form-grid__field form-grid__field--full" x-show="!createNew">
+							<label class="form-grid__field__label">Product</label>
+							<div class="form-grid__field__control">
+								<div class="searchable-select" x-data="searchableSelect()" data-initial-label="Milk" @click.outside="open = false" @keydown.escape="open = false">
+									<input type="hidden" name="Edit.ProductId" value="Guid_3" x-ref="hidden">
+									<div class="searchable-select__control">
+										<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_14-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_14-listbox" hx-swap="innerHTML" hx-params="q">
+									</div>
+									<ul class="searchable-select__listbox" id="edit-product-Guid_14-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
+										<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
+										<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
+										<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+									</ul>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
+							<label class="form-grid__field__label">New product name</label>
+							<div class="form-grid__field__control">
+								<input class="field__input" name="Edit.NewProductName" value="" placeholder="BUTTER 250G">
+							</div>
+						</div>
+						<div class="form-grid__field" x-show="createNew">
+							<label class="form-grid__field__label">Category</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.NewProductCategoryId">
+									<option value="">— Category —</option>
+									<option value="Guid_8">Dairy</option>
+								</select>
+							</div>
+						</div>
+						<div class="review-row__mode-toggle">
+							<button type="button" class="btn btn--ghost btn--sm" x-show="!createNew" @click="createNew = true">+ Add as new product</button>
+							<button type="button" class="btn btn--ghost btn--sm" x-show="createNew" @click="createNew = false">← Use existing product</button>
+						</div>
+						<div class="form-grid__field" style="grid-column: span 2">
+							<label class="form-grid__field__label">Quantity</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ v: 1 }">
+									<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
+									<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Location</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.LocationId">
+									<option value="">— Location —</option>
+									<option value="Guid_5" selected="selected">Fridge</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label">Expires</label>
+							<div class="form-grid__field__control">
+								<div class="qty-stepper" x-data="{ d: '2026-07-01', adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+&quot;T12:00&quot;);t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }">
+									<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+									<input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d">
+									<button type="button" class="qty-btn" @click="adj(1)" aria-label="Later">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+									</button>
+								</div>
+							</div>
+						</div>
+						<input type="hidden" name="Edit.Price" value="2.99">
+						<div class="form-grid__field" style="grid-column: span 4">
+							<label class="form-grid__field__label">Unit</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" name="Edit.UnitId">
+									<option value="">— Unit —</option>
+									<option value="Guid_9">ea — Each</option>
+									<option value="Guid_4" selected="selected">L — Litre</option>
+								</select>
+							</div>
+						</div>
+					</div>
+					<div class="import-row__edit-foot">
+						<div class="import-row__edit-foot-summary">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-location"></use>
+							</svg>
+							Goes to
+							<strong>Fridge</strong>
+						</div>
+						<span class="import-row__edit-spacer"></span>
+						<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_14&amp;handler=DismissLine" hx-target="#rev-body" hx-swap="innerHTML">
+							Not pantry stock — remove
+						</button>
+						<button type="submit" class="btn btn--primary btn--sm">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-check"></use>
+							</svg>
+							Confirm item
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+	<div x-show="filter === 'all'">
+		<div class="sec-label">Skipped — not inventory
+			<span class="sec-label__count">· 1</span>
+		</div>
+		<div id="import-line-Guid_15" class="import-row import-row--dismissed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
+			<div class="import-row__nonstock-main">
+				<div class="import-row__nonstock-ico">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-tag"></use>
+					</svg>
+				</div>
+				<div class="import-row__nonstock-name">
+					PLASTIC BAG
+					<span class="import-row__nonstock-why">
+						— · not inventory — won't be added
+					</span>
+				</div>
+				<button type="button" class="btn btn--ghost btn--sm" hx-post="/Intake/Review/Guid_2?lineId=Guid_15&amp;handler=RestoreLine" hx-target="#rev-body" hx-swap="innerHTML">
 					Add anyway
 				</button>
-			</div>
-		</div>
-	</div>
-	<div id="import-line-Guid_15" class="import-row import-row--committed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
-		<div class="import-row__main">
-			<div class="import-row__id">
-				<div class="import-row__name">
-					<span class="import-row__product">Milk</span>
-				</div>
-				<div class="import-row__raw">
-					<span class="import-row__raw-tag">receipt</span>
-					<span>BUTTER 250G</span>
-				</div>
-			</div>
-			<div class="import-row__meta">
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">1<span class="import-row__meta-unit">
-							L</span>
-					</div>
-					<div class="import-row__meta-label">qty</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">$2.99</div>
-					<div class="import-row__meta-label">price</div>
-				</div>
-				<div class="import-row__meta-cell">
-					<div class="import-row__meta-value">1 Jul</div>
-					<div class="import-row__meta-label">expires</div>
-				</div>
-				<div class="import-row__conf">
-					<span class="badge badge-confidence--low" title="A likely match was found — please check it">
-						<svg class="icon" aria-hidden="true">
-							<use href="#i-alert"></use>
-						</svg>
-						Check match
-					</span>
-				</div>
-			</div>
-			<div class="import-row__act">
-				<span class="import-row__locked">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-lock"></use>
-					</svg>
-					Added
-				</span>
 			</div>
 		</div>
 	</div>

@@ -1,5 +1,6 @@
 ﻿<div id="import-line-Guid_1" class="import-row import-row--unmatched" x-data="{&quot;open&quot;:true,&quot;createNew&quot;:false}">
 	<div class="import-row__main">
+		<div class="cat-chip cat-chip--neutral">?</div>
 		<div class="import-row__id">
 			<div class="import-row__name">
 				<span class="import-row__unrecognized">Unrecognized item</span>
@@ -25,32 +26,28 @@
 				<div class="import-row__meta-label">expires</div>
 			</div>
 			<div class="import-row__conf">
+				<span class="badge badge-confidence--none" title="No catalog match found">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-search"></use>
+					</svg>
+					No match
+				</span>
 			</div>
 		</div>
 		<div class="import-row__act">
 			<button type="button" class="import-row__toggle" @click="open = !open" :aria-expanded="open" aria-label="Edit line">
-				<svg class="icon" aria-hidden="true">
-					<use href="#i-components"></use>
+				<svg class="icon import-row__chev" :class="{ 'import-row__chev--open': open }" aria-hidden="true">
+					<use href="#i-chevron"></use>
 				</svg>
 			</button>
 		</div>
 	</div>
 	<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
-		<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
+		<form hx-post="/Intake/Review/Guid_2?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
 			<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
 			<input type="hidden" name="Id" value="Guid_2">
 			<input type="hidden" name="Edit.LineId" value="Guid_1">
 			<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
-			<div class="review-row__mode seg-ctrl" role="group" aria-label="Resolution mode">
-				<label class="seg-ctrl__item">
-					<input type="radio" name="mode-Guid_1" :checked="!createNew" @change="createNew = false">
-					<span>Existing product</span>
-				</label>
-				<label class="seg-ctrl__item">
-					<input type="radio" name="mode-Guid_1" :checked="createNew" @change="createNew = true">
-					<span>New product</span>
-				</label>
-			</div>
 			<div class="import-row__edit-grid">
 				<div class="form-grid__field form-grid__field--full" x-show="!createNew">
 					<label class="form-grid__field__label">Product</label>
@@ -68,7 +65,7 @@
 						</div>
 					</div>
 				</div>
-				<div class="form-grid__field" x-show="createNew">
+				<div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
 					<label class="form-grid__field__label">New product name</label>
 					<div class="form-grid__field__control">
 						<input class="field__input" name="Edit.NewProductName" value="" placeholder="MYSTERY ITEM XZ">
@@ -83,20 +80,26 @@
 						</select>
 					</div>
 				</div>
-				<div class="form-grid__field">
+				<div class="review-row__mode-toggle">
+					<button type="button" class="btn btn--ghost btn--sm" x-show="!createNew" @click="createNew = true">+ Add as new product</button>
+					<button type="button" class="btn btn--ghost btn--sm" x-show="createNew" @click="createNew = false">← Use existing product</button>
+				</div>
+				<div class="form-grid__field" style="grid-column: span 2">
 					<label class="form-grid__field__label">Quantity</label>
 					<div class="form-grid__field__control">
-						<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" value="">
-					</div>
-				</div>
-				<div class="form-grid__field">
-					<label class="form-grid__field__label">Unit</label>
-					<div class="form-grid__field__control">
-						<select class="field__input" name="Edit.UnitId">
-							<option value="">— Unit —</option>
-							<option value="Guid_7">ea — Each</option>
-							<option value="Guid_8">L — Litre</option>
-						</select>
+						<div class="qty-stepper" x-data="{ v: null }">
+							<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-minus"></use>
+								</svg>
+							</button>
+							<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
+							<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-plus"></use>
+								</svg>
+							</button>
+						</div>
 					</div>
 				</div>
 				<div class="form-grid__field">
@@ -104,28 +107,57 @@
 					<div class="form-grid__field__control">
 						<select class="field__input" name="Edit.LocationId">
 							<option value="">— Location —</option>
-							<option value="Guid_9">Fridge</option>
+							<option value="Guid_7">Fridge</option>
 						</select>
 					</div>
 				</div>
 				<div class="form-grid__field">
 					<label class="form-grid__field__label">Expires</label>
 					<div class="form-grid__field__control">
-						<input class="field__input" type="date" name="Edit.ExpiryDate" value="">
+						<div class="qty-stepper" x-data="{ d: null, adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+&quot;T12:00&quot;);t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }">
+							<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-minus"></use>
+								</svg>
+							</button>
+							<input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d">
+							<button type="button" class="qty-btn" @click="adj(1)" aria-label="Later">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-plus"></use>
+								</svg>
+							</button>
+						</div>
 					</div>
 				</div>
-				<div class="form-grid__field">
+				<div class="form-grid__field" style="grid-column: span 2">
+					<label class="form-grid__field__label">Unit</label>
+					<div class="form-grid__field__control">
+						<select class="field__input" name="Edit.UnitId">
+							<option value="">— Unit —</option>
+							<option value="Guid_8">ea — Each</option>
+							<option value="Guid_9">L — Litre</option>
+						</select>
+					</div>
+				</div>
+				<div class="form-grid__field" style="grid-column: span 2">
 					<label class="form-grid__field__label">Price (optional)</label>
 					<div class="form-grid__field__control">
-						<input class="field__input" type="number" step="any" min="0" name="Edit.Price" value="">
+						<input class="field__input" type="number" step="any" min="0" name="Edit.Price">
 					</div>
 				</div>
 			</div>
 			<div class="import-row__edit-foot">
-				<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_1&amp;handler=DismissLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
+				<div class="import-row__edit-foot-summary">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-location"></use>
+					</svg>
+					Goes to
+					<strong>—</strong>
+				</div>
+				<span class="import-row__edit-spacer"></span>
+				<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_2?lineId=Guid_1&amp;handler=DismissLine" hx-target="#rev-body" hx-swap="innerHTML">
 					Not pantry stock — remove
 				</button>
-				<span class="import-row__edit-spacer"></span>
 				<button type="submit" class="btn btn--primary btn--sm">
 					<svg class="icon" aria-hidden="true">
 						<use href="#i-check"></use>

@@ -50,6 +50,7 @@ public sealed record ImportLineRowViewModel(
 public sealed record CommitBarViewModel(
     int Confirmed,
     int Total,
+    decimal ConfirmedValue,
     string CommitUrl,
     string DiscardUrl)
 {

@@ -251,9 +251,10 @@ public sealed class ReviewModel(
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
         var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
         var productDefaultLocationById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultLocationId);
+        var locationNameById = reference.Locations.ToDictionary(l => l.Id, l => l.Name);
 
         Rows = Session.Lines
-            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById, productDefaultLocationById))
+            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById, productDefaultLocationById, locationNameById))
             .ToList();
 
         return null;
@@ -275,8 +276,9 @@ public sealed class ReviewModel(
         return new PartialViewResult { ViewName = "_ReviewRow", ViewData = ViewData, TempData = TempData };
     }
 
-    /// <summary>Re-renders the row reflecting a successful command, or surfaces the command's error inline on
-    /// the row (re-rendered with the original state plus an error banner so the failure stays in context).</summary>
+    /// <summary>Re-renders the whole review body (#rev-body) reflecting a successful command — so the filter
+    /// chips, per-section counts and the row's section membership all re-derive from the new line states in
+    /// one pass — plus the out-of-band commit bar. On failure, surfaces the command's error inline on the row.</summary>
     private async Task<IActionResult> RowResultAsync(ImportLineId lineId, Result result, CancellationToken ct)
     {
         if (result.IsFailure)
@@ -284,35 +286,75 @@ public sealed class ReviewModel(
 
         await LoadAsync(ct);
         ViewData["IncludeCommitBarOob"] = true;
-        return RowPartial(lineId);
+        // As in RowPartial: return directly so the page's ViewData (carrying IncludeCommitBarOob) reaches the fragment.
+        return new PartialViewResult { ViewName = "_ReviewBody", ViewData = ViewData, TempData = TempData };
     }
 
     private IActionResult RowError(ImportLineId lineId, string message)
     {
-        Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+        // The row forms target #rev-body, but a rejected edit hasn't changed any line's state, so the chips and
+        // buckets don't move — re-render only the offending row (drawer reopened) and retarget htmx back to it.
+        // 200 (not 422) so htmx performs the swap at all (htmx 2.x blocks swaps on 4xx by default).
+        Response.Headers["HX-Retarget"] = $"#import-line-{lineId.Value}";
+        Response.Headers["HX-Reswap"] = "outerHTML";
         return RowPartial(lineId, message);
     }
 
     private IActionResult CommitBarError(string message)
     {
-        Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+        // 200 so htmx swaps the alert (same reason as RowError).
         ViewData["AlertMessage"] = message;
         // As in RowPartial: return directly so the page's ViewData (carrying AlertMessage) reaches the fragment.
         return new PartialViewResult { ViewName = "_ReviewAlert", ViewData = ViewData, TempData = TempData };
     }
+
+    // ── Row partitioning + progress ──────────────────────────────────────────────────────────────
+    // Single source of truth for "needs review" vs "ready". The initial render and every htmx row-action
+    // response both render _ReviewBody, which reads these predicates, so the chips, section counts, bucket
+    // membership and progress bar can never drift from one another.
+
+    public IReadOnlyList<ReviewRowModel> NeedsReviewRows =>
+        Rows.Where(r => !r.RowViewModel.IsConfirmed && !r.RowViewModel.IsCommitted && !r.RowViewModel.IsDismissed).ToList();
+
+    public IReadOnlyList<ReviewRowModel> ReadyRows =>
+        Rows.Where(r => r.RowViewModel.IsConfirmed || r.RowViewModel.IsCommitted).ToList();
+
+    public IReadOnlyList<ReviewRowModel> SkippedRows =>
+        Rows.Where(r => r.RowViewModel.IsDismissed).ToList();
+
+    public ReviewProgress BuildProgress() => new(NeedsReviewRows.Count, ReadyRows.Count);
+
+    /// <summary>Merchant label shown in both the receipt panel (Review.cshtml) and the review header
+    /// (_ReviewBody) — the parsed merchant text, or "Receipt" when the parser captured none. Computed
+    /// once here so the two panels can't display different store names.</summary>
+    public string StoreLabel =>
+        string.IsNullOrWhiteSpace(Session.MerchantText) ? "Receipt" : Session.MerchantText;
 
     public CommitBarViewModel BuildCommitBar()
     {
         // "Total" is the set of committable (non-dismissed) lines; "Confirmed" counts those resolved. Already
         // committed lines count as confirmed (resumability). Dismissed lines are excluded from both.
         var committable = Session.Lines.Where(l => l.Status != LineStatus.Dismissed).ToList();
-        var confirmed = committable.Count(l => l.Status is LineStatus.Confirmed or LineStatus.Committed);
+        var confirmedLines = committable.Where(l => l.Status is LineStatus.Confirmed or LineStatus.Committed).ToList();
+        var confirmedValue = confirmedLines.Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
         return new CommitBarViewModel(
-            Confirmed: confirmed,
+            Confirmed: confirmedLines.Count,
             Total: committable.Count,
+            ConfirmedValue: confirmedValue,
             CommitUrl: Url.Page("./Review", "Commit", new { Id })!,
             DiscardUrl: Url.Page("./Review", "Discard", new { Id })!);
     }
+}
+
+/// <summary>The review header's progress summary — how many lines still need a look versus are ready to
+/// commit, plus the derived percentage and commit-eligibility. Computed in one place
+/// (<see cref="ReviewModel.BuildProgress"/>) and rendered by the <c>_ReviewProgress</c> partial inside
+/// <c>_ReviewBody</c> for both the initial page and each htmx row-action response, so the two never disagree.</summary>
+public sealed record ReviewProgress(int NeedsCount, int ReadyCount)
+{
+    public int Total => NeedsCount + ReadyCount;
+    public int Percent => Total > 0 ? (int)Math.Round((double)ReadyCount / Total * 100) : 100;
+    public bool CanCommit => NeedsCount == 0 && Total > 0;
 }
 
 /// <summary>Couples the shared <see cref="ImportLineRowViewModel"/> (the swap-target VM the partial needs) with
@@ -326,6 +368,7 @@ public sealed record ReviewRowModel(
     decimal? PrefillQuantity,
     Guid? PrefillUnitId,
     Guid? PrefillLocationId,
+    string? PrefillLocationName,
     decimal? PrefillPrice)
 {
     /// <summary>
@@ -382,10 +425,15 @@ public sealed record ReviewRowModel(
         IReadOnlyDictionary<Guid, string> unitCodeById,
         IReadOnlyDictionary<string, Guid> unitIdByCode,
         IReadOnlyDictionary<Guid, string> productNameById,
-        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById)
+        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById,
+        IReadOnlyDictionary<Guid, string> locationNameById)
     {
         var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice) =
             ComputePrefill(line, unitIdByCode, productNameById, productDefaultLocationById);
+
+        var prefillLocationName = prefillLocationId is { } locId && locationNameById.TryGetValue(locId, out var locName)
+            ? locName
+            : null;
 
         // Display name: new-product intent uses the chosen name; everything else uses the pre-fill.
         string? productName = line.IsNewProduct ? line.NewProductName : prefillProductName;
@@ -408,6 +456,6 @@ public sealed record ReviewRowModel(
             RestoreUrl: url.Page("./Review", "RestoreLine", new { Id = sessionId, lineId = line.LineId })!,
             SaveUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!);
 
-        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice);
+        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillLocationName, prefillPrice);
     }
 }

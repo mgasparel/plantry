@@ -1,42 +1,18 @@
 ﻿<div id="import-line-Guid_1" class="import-row import-row--dismissed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false}">
-	<div class="import-row__main">
-		<div class="import-row__id">
-			<div class="import-row__name">
-				<span class="import-row__unrecognized">Unrecognized item</span>
-			</div>
-			<div class="import-row__raw">
-				<span class="import-row__raw-tag">receipt</span>
-				<span>PLASTIC BAG</span>
-			</div>
+	<div class="import-row__nonstock-main">
+		<div class="import-row__nonstock-ico">
+			<svg class="icon" aria-hidden="true">
+				<use href="#i-tag"></use>
+			</svg>
 		</div>
-		<div class="import-row__meta">
-			<div class="import-row__meta-cell">
-				<div class="import-row__meta-value">—<span class="import-row__meta-unit">
-					</span>
-				</div>
-				<div class="import-row__meta-label">qty</div>
-			</div>
-			<div class="import-row__meta-cell">
-				<div class="import-row__meta-value">—</div>
-				<div class="import-row__meta-label">price</div>
-			</div>
-			<div class="import-row__meta-cell">
-				<div class="import-row__meta-value">—</div>
-				<div class="import-row__meta-label">expires</div>
-			</div>
-			<div class="import-row__conf">
-				<span class="badge badge-confidence--none" title="No catalog match found">
-					<svg class="icon" aria-hidden="true">
-						<use href="#i-search"></use>
-					</svg>
-					No match
-				</span>
-			</div>
+		<div class="import-row__nonstock-name">
+			PLASTIC BAG
+			<span class="import-row__nonstock-why">
+				— · not inventory — won't be added
+			</span>
 		</div>
-		<div class="import-row__act">
-			<button type="button" class="btn btn--ghost btn--sm" hx-post="/Intake/Review/Guid_2?lineId=Guid_1&amp;handler=RestoreLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
-				Add anyway
-			</button>
-		</div>
+		<button type="button" class="btn btn--ghost btn--sm" hx-post="/Intake/Review/Guid_2?lineId=Guid_1&amp;handler=RestoreLine" hx-target="#rev-body" hx-swap="innerHTML">
+			Add anyway
+		</button>
 	</div>
 </div>

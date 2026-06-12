@@ -50,6 +50,8 @@ public sealed class SearchableSelectTagHelper(IHtmlGenerator htmlGenerator) : Ta
         var initialValue = selected?.Value ?? For.Model?.ToString() ?? "";
 
         var html = new StringBuilder();
+        // `query` is seeded from data-initial-label by searchableSelect().init() (searchable-select.js),
+        // so the x-data only needs to name the component.
         html.Append($"""<div class="searchable-select" x-data="searchableSelect()" data-initial-label="{enc.Encode(initialLabel)}" @click.outside="open = false" @keydown.escape="open = false">""");
         html.Append($"""<input type="hidden" name="{enc.Encode(fullName)}" id="{hiddenId}" value="{enc.Encode(initialValue)}" x-ref="hidden" />""");
         html.Append("""<div class="searchable-select__control">""");

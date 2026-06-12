@@ -110,7 +110,9 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             var matchedRow = page.Locator($"#{matchedRowId}");
             await matchedRow.Locator(".import-row__toggle").ClickAsync();
 
-            // Pick the seeded product via the row's searchable-select, then fill qty/unit/location/price.
+            // Pick the seeded product via the row's searchable-select, then fill qty/unit/location.
+            // Price is prefilled from the receipt and carried in a hidden input — there is no visible
+            // price field to fill (and the prefilled value still produces a price observation on commit).
             var productSearch = matchedRow.Locator("input[role='combobox']");
             await productSearch.FillAsync(matchedProductName);
             var productOption = matchedRow.Locator(".searchable-select__listbox li[role='option']",
@@ -121,7 +123,6 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await matchedRow.Locator("[name='Edit.Quantity']").FillAsync("2");
             await matchedRow.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
             await matchedRow.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
-            await matchedRow.Locator("[name='Edit.Price']").FillAsync("3.49");
             await matchedRow.Locator("button:has-text('Confirm item')").ClickAsync();
 
             // Row swaps (same #id) to the confirmed state.
@@ -133,14 +134,14 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
                 ?? throw new InvalidOperationException("Unmatched import row had no id.");
             var unmatchedRow = page.Locator($"#{unmatchedRowId}");
 
-            // Switch the row to "New product" mode (the segmented-control radio) and fill the create fields.
-            await unmatchedRow.Locator(".seg-ctrl__item", new() { HasText = "New product" }).ClickAsync();
+            // Switch the row to "New product" mode (the drawer's toggle button) and fill the create fields.
+            // As with the matched row, price is prefilled from the receipt into a hidden input.
+            await unmatchedRow.Locator("button:has-text('Add as new product')").ClickAsync();
             await unmatchedRow.Locator("[name='Edit.NewProductName']").FillAsync(newProductName);
             await unmatchedRow.Locator("[name='Edit.NewProductCategoryId']").SelectOptionAsync(new SelectOptionValue { Index = 1 });
             await unmatchedRow.Locator("[name='Edit.Quantity']").FillAsync("1");
             await unmatchedRow.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
             await unmatchedRow.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
-            await unmatchedRow.Locator("[name='Edit.Price']").FillAsync("1.99");
             await unmatchedRow.Locator("button:has-text('Confirm item')").ClickAsync();
 
             await Assertions.Expect(unmatchedRow.Locator(".import-row__confirmed-flag")).ToBeVisibleAsync();
@@ -148,7 +149,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             // ── Commit — both lines confirmed, so the Commit button is enabled ──
             // The OOB commit-bar swap (hx-swap-oob) updates the bar after each row confirmation, so
             // the button should be enabled without a reload once both lines are confirmed.
-            var commitButton = page.Locator(".commit-bar button:has-text('Commit')");
+            var commitButton = page.Locator(".commit-bar button:has-text('Add to pantry')");
             await Assertions.Expect(commitButton).ToBeEnabledAsync();
             await commitButton.ClickAsync();
 
