@@ -20,6 +20,38 @@
      x-on:htmx:before-request.window="scanning = true"
      x-on:htmx:after-request.window="scanning = false">
 
+    @* Scanning takeover — centered in the main panel, replaces the whole intake view while a parse runs. *@
+    <div x-show="scanning" x-cloak class="scan-stage" aria-live="polite"
+         x-data="{
+            msgs: ['Reading the receipt…', 'Finding line items…', 'Matching to your catalog…', 'Almost there…'],
+            i: 0, timer: null,
+            start() { clearInterval(this.timer); this.i = 0; this.timer = setInterval(() => { if (this.i < this.msgs.length - 1) this.i++; }, 1400); },
+            stop() { clearInterval(this.timer); this.i = 0; }
+         }"
+         x-effect="scanning ? start() : stop()">
+        <div class="scan-card">
+            <div class="scan-receipt" aria-hidden="true">
+                <div class="scan-line"></div>
+                <div class="dz-illus-line" style="width: 70%"></div>
+                <div class="dz-illus-line" style="width: 90%"></div>
+                <div class="dz-illus-line" style="width: 55%"></div>
+                <div class="dz-illus-line" style="width: 85%"></div>
+                <div class="dz-illus-line" style="width: 60%"></div>
+                <div class="dz-illus-line" style="width: 95%"></div>
+                <div class="dz-illus-line" style="width: 50%"></div>
+                <div class="dz-illus-line" style="width: 80%"></div>
+            </div>
+            <div class="scan-status">
+                <h3>Scanning your receipt</h3>
+                <p x-text="msgs[i]">Reading the receipt…</p>
+                <div class="scan-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            </div>
+        </div>
+    </div>
+
+    @* Normal intake view — hidden while a parse is in-flight. *@
+    <div x-show="!scanning">
+
     <div class="intake-head">
         <h1>Add groceries</h1>
         <p>Snap your receipt and Plenish reads every line, matches it to your catalog, and queues it for a quick review. A full grocery run, logged in under a minute.</p>
@@ -65,15 +97,7 @@
         </div>
 
         <div class="dz-content">
-            @* Scanning overlay — visible while the AI parse is in-flight. *@
-            <div x-show="$root.scanning" x-cloak class="empty-state" aria-live="polite">
-                <div class="spinner spinner--lg" role="status" aria-hidden="true"></div>
-                <div class="empty-state__title">Reading your receipt…</div>
-                <p class="empty-state__body">This takes a few seconds while we pick out the items. Hang tight.</p>
-            </div>
-
-            @* Upload form — hidden while scanning. *@
-            <div id="upload-region" x-show="!$root.scanning">
+            <div id="upload-region">
                 <h3>Drop a receipt photo to start</h3>
                 <p>JPG, PNG or PDF — or a snapshot straight from your phone.</p>
                 <div class="dz-actions">
@@ -157,6 +181,8 @@
         </div>
 
     </div>
+
+    </div> @* end normal intake view (x-show="!scanning") *@
 </div>
 
 @functions {

@@ -58,7 +58,7 @@
 							<div class="searchable-select__control">
 								<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_1-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_1-listbox" hx-swap="innerHTML" hx-params="q">
 							</div>
-							<ul class="searchable-select__listbox" id="edit-product-Guid_1-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="">
+							<ul class="searchable-select__listbox" id="edit-product-Guid_1-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="" style="display: none">
 								<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
 								<li role="option" data-value="Guid_4" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
 								<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>

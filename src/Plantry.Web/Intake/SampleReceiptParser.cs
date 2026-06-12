@@ -46,12 +46,17 @@ public sealed class SampleReceiptParser : IReceiptParser
         new(9, "49 OTHER",                     null,                      1.000m, null, 6.00m),
     ];
 
-    public Task<ReceiptParseResult> ParseAsync(
+    public async Task<ReceiptParseResult> ParseAsync(
         byte[] imageBytes,
         string contentType,
         IReadOnlyList<ProductHint> catalogHints,
         CancellationToken ct = default)
     {
+        // Dev affordance: the fixture resolves instantly, which makes the upload scan-line animation
+        // flash past before you can see it. A real AI parse takes a few seconds, so pause here to mimic
+        // that latency and let the animation play. Scoped to this sample parser only (Development).
+        await Task.Delay(Random.Shared.Next(3000, 5000), ct);
+
         // name → id, first match wins (the catalog has duplicate "Salmon fillet" rows; either resolves).
         var idByName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         foreach (var hint in catalogHints)
@@ -79,6 +84,6 @@ public sealed class SampleReceiptParser : IReceiptParser
                 RawJson: null);
         }).ToList();
 
-        return Task.FromResult(new ReceiptParseResult(Merchant, parsed));
+        return new ReceiptParseResult(Merchant, parsed);
     }
 }

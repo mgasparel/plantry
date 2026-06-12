@@ -62,7 +62,7 @@ public sealed class SearchableSelectTagHelper(IHtmlGenerator htmlGenerator) : Ta
         }
         html.Append("/>");
         html.Append("</div>");
-        html.Append($"""<ul class="searchable-select__listbox" id="{listboxId}" role="listbox" x-ref="listbox" x-show="open" x-cloak>""");
+        html.Append($"""<ul class="searchable-select__listbox" id="{listboxId}" role="listbox" x-ref="listbox" x-show="open" x-cloak style="display: none">""");
         AppendOptions(html, Items, enc);
         html.Append("</ul>");
         html.Append("</div>");

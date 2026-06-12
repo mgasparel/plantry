@@ -498,6 +498,41 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Scanning overlay</h2>
+    </div>
+    <p>
+        <code>.scan-card</code> replaces the dropzone's upload region while an AI receipt parse is
+        in-flight. A <code>.scan-line</code> sweeps over a mini receipt (reusing
+        <code>.dz-illus-line</code> rows) while <code>.scan-status</code> shows a heading, a cycling
+        progress message, and a row of pulsing <code>.scan-dots</code>. On the intake page Alpine
+        drives the message cycle off <code>$root.scanning</code>; the demo below cycles on its own.
+        Both the scan-line and dots respect <code>prefers-reduced-motion</code> (the line freezes near
+        the top and the dots stop pulsing).
+    </p>
+    <div class="scan-card"
+         x-data="{
+            msgs: ['Reading the receipt…', 'Finding line items…', 'Matching to your catalog…', 'Almost there…'],
+            i: 0,
+            init() { setInterval(() => { if (this.i < this.msgs.length - 1) this.i++; else this.i = 0; }, 1400); }
+         }">
+        <div class="scan-receipt" aria-hidden="true">
+            <div class="scan-line"></div>
+            @foreach (var w in new[] { 70, 90, 55, 85, 60, 95, 50, 80 })
+            {
+                <div class="dz-illus-line" style="width: @(w)%"></div>
+            }
+        </div>
+        <div class="scan-status">
+            <h3>Scanning your receipt</h3>
+            <p x-text="msgs[i]">Reading the receipt…</p>
+            <div class="scan-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"scan-card\" x-show=\"$root.scanning\" x-cloak aria-live=\"polite\"\n     x-data=\"{ msgs: [...], i: 0, timer: null,\n              start() { ... setInterval ... },\n              stop() { clearInterval(this.timer); this.i = 0; } }\"\n     x-effect=\"$root.scanning ? start() : stop()\">\n  <div class=\"scan-receipt\" aria-hidden=\"true\">\n    <div class=\"scan-line\"></div>\n    <div class=\"dz-illus-line\" style=\"width: 70%\"></div>\n    ...\n  </div>\n  <div class=\"scan-status\">\n    <h3>Scanning your receipt</h3>\n    <p x-text=\"msgs[i]\"></p>\n    <div class=\"scan-dots\"><span></span><span></span><span></span></div>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Recent-intake row</h2>
     </div>
     <p>

@@ -209,7 +209,7 @@
                                            name="q" hx-get="@searchUrl" hx-trigger="keyup changed delay:250ms, focus"
                                            hx-target="#@listboxId" hx-swap="innerHTML" hx-params="q" />
                                 </div>
-                                <ul class="searchable-select__listbox" id="@listboxId" role="listbox" x-ref="listbox" x-show="open" x-cloak>
+                                <ul class="searchable-select__listbox" id="@listboxId" role="listbox" x-ref="listbox" x-show="open" x-cloak style="display: none">
                                     @foreach (var opt in page.ProductOptions)
                                     {
                                         <li role="option" data-value="@opt.Value" @@click="select($el.dataset.value, $el.textContent.trim())">@opt.Text</li>

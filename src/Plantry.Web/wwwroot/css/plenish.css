@@ -1436,6 +1436,47 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 12.5px;
 }
 
+/* ── Scanning animation — takes over the main panel while the AI parse is in-flight ── */
+/* Centres the scan-card in the main content area (below the topbar), so the dropzone and
+   side panels are fully replaced rather than left interactive behind a partial overlay. */
+.scan-stage {
+  display: grid;
+  place-items: center;
+  min-height: calc(100dvh - var(--topbar-height) - 160px);
+  padding: 40px;
+}
+.scan-card { display: flex; flex-direction: column; align-items: center; gap: 24px; }
+.scan-receipt {
+  width: 220px; background: var(--color-surface); border-radius: 8px;
+  box-shadow: var(--shadow-lg); border: 1px solid var(--color-border);
+  padding: 22px 20px; position: relative; overflow: hidden;
+}
+.scan-line {
+  position: absolute; left: 0; right: 0; height: 38px;
+  background: linear-gradient(var(--color-accent-subtle), transparent);
+  border-top: 2px solid var(--color-accent);
+  animation: scan-move 1.7s cubic-bezier(.5, 0, .5, 1) infinite;
+}
+@keyframes scan-move { 0% { top: -38px; } 100% { top: 100%; } }
+.scan-receipt .dz-illus-line { margin: 0 0 9px; }
+.scan-receipt .dz-illus-line:last-child { margin-bottom: 0; }
+.scan-status { text-align: center; }
+.scan-status h3 { margin: 0 0 6px; font-size: 19px; letter-spacing: -0.01em; }
+.scan-status p { margin: 0; color: var(--color-text-muted); font-size: 14px; min-height: 20px; }
+.scan-dots { margin-top: 12px; }
+.scan-dots span {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-accent); margin: 0 3px; opacity: .3;
+  animation: scan-dot 1.1s infinite;
+}
+.scan-dots span:nth-child(2) { animation-delay: .18s; }
+.scan-dots span:nth-child(3) { animation-delay: .36s; }
+@keyframes scan-dot { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .scan-line { animation: none; top: 0; }
+  .scan-dots span { animation: none; opacity: .6; }
+}
+
 .intake-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 32px; }
 .panel {
   background: var(--color-surface);
