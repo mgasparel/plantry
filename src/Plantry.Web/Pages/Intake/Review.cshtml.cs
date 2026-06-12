@@ -57,6 +57,8 @@ public sealed class ReviewModel(
         public Guid LineId { get; set; }
         public bool CreateNew { get; set; }
         public Guid? ProductId { get; set; }
+        /// <summary>Optional pack-size selection — the user picks the SKU manually; the AI only supplies the product match.</summary>
+        public Guid? SkuId { get; set; }
         public string? NewProductName { get; set; }
         public Guid? NewProductCategoryId { get; set; }
         public decimal? Quantity { get; set; }
@@ -122,7 +124,7 @@ public sealed class ReviewModel(
 
             result = await new ResolveLineCommand(
                 ImportSessionId.From(Id), lineId,
-                Edit.ProductId!.Value, skuId: null,
+                Edit.ProductId!.Value, skuId: Edit.SkuId,
                 quantity, unitId, locationId,
                 Edit.ExpiryDate, Edit.Price,
                 sessions, tenant).ExecuteAsync(ct);
@@ -253,8 +255,15 @@ public sealed class ReviewModel(
         var productDefaultLocationById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultLocationId);
         var locationNameById = reference.Locations.ToDictionary(l => l.Id, l => l.Name);
 
+        // Build a productId → SKU-options map for the drawer; only products that have SKUs are included.
+        var skusByProductId = reference.Products
+            .Where(p => p.Skus.Count > 0)
+            .ToDictionary(
+                p => p.Id.ToString(),
+                p => (IReadOnlyList<ReviewSkuOption>)p.Skus);
+
         Rows = Session.Lines
-            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById, productDefaultLocationById, locationNameById))
+            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById, productDefaultLocationById, locationNameById, skusByProductId))
             .ToList();
 
         return null;
@@ -369,7 +378,11 @@ public sealed record ReviewRowModel(
     Guid? PrefillUnitId,
     Guid? PrefillLocationId,
     string? PrefillLocationName,
-    decimal? PrefillPrice)
+    decimal? PrefillPrice,
+    /// <summary>Map of productId → list of SKU options for all products that have SKUs — embedded in the
+    /// drawer as JSON so Alpine can filter pack-size choices when the product selection changes.</summary>
+    IReadOnlyDictionary<string, IReadOnlyList<ReviewSkuOption>> SkusByProductId,
+    Guid? PrefillSkuId)
 {
     /// <summary>
     /// Pure prefill computation — no URL or HTTP context needed. Applies the priority chain:
@@ -426,7 +439,8 @@ public sealed record ReviewRowModel(
         IReadOnlyDictionary<string, Guid> unitIdByCode,
         IReadOnlyDictionary<Guid, string> productNameById,
         IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById,
-        IReadOnlyDictionary<Guid, string> locationNameById)
+        IReadOnlyDictionary<Guid, string> locationNameById,
+        IReadOnlyDictionary<string, IReadOnlyList<ReviewSkuOption>> skusByProductId)
     {
         var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice) =
             ComputePrefill(line, unitIdByCode, productNameById, productDefaultLocationById);
@@ -456,6 +470,7 @@ public sealed record ReviewRowModel(
             RestoreUrl: url.Page("./Review", "RestoreLine", new { Id = sessionId, lineId = line.LineId })!,
             SaveUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!);
 
-        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillLocationName, prefillPrice);
+        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId,
+            prefillLocationId, prefillLocationName, prefillPrice, skusByProductId, PrefillSkuId: line.SkuId);
     }
 }

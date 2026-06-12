@@ -12,7 +12,11 @@ public interface IReviewReferenceDataProvider
     Task<ReviewReferenceData> GetAsync(CancellationToken ct = default);
 }
 
-public sealed record ReviewProductOption(Guid Id, string Name, string DefaultUnitCode, Guid? DefaultLocationId);
+/// <summary>A purchasable pack-size option for a matched product, shown in the intake review drawer.</summary>
+public sealed record ReviewSkuOption(Guid Id, string Label);
+
+public sealed record ReviewProductOption(Guid Id, string Name, string DefaultUnitCode, Guid? DefaultLocationId,
+    IReadOnlyList<ReviewSkuOption> Skus);
 
 public sealed record ReviewUnitOption(Guid Id, string Code, string Name);
 

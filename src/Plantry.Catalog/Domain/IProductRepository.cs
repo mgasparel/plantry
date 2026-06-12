@@ -8,6 +8,10 @@ public interface IProductRepository
     /// <summary>Active (non-archived) products, for the default catalog list view.</summary>
     Task<List<Product>> ListActiveAsync(CancellationToken ct = default);
 
+    /// <summary>Active (non-archived) products with their SKUs eager-loaded — for the intake
+    /// review form, which needs pack-size options per matched product.</summary>
+    Task<List<Product>> ListActiveWithSkusAsync(CancellationToken ct = default);
+
     /// <summary>Loads the specified products with their conversion rules in a single query — for batch paths that need converters.</summary>
     Task<List<Product>> ListWithConversionsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default);
 

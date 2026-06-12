@@ -17,6 +17,9 @@ public sealed class ProductRepository(CatalogDbContext db) : IProductRepository
     public Task<List<Product>> ListActiveAsync(CancellationToken ct = default) =>
         db.Products.Where(p => p.ArchivedAt == null).OrderBy(p => p.Name).ToListAsync(ct);
 
+    public Task<List<Product>> ListActiveWithSkusAsync(CancellationToken ct = default) =>
+        db.Products.Include(p => p.Skus).Where(p => p.ArchivedAt == null).OrderBy(p => p.Name).ToListAsync(ct);
+
     public Task<List<Product>> ListWithConversionsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default)
     {
         var idList = ids.ToList();

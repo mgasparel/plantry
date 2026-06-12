@@ -25,16 +25,36 @@
     var priceValue = rowModel.PrefillPrice?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
     var newNameValue = line.NewProductName ?? "";
 
+    var initialProductIdStr = rowModel.PrefillProductId?.ToString() ?? "";
+    var initialSkuIdStr = rowModel.PrefillSkuId?.ToString() ?? "";
+
+    // Build a productId (string) → [{id, label}] map for Alpine so it can filter
+    // pack-size options dynamically when the product selection changes in the drawer.
+    var skusByProductId = rowModel.SkusByProductId
+        .ToDictionary(
+            kvp => kvp.Key,
+            kvp => kvp.Value.Select(s => new { id = s.Id.ToString(), label = s.Label }).ToList());
+
     var alpineState = System.Text.Json.JsonSerializer.Serialize(new
     {
         open = startOpen,
         createNew = line.IsNewProduct,
+        selectedProductId = initialProductIdStr,
+        skuId = initialSkuIdStr,
+        skus = skusByProductId,
     });
 
     var rowError = ViewData["RowError"] as string;
     if (!string.IsNullOrEmpty(rowError))
     {
-        alpineState = System.Text.Json.JsonSerializer.Serialize(new { open = true, createNew = line.IsNewProduct });
+        alpineState = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            open = true,
+            createNew = line.IsNewProduct,
+            selectedProductId = initialProductIdStr,
+            skuId = initialSkuIdStr,
+            skus = skusByProductId,
+        });
     }
 
     var qtyInitJs = rowModel.PrefillQuantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "null";
@@ -198,7 +218,8 @@
                             <div class="searchable-select" x-data="searchableSelect()"
                                  data-initial-label="@initialLabel"
                                  @@click.outside="open = false" @@keydown.escape="open = false">
-                                <input type="hidden" name="Edit.ProductId" value="@(initialProduct?.Value ?? rowModel.PrefillProductId?.ToString() ?? "")" x-ref="hidden" />
+                                <input type="hidden" name="Edit.ProductId" value="@(initialProduct?.Value ?? rowModel.PrefillProductId?.ToString() ?? "")" x-ref="hidden"
+                                       @@change="selectedProductId = $event.target.value; skuId = ''" />
                                 <div class="searchable-select__control">
                                     <input type="text" class="field__input" role="combobox"
                                            aria-controls="@listboxId" aria-autocomplete="list" autocomplete="off"
@@ -237,6 +258,23 @@
                                     var sel = line.NewProductCategoryId?.ToString() == c.Value;
                                     <option value="@c.Value" selected="@sel">@c.Text</option>
                                 }
+                            </select>
+                        </div>
+                    </div>
+
+                    @* Pack-size (SKU) picker — only visible when the selected product has SKUs defined.
+                       `skus` is keyed by productId string; Alpine filters the options live as the
+                       product selection changes. Selection is optional: the user may leave it blank. *@
+                    <div class="form-grid__field form-grid__field--full"
+                         x-show="!createNew && (skus[selectedProductId]?.length ?? 0) > 0"
+                         x-cloak>
+                        <label class="form-grid__field__label">Pack size (optional)</label>
+                        <div class="form-grid__field__control">
+                            <select class="field__input" name="Edit.SkuId" x-model="skuId">
+                                <option value="">— Any size —</option>
+                                <template x-for="sku in (skus[selectedProductId] ?? [])" :key="sku.id">
+                                    <option :value="sku.id" x-text="sku.label"></option>
+                                </template>
                             </select>
                         </div>
                     </div>

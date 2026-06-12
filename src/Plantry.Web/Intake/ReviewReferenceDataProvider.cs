@@ -18,7 +18,7 @@ public sealed class ReviewReferenceDataProvider(
 {
     public async Task<ReviewReferenceData> GetAsync(CancellationToken ct = default)
     {
-        var activeProducts = await products.ListActiveAsync(ct);
+        var activeProducts = await products.ListActiveWithSkusAsync(ct);
         var activeUnits = await units.ListAsync(ct);
         var activeLocations = await locations.ListActiveAsync(ct);
         var activeCategories = await categories.ListActiveAsync(ct);
@@ -31,7 +31,8 @@ public sealed class ReviewReferenceDataProvider(
                 p.Id.Value,
                 p.Name,
                 unitCodesById.TryGetValue(p.DefaultUnitId, out var code) ? code : "?",
-                p.DefaultLocationId?.Value))
+                p.DefaultLocationId?.Value,
+                p.Skus.Select(s => new ReviewSkuOption(s.Id.Value, s.Label)).ToList()))
             .ToList();
 
         var unitOptions = activeUnits
