@@ -19,6 +19,9 @@ public sealed record AlternativeCandidate(
 /// </summary>
 public sealed class ImportLine : Entity<ImportLineId>
 {
+    /// <summary>Minimum number of catalog-resolved candidates required to show the "Did you mean" strip.</summary>
+    public const int MinAlternativesForSuggestion = 2;
+
     // Set once by AI — never overwritten
     public ImportSessionId SessionId { get; private set; }
     public HouseholdId HouseholdId { get; private set; }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
@@ -101,7 +102,11 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
                 .HasColumnType("jsonb")
                 .HasConversion(
                     v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                    v => v == null ? null : JsonSerializer.Deserialize<List<AlternativeCandidate>>(v, (JsonSerializerOptions?)null));
+                    v => v == null ? null : JsonSerializer.Deserialize<List<AlternativeCandidate>>(v, (JsonSerializerOptions?)null),
+                    new ValueComparer<IReadOnlyList<AlternativeCandidate>?>(
+                        (l, r) => (l == null && r == null) || (l != null && r != null && l.SequenceEqual(r)),
+                        l => l == null ? 0 : l.Aggregate(0, (h, c) => HashCode.Combine(h, c.GetHashCode())),
+                        l => l == null ? null : l.ToList()));
             b.Property(l => l.ProductId).HasColumnName("product_id");
             b.Property(l => l.SkuId).HasColumnName("sku_id");
             b.Property(l => l.Quantity).HasColumnName("quantity").HasPrecision(12, 3);

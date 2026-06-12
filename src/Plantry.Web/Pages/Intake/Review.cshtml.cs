@@ -548,7 +548,7 @@ public sealed record ReviewRowModel(
         // Alternatives are only surfaced when there are 2+ credible options (the gate is also applied
         // in GetSessionForReviewQuery, but we re-check here so From() is self-contained).
         IReadOnlyList<ReviewAlternativeCandidate>? alternatives = null;
-        if (line.SuggestedAlternatives is { Count: >= 2 } alts)
+        if (line.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts)
         {
             var resolved = alts
                 .Where(a => a.ProductId is { } p && productNameById.ContainsKey(p))
@@ -560,7 +560,7 @@ public sealed record ReviewRowModel(
                 })
                 .ToList();
 
-            if (resolved.Count >= 2)
+            if (resolved.Count >= ImportLine.MinAlternativesForSuggestion)
                 alternatives = resolved;
         }
 

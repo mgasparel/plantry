@@ -316,7 +316,7 @@
                             Uses data-alt-id / data-alt-name attributes so product names never touch a JS
                             string literal (Razor HTML-encodes attribute values; no manual escaping needed).
                         *@
-                        @if (rowModel.Alternatives is { Count: >= 2 } alts && !row.IsConfirmed && !row.IsCommitted)
+                        @if (rowModel.Alternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts && !row.IsConfirmed && !row.IsCommitted)
                         {
                             <div class="match-suggest" x-show="!createNew">
                                 <div class="match-suggest__label">
@@ -333,11 +333,7 @@
                                                 data-alt-id="@altIdStr"
                                                 data-alt-name="@alt.ProductName"
                                                 :class="{ 'sel': selectedProductId === '@altIdStr' }"
-                                                @@click="
-                                                    selectedProductId = $el.dataset.altId;
-                                                    skuId = '';
-                                                    $dispatch('alt-selected', { lineId: '@line.LineId', id: $el.dataset.altId, label: $el.dataset.altName });
-                                                ">
+                                                @@click="$dispatch('alt-selected', { lineId: '@line.LineId', id: $el.dataset.altId, label: $el.dataset.altName })">
                                             <svg class="icon" aria-hidden="true" x-show="selectedProductId === '@altIdStr'"><use href="#i-check" /></svg>
                                             @alt.ProductName
                                             <span class="rk">@rankLabel</span>
