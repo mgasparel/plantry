@@ -1,0 +1,10 @@
+@model Plantry.Web.Pages.Intake.ReviewProjections
+@*
+    ADR-013 §3 OOB fragment — progress bar wrapper.
+    Target: #rev-progress (outerHTML). Emitted as part of the _ReviewRowOobBundle on every successful
+    row action so the progress bar stays in sync with the row states without a full-region repaint.
+    Registered in the Dev component library (src/Plantry.Web/Pages/Dev/Index.cshtml).
+*@
+<div id="rev-progress" hx-swap-oob="outerHTML:#rev-progress">
+    <partial name="_ReviewProgress" model="Model.Progress" />
+</div>

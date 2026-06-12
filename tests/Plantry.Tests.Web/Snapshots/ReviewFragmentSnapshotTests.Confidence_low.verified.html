@@ -1,4 +1,4 @@
-﻿<div id="import-line-Guid_1" class="import-row import-row--committed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;Guid_2&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{}}">
+﻿<div id="import-line-Guid_1" class="import-row import-row--committed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;Guid_2&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:1,&quot;d&quot;:&quot;2026-07-01&quot;}" data-status="ready" x-show="filter === 'all' || filter === 'ready'">
 	<div class="import-row__main">
 		<div class="cat-chip cat-chip--neutral">?</div>
 		<div class="import-row__id">
@@ -44,7 +44,7 @@
 		</div>
 	</div>
 	<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
-		<form hx-post="/Intake/Review/Guid_3?handler=SaveLine" hx-target="#rev-body" hx-swap="innerHTML">
+		<form hx-post="/Intake/Review/Guid_3?handler=SaveLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
 			<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
 			<input type="hidden" name="Id" value="Guid_3">
 			<input type="hidden" name="Edit.LineId" value="Guid_1">
@@ -97,7 +97,7 @@
 				<div class="form-grid__field" style="grid-column: span 2">
 					<label class="form-grid__field__label">Quantity</label>
 					<div class="form-grid__field__control">
-						<div class="qty-stepper" x-data="{ v: 1 }">
+						<div class="qty-stepper">
 							<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
 								<svg class="icon" aria-hidden="true">
 									<use href="#i-minus"></use>
@@ -124,7 +124,7 @@
 				<div class="form-grid__field">
 					<label class="form-grid__field__label">Expires</label>
 					<div class="form-grid__field__control">
-						<div class="qty-stepper" x-data="{ d: '2026-07-01', adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+&quot;T12:00&quot;);t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }">
+						<div class="qty-stepper" x-init="adj = function(n) { if(!d){let t=new Date();t.setDate(t.getDate()+n);d=t.toISOString().slice(0,10);return;} let t=new Date(d+'T12:00');t.setDate(t.getDate()+n);d=t.toISOString().slice(0,10); }">
 							<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
 								<svg class="icon" aria-hidden="true">
 									<use href="#i-minus"></use>
@@ -160,7 +160,7 @@
 					<strong>Fridge</strong>
 				</div>
 				<span class="import-row__edit-spacer"></span>
-				<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_3?lineId=Guid_1&amp;handler=DismissLine" hx-target="#rev-body" hx-swap="innerHTML">
+				<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_3?lineId=Guid_1&amp;handler=DismissLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
 					Not pantry stock — remove
 				</button>
 				<button type="submit" class="btn btn--primary btn--sm">

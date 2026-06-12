@@ -11,6 +11,12 @@ x86/
 .vscode/
 *.csproj.user
 
+# Editor swap / temp files
+*.swp
+*.swo
+*~
+.*.swp
+
 # NuGet
 *.nupkg
 **/[Pp]ackages/*

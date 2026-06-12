@@ -1,0 +1,30 @@
+@model Plantry.Web.Pages.Intake.ReviewProjections
+@*
+    ADR-013 §3 OOB fragment — filter chip bar.
+    Target: #rev-chips (outerHTML). Emitted as part of the _ReviewRowOobBundle on every successful
+    row action so the chip counts stay in sync with the row states without a full-region repaint.
+
+    The data-count-* attributes carry the server-authoritative counts so section headers can read
+    them without DOM-counting ($root.querySelectorAll is rejected per ADR-013 amendment).
+    Registered in the Dev component library (src/Plantry.Web/Pages/Dev/Index.cshtml).
+*@
+<div id="rev-chips" class="chips" hx-swap-oob="outerHTML:#rev-chips">
+    <button type="button" class="fchip"
+            :class="filter === 'all' ? 'on f-ready' : ''"
+            @@click="filter = 'all'"
+            data-count-total="@Model.TotalItems">All @Model.TotalItems</button>
+    <button type="button" class="fchip"
+            :class="filter === 'review' ? 'on f-review' : ''"
+            @@click="filter = 'review'"
+            data-count-needs="@Model.NeedsCount">
+        <span class="dotc" style="background: var(--color-warning)"></span>
+        Needs review @Model.NeedsCount
+    </button>
+    <button type="button" class="fchip"
+            :class="filter === 'ready' ? 'on f-ready' : ''"
+            @@click="filter = 'ready'"
+            data-count-ready="@Model.ReadyCount">
+        <span class="dotc" style="background: var(--color-success)"></span>
+        Ready @Model.ReadyCount
+    </button>
+</div>

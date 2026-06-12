@@ -16,8 +16,8 @@ namespace Plantry.Web.Pages.Intake;
 /// <summary>
 /// SPEC §2e — the intake review form. Renders a <c>Ready</c> <see cref="ImportSession"/> and its lines and
 /// drives per-line resolution through htmx fragments: each row action (confirm against an existing product,
-/// confirm-as-new, dismiss, restore) posts to a handler that re-renders the single <c>_ImportLineRow</c>
-/// partial as the swap response, so fragments stay independently renderable (plantry-qzq).
+/// confirm-as-new, dismiss, restore) posts to a handler that returns the OOB-bundle contract (ADR-013 §1) —
+/// the one changed row swapped in place via outerHTML, plus OOB fragments for chips/progress/commit-bar/receipt-total.
 ///
 /// <para>The application commands (plantry-kuv) are constructed per-request here rather than injected — only
 /// the repository, tenant context and reference-data provider are DI'd. AI-suggested fields are display-only
@@ -82,10 +82,10 @@ public sealed class ReviewModel(
         return Page();
     }
 
-    // ── Row actions — each re-renders one _ImportLineRow as the htmx swap response ──────────────────
+    // ── Row actions — each returns the ADR-013 OOB-bundle (one row + four aggregate OOB fragments) ──
 
     /// <summary>Confirm/resolve a line — against an existing catalog product, or (CreateNew) the §2d
-    /// create-or-link path. Re-renders the single row fragment.</summary>
+    /// create-or-link path. Returns the OOB-bundle on success; a row error on validation failure.</summary>
     public async Task<IActionResult> OnPostSaveLineAsync(CancellationToken ct)
     {
         var loaded = await LoadAsync(ct);
@@ -285,24 +285,35 @@ public sealed class ReviewModel(
         return new PartialViewResult { ViewName = "_ReviewRow", ViewData = ViewData, TempData = TempData };
     }
 
-    /// <summary>Re-renders the whole review body (#rev-body) reflecting a successful command — so the filter
-    /// chips, per-section counts and the row's section membership all re-derive from the new line states in
-    /// one pass — plus the out-of-band commit bar. On failure, surfaces the command's error inline on the row.</summary>
+    /// <summary>
+    /// ADR-013 §1 — the row-action response contract. On a successful command: sets HX-Retarget/HX-Reswap
+    /// so htmx swaps the one changed row in place (outerHTML on #import-line-{id}), then returns
+    /// <c>_ReviewRowOobBundle</c> which emits the row fragment + the four OOB projection fragments
+    /// (chips, progress, commit bar, receipt total). On failure: delegates to <see cref="RowError"/>.
+    /// </summary>
     private async Task<IActionResult> RowResultAsync(ImportLineId lineId, Result result, CancellationToken ct)
     {
         if (result.IsFailure)
             return RowError(lineId, result.Error.Description);
 
         await LoadAsync(ct);
-        ViewData["IncludeCommitBarOob"] = true;
-        // As in RowPartial: return directly so the page's ViewData (carrying IncludeCommitBarOob) reaches the fragment.
-        return new PartialViewResult { ViewName = "_ReviewBody", ViewData = ViewData, TempData = TempData };
+
+        // Retarget to the specific row so htmx swaps the primary swap body as outerHTML on #import-line-{id}.
+        // The OOB fragments in _ReviewRowOobBundle land independently in their own regions.
+        Response.Headers["HX-Retarget"] = $"#import-line-{lineId.Value}";
+        Response.Headers["HX-Reswap"] = "outerHTML";
+
+        var row = Rows.FirstOrDefault(r => r.Line.LineId == lineId.Value);
+        if (row is null)
+            return NotFound();
+        ViewData["Row"] = row;
+        return new PartialViewResult { ViewName = "_ReviewRowOobBundle", ViewData = ViewData, TempData = TempData };
     }
 
     private IActionResult RowError(ImportLineId lineId, string message)
     {
-        // The row forms target #rev-body, but a rejected edit hasn't changed any line's state, so the chips and
-        // buckets don't move — re-render only the offending row (drawer reopened) and retarget htmx back to it.
+        // A rejected edit hasn't changed any line's state, so chips and aggregates don't move —
+        // re-render only the offending row (drawer reopened) and retarget htmx back to it.
         // 200 (not 422) so htmx performs the swap at all (htmx 2.x blocks swaps on 4xx by default).
         Response.Headers["HX-Retarget"] = $"#import-line-{lineId.Value}";
         Response.Headers["HX-Reswap"] = "outerHTML";
@@ -317,10 +328,9 @@ public sealed class ReviewModel(
         return new PartialViewResult { ViewName = "_ReviewAlert", ViewData = ViewData, TempData = TempData };
     }
 
-    // ── Row partitioning + progress ──────────────────────────────────────────────────────────────
-    // Single source of truth for "needs review" vs "ready". The initial render and every htmx row-action
-    // response both render _ReviewBody, which reads these predicates, so the chips, section counts, bucket
-    // membership and progress bar can never drift from one another.
+    // ── Row partitioning + projections (ADR-013 §2) ──────────────────────────────────────────────
+    // Single source of truth for all page-level aggregates. Both the initial render (via _ReviewBody)
+    // and every row-action response (via _ReviewRowOobBundle) call BuildProjections() — they cannot drift.
 
     public IReadOnlyList<ReviewRowModel> NeedsReviewRows =>
         Rows.Where(r => !r.RowViewModel.IsConfirmed && !r.RowViewModel.IsCommitted && !r.RowViewModel.IsDismissed).ToList();
@@ -331,18 +341,61 @@ public sealed class ReviewModel(
     public IReadOnlyList<ReviewRowModel> SkippedRows =>
         Rows.Where(r => r.RowViewModel.IsDismissed).ToList();
 
-    public ReviewProgress BuildProgress() => new(NeedsReviewRows.Count, ReadyRows.Count);
+    /// <summary>
+    /// ADR-013 §2 — single projection builder. Collapses the four previously-scattered aggregate
+    /// computations (receipt total in Review.cshtml, BuildProgress(), BuildCommitBar(), chip counts
+    /// in _ReviewBody) into one typed record. Both the initial render and every row-action response
+    /// call this; the two renders are guaranteed to compute the same aggregates.
+    /// </summary>
+    public ReviewProjections BuildProjections()
+    {
+        var needsRows = NeedsReviewRows;
+        var readyRows = ReadyRows;
+        var skippedRows = SkippedRows;
+        var total = needsRows.Count + readyRows.Count;
 
-    /// <summary>Merchant label shown in both the receipt panel (Review.cshtml) and the review header
-    /// (_ReviewBody) — the parsed merchant text, or "Receipt" when the parser captured none. Computed
-    /// once here so the two panels can't display different store names.</summary>
+        var progress = new ReviewProgress(needsRows.Count, readyRows.Count);
+
+        // Committable = non-dismissed lines; value comes from confirmed + committed lines.
+        var committable = Session.Lines.Where(l => l.Status != LineStatus.Dismissed).ToList();
+        var confirmedLines = committable.Where(l => l.Status is LineStatus.Confirmed or LineStatus.Committed).ToList();
+        var confirmedValue = confirmedLines.Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
+        var commitBar = new CommitBarViewModel(
+            Confirmed: confirmedLines.Count,
+            Total: committable.Count,
+            ConfirmedValue: confirmedValue,
+            CommitUrl: Url.Page("./Review", "Commit", new { Id })!,
+            DiscardUrl: Url.Page("./Review", "Discard", new { Id })!);
+
+        // Receipt total = sum of non-dismissed lines (includes unconfirmed Pending lines).
+        var receiptTotal = Session.Lines
+            .Where(l => l.Status != LineStatus.Dismissed)
+            .Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
+
+        return new ReviewProjections(
+            NeedsCount: needsRows.Count,
+            ReadyCount: readyRows.Count,
+            SkippedCount: skippedRows.Count,
+            TotalItems: total,
+            Progress: progress,
+            CommitBar: commitBar,
+            ReceiptTotal: receiptTotal,
+            StoreLabel: StoreLabel,
+            SessionDate: Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture));
+    }
+
+    /// <summary>Merchant label shown in both the receipt panel (Review.cshtml) and the review header —
+    /// the parsed merchant text, or "Receipt" when the parser captured none. Computed once here so the
+    /// two panels can't display different store names.</summary>
     public string StoreLabel =>
         string.IsNullOrWhiteSpace(Session.MerchantText) ? "Receipt" : Session.MerchantText;
 
+    // ── Legacy helpers kept for backward-compat until all callers use BuildProjections() ─────────
+
+    public ReviewProgress BuildProgress() => new(NeedsReviewRows.Count, ReadyRows.Count);
+
     public CommitBarViewModel BuildCommitBar()
     {
-        // "Total" is the set of committable (non-dismissed) lines; "Confirmed" counts those resolved. Already
-        // committed lines count as confirmed (resumability). Dismissed lines are excluded from both.
         var committable = Session.Lines.Where(l => l.Status != LineStatus.Dismissed).ToList();
         var confirmedLines = committable.Where(l => l.Status is LineStatus.Confirmed or LineStatus.Committed).ToList();
         var confirmedValue = confirmedLines.Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
@@ -355,10 +408,25 @@ public sealed class ReviewModel(
     }
 }
 
+/// <summary>
+/// ADR-013 §2 — the single typed projection record for all page-level aggregates. Returned by
+/// <see cref="ReviewModel.BuildProjections()"/> and consumed by both the initial render
+/// (_ReviewBody / Review.cshtml) and every row-action OOB response (_ReviewRowOobBundle).
+/// </summary>
+public sealed record ReviewProjections(
+    int NeedsCount,
+    int ReadyCount,
+    int SkippedCount,
+    int TotalItems,
+    ReviewProgress Progress,
+    CommitBarViewModel CommitBar,
+    decimal ReceiptTotal,
+    string StoreLabel,
+    string SessionDate);
+
 /// <summary>The review header's progress summary — how many lines still need a look versus are ready to
-/// commit, plus the derived percentage and commit-eligibility. Computed in one place
-/// (<see cref="ReviewModel.BuildProgress"/>) and rendered by the <c>_ReviewProgress</c> partial inside
-/// <c>_ReviewBody</c> for both the initial page and each htmx row-action response, so the two never disagree.</summary>
+/// commit, plus the derived percentage and commit-eligibility. Consumed by both the initial render and
+/// the OOB progress fragment (_ReviewProgressOob).</summary>
 public sealed record ReviewProgress(int NeedsCount, int ReadyCount)
 {
     public int Total => NeedsCount + ReadyCount;

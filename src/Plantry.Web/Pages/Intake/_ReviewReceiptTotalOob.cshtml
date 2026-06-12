@@ -1,0 +1,12 @@
+@using System.Globalization
+@model Plantry.Web.Pages.Intake.ReviewProjections
+@*
+    ADR-013 §3 OOB fragment — receipt total (in the left receipt panel).
+    Target: #rcpt-total (outerHTML). Emitted as part of the _ReviewRowOobBundle on every successful
+    row action so the receipt total reflects the current non-dismissed line prices.
+    Registered in the Dev component library (src/Plantry.Web/Pages/Dev/Index.cshtml).
+*@
+<div id="rcpt-total" class="rcpt-line rcpt-total" hx-swap-oob="outerHTML:#rcpt-total">
+    <span class="rl-name">TOTAL</span>
+    <span class="rl-price">@Model.ReceiptTotal.ToString("0.00", CultureInfo.InvariantCulture)</span>
+</div>

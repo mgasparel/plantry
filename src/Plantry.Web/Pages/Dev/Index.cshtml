@@ -598,3 +598,35 @@
     </div>
     <pre class="code-sample"><code>@("<div class=\"stat-grid\">\n  <div class=\"stat\">\n    <div class=\"stat-num stat-num--mono\">$842</div>\n    <div class=\"stat-lbl\">Groceries logged</div>\n  </div>\n  ...\n</div>\n<div class=\"stat-footer\">\n  <svg class=\"icon\"><use href=\"#i-clock\"/></svg>\n  Average review time: <strong>52s</strong>\n</div>")</code></pre>
 </section>
+
+@*
+    ── ADR-013 OOB fragment partials (registered per .claude/CLAUDE.md requirement) ──────────────
+    These partials are the building blocks of the row-action OOB-bundle contract (ADR-013 §1).
+    They are pre-approved by ADR-013 — registration here is mandatory, not a new component proposal.
+    In production they are composed by _ReviewRowOobBundle and never rendered directly.
+*@
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Review OOB fragment bundle (ADR-013)</h2>
+    </div>
+    <p>
+        <code>_ReviewRowOobBundle</code> is the row-action response contract (ADR-013 §1): the one
+        changed row as the primary swap body (htmx uses <code>HX-Retarget/HX-Reswap outerHTML</code> on
+        <code>#import-line-{id}</code>), plus four OOB fragments — one per aggregate projection —
+        each landing in its own stable region without touching any other row.
+    </p>
+    <p>Composed of these five partials:</p>
+    <ul>
+        <li><code>_ReviewRow</code> — the one changed row (primary body)</li>
+        <li><code>_ReviewChipsOob</code> — <code>#rev-chips outerHTML</code> (filter chip bar + counts)</li>
+        <li><code>_ReviewProgressOob</code> — <code>#rev-progress outerHTML</code> (progress bar)</li>
+        <li><code>_ReviewCommitBarOob</code> — <code>#commit-bar outerHTML</code> (commit bar)</li>
+        <li><code>_ReviewReceiptTotalOob</code> — <code>#rcpt-total outerHTML</code> (receipt total)</li>
+    </ul>
+    <p>
+        All four projections are computed by <code>BuildProjections()</code> (ADR-013 §2) so the
+        initial render and the OOB responses always derive aggregates from the same function.
+        <code>_ReviewBody</code> is initial-render-only; it is not returned by any row action.
+    </p>
+    <pre class="code-sample"><code>@("// Row action response (in RowResultAsync):\nResponse.Headers[\"HX-Retarget\"] = $\"#import-line-{lineId}\";\nResponse.Headers[\"HX-Reswap\"] = \"outerHTML\";\nreturn new PartialViewResult { ViewName = \"_ReviewRowOobBundle\", ViewData = ViewData };\n\n// Each OOB fragment carries hx-swap-oob=\"outerHTML:#stable-id\".\n// BuildProjections() is the single source for all four aggregate counts.")</code></pre>
+</section>

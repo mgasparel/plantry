@@ -1,0 +1,11 @@
+@model Plantry.Web.Pages.Intake.ReviewProjections
+@*
+    ADR-013 §3 OOB fragment — commit bar wrapper.
+    Target: #commit-bar (outerHTML). Emitted as part of the _ReviewRowOobBundle on every successful
+    row action so the commit bar count/value stays in sync with the confirmed lines.
+    Registered in the Dev component library (src/Plantry.Web/Pages/Dev/Index.cshtml).
+*@
+<div id="commit-bar" class="review__commit" hx-swap-oob="outerHTML:#commit-bar"
+     hx-target="#review-alert" hx-swap="innerHTML">
+    <partial name="Shared/_CommitBar" model="Model.CommitBar" />
+</div>

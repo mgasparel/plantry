@@ -3,6 +3,14 @@
 @*
     Model is the PageModel itself (not the row VM) so the model-bound <searchable-select asp-for="Edit.ProductId">
     resolves against the page's bind target; the specific row to render is passed via ViewData["Row"].
+
+    ADR-013 §3 — data-status lives INSIDE the #import-line-{id} element so an OOB row swap carries the
+    updated section membership. ViewData["RowDataStatus"] is the status string (needs/ready/skipped).
+    ViewData["RowXShow"] is the Alpine x-show expression for section filtering.
+
+    ADR-013 step 6 — qty/expiry stepper JS-literal cleanup: v and d are now part of the row's JSON
+    x-data (via JsonSerializer) instead of @qtyInitJs / @expiryInitJs interpolated literals.
+    The adj() expiry function moves from nested x-data to x-init on the stepper div.
 *@
 @model Plantry.Web.Pages.Intake.ReviewModel
 @{
@@ -10,6 +18,20 @@
     var rowModel = (Plantry.Web.Pages.Intake.ReviewRowModel)ViewData["Row"]!;
     var row = rowModel.RowViewModel;
     var line = rowModel.Line;
+
+    // ADR-013 §3 — data-status and x-show for section filtering (from ViewData or derived from status)
+    var rowDataStatus = ViewData["RowDataStatus"] as string ?? row.Status switch
+    {
+        LineStatus.Confirmed or LineStatus.Committed => "ready",
+        LineStatus.Dismissed => "skipped",
+        _ => "needs"
+    };
+    var rowXShow = ViewData["RowXShow"] as string ?? rowDataStatus switch
+    {
+        "ready" => "filter === 'all' || filter === 'ready'",
+        "skipped" => "filter === 'all'",
+        _ => "filter === 'all' || filter === 'review'"
+    };
 
     var stateClass = row.Status switch
     {
@@ -35,30 +57,23 @@
             kvp => kvp.Key,
             kvp => kvp.Value.Select(s => new { id = s.Id.ToString(), label = s.Label }).ToList());
 
+    var rowError = ViewData["RowError"] as string;
+    var openDrawer = startOpen || !string.IsNullOrEmpty(rowError);
+
+    // ADR-013 step 6 — v (qty) and d (expiry) are part of the row's JSON x-data; no interpolated JS literals.
+    decimal? qtyInit = rowModel.PrefillQuantity;
+    string? expiryInit = string.IsNullOrEmpty(expiryValue) ? null : expiryValue;
+
     var alpineState = System.Text.Json.JsonSerializer.Serialize(new
     {
-        open = startOpen,
+        open = openDrawer,
         createNew = line.IsNewProduct,
         selectedProductId = initialProductIdStr,
         skuId = initialSkuIdStr,
         skus = skusByProductId,
+        v = qtyInit,
+        d = expiryInit,
     });
-
-    var rowError = ViewData["RowError"] as string;
-    if (!string.IsNullOrEmpty(rowError))
-    {
-        alpineState = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            open = true,
-            createNew = line.IsNewProduct,
-            selectedProductId = initialProductIdStr,
-            skuId = initialSkuIdStr,
-            skus = skusByProductId,
-        });
-    }
-
-    var qtyInitJs = rowModel.PrefillQuantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "null";
-    var expiryInitJs = string.IsNullOrEmpty(expiryValue) ? "null" : $"'{expiryValue}'";
 
     // Quick-confirm: a direct POST with prefill values, shown in the collapsed row header.
     var canQuickConfirm = row.Status == LineStatus.Pending
@@ -75,315 +90,332 @@
     // Fall back to the row's product name so the text input is never blank for identified products.
     var initialLabel = initialProduct?.Text
         ?? (rowModel.PrefillProductId != null ? row.ProductName ?? "" : "");
+
+    // ADR-013 §3 — row forms target their own id with outerHTML. The HX-Retarget / HX-Reswap response
+    // headers override the actual htmx swap; using the row's own id as the nominal hx-target is correct.
+    var rowSelfTarget = $"#{row.DomId}";
 }
-<div id="@row.DomId" class="import-row @stateClass" x-data="@alpineState">
-    @if (!string.IsNullOrEmpty(rowError))
-    {
-        <div class="import-row__error" role="alert">
-            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> @rowError
-        </div>
-    }
-
-    @if (row.IsDismissed)
-    {
-        @* Nonstock-style layout for dismissed rows *@
-        <div class="import-row__nonstock-main">
-            <div class="import-row__nonstock-ico">
-                <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
+@*
+    ADR-013 §3 — x-show and data-status both live on the #import-line-{id} element itself so that
+    an OOB row swap (outerHTML) carries the updated section membership and visibility in a single
+    atomic replacement. No outer wrapper — the #import-line-{id} div IS the swap target's root.
+    (The spike had x-show on an outer wrapper, which caused stale section visibility and DOM nesting
+    after each swap; fixed per ADR-013 amendment confirmed in Opus critic pass 2.)
+*@
+<div id="@row.DomId" class="import-row @stateClass" x-data="@alpineState" data-status="@rowDataStatus" x-show="@rowXShow">
+        @if (!string.IsNullOrEmpty(rowError))
+        {
+            <div class="import-row__error" role="alert">
+                <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> @rowError
             </div>
-            <div class="import-row__nonstock-name">
-                @row.RawText
-                <span class="import-row__nonstock-why">
-                    @row.Price · not inventory — won't be added
-                </span>
-            </div>
-            <button type="button" class="btn btn--ghost btn--sm"
-                    hx-post="@row.RestoreUrl" hx-target="#rev-body" hx-swap="innerHTML">
-                Add anyway
-            </button>
-        </div>
-    }
-    else
-    {
-        <div class="import-row__main">
-            @* Category color chip — neutral placeholder; real hue wired by the Category-color-chips bead *@
-            <div class="cat-chip cat-chip--neutral">?</div>
+        }
 
-            <div class="import-row__id">
-                <div class="import-row__name">
-                    @if (row.ProductName is { } name)
-                    {
-                        <span class="import-row__product">@name</span>
-                        @if (row.CreatedNew)
-                        {
-                            <span class="import-row__new">· new product</span>
-                        }
-                    }
-                    else
-                    {
-                        <span class="import-row__unrecognized">Unrecognized item</span>
-                    }
+        @if (row.IsDismissed)
+        {
+            @* Nonstock-style layout for dismissed rows *@
+            <div class="import-row__nonstock-main">
+                <div class="import-row__nonstock-ico">
+                    <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
                 </div>
-                <div class="import-row__raw">
-                    <span class="import-row__raw-tag">receipt</span>
-                    <span>@row.RawText</span>
-                </div>
-            </div>
-
-            <div class="import-row__meta">
-                <div class="import-row__meta-cell">
-                    <div class="import-row__meta-value">@row.Quantity<span class="import-row__meta-unit"> @row.Unit</span></div>
-                    <div class="import-row__meta-label">qty</div>
-                </div>
-                <div class="import-row__meta-cell">
-                    <div class="import-row__meta-value">@row.Price</div>
-                    <div class="import-row__meta-label">price</div>
-                </div>
-                <div class="import-row__meta-cell">
-                    <div class="import-row__meta-value">@row.Expiry</div>
-                    <div class="import-row__meta-label">expires</div>
-                </div>
-                <div class="import-row__conf">
-                    <partial name="Shared/_ConfidenceBadge" model="row.Confidence" />
-                </div>
-            </div>
-
-            <div class="import-row__act">
-                @if (row.IsConfirmed)
-                {
-                    <span class="import-row__confirmed-flag">
-                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Matched
+                <div class="import-row__nonstock-name">
+                    @row.RawText
+                    <span class="import-row__nonstock-why">
+                        @row.Price · not inventory — won't be added
                     </span>
-                }
-                else if (row.IsCommitted)
-                {
-                    <span class="import-row__locked">
-                        <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg> Added
-                    </span>
-                }
-                else if (canQuickConfirm)
-                {
-                    <form hx-post="@row.SaveUrl" hx-target="#rev-body" hx-swap="innerHTML">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="Id" value="@(page.Id)" />
-                        <input type="hidden" name="Edit.LineId" value="@line.LineId" />
-                        <input type="hidden" name="Edit.CreateNew" value="false" />
-                        <input type="hidden" name="Edit.ProductId" value="@rowModel.PrefillProductId" />
-                        <input type="hidden" name="Edit.Quantity" value="@qtyValue" />
-                        <input type="hidden" name="Edit.UnitId" value="@rowModel.PrefillUnitId" />
-                        <input type="hidden" name="Edit.LocationId" value="@rowModel.PrefillLocationId" />
-                        @if (!string.IsNullOrEmpty(expiryValue))
+                </div>
+                <button type="button" class="btn btn--ghost btn--sm"
+                        hx-post="@row.RestoreUrl" hx-target="@rowSelfTarget" hx-swap="outerHTML">
+                    Add anyway
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="import-row__main">
+                @* Category color chip — neutral placeholder; real hue wired by the Category-color-chips bead *@
+                <div class="cat-chip cat-chip--neutral">?</div>
+
+                <div class="import-row__id">
+                    <div class="import-row__name">
+                        @if (row.ProductName is { } name)
                         {
-                            <input type="hidden" name="Edit.ExpiryDate" value="@expiryValue" />
+                            <span class="import-row__product">@name</span>
+                            @if (row.CreatedNew)
+                            {
+                                <span class="import-row__new">· new product</span>
+                            }
                         }
+                        else
+                        {
+                            <span class="import-row__unrecognized">Unrecognized item</span>
+                        }
+                    </div>
+                    <div class="import-row__raw">
+                        <span class="import-row__raw-tag">receipt</span>
+                        <span>@row.RawText</span>
+                    </div>
+                </div>
+
+                <div class="import-row__meta">
+                    <div class="import-row__meta-cell">
+                        <div class="import-row__meta-value">@row.Quantity<span class="import-row__meta-unit"> @row.Unit</span></div>
+                        <div class="import-row__meta-label">qty</div>
+                    </div>
+                    <div class="import-row__meta-cell">
+                        <div class="import-row__meta-value">@row.Price</div>
+                        <div class="import-row__meta-label">price</div>
+                    </div>
+                    <div class="import-row__meta-cell">
+                        <div class="import-row__meta-value">@row.Expiry</div>
+                        <div class="import-row__meta-label">expires</div>
+                    </div>
+                    <div class="import-row__conf">
+                        <partial name="Shared/_ConfidenceBadge" model="row.Confidence" />
+                    </div>
+                </div>
+
+                <div class="import-row__act">
+                    @if (row.IsConfirmed)
+                    {
+                        <span class="import-row__confirmed-flag">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Matched
+                        </span>
+                    }
+                    else if (row.IsCommitted)
+                    {
+                        <span class="import-row__locked">
+                            <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg> Added
+                        </span>
+                    }
+                    else if (canQuickConfirm)
+                    {
+                        <form hx-post="@row.SaveUrl" hx-target="@rowSelfTarget" hx-swap="outerHTML">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="Id" value="@(page.Id)" />
+                            <input type="hidden" name="Edit.LineId" value="@line.LineId" />
+                            <input type="hidden" name="Edit.CreateNew" value="false" />
+                            <input type="hidden" name="Edit.ProductId" value="@rowModel.PrefillProductId" />
+                            <input type="hidden" name="Edit.Quantity" value="@qtyValue" />
+                            <input type="hidden" name="Edit.UnitId" value="@rowModel.PrefillUnitId" />
+                            <input type="hidden" name="Edit.LocationId" value="@rowModel.PrefillLocationId" />
+                            @if (!string.IsNullOrEmpty(expiryValue))
+                            {
+                                <input type="hidden" name="Edit.ExpiryDate" value="@expiryValue" />
+                            }
+                            @if (!string.IsNullOrEmpty(priceValue))
+                            {
+                                <input type="hidden" name="Edit.Price" value="@priceValue" />
+                            }
+                            <button type="submit" class="btn btn--secondary btn--sm">
+                                <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirm
+                            </button>
+                        </form>
+                    }
+
+                    @if (!row.IsCommitted)
+                    {
+                        <button type="button" class="import-row__toggle" @@click="open = !open" :aria-expanded="open" aria-label="Edit line">
+                            <svg class="icon import-row__chev" :class="{ 'import-row__chev--open': open }" aria-hidden="true">
+                                <use href="#i-chevron" />
+                            </svg>
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <div class="import-row__edit review-row__edit" x-show="open" x-cloak>
+                <form hx-post="@row.SaveUrl" hx-target="@rowSelfTarget" hx-swap="outerHTML">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="Id" value="@(page.Id)" />
+                    <input type="hidden" name="Edit.LineId" value="@line.LineId" />
+                    <input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew" />
+
+                    @{
+                        var listboxId = $"edit-product-{row.LineId}-listbox";
+                        var searchUrl = Url.Page("./Review", "FilterProducts", new { Id = page.Id });
+                    }
+                    <div class="import-row__edit-grid">
+                        @* Row 1 — Product (existing) or New name + Category (new) *@
+                        <div class="form-grid__field form-grid__field--full" x-show="!createNew">
+                            <label class="form-grid__field__label">Product</label>
+                            <div class="form-grid__field__control">
+                                @* query is seeded from data-initial-label by searchableSelect().init(); the hidden
+                                   ProductId carries its value server-side (the value="" below), as in the TagHelper. *@
+                                <div class="searchable-select" x-data="searchableSelect()"
+                                     data-initial-label="@initialLabel"
+                                     @@click.outside="open = false" @@keydown.escape="open = false">
+                                    <input type="hidden" name="Edit.ProductId" value="@(initialProduct?.Value ?? rowModel.PrefillProductId?.ToString() ?? "")" x-ref="hidden"
+                                           @@change="selectedProductId = $event.target.value; skuId = ''" />
+                                    <div class="searchable-select__control">
+                                        <input type="text" class="field__input" role="combobox"
+                                               aria-controls="@listboxId" aria-autocomplete="list" autocomplete="off"
+                                               placeholder="Find a product…" x-model="query" :aria-expanded="open"
+                                               @@focus="open = true"
+                                               @@keydown.down.prevent="highlightNext()" @@keydown.up.prevent="highlightPrev()"
+                                               @@keydown.enter.prevent="chooseHighlighted()"
+                                               name="q" hx-get="@searchUrl" hx-trigger="keyup changed delay:250ms, focus"
+                                               hx-target="#@listboxId" hx-swap="innerHTML" hx-params="q" />
+                                    </div>
+                                    <ul class="searchable-select__listbox" id="@listboxId" role="listbox" x-ref="listbox" x-show="open" x-cloak style="display: none">
+                                        @foreach (var opt in page.ProductOptions)
+                                        {
+                                            <li role="option" data-value="@opt.Value" @@click="select($el.dataset.value, $el.textContent.trim())">@opt.Text</li>
+                                        }
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
+                            <label class="form-grid__field__label">New product name</label>
+                            <div class="form-grid__field__control">
+                                <input class="field__input" name="Edit.NewProductName" value="@newNameValue"
+                                       placeholder="@row.RawText" />
+                            </div>
+                        </div>
+
+                        <div class="form-grid__field" x-show="createNew">
+                            <label class="form-grid__field__label">Category</label>
+                            <div class="form-grid__field__control">
+                                <select class="field__input" name="Edit.NewProductCategoryId">
+                                    <option value="">— Category —</option>
+                                    @foreach (var c in page.CategoryOptions)
+                                    {
+                                        var sel = line.NewProductCategoryId?.ToString() == c.Value;
+                                        <option value="@c.Value" selected="@sel">@c.Text</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        @* Pack-size (SKU) picker — only visible when the selected product has SKUs defined. *@
+                        <div class="form-grid__field form-grid__field--full"
+                             x-show="!createNew && (skus[selectedProductId]?.length ?? 0) > 0"
+                             x-cloak>
+                            <label class="form-grid__field__label">Pack size (optional)</label>
+                            <div class="form-grid__field__control">
+                                <select class="field__input" name="Edit.SkuId" x-model="skuId">
+                                    <option value="">— Any size —</option>
+                                    <template x-for="sku in (skus[selectedProductId] ?? [])" :key="sku.id">
+                                        <option :value="sku.id" x-text="sku.label"></option>
+                                    </template>
+                                </select>
+                            </div>
+                        </div>
+
+                        @* Mode toggle *@
+                        <div class="review-row__mode-toggle">
+                            <button type="button" class="btn btn--ghost btn--sm" x-show="!createNew"
+                                    @@click="createNew = true">+ Add as new product</button>
+                            <button type="button" class="btn btn--ghost btn--sm" x-show="createNew"
+                                    @@click="createNew = false">← Use existing product</button>
+                        </div>
+
+                        @*
+                            Row 2 — Qty stepper (span 2) · Location · Expires
+                            ADR-013 step 6: qty stepper x-model="v" binds to v in the parent row x-data
+                            (v is serialised as a JSON number or null; no nested x-data, no @qtyInitJs literal).
+                        *@
+                        <div class="form-grid__field" style="grid-column: span 2">
+                            <label class="form-grid__field__label">Quantity</label>
+                            <div class="form-grid__field__control">
+                                <div class="qty-stepper">
+                                    <button type="button" class="qty-btn" @@click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                    </button>
+                                    <input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v" />
+                                    <button type="button" class="qty-btn" @@click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-grid__field">
+                            <label class="form-grid__field__label">Location</label>
+                            <div class="form-grid__field__control">
+                                <select class="field__input" name="Edit.LocationId">
+                                    <option value="">— Location —</option>
+                                    @foreach (var loc in page.LocationOptions)
+                                    {
+                                        var sel = rowModel.PrefillLocationId?.ToString() == loc.Value;
+                                        <option value="@loc.Value" selected="@sel">@loc.Text</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        @*
+                            ADR-013 step 6: expiry d is in the parent row x-data (serialised as JSON string or null).
+                            adj() is registered via x-init so it lives on the row's Alpine component scope.
+                        *@
+                        <div class="form-grid__field">
+                            <label class="form-grid__field__label">Expires</label>
+                            <div class="form-grid__field__control">
+                                <div class="qty-stepper"
+                                     x-init="adj = function(n) { if(!d){let t=new Date();t.setDate(t.getDate()+n);d=t.toISOString().slice(0,10);return;} let t=new Date(d+'T12:00');t.setDate(t.getDate()+n);d=t.toISOString().slice(0,10); }">
+                                    <button type="button" class="qty-btn" @@click="adj(-1)" aria-label="Earlier">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                    </button>
+                                    <input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d" />
+                                    <button type="button" class="qty-btn" @@click="adj(1)" aria-label="Later">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* Row 3 — Unit + Price (price hidden when pre-filled from receipt) *@
                         @if (!string.IsNullOrEmpty(priceValue))
                         {
                             <input type="hidden" name="Edit.Price" value="@priceValue" />
                         }
-                        <button type="submit" class="btn btn--secondary btn--sm">
-                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirm
-                        </button>
-                    </form>
-                }
-
-                @if (!row.IsCommitted)
-                {
-                    <button type="button" class="import-row__toggle" @@click="open = !open" :aria-expanded="open" aria-label="Edit line">
-                        <svg class="icon import-row__chev" :class="{ 'import-row__chev--open': open }" aria-hidden="true">
-                            <use href="#i-chevron" />
-                        </svg>
-                    </button>
-                }
-            </div>
-        </div>
-
-        <div class="import-row__edit review-row__edit" x-show="open" x-cloak>
-            <form hx-post="@row.SaveUrl" hx-target="#rev-body" hx-swap="innerHTML">
-                @Html.AntiForgeryToken()
-                <input type="hidden" name="Id" value="@(page.Id)" />
-                <input type="hidden" name="Edit.LineId" value="@line.LineId" />
-                <input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew" />
-
-                @{
-                    var listboxId = $"edit-product-{row.LineId}-listbox";
-                    var searchUrl = Url.Page("./Review", "FilterProducts", new { Id = page.Id });
-                }
-                <div class="import-row__edit-grid">
-                    @* Row 1 — Product (existing) or New name + Category (new) *@
-                    <div class="form-grid__field form-grid__field--full" x-show="!createNew">
-                        <label class="form-grid__field__label">Product</label>
-                        <div class="form-grid__field__control">
-                            @* query is seeded from data-initial-label by searchableSelect().init(); the hidden
-                               ProductId carries its value server-side (the value="" below), as in the TagHelper. *@
-                            <div class="searchable-select" x-data="searchableSelect()"
-                                 data-initial-label="@initialLabel"
-                                 @@click.outside="open = false" @@keydown.escape="open = false">
-                                <input type="hidden" name="Edit.ProductId" value="@(initialProduct?.Value ?? rowModel.PrefillProductId?.ToString() ?? "")" x-ref="hidden"
-                                       @@change="selectedProductId = $event.target.value; skuId = ''" />
-                                <div class="searchable-select__control">
-                                    <input type="text" class="field__input" role="combobox"
-                                           aria-controls="@listboxId" aria-autocomplete="list" autocomplete="off"
-                                           placeholder="Find a product…" x-model="query" :aria-expanded="open"
-                                           @@focus="open = true"
-                                           @@keydown.down.prevent="highlightNext()" @@keydown.up.prevent="highlightPrev()"
-                                           @@keydown.enter.prevent="chooseHighlighted()"
-                                           name="q" hx-get="@searchUrl" hx-trigger="keyup changed delay:250ms, focus"
-                                           hx-target="#@listboxId" hx-swap="innerHTML" hx-params="q" />
-                                </div>
-                                <ul class="searchable-select__listbox" id="@listboxId" role="listbox" x-ref="listbox" x-show="open" x-cloak style="display: none">
-                                    @foreach (var opt in page.ProductOptions)
-                                    {
-                                        <li role="option" data-value="@opt.Value" @@click="select($el.dataset.value, $el.textContent.trim())">@opt.Text</li>
-                                    }
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-grid__field" style="grid-column: span 3" x-show="createNew">
-                        <label class="form-grid__field__label">New product name</label>
-                        <div class="form-grid__field__control">
-                            <input class="field__input" name="Edit.NewProductName" value="@newNameValue"
-                                   placeholder="@row.RawText" />
-                        </div>
-                    </div>
-
-                    <div class="form-grid__field" x-show="createNew">
-                        <label class="form-grid__field__label">Category</label>
-                        <div class="form-grid__field__control">
-                            <select class="field__input" name="Edit.NewProductCategoryId">
-                                <option value="">— Category —</option>
-                                @foreach (var c in page.CategoryOptions)
-                                {
-                                    var sel = line.NewProductCategoryId?.ToString() == c.Value;
-                                    <option value="@c.Value" selected="@sel">@c.Text</option>
-                                }
-                            </select>
-                        </div>
-                    </div>
-
-                    @* Pack-size (SKU) picker — only visible when the selected product has SKUs defined.
-                       `skus` is keyed by productId string; Alpine filters the options live as the
-                       product selection changes. Selection is optional: the user may leave it blank. *@
-                    <div class="form-grid__field form-grid__field--full"
-                         x-show="!createNew && (skus[selectedProductId]?.length ?? 0) > 0"
-                         x-cloak>
-                        <label class="form-grid__field__label">Pack size (optional)</label>
-                        <div class="form-grid__field__control">
-                            <select class="field__input" name="Edit.SkuId" x-model="skuId">
-                                <option value="">— Any size —</option>
-                                <template x-for="sku in (skus[selectedProductId] ?? [])" :key="sku.id">
-                                    <option :value="sku.id" x-text="sku.label"></option>
-                                </template>
-                            </select>
-                        </div>
-                    </div>
-
-                    @* Mode toggle — canonical .review-row__mode-toggle pattern (see Dev component library).
-                       Sits between the product row and the quantity row, spanning the full grid width. *@
-                    <div class="review-row__mode-toggle">
-                        <button type="button" class="btn btn--ghost btn--sm" x-show="!createNew"
-                                @@click="createNew = true">+ Add as new product</button>
-                        <button type="button" class="btn btn--ghost btn--sm" x-show="createNew"
-                                @@click="createNew = false">← Use existing product</button>
-                    </div>
-
-                    @* Row 2 — Qty stepper (span 2) · Location · Expires *@
-                    <div class="form-grid__field" style="grid-column: span 2">
-                        <label class="form-grid__field__label">Quantity</label>
-                        <div class="form-grid__field__control">
-                            <div class="qty-stepper" x-data='{ v: @qtyInitJs }'>
-                                <button type="button" class="qty-btn" @@click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
-                                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                                </button>
-                                <input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v" />
-                                <button type="button" class="qty-btn" @@click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
-                                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-grid__field">
-                        <label class="form-grid__field__label">Location</label>
-                        <div class="form-grid__field__control">
-                            <select class="field__input" name="Edit.LocationId">
-                                <option value="">— Location —</option>
-                                @foreach (var loc in page.LocationOptions)
-                                {
-                                    var sel = rowModel.PrefillLocationId?.ToString() == loc.Value;
-                                    <option value="@loc.Value" selected="@sel">@loc.Text</option>
-                                }
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="form-grid__field">
-                        <label class="form-grid__field__label">Expires</label>
-                        <div class="form-grid__field__control">
-                            <div class="qty-stepper" x-data='{ d: @expiryInitJs, adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+"T12:00");t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }'>
-                                <button type="button" class="qty-btn" @@click="adj(-1)" aria-label="Earlier">
-                                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                                </button>
-                                <input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d" />
-                                <button type="button" class="qty-btn" @@click="adj(1)" aria-label="Later">
-                                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    @* Row 3 — Unit + Price (price hidden when pre-filled from receipt) *@
-                    @if (!string.IsNullOrEmpty(priceValue))
-                    {
-                        <input type="hidden" name="Edit.Price" value="@priceValue" />
-                    }
-                    @{ var unitColSpan = string.IsNullOrEmpty(priceValue) ? "span 2" : "span 4"; }
-                    <div class="form-grid__field" style="grid-column: @unitColSpan">
-                        <label class="form-grid__field__label">Unit</label>
-                        <div class="form-grid__field__control">
-                            <select class="field__input" name="Edit.UnitId">
-                                <option value="">— Unit —</option>
-                                @foreach (var u in page.UnitOptions)
-                                {
-                                    var sel = rowModel.PrefillUnitId?.ToString() == u.Value;
-                                    <option value="@u.Value" selected="@sel">@u.Text</option>
-                                }
-                            </select>
-                        </div>
-                    </div>
-
-                    @if (string.IsNullOrEmpty(priceValue))
-                    {
-                        <div class="form-grid__field" style="grid-column: span 2">
-                            <label class="form-grid__field__label">Price (optional)</label>
+                        @{ var unitColSpan = string.IsNullOrEmpty(priceValue) ? "span 2" : "span 4"; }
+                        <div class="form-grid__field" style="grid-column: @unitColSpan">
+                            <label class="form-grid__field__label">Unit</label>
                             <div class="form-grid__field__control">
-                                <input class="field__input" type="number" step="any" min="0"
-                                       name="Edit.Price" />
+                                <select class="field__input" name="Edit.UnitId">
+                                    <option value="">— Unit —</option>
+                                    @foreach (var u in page.UnitOptions)
+                                    {
+                                        var sel = rowModel.PrefillUnitId?.ToString() == u.Value;
+                                        <option value="@u.Value" selected="@sel">@u.Text</option>
+                                    }
+                                </select>
                             </div>
                         </div>
-                    }
-                </div>
 
-                <div class="import-row__edit-foot">
-                    <div class="import-row__edit-foot-summary">
-                        <svg class="icon" aria-hidden="true"><use href="#i-location" /></svg>
-                        Goes to <strong>@(rowModel.PrefillLocationName ?? "—")</strong>
-                        @if (line.IsNewProduct)
+                        @if (string.IsNullOrEmpty(priceValue))
                         {
-                            <span class="import-row__new">· new product</span>
+                            <div class="form-grid__field" style="grid-column: span 2">
+                                <label class="form-grid__field__label">Price (optional)</label>
+                                <div class="form-grid__field__control">
+                                    <input class="field__input" type="number" step="any" min="0"
+                                           name="Edit.Price" />
+                                </div>
+                            </div>
                         }
                     </div>
-                    <span class="import-row__edit-spacer"></span>
-                    <button type="button" class="btn btn--ghost btn--sm import-row__edit-danger"
-                            hx-post="@row.DismissUrl" hx-target="#rev-body" hx-swap="innerHTML">
-                        Not pantry stock — remove
-                    </button>
-                    <button type="submit" class="btn btn--primary btn--sm">
-                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirm item
-                    </button>
-                </div>
-            </form>
-        </div>
-    }
-</div>
+
+                    <div class="import-row__edit-foot">
+                        <div class="import-row__edit-foot-summary">
+                            <svg class="icon" aria-hidden="true"><use href="#i-location" /></svg>
+                            Goes to <strong>@(rowModel.PrefillLocationName ?? "—")</strong>
+                            @if (line.IsNewProduct)
+                            {
+                                <span class="import-row__new">· new product</span>
+                            }
+                        </div>
+                        <span class="import-row__edit-spacer"></span>
+                        <button type="button" class="btn btn--ghost btn--sm import-row__edit-danger"
+                                hx-post="@row.DismissUrl" hx-target="@rowSelfTarget" hx-swap="outerHTML">
+                            Not pantry stock — remove
+                        </button>
+                        <button type="submit" class="btn btn--primary btn--sm">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirm item
+                        </button>
+                    </div>
+                </form>
+            </div>
+        }
+    </div>

@@ -8,7 +8,9 @@
 
     var lines = Model.Session.Lines;
     var store = Model.StoreLabel;
-    var receiptTotal = lines.Where(l => l.Status != LineStatus.Dismissed).Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
+
+    @* ADR-013 §2 — single projection builder drives all four aggregate regions. *@
+    var projections = Model.BuildProjections();
 }
 
 <div class="review">
@@ -33,30 +35,44 @@
             }
             <hr class="rcpt-rule" />
             <div class="rcpt-foot">
-                <div class="rcpt-line rcpt-total">
+                @* id="rcpt-total" — OOB swap target (ADR-013 §3); updated in-place by _ReviewReceiptTotalOob. *@
+                <div id="rcpt-total" class="rcpt-line rcpt-total">
                     <span class="rl-name">TOTAL</span>
-                    <span class="rl-price">@receiptTotal.ToString("0.00", CultureInfo.InvariantCulture)</span>
+                    <span class="rl-price">@projections.ReceiptTotal.ToString("0.00", CultureInfo.InvariantCulture)</span>
                 </div>
             </div>
             <div class="rcpt-barcode"></div>
         </div>
     </aside>
 
-    @* ── Right: header + rows + commit bar *@
+    @*
+        ── Right: header + rows + commit bar
+        ADR-013 §3 — each aggregate region has a stable id for OOB targeting:
+          #rev-chips    — filter chip bar  (_ReviewChipsOob)
+          #rev-progress — progress bar     (_ReviewProgressOob)
+          #commit-bar   — commit bar       (_ReviewCommitBarOob)
+          #rcpt-total   — receipt total    (_ReviewReceiptTotalOob)
+
+        The row list is a flat list (no server-rendered section containers). Section membership is
+        driven by data-status on each row and Alpine x-show (ADR-013 §3 Option A). Section-header
+        counts come from the server via the OOB chips fragment, not DOM-counting.
+    *@
     <section class="review__lines" x-data="{ filter: 'all' }">
 
-        @* Commit/discard errors land here; kept outside #rev-body so a row swap never clears it. *@
+        @* Commit/discard errors land here; outside the row list so a row swap never clears it. *@
         <div id="review-alert" aria-live="polite"></div>
 
-        @* Header + grouped rows. The whole region is re-rendered as one unit on each row action so the
-           chips, section counts and bucket membership stay in lock-step with the progress bar. *@
-        <div id="rev-body">
-            <partial name="_ReviewBody" model="Model" view-data="ViewData" />
-        </div>
+        @*
+            _ReviewBody is initial-render-only (ADR-013 §5). It emits the chips, progress and rows
+            in one coordinated pass so the initial page is fully formed. Row actions no longer return
+            _ReviewBody — they return the OOB-bundle (_ReviewRowOobBundle) instead.
+        *@
+        <partial name="_ReviewBody" model="Model" view-data="ViewData" />
 
+        @* id="commit-bar" — OOB swap target for _ReviewCommitBarOob; also the anchor for inline commit errors. *@
         <div id="commit-bar" class="review__commit"
              hx-target="#review-alert" hx-swap="innerHTML">
-            <partial name="Shared/_CommitBar" model="Model.BuildCommitBar()" />
+            <partial name="Shared/_CommitBar" model="projections.CommitBar" />
         </div>
     </section>
 </div>
