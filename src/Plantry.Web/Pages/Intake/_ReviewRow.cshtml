@@ -19,8 +19,6 @@
         _ => row.IsMatched ? "import-row--matched" : "import-row--unmatched",
     };
 
-    // Alpine drawer state. `createNew` toggles between resolving to an existing catalog product and the §2d
-    // create path; it starts in create mode only when the line is already a confirmed new-product intent.
     var startOpen = row.IsUnmatched;
     var qtyValue = rowModel.PrefillQuantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "";
     var expiryValue = line.ExpiryDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
@@ -32,21 +30,18 @@
         open = startOpen,
         createNew = line.IsNewProduct,
     });
-}
 
-@* One reviewable import line — the htmx swap target for the review form. Unlike the shared
-   Shared/_ImportLineRow gallery partial, this row carries a full, model-bound edit drawer (real
-   <searchable-select> + unit/location/category selects + price) so a line can actually be resolved;
-   the gallery partial's lightweight drawer cannot post a productId or unit/location. State display and
-   the confidence badge follow the same conventions and reuse the .import-row CSS. *@
-@{
     var rowError = ViewData["RowError"] as string;
-    // An error always re-opens the drawer so the user sees the fields they need to fix.
     if (!string.IsNullOrEmpty(rowError))
     {
         alpineState = System.Text.Json.JsonSerializer.Serialize(new { open = true, createNew = line.IsNewProduct });
     }
     var includeCommitBarOob = ViewData["IncludeCommitBarOob"] is true;
+
+    var qtyInitJs = rowModel.PrefillQuantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "null";
+    var expiryInitJs = string.IsNullOrEmpty(expiryValue) ? "null" : $"'{expiryValue}'";
+
+    var hasAmount = row.Quantity != "—" && !string.IsNullOrEmpty(row.Unit);
 }
 <div id="@row.DomId" class="import-row @stateClass" x-data="@alpineState">
     @if (!string.IsNullOrEmpty(rowError))
@@ -55,81 +50,98 @@
             <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> @rowError
         </div>
     }
-    <div class="import-row__main">
-        <div class="import-row__id">
-            <div class="import-row__name">
-                @if (row.ProductName is { } name)
-                {
-                    <span class="import-row__product">@name</span>
-                    @if (row.CreatedNew)
-                    {
-                        <span class="import-row__new">· new product</span>
-                    }
-                }
-                else
-                {
-                    <span class="import-row__unrecognized">Unrecognized item</span>
-                }
-            </div>
-            <div class="import-row__raw">
-                <span class="import-row__raw-tag">receipt</span>
-                <span>@row.RawText</span>
-            </div>
-        </div>
 
-        <div class="import-row__meta">
-            <div class="import-row__meta-cell">
-                <div class="import-row__meta-value">@row.Quantity<span class="import-row__meta-unit"> @row.Unit</span></div>
-                <div class="import-row__meta-label">qty</div>
-            </div>
-            <div class="import-row__meta-cell">
-                <div class="import-row__meta-value">@row.Price</div>
-                <div class="import-row__meta-label">price</div>
-            </div>
-            <div class="import-row__meta-cell">
-                <div class="import-row__meta-value">@row.Expiry</div>
-                <div class="import-row__meta-label">expires</div>
-            </div>
-            <div class="import-row__conf">
-                @if (!row.IsUnmatched)
-                {
-                    <partial name="Shared/_ConfidenceBadge" model="row.Confidence" />
-                }
-            </div>
-        </div>
-
-        <div class="import-row__act">
-            @if (row.IsConfirmed)
-            {
-                <span class="import-row__confirmed-flag">
-                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirmed
-                </span>
-            }
-            else if (row.IsDismissed)
-            {
-                <button type="button" class="btn btn--ghost btn--sm"
-                        hx-post="@row.RestoreUrl" hx-target="#@row.DomId" hx-swap="outerHTML">
-                    Add anyway
-                </button>
-            }
-            else if (row.IsCommitted)
-            {
-                <span class="import-row__locked">
-                    <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg> Added
-                </span>
-            }
-
-            @if (!row.IsCommitted && !row.IsDismissed)
-            {
-                <button type="button" class="import-row__toggle" @@click="open = !open" :aria-expanded="open" aria-label="Edit line">
-                    <svg class="icon" aria-hidden="true"><use href="#i-components" /></svg>
-                </button>
-            }
-        </div>
-    </div>
-
-    @if (!row.IsCommitted && !row.IsDismissed)
+    @if (row.IsDismissed)
     {
+        @* Nonstock-style layout for dismissed rows *@
+        <div class="import-row__nonstock-main">
+            <div class="import-row__nonstock-ico">
+                <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
+            </div>
+            <div class="import-row__nonstock-name">
+                @row.RawText
+                <span class="import-row__nonstock-why">
+                    @row.Price · not inventory — won't be added
+                </span>
+            </div>
+            <button type="button" class="btn btn--ghost btn--sm"
+                    hx-post="@row.RestoreUrl" hx-target="#@row.DomId" hx-swap="outerHTML">
+                Add anyway
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="import-row__main">
+            @* Category color chip — neutral placeholder; real hue wired by the Category-color-chips bead *@
+            <div class="cat-chip cat-chip--neutral">?</div>
+
+            <div class="import-row__id">
+                <div class="import-row__name">
+                    @if (row.ProductName is { } name)
+                    {
+                        <span class="import-row__product">@name</span>
+                        @if (hasAmount)
+                        {
+                            <span class="import-row__amount">· @row.Quantity @row.Unit</span>
+                        }
+                        @if (row.CreatedNew)
+                        {
+                            <span class="import-row__new">· new product</span>
+                        }
+                    }
+                    else
+                    {
+                        <span class="import-row__unrecognized">Unrecognized item</span>
+                    }
+                </div>
+                <div class="import-row__raw">
+                    <span class="import-row__raw-tag">receipt</span>
+                    <span>@row.RawText</span>
+                </div>
+            </div>
+
+            <div class="import-row__meta">
+                <div class="import-row__meta-cell">
+                    <div class="import-row__meta-value">@row.Quantity<span class="import-row__meta-unit"> @row.Unit</span></div>
+                    <div class="import-row__meta-label">qty</div>
+                </div>
+                <div class="import-row__meta-cell">
+                    <div class="import-row__meta-value">@row.Price</div>
+                    <div class="import-row__meta-label">price</div>
+                </div>
+                <div class="import-row__meta-cell">
+                    <div class="import-row__meta-value">@row.Expiry</div>
+                    <div class="import-row__meta-label">expires</div>
+                </div>
+                <div class="import-row__conf">
+                    <partial name="Shared/_ConfidenceBadge" model="row.Confidence" />
+                </div>
+            </div>
+
+            <div class="import-row__act">
+                @if (row.IsConfirmed)
+                {
+                    <span class="import-row__confirmed-flag">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Matched
+                    </span>
+                }
+                else if (row.IsCommitted)
+                {
+                    <span class="import-row__locked">
+                        <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg> Added
+                    </span>
+                }
+
+                @if (!row.IsCommitted)
+                {
+                    <button type="button" class="import-row__toggle" @@click="open = !open" :aria-expanded="open" aria-label="Edit line">
+                        <svg class="icon" aria-hidden="true"><use href="#i-components" /></svg>
+                    </button>
+                }
+            </div>
+        </div>
+
         <div class="import-row__edit review-row__edit" x-show="open" x-cloak>
             <form hx-post="@row.SaveUrl" hx-target="#@row.DomId" hx-swap="outerHTML">
                 @Html.AntiForgeryToken()
@@ -152,13 +164,6 @@
                     <div class="form-grid__field form-grid__field--full" x-show="!createNew">
                         <label class="form-grid__field__label">Product</label>
                         <div class="form-grid__field__control">
-                            @*
-                                Real searchable-select markup (the same Alpine `searchableSelect()` component and
-                                htmx contract as <searchable-select>), hand-rendered so each row gets a unique
-                                listbox id — multiple model-bound tag helpers on one page would collide on their
-                                derived ids/targets. The hidden input still posts as Edit.ProductId. Initial value
-                                is the AI-matched product when the line is already matched.
-                            *@
                             @{
                                 var listboxId = $"edit-product-{row.LineId}-listbox";
                                 var initialProduct = line.IsNewProduct ? null
@@ -216,8 +221,15 @@
                     <div class="form-grid__field">
                         <label class="form-grid__field__label">Quantity</label>
                         <div class="form-grid__field__control">
-                            <input class="field__input" type="number" step="any" min="0"
-                                   name="Edit.Quantity" value="@qtyValue" />
+                            <div class="qty-stepper" x-data='{ v: @qtyInitJs }'>
+                                <button type="button" class="qty-btn" @@click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                </button>
+                                <input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v" />
+                                <button type="button" class="qty-btn" @@click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -252,7 +264,15 @@
                     <div class="form-grid__field">
                         <label class="form-grid__field__label">Expires</label>
                         <div class="form-grid__field__control">
-                            <input class="field__input" type="date" name="Edit.ExpiryDate" value="@expiryValue" />
+                            <div class="qty-stepper" x-data='{ d: @expiryInitJs, adj(n) { if(!this.d){let t=new Date();t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10);return;} let t=new Date(this.d+"T12:00");t.setDate(t.getDate()+n);this.d=t.toISOString().slice(0,10); } }'>
+                                <button type="button" class="qty-btn" @@click="adj(-1)" aria-label="Earlier">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                </button>
+                                <input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d" />
+                                <button type="button" class="qty-btn" @@click="adj(1)" aria-label="Later">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -266,11 +286,19 @@
                 </div>
 
                 <div class="import-row__edit-foot">
+                    <div class="import-row__edit-foot-summary">
+                        <svg class="icon" aria-hidden="true"><use href="#i-location" /></svg>
+                        Goes to <strong>@(rowModel.PrefillLocationName ?? "—")</strong>
+                        @if (line.IsNewProduct)
+                        {
+                            <span class="import-row__new">· new product</span>
+                        }
+                    </div>
+                    <span class="import-row__edit-spacer"></span>
                     <button type="button" class="btn btn--ghost btn--sm import-row__edit-danger"
                             hx-post="@row.DismissUrl" hx-target="#@row.DomId" hx-swap="outerHTML">
                         Not pantry stock — remove
                     </button>
-                    <span class="import-row__edit-spacer"></span>
                     <button type="submit" class="btn btn--primary btn--sm">
                         <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Confirm item
                     </button>

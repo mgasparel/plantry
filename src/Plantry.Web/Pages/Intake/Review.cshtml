@@ -3,14 +3,24 @@
 @using Plantry.Intake.Domain
 @model Plantry.Web.Pages.Intake.ReviewModel
 @{
-    ViewData["Title"] = "Review receipt";
+    ViewData["Title"] = "Review import";
 
     var lines = Model.Session.Lines;
+    var needsRows  = Model.Rows.Where(r => !r.RowViewModel.IsConfirmed && !r.RowViewModel.IsCommitted && !r.RowViewModel.IsDismissed).ToList();
+    var readyRows  = Model.Rows.Where(r => r.RowViewModel.IsConfirmed || r.RowViewModel.IsCommitted).ToList();
+    var skippedRows = Model.Rows.Where(r => r.RowViewModel.IsDismissed).ToList();
+    var totalStock = needsRows.Count + readyRows.Count;
+    var pct = totalStock > 0 ? (int)Math.Round((double)readyRows.Count / totalStock * 100) : 100;
+    var canCommit = needsRows.Count == 0 && totalStock > 0;
+
+    var store = string.IsNullOrWhiteSpace(Model.Session.MerchantText) ? "Receipt" : Model.Session.MerchantText;
+    var sessionDate = Model.Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture);
+
     var receiptTotal = lines.Where(l => l.Status != LineStatus.Dismissed).Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
 }
 
 <div class="review">
-    @* ── Left: the scanned receipt (page-scoped, re-expressed from the design proto in plenish conventions) *@
+    @* ── Left: the scanned receipt *@
     <aside class="review__receipt rcpt-pane">
         <div class="rcpt-meta-top">
             <span class="rcpt-via">
@@ -19,7 +29,7 @@
         </div>
         <div class="receipt">
             <div class="rcpt-store">
-                <div class="rcpt-store-name">@(string.IsNullOrWhiteSpace(Model.Session.MerchantText) ? "Receipt" : Model.Session.MerchantText)</div>
+                <div class="rcpt-store-name">@store</div>
             </div>
             <hr class="rcpt-rule" />
             @foreach (var l in lines)
@@ -40,14 +50,50 @@
         </div>
     </aside>
 
-    @* ── Right: the reviewable line rows + sticky commit bar *@
-    <section class="review__lines">
-        <div class="review__head">
-            <h1 class="review__title">Review &amp; confirm</h1>
-            <p class="review__sub">
-                We read this receipt for you. Check each match, fix anything that's off, then add it all to your pantry.
-                Nothing is added until you commit.
-            </p>
+    @* ── Right: header + rows + commit bar *@
+    <section class="review__lines" x-data="{ filter: 'all' }">
+
+        <div class="rev-head">
+            <div class="rev-title-row">
+                <div class="rev-title">
+                    <h2>Review import</h2>
+                    <p>@store · @sessionDate · @totalStock items to add</p>
+                </div>
+                <span class="rev-title-row__spacer"></span>
+                <div class="chips">
+                    <button type="button" class="fchip"
+                            :class="filter === 'all' ? 'on f-ready' : ''"
+                            @@click="filter = 'all'">All @totalStock</button>
+                    <button type="button" class="fchip"
+                            :class="filter === 'review' ? 'on f-review' : ''"
+                            @@click="filter = 'review'">
+                        <span class="dotc" style="background: var(--color-warning)"></span>
+                        Needs review @needsRows.Count
+                    </button>
+                    <button type="button" class="fchip"
+                            :class="filter === 'ready' ? 'on f-ready' : ''"
+                            @@click="filter = 'ready'">
+                        <span class="dotc" style="background: var(--color-success)"></span>
+                        Ready @readyRows.Count
+                    </button>
+                </div>
+            </div>
+
+            <div class="rev-progress">
+                <div class="rev-progress__bar">
+                    <div class="rev-progress__fill" style="width: @(pct)%"></div>
+                </div>
+                <div class="rev-progress__meta">
+                    @if (canCommit)
+                    {
+                        <span><b>All set.</b> @totalStock items ready to add.</span>
+                    }
+                    else
+                    {
+                        <span><b>@needsRows.Count</b> @(needsRows.Count == 1 ? "item needs" : "items need") a quick look · <b>@readyRows.Count</b> ready</span>
+                    }
+                </div>
+            </div>
         </div>
 
         <div id="review-alert" aria-live="polite"></div>
@@ -58,12 +104,45 @@
         }
         else
         {
-            <div class="review__rows">
-                @foreach (var rowModel in Model.Rows)
-                {
-                    ViewData["Row"] = rowModel;
-                    <partial name="_ReviewRow" model="Model" view-data="ViewData" />
-                }
+            <div class="rev-list">
+                @* Needs your review *@
+                <div x-show="filter === 'all' || filter === 'review'">
+                    @if (needsRows.Count > 0)
+                    {
+                        <div class="sec-label">Needs your review <span class="sec-label__count">· @needsRows.Count</span></div>
+                        @foreach (var rowModel in needsRows)
+                        {
+                            ViewData["Row"] = rowModel;
+                            <partial name="_ReviewRow" model="Model" view-data="ViewData" />
+                        }
+                    }
+                </div>
+
+                @* Matched & ready *@
+                <div x-show="filter === 'all' || filter === 'ready'">
+                    @if (readyRows.Count > 0)
+                    {
+                        <div class="sec-label">Matched &amp; ready <span class="sec-label__count">· @readyRows.Count</span></div>
+                        @foreach (var rowModel in readyRows)
+                        {
+                            ViewData["Row"] = rowModel;
+                            <partial name="_ReviewRow" model="Model" view-data="ViewData" />
+                        }
+                    }
+                </div>
+
+                @* Skipped — not inventory *@
+                <div x-show="filter === 'all'">
+                    @if (skippedRows.Count > 0)
+                    {
+                        <div class="sec-label">Skipped — not inventory <span class="sec-label__count">· @skippedRows.Count</span></div>
+                        @foreach (var rowModel in skippedRows)
+                        {
+                            ViewData["Row"] = rowModel;
+                            <partial name="_ReviewRow" model="Model" view-data="ViewData" />
+                        }
+                    }
+                </div>
             </div>
         }
 

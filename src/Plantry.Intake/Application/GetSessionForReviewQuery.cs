@@ -35,6 +35,7 @@ public sealed record SessionReviewView(
     ImportStatus Status,
     string? MerchantText,
     string? ParseError,
+    DateTimeOffset CreatedAt,
     IReadOnlyList<ReviewLineView> Lines,
     ReviewReferenceData ReferenceData);
 
@@ -91,6 +92,7 @@ public sealed class GetSessionForReviewQuery(
             session.Status,
             session.MerchantText,
             session.ParseError,
+            session.CreatedAt,
             lines,
             reference);
     }

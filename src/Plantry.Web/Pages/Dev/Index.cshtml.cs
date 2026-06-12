@@ -104,10 +104,10 @@ public sealed class IndexModel : PageModel
         "1", "dozen", "$4.80", "Jun 20");
 
     public CommitBarViewModel CommitBarPartial { get; } = new(
-        Confirmed: 3, Total: 5, CommitUrl: "#", DiscardUrl: "#");
+        Confirmed: 3, Total: 5, ConfirmedValue: 24.50m, CommitUrl: "#", DiscardUrl: "#");
 
     public CommitBarViewModel CommitBarReady { get; } = new(
-        Confirmed: 5, Total: 5, CommitUrl: "#", DiscardUrl: "#");
+        Confirmed: 5, Total: 5, ConfirmedValue: 42.75m, CommitUrl: "#", DiscardUrl: "#");
 
     /// <summary>Built in OnGet rather than as a property initializer — Url.Page needs the page context, which isn't available yet during construction.</summary>
     public SortableListViewModel SortableListDemo { get; private set; } = null!;

@@ -251,9 +251,10 @@ public sealed class ReviewModel(
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
         var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
         var productDefaultLocationById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultLocationId);
+        var locationNameById = reference.Locations.ToDictionary(l => l.Id, l => l.Name);
 
         Rows = Session.Lines
-            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById, productDefaultLocationById))
+            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById, productDefaultLocationById, locationNameById))
             .ToList();
 
         return null;
@@ -306,10 +307,12 @@ public sealed class ReviewModel(
         // "Total" is the set of committable (non-dismissed) lines; "Confirmed" counts those resolved. Already
         // committed lines count as confirmed (resumability). Dismissed lines are excluded from both.
         var committable = Session.Lines.Where(l => l.Status != LineStatus.Dismissed).ToList();
-        var confirmed = committable.Count(l => l.Status is LineStatus.Confirmed or LineStatus.Committed);
+        var confirmedLines = committable.Where(l => l.Status is LineStatus.Confirmed or LineStatus.Committed).ToList();
+        var confirmedValue = confirmedLines.Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
         return new CommitBarViewModel(
-            Confirmed: confirmed,
+            Confirmed: confirmedLines.Count,
             Total: committable.Count,
+            ConfirmedValue: confirmedValue,
             CommitUrl: Url.Page("./Review", "Commit", new { Id })!,
             DiscardUrl: Url.Page("./Review", "Discard", new { Id })!);
     }
@@ -326,6 +329,7 @@ public sealed record ReviewRowModel(
     decimal? PrefillQuantity,
     Guid? PrefillUnitId,
     Guid? PrefillLocationId,
+    string? PrefillLocationName,
     decimal? PrefillPrice)
 {
     /// <summary>
@@ -382,10 +386,15 @@ public sealed record ReviewRowModel(
         IReadOnlyDictionary<Guid, string> unitCodeById,
         IReadOnlyDictionary<string, Guid> unitIdByCode,
         IReadOnlyDictionary<Guid, string> productNameById,
-        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById)
+        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById,
+        IReadOnlyDictionary<Guid, string> locationNameById)
     {
         var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice) =
             ComputePrefill(line, unitIdByCode, productNameById, productDefaultLocationById);
+
+        var prefillLocationName = prefillLocationId is { } locId && locationNameById.TryGetValue(locId, out var locName)
+            ? locName
+            : null;
 
         // Display name: new-product intent uses the chosen name; everything else uses the pre-fill.
         string? productName = line.IsNewProduct ? line.NewProductName : prefillProductName;
@@ -408,6 +417,6 @@ public sealed record ReviewRowModel(
             RestoreUrl: url.Page("./Review", "RestoreLine", new { Id = sessionId, lineId = line.LineId })!,
             SaveUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!);
 
-        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice);
+        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillLocationName, prefillPrice);
     }
 }

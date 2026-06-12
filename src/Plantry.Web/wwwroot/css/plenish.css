@@ -932,6 +932,168 @@ button { font-family: inherit; cursor: pointer; }
   .form-grid__field--full { grid-column: 1; }
 }
 
+/* ── Review screen header — title row, filter chips, progress bar ─────────── */
+.rev-head { margin-bottom: var(--space-4); }
+
+.rev-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.rev-title-row__spacer { flex: 1 1 auto; }
+.rev-title h2 { font-size: var(--font-size-2xl); font-weight: 700; margin: 0 0 var(--space-1); }
+.rev-title p { color: var(--color-text-muted); margin: 0; font-size: var(--font-size-sm); }
+
+.chips { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.fchip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+.fchip:hover { border-color: var(--color-text-muted); color: var(--color-text); }
+.fchip.on { border-color: transparent; }
+.fchip.on.f-review { background: var(--color-warning-bg); color: var(--color-warning); }
+.fchip.on.f-ready  { background: var(--color-success-bg); color: var(--color-success); }
+.fchip .dotc { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+.rev-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.rev-progress__bar { flex: 1; height: 8px; background: var(--color-bg-subtle); border-radius: var(--radius-full); overflow: hidden; }
+.rev-progress__fill { height: 100%; background: var(--color-accent); border-radius: var(--radius-full); transition: width var(--transition-base); }
+.rev-progress__meta { font-size: var(--font-size-sm); color: var(--color-text-muted); white-space: nowrap; }
+.rev-progress__meta b { color: var(--color-text); }
+
+/* ── Section labels (Needs your review / Matched & ready / Skipped) ────────── */
+.sec-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-5) var(--space-1) var(--space-2);
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-text-faint);
+}
+.sec-label__count { color: var(--color-text-faint); font-weight: 600; }
+.sec-label::after { content: ""; flex: 1; height: 1px; background: var(--color-border); }
+
+/* ── Category chip (color placeholder — hue wired by Category-color-chips bead) */
+.cat-chip {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  background: var(--cc-bg, var(--color-bg-subtle));
+  color: var(--cc-fg, var(--color-text-muted));
+}
+.cat-chip--neutral { background: var(--color-bg-subtle); color: var(--color-text-faint); }
+
+/* ── Amount label inline with product name ─────────────────────────────────── */
+.import-row__amount {
+  font-weight: 500;
+  color: var(--color-text-faint);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Nonstock-style dismissed row ─────────────────────────────────────────── */
+.import-row__nonstock-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+.import-row__nonstock-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-faint);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.import-row__nonstock-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.import-row__nonstock-why {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  display: block;
+  margin-top: 1px;
+}
+
+/* ── Quantity / expiry stepper (− input +) ─────────────────────────────────── */
+.qty-stepper { display: flex; align-items: stretch; }
+.qty-stepper .field__input {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  min-width: 0;
+  flex: 1;
+}
+.qty-stepper .field__input::-webkit-outer-spin-button,
+.qty-stepper .field__input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.qty-btn {
+  width: 36px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  display: grid;
+  place-items: center;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.qty-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.qty-btn:last-child  { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.qty-btn:hover { background: var(--color-bg-subtle); color: var(--color-text); }
+.qty-btn .icon { width: 0.875rem; height: 0.875rem; }
+
+/* ── Edit drawer footer — "Goes to {location}" summary ─────────────────────── */
+.import-row__edit-foot-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+}
+.import-row__edit-foot-summary .icon { width: 0.9em; height: 0.9em; }
+.import-row__edit-foot-summary strong { color: var(--color-text-muted); font-weight: 600; }
+
 /* ── Import line row (intake review form) ──────────────────────────────────── */
 .import-row {
   background: var(--color-surface);
@@ -1065,7 +1227,7 @@ button { font-family: inherit; cursor: pointer; }
   bottom: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-5);
+  gap: var(--space-4);
   padding: var(--space-3) var(--space-5);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -1073,36 +1235,32 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: var(--shadow-md);
   z-index: 20;
 }
-
-.commit-bar__progress { flex: 1 1 auto; min-width: 0; }
-.commit-bar__count { font-size: var(--font-size-sm); }
-.commit-bar__count-done { font-weight: 700; color: var(--color-text); }
-.commit-bar__count-total { color: var(--color-text-muted); }
-
-.commit-bar__track {
-  margin-top: var(--space-1);
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-subtle);
-  overflow: hidden;
+.commit-bar__cancel { color: var(--color-text-muted); flex-shrink: 0; }
+.commit-bar__spacer { flex: 1 1 auto; }
+.commit-bar__warn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-warning);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.commit-bar__fill {
-  height: 100%;
-  background: var(--color-accent);
-  border-radius: var(--radius-full);
-  transition: width var(--transition-base);
+.commit-bar__warn .icon { width: 1em; height: 1em; }
+.commit-bar__summary {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-
-.commit-bar__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.commit-bar__hint--ready { color: var(--color-success); font-weight: 600; }
-
-.commit-bar__actions { display: flex; align-items: center; gap: var(--space-3); flex-shrink: 0; }
-.commit-bar__discard { color: var(--color-text-muted); }
+.commit-bar__summary b { color: var(--color-text); font-weight: 700; }
 .commit-bar [disabled] { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 640px) {
-  .commit-bar { flex-direction: column; align-items: stretch; }
-  .commit-bar__actions { justify-content: space-between; }
+  .commit-bar { flex-wrap: wrap; }
+  .commit-bar__spacer { display: none; }
+  .commit-bar .btn--primary { flex: 1 1 auto; }
 }
 
 /* ── Intake review form (SPEC §2e) — two-column: scanned receipt left, lines right ─── */
@@ -1114,11 +1272,8 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .review__lines { display: flex; flex-direction: column; min-width: 0; }
-.review__head { margin-bottom: var(--space-4); }
-.review__title { font-size: var(--font-size-2xl); font-weight: 700; margin: 0 0 var(--space-1); }
-.review__sub { color: var(--color-text-muted); margin: 0; max-width: 48ch; }
 .review__empty { color: var(--color-text-muted); padding: var(--space-6); text-align: center; }
-.review__rows { margin-bottom: var(--space-4); }
+.rev-list { margin-bottom: var(--space-4); }
 .review__commit { position: sticky; bottom: var(--space-4); }
 
 /* Receipt panel — a paper-like rendering of the scanned receipt, re-expressed from the design

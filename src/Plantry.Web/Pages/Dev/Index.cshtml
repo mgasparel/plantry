@@ -332,19 +332,104 @@
         <h2 class="catalog-section__heading">Commit bar</h2>
     </div>
     <p>
-        <code>_CommitBar</code> is the sticky footer of the intake review form: a
-        <code>confirmed / total</code> progress readout with a bar, a primary Commit button, and a
-        Discard action. The Commit button stays disabled until every line is resolved. The
-        <code>hx-post</code> URLs are placeholders here (owned by <code>plantry-75u</code>).
+        <code>_CommitBar</code> is the sticky footer of the intake review form: proto bottom-bar layout —
+        Cancel · [N to resolve warning] · spacer · "Adding M items · $value" · Add to pantry.
+        The Add to pantry button stays disabled until every line is resolved.
+        <code>ConfirmedValue</code> is the sum of confirmed-line prices for the "$value" display.
     </p>
 
-    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">In progress (Commit disabled)</h3>
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">In progress (Add to pantry disabled)</h3>
     <partial name="Shared/_CommitBar" model="Model.CommitBarPartial" />
 
-    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin-top: var(--space-5)">All reviewed (Commit enabled)</h3>
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin-top: var(--space-5)">All reviewed (Add to pantry enabled)</h3>
     <partial name="Shared/_CommitBar" model="Model.CommitBarReady" />
 
-    <pre class="code-sample"><code>@("<partial name=\"Shared/_CommitBar\"\n         model=\"new CommitBarViewModel(confirmed, total, commitUrl, discardUrl)\" />")</code></pre>
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_CommitBar\"\n         model=\"new CommitBarViewModel(confirmed, total, confirmedValue, commitUrl, discardUrl)\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Review filter chips</h2>
+    </div>
+    <p>
+        <code>.chips</code> + <code>.fchip</code> — pill filter chips for the intake review header.
+        <code>.on.f-review</code> = warning tint (needs review); <code>.on.f-ready</code> = success tint (all/ready).
+        Alpine drives the active state via <code>:class</code>; counts are server-rendered.
+    </p>
+    <div class="chips" style="margin-bottom: var(--space-4)">
+        <button type="button" class="fchip on f-ready">All 13</button>
+        <button type="button" class="fchip">
+            <span class="dotc" style="background: var(--color-warning)"></span> Needs review 3
+        </button>
+        <button type="button" class="fchip">
+            <span class="dotc" style="background: var(--color-success)"></span> Ready 10
+        </button>
+    </div>
+    <div class="chips">
+        <button type="button" class="fchip">All 13</button>
+        <button type="button" class="fchip on f-review">
+            <span class="dotc" style="background: var(--color-warning)"></span> Needs review 3
+        </button>
+        <button type="button" class="fchip">
+            <span class="dotc" style="background: var(--color-success)"></span> Ready 10
+        </button>
+    </div>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Review progress bar</h2>
+    </div>
+    <p>
+        <code>.rev-progress</code> — header progress bar for the intake review screen.
+        Width is set server-side as an inline <code>style="width: N%"</code>.
+    </p>
+    <div class="rev-progress" style="margin-bottom: var(--space-4)">
+        <div class="rev-progress__bar"><div class="rev-progress__fill" style="width: 77%"></div></div>
+        <div class="rev-progress__meta"><span><b>3</b> items need a quick look · <b>10</b> ready</span></div>
+    </div>
+    <div class="rev-progress">
+        <div class="rev-progress__bar"><div class="rev-progress__fill" style="width: 100%"></div></div>
+        <div class="rev-progress__meta"><span><b>All set.</b> 13 items ready to add.</span></div>
+    </div>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Category chip</h2>
+    </div>
+    <p>
+        <code>.cat-chip</code> — square chip showing a two-letter category code. Neutral placeholder
+        renders with <code>.cat-chip--neutral</code>; the real hue is wired by the Category-color-chips
+        bead via CSS custom properties <code>--cc-bg</code> and <code>--cc-fg</code>.
+    </p>
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center">
+        <div class="cat-chip cat-chip--neutral">?</div>
+        <div class="cat-chip" style="--cc-bg: oklch(0.92 0.045 145); --cc-fg: oklch(0.42 0.105 145)">Pr</div>
+        <div class="cat-chip" style="--cc-bg: oklch(0.92 0.045 210); --cc-fg: oklch(0.42 0.105 210)">Da</div>
+        <div class="cat-chip" style="--cc-bg: oklch(0.92 0.045 30);  --cc-fg: oklch(0.42 0.105 30)">Me</div>
+    </div>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Quantity / expiry stepper</h2>
+    </div>
+    <p>
+        <code>.qty-stepper</code> — wraps a <code>.field__input</code> with flanking − / + buttons.
+        Alpine manages the value via <code>x-model</code>; the hidden numeric or date input posts normally.
+    </p>
+    <div style="max-width: 180px; margin-bottom: var(--space-4)">
+        <div class="qty-stepper">
+            <button type="button" class="qty-btn" aria-label="Decrease">
+                <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+            </button>
+            <input class="field__input" type="number" value="2" style="text-align:center" />
+            <button type="button" class="qty-btn" aria-label="Increase">
+                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+            </button>
+        </div>
+    </div>
 </section>
 
 <section class="catalog-section">
