@@ -210,6 +210,14 @@ EOF
 - Body explains why, not what — the diff already shows what.
 - Interpretations belong on the issue (Step 1), not in the commit message.
 
+## Step 5.5 — Write completion note
+
+```bash
+bd note <issue-id> "Implementation complete. Branch: issue/<issue-id>. Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if advisory findings> Advisory: <brief list>.</if>"
+```
+
+Write this after the commit succeeds, before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.
+
 ## Step 6 — Return verdict
 
 ```
