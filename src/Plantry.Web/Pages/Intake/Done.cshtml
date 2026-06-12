@@ -1,0 +1,54 @@
+@page "{id:guid}"
+@using System.Globalization
+@model Plantry.Web.Pages.Intake.DoneModel
+@{
+    ViewData["Title"] = "Done";
+
+    var summary = Model.Summary;
+    var store = summary.MerchantText ?? "your receipt";
+    var valueDisplay = summary.StockedValue > 0m
+        ? "$" + summary.StockedValue.ToString("0.00", CultureInfo.InvariantCulture)
+        : "—";
+    var categoryDisplay = summary.CategoryCount > 0 ? summary.CategoryCount.ToString() : "—";
+    var expiryDisplay = summary.SoonestExpiry.HasValue
+        ? summary.SoonestExpiry.Value.ToString("MMM d", CultureInfo.InvariantCulture)
+        : "—";
+}
+
+<div class="done-stage">
+    <div class="done-card">
+        <div class="done-check" aria-hidden="true">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+        </div>
+        <h2>Added to your pantry</h2>
+        <p>
+            @summary.ItemsAdded @(summary.ItemsAdded == 1 ? "item" : "items") from @store are now tracked.
+            FEFO ordering is set — the oldest stock gets used first.
+        </p>
+        <div class="stat-grid">
+            <div class="stat">
+                <div class="stat-num">@summary.ItemsAdded</div>
+                <div class="stat-lbl">items added</div>
+            </div>
+            <div class="stat">
+                <div class="stat-num stat-num--mono">@valueDisplay</div>
+                <div class="stat-lbl">stocked value</div>
+            </div>
+            <div class="stat">
+                <div class="stat-num">@categoryDisplay</div>
+                <div class="stat-lbl">categories</div>
+            </div>
+            <div class="stat">
+                <div class="stat-num">@expiryDisplay</div>
+                <div class="stat-lbl">soonest expiry</div>
+            </div>
+        </div>
+        <div class="done-actions">
+            <a href="/Pantry" class="btn btn--primary">
+                <svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg>
+                View pantry
+            </a>
+            <a href="/Intake/Upload" class="btn btn--ghost">Add another receipt</a>
+        </div>
+    </div>
+</div>

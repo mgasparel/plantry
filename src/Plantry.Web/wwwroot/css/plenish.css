@@ -1522,5 +1522,57 @@ button { font-family: inherit; cursor: pointer; }
   .intake-cols { grid-template-columns: 1fr; }
 }
 
+/* ── Done / success screen ─────────────────────────────────────────────────── */
+.done-stage {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-12) var(--space-6);
+}
+.done-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-10) var(--space-8);
+  max-width: 30rem;
+  width: 100%;
+  text-align: center;
+}
+.done-check {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  display: grid;
+  place-items: center;
+  margin: 0 auto var(--space-5);
+}
+.done-check .icon { width: 1.75rem; height: 1.75rem; }
+.done-card h2 {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  margin: 0 0 var(--space-3);
+}
+.done-card > p {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-8);
+  line-height: 1.5;
+}
+.done-card .stat-grid { gap: var(--space-4); margin-bottom: var(--space-8); }
+.done-card .stat {
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  text-align: center;
+}
+.done-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 /* ── Inline SVG icon sprites (defined once, used via <use>) ─────────────────── */
 /* Icons are inlined in _Layout.cshtml as an SVG sprite */

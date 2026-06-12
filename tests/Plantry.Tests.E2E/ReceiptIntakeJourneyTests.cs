@@ -153,7 +153,9 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await Assertions.Expect(commitButton).ToBeEnabledAsync();
             await commitButton.ClickAsync();
 
-            // On commit the page HX-Redirects to the pantry.
+            // On commit the page HX-Redirects to the Done screen, then the user navigates to the pantry.
+            await page.WaitForURLAsync("**/Intake/Done/**");
+            await page.ClickAsync("a:has-text('View pantry')");
             await page.WaitForURLAsync("**/Pantry**");
 
             // ── Assert: both products now hold stock in the pantry ──────────────

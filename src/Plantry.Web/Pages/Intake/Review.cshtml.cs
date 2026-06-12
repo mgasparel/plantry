@@ -178,8 +178,8 @@ public sealed class ReviewModel(
         }
 
         // Committed — the new stock now lives in the pantry. Tell htmx to do a full client-side redirect
-        // (an htmx response header, since the Commit button posts via hx-post).
-        Response.Headers["HX-Redirect"] = Url.Page("/Pantry/Index")!;
+        // to the Done screen (an htmx response header, since the Commit button posts via hx-post).
+        Response.Headers["HX-Redirect"] = Url.Page("/Intake/Done", new { Id })!;
         return new EmptyResult();
     }
 
