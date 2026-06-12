@@ -59,7 +59,7 @@
 				<div class="form-grid__field form-grid__field--full" x-show="!createNew">
 					<label class="form-grid__field__label">Product</label>
 					<div class="form-grid__field__control">
-						<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false">
+						<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" @click.outside="open = false" @keydown.escape="open = false" @alt-selected.window="if($event.detail.lineId === 'Guid_1') select($event.detail.id, $event.detail.label)">
 							<input type="hidden" name="Edit.ProductId" value="" x-ref="hidden" @change="selectedProductId = $event.target.value; skuId = ''">
 							<div class="searchable-select__control">
 								<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_1-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_2?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_1-listbox" hx-swap="innerHTML" hx-params="q">

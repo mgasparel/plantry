@@ -52,8 +52,14 @@ public sealed class ParseSessionCommand(
         }
 
         foreach (var line in parse.Lines)
+        {
+            var alternatives = line.Alternatives?
+                .Select(a => new AlternativeCandidate(a.ProductId, a.ProductName, a.Confidence))
+                .ToList();
             session.AddLine(line.LineNo, line.ReceiptText, MapConfidence(line.Confidence), line.RawJson,
-                line.SuggestedProductId, line.SuggestedProductName, line.Quantity, line.UnitLabel, line.Price);
+                line.SuggestedProductId, line.SuggestedProductName, line.Quantity, line.UnitLabel, line.Price,
+                alternatives is { Count: >= 2 } ? alternatives : null);
+        }
 
         session.MarkReady(parse.MerchantText, clock.UtcNow);
         await sessions.SaveChangesAsync(ct);

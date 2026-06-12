@@ -4,6 +4,15 @@ using Plantry.SharedKernel.Domain;
 namespace Plantry.Intake.Domain;
 
 /// <summary>
+/// AI-ranked alternative product candidate for an ambiguous receipt line. Set once at parse time,
+/// never overwritten. Ordered best-first by the AI (index 0 = highest confidence).
+/// </summary>
+public sealed record AlternativeCandidate(
+    Guid? ProductId,
+    string ProductName,
+    decimal Confidence);
+
+/// <summary>
 /// Child entity of <see cref="ImportSession"/>. AI-populated fields are set once at creation and
 /// never overwritten (ACL invariant on <see cref="RawParse"/>). User-resolved fields are mutable
 /// until the line is committed.
@@ -22,6 +31,13 @@ public sealed class ImportLine : Entity<ImportLineId>
     public decimal? SuggestedQuantity { get; private set; }
     public string? SuggestedUnitLabel { get; private set; }
     public decimal? SuggestedPrice { get; private set; }
+
+    /// <summary>
+    /// AI-ranked alternative product candidates for ambiguous lines — stored once at parse time in
+    /// <c>suggested_alternatives</c> jsonb. Null when the parser returned only one match or no match.
+    /// Only rendered in the review drawer when there are two or more credible candidates.
+    /// </summary>
+    public IReadOnlyList<AlternativeCandidate>? SuggestedAlternatives { get; private set; }
 
     // User-resolved fields
     public Guid? ProductId { get; private set; }
@@ -63,7 +79,8 @@ public sealed class ImportLine : Entity<ImportLineId>
         string? suggestedProductName = null,
         decimal? suggestedQuantity = null,
         string? suggestedUnitLabel = null,
-        decimal? suggestedPrice = null) =>
+        decimal? suggestedPrice = null,
+        IReadOnlyList<AlternativeCandidate>? suggestedAlternatives = null) =>
         new()
         {
             Id = id,
@@ -78,6 +95,7 @@ public sealed class ImportLine : Entity<ImportLineId>
             SuggestedQuantity = suggestedQuantity,
             SuggestedUnitLabel = suggestedUnitLabel,
             SuggestedPrice = suggestedPrice,
+            SuggestedAlternatives = suggestedAlternatives,
             Status = LineStatus.Pending,
         };
 

@@ -4,6 +4,16 @@ using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Intake.Application;
 
+/// <summary>
+/// A single ranked alternative candidate for the "Did you mean" suggestion block in the review drawer.
+/// Carries the resolved product id (null when the parser named a product not found in the catalog) and
+/// the real AI confidence score (0-1) so the drawer renders "best" / actual percentage rather than mocked values.
+/// </summary>
+public sealed record ReviewAlternativeView(
+    Guid? ProductId,
+    string ProductName,
+    decimal Confidence);
+
 public sealed record ReviewLineView(
     Guid LineId,
     int LineNo,
@@ -24,7 +34,9 @@ public sealed record ReviewLineView(
     string? SuggestedProductName,
     decimal? SuggestedQuantity,
     string? SuggestedUnitLabel,
-    decimal? SuggestedPrice);
+    decimal? SuggestedPrice,
+    /// <summary>Ranked alternative candidates (best-first). Null when fewer than two credible candidates.</summary>
+    IReadOnlyList<ReviewAlternativeView>? SuggestedAlternatives = null);
 
 /// <summary>
 /// The session header plus its lines and the Catalog reference data (dropdown options) needed to render
@@ -64,27 +76,37 @@ public sealed class GetSessionForReviewQuery(
 
         var lines = session.Lines
             .OrderBy(l => l.LineNo)
-            .Select(l => new ReviewLineView(
-                l.Id.Value,
-                l.LineNo,
-                l.ReceiptText,
-                l.SuggestedConfidence,
-                l.Status,
-                l.ProductId,
-                l.SkuId,
-                l.Quantity,
-                l.UnitId,
-                l.LocationId,
-                l.ExpiryDate,
-                l.Price,
-                l.IsNewProduct,
-                l.NewProductName,
-                l.NewProductCategoryId,
-                l.SuggestedProductId,
-                l.SuggestedProductName,
-                l.SuggestedQuantity,
-                l.SuggestedUnitLabel,
-                l.SuggestedPrice))
+            .Select(l =>
+            {
+                var alternatives = l.SuggestedAlternatives is { Count: >= 2 }
+                    ? l.SuggestedAlternatives
+                        .Select(a => new ReviewAlternativeView(a.ProductId, a.ProductName, a.Confidence))
+                        .ToList()
+                    : null;
+
+                return new ReviewLineView(
+                    l.Id.Value,
+                    l.LineNo,
+                    l.ReceiptText,
+                    l.SuggestedConfidence,
+                    l.Status,
+                    l.ProductId,
+                    l.SkuId,
+                    l.Quantity,
+                    l.UnitId,
+                    l.LocationId,
+                    l.ExpiryDate,
+                    l.Price,
+                    l.IsNewProduct,
+                    l.NewProductName,
+                    l.NewProductCategoryId,
+                    l.SuggestedProductId,
+                    l.SuggestedProductName,
+                    l.SuggestedQuantity,
+                    l.SuggestedUnitLabel,
+                    l.SuggestedPrice,
+                    alternatives);
+            })
             .ToList();
 
         return new SessionReviewView(

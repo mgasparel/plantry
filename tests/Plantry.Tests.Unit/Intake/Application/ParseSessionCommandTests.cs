@@ -121,4 +121,48 @@ public sealed class ParseSessionCommandTests
         Assert.Equal("Intake.EmptyImage", result.Error.Code);
         Assert.Equal(0, parser.Calls);
     }
+
+    [Fact]
+    public async Task Alternatives_With_Two_Or_More_Candidates_Land_On_The_Line()
+    {
+        var productA = Guid.CreateVersion7();
+        var productB = Guid.CreateVersion7();
+        var parser = new FakeReceiptParser(new ReceiptParseResult("Test Mart",
+        [
+            new ParsedLine(1, "CHEDDAR BLK 400G", "Cheddar, Mild", productA, 1m, null, 4.99m, "high", null,
+                Alternatives:
+                [
+                    new ParsedAlternative(productA, "Cheddar, Mild",  0.88m),
+                    new ParsedAlternative(productB, "Cheddar, Sharp", 0.62m),
+                ]),
+        ]));
+        var repo = new FakeImportSessionRepository();
+
+        await Parse(repo, parser, new FakeCatalogHintProvider()).ExecuteAsync();
+
+        var line = Assert.Single(repo.Sessions.Single().Lines);
+        Assert.NotNull(line.SuggestedAlternatives);
+        Assert.Equal(2, line.SuggestedAlternatives!.Count);
+        Assert.Equal("Cheddar, Mild", line.SuggestedAlternatives[0].ProductName);
+        Assert.Equal(0.88m, line.SuggestedAlternatives[0].Confidence);
+        Assert.Equal(productA, line.SuggestedAlternatives[0].ProductId);
+    }
+
+    [Fact]
+    public async Task Single_Alternative_Does_Not_Land_On_The_Line()
+    {
+        var productA = Guid.CreateVersion7();
+        var parser = new FakeReceiptParser(new ReceiptParseResult("Test Mart",
+        [
+            new ParsedLine(1, "MILK 2L", "Milk", productA, 2m, "L", 3.49m, "high", null,
+                Alternatives: [new ParsedAlternative(productA, "Milk", 0.95m)]),
+        ]));
+        var repo = new FakeImportSessionRepository();
+
+        await Parse(repo, parser, new FakeCatalogHintProvider()).ExecuteAsync();
+
+        var line = Assert.Single(repo.Sessions.Single().Lines);
+        // Single-candidate alternatives are treated as no alternatives — block must not render.
+        Assert.Null(line.SuggestedAlternatives);
+    }
 }

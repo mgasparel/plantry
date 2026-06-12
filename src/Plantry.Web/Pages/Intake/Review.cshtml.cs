@@ -450,7 +450,12 @@ public sealed record ReviewRowModel(
     /// <summary>Map of productId → list of SKU options for all products that have SKUs — embedded in the
     /// drawer as JSON so Alpine can filter pack-size choices when the product selection changes.</summary>
     IReadOnlyDictionary<string, IReadOnlyList<ReviewSkuOption>> SkusByProductId,
-    Guid? PrefillSkuId)
+    Guid? PrefillSkuId,
+    /// <summary>Ranked alternative candidates resolved against the household catalog — only set when there
+    /// are two or more credible candidates (mirrors the Line.SuggestedAlternatives gate). The product id
+    /// in each candidate is already resolved: candidates whose parser name did not match any catalog product
+    /// are excluded so the drawer never shows an unresolvable suggestion button.</summary>
+    IReadOnlyList<ReviewAlternativeCandidate>? Alternatives = null)
 {
     /// <summary>
     /// Pure prefill computation — no URL or HTTP context needed. Applies the priority chain:
@@ -538,7 +543,40 @@ public sealed record ReviewRowModel(
             RestoreUrl: url.Page("./Review", "RestoreLine", new { Id = sessionId, lineId = line.LineId })!,
             SaveUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!);
 
+        // Resolve alternative candidates against the household catalog — only include candidates whose
+        // parser-supplied name maps to a real product id so the suggestion button always resolves.
+        // Alternatives are only surfaced when there are 2+ credible options (the gate is also applied
+        // in GetSessionForReviewQuery, but we re-check here so From() is self-contained).
+        IReadOnlyList<ReviewAlternativeCandidate>? alternatives = null;
+        if (line.SuggestedAlternatives is { Count: >= 2 } alts)
+        {
+            var resolved = alts
+                .Where(a => a.ProductId is { } p && productNameById.ContainsKey(p))
+                .Select(a =>
+                {
+                    // ProductId is non-null and verified above; resolve the catalog display name.
+                    var label = productNameById.TryGetValue(a.ProductId!.Value, out var n) ? n : a.ProductName;
+                    return new ReviewAlternativeCandidate(a.ProductId!.Value, label, a.Confidence);
+                })
+                .ToList();
+
+            if (resolved.Count >= 2)
+                alternatives = resolved;
+        }
+
         return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId,
-            prefillLocationId, prefillLocationName, prefillPrice, skusByProductId, PrefillSkuId: line.SkuId);
+            prefillLocationId, prefillLocationName, prefillPrice, skusByProductId, PrefillSkuId: line.SkuId,
+            Alternatives: alternatives);
     }
 }
+
+/// <summary>
+/// A catalog-resolved alternative candidate for the "Did you mean" suggestion block in the review drawer.
+/// Shown only when the line has two or more credible alternatives and is not yet confirmed.
+/// ProductId is always resolved — candidates without a matching catalog entry are filtered out in
+/// <see cref="ReviewRowModel.From"/>, so no suggestion button can produce an empty product selection.
+/// </summary>
+public sealed record ReviewAlternativeCandidate(
+    Guid ProductId,
+    string ProductName,
+    decimal Confidence);

@@ -1381,6 +1381,24 @@ button { font-family: inherit; cursor: pointer; }
    library; one ghost button is shown at a time via Alpine x-show on the drawer's `createNew` flag. */
 .review-row__mode-toggle { grid-column: 1 / -1; }
 
+/* "Did you mean" ranked-suggestion block — rendered inside the row edit drawer when two or more credible
+   product candidates share the same receipt text. Ported from the ClaudeDesignProto plenish.css spec.
+   Only shown while the line is unconfirmed; hidden once the user confirms a resolution. Catalogued in
+   the Dev component library (Pages/Dev/Index.cshtml). */
+.match-suggest { display: grid; gap: 8px; grid-column: 1 / -1; }
+.match-suggest__label { font-size: 11.5px; font-weight: 600; color: var(--color-text-muted); }
+.match-suggest__label span { color: var(--color-text-faint, var(--color-text-muted)); font-weight: 500; }
+.suggest-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.suggest-opt {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 13px; white-space: nowrap;
+  border-radius: var(--radius-sm); border: 1px solid var(--color-border-strong, var(--color-border));
+  background: var(--color-surface); font-size: 13.5px; font-weight: 500; color: var(--color-text);
+  cursor: pointer;
+}
+.suggest-opt:hover { border-color: var(--color-primary); background: var(--color-primary-soft, var(--color-bg-subtle)); }
+.suggest-opt.sel { border-color: var(--color-primary); background: var(--color-primary-soft, var(--color-bg-subtle)); color: var(--color-primary); font-weight: 600; }
+.suggest-opt .rk { font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono, monospace); }
+
 @media (max-width: 900px) {
   .review { grid-template-columns: 1fr; }
   .review__receipt { border-right: none; border-bottom: 1px solid var(--color-border); overflow-y: visible; }

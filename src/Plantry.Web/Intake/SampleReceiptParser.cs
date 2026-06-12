@@ -24,18 +24,24 @@ public sealed class SampleReceiptParser : IReceiptParser
     public const string Merchant = "REAL CANADIAN SUPERSTORE";
 
     /// <summary>One captured receipt line. <see cref="SuggestedName"/> non-null marks a high-confidence
-    /// match whose catalog id is resolved by name at parse time; null marks an unmatched line.</summary>
+    /// match whose catalog id is resolved by name at parse time; null marks an unmatched line.
+    /// <see cref="AlternativeNames"/> is an ordered list of candidate names (best-first) with confidence
+    /// scores — used to populate the "Did you mean" suggestion block in the review drawer.</summary>
     private sealed record SampleLine(
         int LineNo,
         string ReceiptText,
         string? SuggestedName,
         decimal Quantity,
         string? UnitLabel,
-        decimal Price);
+        decimal Price,
+        (string Name, decimal Confidence)[]? AlternativeNames = null);
 
     private static readonly SampleLine[] Lines =
     [
-        new(1, "05995030018 BECE MARG W-AVOC", "Butter",                  1.000m, null, 7.99m),
+        // Ambiguous match — three credible butter/spread candidates to demo the "Did you mean" block.
+        new(1, "05995030018 BECE MARG W-AVOC", "Butter",
+            1.000m, null, 7.99m,
+            AlternativeNames: [("Butter", 0.88m), ("Margarine", 0.62m), ("Avocado Spread", 0.41m)]),
         new(2, "06038366414 LARGE EGGS",       null,                      1.000m, null, 3.93m),
         new(3, "06148300741 CRANBERRIES",      null,                      1.000m, null, 6.00m),
         new(4, "4012 ORANGE NAVEL LG",         null,                      0.255m, "kg", 1.40m),
@@ -68,6 +74,19 @@ public sealed class SampleReceiptParser : IReceiptParser
                 ? id
                 : null;
 
+            // Resolve alternative candidate ids by name (same approach as the primary suggestion).
+            // Alternatives without a matching catalog id are still included — the ReviewRowModel.From
+            // resolver will filter candidates whose id cannot be verified against the household catalog.
+            List<ParsedAlternative>? alternatives = null;
+            if (l.AlternativeNames is { Length: >= 2 } altNames)
+            {
+                alternatives = altNames.Select(a =>
+                {
+                    Guid? altId = idByName.TryGetValue(a.Name, out var aid) ? aid : (Guid?)null;
+                    return new ParsedAlternative(altId, a.Name, a.Confidence);
+                }).ToList();
+            }
+
             return new ParsedLine(
                 LineNo: l.LineNo,
                 ReceiptText: l.ReceiptText,
@@ -81,7 +100,8 @@ public sealed class SampleReceiptParser : IReceiptParser
                 // longer resolves degrades to "low" (a name-only hint) rather than masquerading as a
                 // confident match with an empty dropdown; no suggestion at all is "none".
                 Confidence: suggestedId is not null ? "high" : l.SuggestedName is null ? "none" : "low",
-                RawJson: null);
+                RawJson: null,
+                Alternatives: alternatives);
         }).ToList();
 
         return new ReceiptParseResult(Merchant, parsed);

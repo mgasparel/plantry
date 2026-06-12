@@ -1,5 +1,6 @@
 @using System.Globalization
 @using Plantry.Intake.Domain
+@using Plantry.Web.Pages.Intake
 @*
     Model is the PageModel itself (not the row VM) so the model-bound <searchable-select asp-for="Edit.ProductId">
     resolves against the page's bind target; the specific row to render is passed via ViewData["Row"].
@@ -243,7 +244,8 @@
                                    ProductId carries its value server-side (the value="" below), as in the TagHelper. *@
                                 <div class="searchable-select" x-data="searchableSelect()"
                                      data-initial-label="@initialLabel"
-                                     @@click.outside="open = false" @@keydown.escape="open = false">
+                                     @@click.outside="open = false" @@keydown.escape="open = false"
+                                     @@alt-selected.window="if($event.detail.lineId === '@line.LineId') select($event.detail.id, $event.detail.label)">
                                     <input type="hidden" name="Edit.ProductId" value="@(initialProduct?.Value ?? rowModel.PrefillProductId?.ToString() ?? "")" x-ref="hidden"
                                            @@change="selectedProductId = $event.target.value; skuId = ''" />
                                     <div class="searchable-select__control">
@@ -302,6 +304,48 @@
                                 </select>
                             </div>
                         </div>
+
+                        @*
+                            "Did you mean" ranked-suggestion block — only rendered when the AI matched two or
+                            more credible candidates AND the line is not yet confirmed. Clicking a candidate
+                            calls the searchableSelect component's own select() method via a window-bubbled
+                            custom event (@@alt-selected.window on the .searchable-select div above), updating
+                            the hidden ProductId input and the visible label through the component's own API.
+                            The parent row's selectedProductId / skuId are updated directly in Alpine scope.
+                            Nothing commits until the user clicks "Confirm item" (display hint only).
+                            Uses data-alt-id / data-alt-name attributes so product names never touch a JS
+                            string literal (Razor HTML-encodes attribute values; no manual escaping needed).
+                        *@
+                        @if (rowModel.Alternatives is { Count: >= 2 } alts && !row.IsConfirmed && !row.IsCommitted)
+                        {
+                            <div class="match-suggest" x-show="!createNew">
+                                <div class="match-suggest__label">
+                                    Did you mean — <span>several products share this name</span>
+                                </div>
+                                <div class="suggest-opts">
+                                    @for (int i = 0; i < alts.Count; i++)
+                                    {
+                                        var alt = alts[i];
+                                        var altIdStr = alt.ProductId.ToString();
+                                        var rankLabel = i == 0 ? "best" : $"{(int)Math.Round(alt.Confidence * 100)}%";
+                                        <button type="button"
+                                                class="suggest-opt"
+                                                data-alt-id="@altIdStr"
+                                                data-alt-name="@alt.ProductName"
+                                                :class="{ 'sel': selectedProductId === '@altIdStr' }"
+                                                @@click="
+                                                    selectedProductId = $el.dataset.altId;
+                                                    skuId = '';
+                                                    $dispatch('alt-selected', { lineId: '@line.LineId', id: $el.dataset.altId, label: $el.dataset.altName });
+                                                ">
+                                            <svg class="icon" aria-hidden="true" x-show="selectedProductId === '@altIdStr'"><use href="#i-check" /></svg>
+                                            @alt.ProductName
+                                            <span class="rk">@rankLabel</span>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
 
                         @* Mode toggle *@
                         <div class="review-row__mode-toggle">

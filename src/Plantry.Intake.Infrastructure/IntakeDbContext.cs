@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 
@@ -93,6 +95,13 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.SuggestedQuantity).HasColumnName("suggested_quantity").HasPrecision(12, 3);
             b.Property(l => l.SuggestedUnitLabel).HasColumnName("suggested_unit_label").HasMaxLength(20);
             b.Property(l => l.SuggestedPrice).HasColumnName("suggested_price").HasPrecision(12, 2);
+            // suggested_alternatives is stored as jsonb — AI-populated at parse time, never overwritten.
+            b.Property(l => l.SuggestedAlternatives)
+                .HasColumnName("suggested_alternatives")
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => v == null ? null : JsonSerializer.Deserialize<List<AlternativeCandidate>>(v, (JsonSerializerOptions?)null));
             b.Property(l => l.ProductId).HasColumnName("product_id");
             b.Property(l => l.SkuId).HasColumnName("sku_id");
             b.Property(l => l.Quantity).HasColumnName("quantity").HasPrecision(12, 3);

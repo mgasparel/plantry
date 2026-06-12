@@ -236,6 +236,49 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Match suggest ("Did you mean")</h2>
+    </div>
+    <p>
+        <code>.match-suggest</code> is the ranked-suggestion block shown inside the review row edit drawer
+        when the AI matched two or more credible product candidates for the same receipt line. It renders
+        a label plus a <code>.suggest-opts</code> flex row of <code>.suggest-opt</code> buttons — one per
+        candidate, ordered best-first.
+    </p>
+    <p>
+        The block is server-rendered and hidden via Razor conditionals (only present when
+        <c>rowModel.Alternatives</c> has two or more entries and the line is not yet confirmed). Each
+        button carries a <code>.rk</code> rank tag: <em>best</em> for the first candidate, and the
+        real AI confidence percentage for subsequent ones. The selected candidate gets the <code>.sel</code>
+        modifier (primary border + background + check icon). Clicking a button pre-selects the product
+        in the drawer's searchable-select — nothing commits until the user clicks <em>Confirm item</em>.
+    </p>
+    <div style="max-width: 36rem" x-data="{ sel: '' }">
+        <div class="match-suggest">
+            <div class="match-suggest__label">
+                Did you mean — <span>several products share this name</span>
+            </div>
+            <div class="suggest-opts">
+                <button type="button" class="suggest-opt" :class="{ 'sel': sel === 'a' }" @@click="sel = 'a'">
+                    <svg class="icon" aria-hidden="true" x-show="sel === 'a'"><use href="#i-check" /></svg>
+                    Cheddar, Mild <span class="rk">best</span>
+                </button>
+                <button type="button" class="suggest-opt" :class="{ 'sel': sel === 'b' }" @@click="sel = 'b'">
+                    <svg class="icon" aria-hidden="true" x-show="sel === 'b'"><use href="#i-check" /></svg>
+                    Cheddar, Sharp <span class="rk">53%</span>
+                </button>
+                <button type="button" class="suggest-opt" :class="{ 'sel': sel === 'c' }" @@click="sel = 'c'">
+                    <svg class="icon" aria-hidden="true" x-show="sel === 'c'"><use href="#i-check" /></svg>
+                    Cheddar, Marble <span class="rk">34%</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"match-suggest\">\n  <div class=\"match-suggest__label\">\n    Did you mean — <span>several products share this name</span>\n  </div>\n  <div class=\"suggest-opts\">\n    <button type=\"button\" class=\"suggest-opt\" :class=\"{ 'sel': selectedProductId === '{id}' }\"\n            @click=\"selectedProductId = '{id}'; ...\">\n      <svg class=\"icon\" x-show=\"selectedProductId === '{id}'\"><use href=\"#i-check\"></use></svg>\n      Product Name <span class=\"rk\">best</span>   <!-- or: 72% -->\n    </button>\n  </div>\n</div>\n\n<!-- Only render when rowModel.Alternatives?.Count >= 2 AND line is not confirmed -->")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Index list</h2>
     </div>
     <p>
