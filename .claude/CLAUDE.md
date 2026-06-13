@@ -24,10 +24,11 @@ Before building any UI element:
 > (documentation, ownership, history, decisions). **Always verify against
 > actual source files before making changes** — the index may be stale.
 
-Last indexed: 2026-06-10 (commit 46007a3). Confidence: 100%.
+Last indexed: 2026-06-13 (commit 314b9f3). Confidence: 100%.
 ### Architecture
-Plantry is a multi-tenant household inventory and pantry management platform that ingests grocery intake and stock consumption events, processes them through domain-driven design (DDD) services to track product catalogs, pricing, and stock journals, and exposes real-time inventory states via a web interface backed by a PostgreSQL database with Row-Level Security (RLS). The system is designed around isolated bounded contexts (Catalog, Inventory, Pricing, Intake) bound together by a Shared Kernel that enforces strict tenant isolation at the database connection level. This ensures that household data remains securely partitioned while allowing seamless tracking of stock levels, consumption patterns, and product metadata. The application is bootstrapped and orchestrated through two primary entry points:
-The repository is structured as a modular monolith, utilizing DDD principles to maintain clean boundaries between distinct business capabilities:
+Plantry is a household inventory and grocery management system that ingests product catalog details, intake sessions, and consumption events, processes them through domain-driven modules (Catalog, Intake, and Inventory) with multi-tenant Row-Level Security, and outputs real-time stock levels, historical stock journals, and an interactive web interface. The codebase is structured as a modular monolith written in C#, leveraging Domain-Driven Design (DDD) tactical patterns to maintain strict boundaries between business domains. Multi-tenancy is enforced at the database level, isolating data by household to ensure secure, collaborative management of shared household pantries. The application features two primary entry points, reflecting its .NET Aspire-orchestrated architecture:
+The codebase is organized into highly decoupled projects, separating core business logic from infrastructure and presentation:
+The foundational layer containing cross-cutting concerns, base domain abstractions, and tenancy infrastructure.
 ### Entry Points
 - `src/Plantry.AppHost/Program.cs`
 - `src/Plantry.Web/Program.cs`
@@ -38,12 +39,13 @@ The repository is structured as a modular monolith, utilizing DDD principles to 
 **Infra:** .NET Aspire### Architectural Layers
 | Layer | Files | Purpose |
 |-------|-------|---------|
-| UI | 15 |  |
-| Data | 15 |  |
-| Config | 40 |  |
-| Application | 30 |  |
-| Service | 24 |  |
-| Test | 20 |  |
+| UI | 18 |  |
+| Data | 34 |  |
+| Application | 73 |  |
+| Config | 41 |  |
+| Utility | 4 |  |
+| Service | 50 |  |
+| Test | 60 |  |
 
 ### Guided Tour (12 steps)
 1. **README.md** — `README.md`
@@ -56,19 +58,23 @@ The repository is structured as a modular monolith, utilizing DDD principles to 
 ### Hotspots (High Churn)
 | File | Churn | 90d Commits | Owner |
 |------|-------|-------------|-------|
-| `src/Plantry.Web/wwwroot/css/plenish.css` | 100.0th %ile | 4 | Michael Gasparelli |
-| `tests/Plantry.Tests.Architecture/BoundaryTests.cs` | 98.8th %ile | 4 | Michael Gasparelli |
-| `src/Plantry.Web/Pages/Shared/_Layout.cshtml` | 85.7th %ile | 6 | Michael Gasparelli |
-| `src/Plantry.Web/Program.cs` | 84.5th %ile | 5 | Michael Gasparelli |
-| `src/Plantry.Web/Pages/Dev/Index.cshtml.cs` | 84.1th %ile | 5 | Michael Gasparelli |
+| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.All_rows.verified.html` | 100.0th %ile | 10 | Michael Gasparelli |
+| `src/Plantry.Web/wwwroot/css/plenish.css` | 99.7th %ile | 12 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Intake/_ReviewRow.cshtml` | 99.3th %ile | 11 | Michael Gasparelli |
+| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.Confidence_high.verified.html` | 99.0th %ile | 10 | Michael Gasparelli |
+| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.Row_matched.verified.html` | 98.7th %ile | 10 | Michael Gasparelli |
 
 ## Code health
-Hotspot health: 9.26/10 (stable) ·
-Average: 9.49/10 ·
-Worst: 5.75/10 (`src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs`)
+Hotspot health: 7.41/10 (stable) ·
+Average: 9.16/10 ·
+Worst: 2.35/10 (`src/Plantry.Web/Pages/Intake/Review.cshtml.cs`)
 
 ### Critical biomarkers
+- `tests/Plantry.Tests.Unit/Intake/Domain/ImportLineTests.cs` — change entropy — impact −3.0
+- `src/Plantry.Intake/Domain/ImportLine.cs` — hidden coupling — impact −2.0
+- `src/Plantry.Web/Pages/Intake/Review.cshtml.cs` — complex method (ComputePrefill) — impact −0.7
 - `src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs` — brain method (OnModelCreating) — impact −0.6
+- `src/Plantry.Intake.Infrastructure/IntakeDbContext.cs` — brain method (OnModelCreating) — impact −0.6
 
 ### Repowise MCP Tools
 
