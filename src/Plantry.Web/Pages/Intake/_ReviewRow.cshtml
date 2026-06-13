@@ -9,9 +9,19 @@
     updated section membership. ViewData["RowDataStatus"] is the status string (needs/ready/skipped).
     ViewData["RowXShow"] is the Alpine x-show expression for section filtering.
 
-    ADR-013 step 6 — qty/expiry stepper JS-literal cleanup: v and d are now part of the row's JSON
+    ADR-013 step 6 — qty/expiry JS-literal cleanup: v (qty) and d (expiry) are part of the row's JSON
     x-data (via JsonSerializer) instead of @qtyInitJs / @expiryInitJs interpolated literals.
-    The adj() expiry function moves from nested x-data to x-init on the stepper div.
+    Qty still uses the .qty-stepper; expiry now uses the .expiry-field control (Date / Never).
+
+    plantry-4ha — product-default prefill: loc (location id), unit (unit id), receiptUnitId (the
+    parser-derived unit or null — "receipt unit wins"), productDefaults (productId→{unitId,locationId,dueDays})
+    and locationNames (locationId→name) are all carried in x-data so Alpine can recompute live on every
+    product selection (AI match, "Did you mean" chip, or dropdown). The recompute logic and the
+    $watch on selectedProductId live in the reviewRow() Alpine.data component (wwwroot/js/review-row.js),
+    NOT in x-init: each row is its own component instance so its helpers/state stay private. Defining
+    them in x-init failed two ways — bare assignments leaked to `window` (rows clobbered one global, so
+    the watch fired the wrong row's closure), and `this` inside x-init is not the component data (so
+    this.productDefaults etc. were undefined when a stored helper ran later). See review-row.js.
 *@
 @model Plantry.Web.Pages.Intake.ReviewModel
 @{
@@ -44,12 +54,23 @@
 
     var startOpen = row.IsUnmatched;
     var qtyValue = rowModel.PrefillQuantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "";
-    var expiryValue = line.ExpiryDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
+
+    // PrefillExpiry already encodes the priority chain (user-resolved > today+DefaultDueDays > null).
+    var expiryValue = rowModel.PrefillExpiry?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
     var priceValue = rowModel.PrefillPrice?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
     var newNameValue = line.NewProductName ?? "";
 
     var initialProductIdStr = rowModel.PrefillProductId?.ToString() ?? "";
     var initialSkuIdStr = rowModel.PrefillSkuId?.ToString() ?? "";
+    var initialLocationIdStr = rowModel.PrefillLocationId?.ToString() ?? "";
+    var initialUnitIdStr = rowModel.PrefillUnitId?.ToString() ?? "";
+
+    // receiptUnitIdStr: the parser-derived unit id for this line (empty when the parser detected no unit).
+    // "Receipt unit wins" is resolved server-side into productDefaults below, so the drawer JS applies the
+    // already-chosen unit directly — the rule lives only here (C#), never duplicated in JavaScript.
+    var receiptUnitIdStr = (line.Status == LineStatus.Pending && line.SuggestedUnitLabel is not null)
+        ? (rowModel.PrefillUnitId?.ToString() ?? "")   // parser had a label → treat as receipt-owned
+        : "";
 
     // Build a productId (string) → [{id, label}] map for Alpine so it can filter
     // pack-size options dynamically when the product selection changes in the drawer.
@@ -58,12 +79,41 @@
             kvp => kvp.Key,
             kvp => kvp.Value.Select(s => new { id = s.Id.ToString(), label = s.Label }).ToList());
 
+    // productDefaults: productId (string) → fully-resolved {unitId, locationId, expiry} for the drawer.
+    // The prefill RULE (receipt-unit-wins; expiry = today + DefaultDueDays, or none) is applied here,
+    // server-side, so applyProductDefaults() in review-row.js is a pure applicator — no business logic is
+    // duplicated in JavaScript, so the server and the live in-drawer recompute can't drift. This encodes
+    // the same rule as ComputePrefill (which seeds the initial render); both are C#, so they stay in step.
+    var productDefaults = page.Session.ReferenceData.Products
+        .ToDictionary(
+            p => p.Id.ToString(),
+            p => new
+            {
+                unitId = !string.IsNullOrEmpty(receiptUnitIdStr) ? receiptUnitIdStr : p.DefaultUnitId.ToString(),
+                locationId = p.DefaultLocationId?.ToString() ?? "",
+                expiry = p.DefaultDueDays is { } n ? page.Today.AddDays(n).ToString("yyyy-MM-dd") : ""
+            });
+
+    // locationNames: locationId (string) → display name for the reactive "Goes to" footer.
+    var locationNames = page.Session.ReferenceData.Locations
+        .ToDictionary(l => l.Id.ToString(), l => l.Name);
+
+    // today as ISO string — used by the drawer's pick() to seed a fresh expiry date. Sourced from the
+    // injected IClock via page.Today so the rendered value (and the resolved expiry above) is deterministic
+    // under the test clock.
+    var todayIso = page.Today.ToString("yyyy-MM-dd");
+
     var rowError = ViewData["RowError"] as string;
     var openDrawer = startOpen || !string.IsNullOrEmpty(rowError);
 
     // ADR-013 step 6 — v (qty) and d (expiry) are part of the row's JSON x-data; no interpolated JS literals.
     decimal? qtyInit = rowModel.PrefillQuantity;
     string? expiryInit = string.IsNullOrEmpty(expiryValue) ? null : expiryValue;
+
+    // plantry-4ha — expiry mode for the .expiry-field control: "has" when there's a prefill date,
+    // else "never" (a null expiry legitimately means "never expires"). The date input is disabled
+    // in "never" mode so it is excluded from the POST; d is preserved so toggling back restores it.
+    var expiryModeInit = expiryInit != null ? "has" : "never";
 
     var alpineState = System.Text.Json.JsonSerializer.Serialize(new
     {
@@ -74,6 +124,12 @@
         skus = skusByProductId,
         v = qtyInit,
         d = expiryInit,
+        expiryMode = expiryModeInit,
+        loc = initialLocationIdStr,
+        unit = initialUnitIdStr,
+        productDefaults,
+        locationNames,
+        today = todayIso,
     });
 
     // Quick-confirm: a direct POST with prefill values, shown in the collapsed row header.
@@ -102,9 +158,15 @@
     atomic replacement. No outer wrapper — the #import-line-{id} div IS the swap target's root.
     (The spike had x-show on an outer wrapper, which caused stale section visibility and DOM nesting
     after each swap; fixed per ADR-013 amendment confirmed in Opus critic pass 2.)
+
+    plantry-4ha — the reviewRow() component (wwwroot/js/review-row.js) holds applyProductDefaults()
+    (live recompute of loc/unit/d + expiryMode on every product selection — AI match, "Did you mean"
+    chip, dropdown), pick() for the .expiry-field "Date" toggle, and addDays().
+    x-data="reviewRow(@@alpineState)" spreads the server state onto the instance; the $watch on
+    selectedProductId is wired in the component's init().
 *@
-<div id="@row.DomId" class="import-row @stateClass" x-data="@alpineState" :class="{ 'import-row--open': open }" data-status="@rowDataStatus" x-show="@rowXShow">
-        @if (!string.IsNullOrEmpty(rowError))
+<div id="@row.DomId" class="import-row @stateClass" x-data="reviewRow(@alpineState)" :class="{ 'import-row--open': open }" data-status="@rowDataStatus" x-show="@rowXShow">
+@if (!string.IsNullOrEmpty(rowError))
         {
             <div class="import-row__error" role="alert">
                 <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> @rowError
@@ -362,6 +424,10 @@
                             Row 2 — Qty stepper (span 2) · Location · Expires
                             ADR-013 step 6: qty stepper x-model="v" binds to v in the parent row x-data
                             (v is serialised as a JSON number or null; no nested x-data, no @qtyInitJs literal).
+
+                            plantry-4ha: Location select uses x-model="loc" and name="Edit.LocationId" so it
+                            posts the Alpine-managed value. Unit select similarly uses x-model="unit".
+                            Both are overwritten by applyProductDefaults() on product re-selection.
                         *@
                         <div class="form-grid__field" style="grid-column: span 2">
                             <label class="form-grid__field__label">Quantity</label>
@@ -381,33 +447,41 @@
                         <div class="form-grid__field">
                             <label class="form-grid__field__label">Location</label>
                             <div class="form-grid__field__control">
-                                <select class="field__input" name="Edit.LocationId">
+                                <select class="field__input" name="Edit.LocationId" x-model="loc">
                                     <option value="">— Location —</option>
                                     @foreach (var loc in page.LocationOptions)
                                     {
-                                        var sel = rowModel.PrefillLocationId?.ToString() == loc.Value;
-                                        <option value="@loc.Value" selected="@sel">@loc.Text</option>
+                                        <option value="@loc.Value">@loc.Text</option>
                                     }
                                 </select>
                             </div>
                         </div>
 
                         @*
-                            ADR-013 step 6: expiry d is in the parent row x-data (serialised as JSON string or null).
-                            adj() is registered via x-init so it lives on the row's Alpine component scope.
+                            plantry-4ha — Expires uses the .expiry-field control (Date / Never): a .seg-ctrl toggle
+                            (both options always labelled) with a native date input revealed to its LEFT, beside the
+                            "Date" segment, only while "Date" is selected. expiryMode/d live in the reviewRow component;
+                            selecting Date calls pick() (seeds today + opens the picker). In "never" mode the date input
+                            is :disabled so it is excluded from the POST (→ null expiry = never expires), while d is
+                            preserved so toggling back restores the date. The radio name is per-row so groups don't
+                            collide; it is not an Edit.* field so it never binds server-side.
                         *@
                         <div class="form-grid__field">
                             <label class="form-grid__field__label">Expires</label>
                             <div class="form-grid__field__control">
-                                <div class="qty-stepper"
-                                     x-init="adj = function(n) { if(!d){let t=new Date();t.setDate(t.getDate()+n);d=t.toISOString().slice(0,10);return;} let t=new Date(d+'T12:00');t.setDate(t.getDate()+n);d=t.toISOString().slice(0,10); }">
-                                    <button type="button" class="qty-btn" @@click="adj(-1)" aria-label="Earlier">
-                                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                                    </button>
-                                    <input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d" />
-                                    <button type="button" class="qty-btn" @@click="adj(1)" aria-label="Later">
-                                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                    </button>
+                                <div class="expiry-field">
+                                    <input type="date" class="field__input expiry-field__date" name="Edit.ExpiryDate" x-ref="dp"
+                                           x-show="expiryMode === 'has'" x-cloak x-model="d" :disabled="expiryMode === 'never'" />
+                                    <div class="seg-ctrl" role="group" aria-label="Expiry">
+                                        <label class="seg-ctrl__item">
+                                            <input type="radio" name="expiry-mode-@line.LineId" value="has" x-model="expiryMode" @@change="pick()" />
+                                            <span>Date</span>
+                                        </label>
+                                        <label class="seg-ctrl__item">
+                                            <input type="radio" name="expiry-mode-@line.LineId" value="never" x-model="expiryMode" />
+                                            <span>Never</span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -421,12 +495,11 @@
                         <div class="form-grid__field" style="grid-column: @unitColSpan">
                             <label class="form-grid__field__label">Unit</label>
                             <div class="form-grid__field__control">
-                                <select class="field__input" name="Edit.UnitId">
+                                <select class="field__input" name="Edit.UnitId" x-model="unit">
                                     <option value="">— Unit —</option>
                                     @foreach (var u in page.UnitOptions)
                                     {
-                                        var sel = rowModel.PrefillUnitId?.ToString() == u.Value;
-                                        <option value="@u.Value" selected="@sel">@u.Text</option>
+                                        <option value="@u.Value">@u.Text</option>
                                     }
                                 </select>
                             </div>
@@ -445,9 +518,13 @@
                     </div>
 
                     <div class="import-row__edit-foot">
+                        @*
+                            plantry-4ha: "Goes to" is now reactive — locationNames[loc] resolves the display
+                            name from the Alpine-managed loc value, so it updates when the user switches products.
+                        *@
                         <div class="import-row__edit-foot-summary">
                             <svg class="icon" aria-hidden="true"><use href="#i-location" /></svg>
-                            Goes to <strong>@(rowModel.PrefillLocationName ?? "—")</strong>
+                            Goes to <strong x-text="locationNames[loc] || '—'"></strong>
                             @if (line.IsNewProduct)
                             {
                                 <span class="import-row__new">· new product</span>

@@ -42,6 +42,11 @@ public sealed class ReviewModel(
 
     public IReadOnlyList<ReviewRowModel> Rows { get; private set; } = [];
 
+    /// <summary>Today's date derived from the injected <see cref="IClock"/> — exposed so Razor partials
+    /// can embed it in Alpine x-data without reaching for <c>DateTime.UtcNow</c> directly, keeping the
+    /// rendered output deterministic under the test clock.</summary>
+    public DateOnly Today { get; private set; }
+
     public IReadOnlyList<SelectListItem> ProductOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
@@ -253,7 +258,12 @@ public sealed class ReviewModel(
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
         var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
         var productDefaultLocationById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultLocationId);
+        var productDefaultUnitById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultUnitId);
+        var productDefaultDueDaysById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultDueDays);
         var locationNameById = reference.Locations.ToDictionary(l => l.Id, l => l.Name);
+
+        Today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var today = Today;
 
         // Build a productId → SKU-options map for the drawer; only products that have SKUs are included.
         var skusByProductId = reference.Products
@@ -263,7 +273,9 @@ public sealed class ReviewModel(
                 p => (IReadOnlyList<ReviewSkuOption>)p.Skus);
 
         Rows = Session.Lines
-            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById, productDefaultLocationById, locationNameById, skusByProductId))
+            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById,
+                productDefaultLocationById, productDefaultUnitById, productDefaultDueDaysById,
+                locationNameById, skusByProductId, today))
             .ToList();
 
         return null;
@@ -455,7 +467,11 @@ public sealed record ReviewRowModel(
     /// are two or more credible candidates (mirrors the Line.SuggestedAlternatives gate). The product id
     /// in each candidate is already resolved: candidates whose parser name did not match any catalog product
     /// are excluded so the drawer never shows an unresolvable suggestion button.</summary>
-    IReadOnlyList<ReviewAlternativeCandidate>? Alternatives = null)
+    IReadOnlyList<ReviewAlternativeCandidate>? Alternatives = null,
+    /// <summary>Server-side initial expiry: today + DefaultDueDays for matched products; null when the
+    /// product has no expiry default, or when the line already carries a user-resolved or receipt expiry.
+    /// Alpine overwrites this on every product re-selection so it stays live even after the initial render.</summary>
+    DateOnly? PrefillExpiry = null)
 {
     /// <summary>
     /// Pure prefill computation — no URL or HTTP context needed. Applies the priority chain:
@@ -463,12 +479,18 @@ public sealed record ReviewRowModel(
     /// <paramref name="unitIdByCode"/> (label → Guid) and <paramref name="productNameById"/>
     /// (Guid → name); the display unit code lookup uses the broader <c>unitCodeById</c> in
     /// <see cref="From"/> after this call.
+    ///
+    /// <para>Unit priority: user-resolved > receipt-parsed label > (no-receipt-unit only) product default.
+    /// Expiry: user-resolved > (Pending + matched + DefaultDueDays) today+N > null.</para>
     /// </summary>
-    public static (Guid? ProductId, string? ProductName, decimal? Qty, Guid? UnitId, Guid? LocationId, decimal? Price) ComputePrefill(
+    public static (Guid? ProductId, string? ProductName, decimal? Qty, Guid? UnitId, Guid? LocationId, decimal? Price, DateOnly? Expiry) ComputePrefill(
         ReviewLineView line,
         IReadOnlyDictionary<string, Guid> unitIdByCode,
         IReadOnlyDictionary<Guid, string> productNameById,
-        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById)
+        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById,
+        IReadOnlyDictionary<Guid, Guid>? productDefaultUnitById = null,
+        IReadOnlyDictionary<Guid, int?>? productDefaultDueDaysById = null,
+        DateOnly? today = null)
     {
         var isPending = line.Status == LineStatus.Pending;
 
@@ -488,10 +510,18 @@ public sealed record ReviewRowModel(
         // Pre-fill qty/unit/price: user-resolved first; fall back to AI suggestion for Pending lines.
         var prefillQty = line.Quantity ?? (isPending ? line.SuggestedQuantity : null);
 
+        // Unit priority: user-resolved → receipt-parsed label → (only when no receipt unit) product default.
+        // "Receipt unit wins" preserves quantity semantics (e.g. "2 kg" never silently becomes "2 each").
+        var hasReceiptUnit = isPending && line.SuggestedUnitLabel is not null;
+
         Guid? prefillUnitId = line.UnitId
             ?? (isPending && line.SuggestedUnitLabel is { } lbl && unitIdByCode.TryGetValue(lbl, out var sugUid)
                 ? sugUid
-                : (Guid?)null);
+                : (isPending && !hasReceiptUnit && prefillProductId is { } unitPid
+                   && productDefaultUnitById is not null
+                   && productDefaultUnitById.TryGetValue(unitPid, out var defUid)
+                    ? defUid
+                    : (Guid?)null));
 
         // Pre-fill location: user-resolved first; fall back to the matched product's default for Pending lines.
         Guid? prefillLocationId = line.LocationId
@@ -501,7 +531,17 @@ public sealed record ReviewRowModel(
 
         var prefillPrice = line.Price ?? (isPending ? line.SuggestedPrice : null);
 
-        return (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice);
+        // Pre-fill expiry: user-resolved first; for Pending matched lines compute today + DefaultDueDays.
+        DateOnly? prefillExpiry = line.ExpiryDate
+            ?? (isPending && prefillProductId is { } expPid
+                && productDefaultDueDaysById is not null
+                && productDefaultDueDaysById.TryGetValue(expPid, out var dueDays)
+                && dueDays is { } n
+                && today is { } t
+                ? t.AddDays(n)
+                : (DateOnly?)null);
+
+        return (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry);
     }
 
     public static ReviewRowModel From(
@@ -512,11 +552,15 @@ public sealed record ReviewRowModel(
         IReadOnlyDictionary<string, Guid> unitIdByCode,
         IReadOnlyDictionary<Guid, string> productNameById,
         IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById,
+        IReadOnlyDictionary<Guid, Guid> productDefaultUnitById,
+        IReadOnlyDictionary<Guid, int?> productDefaultDueDaysById,
         IReadOnlyDictionary<Guid, string> locationNameById,
-        IReadOnlyDictionary<string, IReadOnlyList<ReviewSkuOption>> skusByProductId)
+        IReadOnlyDictionary<string, IReadOnlyList<ReviewSkuOption>> skusByProductId,
+        DateOnly? today = null)
     {
-        var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice) =
-            ComputePrefill(line, unitIdByCode, productNameById, productDefaultLocationById);
+        var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry) =
+            ComputePrefill(line, unitIdByCode, productNameById, productDefaultLocationById,
+                productDefaultUnitById, productDefaultDueDaysById, today);
 
         var prefillLocationName = prefillLocationId is { } locId && locationNameById.TryGetValue(locId, out var locName)
             ? locName
@@ -566,7 +610,7 @@ public sealed record ReviewRowModel(
 
         return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId,
             prefillLocationId, prefillLocationName, prefillPrice, skusByProductId, PrefillSkuId: line.SkuId,
-            Alternatives: alternatives);
+            Alternatives: alternatives, PrefillExpiry: prefillExpiry);
     }
 }
 

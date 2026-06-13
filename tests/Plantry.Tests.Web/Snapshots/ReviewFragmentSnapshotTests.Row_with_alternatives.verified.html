@@ -1,4 +1,4 @@
-﻿<div id="import-line-Guid_1" class="import-row import-row--unmatched" x-data="{&quot;open&quot;:true,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;Guid_2&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:1,&quot;d&quot;:null}" :class="{ 'import-row--open': open }" data-status="needs" x-show="filter === 'all' || filter === 'review'">
+﻿<div id="import-line-Guid_1" class="import-row import-row--unmatched" x-data="reviewRow({&quot;open&quot;:true,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;Guid_2&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:1,&quot;d&quot;:&quot;2026-07-15&quot;,&quot;expiryMode&quot;:&quot;has&quot;,&quot;loc&quot;:&quot;Guid_3&quot;,&quot;unit&quot;:&quot;Guid_4&quot;,&quot;productDefaults&quot;:{&quot;Guid_5&quot;:{&quot;unitId&quot;:&quot;Guid_4&quot;,&quot;locationId&quot;:&quot;Guid_3&quot;,&quot;expiry&quot;:&quot;2026-06-22&quot;},&quot;Guid_6&quot;:{&quot;unitId&quot;:&quot;Guid_4&quot;,&quot;locationId&quot;:&quot;&quot;,&quot;expiry&quot;:&quot;&quot;},&quot;Guid_7&quot;:{&quot;unitId&quot;:&quot;Guid_4&quot;,&quot;locationId&quot;:&quot;Guid_3&quot;,&quot;expiry&quot;:&quot;2026-07-06&quot;},&quot;Guid_2&quot;:{&quot;unitId&quot;:&quot;Guid_4&quot;,&quot;locationId&quot;:&quot;Guid_3&quot;,&quot;expiry&quot;:&quot;2026-07-15&quot;},&quot;Guid_8&quot;:{&quot;unitId&quot;:&quot;Guid_4&quot;,&quot;locationId&quot;:&quot;Guid_3&quot;,&quot;expiry&quot;:&quot;2026-07-15&quot;},&quot;Guid_9&quot;:{&quot;unitId&quot;:&quot;Guid_4&quot;,&quot;locationId&quot;:&quot;Guid_3&quot;,&quot;expiry&quot;:&quot;2026-07-15&quot;}},&quot;locationNames&quot;:{&quot;Guid_3&quot;:&quot;Fridge&quot;},&quot;today&quot;:&quot;2026-06-15&quot;})" :class="{ 'import-row--open': open }" data-status="needs" x-show="filter === 'all' || filter === 'review'">
 	<div class="import-row__main">
 		<div class="cat-chip cat-chip--neutral">?</div>
 		<div class="import-row__id">
@@ -43,9 +43,9 @@
 		</div>
 	</div>
 	<div class="import-row__edit review-row__edit" x-show="open" x-cloak="">
-		<form hx-post="/Intake/Review/Guid_3?handler=SaveLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
+		<form hx-post="/Intake/Review/Guid_10?handler=SaveLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
 			<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-			<input type="hidden" name="Id" value="Guid_3">
+			<input type="hidden" name="Id" value="Guid_10">
 			<input type="hidden" name="Edit.LineId" value="Guid_1">
 			<input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew">
 			<div class="match-suggest" x-show="!createNew">
@@ -61,15 +61,15 @@
 						Cheddar, Mild
 						<span class="rk">best</span>
 					</button>
-					<button type="button" class="suggest-opt" data-alt-id="Guid_4" data-alt-name="Cheddar, Sharp" :class="{ 'sel': selectedProductId === 'Guid_4' }" @click="$dispatch('alt-selected', { lineId: 'Guid_1', id: $el.dataset.altId, label: $el.dataset.altName })">
-						<svg class="icon" aria-hidden="true" x-show="selectedProductId === 'Guid_4'">
+					<button type="button" class="suggest-opt" data-alt-id="Guid_8" data-alt-name="Cheddar, Sharp" :class="{ 'sel': selectedProductId === 'Guid_8' }" @click="$dispatch('alt-selected', { lineId: 'Guid_1', id: $el.dataset.altId, label: $el.dataset.altName })">
+						<svg class="icon" aria-hidden="true" x-show="selectedProductId === 'Guid_8'">
 							<use href="#i-check"></use>
 						</svg>
 						Cheddar, Sharp
 						<span class="rk">72%</span>
 					</button>
-					<button type="button" class="suggest-opt" data-alt-id="Guid_5" data-alt-name="Cheddar, Marble" :class="{ 'sel': selectedProductId === 'Guid_5' }" @click="$dispatch('alt-selected', { lineId: 'Guid_1', id: $el.dataset.altId, label: $el.dataset.altName })">
-						<svg class="icon" aria-hidden="true" x-show="selectedProductId === 'Guid_5'">
+					<button type="button" class="suggest-opt" data-alt-id="Guid_9" data-alt-name="Cheddar, Marble" :class="{ 'sel': selectedProductId === 'Guid_9' }" @click="$dispatch('alt-selected', { lineId: 'Guid_1', id: $el.dataset.altId, label: $el.dataset.altName })">
+						<svg class="icon" aria-hidden="true" x-show="selectedProductId === 'Guid_9'">
 							<use href="#i-check"></use>
 						</svg>
 						Cheddar, Marble
@@ -84,15 +84,15 @@
 						<div class="searchable-select" x-data="searchableSelect()" data-initial-label="Cheddar, Mild" @click.outside="open = false" @keydown.escape="open = false" @alt-selected.window="if($event.detail.lineId === 'Guid_1') select($event.detail.id, $event.detail.label)">
 							<input type="hidden" name="Edit.ProductId" value="Guid_2" x-ref="hidden" @change="selectedProductId = $event.target.value; skuId = ''">
 							<div class="searchable-select__control">
-								<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_1-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_3?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_1-listbox" hx-swap="innerHTML" hx-params="q">
+								<input type="text" class="field__input" role="combobox" aria-controls="edit-product-Guid_1-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Find a product…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Intake/Review/Guid_10?handler=FilterProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#edit-product-Guid_1-listbox" hx-swap="innerHTML" hx-params="q">
 							</div>
 							<ul class="searchable-select__listbox" id="edit-product-Guid_1-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="" style="display: none">
-								<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
-								<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
-								<li role="option" data-value="Guid_8" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+								<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
+								<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
+								<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
 								<li role="option" data-value="Guid_2" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Mild</li>
-								<li role="option" data-value="Guid_4" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Sharp</li>
-								<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Marble</li>
+								<li role="option" data-value="Guid_8" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Sharp</li>
+								<li role="option" data-value="Guid_9" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Marble</li>
 							</ul>
 						</div>
 					</div>
@@ -108,7 +108,7 @@
 					<div class="form-grid__field__control">
 						<select class="field__input" name="Edit.NewProductCategoryId">
 							<option value="">— Category —</option>
-							<option value="Guid_9">Dairy</option>
+							<option value="Guid_11">Dairy</option>
 						</select>
 					</div>
 				</div>
@@ -146,27 +146,27 @@
 				<div class="form-grid__field">
 					<label class="form-grid__field__label">Location</label>
 					<div class="form-grid__field__control">
-						<select class="field__input" name="Edit.LocationId">
+						<select class="field__input" name="Edit.LocationId" x-model="loc">
 							<option value="">— Location —</option>
-							<option value="Guid_10" selected="selected">Fridge</option>
+							<option value="Guid_3">Fridge</option>
 						</select>
 					</div>
 				</div>
 				<div class="form-grid__field">
 					<label class="form-grid__field__label">Expires</label>
 					<div class="form-grid__field__control">
-						<div class="qty-stepper" x-init="adj = function(n) { if(!d){let t=new Date();t.setDate(t.getDate()+n);d=t.toISOString().slice(0,10);return;} let t=new Date(d+'T12:00');t.setDate(t.getDate()+n);d=t.toISOString().slice(0,10); }">
-							<button type="button" class="qty-btn" @click="adj(-1)" aria-label="Earlier">
-								<svg class="icon" aria-hidden="true">
-									<use href="#i-minus"></use>
-								</svg>
-							</button>
-							<input class="field__input" type="date" name="Edit.ExpiryDate" x-model="d">
-							<button type="button" class="qty-btn" @click="adj(1)" aria-label="Later">
-								<svg class="icon" aria-hidden="true">
-									<use href="#i-plus"></use>
-								</svg>
-							</button>
+						<div class="expiry-field">
+							<input type="date" class="field__input expiry-field__date" name="Edit.ExpiryDate" x-ref="dp" x-show="expiryMode === 'has'" x-cloak="" x-model="d" :disabled="expiryMode === 'never'">
+							<div class="seg-ctrl" role="group" aria-label="Expiry">
+								<label class="seg-ctrl__item">
+									<input type="radio" name="expiry-mode-Guid_1" value="has" x-model="expiryMode" @change="pick()">
+									<span>Date</span>
+								</label>
+								<label class="seg-ctrl__item">
+									<input type="radio" name="expiry-mode-Guid_1" value="never" x-model="expiryMode">
+									<span>Never</span>
+								</label>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -174,9 +174,9 @@
 				<div class="form-grid__field" style="grid-column: span 4">
 					<label class="form-grid__field__label">Unit</label>
 					<div class="form-grid__field__control">
-						<select class="field__input" name="Edit.UnitId">
+						<select class="field__input" name="Edit.UnitId" x-model="unit">
 							<option value="">— Unit —</option>
-							<option value="Guid_11" selected="selected">ea — Each</option>
+							<option value="Guid_4">ea — Each</option>
 							<option value="Guid_12">L — Litre</option>
 						</select>
 					</div>
@@ -188,10 +188,10 @@
 						<use href="#i-location"></use>
 					</svg>
 					Goes to
-					<strong>Fridge</strong>
+					<strong x-text="locationNames[loc] || '—'"></strong>
 				</div>
 				<span class="import-row__edit-spacer"></span>
-				<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_3?lineId=Guid_1&amp;handler=DismissLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
+				<button type="button" class="btn btn--ghost btn--sm import-row__edit-danger" hx-post="/Intake/Review/Guid_10?lineId=Guid_1&amp;handler=DismissLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
 					Not pantry stock — remove
 				</button>
 				<button type="submit" class="btn btn--primary btn--sm">
@@ -203,4 +203,4 @@
 			</div>
 		</form>
 	</div>
-</div>
+</div>

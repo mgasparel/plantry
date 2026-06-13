@@ -801,6 +801,24 @@ button { font-family: inherit; cursor: pointer; }
   outline: 2px solid var(--color-accent); outline-offset: -2px;
 }
 
+/* Expiry field — a Date / Never choice for the review-drawer Expires field. A null expiry
+   legitimately means "never expires" (canned goods, household supplies), so an empty date input
+   read as a forgotten value. This pairs a .seg-ctrl toggle (both options always labelled, with a
+   clear selected state) with a native date input revealed to its LEFT only while "Date" is chosen
+   — so the toggle reads as the choice and the date sits beside the "Date" segment as its value.
+   Stays on one line; reuses .seg-ctrl, adding only the row layout + content-sized date input. */
+.expiry-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* The field control is a flex column (align-items: stretch) — keep this row sized to content
+     and left-aligned rather than stretched to the full control width. */
+  align-self: flex-start;
+}
+/* content-sized so it does not grow to fill the row (the calendar indicator pulled in slightly) */
+.expiry-field__date.field__input { width: auto; flex: 0 0 auto; }
+.expiry-field__date::-webkit-calendar-picker-indicator { margin-left: var(--space-1); padding: 0; }
+
 .pantry-group { margin-bottom: var(--space-5); }
 .pantry-group__heading {
   font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.05em;

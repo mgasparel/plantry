@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Tests.Web.Infrastructure;
@@ -16,6 +17,10 @@ namespace Plantry.Tests.Web.Infrastructure;
 /// three Postgres-backed seams the review handlers depend on — the import-session repository and the review
 /// reference-data provider — with in-memory fakes, and swaps cookie auth for a header-driven test scheme. No
 /// database is touched, so the rendered htmx fragments are deterministic.
+///
+/// <para>A fixed-date <see cref="IClock"/> is also registered so that the product-default expiry prefill
+/// (today + DefaultDueDays) emitted into Alpine x-data is stable across test runs — without pinning the
+/// clock, the rendered HTML would differ each calendar day and defeat the snapshot baselines.</para>
 /// </summary>
 public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
 {
@@ -43,6 +48,12 @@ public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
                 })
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
 
+            // ── Clock: replace with a fixed-date clock so the expiry prefill (today + DefaultDueDays) emitted
+            // in Alpine x-data is stable across test runs. SnapshotDate is the pinned "today" that the
+            // snapshot baselines were generated against.
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock>(new FixedClock(ReviewSessionFixture.SnapshotDate));
+
             // ── Data seams: the review handlers construct GetSessionForReviewQuery / line commands over
             // IImportSessionRepository + IReviewReferenceDataProvider. Fake both so no DbContext query runs.
             // The repository is tenant-scoped via the same scoped ITenantContext the page uses.
@@ -57,4 +68,13 @@ public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
                 new FakeReviewReferenceDataProvider(referenceData));
         });
     }
+}
+
+/// <summary>
+/// Test clock that always returns a fixed <see cref="DateTimeOffset"/>, making snapshot HTML that
+/// embeds today's date (for product-default expiry prefill) stable across calendar days.
+/// </summary>
+internal sealed class FixedClock(DateOnly date) : IClock
+{
+    public DateTimeOffset UtcNow { get; } = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
 }

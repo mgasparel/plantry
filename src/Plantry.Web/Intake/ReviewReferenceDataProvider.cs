@@ -31,8 +31,10 @@ public sealed class ReviewReferenceDataProvider(
                 p.Id.Value,
                 p.Name,
                 unitCodesById.TryGetValue(p.DefaultUnitId, out var code) ? code : "?",
+                p.DefaultUnitId.Value,
                 p.DefaultLocationId?.Value,
-                p.Skus.Select(s => new ReviewSkuOption(s.Id.Value, s.Label)).ToList()))
+                p.Skus.Select(s => new ReviewSkuOption(s.Id.Value, s.Label)).ToList(),
+                DefaultDueDays: p.DefaultDueDays))
             .ToList();
 
         var unitOptions = activeUnits

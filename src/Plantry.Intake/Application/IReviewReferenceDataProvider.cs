@@ -15,8 +15,17 @@ public interface IReviewReferenceDataProvider
 /// <summary>A purchasable pack-size option for a matched product, shown in the intake review drawer.</summary>
 public sealed record ReviewSkuOption(Guid Id, string Label);
 
-public sealed record ReviewProductOption(Guid Id, string Name, string DefaultUnitCode, Guid? DefaultLocationId,
-    IReadOnlyList<ReviewSkuOption> Skus);
+public sealed record ReviewProductOption(
+    Guid Id,
+    string Name,
+    string DefaultUnitCode,
+    /// <summary>The product's default stocking unit — required: every Product carries a non-null
+    /// DefaultUnitId on the aggregate, so this is a required parameter, never defaulted.</summary>
+    Guid DefaultUnitId,
+    Guid? DefaultLocationId,
+    IReadOnlyList<ReviewSkuOption> Skus,
+    /// <summary>Default shelf-life in days from the date of purchase — null when the product has no expiry default.</summary>
+    int? DefaultDueDays = null);
 
 public sealed record ReviewUnitOption(Guid Id, string Code, string Name);
 

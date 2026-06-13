@@ -503,6 +503,48 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Expiry field — Date / Never (<code>.expiry-field</code>)</h2>
+    </div>
+    <p>
+        <code>.expiry-field</code> is the review-drawer <strong>Expires</strong> control. A null expiry
+        legitimately means "never expires" (canned goods, household supplies), so an empty date input read as a
+        forgotten value. It pairs a <code>.seg-ctrl</code> toggle — both <strong>Date</strong> and
+        <strong>Never</strong> always labelled, with a clear selected state on each, so it reads as two peer
+        choices — with a native date input revealed to the <em>left</em> of the toggle, beside the "Date"
+        segment it belongs to, only while <strong>Date</strong> is selected. Stays on one line; selecting Date
+        seeds today and opens the picker, Never hides it (and posts no date). The demo is live.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: var(--space-4); max-width: 30rem"
+         x-data="{ mode: 'never', d: '', toDate(){ this.mode = 'has'; if (!this.d) this.d = new Date().toISOString().slice(0,10); this.$nextTick(() => this.$refs.dp?.showPicker?.()); } }">
+        <div class="form-grid__field">
+            <label class="form-grid__field__label">Expires</label>
+            <div class="form-grid__field__control">
+                <div class="expiry-field">
+                    @* Date field sits to the LEFT, adjacent to the "Date" segment it belongs to (revealed only in Date mode). *@
+                    <input type="date" class="field__input expiry-field__date"
+                           x-ref="dp" x-show="mode === 'has'" x-cloak x-model="d" />
+                    <div class="seg-ctrl" role="group" aria-label="Expiry">
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="demo-exp" value="has" x-model="mode" @@change="toDate()" />
+                            <span>Date</span>
+                        </label>
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="demo-exp" value="never" x-model="mode" />
+                            <span>Never</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0">
+            Posted value: <code x-text="mode === 'never' ? '(empty → never expires)' : (d || '(none)')"></code>
+        </p>
+    </div>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Dropzone</h2>
     </div>
     <p>

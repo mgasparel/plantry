@@ -43,15 +43,26 @@ public static class ReviewSessionFixture
 
     private static readonly DateOnly Expiry = new(2026, 7, 1);
 
+    /// <summary>The pinned "today" date used by <see cref="FixedClock"/> in snapshot tests — the clock
+    /// returns this date so the product-default expiry prefill (today + DefaultDueDays) embedded in
+    /// Alpine x-data is stable across calendar days.</summary>
+    public static readonly DateOnly SnapshotDate = new(2026, 6, 15);
+
     public static ReviewReferenceData ReferenceData() => new(
         Products:
         [
-            new ReviewProductOption(MilkProductId, "Milk", "L", DefaultLocationId: FridgeLocationId, Skus: []),
-            new ReviewProductOption(BreadProductId, "Bread", "ea", DefaultLocationId: null, Skus: []),
-            new ReviewProductOption(EggsProductId, "Eggs", "ea", DefaultLocationId: FridgeLocationId, Skus: []),
-            new ReviewProductOption(CheddarMildId, "Cheddar, Mild", "ea", DefaultLocationId: FridgeLocationId, Skus: []),
-            new ReviewProductOption(CheddarSharpId, "Cheddar, Sharp", "ea", DefaultLocationId: FridgeLocationId, Skus: []),
-            new ReviewProductOption(CheddarMarbleId, "Cheddar, Marble", "ea", DefaultLocationId: FridgeLocationId, Skus: []),
+            new ReviewProductOption(MilkProductId, "Milk", "L", DefaultLocationId: FridgeLocationId, Skus: [],
+                DefaultUnitId: LitreUnitId, DefaultDueDays: 7),
+            new ReviewProductOption(BreadProductId, "Bread", "ea", DefaultLocationId: null, Skus: [],
+                DefaultUnitId: EachUnitId, DefaultDueDays: null),
+            new ReviewProductOption(EggsProductId, "Eggs", "ea", DefaultLocationId: FridgeLocationId, Skus: [],
+                DefaultUnitId: EachUnitId, DefaultDueDays: 21),
+            new ReviewProductOption(CheddarMildId, "Cheddar, Mild", "ea", DefaultLocationId: FridgeLocationId, Skus: [],
+                DefaultUnitId: EachUnitId, DefaultDueDays: 30),
+            new ReviewProductOption(CheddarSharpId, "Cheddar, Sharp", "ea", DefaultLocationId: FridgeLocationId, Skus: [],
+                DefaultUnitId: EachUnitId, DefaultDueDays: 30),
+            new ReviewProductOption(CheddarMarbleId, "Cheddar, Marble", "ea", DefaultLocationId: FridgeLocationId, Skus: [],
+                DefaultUnitId: EachUnitId, DefaultDueDays: 30),
         ],
         Units:
         [

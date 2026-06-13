@@ -1,4 +1,4 @@
-﻿<div id="import-line-Guid_1" class="import-row import-row--dismissed" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:null,&quot;d&quot;:null}" :class="{ 'import-row--open': open }" data-status="skipped" x-show="filter === 'all'">
+﻿<div id="import-line-Guid_1" class="import-row import-row--dismissed" x-data="reviewRow({&quot;open&quot;:false,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:null,&quot;d&quot;:null,&quot;expiryMode&quot;:&quot;never&quot;,&quot;loc&quot;:&quot;&quot;,&quot;unit&quot;:&quot;&quot;,&quot;productDefaults&quot;:{&quot;Guid_2&quot;:{&quot;unitId&quot;:&quot;Guid_3&quot;,&quot;locationId&quot;:&quot;Guid_4&quot;,&quot;expiry&quot;:&quot;2026-06-22&quot;},&quot;Guid_5&quot;:{&quot;unitId&quot;:&quot;Guid_6&quot;,&quot;locationId&quot;:&quot;&quot;,&quot;expiry&quot;:&quot;&quot;},&quot;Guid_7&quot;:{&quot;unitId&quot;:&quot;Guid_6&quot;,&quot;locationId&quot;:&quot;Guid_4&quot;,&quot;expiry&quot;:&quot;2026-07-06&quot;},&quot;Guid_8&quot;:{&quot;unitId&quot;:&quot;Guid_6&quot;,&quot;locationId&quot;:&quot;Guid_4&quot;,&quot;expiry&quot;:&quot;2026-07-15&quot;},&quot;Guid_9&quot;:{&quot;unitId&quot;:&quot;Guid_6&quot;,&quot;locationId&quot;:&quot;Guid_4&quot;,&quot;expiry&quot;:&quot;2026-07-15&quot;},&quot;Guid_10&quot;:{&quot;unitId&quot;:&quot;Guid_6&quot;,&quot;locationId&quot;:&quot;Guid_4&quot;,&quot;expiry&quot;:&quot;2026-07-15&quot;}},&quot;locationNames&quot;:{&quot;Guid_4&quot;:&quot;Fridge&quot;},&quot;today&quot;:&quot;2026-06-15&quot;})" :class="{ 'import-row--open': open }" data-status="skipped" x-show="filter === 'all'">
 	<div class="import-row__nonstock-main">
 		<div class="import-row__nonstock-ico">
 			<svg class="icon" aria-hidden="true">
@@ -11,8 +11,8 @@
 				— · not inventory — won't be added
 			</span>
 		</div>
-		<button type="button" class="btn btn--ghost btn--sm" hx-post="/Intake/Review/Guid_2?lineId=Guid_1&amp;handler=RestoreLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
+		<button type="button" class="btn btn--ghost btn--sm" hx-post="/Intake/Review/Guid_11?lineId=Guid_1&amp;handler=RestoreLine" hx-target="#import-line-Guid_1" hx-swap="outerHTML">
 			Add anyway
 		</button>
 	</div>
-</div>
+</div>
