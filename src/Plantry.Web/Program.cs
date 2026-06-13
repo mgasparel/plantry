@@ -15,6 +15,7 @@ using Plantry.Intake.Infrastructure;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
+using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Dev;
@@ -123,6 +124,13 @@ builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
             sp.GetRequiredService<DomainEventDispatchInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 
+// Recipes context (Phase 2). Schema-only at P2-0 — same RLS interceptor as the other contexts;
+// repositories and application services land in later P2 steps.
+builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
 // The real Gemini parser is the production default. Three deterministic alternatives replace it:
@@ -183,6 +191,12 @@ if (app.Environment.IsDevelopment())
         .Options;
     await using (var intakeDb = new IntakeDbContext(intakeMigrateOpts))
         await intakeDb.Database.MigrateAsync();
+
+    var recipesMigrateOpts = new DbContextOptionsBuilder<RecipesDbContext>()
+        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
+        .Options;
+    await using (var recipesDb = new RecipesDbContext(recipesMigrateOpts))
+        await recipesDb.Database.MigrateAsync();
 
     // Auto-seed on first startup: no-ops if the demo user already exists.
     await using var seedScope = app.Services.CreateAsyncScope();
