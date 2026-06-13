@@ -29,6 +29,7 @@ public sealed class BoundaryTests
         "Plantry.Pricing",
         "Plantry.Shopping",
         "Plantry.Intake",
+        "Plantry.Recipes",
     ];
 
     private static readonly string[] CatalogSiblingContexts =
@@ -38,6 +39,7 @@ public sealed class BoundaryTests
         "Plantry.Pricing",
         "Plantry.Shopping",
         "Plantry.Intake",
+        "Plantry.Recipes",
     ];
 
     // Inventory must not reach into any sibling — Plantry.Catalog included. That exclusion is what
@@ -49,6 +51,7 @@ public sealed class BoundaryTests
         "Plantry.Pricing",
         "Plantry.Shopping",
         "Plantry.Intake",
+        "Plantry.Recipes",
     ];
 
     [Fact]
@@ -198,6 +201,7 @@ public sealed class BoundaryTests
         "Plantry.Inventory",
         "Plantry.Shopping",
         "Plantry.Intake",
+        "Plantry.Recipes",
     ];
 
     private static readonly string[] IntakeSiblingContexts =
@@ -207,6 +211,20 @@ public sealed class BoundaryTests
         "Plantry.Inventory",
         "Plantry.Pricing",
         "Plantry.Shopping",
+        "Plantry.Recipes",
+    ];
+
+    // Recipes is a downstream consumer of every Phase-1 context but reaches them only through ports
+    // (recipes-domain-model.md §1/§8) — its domain may reference only SharedKernel, so every other
+    // context is a sibling it must not depend on directly.
+    private static readonly string[] RecipesSiblingContexts =
+    [
+        "Plantry.Identity",
+        "Plantry.Catalog",
+        "Plantry.Inventory",
+        "Plantry.Pricing",
+        "Plantry.Shopping",
+        "Plantry.Intake",
     ];
 
     [Fact]
@@ -318,6 +336,62 @@ public sealed class BoundaryTests
 
         Assert.True(result.IsSuccessful,
             "Intake application references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Recipes_Domain_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Recipes.Domain")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Recipes domain references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Recipes_Application_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Recipes.Application")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Recipes application references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Recipes_Domain_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Recipes.Domain")
+            .Should().NotHaveDependencyOnAny(RecipesSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Recipes domain references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Recipes_Application_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Recipes.Application")
+            .Should().NotHaveDependencyOnAny(RecipesSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Recipes application references sibling contexts:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
