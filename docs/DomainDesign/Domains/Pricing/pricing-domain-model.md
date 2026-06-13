@@ -70,4 +70,4 @@ These are queries, not tables. No context reads Pricing's table directly (ADR-01
 - **DM-16 (finalized):** `store_id` (soft-ref to `catalog.store`) exists on the row but is null in Phase 1. `merchant_text` is the only merchant data until Phase 3. When `catalog.store` exists (Phase 3), `store_id` can be back-filled.
 - **Deal validity window on the row (DM-17):** The "cheapest active deal" read model must be queryable entirely within Pricing. Hence `valid_from`/`valid_to` are on `price_observation`, not only on the `deals.deal` aggregate.
 
-> Full schema: [../DataModels/pricing.md](../DataModels/pricing.md)
+> Full schema: [../DataModels/pricing.md](../../DataModels/pricing.md)

@@ -79,4 +79,4 @@ Shopping **reads nothing from Inventory**. Check-off is list state; it does not 
 - **Merge in app layer (DM-18):** No partial unique index — the app service merges bulk-add duplicates but allows intentional manual duplicates.
 - **Single list, structurally extensible:** v1 builds one list but the root table and `name` column are there for the future.
 
-> Full schema: [../DataModels/shopping.md](../DataModels/shopping.md)
+> Full schema: [../DataModels/shopping.md](../../DataModels/shopping.md)

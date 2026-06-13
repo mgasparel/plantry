@@ -60,4 +60,4 @@ Identity is the most upstream context. It **provides** identity data; it **reads
 - **DM-7:** Per-household AI API key is stored encrypted at rest in `HouseholdSettings.ai_api_key_encrypted` (ASP.NET Core Data Protection). Decrypted server-side only; never in a client response.
 - **Flat membership (v1):** `HouseholdId` is a column on the user row — no join table. A `user_household` many-to-many is the non-breaking deferred shape for multi-household membership.
 
-> Full schema: [../DataModels/identity.md](../DataModels/identity.md)
+> Full schema: [../DataModels/identity.md](../../DataModels/identity.md)

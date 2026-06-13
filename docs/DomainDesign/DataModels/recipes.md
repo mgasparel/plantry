@@ -1,6 +1,6 @@
-# Recipes (`recipes` schema) — Phase 2 🔲
+# Recipes (`recipes` schema) — Phase 2 ✅
 
-> Renders [`DomainDesign/recipes-domain-model.md`](../DomainDesign/recipes-domain-model.md) into tables. Authority for *rationale* is the domain model + ADRs; this file holds the *shape*. Recipes is a **downstream consumer** of every Phase-1 context — it references Catalog, Inventory, Pricing, Shopping, and Identity **by ID only** (DM-3), with hard FKs only **within** the `recipes` schema.
+> Renders [`Domains/Recipes/recipes-domain-model.md`](../Domains/Recipes/recipes-domain-model.md) into tables. Authority for *rationale* is the domain model + ADRs; this file holds the *shape*. Recipes is a **downstream consumer** of every Phase-1 context — it references Catalog, Inventory, Pricing, Shopping, and Identity **by ID only** (DM-3), with hard FKs only **within** the `recipes` schema.
 
 `Recipe` is the aggregate root with `Ingredient` children (`recipe_ingredient`) and a 1:1 `recipe_photo`; `Tag` is its own small root with a `recipe_tag` membership join; `CookEvent` is an append-only root. `FulfillmentResult` and `CostPerServing` are **computed read-side — never tables** (domain model §6).
 
@@ -38,7 +38,7 @@ Backing indexes for Browse sort (J2): the `UNIQUE (household_id, name)` index se
 
 `CHECK ((quantity IS NULL) = (unit_id IS NULL))` — quantity and unit are **both set or both null** (R5). The narrower rule that null is permitted *only* for an untracked product (`track_stock = false`) needs a Catalog read and is enforced in the `AuthorRecipe` service, not the DB. Likewise R7 (a tracked unit must have a conversion path to the product's unit) is an app-layer check.
 
-`UNIQUE (recipe_id, ordinal)` prevents duplicate positions; full **contiguity** of ordinals (R6) is enforced app-side in `ReplaceIngredients`. No timestamps — the row's lifecycle is the parent's (wholesale delete + re-insert per save).
+`UNIQUE (recipe_id, ordinal)` prevents duplicate positions; full **contiguity** of ordinals (R6) is enforced app-side in `ReplaceIngredients`. The **≥ 1 ingredient per saved recipe** rule (R3) is likewise an app-layer check in `ReplaceIngredients` — no DB constraint can express "at least one child row", so a recipe is never persisted with an empty list. No timestamps — the row's lifecycle is the parent's (wholesale delete + re-insert per save).
 
 ---
 
@@ -82,7 +82,7 @@ Backing indexes for Browse sort (J2): the `UNIQUE (household_id, name)` index se
 | `category` | `text` null | cosmetic enum — `CHECK (category IN ('Diet','Protein','Flavor','Cuisine'))`; **no planner meaning** (C2) |
 | `created_at` / `updated_at` | `timestamptz` | |
 
-Eight defaults seeded at household creation (Vegetarian, Vegan, Dairy-Free, Gluten-Free; Meat, Poultry, Fish; Spicy) — same per-household seed mechanism as Catalog reference data (DM-9). New tags minted inline while authoring (J6) via the same write-port shape as inline untracked-staple creation. **No `Stance` / strength / polarity column** — that is a future Meal-Planning `UserPreference` on the User↔Tag edge (N5), built kind-less now so it lands with no migration.
+Eight defaults seeded at household creation (C2) — four `Diet` (Vegetarian, Vegan, Dairy-Free, Gluten-Free), three `Protein` (Meat, Poultry, Fish), one `Flavor` (Spicy); the fourth enum value `Cuisine` ships with **no** seeded default and is only ever populated by inline user-created tags (J6). Same per-household seed mechanism as Catalog reference data (DM-9). New tags minted inline while authoring (J6) via the same write-port shape as inline untracked-staple creation. **No `Stance` / strength / polarity column** — that is a future Meal-Planning `UserPreference` on the User↔Tag edge (N5), built kind-less now so it lands with no migration.
 
 ---
 

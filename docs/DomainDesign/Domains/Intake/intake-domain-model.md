@@ -85,4 +85,4 @@ When no `confirmed` lines remain uncommitted, the session becomes `committed`. A
 - **Resumable commit:** Each line is an independent transaction so a failure mid-batch never double-writes or leaves the session in an inconsistent state.
 - **ACL discipline:** The AI is treated as an untrusted external system. Its full output is quarantined; only what the user explicitly confirms crosses the domain boundary.
 
-> Full schema: [../DataModels/intake.md](../DataModels/intake.md)
+> Full schema: [../DataModels/intake.md](../../DataModels/intake.md)

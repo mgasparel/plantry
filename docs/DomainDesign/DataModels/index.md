@@ -1,6 +1,6 @@
 # Plantry — Data Model Index
 
-> Phase 1 contexts, plus Recipes (Phase 2, in design). Meal Planning and Deals (Phase 2/3) are out of scope.
+> Phase 1 contexts, plus Recipes (Phase 2 — schema confirmed, build sequenced in [PHASE-2-PLAN.md](../../PHASE-2-PLAN.md)). Meal Planning and Deals (Phase 2/3) are out of scope.
 > Authority: ADRs hold decision *rationale*; these files hold the *shape*.
 
 ## Status legend
@@ -23,7 +23,7 @@
 | [cross-cutting-behaviour.md](cross-cutting-behaviour.md) | Expiry materialization · Unit conversion · Consumption primitive | ✅ |
 | [pricing.md](pricing.md) | Pricing (`pricing` schema) | ✅ |
 | [shopping.md](shopping.md) | Shopping (`shopping` schema) | ✅ |
-| [recipes.md](recipes.md) | Recipes (`recipes` schema, Phase 2) | 🔲 |
+| [recipes.md](recipes.md) | Recipes (`recipes` schema, Phase 2) | ✅ |
 
 ## Decision log
 
@@ -48,4 +48,4 @@
 | DM-17 | Pricing: `price_observation` append-only flat root keyed `product_id` (+ nullable `sku_id`); `source` `purchase`\|`deal`; `unit_price` materialized at write, failing **soft** (null) on cross-dimension — unlike `Consume`; deal validity window (`valid_from`/`valid_to`) lives on the row so the "cheapest active deal" read model stays within-context; no children, no composite FK | ✅ |
 | DM-18 | Shopping: `shopping_list` root + `shopping_list_item` children; **mutable working state** (edit-in-place, hard-delete on clear — not append-only, not soft-delete); one list/household in v1 (extensible); item is exactly one of `product_id`\|`free_text` (`num_nonnulls = 1`); `checked_at` timestamp (not boolean) + `checked_by`; `source`/`source_ref` provenance; duplicate-product merge in app layer, no DB constraint; category grouping + deal badge are read-time joins; check-off does **not** write stock | ✅ |
 | DM-19 | Product groups: `product.parent_product_id` nullable self-ref FK. A product with no parent and at least one variant child is abstract (no stock). Variants carry their own `default_unit_id`. Max depth = 1 enforced in app layer. `StockEntry` and `StockJournalEntry` always reference a non-parent product. Fulfillment rollup sums across all variants of a parent; cook-time disambiguation presents **all** variants, with unit-incompatible ones shown but disabled (labelled, not selectable) rather than hidden (amended by recipes C11 — supersedes the original "excluded, not substituted" stance). | ✅ |
-| DM-20 | Recipes (Phase 2): `recipe` root + ordered `recipe_ingredient` child + 1:1 `recipe_photo` (bytea off the hot row, ADR-009) + append-only `cook_event` (`recipe_id`, `servings_cooked`, `cooked_by`, `cooked_at`) + `tag` root + `recipe_tag` membership join. Recipe **soft-deleted** (`archived_at`) so append-only cook history stays FK-valid; ingredients **wholesale-replaced** with re-minted IDs on save (CASCADE); `directions` single `text` column (steps derived at render, no `recipe_step` table); `tag` kind-less, `category` `text`+`CHECK` (no Stance — future Meal-Planning `UserPreference`). `FulfillmentResult`/`CostPerServing` are **computed read-side, no tables**. Browse Fulfillment/Cost sorts are cross-context computed (no local index); Name/Cook-time/Recently-added sort on local indexes. | 🔲 |
+| DM-20 | Recipes (Phase 2): `recipe` root + ordered `recipe_ingredient` child + 1:1 `recipe_photo` (bytea off the hot row, ADR-009) + append-only `cook_event` (`recipe_id`, `servings_cooked`, `cooked_by`, `cooked_at`) + `tag` root + `recipe_tag` membership join. Recipe **soft-deleted** (`archived_at`) so append-only cook history stays FK-valid; ingredients **wholesale-replaced** with re-minted IDs on save (CASCADE); `directions` single `text` column (steps derived at render, no `recipe_step` table); `tag` kind-less, `category` `text`+`CHECK` (no Stance — future Meal-Planning `UserPreference`). `FulfillmentResult`/`CostPerServing` are **computed read-side, no tables**. Browse Fulfillment/Cost sorts are cross-context computed (no local index); Name/Cook-time/Recently-added sort on local indexes. | ✅ |

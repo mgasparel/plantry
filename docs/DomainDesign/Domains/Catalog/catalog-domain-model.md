@@ -75,4 +75,4 @@ Catalog **reads nothing** from other contexts.
 - **DM-19:** Product groups — `product.parent_product_id` nullable self-ref FK; abstract parents have no stock; max depth = 1.
 - **Untracked staples (`track_stock = false`):** A product that is always on hand (salt, pepper) is a normal Catalog citizen but exempt from quantity accounting. Fulfillment treats it as always satisfied; Cook skips it; Shopping never auto-adds it. Can be auto-created inline from recipe authoring or Intake.
 
-> Full schema: [../DataModels/catalog.md](../DataModels/catalog.md)
+> Full schema: [../DataModels/catalog.md](../../DataModels/catalog.md)

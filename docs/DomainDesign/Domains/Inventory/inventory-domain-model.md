@@ -77,5 +77,5 @@ User Journeys  →  Ubiquitous Language  →  Domain Model (← here)  →  Data
 - **Depleted-lot retention (DM-13):** Required by the enforced `stock_journal_entry → stock_entry` FK. Historical lots must remain live rows.
 - **Single Consume primitive (ADR-011):** All callers — Intake, manual UI, Recipes — use one surface. The primitive never blocks on shortfall; it consumes whatever is available.
 
-> Full schema: [../DataModels/inventory.md](../DataModels/inventory.md)
-> Cross-cutting expiry and consume behaviour: [../DataModels/cross-cutting-behaviour.md](../DataModels/cross-cutting-behaviour.md)
+> Full schema: [../DataModels/inventory.md](../../DataModels/inventory.md)
+> Cross-cutting expiry and consume behaviour: [../DataModels/cross-cutting-behaviour.md](../../DataModels/cross-cutting-behaviour.md)

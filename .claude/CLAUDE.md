@@ -24,12 +24,15 @@ Before building any UI element:
 > (documentation, ownership, history, decisions). **Always verify against
 > actual source files before making changes** — the index may be stale.
 
-Last indexed: 2026-06-13 (commit 314b9f3). Confidence: 100%.
+Last indexed: 2026-06-13 (commit bafd36b). Confidence: 100%.
 ### Architecture
-Plantry is a household inventory and grocery management system that ingests product catalog details, intake sessions, and consumption events, processes them through domain-driven modules (Catalog, Intake, and Inventory) with multi-tenant Row-Level Security, and outputs real-time stock levels, historical stock journals, and an interactive web interface. The codebase is structured as a modular monolith written in C#, leveraging Domain-Driven Design (DDD) tactical patterns to maintain strict boundaries between business domains. Multi-tenancy is enforced at the database level, isolating data by household to ensure secure, collaborative management of shared household pantries. The application features two primary entry points, reflecting its .NET Aspire-orchestrated architecture:
-The codebase is organized into highly decoupled projects, separating core business logic from infrastructure and presentation:
-The foundational layer containing cross-cutting concerns, base domain abstractions, and tenancy infrastructure.
+Plantry is a multi-tenant household inventory and grocery intake management system that ingests user-submitted grocery intake sessions and catalog updates, processes them through domain-driven pipelines (Intake, Inventory, and Catalog) with strict row-level security (RLS) isolation, and exposes interactive management interfaces via an ASP.NET Core web application orchestrated by .NET Aspire. The system is designed around Domain-Driven Design (DDD) principles, utilizing a shared kernel to enforce tenancy boundaries and aggregate patterns across multiple bounded contexts. The codebase is organized with clear entry points for both execution and architectural discovery:
+Plantry is structured as a modular monolith adhering to Domain-Driven Design (DDD) and Clean Architecture principles:
+The core business logic is partitioned into distinct bounded contexts:
+The foundational layer that provides common domain abstractions and infrastructure utilities:
 ### Entry Points
+- `docs/ADRs/index.md`
+- `docs/DomainDesign/DataModels/index.md`
 - `src/Plantry.AppHost/Program.cs`
 - `src/Plantry.Web/Program.cs`
 ### Tech Stack
@@ -60,13 +63,13 @@ The foundational layer containing cross-cutting concerns, base domain abstractio
 |------|-------|-------------|-------|
 | `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.All_rows.verified.html` | 100.0th %ile | 10 | Michael Gasparelli |
 | `src/Plantry.Web/wwwroot/css/plenish.css` | 99.7th %ile | 12 | Michael Gasparelli |
-| `src/Plantry.Web/Pages/Intake/_ReviewRow.cshtml` | 99.3th %ile | 11 | Michael Gasparelli |
-| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.Confidence_high.verified.html` | 99.0th %ile | 10 | Michael Gasparelli |
-| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.Row_matched.verified.html` | 98.7th %ile | 10 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Intake/_ReviewRow.cshtml` | 99.4th %ile | 11 | Michael Gasparelli |
+| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.Confidence_high.verified.html` | 99.1th %ile | 10 | Michael Gasparelli |
+| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.Row_matched.verified.html` | 98.9th %ile | 10 | Michael Gasparelli |
 
 ## Code health
-Hotspot health: 7.41/10 (stable) ·
-Average: 9.16/10 ·
+Hotspot health: 7.58/10 (stable) ·
+Average: 9.26/10 ·
 Worst: 2.35/10 (`src/Plantry.Web/Pages/Intake/Review.cshtml.cs`)
 
 ### Critical biomarkers

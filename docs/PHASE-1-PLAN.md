@@ -1,7 +1,10 @@
 # Plantry — Phase 1 Delivery Plan
 
 > How Phase 1 (Pantry + Intake) gets built: solution structure, testing bar, design-system integration, and the vertical slices in build order.
-> Authority: [VISION.md](VISION.md) (why) · [SPEC.md](SPEC.md) (what) · [ARCHITECTURE.md](ARCHITECTURE.md) (how) · [DataModels/](DataModels/index.md) (shape) · [ADRs/](ADRs/index.md) (rationale). This file holds *sequence*.
+> Authority: [VISION.md](VISION.md) (why) · [SPEC.md](SPEC.md) (what) · [ARCHITECTURE.md](ARCHITECTURE.md) (how) · [DataModels/](DomainDesign/DataModels/index.md) (shape) · [ADRs/](ADRs/index.md) (rationale). This file holds *sequence*.
+>
+> **Phase 2 continues in [PHASE-2-PLAN.md](PHASE-2-PLAN.md)** (Recipes + the Shopping list).
+> **The Shopping list (former Slice 4) has moved to Phase 2** — Recipes' "add missing to shopping list" depends on it, so it is built there (slice **P2-S**). Slices 3, 7, and 8 remain Phase-1 debt.
 
 ---
 
@@ -99,7 +102,7 @@ Build order top to bottom. Each is independently shippable and testable. Estimat
 | 1 | Catalog & reference data | Catalog | M | 2, 6 | ✅ Done |
 | 2 | Manual add + Pantry + consume (**the core loop**) | Inventory (+Catalog) | L | 3, 6 | ✅ Done |
 | 3 | Stock lifecycle: transfer / freeze-thaw / open | Inventory | M | — | ⬜ Not started |
-| 4 | Shopping list | Shopping | S | — | ⬜ Not started |
+| ~~4~~ | ~~Shopping list~~ | Shopping | S | — | ➡️ **Moved to Phase 2** (slice P2-S) |
 | 5 | Pricing write-path + read models | Pricing | S | 6 | ✅ Done (`46007a3`) |
 | 6 | AI receipt intake (sync) + review form (**hero**) | Intake (+all) | XL | 7 | 🔄 Backend done (`226412f`); UI in progress (epic `plantry-pu6`) |
 | 7 | Async email intake | Intake | M | — | ⬜ Not started |
@@ -107,7 +110,7 @@ Build order top to bottom. Each is independently shippable and testable. Estimat
 
 > **Tracker legend:** ✅ Done · 🔄 In progress · ⬜ Not started. Update the Status column as each slice lands; this is the single source of truth for "where are we."
 
-Slices 3 and 4 can run in parallel with later work once their dependencies are met; 4 (Shopping) is independent and can be pulled forward as filler.
+Slice 3 can run in parallel with later work once its dependencies are met. (The Shopping list, formerly Slice 4, has moved to [Phase 2](PHASE-2-PLAN.md) as slice P2-S.)
 
 ---
 
@@ -147,7 +150,7 @@ Slices 3 and 4 can run in parallel with later work once their dependencies are m
 
 **Tests / done-when.** Conversion resolution + expiry-default logic under heavy L1 + property tests (round-trips, fail-loud on unresolvable); repo/RLS integration green; E2E: create a product with a SKU and a conversion, edit it, archive it.
 
-**Refs.** SPEC §7a–§7c; DataModels/catalog.md; DM-8/10/12/19.
+**Refs.** SPEC §7a–§7c; DomainDesign/DataModels/catalog.md; DM-8/10/12/19.
 
 ---
 
@@ -165,7 +168,7 @@ Slices 3 and 4 can run in parallel with later work once their dependencies are m
 
 **Tests / done-when.** `Consume`/FEFO/reason-taxonomy near-exhaustively unit-tested; **mutation-tested**; concurrency test proving two parallel consumes don't over-deduct (L3); E2E: add → pantry → consume → see journal.
 
-**Refs.** SPEC §1a–§1d, §2c–§2d, §Consumption & waste; DataModels/inventory.md, cross-cutting-behaviour.md; ADR-011; DM-11/13/14.
+**Refs.** SPEC §1a–§1d, §2c–§2d, §Consumption & waste; DomainDesign/DataModels/inventory.md, cross-cutting-behaviour.md; ADR-011; DM-11/13/14.
 
 ---
 
@@ -180,25 +183,17 @@ Slices 3 and 4 can run in parallel with later work once their dependencies are m
 
 **Tests / done-when.** Full transition matrix unit-tested (every direction × default-present/absent); property test on expiry arithmetic; E2E: move a lot to the freezer and watch expiry change.
 
-**Refs.** SPEC §Freeze/Thaw Expiry, §1b; DataModels/inventory.md (resolved call #2); DM-14.
+**Refs.** SPEC §Freeze/Thaw Expiry, §1b; DomainDesign/DataModels/inventory.md (resolved call #2); DM-14.
 
 ---
 
-### Slice 4 — Shopping list
+### Slice 4 — Shopping list → **moved to Phase 2**
 
-**Goal.** Build and work a shopping list. Independent of inventory; good parallel/filler work.
-
-**Scope.**
-- `ShoppingList` root + `ShoppingListItem` children (shopping.md, DM-18): **mutable working state** (edit-in-place, hard-delete on clear).
-- View (§3a) with category grouping; manual add with product search or free text (§3b); item is exactly one of `product_id` | `free_text`.
-- Check-off via `checked_at` timestamp + `checked_by` (§3c); clear completed (§3e); notes per item.
-- App-layer duplicate-product merge; check-off **does not** write stock.
-
-**Deferred (not this slice):** "add missing from recipe" (§3d, Phase 2), deal badges (§3f, Phase 3).
-
-**Tests / done-when.** Item-shape constraint (`num_nonnulls = 1`) and check-off lifecycle tested at L1 + L3; E2E: add items, check some off, clear.
-
-**Refs.** SPEC §3a–§3c, §3e; DataModels/shopping.md; DM-18.
+The Shopping list has moved to [PHASE-2-PLAN.md](PHASE-2-PLAN.md) as slice **P2-S**. Recipes'
+"add missing to shopping list" (J5) depends on the Shopping `AddItems` write path, so Shopping
+is built alongside Recipes in Phase 2 (lean-but-coherent core: view + grouping, manual add,
+check-off, clear) and the §3d add-missing hook lands with Recipes slice P2-4. Its design is
+unchanged — [shopping.md](DomainDesign/DataModels/shopping.md), DM-18.
 
 ---
 
@@ -213,7 +208,7 @@ Slices 3 and 4 can run in parallel with later work once their dependencies are m
 
 **Tests / done-when.** Soft-fail materialization + read-model correctness unit + integration tested. (No E2E of its own; exercised via Slice 6.)
 
-**Refs.** DataModels/pricing.md; DM-16/17.
+**Refs.** DomainDesign/DataModels/pricing.md; DM-16/17.
 
 > Slice 5 is small and tightly coupled to Slice 6's commit; it may be built immediately before or folded into the start of Slice 6.
 
@@ -233,7 +228,7 @@ Slices 3 and 4 can run in parallel with later work once their dependencies are m
 
 **Tests / done-when.** ACL quarantine tested (raw never overwritten; only resolved fields commit); commit **resumability** tested (mid-batch failure re-runs cleanly, no double-write) at L2/L3 with a faked then real AI adapter; review-form fragments snapshot-tested; E2E: upload sample receipt → review → commit → items in pantry + price observations written.
 
-**Refs.** SPEC §2a, §2e, §AI receipt review form; ARCHITECTURE §AI integration; DataModels/intake.md; ADR-007/010; DM-15/16.
+**Refs.** SPEC §2a, §2e, §AI receipt review form; ARCHITECTURE §AI integration; DomainDesign/DataModels/intake.md; ADR-007/010; DM-15/16.
 
 ---
 
@@ -248,7 +243,7 @@ Slices 3 and 4 can run in parallel with later work once their dependencies are m
 
 **Tests / done-when.** Worker integration test (email in → session ready); banner + reuse of review form verified; E2E: simulate forward → banner → review → commit.
 
-**Refs.** SPEC §2b, §7d; DataModels/intake.md; ADR-012.
+**Refs.** SPEC §2b, §7d; DomainDesign/DataModels/intake.md; ADR-012.
 
 ---
 
@@ -275,7 +270,6 @@ Slices 3 and 4 can run in parallel with later work once their dependencies are m
 ```mermaid
 graph LR
     S0["0 · Skeleton + foundations"] --> S1["1 · Catalog"]
-    S0 --> S4["4 · Shopping"]
     S1 --> S2["2 · Core loop"]
     S2 --> S3["3 · Lifecycle"]
     S2 --> S6["6 · AI intake (hero)"]
@@ -286,7 +280,7 @@ graph LR
     S6 --> S8["8 · Settings + hardening"]
 ```
 
-The critical path is **0 → 1 → 2 → 6**. Slices 3, 4, and 5 hang off that spine and can be scheduled flexibly.
+The critical path is **0 → 1 → 2 → 6**. Slices 3 and 5 hang off that spine and can be scheduled flexibly. (The Shopping list, formerly Slice 4, is now [Phase 2](PHASE-2-PLAN.md) · P2-S.)
 
 ---
 
