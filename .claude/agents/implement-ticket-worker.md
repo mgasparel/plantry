@@ -131,16 +131,24 @@ diff output):
 > treat this as a blind review.
 >
 > **Criteria:** Read `.claude/review-criteria.md` for the full gate definitions
-> (Gates 1–8). Apply all gates. The blocking/advisory classification is specified in
-> that document.
+> (Gates 1–8) **and the Action tiers section** (FIX / DEFER / NOTE, plus the FIX-vs-DEFER
+> boundary). Apply all gates and classify every finding into exactly one tier using that
+> boundary. Remember: effort/size is never a reason to DEFER, and an apparent design fork
+> that an existing ADR or pattern already settles is a FIX (cite it), not a DEFER.
 >
-> **LOAD-BEARING REQUIREMENT for blocking findings:** Every blocking finding MUST
-> include explicit, self-contained fix instructions — what is wrong, exactly where
-> (file:line), and the specific change to make. "This violates X" is not sufficient.
-> Write for a competent implementer who lacks your context. Example: "Gate 3 —
-> InventoryQueryService.GetStock at Inventory/Application/InventoryQueryService.cs:42
-> queries without a household filter — add `.Where(x => x.HouseholdId == ctx.HouseholdId)`
-> before the `.Select` projection, mirroring CatalogQueryService.cs:38."
+> **LOAD-BEARING REQUIREMENT for FIX findings:** Every FIX finding MUST include explicit,
+> self-contained fix instructions — what is wrong, exactly where (file:line), and the
+> specific change to make. "This violates X" is not sufficient. Write for a competent
+> implementer who lacks your context. Example: "Gate 3 — InventoryQueryService.GetStock at
+> Inventory/Application/InventoryQueryService.cs:42 queries without a household filter — add
+> `.Where(x => x.HouseholdId == ctx.HouseholdId)` before the `.Select` projection, mirroring
+> CatalogQueryService.cs:38."
+>
+> **LOAD-BEARING REQUIREMENT for DEFER findings:** Every DEFER finding MUST name which
+> boundary trigger justifies deferral (contested-decision / out-of-scope / missing-test-infra
+> / low-confidence) and give a concrete recommendation — this text becomes a tracked bead, so
+> it must be actionable on its own. A DEFER justified only by "this is a lot of work" is invalid;
+> re-classify it as FIX.
 >
 > **Diff:**
 > ```
@@ -149,13 +157,17 @@ diff output):
 >
 > **Return exactly this format:**
 > ```
-> VERDICT: PASS | FAILED
+> VERDICT: PASS | FAILED      (FAILED if and only if there is at least one FIX finding)
 >
-> BLOCKING FINDINGS:
-> <file>:<line> — <gate N> — <what is wrong> — FIX: <explicit fix instruction>
+> FIX FINDINGS:
+> <file>:<line> — <gate N> — <what is wrong> — FIX: <explicit, self-contained fix instruction>
 > (or "none")
 >
-> ADVISORY FINDINGS:
+> DEFER FINDINGS:
+> <file>:<line> — <gate N> — <what is wrong> — WHY DEFER: <boundary trigger> — RECOMMEND: <concrete, actionable recommendation>
+> (or "none")
+>
+> NOTE FINDINGS:
 > <file>:<line> — <gate N> — <observation>
 > (or "none")
 > ```
@@ -168,20 +180,34 @@ diff output):
 .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md
 ```
 
-Include: pass number, verdict, all blocking findings with fix instructions, all
-advisory findings. Write this regardless of whether the verdict is PASS or FAILED.
+Include: pass number, verdict, all FIX findings with fix instructions, all DEFER findings
+with their trigger + recommendation, all NOTE findings. Write this regardless of verdict.
 
-**Then:**
+**Then immediately summarise this pass as a comment on the issue** — the bead is the durable
+timeline that outlives the `.preflight/` scratch:
 
-- `VERDICT: PASS`: proceed to **Step 5**.
-- `VERDICT: FAILED`:
-  - If `pass_count == 3`: **Park** (`critic-loop-exhausted`; include last report path
-    in notes).
-  - Otherwise: apply every blocking fix instruction exactly as specified, then loop
-    back to **4a**.
+```bash
+bd note <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<one-line gist or 'none'>). DEFER: <n>. NOTE: <n>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md"
+```
 
-Advisory findings are noted in the commit message but never block PASS and never
-trigger another loop.
+**Then act on the tiers:**
+
+- **Any FIX findings** (`VERDICT: FAILED`):
+  - If `pass_count == 3`: **Park** (`critic-loop-exhausted`; include last report path in notes).
+  - Otherwise: apply every FIX instruction exactly as specified, then loop back to **4a**.
+    (Honour the scope ceiling: if a FIX would spread beyond this change's footprint, the critic
+    should have classified it DEFER — if you discover mid-fix that it does, stop and re-classify
+    it as DEFER rather than expanding the diff.)
+- **No FIX findings** (`VERDICT: PASS`): before proceeding to **Step 5**, resolve the other tiers:
+  - **DEFER findings** — for each, create a tracked issue so it is never silently dropped:
+    ```bash
+    bd create --title="<short title>" --description="<finding + file:line + WHY DEFER + RECOMMEND, verbatim from the critic>" --type=task --priority=3
+    bd note <issue-id> "Deferred follow-up filed as <new-id>: <one-line gist>"
+    ```
+  - **NOTE findings** — recorded in the report and commit message only; no further action.
+  - Then proceed to **Step 5**.
+
+DEFER and NOTE findings never block PASS and never trigger another loop; only FIX findings do.
 
 ---
 
@@ -198,7 +224,8 @@ Implements #<issue-id>.
 
 <One paragraph: what was implemented and why, written for the git log reader.>
 
-<If any advisory findings: Advisory: <brief list>.>
+<If any DEFER follow-ups were filed: Deferred: <bead-ids + one-line gist>.>
+<If any NOTE findings: Notes: <brief list>.>
 
 Pre-flight: PASS — build, test, Opus review (passes: <pass_count>)
 EOF
@@ -213,7 +240,7 @@ EOF
 ## Step 5.5 — Write completion note
 
 ```bash
-bd note <issue-id> "Implementation complete. Branch: issue/<issue-id>. Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if advisory findings> Advisory: <brief list>.</if>"
+bd note <issue-id> "Implementation complete. Branch: issue/<issue-id>. Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups> Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>"
 ```
 
 Write this after the commit succeeds, before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.

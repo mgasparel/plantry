@@ -120,12 +120,65 @@ A judgment call — raise as advisory unless egregious:
 
 ---
 
-## Blocking vs advisory
+## Action tiers
 
-| Gates | Classification |
-|-------|----------------|
-| 1–5 | **BLOCKING** — prevent PASS; must be fixed |
-| 6 — new JS dependencies, SPA patterns, API key from browser | **BLOCKING** |
-| 6 — UI library drift, component order violations | **ADVISORY** |
-| 7 | **BLOCKING** — persistence contract violations cause correctness bugs |
-| 8 | **ADVISORY** — product alignment judgment |
+Every finding is classified by the **action** it demands, not just its severity. This is what
+lets an autonomous run resolve findings without a human adjudicating the report: each tier maps to
+a mechanical next step.
+
+| Tier | Meaning | What the runner does |
+|------|---------|----------------------|
+| **FIX** | Must be resolved before this change merges. Covers both hard correctness/security/tenancy defects **and** cheap, safe, already-decided quality wins. | Fix it in-loop, then re-run the full gate (build → test → critic). |
+| **DEFER** | A real issue, but resolving it is genuinely *open* — see the boundary below. | Auto-file a `bd` issue capturing the finding + a concrete recommendation, then proceed. Never silently dropped. |
+| **NOTE** | Informational; nothing to act on (e.g. a pre-existing transitive-dependency warning). | Record in the report only. |
+
+### The FIX vs DEFER boundary
+
+DEFER is for **open questions, not large diffs.** Trigger DEFER only when at least one holds:
+
+- **Contested design decision** — resolving it means choosing between genuinely viable approaches, *and*
+  no existing ADR or established pattern settles the choice (see next bullet).
+- **Out-of-scope blast radius** — the fix escapes the change under review: it touches another bounded
+  context, a schema/migration, or a public contract beyond the current diff's footprint.
+- **Missing test infrastructure** — verifying the fix needs a harness that doesn't exist yet (e.g. a
+  JS test rig), so it can't be safely closed in-loop.
+- **Low confidence** — the reviewer isn't sure the fix is correct or that the finding is real.
+
+**Effort and size are never on their own a reason to DEFER.** "It's a 45-minute refactor" is not an
+open question — a large but in-scope, decided, high-confidence change is a **FIX**. Deferring on effort
+is how quality rots under automation.
+
+**Resolve apparent design forks against the codebase first.** When a finding *looks* like a contested
+decision, check whether an existing ADR or established pattern already makes the call. If it does, cite
+it and **FIX** — don't punt a decision to a human that the codebase has already made. Only a fork that
+is genuinely unsettled *and* consequential is a DEFER.
+
+**Tie-breaker: when torn between FIX and DEFER, DEFER.** A wrong auto-fix is expensive and can ship
+silently; a bead is cheap and reversible.
+
+### Guardrails on FIX (in-loop auto-fix)
+
+- **Scope ceiling.** An auto-fix must stay within the change's existing footprint (the files already in
+  the diff, or trivially adjacent). If a "cheap fix" starts spreading to unrelated files, it has become a
+  DEFER — file the bead instead of expanding the diff.
+- **Re-verify.** Every FIX re-runs the full gate; FIX is bounded by the loop's pass cap. Confident-but-wrong
+  fixes are caught by test/critic, not shipped.
+
+### Default tier per gate
+
+These are the *starting* classifications; the FIX/DEFER boundary above decides where a non-blocking
+finding actually lands.
+
+| Gates | Default tier |
+|-------|--------------|
+| 1–5 | **FIX** — correctness/security/tenancy/AI-staging defects always block merge |
+| 6 — new JS dependencies, SPA patterns, API key from browser | **FIX** |
+| 6 — UI library drift, component-order violations | **FIX or DEFER** per the boundary (cheap & in-scope → FIX; needs a new pattern/component decision → DEFER) |
+| 7 | **FIX** — persistence contract violations cause correctness bugs |
+| 8 | **DEFER or NOTE** — product-alignment judgment; FIX only if egregious and in-scope |
+
+### Calibration anchor
+
+Hold findings to the bar of a top-tier engineering org: would a strong reviewer let this merge as-is, or
+leave a "fix this first" comment? Use this only to *calibrate* how hard to look — the tier definitions
+above, not the vibe, decide the action.
