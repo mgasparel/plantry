@@ -89,7 +89,7 @@ public sealed class FakeDataSeeder(
         ArmTenant(householdId.Value);
         try
         {
-            await SeedProductsAsync(householdId, faker, ct);
+            await SeedProductsAsync(householdId, ct);
         }
         finally
         {
@@ -97,14 +97,14 @@ public sealed class FakeDataSeeder(
         }
     }
 
-    private async Task SeedProductsAsync(HouseholdId householdId, Faker faker, CancellationToken ct)
+    private async Task SeedProductsAsync(HouseholdId householdId, CancellationToken ct)
     {
         var units = await catalogDb.Units.ToDictionaryAsync(u => u.Code, ct);
         var categories = await catalogDb.Categories.ToDictionaryAsync(c => c.Name, ct);
         var locations = await catalogDb.Locations.ToDictionaryAsync(l => l.Name, ct);
 
         // Build the flat product list first (SKUs + conversions, no variant links yet).
-        var allProducts = BuildProducts(householdId, units, categories, locations, faker);
+        var allProducts = BuildProducts(householdId, units, categories, locations);
         var productsByName = allProducts.ToDictionary(p => p.Name);
 
         // Create parent products only for groups that have at least 2 variants in this seed set.
@@ -152,18 +152,20 @@ public sealed class FakeDataSeeder(
         HouseholdId householdId,
         Dictionary<string, Unit> units,
         Dictionary<string, Category> categories,
-        Dictionary<string, Location> locations,
-        Faker faker)
+        Dictionary<string, Location> locations)
     {
         var products = new List<Product>();
 
+        // Seed every template name deterministically. A random subset (the old behaviour) made the
+        // catalog non-reproducible and could omit products the sample receipt resolves against —
+        // e.g. the "Did you mean" alternatives (Butter / Margarine / Avocado Spread) silently vanish
+        // when their products aren't seeded. See SampleReceiptParser for the names this must cover.
         foreach (var (categoryName, tmpl) in ProductTemplates)
         {
             if (!categories.TryGetValue(categoryName, out var cat)) continue;
             if (!units.TryGetValue(tmpl.DefaultUnit, out var unit)) continue;
 
-            var count = Math.Min(tmpl.Names.Length, faker.Random.Int(3, 6));
-            foreach (var name in faker.Random.ArrayElements(tmpl.Names, count))
+            foreach (var name in tmpl.Names)
             {
                 var product = Product.Create(householdId, name, unit.Id, clock);
                 product.SetCategory(cat.Id, clock);
@@ -255,6 +257,7 @@ public sealed class FakeDataSeeder(
         ["Dairy & Eggs"] = new(
             ["Whole milk", "Semi-skimmed milk", "Oat milk", "Almond milk", "Greek yogurt",
              "Plain yogurt", "Cheddar cheese", "Mozzarella", "Parmesan", "Butter",
+             "Margarine", "Avocado Spread",
              "Cream cheese", "Free-range eggs", "Double cream", "Sour cream", "Brie"],
             DefaultUnit: "l", DefaultLocation: "Fridge", DueDays: 7),
 

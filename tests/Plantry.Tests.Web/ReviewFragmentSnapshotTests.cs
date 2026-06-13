@@ -65,6 +65,11 @@ public sealed class ReviewFragmentSnapshotTests(ReviewFragmentFactory factory)
     [Fact]
     public Task Row_confirmed_existing() => VerifyRow("FREE RANGE EGGS");
 
+    // ── "Did you mean" alternatives strip ───────────────────────────────────────────────────────────
+
+    [Fact] // Pending + Low + alternatives → match-suggest strip renders before edit-grid
+    public Task Row_with_alternatives() => VerifyRow("CHEDDAR BLK 400G");
+
     // ── Commit / progress bar ────────────────────────────────────────────────────────────────────────
 
     [Fact]

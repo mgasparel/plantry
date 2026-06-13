@@ -103,7 +103,7 @@
     (The spike had x-show on an outer wrapper, which caused stale section visibility and DOM nesting
     after each swap; fixed per ADR-013 amendment confirmed in Opus critic pass 2.)
 *@
-<div id="@row.DomId" class="import-row @stateClass" x-data="@alpineState" data-status="@rowDataStatus" x-show="@rowXShow">
+<div id="@row.DomId" class="import-row @stateClass" x-data="@alpineState" :class="{ 'import-row--open': open }" data-status="@rowDataStatus" x-show="@rowXShow">
         @if (!string.IsNullOrEmpty(rowError))
         {
             <div class="import-row__error" role="alert">
@@ -231,6 +231,51 @@
                     <input type="hidden" name="Edit.LineId" value="@line.LineId" />
                     <input type="hidden" name="Edit.CreateNew" :value="createNew" x-ref="createNew" />
 
+                    @*
+                        "Did you mean" block — sits before the edit-grid, matching the prototype layout where
+                        match-suggest is a sibling of edit-grid (irow-edit > match-suggest + edit-grid + edit-foot).
+                    *@
+                    @if (rowModel.Alternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts && !row.IsConfirmed && !row.IsCommitted)
+                    {
+                        <div class="match-suggest" x-show="!createNew">
+                            <div class="match-suggest__label">
+                                Did you mean — <span>several products share this name</span>
+                            </div>
+                            <div class="suggest-opts">
+                                @* Primary suggestion is always chip 0 — pre-selected (the AI's top pick). *@
+                                @if (!string.IsNullOrEmpty(initialProductIdStr))
+                                {
+                                    <button type="button"
+                                            class="suggest-opt"
+                                            data-alt-id="@initialProductIdStr"
+                                            data-alt-name="@initialLabel"
+                                            :class="{ 'sel': selectedProductId === '@initialProductIdStr' }"
+                                            @@click="$dispatch('alt-selected', { lineId: '@line.LineId', id: $el.dataset.altId, label: $el.dataset.altName })">
+                                        <svg class="icon" aria-hidden="true" x-show="selectedProductId === '@initialProductIdStr'"><use href="#i-check" /></svg>
+                                        @initialLabel
+                                        <span class="rk">best</span>
+                                    </button>
+                                }
+                                @for (int i = 0; i < alts.Count; i++)
+                                {
+                                    var alt = alts[i];
+                                    var altIdStr = alt.ProductId.ToString();
+                                    var rankLabel = $"{(int)Math.Round(alt.Confidence * 100)}%";
+                                    <button type="button"
+                                            class="suggest-opt"
+                                            data-alt-id="@altIdStr"
+                                            data-alt-name="@alt.ProductName"
+                                            :class="{ 'sel': selectedProductId === '@altIdStr' }"
+                                            @@click="$dispatch('alt-selected', { lineId: '@line.LineId', id: $el.dataset.altId, label: $el.dataset.altName })">
+                                        <svg class="icon" aria-hidden="true" x-show="selectedProductId === '@altIdStr'"><use href="#i-check" /></svg>
+                                        @alt.ProductName
+                                        <span class="rk">@rankLabel</span>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+
                     @{
                         var listboxId = $"edit-product-{row.LineId}-listbox";
                         var searchUrl = Url.Page("./Review", "FilterProducts", new { Id = page.Id });
@@ -304,44 +349,6 @@
                                 </select>
                             </div>
                         </div>
-
-                        @*
-                            "Did you mean" ranked-suggestion block — only rendered when the AI matched two or
-                            more credible candidates AND the line is not yet confirmed. Clicking a candidate
-                            calls the searchableSelect component's own select() method via a window-bubbled
-                            custom event (@@alt-selected.window on the .searchable-select div above), updating
-                            the hidden ProductId input and the visible label through the component's own API.
-                            The parent row's selectedProductId / skuId are updated directly in Alpine scope.
-                            Nothing commits until the user clicks "Confirm item" (display hint only).
-                            Uses data-alt-id / data-alt-name attributes so product names never touch a JS
-                            string literal (Razor HTML-encodes attribute values; no manual escaping needed).
-                        *@
-                        @if (rowModel.Alternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts && !row.IsConfirmed && !row.IsCommitted)
-                        {
-                            <div class="match-suggest" x-show="!createNew">
-                                <div class="match-suggest__label">
-                                    Did you mean — <span>several products share this name</span>
-                                </div>
-                                <div class="suggest-opts">
-                                    @for (int i = 0; i < alts.Count; i++)
-                                    {
-                                        var alt = alts[i];
-                                        var altIdStr = alt.ProductId.ToString();
-                                        var rankLabel = i == 0 ? "best" : $"{(int)Math.Round(alt.Confidence * 100)}%";
-                                        <button type="button"
-                                                class="suggest-opt"
-                                                data-alt-id="@altIdStr"
-                                                data-alt-name="@alt.ProductName"
-                                                :class="{ 'sel': selectedProductId === '@altIdStr' }"
-                                                @@click="$dispatch('alt-selected', { lineId: '@line.LineId', id: $el.dataset.altId, label: $el.dataset.altName })">
-                                            <svg class="icon" aria-hidden="true" x-show="selectedProductId === '@altIdStr'"><use href="#i-check" /></svg>
-                                            @alt.ProductName
-                                            <span class="rk">@rankLabel</span>
-                                        </button>
-                                    }
-                                </div>
-                            </div>
-                        }
 
                         @* Mode toggle *@
                         <div class="review-row__mode-toggle">

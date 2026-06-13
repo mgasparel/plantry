@@ -1103,13 +1103,18 @@ button { font-family: inherit; cursor: pointer; }
 .import-row {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-2);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-3);
+  overflow: hidden;
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
+/* When the edit drawer is open, allow absolutely-positioned children (listbox dropdowns) to escape. */
+.import-row--open { overflow: visible; }
 
-/* State accents via a left border — colour reuses existing tonal tokens. */
-.import-row--matched   { border-left: 3px solid var(--color-success); }
+/* State accents via a left border — colour reuses existing tonal tokens.
+   Pending/matched rows use warning (amber) like the prototype's .irow.needs — they still need review.
+   Only confirmed rows earn the success (green) border. */
+.import-row--matched   { border-left: 3px solid var(--color-warning); }
 .import-row--confirmed { border-left: 3px solid var(--color-success); background: var(--color-success-bg); }
 .import-row--unmatched { border-left: 3px solid var(--color-danger); }
 .import-row--committed { border-left: 3px solid var(--color-border); background: var(--color-bg-subtle); }
@@ -1376,28 +1381,37 @@ button { font-family: inherit; cursor: pointer; }
   border-top-right-radius: var(--radius-md);
 }
 
+/* Review row edit drawer — grid wrapper so match-suggest, form-grid, and footer stack with uniform gap;
+   background tint matches the prototype's irow-edit surface-2. Scoped to review-row__edit so the shared
+   _ImportLineRow drawer is unaffected. */
+.review-row__edit { background: var(--color-surface-2); }
+/* The form is the real parent of match-suggest / edit-grid / edit-foot, so the uniform gap must live
+   here (not on .review-row__edit, whose only child is the form). */
+.review-row__edit > form { display: grid; gap: var(--space-4); }
+/* Gap on the form replaces the margin-top that the shared .import-row__edit-foot rule adds. */
+.review-row__edit .import-row__edit-foot { margin-top: 0; }
+
 /* Resolution-mode toggle (existing product ⇄ new product) inside the row edit drawer. Spans the full
    form-grid width and sits between the product row and the quantity row. Catalogued in the Dev component
    library; one ghost button is shown at a time via Alpine x-show on the drawer's `createNew` flag. */
 .review-row__mode-toggle { grid-column: 1 / -1; }
 
-/* "Did you mean" ranked-suggestion block — rendered inside the row edit drawer when two or more credible
-   product candidates share the same receipt text. Ported from the ClaudeDesignProto plenish.css spec.
-   Only shown while the line is unconfirmed; hidden once the user confirms a resolution. Catalogued in
-   the Dev component library (Pages/Dev/Index.cshtml). */
-.match-suggest { display: grid; gap: 8px; grid-column: 1 / -1; }
+/* "Did you mean" ranked-suggestion block — rendered before the edit-grid, matching the prototype's
+   irow-edit layout where match-suggest is a sibling of edit-grid (not nested inside it). Ported from
+   ClaudeDesignProto plenish.css. Catalogued in the Dev component library (Pages/Dev/Index.cshtml). */
+.match-suggest { display: grid; gap: 8px; }
 .match-suggest__label { font-size: 11.5px; font-weight: 600; color: var(--color-text-muted); }
 .match-suggest__label span { color: var(--color-text-faint, var(--color-text-muted)); font-weight: 500; }
 .suggest-opts { display: flex; flex-wrap: wrap; gap: 8px; }
 .suggest-opt {
   display: inline-flex; align-items: center; gap: 8px; padding: 8px 13px; white-space: nowrap;
-  border-radius: var(--radius-sm); border: 1px solid var(--color-border-strong, var(--color-border));
+  border-radius: var(--radius-md); border: 1px solid var(--color-border);
   background: var(--color-surface); font-size: 13.5px; font-weight: 500; color: var(--color-text);
   cursor: pointer;
 }
-.suggest-opt:hover { border-color: var(--color-primary); background: var(--color-primary-soft, var(--color-bg-subtle)); }
-.suggest-opt.sel { border-color: var(--color-primary); background: var(--color-primary-soft, var(--color-bg-subtle)); color: var(--color-primary); font-weight: 600; }
-.suggest-opt .rk { font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono, monospace); }
+.suggest-opt:hover { border-color: var(--color-accent); background: var(--color-accent-subtle); }
+.suggest-opt.sel { border-color: var(--color-accent); background: var(--color-accent-subtle); color: var(--color-accent); font-weight: 600; }
+.suggest-opt .rk { font-size: 11px; color: var(--color-text-faint, var(--color-text-muted)); font-family: var(--font-mono, monospace); }
 
 @media (max-width: 900px) {
   .review { grid-template-columns: 1fr; }

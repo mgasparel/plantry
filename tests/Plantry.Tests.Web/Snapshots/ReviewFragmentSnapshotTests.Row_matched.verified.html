@@ -1,4 +1,4 @@
-﻿<div id="import-line-Guid_1" class="import-row import-row--matched" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;Guid_2&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:2,&quot;d&quot;:null}" data-status="needs" x-show="filter === 'all' || filter === 'review'">
+﻿<div id="import-line-Guid_1" class="import-row import-row--matched" x-data="{&quot;open&quot;:false,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;Guid_2&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:2,&quot;d&quot;:null}" :class="{ 'import-row--open': open }" data-status="needs" x-show="filter === 'all' || filter === 'review'">
 	<div class="import-row__main">
 		<div class="cat-chip cat-chip--neutral">?</div>
 		<div class="import-row__id">
@@ -78,6 +78,9 @@
 								<li role="option" data-value="Guid_2" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
 								<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
 								<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+								<li role="option" data-value="Guid_8" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Mild</li>
+								<li role="option" data-value="Guid_9" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Sharp</li>
+								<li role="option" data-value="Guid_10" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Marble</li>
 							</ul>
 						</div>
 					</div>
@@ -93,7 +96,7 @@
 					<div class="form-grid__field__control">
 						<select class="field__input" name="Edit.NewProductCategoryId">
 							<option value="">— Category —</option>
-							<option value="Guid_8">Dairy</option>
+							<option value="Guid_11">Dairy</option>
 						</select>
 					</div>
 				</div>
@@ -161,7 +164,7 @@
 					<div class="form-grid__field__control">
 						<select class="field__input" name="Edit.UnitId">
 							<option value="">— Unit —</option>
-							<option value="Guid_9">ea — Each</option>
+							<option value="Guid_12">ea — Each</option>
 							<option value="Guid_4" selected="selected">L — Litre</option>
 						</select>
 					</div>
@@ -188,4 +191,4 @@
 			</div>
 		</form>
 	</div>
-</div>
+</div>

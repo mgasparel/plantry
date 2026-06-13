@@ -38,10 +38,11 @@ public sealed class SampleReceiptParser : IReceiptParser
 
     private static readonly SampleLine[] Lines =
     [
-        // Ambiguous match — three credible butter/spread candidates to demo the "Did you mean" block.
+        // Ambiguous match — two extras-only alternatives to demo the "Did you mean" block.
+        // AlternativeNames is extras-only (excludes the primary "Butter"), matching the new contract.
         new(1, "05995030018 BECE MARG W-AVOC", "Butter",
             1.000m, null, 7.99m,
-            AlternativeNames: [("Butter", 0.88m), ("Margarine", 0.62m), ("Avocado Spread", 0.41m)]),
+            AlternativeNames: [("Margarine", 0.62m), ("Avocado Spread", 0.41m)]),
         new(2, "06038366414 LARGE EGGS",       null,                      1.000m, null, 3.93m),
         new(3, "06148300741 CRANBERRIES",      null,                      1.000m, null, 6.00m),
         new(4, "4012 ORANGE NAVEL LG",         null,                      0.255m, "kg", 1.40m),

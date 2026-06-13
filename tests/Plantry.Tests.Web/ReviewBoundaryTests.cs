@@ -107,8 +107,8 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
 
         var url = $"/Intake/Review/{localFactory.SessionAId}";
         var pageHtml = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
-        // Fixture starts with 3 Pending lines (needs review) and 3 resolved (ready).
-        Assert.Contains("Needs review 3", pageHtml);
+        // Fixture starts with 4 Pending lines (needs review) and 3 resolved (ready).
+        Assert.Contains("Needs review 4", pageHtml);
         Assert.Contains("Ready 3", pageHtml);
 
         // Confirm line 1 ("WHOLE MILK 2L") against its matched product with valid user-resolved fields.
@@ -147,7 +147,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
         Assert.Contains("id=\"rcpt-total\"", body);
 
         // The OOB chips fragment carries updated counts.
-        Assert.Contains("Needs review 2", body);
+        Assert.Contains("Needs review 3", body);
         Assert.Contains("Ready 4", body);
 
         // The confirmed row is rendered as confirmed.

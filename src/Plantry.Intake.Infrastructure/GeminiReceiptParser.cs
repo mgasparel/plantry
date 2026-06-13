@@ -48,7 +48,10 @@ public sealed class GeminiReceiptParser : IReceiptParser
               "quantity": 1,
               "unit": "kg or lb for weight-priced items, otherwise null",
               "price": 5.49,
-              "confidence": "high | low | none"
+              "confidence": "high | low | none",
+              "alternatives": [
+                { "product_id": "catalog UUID copied verbatim", "product_name": "catalog name", "confidence": 0.72 }
+              ]
             }
           ]
         }
@@ -60,6 +63,11 @@ public sealed class GeminiReceiptParser : IReceiptParser
         - suggested_product_id MUST be copied verbatim from the catalog list below, or null.
         - confidence: "high" = clear match; "low" = plausible but uncertain; "none" = nothing reasonable
           in the catalog (then suggested_product_id and suggested_product_name are null).
+        - alternatives: for EVERY line, list the next-best catalog candidates EXCLUDING whichever product
+          you chose as suggested_product_id, best match first, up to 3 entries. Each product_id MUST be
+          copied verbatim from the catalog list — do not invent ids or use free-text names without an id.
+          Each confidence is a decimal in [0, 1]. Emit fewer than 3 when fewer plausible catalog matches
+          exist. Emit an empty array [] when there are no credible alternatives.
         """;
 
     public async Task<ReceiptParseResult> ParseAsync(
@@ -126,16 +134,18 @@ public sealed class GeminiReceiptParser : IReceiptParser
                 foreach (var el in linesEl.EnumerateArray())
                 {
                     index++;
+                    var primaryId = GetGuid(el, "suggested_product_id");
                     lines.Add(new ParsedLine(
                         LineNo: GetInt(el, "line_no") ?? index,
                         ReceiptText: GetString(el, "receipt_text") ?? string.Empty,
                         SuggestedProductName: GetString(el, "suggested_product_name"),
-                        SuggestedProductId: GetGuid(el, "suggested_product_id"),
+                        SuggestedProductId: primaryId,
                         Quantity: GetDecimal(el, "quantity"),
                         UnitLabel: GetString(el, "unit"),
                         Price: GetDecimal(el, "price"),
                         Confidence: GetString(el, "confidence"),
-                        RawJson: el.GetRawText()));
+                        RawJson: el.GetRawText(),
+                        Alternatives: MapAlternatives(el, primaryId)));
                 }
             }
 
@@ -145,6 +155,42 @@ public sealed class GeminiReceiptParser : IReceiptParser
         {
             return new ReceiptParseResult(null, [], $"AI returned unparseable JSON: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Parses the <c>alternatives</c> array from a line element and enforces the extras-only contract
+    /// (ADR-007 — AI is untrusted): entries missing a parseable catalog <c>product_id</c> are dropped;
+    /// any id that duplicates the primary <paramref name="primaryId"/> is dropped; confidence is clamped
+    /// to [0, 1]; the result is capped at 3 entries. Returns null when the array is absent or empty.
+    /// </summary>
+    private static IReadOnlyList<ParsedAlternative>? MapAlternatives(JsonElement lineEl, Guid? primaryId)
+    {
+        if (!lineEl.TryGetProperty("alternatives", out var altsEl) || altsEl.ValueKind != JsonValueKind.Array)
+            return null;
+
+        const int cap = 3;
+        var result = new List<ParsedAlternative>(cap);
+
+        foreach (var alt in altsEl.EnumerateArray())
+        {
+            if (result.Count >= cap)
+                break;
+
+            var altId = GetGuid(alt, "product_id");
+            if (altId is null)
+                continue; // catalog id required — drop free-text / null entries
+
+            if (primaryId.HasValue && altId.Value == primaryId.Value)
+                continue; // extras-only: exclude the primary suggestion
+
+            var altName = GetString(alt, "product_name") ?? string.Empty;
+            var rawConfidence = GetDecimal(alt, "confidence") ?? 0m;
+            var confidence = Math.Clamp(rawConfidence, 0m, 1m);
+
+            result.Add(new ParsedAlternative(altId, altName, confidence));
+        }
+
+        return result.Count > 0 ? result : null;
     }
 
     // Unwraps a ```json … ``` (or bare ``` … ```) markdown fence, with or without the body on its own

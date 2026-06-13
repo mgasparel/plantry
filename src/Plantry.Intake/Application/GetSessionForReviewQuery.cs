@@ -78,7 +78,7 @@ public sealed class GetSessionForReviewQuery(
             .OrderBy(l => l.LineNo)
             .Select(l =>
             {
-                var alternatives = l.SuggestedAlternatives is { Count: >= 2 }
+                var alternatives = l.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion }
                     ? l.SuggestedAlternatives
                         .Select(a => new ReviewAlternativeView(a.ProductId, a.ProductName, a.Confidence))
                         .ToList()

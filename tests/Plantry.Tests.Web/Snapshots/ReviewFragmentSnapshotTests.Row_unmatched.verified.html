@@ -1,4 +1,4 @@
-﻿<div id="import-line-Guid_1" class="import-row import-row--unmatched" x-data="{&quot;open&quot;:true,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:null,&quot;d&quot;:null}" data-status="needs" x-show="filter === 'all' || filter === 'review'">
+﻿<div id="import-line-Guid_1" class="import-row import-row--unmatched" x-data="{&quot;open&quot;:true,&quot;createNew&quot;:false,&quot;selectedProductId&quot;:&quot;&quot;,&quot;skuId&quot;:&quot;&quot;,&quot;skus&quot;:{},&quot;v&quot;:null,&quot;d&quot;:null}" :class="{ 'import-row--open': open }" data-status="needs" x-show="filter === 'all' || filter === 'review'">
 	<div class="import-row__main">
 		<div class="cat-chip cat-chip--neutral">?</div>
 		<div class="import-row__id">
@@ -61,6 +61,9 @@
 								<li role="option" data-value="Guid_3" @click="select($el.dataset.value, $el.textContent.trim())">Milk</li>
 								<li role="option" data-value="Guid_4" @click="select($el.dataset.value, $el.textContent.trim())">Bread</li>
 								<li role="option" data-value="Guid_5" @click="select($el.dataset.value, $el.textContent.trim())">Eggs</li>
+								<li role="option" data-value="Guid_6" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Mild</li>
+								<li role="option" data-value="Guid_7" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Sharp</li>
+								<li role="option" data-value="Guid_8" @click="select($el.dataset.value, $el.textContent.trim())">Cheddar, Marble</li>
 							</ul>
 						</div>
 					</div>
@@ -76,7 +79,7 @@
 					<div class="form-grid__field__control">
 						<select class="field__input" name="Edit.NewProductCategoryId">
 							<option value="">— Category —</option>
-							<option value="Guid_6">Dairy</option>
+							<option value="Guid_9">Dairy</option>
 						</select>
 					</div>
 				</div>
@@ -116,7 +119,7 @@
 					<div class="form-grid__field__control">
 						<select class="field__input" name="Edit.LocationId">
 							<option value="">— Location —</option>
-							<option value="Guid_7">Fridge</option>
+							<option value="Guid_10">Fridge</option>
 						</select>
 					</div>
 				</div>
@@ -143,8 +146,8 @@
 					<div class="form-grid__field__control">
 						<select class="field__input" name="Edit.UnitId">
 							<option value="">— Unit —</option>
-							<option value="Guid_8">ea — Each</option>
-							<option value="Guid_9">L — Litre</option>
+							<option value="Guid_11">ea — Each</option>
+							<option value="Guid_12">L — Litre</option>
 						</select>
 					</div>
 				</div>
@@ -176,4 +179,4 @@
 			</div>
 		</form>
 	</div>
-</div>
+</div>

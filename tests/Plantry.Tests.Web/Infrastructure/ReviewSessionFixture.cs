@@ -36,6 +36,11 @@ public static class ReviewSessionFixture
     public static readonly Guid FridgeLocationId = Guid.Parse("66666666-6666-6666-6666-666666666666");
     public static readonly Guid DairyCategoryId = Guid.Parse("77777777-7777-7777-7777-777777777777");
 
+    // Additional product ids for the "Did you mean" alternatives test line
+    public static readonly Guid CheddarMildId = Guid.Parse("aaaaaaaa-1111-1111-1111-111111111111");
+    public static readonly Guid CheddarSharpId = Guid.Parse("aaaaaaaa-2222-2222-2222-222222222222");
+    public static readonly Guid CheddarMarbleId = Guid.Parse("aaaaaaaa-3333-3333-3333-333333333333");
+
     private static readonly DateOnly Expiry = new(2026, 7, 1);
 
     public static ReviewReferenceData ReferenceData() => new(
@@ -44,6 +49,9 @@ public static class ReviewSessionFixture
             new ReviewProductOption(MilkProductId, "Milk", "L", DefaultLocationId: FridgeLocationId, Skus: []),
             new ReviewProductOption(BreadProductId, "Bread", "ea", DefaultLocationId: null, Skus: []),
             new ReviewProductOption(EggsProductId, "Eggs", "ea", DefaultLocationId: FridgeLocationId, Skus: []),
+            new ReviewProductOption(CheddarMildId, "Cheddar, Mild", "ea", DefaultLocationId: FridgeLocationId, Skus: []),
+            new ReviewProductOption(CheddarSharpId, "Cheddar, Sharp", "ea", DefaultLocationId: FridgeLocationId, Skus: []),
+            new ReviewProductOption(CheddarMarbleId, "Cheddar, Marble", "ea", DefaultLocationId: FridgeLocationId, Skus: []),
         ],
         Units:
         [
@@ -76,6 +84,15 @@ public static class ReviewSessionFixture
         var newProduct = session.AddLine(5, "ARTISAN SOURDOUGH", SuggestedConfidence.None, rawPayload: null);
         var dismissed = session.AddLine(6, "PLASTIC BAG", SuggestedConfidence.None, rawPayload: null);
         var committed = session.AddLine(7, "BUTTER 250G", SuggestedConfidence.Low, rawPayload: null);
+        // Line with AI alternatives to exercise the "Did you mean" strip in the review drawer.
+        session.AddLine(8, "CHEDDAR BLK 400G", SuggestedConfidence.Low, rawPayload: null,
+            suggestedProductId: CheddarMildId, suggestedProductName: "Cheddar, Mild",
+            suggestedQuantity: 1m, suggestedUnitLabel: "ea", suggestedPrice: 6.75m,
+            suggestedAlternatives:
+            [
+                new AlternativeCandidate(CheddarSharpId, "Cheddar, Sharp", 0.72m),
+                new AlternativeCandidate(CheddarMarbleId, "Cheddar, Marble", 0.53m),
+            ]);
 
         // The session must be Ready before the page will render it.
         session.MarkReady("Test Grocer", clock.UtcNow);

@@ -18,9 +18,10 @@ public sealed record ProductHint(Guid Id, string Name, IReadOnlyList<string> Sku
 
 /// <summary>
 /// One ranked alternative product candidate from the AI parser for an ambiguous receipt line.
-/// Confidence is in [0, 1] — the parser may normalise values differently but must keep index 0 as
-/// the best match (highest confidence). The first candidate is the same as SuggestedProductId on
-/// <see cref="ParsedLine"/> when the parser emits both (they are kept in sync by convention).
+/// Confidence is a numeric value in [0, 1] — best match first (index 0 is highest confidence).
+/// The list is <em>extras-only</em>: it excludes whichever candidate the parser promoted to
+/// <see cref="ParsedLine.SuggestedProductId"/>. Each entry carries a resolved catalog
+/// <see cref="ProductId"/> (never null or free-text) so the UI can resolve it to a product name.
 /// </summary>
 public sealed record ParsedAlternative(
     Guid? ProductId,

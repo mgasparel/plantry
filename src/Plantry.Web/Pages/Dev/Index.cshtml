@@ -240,19 +240,20 @@
     </div>
     <p>
         <code>.match-suggest</code> is the ranked-suggestion block shown inside the review row edit drawer
-        when the AI matched two or more credible product candidates for the same receipt line. It renders
-        a label plus a <code>.suggest-opts</code> flex row of <code>.suggest-opt</code> buttons — one per
-        candidate, ordered best-first.
+        (a sibling rendered <em>before</em> the edit-grid) when the AI matched several credible product
+        candidates for the same receipt line. It renders a label plus a <code>.suggest-opts</code> flex
+        row of <code>.suggest-opt</code> buttons.
     </p>
     <p>
-        The block is server-rendered and hidden via Razor conditionals (only present when
-        <c>rowModel.Alternatives</c> has two or more entries and the line is not yet confirmed). Each
-        button carries a <code>.rk</code> rank tag: <em>best</em> for the first candidate, and the
-        real AI confidence percentage for subsequent ones. The selected candidate gets the <code>.sel</code>
-        modifier (primary border + background + check icon). Clicking a button pre-selects the product
-        in the drawer's searchable-select — nothing commits until the user clicks <em>Confirm item</em>.
+        The AI's top pick is rendered first as a pre-selected <em>best</em> chip, followed by the resolved
+        alternative candidates (<c>rowModel.Alternatives</c>), each carrying its real AI confidence
+        percentage in a <code>.rk</code> rank tag. The block is server-rendered and only present when there
+        are two or more resolved alternatives (extras-only — excluding the primary) and the line is not yet
+        confirmed or committed. The selected candidate gets the <code>.sel</code> modifier (accent border +
+        background + check icon). Clicking a button pre-selects the product in the drawer's
+        searchable-select — nothing commits until the user clicks <em>Confirm item</em>.
     </p>
-    <div style="max-width: 36rem" x-data="{ sel: '' }">
+    <div style="max-width: 36rem" x-data="{ sel: 'a' }">
         <div class="match-suggest">
             <div class="match-suggest__label">
                 Did you mean — <span>several products share this name</span>
