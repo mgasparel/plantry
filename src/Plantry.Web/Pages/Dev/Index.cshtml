@@ -867,3 +867,276 @@
     </p>
     <pre class="code-sample"><code>@("// Row action response (in RowResultAsync):\nResponse.Headers[\"HX-Retarget\"] = $\"#import-line-{lineId}\";\nResponse.Headers[\"HX-Reswap\"] = \"outerHTML\";\nreturn new PartialViewResult { ViewName = \"_ReviewRowOobBundle\", ViewData = ViewData };\n\n// Each OOB fragment carries hx-swap-oob=\"outerHTML:#stable-id\".\n// BuildProjections() is the single source for all four aggregate counts.")</code></pre>
 </section>
+
+@* ── Recipes Browse Components (P2-2c) ───────────────────────────────────────── *@
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipes browse — view-mode toggle</h2>
+    </div>
+    <p>
+        <code>.recipes-view-toggle</code> is a compact segmented control (inset-track style) for
+        switching between <b>Gallery</b> (photo cards) and <b>Grid</b> (utilitarian table) views.
+        Alpine reads/writes <code>localStorage.recipeView</code> for persistence. The active button
+        gets <code>.is-active</code> (white surface, accent text, small shadow); the inactive one is
+        muted. Pair with an Alpine <code>x-data</code> block on the page that exposes
+        <code>view</code> and reacts via <code>:class</code>.
+    </p>
+    <div class="recipes-view-toggle" role="group" aria-label="View mode">
+        <button class="recipes-view-toggle__btn is-active" type="button">
+            <svg class="icon" aria-hidden="true"><use href="#i-gallery" /></svg> Gallery
+        </button>
+        <button class="recipes-view-toggle__btn" type="button">
+            <svg class="icon" aria-hidden="true"><use href="#i-rows" /></svg> Grid
+        </button>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"recipes-view-toggle\" role=\"group\"\n     x-data x-init=\"view = localStorage.getItem('recipeView') ?? 'gallery'\">\n  <button class=\"recipes-view-toggle__btn\" :class=\"{'is-active': view==='gallery'}\"\n          type=\"button\" @@click=\"view='gallery'; localStorage.setItem('recipeView','gallery')\">\n    <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-gallery\" /></svg> Gallery\n  </button>\n  <button class=\"recipes-view-toggle__btn\" :class=\"{'is-active': view==='grid'}\"\n          type=\"button\" @@click=\"view='grid'; localStorage.setItem('recipeView','grid')\">\n    <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-rows\" /></svg> Grid\n  </button>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipes browse — search box</h2>
+    </div>
+    <p>
+        <code>.recipes-search</code> is a pill-bordered search field with a leading search icon.
+        Debounced live name filter via htmx <code>hx-trigger="input changed delay:300ms"</code>.
+        Placeholder "Search recipes…".
+    </p>
+    <div class="recipes-search" style="max-width: 280px">
+        <svg class="icon recipes-search__icon" aria-hidden="true"><use href="#i-search" /></svg>
+        <input class="recipes-search__input" type="search" placeholder="Search recipes…" />
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"recipes-search\">\n  <svg class=\"icon recipes-search__icon\" aria-hidden=\"true\"><use href=\"#i-search\" /></svg>\n  <input class=\"recipes-search__input\" type=\"search\" placeholder=\"Search recipes…\"\n         name=\"q\" hx-get=\"/Recipes\" hx-trigger=\"input changed delay:300ms\"\n         hx-target=\"#recipes-results\" hx-swap=\"innerHTML\" hx-include=\"form\" />\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipes browse — tag filter chips</h2>
+    </div>
+    <p>
+        <code>.recipes-tag-filters</code> wraps <code>.recipes-tag-chip</code> buttons.
+        The <b>All</b> chip has no dot. Tag chips show a colored dot whose color is set via the
+        <code>style="color: …"</code> on the <code>.recipes-tag-chip__dot</code> (background matches
+        the text color shorthand). The active chip gets <code>.is-active</code> (filled accent, no
+        dot shown). Single-selection: clicking an active chip returns to All.
+    </p>
+    <div class="recipes-tag-filters">
+        <button class="recipes-tag-chip is-active" type="button">All</button>
+        <button class="recipes-tag-chip" type="button">
+            <span class="recipes-tag-chip__dot" style="background:#4b9cd3"></span> Fish
+        </button>
+        <button class="recipes-tag-chip" type="button">
+            <span class="recipes-tag-chip__dot" style="background:#27ae60"></span> Vegetarian
+        </button>
+        <button class="recipes-tag-chip" type="button">
+            <span class="recipes-tag-chip__dot" style="background:#e74c3c"></span> Spicy
+        </button>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"recipes-tag-filters\">\n  <button class=\"recipes-tag-chip\" :class=\"{'is-active': tag===''}\" @@click=\"tag=''\">All</button>\n  @foreach tag in tags:\n  <button class=\"recipes-tag-chip\" :class=\"{'is-active': tag===t.id}\" @@click=\"tag=(tag===t.id?'':t.id)\">\n    <span x-show=\"tag!==t.id\" class=\"recipes-tag-chip__dot\" :style=\"'background:'+t.color\"></span>\n    @t.name\n  </button>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipes browse — Use-soon toggle</h2>
+    </div>
+    <p>
+        <code>.recipes-soon-toggle</code> is a pill toggle. Off: neutral bordered surface; On:
+        <code>.is-active</code> fills with <code>--color-warning-bg</code> + amber text + no border.
+        Timer icon prefix.
+    </p>
+    <div style="display:flex;gap:12px;align-items:center">
+        <button class="recipes-soon-toggle" type="button">
+            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
+        </button>
+        <button class="recipes-soon-toggle is-active" type="button">
+            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
+        </button>
+        <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">← off / on →</span>
+    </div>
+    <pre class="code-sample"><code>@("<button class=\"recipes-soon-toggle\" :class=\"{'is-active': soon}\" @@click=\"soon=!soon\" type=\"button\">\n  <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-timer\" /></svg> Use soon\n</button>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipes browse — fulfillment meter (grid)</h2>
+    </div>
+    <p>
+        <code>.fulf-meter</code> is the fulfillment bar used in grid mode: a thin rounded bar
+        (filled to <code>pct%</code>, colored by level) + bold percentage text + faint
+        "{inStock}/{total} in stock" sub-label. Level color classes: <code>.fulf-hi</code> (≥80%),
+        <code>.fulf-mid</code> (≥50%), <code>.fulf-lo</code> (&lt;50%). Applied to both the
+        <code>.fulf-meter__bar</code> (via <code>-bg</code> variant) and <code>.fulf-meter__pct</code>.
+    </p>
+    <div style="max-width:200px;display:flex;flex-direction:column;gap:18px">
+        <div class="fulf-meter">
+            <div class="fulf-meter__bar-wrap">
+                <span class="fulf-meter__bar fulf-hi-bg" style="width:90%"></span>
+            </div>
+            <div class="fulf-meter__labels">
+                <div class="fulf-meter__pct fulf-hi">90%</div>
+                <div class="fulf-meter__sub">9/10 in stock</div>
+            </div>
+        </div>
+        <div class="fulf-meter">
+            <div class="fulf-meter__bar-wrap">
+                <span class="fulf-meter__bar fulf-mid-bg" style="width:60%"></span>
+            </div>
+            <div class="fulf-meter__labels">
+                <div class="fulf-meter__pct fulf-mid">60%</div>
+                <div class="fulf-meter__sub">6/10 in stock</div>
+            </div>
+        </div>
+        <div class="fulf-meter">
+            <div class="fulf-meter__bar-wrap">
+                <span class="fulf-meter__bar fulf-lo-bg" style="width:20%"></span>
+            </div>
+            <div class="fulf-meter__labels">
+                <div class="fulf-meter__pct fulf-lo">20%</div>
+                <div class="fulf-meter__sub">2/10 in stock</div>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"fulf-meter\">\n  <div class=\"fulf-meter__bar-wrap\">\n    <span class=\"fulf-meter__bar fulf-hi-bg\" style=\"width:90%\"></span>\n  </div>\n  <div class=\"fulf-meter__labels\">\n    <div class=\"fulf-meter__pct fulf-hi\">90%</div>\n    <div class=\"fulf-meter__sub\">9/10 in stock</div>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipes browse — fulfillment pill (gallery)</h2>
+    </div>
+    <p>
+        <code>.fulf-pill</code> overlays the gallery card scrim. Translucent white background with
+        blur, colored status dot (<code>.fulf-pill__dot</code>, background from <code>.fulf-hi-bg</code>
+        / <code>.fulf-mid-bg</code> / <code>.fulf-lo-bg</code>) and percentage text.
+    </p>
+    <div style="background:#333;padding:16px;border-radius:8px;display:inline-flex;gap:12px">
+        <span class="fulf-pill"><span class="fulf-pill__dot fulf-hi-bg"></span> 90%</span>
+        <span class="fulf-pill"><span class="fulf-pill__dot fulf-mid-bg"></span> 60%</span>
+        <span class="fulf-pill"><span class="fulf-pill__dot fulf-lo-bg"></span> 20%</span>
+    </div>
+    <pre class="code-sample"><code>@("<span class=\"fulf-pill\">\n  <span class=\"fulf-pill__dot fulf-hi-bg\"></span> 90%\n</span>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipes browse — gallery card</h2>
+    </div>
+    <p>
+        <code>.recipe-card</code> is a full-bleed photo card. The photo area (<code>.recipe-card__photo</code>)
+        uses <code>aspect-ratio:4/3.1</code>. A gradient scrim (<code>.recipe-card__scrim</code>)
+        overlays the bottom 72% for legibility. Tag mini-pills appear top-left; status flags (Cook
+        tonight / Use soon) top-right. The name and signals row sit bottom-left over the scrim.
+        Hover lifts the card via <code>translateY(-4px)</code>. Gallery photo is lazy — render a
+        placeholder or use <code>loading="lazy"</code> on the <code>&lt;img&gt;</code>.
+    </p>
+    <div style="max-width:320px">
+        <a class="recipe-card" href="#">
+            <div class="recipe-card__photo recipe-card__photo--placeholder"></div>
+            <div class="recipe-card__scrim"></div>
+            <div class="recipe-card__tags">
+                <span class="recipe-tag-mini">
+                    <span class="recipe-tag-mini__dot" style="background:#27ae60"></span> Vegetarian
+                </span>
+            </div>
+            <div class="recipe-card__flags">
+                <span class="recipe-card__flag recipe-card__flag--cookable">
+                    <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg> Cook tonight
+                </span>
+                <span class="recipe-card__flag recipe-card__flag--soon">
+                    <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
+                </span>
+            </div>
+            <div class="recipe-card__info">
+                <div class="recipe-card__name">Tomato Pasta</div>
+                <div class="recipe-card__signals">
+                    <span class="fulf-pill">
+                        <span class="fulf-pill__dot fulf-hi-bg"></span> 90%
+                    </span>
+                    <span class="recipe-card__signal-meta">
+                        <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg> 30 min
+                    </span>
+                    <span class="recipe-card__signal-dot"></span>
+                    <span class="recipe-card__signal-meta" style="font-family:var(--font-mono)">$3.40/serving</span>
+                </div>
+            </div>
+        </a>
+    </div>
+    <pre class="code-sample"><code>@("<a class=\"recipe-card\" href=\"/Recipes/{id}\">\n  <div class=\"recipe-card__photo recipe-card__photo--placeholder\"><!-- or <img loading=\"lazy\" …> --></div>\n  <div class=\"recipe-card__scrim\"></div>\n  <div class=\"recipe-card__tags\"><!-- up to 2 .recipe-tag-mini pills --></div>\n  <div class=\"recipe-card__flags\"><!-- .recipe-card__flag--cookable / --soon --></div>\n  <div class=\"recipe-card__info\">\n    <div class=\"recipe-card__name\">Recipe Name</div>\n    <div class=\"recipe-card__signals\">\n      <span class=\"fulf-pill\">…</span>\n      <span class=\"recipe-card__signal-meta\">…</span>\n    </div>\n  </div>\n</a>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipes browse — grid row</h2>
+    </div>
+    <p>
+        <code>.recipes-grid</code> wraps a header row (<code>.recipes-grid__head</code>) and data
+        rows (<code>.recipes-grid__row</code>) on a 6-col grid: Recipe 2.5fr | Fulfillment 1.5fr
+        | Cost 1fr | Time 0.95fr | Serves 0.85fr | Chevron 26px. Each row is an <code>&lt;a&gt;</code>
+        (or block-level element) with grid layout. The recipe cell shows a 46px thumb, bold name with
+        ellipsis, tag text row, and optional Use-soon badge. The fulfillment cell uses
+        <code>.fulf-meter</code>. Cost is omitted when <code>CostCompleteness=None</code>.
+    </p>
+    <div class="recipes-grid" style="max-width:860px">
+        <div class="recipes-grid__head">
+            <div><button class="recipes-grid__head-btn is-active is-desc">Recipe <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg></button></div>
+            <div><button class="recipes-grid__head-btn">Fulfillment</button></div>
+            <div class="num"><button class="recipes-grid__head-btn">Cost</button></div>
+            <div><button class="recipes-grid__head-btn">Time</button></div>
+            <div><button class="recipes-grid__head-btn">Serves</button></div>
+            <div></div>
+        </div>
+        <a class="recipes-grid__row" href="#">
+            <div class="recipes-grid__name-cell">
+                <div class="recipes-grid__thumb-placeholder">
+                    <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+                </div>
+                <div class="recipes-grid__name-text">
+                    <b>Tomato Pasta</b>
+                    <div class="recipes-grid__name-tags">
+                        <span class="recipe-tag-text"><span class="recipe-tag-text__dot" style="background:#27ae60"></span> Vegetarian</span>
+                        <span class="recipes-grid__soon-badge"><svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon</span>
+                    </div>
+                </div>
+            </div>
+            <div class="fulf-meter">
+                <div class="fulf-meter__bar-wrap">
+                    <span class="fulf-meter__bar fulf-hi-bg" style="width:90%"></span>
+                </div>
+                <div class="fulf-meter__labels">
+                    <div class="fulf-meter__pct fulf-hi">90%</div>
+                    <div class="fulf-meter__sub">9/10 in stock</div>
+                </div>
+            </div>
+            <div class="recipes-grid__cell recipes-grid__cell--cost num">$3.40<span class="recipes-grid__cell-sub"> /serv</span></div>
+            <div class="recipes-grid__cell">30 min</div>
+            <div class="recipes-grid__cell">4 <span class="recipes-grid__cell-sub">serv</span></div>
+            <div><svg class="icon recipes-grid__chev" aria-hidden="true"><use href="#i-chevron-right" /></svg></div>
+        </a>
+        <a class="recipes-grid__row" href="#">
+            <div class="recipes-grid__name-cell">
+                <div class="recipes-grid__thumb-placeholder">
+                    <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+                </div>
+                <div class="recipes-grid__name-text">
+                    <b>Chicken Soup</b>
+                    <div class="recipes-grid__name-tags">
+                        <span class="recipe-tag-text"><span class="recipe-tag-text__dot" style="background:#e07b39"></span> Poultry</span>
+                    </div>
+                </div>
+            </div>
+            <div class="fulf-meter">
+                <div class="fulf-meter__bar-wrap">
+                    <span class="fulf-meter__bar fulf-lo-bg" style="width:30%"></span>
+                </div>
+                <div class="fulf-meter__labels">
+                    <div class="fulf-meter__pct fulf-lo">30%</div>
+                    <div class="fulf-meter__sub">3/10 in stock</div>
+                </div>
+            </div>
+            <div class="recipes-grid__cell num" style="color:var(--color-text-faint);font-size:13px">—</div>
+            <div class="recipes-grid__cell">45 min</div>
+            <div class="recipes-grid__cell">6 <span class="recipes-grid__cell-sub">serv</span></div>
+            <div><svg class="icon recipes-grid__chev" aria-hidden="true"><use href="#i-chevron-right" /></svg></div>
+        </a>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"recipes-grid\">\n  <div class=\"recipes-grid__head\"><!-- 6 col header buttons --></div>\n  <a class=\"recipes-grid__row\" href=\"/Recipes/{id}\">\n    <div class=\"recipes-grid__name-cell\"><!-- thumb + name + tags --></div>\n    <div class=\"fulf-meter\"><!-- bar + pct + sub --></div>\n    <div class=\"recipes-grid__cell recipes-grid__cell--cost num\">{cost}</div>\n    <div class=\"recipes-grid__cell\">{time}</div>\n    <div class=\"recipes-grid__cell\">{serves}</div>\n    <div><svg class=\"icon recipes-grid__chev\">…</svg></div>\n  </a>\n</div>")</code></pre>
+</section>

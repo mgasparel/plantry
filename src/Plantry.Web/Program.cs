@@ -167,6 +167,10 @@ builder.Services.AddScoped<CostingService>();
 // over the Catalog ports + the recipe/tag repositories. Consumed by the P2-1d editor page.
 builder.Services.AddScoped<AuthorRecipe>();
 
+// Recipe browse query (P2-2c, J1/J2). Assembles the browse view model: lean recipe list + live
+// fulfillment/cost per recipe + filter/sort in the application layer.
+builder.Services.AddScoped<BrowseRecipesQuery>();
+
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
 // The real Gemini parser is the production default. Three deterministic alternatives replace it:

@@ -21,4 +21,11 @@ public interface ITagRepository
     Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(IReadOnlyList<TagId> ids, CancellationToken ct = default);
 
     Task AddAsync(Tag tag, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists all tags in the household — used by the Browse page to populate the tag filter chips.
+    /// Scoping is applied by the DbContext query filter / RLS. Returns an empty list when the
+    /// household has no tags.
+    /// </summary>
+    Task<IReadOnlyList<Tag>> ListAllAsync(CancellationToken ct = default);
 }

@@ -172,6 +172,9 @@ public sealed class FakeEditorRecipeRepository(ITenantContext tenant, params Rec
 
     public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         Task.FromResult(false);
+
+    public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Recipe>>([]);
 }
 
 /// <summary>

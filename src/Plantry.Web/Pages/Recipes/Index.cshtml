@@ -4,16 +4,145 @@
     ViewData["Title"] = "Recipes";
 }
 
-<section class="catalog-section">
-    <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Recipes</h2>
-        <div class="card__head-actions">
-            <a href="/Recipes/New" class="btn btn--primary btn--sm">+ New recipe</a>
+<div class="recipes-browse-wrap"
+     x-data="{
+         view: localStorage.getItem('recipeView') ?? 'gallery',
+         setView(v) { this.view = v; localStorage.setItem('recipeView', v); }
+     }">
+
+    @* ── Header row ──────────────────────────────────────────────────────── *@
+    <div class="recipes-browse-head">
+        <div class="recipes-browse-head__titles">
+            <h1 class="recipes-browse-head__title">Recipes</h1>
+            <p class="recipes-browse-head__sub">
+                What you can cook with what you have.
+                @if (Model.Result.CookableCount == 1)
+                {
+                    <span>1 recipe ready to make tonight without a shopping trip.</span>
+                }
+                else if (Model.Result.CookableCount > 1)
+                {
+                    <span>@Model.Result.CookableCount recipes ready to make tonight without a shopping trip.</span>
+                }
+                else
+                {
+                    <span>Stock up to unlock what you can cook.</span>
+                }
+            </p>
         </div>
+        <a href="/Recipes/New" class="btn btn--primary">
+            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> New recipe
+        </a>
     </div>
-    <div class="empty-state">
-        <svg class="empty-state__icon" aria-hidden="true"><use href="#i-recipe" /></svg>
-        <div class="empty-state__title">No recipes yet</div>
-        <p class="empty-state__body">Your household's recipes will live here — what you cook, what's in season, and what you can make from the stock you already have.</p>
+
+    @* ── Toolbar ─────────────────────────────────────────────────────────── *@
+    <form id="recipes-filter-form" method="get" action="/Recipes">
+        <div class="recipes-browse-toolbar">
+
+            @* Search box (debounced htmx live filter) *@
+            <div class="recipes-search">
+                <svg class="icon recipes-search__icon" aria-hidden="true"><use href="#i-search" /></svg>
+                <input class="recipes-search__input"
+                       type="search"
+                       name="q"
+                       value="@Model.Q"
+                       placeholder="Search recipes…"
+                       hx-get="/Recipes"
+                       hx-trigger="input changed delay:300ms"
+                       hx-target="#recipes-results"
+                       hx-swap="innerHTML"
+                       hx-include="#recipes-filter-form"
+                       autocomplete="off" />
+            </div>
+
+            @* Tag filter chips *@
+            @if (Model.Result.AllTags.Count > 0)
+            {
+                <div class="recipes-tag-filters">
+                    @{
+                        var allActive = Model.TagId is null;
+                    }
+                    <button type="button"
+                            class="recipes-tag-chip @(allActive ? "is-active" : "")"
+                            hx-get="/Recipes"
+                            hx-target="#recipes-results"
+                            hx-swap="innerHTML"
+                            hx-include="#recipes-filter-form"
+                            hx-vals='{"tagId": ""}'>All</button>
+                    @foreach (var tag in Model.Result.AllTags)
+                    {
+                        var isActive = Model.TagId == tag.Id.Value;
+                        var color = IndexModel.TagColor(tag.Name);
+                        <button type="button"
+                                class="recipes-tag-chip @(isActive ? "is-active" : "")"
+                                hx-get="/Recipes"
+                                hx-target="#recipes-results"
+                                hx-swap="innerHTML"
+                                hx-include="#recipes-filter-form"
+                                hx-vals='{"tagId": "@(isActive ? "" : tag.Id.Value)"}'>
+                            @if (!isActive)
+                            {
+                                <span class="recipes-tag-chip__dot" style="background:@color"></span>
+                            }
+                            @tag.Name
+                        </button>
+                    }
+                </div>
+            }
+
+            <div class="recipes-browse-toolbar__spacer"></div>
+
+            @* Use-soon toggle *@
+            <button type="button"
+                    class="recipes-soon-toggle @(Model.Soon ? "is-active" : "")"
+                    hx-get="/Recipes"
+                    hx-target="#recipes-results"
+                    hx-swap="innerHTML"
+                    hx-include="#recipes-filter-form"
+                    hx-vals='{"soon": "@(!Model.Soon ? "true" : "false")"}'>
+                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
+            </button>
+
+            @* Sort select *@
+            <select class="recipes-sort-select"
+                    name="sort"
+                    hx-get="/Recipes"
+                    hx-trigger="change"
+                    hx-target="#recipes-results"
+                    hx-swap="innerHTML"
+                    hx-include="#recipes-filter-form">
+                <!option value="fulfillment" @(Model.Sort is null or "fulfillment" ? "selected" : "")>Sort: Fulfillment</!option>
+                <!option value="cost"      @(Model.Sort == "cost"     ? "selected" : "")>Sort: Cost per serving</!option>
+                <!option value="cooktime"  @(Model.Sort == "cooktime" ? "selected" : "")>Sort: Cook time</!option>
+                <!option value="recent"    @(Model.Sort == "recent"   ? "selected" : "")>Sort: Recently added</!option>
+                <!option value="name"      @(Model.Sort == "name"     ? "selected" : "")>Sort: Name</!option>
+            </select>
+
+            @* View toggle (persisted in localStorage via Alpine) *@
+            <div class="recipes-view-toggle" role="group" aria-label="View mode">
+                <button type="button"
+                        class="recipes-view-toggle__btn"
+                        :class="{'is-active': view === 'gallery'}"
+                        @@click="setView('gallery')">
+                    <svg class="icon" aria-hidden="true"><use href="#i-gallery" /></svg> Gallery
+                </button>
+                <button type="button"
+                        class="recipes-view-toggle__btn"
+                        :class="{'is-active': view === 'grid'}"
+                        @@click="setView('grid')">
+                    <svg class="icon" aria-hidden="true"><use href="#i-rows" /></svg> Grid
+                </button>
+            </div>
+
+            @* Hidden inputs to carry state through htmx requests *@
+            <input type="hidden" name="tagId" value="@(Model.TagId?.ToString() ?? "")" />
+            <input type="hidden" name="soon" value="@(Model.Soon ? "true" : "false")" />
+            <input type="hidden" name="desc" value="@(Model.Desc ? "true" : "false")" />
+        </div>
+    </form>
+
+    @* ── Results ──────────────────────────────────────────────────────────── *@
+    <div id="recipes-results">
+        @await Html.PartialAsync("_RecipesBrowseResults", Model)
     </div>
-</section>
+</div>
