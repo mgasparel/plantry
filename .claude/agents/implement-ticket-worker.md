@@ -45,6 +45,17 @@ The line between the two: if you can make a reasonable call that a knowledgeable
 team member would likely agree with, interpret and proceed. If you'd be guessing at
 the fundamental shape of the feature, park.
 
+**Move the issue to in_progress** if it is not already. The orchestrator may have
+claimed it without setting status, or this may be a direct single-issue invocation —
+either way, ensure it reflects active work before proceeding:
+
+```bash
+bd update <issue-id> --status in_progress
+```
+
+If `bd show` already reports `in_progress`, this is a harmless no-op — run it anyway
+rather than branching on the current status.
+
 ## Step 2 — Create the worktree
 
 From the project root (`code/`):
