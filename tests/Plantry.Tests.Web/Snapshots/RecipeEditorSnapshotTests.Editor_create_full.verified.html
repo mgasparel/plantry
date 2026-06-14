@@ -5,8 +5,41 @@
          origServings: 0,
          hasIngredients: false,
          scaleMode: 'Keep',
-         rows: [{" ordinal":0,"productid":"","productname":"","qty":"","unitid":"","groupheading":"","isuntracked":false,"newstaplename":null,"newstapleunit":"","needsconversion":false,"conversionfactor":"","conversionfromunitid":"Guid_Empty","conversiontounitid":"Guid_Empty"}],="" _nextord:="" 1,="" addrow()="" {="" this.rows.push({="" ordinal:="" this._nextord++,="" productid:="" '',="" productname:="" qty:="" unitid:="" groupheading:="" isuntracked:="" false,="" newstaplename:="" null,="" newstapleunit:="" needsconversion:="" conversionfactor:="" conversionfromunitid:="" conversiontounitid:="" ''="" });="" },="" removerow(idx)="" this.rows.splice(idx,="" 1);="" this.reassignordinals();="" reassignordinals()="" this.rows.foreach((r,="" i)="">
-	r.ordinal = i); this._nextOrd = this.rows.length; },          _dragIdx: null,          dragStart(idx) { this._dragIdx = idx; },          dragOver(idx) {              if (this._dragIdx === null || this._dragIdx === idx) return;              const moved = this.rows.splice(this._dragIdx, 1)[0];              this.rows.splice(idx, 0, moved);              this._dragIdx = idx;              this.reassignOrdinals();          },          drop() { this._dragIdx = null; },          addTag() {              const t = this.newTag.trim();              if (t &amp;&amp; !this.tags.includes(t)) this.tags.push(t);              this.newTag = '';          },          removeTag(i) { this.tags.splice(i, 1); },          selectProduct(row, detail) {              row.productId = detail.value;              row.productName = detail.name;              row.isUntracked = detail.track === 'false';              if (row.isUntracked) { row.qty = ''; row.unitId = ''; }          },          showScaleOffer() { return !this.isCreate &amp;&amp; this.hasIngredients &amp;&amp; parseInt(this.servings) !== this.origServings; },          isCreate: true,      }"&gt;
+         rows: [{&quot;ordinal&quot;:0,&quot;productId&quot;:&quot;&quot;,&quot;productName&quot;:&quot;&quot;,&quot;qty&quot;:&quot;&quot;,&quot;unitId&quot;:&quot;&quot;,&quot;groupHeading&quot;:&quot;&quot;,&quot;isUntracked&quot;:false,&quot;newStapleName&quot;:null,&quot;newStapleUnit&quot;:&quot;&quot;,&quot;needsConversion&quot;:false,&quot;conversionFactor&quot;:&quot;&quot;,&quot;conversionFromUnitId&quot;:&quot;Guid_Empty&quot;,&quot;conversionToUnitId&quot;:&quot;Guid_Empty&quot;}],
+         _nextOrd: 1,
+         addRow() {
+             this.rows.push({ ordinal: this._nextOrd++, productId: '', productName: '', qty: '',
+                 unitId: '', groupHeading: '', isUntracked: false, newStapleName: null,
+                 newStapleUnit: '', needsConversion: false, conversionFactor: '',
+                 conversionFromUnitId: '', conversionToUnitId: '' });
+         },
+         removeRow(idx) { this.rows.splice(idx, 1); this.reassignOrdinals(); },
+         reassignOrdinals() { this.rows.forEach((r, i) => r.ordinal = i); this._nextOrd = this.rows.length; },
+         _dragIdx: null,
+         dragStart(idx) { this._dragIdx = idx; },
+         dragOver(idx) {
+             if (this._dragIdx === null || this._dragIdx === idx) return;
+             const moved = this.rows.splice(this._dragIdx, 1)[0];
+             this.rows.splice(idx, 0, moved);
+             this._dragIdx = idx;
+             this.reassignOrdinals();
+         },
+         drop() { this._dragIdx = null; },
+         addTag() {
+             const t = this.newTag.trim();
+             if (t &amp;&amp; !this.tags.includes(t)) this.tags.push(t);
+             this.newTag = '';
+         },
+         removeTag(i) { this.tags.splice(i, 1); },
+         selectProduct(row, detail) {
+             row.productId = detail.value;
+             row.productName = detail.name;
+             row.isUntracked = detail.track === 'false';
+             if (row.isUntracked) { row.qty = ''; row.unitId = ''; }
+         },
+         showScaleOffer() { return !this.isCreate &amp;&amp; this.hasIngredients &amp;&amp; parseInt(this.servings) !== this.origServings; },
+         isCreate: true,
+     }">
 	<form method="post" enctype="multipart/form-data" class="form-stack">
 		<div class="card">
 			<div class="card__head">

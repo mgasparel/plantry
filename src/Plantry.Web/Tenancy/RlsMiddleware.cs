@@ -2,6 +2,7 @@ using Plantry.Catalog.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Infrastructure;
+using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Web.Tenancy;
@@ -18,7 +19,8 @@ public sealed class RlsMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(
         HttpContext context, TenantContext tenant, CatalogDbContext catalogDb,
-        PlantryIdentityDbContext identityDb, InventoryDbContext inventoryDb, IntakeDbContext intakeDb)
+        PlantryIdentityDbContext identityDb, InventoryDbContext inventoryDb, IntakeDbContext intakeDb,
+        RecipesDbContext recipesDb)
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
@@ -31,6 +33,7 @@ public sealed class RlsMiddleware(RequestDelegate next)
                 identityDb.SetHouseholdId(id);  // feeds the Household EF query filter
                 inventoryDb.SetHouseholdId(id); // feeds the Inventory EF query filter
                 intakeDb.SetHouseholdId(id);    // feeds the Intake EF query filter
+                recipesDb.SetHouseholdId(id);   // feeds the Recipes EF query filter
                 // Additional contexts (Pricing, Shopping, etc.) added here in later slices
             }
         }

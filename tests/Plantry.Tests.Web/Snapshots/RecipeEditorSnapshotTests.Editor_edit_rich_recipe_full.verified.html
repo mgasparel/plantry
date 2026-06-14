@@ -1,6 +1,45 @@
 ﻿<div id="recipe-editor" x-data="{
-         tags: [" vegetarian","quick"],="" newtag:="" '',="" servings:="" 4,="" origservings:="" hasingredients:="" true,="" scalemode:="" 'keep',="" rows:="" [{"ordinal":0,"productid":"Guid_1","productname":"rigatoni","qty":"400","unitid":"Guid_2","groupheading":"pasta","isuntracked":false,"newstaplename":null,"newstapleunit":"","needsconversion":false,"conversionfactor":"","conversionfromunitid":"Guid_Empty","conversiontounitid":"Guid_Empty"},{"ordinal":1,"productid":"Guid_3","productname":"canned="" tomatoes","qty":"300","unitid":"Guid_2","groupheading":"sauce","isuntracked":false,"newstaplename":null,"newstapleunit":"","needsconversion":false,"conversionfactor":"","conversionfromunitid":"Guid_Empty","conversiontounitid":"Guid_Empty"},{"ordinal":2,"productid":"Guid_4","productname":"garlic="" cloves","qty":"3","unitid":"Guid_5","groupheading":"sauce","isuntracked":false,"newstaplename":null,"newstapleunit":"","needsconversion":false,"conversionfactor":"","conversionfromunitid":"Guid_Empty","conversiontounitid":"Guid_Empty"},{"ordinal":3,"productid":"Guid_6","productname":"dried="" chili","qty":"2","unitid":"Guid_5","groupheading":"sauce","isuntracked":false,"newstaplename":null,"newstapleunit":"","needsconversion":false,"conversionfactor":"","conversionfromunitid":"Guid_Empty","conversiontounitid":"Guid_Empty"},{"ordinal":4,"productid":"Guid_7","productname":"salt","qty":"","unitid":"","groupheading":"sauce","isuntracked":false,"newstaplename":null,"newstapleunit":"","needsconversion":false,"conversionfactor":"","conversionfromunitid":"Guid_Empty","conversiontounitid":"Guid_Empty"}],="" _nextord:="" 5,="" addrow()="" {="" this.rows.push({="" ordinal:="" this._nextord++,="" productid:="" productname:="" qty:="" unitid:="" groupheading:="" isuntracked:="" false,="" newstaplename:="" null,="" newstapleunit:="" needsconversion:="" conversionfactor:="" conversionfromunitid:="" conversiontounitid:="" ''="" });="" },="" removerow(idx)="" this.rows.splice(idx,="" 1);="" this.reassignordinals();="" reassignordinals()="" this.rows.foreach((r,="" i)="">
-	r.ordinal = i); this._nextOrd = this.rows.length; },          _dragIdx: null,          dragStart(idx) { this._dragIdx = idx; },          dragOver(idx) {              if (this._dragIdx === null || this._dragIdx === idx) return;              const moved = this.rows.splice(this._dragIdx, 1)[0];              this.rows.splice(idx, 0, moved);              this._dragIdx = idx;              this.reassignOrdinals();          },          drop() { this._dragIdx = null; },          addTag() {              const t = this.newTag.trim();              if (t &amp;&amp; !this.tags.includes(t)) this.tags.push(t);              this.newTag = '';          },          removeTag(i) { this.tags.splice(i, 1); },          selectProduct(row, detail) {              row.productId = detail.value;              row.productName = detail.name;              row.isUntracked = detail.track === 'false';              if (row.isUntracked) { row.qty = ''; row.unitId = ''; }          },          showScaleOffer() { return !this.isCreate &amp;&amp; this.hasIngredients &amp;&amp; parseInt(this.servings) !== this.origServings; },          isCreate: false,      }"&gt;
+         tags: [&quot;Vegetarian&quot;,&quot;Quick&quot;],
+         newTag: '',
+         servings: 4,
+         origServings: 4,
+         hasIngredients: true,
+         scaleMode: 'Keep',
+         rows: [{&quot;ordinal&quot;:0,&quot;productId&quot;:&quot;Guid_1&quot;,&quot;productName&quot;:&quot;Rigatoni&quot;,&quot;qty&quot;:&quot;400&quot;,&quot;unitId&quot;:&quot;Guid_2&quot;,&quot;groupHeading&quot;:&quot;Pasta&quot;,&quot;isUntracked&quot;:false,&quot;newStapleName&quot;:null,&quot;newStapleUnit&quot;:&quot;&quot;,&quot;needsConversion&quot;:false,&quot;conversionFactor&quot;:&quot;&quot;,&quot;conversionFromUnitId&quot;:&quot;Guid_Empty&quot;,&quot;conversionToUnitId&quot;:&quot;Guid_Empty&quot;},{&quot;ordinal&quot;:1,&quot;productId&quot;:&quot;Guid_3&quot;,&quot;productName&quot;:&quot;Canned Tomatoes&quot;,&quot;qty&quot;:&quot;300&quot;,&quot;unitId&quot;:&quot;Guid_2&quot;,&quot;groupHeading&quot;:&quot;Sauce&quot;,&quot;isUntracked&quot;:false,&quot;newStapleName&quot;:null,&quot;newStapleUnit&quot;:&quot;&quot;,&quot;needsConversion&quot;:false,&quot;conversionFactor&quot;:&quot;&quot;,&quot;conversionFromUnitId&quot;:&quot;Guid_Empty&quot;,&quot;conversionToUnitId&quot;:&quot;Guid_Empty&quot;},{&quot;ordinal&quot;:2,&quot;productId&quot;:&quot;Guid_4&quot;,&quot;productName&quot;:&quot;Garlic Cloves&quot;,&quot;qty&quot;:&quot;3&quot;,&quot;unitId&quot;:&quot;Guid_5&quot;,&quot;groupHeading&quot;:&quot;Sauce&quot;,&quot;isUntracked&quot;:false,&quot;newStapleName&quot;:null,&quot;newStapleUnit&quot;:&quot;&quot;,&quot;needsConversion&quot;:false,&quot;conversionFactor&quot;:&quot;&quot;,&quot;conversionFromUnitId&quot;:&quot;Guid_Empty&quot;,&quot;conversionToUnitId&quot;:&quot;Guid_Empty&quot;},{&quot;ordinal&quot;:3,&quot;productId&quot;:&quot;Guid_6&quot;,&quot;productName&quot;:&quot;Dried Chili&quot;,&quot;qty&quot;:&quot;2&quot;,&quot;unitId&quot;:&quot;Guid_5&quot;,&quot;groupHeading&quot;:&quot;Sauce&quot;,&quot;isUntracked&quot;:false,&quot;newStapleName&quot;:null,&quot;newStapleUnit&quot;:&quot;&quot;,&quot;needsConversion&quot;:false,&quot;conversionFactor&quot;:&quot;&quot;,&quot;conversionFromUnitId&quot;:&quot;Guid_Empty&quot;,&quot;conversionToUnitId&quot;:&quot;Guid_Empty&quot;},{&quot;ordinal&quot;:4,&quot;productId&quot;:&quot;Guid_7&quot;,&quot;productName&quot;:&quot;Salt&quot;,&quot;qty&quot;:&quot;&quot;,&quot;unitId&quot;:&quot;&quot;,&quot;groupHeading&quot;:&quot;Sauce&quot;,&quot;isUntracked&quot;:false,&quot;newStapleName&quot;:null,&quot;newStapleUnit&quot;:&quot;&quot;,&quot;needsConversion&quot;:false,&quot;conversionFactor&quot;:&quot;&quot;,&quot;conversionFromUnitId&quot;:&quot;Guid_Empty&quot;,&quot;conversionToUnitId&quot;:&quot;Guid_Empty&quot;}],
+         _nextOrd: 5,
+         addRow() {
+             this.rows.push({ ordinal: this._nextOrd++, productId: '', productName: '', qty: '',
+                 unitId: '', groupHeading: '', isUntracked: false, newStapleName: null,
+                 newStapleUnit: '', needsConversion: false, conversionFactor: '',
+                 conversionFromUnitId: '', conversionToUnitId: '' });
+         },
+         removeRow(idx) { this.rows.splice(idx, 1); this.reassignOrdinals(); },
+         reassignOrdinals() { this.rows.forEach((r, i) => r.ordinal = i); this._nextOrd = this.rows.length; },
+         _dragIdx: null,
+         dragStart(idx) { this._dragIdx = idx; },
+         dragOver(idx) {
+             if (this._dragIdx === null || this._dragIdx === idx) return;
+             const moved = this.rows.splice(this._dragIdx, 1)[0];
+             this.rows.splice(idx, 0, moved);
+             this._dragIdx = idx;
+             this.reassignOrdinals();
+         },
+         drop() { this._dragIdx = null; },
+         addTag() {
+             const t = this.newTag.trim();
+             if (t &amp;&amp; !this.tags.includes(t)) this.tags.push(t);
+             this.newTag = '';
+         },
+         removeTag(i) { this.tags.splice(i, 1); },
+         selectProduct(row, detail) {
+             row.productId = detail.value;
+             row.productName = detail.name;
+             row.isUntracked = detail.track === 'false';
+             if (row.isUntracked) { row.qty = ''; row.unitId = ''; }
+         },
+         showScaleOffer() { return !this.isCreate &amp;&amp; this.hasIngredients &amp;&amp; parseInt(this.servings) !== this.origServings; },
+         isCreate: false,
+     }">
 	<form method="post" enctype="multipart/form-data" class="form-stack">
 		<div class="card">
 			<div class="card__head">

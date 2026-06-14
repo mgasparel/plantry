@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using Plantry.Tests.E2E.Infrastructure;
 using Xunit;
@@ -33,6 +34,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
     private IBrowser _browser = null!;
 
     private string BaseUrl => appHost.BaseUrl;
+
+    /// <summary>The recipe Detail page URL (/Recipes/{guid}) — distinguishes Detail from the editor (/Recipes/New, …/Edit).</summary>
+    private static readonly Regex DetailUrlPattern = new(@"/Recipes/[0-9a-fA-F-]{36}$");
 
     public async Task InitializeAsync()
     {
@@ -116,7 +120,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             // Alpine pre-renders one empty row. Focus the product search in the first row.
             var firstRowSearch = page.Locator(".ingredient-row").First
                 .Locator("input[role='combobox']");
-            await firstRowSearch.FillAsync(tomatoName.Substring(0, 8));
+            // Type char-by-char (PressSequentially) so the htmx "keyup" trigger fires — the listbox is
+            // populated entirely by the htmx search, and FillAsync sets .value without firing keyup.
+            await firstRowSearch.PressSequentiallyAsync(tomatoName.Substring(0, 8));
             // Wait for the htmx product search list to populate
             var option = page.Locator(".searchable-select__listbox li[role='option']",
                 new() { HasText = tomatoName });
@@ -126,7 +132,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             // Fill qty and unit for the tracked row
             var firstRow = page.Locator(".ingredient-row").First;
             await firstRow.Locator("input[placeholder='Qty']").FillAsync("400");
-            await firstRow.Locator("select").First.SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+            // Scope to the visible qty/unit container — a hidden staple-mode <select> precedes it in the DOM.
+            await firstRow.Locator(".ingredient-row__qty select").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
 
             // ── Ingredient row 2: inline staple create ────────────────────────────
             await page.ClickAsync("button:has-text('Add ingredient')");
@@ -150,8 +157,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
 
             // ── Assert: lands on the Detail page ─────────────────────────────────
-            await page.WaitForURLAsync("**/Recipes/**");
-            // URL should NOT end in /Edit — it is the detail page for the new recipe id
+            // Wait specifically for the recipe Detail URL (/Recipes/{guid}); the loose "**/Recipes/**"
+            // glob also matches the editor URL /Recipes/New and would race the post-save redirect.
+            await page.WaitForURLAsync(DetailUrlPattern);
             Assert.DoesNotMatch(@"/Edit$", page.Url);
 
             // Recipe name is the page heading
@@ -210,7 +218,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             // Pick the seeded flour product
             var searchInput = page.Locator(".ingredient-row").First.Locator("input[role='combobox']");
-            await searchInput.FillAsync(flourName.Substring(0, 5));
+            // Type char-by-char so the htmx "keyup" search trigger fires (see note in the create journey).
+            await searchInput.PressSequentiallyAsync(flourName.Substring(0, 5));
             var option = page.Locator(".searchable-select__listbox li[role='option']",
                 new() { HasText = flourName });
             await Assertions.Expect(option).ToBeVisibleAsync();
@@ -218,10 +227,11 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             var firstRow = page.Locator(".ingredient-row").First;
             await firstRow.Locator("input[placeholder='Qty']").FillAsync("200");
-            await firstRow.Locator("select").First.SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+            // Scope to the visible qty/unit container — a hidden staple-mode <select> precedes it in the DOM.
+            await firstRow.Locator(".ingredient-row__qty select").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
 
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
-            await page.WaitForURLAsync("**/Recipes/**");
+            await page.WaitForURLAsync(DetailUrlPattern);
 
             // Capture the detail URL so we can construct the edit URL
             var detailUrl = page.Url;
@@ -243,8 +253,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             var scaleCard = page.Locator(".seg-ctrl[aria-label='Scale mode']").Locator("..");
             await Assertions.Expect(scaleCard).ToBeVisibleAsync();
 
-            // Select Proportional mode
-            await page.Locator("input[type=radio][value='Proportional']").ClickAsync();
+            // Select Proportional mode by clicking the segmented-control label — the radio input itself
+            // is visually hidden (sr-only) so it is not directly clickable.
+            await page.Locator(".seg-ctrl__item", new() { HasText = "Proportional" }).ClickAsync();
 
             // ── Also change the first ingredient quantity directly ─────────────────
             // (Alpine row qty is bound to the hidden input; we edit the visible Qty text input)
@@ -254,7 +265,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             // ── Submit ────────────────────────────────────────────────────────────
             await page.ClickAsync("button[type=submit]:has-text('Save changes')");
-            await page.WaitForURLAsync("**/Recipes/**");
+            await page.WaitForURLAsync(DetailUrlPattern);
             Assert.DoesNotMatch(@"/Edit$", page.Url);
 
             // ── Assert: Detail reflects updated servings ──────────────────────────

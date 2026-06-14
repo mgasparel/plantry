@@ -38,13 +38,13 @@
 
 <div id="recipe-editor"
      x-data="{
-         tags: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Input.Tags)),
+         tags: @System.Text.Json.JsonSerializer.Serialize(Model.Input.Tags),
          newTag: '',
          servings: @Model.Input.DefaultServings,
          origServings: @Model.OriginalServings,
          hasIngredients: @(Model.HasExistingIngredients ? "true" : "false"),
          scaleMode: '@Model.Input.ScaleMode.ToString()',
-         rows: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+         rows: @System.Text.Json.JsonSerializer.Serialize(
              Model.Input.Lines.Select(l => new {
                  ordinal = l.Ordinal,
                  productId = l.ProductId?.ToString() ?? "",
@@ -59,7 +59,7 @@
                  conversionFactor = l.ConversionFactor?.ToString() ?? "",
                  conversionFromUnitId = l.ConversionFromUnitId.ToString(),
                  conversionToUnitId = l.ConversionToUnitId.ToString(),
-             }))),
+             })),
          _nextOrd: @(Model.Input.Lines.Count > 0 ? Model.Input.Lines.Max(l => l.Ordinal) + 1 : 1),
          addRow() {
              this.rows.push({ ordinal: this._nextOrd++, productId: '', productName: '', qty: '',
