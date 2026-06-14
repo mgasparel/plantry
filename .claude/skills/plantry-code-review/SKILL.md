@@ -25,9 +25,11 @@ that's the kind of drift this review exists to catch.
 
 ## Criteria
 
-Read `.claude/review-criteria.md` for the full gate definitions (Gates 1–8) before
-reviewing. Apply all gates. The blocking/advisory classification for each gate is
-specified in that document.
+Read `.claude/review-criteria.md` for the full gate definitions (Gates 1–8) **and the
+Action tiers section** before reviewing. Apply all gates, and classify every finding into
+exactly one action tier — **FIX**, **DEFER**, or **NOTE** — using the FIX-vs-DEFER boundary
+in that document (effort/size is never a DEFER reason; an apparent design fork an existing
+ADR or pattern already settles is a FIX).
 
 ## Output format
 
@@ -36,10 +38,14 @@ matters in *this* codebase (name the rule — e.g. "bypasses the single consumpt
 primitive", "leaks across the bounded-context boundary" — not just "this looks off"),
 and a concrete fix, ideally pointing at an existing pattern to mirror.
 
-Call out blocking findings explicitly as **BLOCKING**. Call out advisory findings as
-**ADVISORY** with a note that they don't prevent PASS.
+Tag each finding with its tier:
+- **FIX** — must be resolved before merge; include explicit, self-contained fix instructions.
+- **DEFER** — name the boundary trigger (contested-decision / out-of-scope / missing-test-infra
+  / low-confidence) and give an actionable recommendation (this is bead-ready text).
+- **NOTE** — informational; no action.
 
-End with an overall verdict: **PASS** or **FAILED**, and one sentence explaining the
-call.
+End with an overall verdict: **PASS** (no FIX findings) or **FAILED** (one or more FIX
+findings), and one sentence explaining the call. DEFER and NOTE findings do not affect the
+verdict.
 
 Write the report to disk at `.reviews/<timestamp>-<branch>.md`.

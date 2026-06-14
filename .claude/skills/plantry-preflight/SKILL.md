@@ -57,11 +57,12 @@ same report; a failing stage is the last thing written to it. This mirrors
 4. **Stage 3 — Code review.** Invoke the `plantry-code-review` skill. It writes
    its own report — note that path, and
    pull its overall pass/fail judgement and the headline findings (grouped by
-   gate, with severities) into this report as a summary. Do not duplicate its
-   entire contents; link to its file instead.
-   - Whatever the review concludes (pass, fail, or advisory-only notes), this
-     is the last stage that can change the overall pass/fail status — the
-     review's verdict is reflected in the overall pre-flight status.
+   gate, tagged with their action tier — FIX / DEFER / NOTE) into this report as
+   a summary. Do not duplicate its entire contents; link to its file instead.
+   - Whatever the review concludes (pass, fail, or DEFER/NOTE-only findings),
+     this is the last stage that can change the overall pass/fail status — the
+     review's verdict (FAILED iff any FIX findings) is reflected in the overall
+     pre-flight status. DEFER and NOTE findings do not flip the status.
 
 5. **Stage 4 — Identify mutation-testing targets (advisory; never run them).**
    Mutation testing (`stryker-run.ps1`, runner = `Plantry.Tests.Unit`) is *not*
@@ -127,8 +128,9 @@ Status: PASS | FAIL | SKIPPED (not run — build failed)
 ## 3. Code review
 Status: PASS | FAIL | SKIPPED (not run — {build|tests} failed)
 - Full report: ./reviews/{timestamp}-{branch}.md
-- Verdict: {the review's own pass/fail judgement}
-- Headline findings by gate (blocking vs advisory), summarized — not the full report
+- Verdict: {the review's own pass/fail judgement — FAILED iff any FIX findings}
+- Headline findings by gate, tagged FIX / DEFER / NOTE, summarized — not the full report
+- DEFER follow-ups: {bead IDs filed for DEFER findings, if any}
 
 ## 4. Recommended mutation testing
 Status: ADVISORY | SKIPPED (not run — {build|tests} failed)

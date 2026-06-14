@@ -132,7 +132,7 @@ For each `RESULT: PASS`, in the order issues were dispatched (oldest first):
 
 5. **Comment results and close:**
    ```bash
-   bd update <issue-id> --notes "Merged to main. Critic passes: <pass_count>. Preflight: <preflight-path>. Advisories: <advisory-count> (see preflight report)."
+   bd update <issue-id> --notes "Merged to main. Critic passes: <pass_count>. Preflight: <preflight-path>. DEFER follow-ups: <bead-ids or 'none'>. NOTE: <note-count> (see preflight report and issue comments)."
    bd close <issue-id>
    ```
 
