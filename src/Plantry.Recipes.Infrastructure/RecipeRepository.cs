@@ -21,4 +21,12 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
 
     public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         db.Recipes.AnyAsync(r => r.HouseholdId == householdId && r.Name == name, ct);
+
+    public async Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
+        await db.Recipes
+            .Include(r => r.Ingredients)
+            .Include(r => r.Tags)
+            .Where(r => r.ArchivedAt == null)
+            .OrderBy(r => r.Name)
+            .ToListAsync(ct);
 }

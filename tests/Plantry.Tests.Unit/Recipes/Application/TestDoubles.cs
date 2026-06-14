@@ -33,6 +33,9 @@ internal sealed class FakeRecipeRepository : IRecipeRepository
     public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         Task.FromResult(Items.Any(r =>
             r.HouseholdId == householdId && string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Recipe>>(Items.Where(r => r.ArchivedAt == null).OrderBy(r => r.Name).ToList());
 }
 
 internal sealed class FakeTagRepository : ITagRepository
@@ -57,6 +60,9 @@ internal sealed class FakeTagRepository : ITagRepository
         Items.Add(tag);
         return Task.CompletedTask;
     }
+
+    public Task<IReadOnlyList<Tag>> ListAllAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Tag>>(Items.OrderBy(t => t.Name).ToList());
 }
 
 internal sealed class FakeCatalogProductReader : ICatalogProductReader

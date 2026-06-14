@@ -1,0 +1,11 @@
+﻿<div class="recipes-tag-filters">
+	<button type="button" class="recipes-tag-chip is-active" hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;&quot;}">All</button>
+	<button type="button" class="recipes-tag-chip " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;Guid_1&quot;}">
+		<span class="recipes-tag-chip__dot" style="background:#27ae60"></span>
+		Vegetarian
+	</button>
+	<button type="button" class="recipes-tag-chip " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;Guid_2&quot;}">
+		<span class="recipes-tag-chip__dot" style="background:#e74c3c"></span>
+		Spicy
+	</button>
+</div>

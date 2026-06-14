@@ -120,6 +120,9 @@ public sealed class FakeTagRepository(IReadOnlyDictionary<TagId, string> tagName
     }
 
     public Task AddAsync(Tag tag, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<Tag>> ListAllAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Tag>>([]);
 }
 
 /// <summary>
@@ -143,6 +146,9 @@ public sealed class FakeRecipeRepository(ITenantContext tenant, Recipe recipe) :
 
     public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         Task.FromResult(false);
+
+    public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<Recipe>>([]);
 }
 
 /// <summary>

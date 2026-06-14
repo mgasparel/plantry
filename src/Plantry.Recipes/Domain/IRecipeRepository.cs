@@ -19,4 +19,12 @@ public interface IRecipeRepository
     /// Used by the application layer to enforce R1 (name uniqueness).
     /// </summary>
     Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists all non-archived household recipes for the Browse page (J1/J2, recipes.md resolved call 6).
+    /// Loads ingredients and tag memberships but NOT the recipe_photo (resolved call 3 — photo is
+    /// loaded lazily via a separate image endpoint when gallery view requests the thumbnail).
+    /// Ordered by name for a stable default query; final sort is applied in the application layer.
+    /// </summary>
+    Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default);
 }

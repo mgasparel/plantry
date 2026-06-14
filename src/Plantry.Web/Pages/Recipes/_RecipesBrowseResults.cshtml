@@ -1,0 +1,261 @@
+@model Plantry.Web.Pages.Recipes.IndexModel
+@using Plantry.Recipes.Application
+@using Plantry.Recipes.Domain
+@{
+    var rows = Model.Result.Rows;
+    var allTags = Model.Result.AllTags;
+}
+
+@if (rows.Count == 0)
+{
+    @* ── Empty state (no recipes at all vs filters match nothing) ─────────────── *@
+    if (allTags.Count == 0 && string.IsNullOrEmpty(Model.Q) && !Model.Soon && Model.TagId is null)
+    {
+        @* Zero-data state: household has no recipes yet *@
+        <div class="empty-state">
+            <svg class="empty-state__icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+            <div class="empty-state__title">No recipes yet</div>
+            <p class="empty-state__body">Your household's recipes will live here — what you cook, what's in season, and what you can make from the stock you already have.</p>
+        </div>
+    }
+    else
+    {
+        @* Filter empty state: filters are active but nothing matches *@
+        <div class="recipes-browse-empty">
+            <div class="recipes-browse-empty__title">No recipes match your filters</div>
+            <p class="recipes-browse-empty__body">Try clearing the search or tag filter.</p>
+        </div>
+    }
+}
+else
+{
+    @* ── Gallery mode ─────────────────────────────────────────────────────── *@
+    <div x-show="view === 'gallery'" id="recipes-gallery">
+        <div class="recipes-gallery">
+            @foreach (var row in rows)
+            {
+                var level = IndexModel.FulfLevel(row.FulfillmentPct);
+                var recipeTags = row.TagIds
+                    .Select(tid => allTags.FirstOrDefault(t => t.Id.Value == tid))
+                    .Where(t => t is not null)
+                    .Take(2)
+                    .ToList();
+                <a class="recipe-card" href="/Recipes/@row.RecipeId" id="recipe-card-@row.RecipeId">
+                    <div class="recipe-card__photo recipe-card__photo--placeholder">
+                        @* Hero thumbnail: lazy-loaded by the image endpoint (resolved call 3 — no photo join in list query) *@
+                        @if (row.HasPhoto)
+                        {
+                            <img src="/Recipes/@row.RecipeId/Photo" alt="@row.Name" loading="lazy" />
+                        }
+                    </div>
+                    <div class="recipe-card__scrim" aria-hidden="true"></div>
+
+                    @* Tag mini-pills: top-left, up to 2 *@
+                    @if (recipeTags.Count > 0)
+                    {
+                        <div class="recipe-card__tags" aria-hidden="true">
+                            @foreach (var tag in recipeTags)
+                            {
+                                var color = IndexModel.TagColor(tag!.Name);
+                                <span class="recipe-tag-mini">
+                                    <span class="recipe-tag-mini__dot" style="background:@color"></span>
+                                    @tag.Name
+                                </span>
+                            }
+                        </div>
+                    }
+
+                    @* Status flags: top-right *@
+                    <div class="recipe-card__flags" aria-hidden="true">
+                        @if (row.FullyCookable)
+                        {
+                            <span class="recipe-card__flag recipe-card__flag--cookable">
+                                <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg> Cook tonight
+                            </span>
+                        }
+                        @if (row.HasIngredientExpiringSoon)
+                        {
+                            <span class="recipe-card__flag recipe-card__flag--soon">
+                                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
+                            </span>
+                        }
+                    </div>
+
+                    @* Bottom info overlay *@
+                    <div class="recipe-card__info">
+                        <div class="recipe-card__name">@row.Name</div>
+                        <div class="recipe-card__signals">
+                            <span class="fulf-pill">
+                                <span class="fulf-pill__dot fulf-@(level)-bg" aria-hidden="true"></span>
+                                @row.FulfillmentPct%
+                            </span>
+                            <span class="recipe-card__signal-meta">
+                                <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
+                                @IndexModel.FmtTime(row.CookTimeMinutes)
+                            </span>
+                            @if (row.CostPerServing.HasValue)
+                            {
+                                <span class="recipe-card__signal-dot" aria-hidden="true"></span>
+                                <span class="recipe-card__signal-meta" style="font-family:var(--font-mono)">
+                                    @row.CostPerServing.Value.ToString("C2")/serving
+                                    @if (row.CostCompleteness == CostCompleteness.Partial)
+                                    {
+                                        <span title="Partial cost estimate">~</span>
+                                    }
+                                </span>
+                            }
+                        </div>
+                    </div>
+                </a>
+            }
+        </div>
+    </div>
+
+    @* ── Grid mode ────────────────────────────────────────────────────────── *@
+    <div x-show="view === 'grid'" id="recipes-grid">
+        <div class="recipes-grid" role="table" aria-label="Recipes">
+            <div class="recipes-grid__head" role="row">
+                <div role="columnheader">
+                    <button type="button"
+                            class="recipes-grid__head-btn @(Model.Sort == "name" ? "is-active" : "") @(Model.Sort == "name" && !Model.Desc ? "is-desc" : "")"
+                            hx-get="/Recipes"
+                            hx-target="#recipes-results"
+                            hx-swap="innerHTML"
+                            hx-include="#recipes-filter-form"
+                            hx-vals='{"sort": "name", "desc": "@(Model.Sort == "name" ? (!Model.Desc).ToString().ToLower() : "false")"}'>
+                        Recipe
+                        @if (Model.Sort == "name")
+                        {
+                            <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                        }
+                    </button>
+                </div>
+                <div role="columnheader">
+                    <button type="button"
+                            class="recipes-grid__head-btn @(Model.Sort is null or "fulfillment" ? "is-active" : "") @(Model.Sort is null or "fulfillment" && !Model.Desc ? "is-desc" : "")"
+                            hx-get="/Recipes"
+                            hx-target="#recipes-results"
+                            hx-swap="innerHTML"
+                            hx-include="#recipes-filter-form"
+                            hx-vals='{"sort": "fulfillment", "desc": "@(Model.Sort is null or "fulfillment" ? (!Model.Desc).ToString().ToLower() : "true")"}'>
+                        Fulfillment
+                        @if (Model.Sort is null or "fulfillment")
+                        {
+                            <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                        }
+                    </button>
+                </div>
+                <div class="num" role="columnheader">
+                    <button type="button"
+                            class="recipes-grid__head-btn @(Model.Sort == "cost" ? "is-active" : "") @(Model.Sort == "cost" && !Model.Desc ? "is-desc" : "")"
+                            hx-get="/Recipes"
+                            hx-target="#recipes-results"
+                            hx-swap="innerHTML"
+                            hx-include="#recipes-filter-form"
+                            hx-vals='{"sort": "cost", "desc": "@(Model.Sort == "cost" ? (!Model.Desc).ToString().ToLower() : "false")"}'>
+                        Cost
+                        @if (Model.Sort == "cost")
+                        {
+                            <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                        }
+                    </button>
+                </div>
+                <div role="columnheader">
+                    <button type="button"
+                            class="recipes-grid__head-btn @(Model.Sort == "cooktime" ? "is-active" : "") @(Model.Sort == "cooktime" && !Model.Desc ? "is-desc" : "")"
+                            hx-get="/Recipes"
+                            hx-target="#recipes-results"
+                            hx-swap="innerHTML"
+                            hx-include="#recipes-filter-form"
+                            hx-vals='{"sort": "cooktime", "desc": "@(Model.Sort == "cooktime" ? (!Model.Desc).ToString().ToLower() : "false")"}'>
+                        Time
+                        @if (Model.Sort == "cooktime")
+                        {
+                            <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                        }
+                    </button>
+                </div>
+                <div role="columnheader">Serves</div>
+                <div role="columnheader" aria-label="Link"></div>
+            </div>
+
+            @foreach (var row in rows)
+            {
+                var level = IndexModel.FulfLevel(row.FulfillmentPct);
+                var rowTags = row.TagIds
+                    .Select(tid => allTags.FirstOrDefault(t => t.Id.Value == tid))
+                    .Where(t => t is not null)
+                    .ToList();
+
+                <a class="recipes-grid__row" href="/Recipes/@row.RecipeId" role="row" id="recipe-row-@row.RecipeId">
+                    @* Recipe name cell *@
+                    <div class="recipes-grid__name-cell" role="cell">
+                        <div class="recipes-grid__thumb-placeholder" aria-hidden="true">
+                            <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+                        </div>
+                        <div class="recipes-grid__name-text">
+                            <b>@row.Name</b>
+                            <div class="recipes-grid__name-tags">
+                                @foreach (var tag in rowTags)
+                                {
+                                    var color = IndexModel.TagColor(tag!.Name);
+                                    <span class="recipe-tag-text">
+                                        <span class="recipe-tag-text__dot" style="background:@color"></span>
+                                        @tag.Name
+                                    </span>
+                                }
+                                @if (row.HasIngredientExpiringSoon)
+                                {
+                                    <span class="recipes-grid__soon-badge">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    @* Fulfillment meter *@
+                    <div class="fulf-meter" role="cell">
+                        <div class="fulf-meter__bar-wrap" aria-hidden="true">
+                            <span class="fulf-meter__bar fulf-@(level)-bg" style="width:@row.FulfillmentPct%"></span>
+                        </div>
+                        <div class="fulf-meter__labels">
+                            <div class="fulf-meter__pct fulf-@level">@row.FulfillmentPct%</div>
+                            <div class="fulf-meter__sub">@row.InStockCount/@row.TotalIngredientCount in stock</div>
+                        </div>
+                    </div>
+
+                    @* Cost cell (omit when CostCompleteness=None) *@
+                    <div class="recipes-grid__cell recipes-grid__cell--cost num" role="cell">
+                        @if (row.CostPerServing.HasValue)
+                        {
+                            @row.CostPerServing.Value.ToString("C2")
+                            <span class="recipes-grid__cell-sub"> /serv</span>
+                            @if (row.CostCompleteness == CostCompleteness.Partial)
+                            {
+                                <span title="Partial cost estimate" style="color:var(--color-text-faint)">~</span>
+                            }
+                        }
+                        else
+                        {
+                            <span style="color:var(--color-text-faint);font-family:var(--font-sans)">—</span>
+                        }
+                    </div>
+
+                    @* Cook time *@
+                    <div class="recipes-grid__cell" role="cell">@IndexModel.FmtTime(row.CookTimeMinutes)</div>
+
+                    @* Default servings *@
+                    <div class="recipes-grid__cell" role="cell">
+                        @row.DefaultServings <span class="recipes-grid__cell-sub">serv</span>
+                    </div>
+
+                    @* Trailing chevron *@
+                    <div role="cell" aria-hidden="true">
+                        <svg class="icon recipes-grid__chev"><use href="#i-chevron-right" /></svg>
+                    </div>
+                </a>
+            }
+        </div>
+    </div>
+}

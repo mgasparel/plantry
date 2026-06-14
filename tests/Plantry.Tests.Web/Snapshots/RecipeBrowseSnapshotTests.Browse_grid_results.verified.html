@@ -1,0 +1,157 @@
+﻿<div x-show="view === 'grid'" id="recipes-grid">
+	<div class="recipes-grid" role="table" aria-label="Recipes">
+		<div class="recipes-grid__head" role="row">
+			<div role="columnheader">
+				<button type="button" class="recipes-grid__head-btn is-active is-desc" hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;sort&quot;: &quot;name&quot;, &quot;desc&quot;: &quot;true&quot;}">
+					Recipe
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-chevron"></use>
+					</svg>
+				</button>
+			</div>
+			<div role="columnheader">
+				<button type="button" class="recipes-grid__head-btn  " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;sort&quot;: &quot;fulfillment&quot;, &quot;desc&quot;: &quot;true&quot;}">
+					Fulfillment
+				</button>
+			</div>
+			<div class="num" role="columnheader">
+				<button type="button" class="recipes-grid__head-btn  " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;sort&quot;: &quot;cost&quot;, &quot;desc&quot;: &quot;false&quot;}">
+					Cost
+				</button>
+			</div>
+			<div role="columnheader">
+				<button type="button" class="recipes-grid__head-btn  " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;sort&quot;: &quot;cooktime&quot;, &quot;desc&quot;: &quot;false&quot;}">
+					Time
+				</button>
+			</div>
+			<div role="columnheader">Serves</div>
+			<div role="columnheader" aria-label="Link"></div>
+		</div>
+		<a class="recipes-grid__row" href="/Recipes/Guid_1" role="row" id="recipe-row-Guid_1">
+			<div class="recipes-grid__name-cell" role="cell">
+				<div class="recipes-grid__thumb-placeholder" aria-hidden="true">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-recipe"></use>
+					</svg>
+				</div>
+				<div class="recipes-grid__name-text">
+					<b>Milk Shake</b>
+					<div class="recipes-grid__name-tags">
+					</div>
+				</div>
+			</div>
+			<div class="fulf-meter" role="cell">
+				<div class="fulf-meter__bar-wrap" aria-hidden="true">
+					<span class="fulf-meter__bar fulf-hi-bg" style="width:100%"></span>
+				</div>
+				<div class="fulf-meter__labels">
+					<div class="fulf-meter__pct fulf-hi">100%</div>
+					<div class="fulf-meter__sub">1/1 in stock</div>
+				</div>
+			</div>
+			<div class="recipes-grid__cell recipes-grid__cell--cost num" role="cell">
+				<span style="color:var(--color-text-faint);font-family:var(--font-sans)">—</span>
+			</div>
+			<div class="recipes-grid__cell" role="cell">5 min</div>
+			<div class="recipes-grid__cell" role="cell">
+				2
+				<span class="recipes-grid__cell-sub">serv</span>
+			</div>
+			<div role="cell" aria-hidden="true">
+				<svg class="icon recipes-grid__chev">
+					<use href="#i-chevron-right"></use>
+				</svg>
+			</div>
+		</a>
+		<a class="recipes-grid__row" href="/Recipes/Guid_2" role="row" id="recipe-row-Guid_2">
+			<div class="recipes-grid__name-cell" role="cell">
+				<div class="recipes-grid__thumb-placeholder" aria-hidden="true">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-recipe"></use>
+					</svg>
+				</div>
+				<div class="recipes-grid__name-text">
+					<b>Omelette</b>
+					<div class="recipes-grid__name-tags">
+						<span class="recipe-tag-text">
+							<span class="recipe-tag-text__dot" style="background:#e74c3c"></span>
+							Spicy
+						</span>
+						<span class="recipes-grid__soon-badge">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-timer"></use>
+							</svg>
+							Use soon
+						</span>
+					</div>
+				</div>
+			</div>
+			<div class="fulf-meter" role="cell">
+				<div class="fulf-meter__bar-wrap" aria-hidden="true">
+					<span class="fulf-meter__bar fulf-hi-bg" style="width:100%"></span>
+				</div>
+				<div class="fulf-meter__labels">
+					<div class="fulf-meter__pct fulf-hi">100%</div>
+					<div class="fulf-meter__sub">1/1 in stock</div>
+				</div>
+			</div>
+			<div class="recipes-grid__cell recipes-grid__cell--cost num" role="cell">
+				$0.44
+				<span class="recipes-grid__cell-sub">
+					/serv</span>
+			</div>
+			<div class="recipes-grid__cell" role="cell">10 min</div>
+			<div class="recipes-grid__cell" role="cell">
+				2
+				<span class="recipes-grid__cell-sub">serv</span>
+			</div>
+			<div role="cell" aria-hidden="true">
+				<svg class="icon recipes-grid__chev">
+					<use href="#i-chevron-right"></use>
+				</svg>
+			</div>
+		</a>
+		<a class="recipes-grid__row" href="/Recipes/Guid_3" role="row" id="recipe-row-Guid_3">
+			<div class="recipes-grid__name-cell" role="cell">
+				<div class="recipes-grid__thumb-placeholder" aria-hidden="true">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-recipe"></use>
+					</svg>
+				</div>
+				<div class="recipes-grid__name-text">
+					<b>Pancakes</b>
+					<div class="recipes-grid__name-tags">
+						<span class="recipe-tag-text">
+							<span class="recipe-tag-text__dot" style="background:#27ae60"></span>
+							Vegetarian
+						</span>
+					</div>
+				</div>
+			</div>
+			<div class="fulf-meter" role="cell">
+				<div class="fulf-meter__bar-wrap" aria-hidden="true">
+					<span class="fulf-meter__bar fulf-hi-bg" style="width:100%"></span>
+				</div>
+				<div class="fulf-meter__labels">
+					<div class="fulf-meter__pct fulf-hi">100%</div>
+					<div class="fulf-meter__sub">1/1 in stock</div>
+				</div>
+			</div>
+			<div class="recipes-grid__cell recipes-grid__cell--cost num" role="cell">
+				$0.10
+				<span class="recipes-grid__cell-sub">
+					/serv</span>
+			</div>
+			<div class="recipes-grid__cell" role="cell">20 min</div>
+			<div class="recipes-grid__cell" role="cell">
+				4
+				<span class="recipes-grid__cell-sub">serv</span>
+			</div>
+			<div role="cell" aria-hidden="true">
+				<svg class="icon recipes-grid__chev">
+					<use href="#i-chevron-right"></use>
+				</svg>
+			</div>
+		</a>
+	</div>
+</div>

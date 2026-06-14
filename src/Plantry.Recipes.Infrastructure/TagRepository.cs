@@ -20,4 +20,7 @@ public sealed class TagRepository(RecipesDbContext db) : ITagRepository
 
     public async Task AddAsync(Tag tag, CancellationToken ct = default) =>
         await db.Tags.AddAsync(tag, ct);
+
+    public async Task<IReadOnlyList<Tag>> ListAllAsync(CancellationToken ct = default) =>
+        await db.Tags.OrderBy(t => t.Name).ToListAsync(ct);
 }
