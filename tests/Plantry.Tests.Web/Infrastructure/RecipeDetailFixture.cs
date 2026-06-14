@@ -181,4 +181,7 @@ public sealed class FakeCatalogProductReader(
             .ToDictionary(id => id, id => unitCodes[id]);
         return Task.FromResult(result);
     }
+
+    public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
 }

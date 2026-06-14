@@ -1,0 +1,409 @@
+@page "/Recipes/{id:guid?}/Edit"
+@model Plantry.Web.Pages.Recipes.EditModel
+@{
+    ViewData["Title"] = Model.IsCreate ? "New Recipe" : "Edit Recipe";
+}
+
+@*
+    Recipe editor — J6 (create) and J7 (edit).
+
+    Alpine x-data carries:
+      - tags[]         : array of tag name strings (the multi-select state)
+      - newTag         : the current text in the tag input (for inline-create)
+      - servings       : current servings value (mirrors the input, for scale-offer visibility)
+      - origServings   : the original servings (populated from server; 0 for create)
+      - hasIngredients : whether the recipe has pre-existing ingredients (enables scale offer)
+      - scaleMode      : "Keep" | "Proportional"
+      - rows[]         : ingredient rows — each has { ordinal, productId, productName, qty, unitId,
+                          groupHeading, isUntracked, newStapleName, newStapleUnit, needsConversion,
+                          conversionFactor, conversionFromUnitId, conversionToUnitId }
+      - nextOrdinal()  : counter for assigning ordinals to new rows
+      - addRow()       : appends a blank row
+      - removeRow(idx) : removes row at index idx
+      - dragStart(idx), dragOver(idx), drop(idx) : drag-reorder state
+
+    Hidden inputs are generated from the Alpine state on submit by x-bind:value from each row,
+    allowing the server to bind Input.Lines[n].PropertyName via model binding.
+
+    Per ADR-005, Alpine owns the unsaved per-row draft state. The form-binding hidden inputs are
+    the source of truth that posts — they mirror the Alpine state.
+*@
+
+@*
+    Inline-create staple mode: when the product search yields no results the user can click
+    "Create as staple" to switch the row from product-pick mode to new-staple mode (C12).
+    In new-staple mode the search input becomes the staple name and a unit select appears.
+    This is surfaced by Alpine per row via row.newStapleName !== null.
+*@
+
+<div id="recipe-editor"
+     x-data="{
+         tags: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Input.Tags)),
+         newTag: '',
+         servings: @Model.Input.DefaultServings,
+         origServings: @Model.OriginalServings,
+         hasIngredients: @(Model.HasExistingIngredients ? "true" : "false"),
+         scaleMode: '@Model.Input.ScaleMode.ToString()',
+         rows: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+             Model.Input.Lines.Select(l => new {
+                 ordinal = l.Ordinal,
+                 productId = l.ProductId?.ToString() ?? "",
+                 productName = l.ProductName ?? "",
+                 qty = l.Quantity?.ToString() ?? "",
+                 unitId = l.UnitId?.ToString() ?? "",
+                 groupHeading = l.GroupHeading ?? "",
+                 isUntracked = false,
+                 newStapleName = (string?)null,
+                 newStapleUnit = "",
+                 needsConversion = l.NeedsConversion,
+                 conversionFactor = l.ConversionFactor?.ToString() ?? "",
+                 conversionFromUnitId = l.ConversionFromUnitId.ToString(),
+                 conversionToUnitId = l.ConversionToUnitId.ToString(),
+             }))),
+         _nextOrd: @(Model.Input.Lines.Count > 0 ? Model.Input.Lines.Max(l => l.Ordinal) + 1 : 1),
+         addRow() {
+             this.rows.push({ ordinal: this._nextOrd++, productId: '', productName: '', qty: '',
+                 unitId: '', groupHeading: '', isUntracked: false, newStapleName: null,
+                 newStapleUnit: '', needsConversion: false, conversionFactor: '',
+                 conversionFromUnitId: '', conversionToUnitId: '' });
+         },
+         removeRow(idx) { this.rows.splice(idx, 1); this.reassignOrdinals(); },
+         reassignOrdinals() { this.rows.forEach((r, i) => r.ordinal = i); this._nextOrd = this.rows.length; },
+         _dragIdx: null,
+         dragStart(idx) { this._dragIdx = idx; },
+         dragOver(idx) {
+             if (this._dragIdx === null || this._dragIdx === idx) return;
+             const moved = this.rows.splice(this._dragIdx, 1)[0];
+             this.rows.splice(idx, 0, moved);
+             this._dragIdx = idx;
+             this.reassignOrdinals();
+         },
+         drop() { this._dragIdx = null; },
+         addTag() {
+             const t = this.newTag.trim();
+             if (t && !this.tags.includes(t)) this.tags.push(t);
+             this.newTag = '';
+         },
+         removeTag(i) { this.tags.splice(i, 1); },
+         selectProduct(row, detail) {
+             row.productId = detail.value;
+             row.productName = detail.name;
+             row.isUntracked = detail.track === 'false';
+             if (row.isUntracked) { row.qty = ''; row.unitId = ''; }
+         },
+         showScaleOffer() { return !this.isCreate && this.hasIngredients && parseInt(this.servings) !== this.origServings; },
+         isCreate: @(Model.IsCreate ? "true" : "false"),
+     }">
+
+    @* ── Error banner ─────────────────────────────────────────────────────────── *@
+    @if (Model.SaveError is { } err)
+    {
+        <div class="save-error" role="alert" style="background:var(--color-danger-bg);border:1px solid var(--color-danger);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);margin-bottom:var(--space-4);color:var(--color-danger)">
+            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+            @err
+        </div>
+    }
+
+    <form method="post" enctype="multipart/form-data" class="form-stack">
+        @Html.AntiForgeryToken()
+
+        @* ── Recipe basics card ──────────────────────────────────────────────── *@
+        <div class="card">
+            <div class="card__head">
+                <div><h3 class="card__head-title">Recipe details</h3></div>
+            </div>
+            <div class="card__body">
+                <div class="form-grid">
+                    <field asp-for="Input.Name" stacked full>
+                        <input asp-for="Input.Name" class="field__input" placeholder="e.g. Chicken soup" />
+                        <span asp-validation-for="Input.Name" class="field__error"></span>
+                    </field>
+
+                    <field asp-for="Input.DefaultServings" stacked>
+                        <input asp-for="Input.DefaultServings" class="field__input" type="number" min="1" step="1"
+                               x-model.number="servings" />
+                        <span asp-validation-for="Input.DefaultServings" class="field__error"></span>
+                    </field>
+
+                    <field asp-for="Input.CookTimeMinutes" stacked>
+                        <div class="form-grid__unit-suffix">
+                            <input asp-for="Input.CookTimeMinutes" class="field__input" type="number" min="1" step="1" />
+                            <span class="form-grid__unit-suffix__label">min</span>
+                        </div>
+                    </field>
+
+                    <field asp-for="Input.Source" stacked full>
+                        <input asp-for="Input.Source" class="field__input" placeholder="e.g. Family recipe or https://example.com/recipe" />
+                    </field>
+
+                    <div style="grid-column: 1 / -1">
+                        <label class="form-grid__field__label" style="font-size:var(--font-size-sm);color:var(--color-text-muted);display:block;margin-bottom:var(--space-1)">Photo</label>
+                        <input type="file" name="photo" accept="image/*" class="field__input" />
+                        @if (!Model.IsCreate)
+                        {
+                            <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-1) 0 0">Upload a new photo to replace the existing one. Leave blank to keep it.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* ── Servings scale offer (J7 step 3) — shown on edit when servings change ── *@
+        @if (!Model.IsCreate)
+        {
+            <input type="hidden" name="Input.ScaleMode" :value="scaleMode" />
+            <div class="card" x-show="showScaleOffer()" x-cloak>
+                <div class="card__head">
+                    <div>
+                        <h3 class="card__head-title">Scale ingredients?</h3>
+                        <p class="card__head-sub">You changed the default servings. How should ingredient quantities be adjusted?</p>
+                    </div>
+                </div>
+                <div class="card__body">
+                    <div class="seg-ctrl" role="group" aria-label="Scale mode">
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="_scaleMode" value="Proportional" x-model="scaleMode" />
+                            <span>Proportional — scale quantities</span>
+                        </label>
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="_scaleMode" value="Keep" x-model="scaleMode" />
+                            <span>Keep — preserve quantities</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <input type="hidden" name="Input.ScaleMode" value="Keep" />
+        }
+
+        @* ── Tags multi-select with inline create ────────────────────────────── *@
+        <div class="card">
+            <div class="card__head">
+                <div>
+                    <h3 class="card__head-title">Tags</h3>
+                    <p class="card__head-sub">Type a tag name and press Enter or comma to add it. New tags are created automatically.</p>
+                </div>
+            </div>
+            <div class="card__body">
+                @* Hidden inputs post the tag names array *@
+                <template x-for="(tag, ti) in tags" :key="ti">
+                    <input type="hidden" name="Input.Tags" :value="tag" />
+                </template>
+
+                @* Chip display + text input on the same line *@
+                <div class="recipe-tag-editor" style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text" @@click="$refs.tagInput.focus()">
+                    <template x-for="(tag, ti) in tags" :key="ti">
+                        <span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
+                            <span x-text="tag"></span>
+                            <button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @@click.stop="removeTag(ti)">×</button>
+                        </span>
+                    </template>
+                    <input type="text" x-ref="tagInput" x-model="newTag" placeholder="Add a tag…"
+                           class="field__input" style="border:none;outline:none;box-shadow:none;padding:0;min-width:8rem;flex:1"
+                           @@keydown.enter.prevent="addTag()"
+                           @@keydown.comma.prevent="addTag()"
+                           @@keydown.backspace="if (!newTag && tags.length) removeTag(tags.length - 1)" />
+                </div>
+            </div>
+        </div>
+
+        @* ── Ingredients ──────────────────────────────────────────────────────── *@
+        <div class="card">
+            <div class="card__head">
+                <div>
+                    <h3 class="card__head-title">Ingredients</h3>
+                    <p class="card__head-sub">Drag rows to reorder. Search for a product or create a new staple if nothing matches.</p>
+                </div>
+            </div>
+            <div class="card__body" style="padding:0">
+                @* Ingredient rows — each rendered by Alpine template loop *@
+                <div id="ingredient-rows">
+                    <template x-for="(row, idx) in rows" :key="row.ordinal">
+                        <div class="ingredient-row"
+                             :class="{ 'ingredient-row--needs-conversion': row.needsConversion }"
+                             draggable="true"
+                             @@dragstart.self="dragStart(idx)"
+                             @@dragover.prevent="dragOver(idx)"
+                             @@drop="drop()"
+                             @@pick-product="selectProduct(row, $event.detail)">
+
+                            @* Hidden inputs for model binding — mirrors Alpine row state *@
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].Ordinal'" :value="row.ordinal" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleName'" :value="row.newStapleName ?? ''" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleDefaultUnitId'" :value="row.newStapleUnit" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].GroupHeading'" :value="row.groupHeading" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].ConversionFactor'" :value="row.conversionFactor" />
+
+                            <div class="ingredient-row__body">
+                                @* Drag handle *@
+                                <div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder" style="cursor:grab;color:var(--color-text-muted);padding:var(--space-2);display:flex;align-items:center">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/></svg>
+                                </div>
+
+                                @* Product column: searchable-select or new-staple input *@
+                                <div class="ingredient-row__product" style="flex:2;min-width:0">
+                                    @* Product search mode (default) *@
+                                    <div x-show="row.newStapleName === null">
+                                        <div class="searchable-select" x-data="searchableSelect()"
+                                             :data-initial-label="row.productName"
+                                             @@click.outside="open = false" @@keydown.escape="open = false">
+                                            <input type="text" class="field__input" role="combobox" autocomplete="off"
+                                                   placeholder="Search products…"
+                                                   x-model="query"
+                                                   :aria-expanded="open"
+                                                   @@focus="open = true"
+                                                   @@keydown.down.prevent="highlightNext()"
+                                                   @@keydown.up.prevent="highlightPrev()"
+                                                   @@keydown.enter.prevent="(function(){ const li = $refs.listbox && ($refs.listbox.querySelector('[aria-selected=true]') || $refs.listbox.querySelector('li')); if (li) li.click(); })()"
+                                                   name="q"
+                                                   :id="'prod-search-' + idx"
+                                                   hx-get="@Url.Page("./Edit", "SearchProducts")"
+                                                   hx-trigger="keyup changed delay:250ms, focus"
+                                                   :hx-target="'#prod-list-' + idx"
+                                                   hx-swap="innerHTML"
+                                                   hx-params="q"
+                                                   @@htmx:after-swap="open = true" />
+                                            <ul class="searchable-select__listbox"
+                                                :id="'prod-list-' + idx"
+                                                role="listbox"
+                                                x-ref="listbox"
+                                                x-show="open" x-cloak style="display:none">
+                                            </ul>
+                                        </div>
+                                        <div x-show="!row.productId" style="margin-top:var(--space-1)">
+                                            <button type="button" class="btn btn--ghost btn--sm"
+                                                    @@click="row.newStapleName = row.productId || ''">
+                                                + Create as staple (untracked)
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    @* New staple mode (C12) *@
+                                    <div x-show="row.newStapleName !== null" style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
+                                        <input type="text" class="field__input" placeholder="Staple name (e.g. Salt)"
+                                               x-model="row.newStapleName" style="flex:1;min-width:8rem" />
+                                        <select class="field__input" x-model="row.newStapleUnit" style="min-width:5rem">
+                                            <option value="">unit</option>
+                                            @foreach (var u in Model.UnitOptions)
+                                            {
+                                                <option value="@u.Value">@u.Text</option>
+                                            }
+                                        </select>
+                                        <button type="button" class="btn btn--ghost btn--sm"
+                                                @@click="row.newStapleName = null; row.productId = ''; row.newStapleUnit = ''">
+                                            ← Search instead
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @* Qty + unit — hidden for untracked rows *@
+                                <div class="ingredient-row__qty" x-show="!row.isUntracked && row.newStapleName === null"
+                                     style="display:flex;gap:var(--space-2);align-items:center;flex-shrink:0">
+                                    <input type="number" class="field__input" step="any" min="0"
+                                           placeholder="Qty"
+                                           x-model="row.qty"
+                                           style="width:5rem;text-align:center" />
+                                    <select class="field__input" x-model="row.unitId" style="min-width:5rem">
+                                        <option value="">unit</option>
+                                        @foreach (var u in Model.UnitOptions)
+                                        {
+                                            <option value="@u.Value">@u.Text</option>
+                                        }
+                                    </select>
+                                </div>
+
+                                @* Group heading field *@
+                                <div class="ingredient-row__group" style="flex:1;min-width:0">
+                                    <input type="text" class="field__input" placeholder="Group (optional)"
+                                           x-model="row.groupHeading" style="font-size:var(--font-size-sm)" />
+                                </div>
+
+                                @* Delete button *@
+                                <button type="button" class="btn btn--ghost btn--sm"
+                                        aria-label="Remove ingredient"
+                                        @@click="removeRow(idx)"
+                                        style="flex-shrink:0;color:var(--color-danger)">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                </button>
+                            </div>
+
+                            @* Inline ProductConversion form (C10 — NeedsConversion outcome) *@
+                            <div x-show="row.needsConversion"
+                                 class="ingredient-row__conversion"
+                                 style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
+                                <p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+                                    No conversion path found. Enter the factor from your chosen unit to the product's default unit:
+                                </p>
+                                <div style="display:flex;align-items:center;gap:var(--space-2)">
+                                    <input type="number" class="field__input" step="any" min="0"
+                                           placeholder="Conversion factor"
+                                           x-model="row.conversionFactor"
+                                           style="width:10rem" />
+                                    <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">
+                                        × (your unit) = 1 × (product default unit)
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div style="padding:var(--space-4)">
+                    <button type="button" class="btn btn--ghost btn--sm" @@click="addRow()">
+                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                        Add ingredient
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        @* ── Directions ───────────────────────────────────────────────────────── *@
+        <div class="card">
+            <div class="card__head">
+                <div>
+                    <h3 class="card__head-title">Directions</h3>
+                    <p class="card__head-sub">One step per line. A blank line starts a new step. A line starting with # becomes a section heading.</p>
+                </div>
+            </div>
+            <div class="card__body">
+                <textarea asp-for="Input.Directions"
+                          class="field__input"
+                          rows="10"
+                          placeholder="# Prep&#10;Dice the onion.&#10;&#10;Sauté in butter for 5 minutes.&#10;&#10;# Cook&#10;Add the broth and simmer 20 minutes."
+                          style="width:100%;resize:vertical;font-family:inherit"></textarea>
+            </div>
+        </div>
+
+        @* ── Submit bar ───────────────────────────────────────────────────────── *@
+        <div class="commit-bar" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4) 0">
+            <a href="@(Model.IsCreate ? "/Recipes" : $"/Recipes/{Model.Id}")" class="btn btn--ghost">Cancel</a>
+            <span style="flex:1"></span>
+            <button type="submit" class="btn btn--primary">
+                @(Model.IsCreate ? "Create recipe" : "Save changes")
+            </button>
+        </div>
+    </form>
+</div>
+
+@* ── CSS for ingredient rows (scoped to this page) ───────────────────────────── *@
+<style>
+    .ingredient-row {
+        display: flex;
+        flex-direction: column;
+        border-bottom: 1px solid var(--color-border);
+    }
+    .ingredient-row:last-child { border-bottom: none; }
+    .ingredient-row--needs-conversion { border-left: 3px solid var(--color-warning); }
+    .ingredient-row__body {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-4);
+    }
+    .recipe-tag-editor:focus-within { border-color: var(--color-accent); }
+</style>
