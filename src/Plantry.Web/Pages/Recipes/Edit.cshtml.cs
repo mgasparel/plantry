@@ -132,8 +132,8 @@ public sealed class EditModel(
         }
         else
         {
-            // Create: start with one empty ingredient row
-            Input.Lines = [new IngredientRowInput { Ordinal = 0 }];
+            // Create: start with no ingredients — the user adds them via the add/edit sheet.
+            Input.Lines = [];
             OriginalServings = 0;
         }
 
@@ -158,7 +158,7 @@ public sealed class EditModel(
         // with access to the current x-for 'row' scope — avoids the nested x-data scope conflict
         // that would occur with a single-arg $el approach.
         var html = string.Join("", hits.Select(p =>
-            $$"""<li role="option" data-value="{{p.Id}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" @click="$dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: $el.dataset.track})">{{enc.Encode(p.Name)}}</li>"""));
+            $$"""<li role="option" data-value="{{p.Id}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: $el.dataset.track})">{{enc.Encode(p.Name)}}</li>"""));
         return Content(html, "text/html");
     }
 
@@ -282,9 +282,12 @@ public sealed class EditModel(
 
     private void RestoreLines()
     {
-        // Ensure there is always at least one row after a failed save so the form stays usable.
-        if (Input.Lines.Count == 0)
-            Input.Lines = [new IngredientRowInput { Ordinal = 0 }];
+        // Drop blank rows (no product chosen and no staple name) so the read-only ingredient list
+        // doesn't render ghost entries after a failed save. Rows flagged for conversion keep their
+        // ProductId, so the NeedsConversion annotations set above survive this filter.
+        Input.Lines = Input.Lines
+            .Where(l => l.ProductId.HasValue || !string.IsNullOrWhiteSpace(l.NewStapleName))
+            .ToList();
     }
 }
 

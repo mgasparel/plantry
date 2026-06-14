@@ -82,6 +82,47 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         return productName;
     }
 
+    // ── Ingredient sheet helpers (the editor adds/edits ingredients via a modal sheet) ──
+
+    /// <summary>Opens the add-ingredient sheet, picks a product via search, fills qty + unit, and commits.</summary>
+    private async Task AddProductIngredientAsync(IPage page, string productName, string qty, string unitLabel)
+    {
+        await page.ClickAsync("button:has-text('Add ingredient')");
+        var sheet = page.Locator(".sheet");
+        await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+        // Type char-by-char (PressSequentially) so the htmx "keyup" trigger fires — the listbox is
+        // populated entirely by the htmx search, and FillAsync sets .value without firing keyup.
+        await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 8));
+        var option = page.Locator("#prod-list-sheet li[role='option']", new() { HasText = productName });
+        await Assertions.Expect(option).ToBeVisibleAsync();
+        await option.ClickAsync();
+
+        await sheet.Locator("input[type='number']").FillAsync(qty);
+        // `select:visible` resolves to the unit select — the staple-mode select is x-show hidden here.
+        await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
+
+        await sheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+        await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+    }
+
+    /// <summary>Opens the add-ingredient sheet, switches to inline-staple mode, fills name + unit, and commits.</summary>
+    private async Task AddStapleIngredientAsync(IPage page, string stapleName, string unitLabel)
+    {
+        await page.ClickAsync("button:has-text('Add ingredient')");
+        var sheet = page.Locator(".sheet");
+        await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+        await sheet.Locator("button:has-text('Create as staple')").ClickAsync();
+        var nameInput = sheet.Locator("input[placeholder='Staple name (e.g. Salt)']");
+        await Assertions.Expect(nameInput).ToBeVisibleAsync();
+        await nameInput.FillAsync(stapleName);
+        await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
+
+        await sheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+        await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+    }
+
     // ── Journey 1: Create ─────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "J6 Create: new recipe → ingredient search + inline staple + new tag + photo → Detail shows content")]
@@ -116,34 +157,16 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await Assertions.Expect(page.Locator(".recipe-tag-editor .badge", new() { HasText = "Italian" }))
                 .ToBeVisibleAsync();
 
-            // ── Ingredient row 1: product search ─────────────────────────────────
-            // Alpine pre-renders one empty row. Focus the product search in the first row.
-            var firstRowSearch = page.Locator(".ingredient-row").First
-                .Locator("input[role='combobox']");
-            // Type char-by-char (PressSequentially) so the htmx "keyup" trigger fires — the listbox is
-            // populated entirely by the htmx search, and FillAsync sets .value without firing keyup.
-            await firstRowSearch.PressSequentiallyAsync(tomatoName.Substring(0, 8));
-            // Wait for the htmx product search list to populate
-            var option = page.Locator(".searchable-select__listbox li[role='option']",
-                new() { HasText = tomatoName });
-            await Assertions.Expect(option).ToBeVisibleAsync();
-            await option.ClickAsync();
-
-            // Fill qty and unit for the tracked row
-            var firstRow = page.Locator(".ingredient-row").First;
-            await firstRow.Locator("input[placeholder='Qty']").FillAsync("400");
-            // Scope to the visible qty/unit container — a hidden staple-mode <select> precedes it in the DOM.
-            await firstRow.Locator(".ingredient-row__qty select").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
-
-            // ── Ingredient row 2: inline staple create ────────────────────────────
-            await page.ClickAsync("button:has-text('Add ingredient')");
-            var secondRow = page.Locator(".ingredient-row").Nth(1);
-            // Click "Create as staple (untracked)" to switch the row to staple mode
-            await secondRow.Locator("button:has-text('Create as staple')").ClickAsync();
-            await Assertions.Expect(secondRow.Locator("input[placeholder='Staple name (e.g. Salt)']"))
+            // ── Ingredient 1: product search via the add-ingredient sheet ────────
+            await AddProductIngredientAsync(page, tomatoName, qty: "400", unitLabel: "ea");
+            // The committed row renders read-only with the product name in its summary.
+            await Assertions.Expect(page.Locator(".ingredient-row__summary", new() { HasText = tomatoName }))
                 .ToBeVisibleAsync();
-            await secondRow.Locator("input[placeholder='Staple name (e.g. Salt)']").FillAsync("Olive Oil");
-            await secondRow.Locator("select").First.SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+
+            // ── Ingredient 2: inline staple create via the sheet ──────────────────
+            await AddStapleIngredientAsync(page, "Olive Oil", unitLabel: "ea");
+            await Assertions.Expect(page.Locator(".ingredient-row__summary", new() { HasText = "Olive Oil" }))
+                .ToBeVisibleAsync();
 
             // ── Upload a photo (a tiny PNG — the app stores it as bytea) ─────────
             await page.SetInputFilesAsync("input[type=file][name='photo']", new FilePayload
@@ -216,19 +239,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await page.FillAsync("[name='Input.Name']", recipeName);
             await page.FillAsync("[name='Input.DefaultServings']", "2");
 
-            // Pick the seeded flour product
-            var searchInput = page.Locator(".ingredient-row").First.Locator("input[role='combobox']");
-            // Type char-by-char so the htmx "keyup" search trigger fires (see note in the create journey).
-            await searchInput.PressSequentiallyAsync(flourName.Substring(0, 5));
-            var option = page.Locator(".searchable-select__listbox li[role='option']",
-                new() { HasText = flourName });
-            await Assertions.Expect(option).ToBeVisibleAsync();
-            await option.ClickAsync();
-
-            var firstRow = page.Locator(".ingredient-row").First;
-            await firstRow.Locator("input[placeholder='Qty']").FillAsync("200");
-            // Scope to the visible qty/unit container — a hidden staple-mode <select> precedes it in the DOM.
-            await firstRow.Locator(".ingredient-row__qty select").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+            // Pick the seeded flour product via the add-ingredient sheet
+            await AddProductIngredientAsync(page, flourName, qty: "200", unitLabel: "ea");
 
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
@@ -257,11 +269,16 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             // is visually hidden (sr-only) so it is not directly clickable.
             await page.Locator(".seg-ctrl__item", new() { HasText = "Proportional" }).ClickAsync();
 
-            // ── Also change the first ingredient quantity directly ─────────────────
-            // (Alpine row qty is bound to the hidden input; we edit the visible Qty text input)
-            var qtyInput = page.Locator(".ingredient-row").First.Locator("input[placeholder='Qty']");
+            // ── Also change the first ingredient quantity via its edit sheet ───────
+            await page.Locator(".ingredient-row").First
+                .Locator("button[aria-label='Edit ingredient']").ClickAsync();
+            var editSheet = page.Locator(".sheet");
+            await Assertions.Expect(editSheet).ToBeVisibleAsync();
+            var qtyInput = editSheet.Locator("input[type='number']");
             await qtyInput.ClearAsync();
             await qtyInput.FillAsync("500");
+            await editSheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+            await Assertions.Expect(editSheet).Not.ToBeVisibleAsync();
 
             // ── Submit ────────────────────────────────────────────────────────────
             await page.ClickAsync("button[type=submit]:has-text('Save changes')");

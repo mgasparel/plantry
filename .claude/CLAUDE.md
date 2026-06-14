@@ -24,12 +24,10 @@ Before building any UI element:
 > (documentation, ownership, history, decisions). **Always verify against
 > actual source files before making changes** — the index may be stale.
 
-Last indexed: 2026-06-13 (commit bafd36b). Confidence: 100%.
+Last indexed: 2026-06-14 (commit 049e1e1). Confidence: 100%.
 ### Architecture
-Plantry is a multi-tenant household inventory and grocery intake management system that ingests user-submitted grocery intake sessions and catalog updates, processes them through domain-driven pipelines (Intake, Inventory, and Catalog) with strict row-level security (RLS) isolation, and exposes interactive management interfaces via an ASP.NET Core web application orchestrated by .NET Aspire. The system is designed around Domain-Driven Design (DDD) principles, utilizing a shared kernel to enforce tenancy boundaries and aggregate patterns across multiple bounded contexts. The codebase is organized with clear entry points for both execution and architectural discovery:
-Plantry is structured as a modular monolith adhering to Domain-Driven Design (DDD) and Clean Architecture principles:
-The core business logic is partitioned into distinct bounded contexts:
-The foundational layer that provides common domain abstractions and infrastructure utilities:
+Plantry is a multi-tenant household food and recipe management platform that ingests inventory transactions, catalog definitions, and recipe ingredients, processes them through a Domain-Driven Design (DDD) pipeline featuring row-level database security, and outputs real-time stock journals, intake tracking, and interactive planning tools via an ASP.NET Core web application orchestrated by .NET Aspire. The system is designed around a modular architecture where each domain (Inventory, Recipes, Catalog, Intake) is isolated, yet bound together by a shared kernel that enforces tenancy boundaries at the database connection level. This ensures that household data remains strictly segregated while allowing rich domain interactions. The codebase is organized with clear entry points for both execution and architectural onboarding:
+Plantry is structured as a highly cohesive Modular Monolith.
 ### Entry Points
 - `docs/ADRs/index.md`
 - `docs/DomainDesign/DataModels/index.md`
@@ -42,13 +40,13 @@ The foundational layer that provides common domain abstractions and infrastructu
 **Infra:** .NET Aspire### Architectural Layers
 | Layer | Files | Purpose |
 |-------|-------|---------|
-| UI | 18 |  |
-| Data | 34 |  |
-| Application | 73 |  |
-| Config | 41 |  |
+| UI | 19 |  |
+| Data | 35 |  |
+| Config | 44 |  |
+| Application | 124 |  |
 | Utility | 4 |  |
 | Service | 50 |  |
-| Test | 60 |  |
+| Test | 63 |  |
 
 ### Guided Tour (12 steps)
 1. **README.md** — `README.md`
@@ -61,23 +59,23 @@ The foundational layer that provides common domain abstractions and infrastructu
 ### Hotspots (High Churn)
 | File | Churn | 90d Commits | Owner |
 |------|-------|-------------|-------|
-| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.All_rows.verified.html` | 100.0th %ile | 10 | Michael Gasparelli |
-| `src/Plantry.Web/wwwroot/css/plenish.css` | 99.7th %ile | 12 | Michael Gasparelli |
-| `src/Plantry.Web/Pages/Intake/_ReviewRow.cshtml` | 99.4th %ile | 11 | Michael Gasparelli |
-| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.Confidence_high.verified.html` | 99.1th %ile | 10 | Michael Gasparelli |
-| `tests/Plantry.Tests.Web/Snapshots/ReviewFragmentSnapshotTests.Row_matched.verified.html` | 98.9th %ile | 10 | Michael Gasparelli |
+| `src/Plantry.Web/wwwroot/css/plenish.css` | 100.0th %ile | 13 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Dev/Index.cshtml` | 99.7th %ile | 11 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Intake/Review.cshtml.cs` | 99.5th %ile | 10 | Michael Gasparelli |
+| `tests/Plantry.Tests.Web/ReviewBoundaryTests.cs` | 99.2th %ile | 4 | Michael Gasparelli |
+| `tests/Plantry.Tests.Architecture/BoundaryTests.cs` | 98.9th %ile | 5 | Michael Gasparelli |
 
 ## Code health
-Hotspot health: 7.58/10 (stable) ·
-Average: 9.26/10 ·
-Worst: 2.35/10 (`src/Plantry.Web/Pages/Intake/Review.cshtml.cs`)
+Hotspot health: 7.16/10 (stable) ·
+Average: 9.08/10 ·
+Worst: 1.0/10 (`src/Plantry.Web/Pages/Intake/Review.cshtml.cs`)
 
 ### Critical biomarkers
-- `tests/Plantry.Tests.Unit/Intake/Domain/ImportLineTests.cs` — change entropy — impact −3.0
-- `src/Plantry.Intake/Domain/ImportLine.cs` — hidden coupling — impact −2.0
-- `src/Plantry.Web/Pages/Intake/Review.cshtml.cs` — complex method (ComputePrefill) — impact −0.7
-- `src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs` — brain method (OnModelCreating) — impact −0.6
-- `src/Plantry.Intake.Infrastructure/IntakeDbContext.cs` — brain method (OnModelCreating) — impact −0.6
+- `src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs` — untested hotspot — impact −2.0
+- `src/Plantry.Intake/Domain/ImportLine.cs` — change entropy — impact −1.1
+- `src/Plantry.Web/Pages/Intake/Review.cshtml.cs` — change entropy — impact −1.0
+- `src/Plantry.Intake.Infrastructure/IntakeDbContext.cs` — hidden coupling — impact −0.9
+- `src/Plantry.Intake.Infrastructure/IntakeDbContext.cs` — hidden coupling — impact −0.9
 
 ### Repowise MCP Tools
 
