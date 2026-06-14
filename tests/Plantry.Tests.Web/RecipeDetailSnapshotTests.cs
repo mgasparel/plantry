@@ -8,26 +8,37 @@ namespace Plantry.Tests.Web;
 
 /// <summary>
 /// L4 fragment snapshot tests for the recipe Detail page. Each test fetches the real Detail page
-/// as household A, extracts one fragment (the full detail container, hero, meta, ingredient list,
+/// as household A, extracts one fragment (the full detail container, hero, meta strip, ingredient card,
 /// or directions), and verifies it against a committed baseline. Any unintended change to the
 /// rendered markup fails the snapshot, ensuring the detail render stays stable as other slices land.
 ///
 /// <para>The fixture recipe covers all render paths: a photo (→ img tag in hero), tag pills,
 /// a grouped ingredient list with an untracked staple (C12), and multi-paragraph directions
 /// including a section heading (C13 derivation).</para>
+///
+/// <para>Layout: the Detail page uses the two-column rd-grid layout (plantry-v0f). Selectors
+/// reference the new class names: .rd-hero, .rd-meta, .rd-fulf-card, .rd-ing-card, .rd-hero__tags,
+/// #recipe-directions.</para>
 /// </summary>
-public sealed class RecipeDetailSnapshotTests(RecipeDetailFragmentFactory factory)
-    : IClassFixture<RecipeDetailFragmentFactory>
+public sealed class RecipeDetailSnapshotTests(
+    RecipeDetailFragmentFactory factory,
+    RecipeDetailFullCostFactory fullCostFactory,
+    RecipeDetailNoCostFactory noCostFactory)
+    : IClassFixture<RecipeDetailFragmentFactory>,
+      IClassFixture<RecipeDetailFullCostFactory>,
+      IClassFixture<RecipeDetailNoCostFactory>
 {
     private static readonly HtmlParser Parser = new();
 
-    private async Task<string> GetDetailPageAsync()
+    private Task<string> GetDetailPageAsync() => GetDetailPageAsync(factory);
+
+    private static async Task<string> GetDetailPageAsync(RecipeDetailFragmentFactory f)
     {
-        var client = factory.CreateClient(new() { AllowAutoRedirect = false });
+        var client = f.CreateClient(new() { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Add(
             TestAuthHandler.HouseholdHeader,
             RecipeDetailFixture.HouseholdAId.ToString());
-        var response = await client.GetAsync($"/Recipes/{factory.RecipeId}");
+        var response = await client.GetAsync($"/Recipes/{f.RecipeId}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return await response.Content.ReadAsStringAsync();
     }
@@ -51,49 +62,40 @@ public sealed class RecipeDetailSnapshotTests(RecipeDetailFragmentFactory factor
         await Verify(Extract(html, "#recipe-detail"), "html");
     }
 
-    // ── Hero: photo present → img link renders ────────────────────────────────
+    // ── Hero: photo present → img link renders with overlaid info ────────────
 
     [Fact]
     public async Task Detail_hero_with_photo()
     {
         var html = await GetDetailPageAsync();
-        await Verify(Extract(html, ".recipe-hero"), "html");
+        await Verify(Extract(html, ".rd-hero"), "html");
     }
 
-    // ── Meta: servings, cook time, source, tag pills ──────────────────────────
+    // ── Meta stat strip: cook time, servings, cost ────────────────────────────
 
     [Fact]
     public async Task Detail_meta()
     {
         var html = await GetDetailPageAsync();
-        await Verify(Extract(html, ".recipe-meta"), "html");
+        await Verify(Extract(html, ".rd-meta"), "html");
     }
+
+    // ── Tags: rendered in the hero info overlay ───────────────────────────────
 
     [Fact]
     public async Task Detail_tags()
     {
         var html = await GetDetailPageAsync();
-        await Verify(Extract(html, ".recipe-tags"), "html");
+        await Verify(Extract(html, ".rd-hero__tags"), "html");
     }
 
-    // ── Ingredients: group headings + untracked staple ────────────────────────
+    // ── Ingredients: rd-ing-card with stepper + grouped rows ─────────────────
 
     [Fact]
     public async Task Detail_ingredients()
     {
         var html = await GetDetailPageAsync();
-        // The ingredient section is the first .catalog-section after the hero meta section.
-        // We snap the full directions section identified by the recipe-directions container.
-        var doc = Parser.ParseDocument(html);
-        // Select the ingredient list(s): both .recipe-ingredient-list elements together.
-        var lists = doc.QuerySelectorAll(".recipe-ingredient-list");
-        var combined = string.Join("\n", lists.Select(el =>
-        {
-            using var w = new StringWriter();
-            el.ToHtml(w, new PrettyMarkupFormatter());
-            return w.ToString().Replace("\r\n", "\n").Trim();
-        }));
-        await Verify(combined, "html");
+        await Verify(Extract(html, ".rd-ing-card"), "html");
     }
 
     // ── Directions: steps and section headings (C13) ──────────────────────────
@@ -105,48 +107,73 @@ public sealed class RecipeDetailSnapshotTests(RecipeDetailFragmentFactory factor
         await Verify(Extract(html, "#recipe-directions"), "html");
     }
 
-    // ── Fulfillment card: mixed statuses (InStock / Low / Missing / Untracked) ──
+    // ── Fulfillment rail card: mixed statuses (InStock / Low / Missing) ───────
 
     [Fact]
     public async Task Detail_fulfillment_card_mixed_statuses()
     {
         var html = await GetDetailPageAsync();
-        await Verify(Extract(html, ".recipe-fulfillment-card"), "html");
+        await Verify(Extract(html, ".rd-fulf-card"), "html");
     }
 
-    // ── Cost meta-bar: Partial (Garlic un-priced → under-estimate) ────────────
+    // ── Cost: shown in meta strip when Partial ────────────────────────────────
 
     [Fact]
     public async Task Detail_cost_bar_partial()
     {
         var html = await GetDetailPageAsync();
-        // The cost bar section is the catalog-section immediately after the fulfillment card.
-        // Select it via the .recipe-cost-bar element.
+        // The cost figure lives in the third cell of the meta strip.
+        // Select the cell by its mono-value class.
         var doc = Parser.ParseDocument(html);
-        var bar = doc.QuerySelector(".recipe-cost-bar")
-            ?? throw new InvalidOperationException("'.recipe-cost-bar' not found in page HTML.");
+        var cell = doc.QuerySelector(".rd-meta__val--mono")?.ParentElement?.ParentElement
+            ?? throw new InvalidOperationException("'.rd-meta__val--mono' not found in page HTML.");
         using var writer = new StringWriter();
-        bar.ToHtml(writer, new AngleSharp.Html.PrettyMarkupFormatter());
+        cell.ToHtml(writer, new AngleSharp.Html.PrettyMarkupFormatter());
         await Verify(writer.ToString().Replace("\r\n", "\n").Trim(), "html");
     }
 
-    // ── Cost None: when all prices absent the bar is omitted ─────────────────
+    // ── Cost Partial: mono value IS present when completeness is Partial ─────
 
     [Fact]
-    public async Task Detail_cost_bar_omitted_when_none()
+    public async Task Detail_cost_bar_present_when_partial()
     {
-        // Use factory with no price data → cost.Completeness=None → bar absent from markup.
-        var client = factory.CreateClient(new() { AllowAutoRedirect = false });
-        client.DefaultRequestHeaders.Add(
-            TestAuthHandler.HouseholdHeader,
-            RecipeDetailFixture.HouseholdAId.ToString());
-        var response = await client.GetAsync($"/Recipes/{factory.RecipeId}");
-        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
-        var html = await response.Content.ReadAsStringAsync();
-        // The default factory has Partial prices — this test just asserts the cost bar IS present
-        // (not None). A separate factory or sub-scenario would test the None case.
-        // Here we verify the markup doesn't contain "never zero" language and does contain the estimate marker.
-        Assert.Contains("recipe-cost-bar", html, StringComparison.Ordinal);
+        // The default factory has Partial prices. This test asserts the mono cost value
+        // IS present and the partial-estimate marker is rendered in the meta strip.
+        var html = await GetDetailPageAsync(factory);
+        Assert.Contains("rd-meta__val--mono", html, StringComparison.Ordinal);
+        Assert.Contains("Partial cost estimate", html, StringComparison.Ordinal);
+    }
+
+    // ── Cost Full: mono value present, no partial-estimate "~" marker ────────
+
+    [Fact]
+    public async Task Detail_cost_full_omits_estimate_marker()
+    {
+        // Every costable ingredient priced → CostCompleteness.Full. The mono cost value renders,
+        // but the "~" partial-estimate marker (title="Partial cost estimate …") must NOT appear.
+        var html = await GetDetailPageAsync(fullCostFactory);
+        Assert.Contains("rd-meta__val--mono", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Partial cost estimate", html, StringComparison.Ordinal);
+    }
+
+    // ── Cost None: dash cell, no mono cost value (J3 — never shown as zero) ───
+
+    [Fact]
+    public async Task Detail_cost_none_shows_dash_not_value()
+    {
+        // No ingredient priced → CostCompleteness.None. The meta strip renders the faint dash
+        // placeholder and omits the mono cost value and the per-serving/total label.
+        var html = await GetDetailPageAsync(noCostFactory);
+        Assert.DoesNotContain("rd-meta__val--mono", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Partial cost estimate", html, StringComparison.Ordinal);
+
+        // The cost cell (third meta cell) shows the em-dash placeholder under the "Cost per serving" label.
+        var doc = Parser.ParseDocument(html);
+        var costLabel = doc.QuerySelectorAll(".rd-meta__lbl")
+            .FirstOrDefault(e => e.TextContent.Trim() == "Cost per serving")
+            ?? throw new InvalidOperationException("'Cost per serving' meta cell not found.");
+        var cell = costLabel.ParentElement!;
+        Assert.Contains("—", cell.TextContent);
     }
 
     // ── Unauthenticated request is challenged (401 in test env, 302 in prod) ───

@@ -1,18 +1,49 @@
-﻿<div class="recipe-meta">
-	<span class="recipe-meta__item">
-		<span class="recipe-servings-stepper" role="group" aria-label="Servings">
-			<button type="button" class="recipe-servings-stepper__btn" aria-label="Fewer servings" @click="servings = Math.max(1, servings - 1)" :disabled="servings <= 1">−</button>
-			<span class="recipe-servings-stepper__val" x-text="servings + (servings === 1 ? ' serving' : ' servings')">4 servings</span>
-			<button type="button" class="recipe-servings-stepper__btn" aria-label="More servings" @click="servings = servings + 1">+</button>
-		</span>
-	</span>
-	<span class="recipe-meta__item">
-		<svg class="icon" aria-hidden="true">
-			<use href="#i-clock"></use>
-		</svg>
-		30 min
-	</span>
-	<span class="recipe-meta__item recipe-meta__source">
-		Nonna's recipe book
-	</span>
+﻿<div class="rd-meta" role="list" aria-label="Recipe stats">
+	<div class="rd-meta__cell" role="listitem">
+		<div class="rd-meta__ico" aria-hidden="true">
+			<svg class="icon">
+				<use href="#i-clock"></use>
+			</svg>
+		</div>
+		<div class="rd-meta__body">
+			<div class="rd-meta__val">
+				30 min
+			</div>
+			<div class="rd-meta__lbl">Cook time</div>
+		</div>
+	</div>
+	<div class="rd-meta__cell" role="listitem">
+		<div class="rd-meta__ico" aria-hidden="true">
+			<svg class="icon">
+				<use href="#i-servings"></use>
+			</svg>
+		</div>
+		<div class="rd-meta__body">
+			<div class="rd-meta__val">
+				<span x-text="servings + (servings === 1 ? ' serving' : ' servings')">4 servings</span>
+			</div>
+			<div class="rd-meta__lbl">
+				Yields<span x-show="scale !== 1" x-cloak="">
+					·&nbsp;scaled
+					<span x-text="Math.round(scale * 100) / 100"></span>×
+				</span>
+			</div>
+		</div>
+	</div>
+	<div class="rd-meta__cell" role="listitem">
+		<div class="rd-meta__ico" aria-hidden="true">
+			<svg class="icon">
+				<use href="#i-tag"></use>
+			</svg>
+		</div>
+		<div class="rd-meta__body">
+			<div class="rd-meta__val rd-meta__val--mono">
+				$0.39
+				<span title="Partial cost estimate — 1 ingredient(s) have no price">~</span>
+			</div>
+			<div class="rd-meta__lbl">
+				Per serving&nbsp;·&nbsp;$1.55 total
+			</div>
+		</div>
+	</div>
 </div>

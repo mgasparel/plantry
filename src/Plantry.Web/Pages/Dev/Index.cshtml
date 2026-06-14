@@ -1143,6 +1143,24 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — back link</h2>
+    </div>
+    <p>
+        <code>.rd-back</code> — bordered "← All recipes" pill that sits at the top of
+        <code>.rd-wrap</code>, above <code>.rd-grid</code>. Rendered as an <code>&lt;a&gt;</code>
+        to the browse page; the chevron-right icon is flipped to point left via CSS.
+    </p>
+    <div style="padding:8px 0">
+        <a href="#" class="rd-back">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+            All recipes
+        </a>
+    </div>
+    <pre class="code-sample"><code>@("<a href=\"/Recipes\" class=\"rd-back\">\n  <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-chevron-right\" /></svg>\n  All recipes\n</a>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Recipe detail — servings stepper</h2>
     </div>
     <p>
@@ -1232,4 +1250,242 @@
         </div>
     </div>
     <pre class="code-sample"><code>@("<!-- Full -->\n<div class=\"recipe-cost-bar\">\n  <span class=\"recipe-cost-bar__label\">Cost per serving</span>\n  <span class=\"recipe-cost-bar__amount\" style=\"font-family:var(--font-mono)\">$1.40</span>\n</div>\n<!-- Partial -->\n<div class=\"recipe-cost-bar\">\n  <span class=\"recipe-cost-bar__label\">Cost per serving</span>\n  <span class=\"recipe-cost-bar__amount\" style=\"font-family:var(--font-mono)\">\n    $0.90 <span class=\"recipe-cost-bar__estimate\" title=\"…\">~</span>\n  </span>\n  <span class=\"recipe-cost-bar__note\">Estimate — 2 of 3 ingredients priced</span>\n</div>")</code></pre>
+</section>
+
+@* ── Recipe Detail — two-column layout components (plantry-v0f) ────────────────── *@
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — two-column grid (<code>.rd-grid</code>)</h2>
+    </div>
+    <p>
+        <code>.rd-wrap</code> constrains the page to 1180px and provides padding.
+        <code>.rd-grid</code> is a two-column grid: <code>1fr 360px</code> (main content + sticky
+        action rail). At ≤1080px the grid collapses to a single column and the rail loses its
+        sticky positioning. <code>.rd-main</code> is a flex column (gap 20px) for hero + meta + directions.
+        <code>.rd-rail</code> is a sticky flex column (gap 16px) for the fulfillment and ingredients cards.
+    </p>
+    <pre class="code-sample"><code>@("<div class=\"rd-wrap\">\n  <div class=\"rd-grid\">\n    <div class=\"rd-main\">\n      <!-- hero, meta strip, directions -->\n    </div>\n    <div class=\"rd-rail\">\n      <!-- fulfillment card, ingredients card -->\n    </div>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — overlaid hero (<code>.rd-hero</code>)</h2>
+    </div>
+    <p>
+        <code>.rd-hero</code> is a <code>16/9</code> aspect-ratio container. The photo
+        (<code>.rd-hero__photo</code>) or themed placeholder (<code>.rd-hero__placeholder</code>)
+        fills the full area. A gradient scrim (<code>.rd-hero__scrim</code>) darkens the bottom 65%.
+        Name, tags, and source/blurb sit in <code>.rd-hero__info</code> (absolutely positioned,
+        z-index 2, anchored to the bottom). Tag mini-pills use <code>.recipe-tag-mini</code>
+        (same as gallery cards). The recipe <code>h1</code> gets <code>.rd-hero__name</code>.
+        Optional source line uses <code>.rd-hero__blurb</code>.
+    </p>
+    <div style="max-width:640px">
+        <div class="rd-hero" style="aspect-ratio:16/9">
+            <div class="rd-hero__placeholder" aria-hidden="true">
+                <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+            </div>
+            <div class="rd-hero__scrim" aria-hidden="true"></div>
+            <div class="rd-hero__info">
+                <div class="rd-hero__tags">
+                    <span class="recipe-tag-mini">Vegetarian</span>
+                    <span class="recipe-tag-mini">Quick</span>
+                </div>
+                <h1 class="rd-hero__name">Tomato Pasta</h1>
+                <p class="rd-hero__blurb">Nonna's recipe book</p>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"rd-hero\">\n  <!-- <img class=\"rd-hero__photo\" src=\"…\" alt=\"…\" loading=\"lazy\"> -->\n  <!-- or: <div class=\"rd-hero__placeholder\" aria-hidden=\"true\"><svg …></svg></div> -->\n  <div class=\"rd-hero__scrim\" aria-hidden=\"true\"></div>\n  <div class=\"rd-hero__info\">\n    <div class=\"rd-hero__tags\"><!-- .recipe-tag-mini pills --></div>\n    <h1 class=\"rd-hero__name\">Recipe Name</h1>\n    <p class=\"rd-hero__blurb\">Source / blurb (optional)</p>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — meta stat strip (<code>.rd-meta</code>)</h2>
+    </div>
+    <p>
+        <code>.rd-meta</code> is a bordered card containing three equal <code>.rd-meta__cell</code>
+        cells separated by hairline dividers. Each cell: icon square (<code>.rd-meta__ico</code>) +
+        value/label stack (<code>.rd-meta__val</code> + <code>.rd-meta__lbl</code>). Cells:
+        cook time / servings (Alpine-driven) / cost per serving. Cost cell omitted/dimmed when
+        <code>CostCompleteness=None</code>. Value uses <code>.rd-meta__val--mono</code> for cost.
+        The servings cell's label shows a "scaled N×" note (Alpine <code>x-show="scale !== 1"</code>)
+        when the stepper diverges from default.
+    </p>
+    <div style="max-width:560px">
+        <div class="rd-meta" role="list">
+            <div class="rd-meta__cell" role="listitem">
+                <div class="rd-meta__ico" aria-hidden="true">
+                    <svg class="icon"><use href="#i-clock" /></svg>
+                </div>
+                <div class="rd-meta__body">
+                    <div class="rd-meta__val">30 min</div>
+                    <div class="rd-meta__lbl">Cook time</div>
+                </div>
+            </div>
+            <div class="rd-meta__cell" role="listitem">
+                <div class="rd-meta__ico" aria-hidden="true">
+                    <svg class="icon"><use href="#i-servings" /></svg>
+                </div>
+                <div class="rd-meta__body">
+                    <div class="rd-meta__val">4 servings</div>
+                    <div class="rd-meta__lbl">Yields</div>
+                </div>
+            </div>
+            <div class="rd-meta__cell" role="listitem">
+                <div class="rd-meta__ico" aria-hidden="true">
+                    <svg class="icon"><use href="#i-tag" /></svg>
+                </div>
+                <div class="rd-meta__body">
+                    <div class="rd-meta__val rd-meta__val--mono">$1.40</div>
+                    <div class="rd-meta__lbl">Per serving · $5.60 total</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"rd-meta\" role=\"list\">\n  <div class=\"rd-meta__cell\" role=\"listitem\">\n    <div class=\"rd-meta__ico\"><svg class=\"icon\"><use href=\"#i-clock\" /></svg></div>\n    <div class=\"rd-meta__body\">\n      <div class=\"rd-meta__val\">30 min</div>\n      <div class=\"rd-meta__lbl\">Cook time</div>\n    </div>\n  </div>\n  <!-- repeat for servings + cost -->\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — fulfillment rail card (<code>.rd-fulf-card</code>)</h2>
+    </div>
+    <p>
+        The primary decision card in the rail. Contains: "X of Y ingredients" headline
+        (<code>.rd-fulf-headline</code>, count colored by level), "in your pantry right now" sub,
+        progress bar (<code>.rd-fulf-bar-wrap</code> + <code>.rd-fulf-bar-fill</code>, filled and
+        colored by level class <code>.fulf-hi-bg</code> / <code>.fulf-mid-bg</code> / <code>.fulf-lo-bg</code>),
+        breakdown chips (<code>.rd-fulf-chips</code>), optional contextual note
+        (<code>.rd-fulf-note--soon</code> or <code>.rd-fulf-note--ready</code>), and action
+        buttons (<code>.rd-actions</code>). When fully cookable, add <code>.rd-fulf-card--cookable</code>
+        for a subtle green border.
+    </p>
+    <p>
+        Action buttons form a three-tier hierarchy: hero "Cook this" (<code>.btn--cook</code> —
+        warm <code>--color-cook</code> fill, larger than the rest), soft "Add N missing"
+        (<code>.btn--soft</code>, tinted; disabled when missing=0; behaviour wired by plantry-n2u.2),
+        bordered "Edit recipe" (<code>.btn--secondary</code> as <code>&lt;a&gt;</code>).
+    </p>
+    <div style="max-width:360px">
+        <div class="rd-fulf-card">
+            <div class="rd-fulf-top">
+                <div class="rd-fulf-headline">
+                    <span class="rd-fulf-count fulf-mid">2 of 4</span>
+                    <span class="rd-fulf-of">ingredients</span>
+                </div>
+                <div class="rd-fulf-sub">in your pantry right now</div>
+                <div class="rd-fulf-bar-wrap" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100">
+                    <span class="rd-fulf-bar-fill fulf-mid-bg" style="width:50%"></span>
+                </div>
+                <div class="rd-fulf-chips">
+                    <span class="rd-fulf-chip rd-fulf-chip--have"><span class="rd-fulf-chip__dot fulf-hi-bg"></span> 2 in stock</span>
+                    <span class="rd-fulf-chip rd-fulf-chip--low"><span class="rd-fulf-chip__dot fulf-mid-bg"></span> 1 running low</span>
+                    <span class="rd-fulf-chip rd-fulf-chip--miss"><span class="rd-fulf-chip__dot fulf-lo-bg"></span> 1 to buy</span>
+                </div>
+            </div>
+            <div class="rd-fulf-note rd-fulf-note--soon" role="note">
+                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                <span><b>1 ingredient expiring soon.</b> A good reason to cook this now and use them up.</span>
+            </div>
+            <div class="rd-actions">
+                <button type="button" class="btn btn--cook" disabled>
+                    <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg> Cook this
+                </button>
+                <button type="button" class="btn btn--soft">
+                    <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg> Add 1 missing to shopping list
+                </button>
+                <a href="#" class="btn btn--secondary">
+                    <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg> Edit recipe
+                </a>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"rd-fulf-card\"><!-- add .rd-fulf-card--cookable when all in stock -->\n  <div class=\"rd-fulf-top\">\n    <div class=\"rd-fulf-headline\">\n      <span class=\"rd-fulf-count fulf-mid\">{inStock} of {total}</span>\n      <span class=\"rd-fulf-of\">ingredients</span>\n    </div>\n    <div class=\"rd-fulf-sub\">in your pantry right now</div>\n    <div class=\"rd-fulf-bar-wrap\"><span class=\"rd-fulf-bar-fill fulf-mid-bg\" style=\"width:50%\"></span></div>\n    <div class=\"rd-fulf-chips\"><!-- .rd-fulf-chip--have / --low / --miss --></div>\n  </div>\n  <!-- optional note: .rd-fulf-note--soon or .rd-fulf-note--ready -->\n  <div class=\"rd-actions\">\n    <button class=\"btn btn--cook\">Cook this</button>\n    <button class=\"btn btn--soft\">Add N missing…</button>\n    <a class=\"btn btn--secondary\" href=\"/Recipes/{id}/Edit\">Edit recipe</a>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — ingredients rail card (<code>.rd-ing-card</code>)</h2>
+    </div>
+    <p>
+        The ingredient list card in the right rail. Header (<code>.rd-ing-head</code>):
+        "Ingredients" h3 + spacer + "Servings" label + servings stepper (<code>.rd-serv-stepper</code>).
+        The stepper is an inline +/− control using icon buttons (<code>.rd-serv-stepper__btn</code>)
+        and a numeric display (<code>.rd-serv-stepper__val</code>). Alpine binds
+        <code>@@click</code> and <code>:disabled</code> on the buttons; <code>x-text="servings"</code>
+        on the val. Min=1, max=24.
+    </p>
+    <p>
+        Each ingredient is an <code>.rd-ing-row</code>: status icon box (<code>.rd-ing-status--have / --low / --miss / --untracked</code>)
+        + main block (<code>.rd-ing-main</code>: name + optional expiring badge + sub-label) +
+        scaled amount (<code>.rd-ing-amt</code>, <code>font-mono</code>, Alpine <code>x-text="fmt(baseQty)"</code>).
+        Sub-label class: <code>.rd-ing-sub--have / --low / --miss / --untracked</code>.
+    </p>
+    <div style="max-width:360px" x-data="{ servings: 4, defaultServings: 4, get scale() { return this.servings / this.defaultServings; }, fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); } }">
+        <div class="rd-ing-card">
+            <div class="rd-ing-head">
+                <h3>Ingredients</h3>
+                <div class="rd-ing-head__spacer"></div>
+                <span class="rd-serv-stepper__lbl">Servings</span>
+                <div class="rd-serv-stepper" role="group" aria-label="Servings">
+                    <button type="button" class="rd-serv-stepper__btn" aria-label="Fewer servings"
+                            @@click="servings = Math.max(1, servings - 1)" :disabled="servings <= 1">
+                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                    </button>
+                    <span class="rd-serv-stepper__val" x-text="servings">4</span>
+                    <button type="button" class="rd-serv-stepper__btn" aria-label="More servings"
+                            @@click="servings = Math.min(24, servings + 1)" :disabled="servings >= 24">
+                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="rd-ing-list" role="list">
+                <div class="rd-ing-row" role="listitem">
+                    <div class="rd-ing-status rd-ing-status--have" aria-hidden="true">
+                        <svg class="icon"><use href="#i-check" /></svg>
+                    </div>
+                    <div class="rd-ing-main">
+                        <div class="rd-ing-name">Rigatoni</div>
+                        <div class="rd-ing-sub rd-ing-sub--have">In your pantry</div>
+                    </div>
+                    <div class="rd-ing-amt"><span x-text="fmt(400)">400</span> g</div>
+                </div>
+                <div class="rd-ing-row" role="listitem">
+                    <div class="rd-ing-status rd-ing-status--low" aria-hidden="true">
+                        <svg class="icon"><use href="#i-alert" /></svg>
+                    </div>
+                    <div class="rd-ing-main">
+                        <div class="rd-ing-name">
+                            Canned Tomatoes
+                            <span class="rd-ing-soon"><svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> 3d</span>
+                        </div>
+                        <div class="rd-ing-sub rd-ing-sub--low">Running low</div>
+                    </div>
+                    <div class="rd-ing-amt"><span x-text="fmt(500)">500</span> g</div>
+                </div>
+                <div class="rd-ing-row" role="listitem">
+                    <div class="rd-ing-status rd-ing-status--miss" aria-hidden="true">
+                        <svg class="icon"><use href="#i-alert" /></svg>
+                    </div>
+                    <div class="rd-ing-main">
+                        <div class="rd-ing-name">Garlic Cloves</div>
+                        <div class="rd-ing-sub rd-ing-sub--miss">Not in your pantry</div>
+                    </div>
+                    <div class="rd-ing-amt"><span x-text="fmt(3)">3</span> ea</div>
+                </div>
+                <div class="rd-ing-row" role="listitem">
+                    <div class="rd-ing-status rd-ing-status--untracked" aria-hidden="true">
+                        <svg class="icon"><use href="#i-recipe" /></svg>
+                    </div>
+                    <div class="rd-ing-main">
+                        <div class="rd-ing-name">Salt</div>
+                        <div class="rd-ing-sub rd-ing-sub--untracked">untracked</div>
+                    </div>
+                    <div class="rd-ing-amt"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"rd-ing-card\">\n  <div class=\"rd-ing-head\">\n    <h3>Ingredients</h3>\n    <div class=\"rd-ing-head__spacer\"></div>\n    <span class=\"rd-serv-stepper__lbl\">Servings</span>\n    <div class=\"rd-serv-stepper\" role=\"group\" aria-label=\"Servings\">\n      <button class=\"rd-serv-stepper__btn\" @@click=\"servings=Math.max(1,servings-1)\" :disabled=\"servings<=1\">\n        <svg class=\"icon\"><use href=\"#i-minus\"/></svg></button>\n      <span class=\"rd-serv-stepper__val\" x-text=\"servings\">4</span>\n      <button class=\"rd-serv-stepper__btn\" @@click=\"servings=Math.min(24,servings+1)\" :disabled=\"servings>=24\">\n        <svg class=\"icon\"><use href=\"#i-plus\"/></svg></button>\n    </div>\n  </div>\n  <div class=\"rd-ing-list\" role=\"list\">\n    <div class=\"rd-ing-row\" role=\"listitem\">\n      <div class=\"rd-ing-status rd-ing-status--have\"><svg class=\"icon\"><use href=\"#i-check\"/></svg></div>\n      <div class=\"rd-ing-main\">\n        <div class=\"rd-ing-name\">Product Name\n          <!-- optional: <span class=\"rd-ing-soon\"><svg…>timer</svg> 3d</span> -->\n        </div>\n        <div class=\"rd-ing-sub rd-ing-sub--have\">In your pantry</div>\n      </div>\n      <div class=\"rd-ing-amt\"><span x-text=\"fmt(baseQty)\">400</span> g</div>\n    </div>\n  </div>\n</div>")</code></pre>
 </section>

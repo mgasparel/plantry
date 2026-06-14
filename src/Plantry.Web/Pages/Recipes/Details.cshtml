@@ -4,9 +4,35 @@
 @model Plantry.Web.Pages.Recipes.DetailsModel
 @{
     ViewData["Title"] = Model.Recipe.Name;
+    // Two-column detail grid (.rd-wrap, max-width 1180px) sets its own width; opt out of the
+    // default 900px .page-content cap so the rail isn't squeezed into a single narrow column.
+    ViewData["ContentClass"] = "page-content--wide";
     var recipe = Model.Recipe;
     var fulfillment = recipe.Fulfillment;
     var cost = recipe.Cost;
+
+    // Fulfillment counts derived from Lines.
+    var totalTracked = fulfillment.Lines.Count(l => l.Status != IngredientStatus.Untracked);
+    var inStockCount = fulfillment.Lines.Count(l => l.Status == IngredientStatus.InStock);
+    var lowCount     = fulfillment.Overall.LowCount;
+    var missingCount = fulfillment.Overall.MissingCount;
+    var soonCount    = fulfillment.Lines.Count(l => l.ExpiresWithinDays.HasValue);
+    // Percentage for progress bar (guard zero-tracked).
+    var pct = totalTracked > 0
+        ? (int)Math.Round(100.0 * (inStockCount + lowCount) / totalTracked)
+        : 100;
+    // Level class: >=80 green, >=50 amber, else red.
+    var lvlClass = pct >= 80 ? "fulf-hi" : pct >= 50 ? "fulf-mid" : "fulf-lo";
+
+    // Cook time display.
+    string? cookTimeDisplay = recipe.CookTimeMinutes.HasValue
+        ? (recipe.CookTimeMinutes.Value >= 60
+            ? $"{recipe.CookTimeMinutes.Value / 60}h {recipe.CookTimeMinutes.Value % 60}m".Replace(" 0m", "")
+            : $"{recipe.CookTimeMinutes.Value} min")
+        : null;
+
+    // Cost: total = per serving * defaultServings (Alpine rescales client-side via scale).
+    decimal? costTotal = cost.Amount.HasValue ? cost.Amount.Value * recipe.DefaultServings : null;
 
 }
 
@@ -19,240 +45,332 @@
          fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); }
      }">
 
-    @* ── Hero: photo or themed placeholder ──────────────────────────────────── *@
-    <div class="recipe-hero">
-        @if (recipe.HasPhoto)
-        {
-            <img class="recipe-hero__img"
-                 src="/Recipes/@recipe.Id?handler=Photo"
-                 alt="@recipe.Name"
-                 loading="lazy" />
-        }
-        else
-        {
-            <div class="recipe-hero__placeholder" aria-hidden="true">
-                <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
-            </div>
-        }
-    </div>
+    <div class="rd-wrap">
+        <a href="/Recipes" class="rd-back">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+            All recipes
+        </a>
+        <div class="rd-grid">
 
-    @* ── Meta: name, servings stepper, cook time, source, tag pills ──────────── *@
-    <div class="catalog-section">
-        <div class="catalog-section__header">
-            <div>
-                <h2 class="catalog-section__heading">@recipe.Name</h2>
-                <div class="recipe-meta">
-                    @* Servings stepper — Alpine client-side; rescales ingredient quantities (J3 step 5) *@
-                    <span class="recipe-meta__item">
-                        <span class="recipe-servings-stepper" role="group" aria-label="Servings">
-                            <button type="button"
-                                    class="recipe-servings-stepper__btn"
-                                    aria-label="Fewer servings"
-                                    @@click="servings = Math.max(1, servings - 1)"
-                                    :disabled="servings <= 1">−</button>
-                            <span class="recipe-servings-stepper__val" x-text="servings + (servings === 1 ? ' serving' : ' servings')">@recipe.DefaultServings servings</span>
-                            <button type="button"
-                                    class="recipe-servings-stepper__btn"
-                                    aria-label="More servings"
-                                    @@click="servings = servings + 1">+</button>
-                        </span>
-                    </span>
-                    @if (recipe.CookTimeMinutes.HasValue)
+            @* ═══════════════════════════════════════════════════════════════
+               MAIN COLUMN: hero + meta strip + directions
+               ═══════════════════════════════════════════════════════════════ *@
+            <div class="rd-main">
+
+                @* ── Hero: photo/placeholder with overlaid name, tags, blurb ─── *@
+                <div class="rd-hero">
+                    @if (recipe.HasPhoto)
                     {
-                        <span class="recipe-meta__item">
-                            <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
-                            @recipe.CookTimeMinutes min
-                        </span>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(recipe.Source))
-                    {
-                        <span class="recipe-meta__item recipe-meta__source">
-                            @recipe.Source
-                        </span>
-                    }
-                </div>
-            </div>
-            <div class="card__head-actions">
-                <a href="/Recipes/@recipe.Id/Edit" class="btn btn--secondary btn--sm">Edit</a>
-                <button type="button" class="btn btn--ghost btn--sm" disabled title="Coming in P2-3">Cook</button>
-                <button type="button" class="btn btn--ghost btn--sm" disabled title="Coming in P2-4">Add missing</button>
-            </div>
-        </div>
-
-        @if (recipe.Tags.Count > 0)
-        {
-            <div class="recipe-tags" role="list" aria-label="Tags">
-                @foreach (var tag in recipe.Tags)
-                {
-                    <span class="badge badge--neutral" role="listitem">@(tag.Name ?? tag.Id.ToString("N")[..8])</span>
-                }
-            </div>
-        }
-    </div>
-
-    @* ── Fulfillment card: per-ingredient status pips + overall summary ───────── *@
-    <div class="catalog-section recipe-fulfillment-card">
-        <div class="catalog-section__header">
-            <h3 class="catalog-section__heading">Cookability</h3>
-            @if (fulfillment.Overall.FullyCookable)
-            {
-                <span class="badge badge--success">
-                    <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
-                    Ready to cook
-                </span>
-            }
-            else if (fulfillment.Overall.MissingCount > 0 || fulfillment.Overall.LowCount > 0)
-            {
-                var parts = new List<string>();
-                if (fulfillment.Overall.MissingCount > 0)
-                    parts.Add($"{fulfillment.Overall.MissingCount} missing");
-                if (fulfillment.Overall.LowCount > 0)
-                    parts.Add($"{fulfillment.Overall.LowCount} low");
-                <span class="badge badge--warning">@string.Join(", ", parts)</span>
-            }
-            else
-            {
-                <span class="badge badge--neutral">No tracked ingredients</span>
-            }
-        </div>
-
-        @* Per-ingredient status pips (one per ingredient in ordinal order) *@
-        <div class="recipe-ingr-pips" role="list" aria-label="Ingredient availability">
-            @foreach (var group in recipe.IngredientGroups)
-            {
-                @foreach (var item in group.Items)
-                {
-                    var pipClass = item.Status switch
-                    {
-                        IngredientStatus.InStock   => "ingr-pip--instock",
-                        IngredientStatus.Low       => "ingr-pip--low",
-                        IngredientStatus.Missing   => "ingr-pip--missing",
-                        _                          => "ingr-pip--untracked",
-                    };
-                    var pipLabel = item.Status switch
-                    {
-                        IngredientStatus.InStock   => "In stock",
-                        IngredientStatus.Low       => "Low",
-                        IngredientStatus.Missing   => "Missing",
-                        _                          => "Untracked",
-                    };
-                    var useSoonSuffix = item.ExpiresWithinDays.HasValue
-                        ? $" — expires in {item.ExpiresWithinDays.Value} day{(item.ExpiresWithinDays.Value == 1 ? "" : "s")}"
-                        : "";
-                    <div class="recipe-ingr-pip-row" role="listitem">
-                        <span class="ingr-pip @(pipClass)" aria-label="@(pipLabel)@(useSoonSuffix)"></span>
-                        <span class="recipe-ingr-pip-row__name">
-                            @item.ProductName
-                            @if (item.IsUntracked)
-                            {
-                                <span class="recipe-ingr-pip-row__note">untracked</span>
-                            }
-                        </span>
-                        @if (item.ExpiresWithinDays.HasValue)
-                        {
-                            <span class="recipe-ingr-pip-row__soon">
-                                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
-                                Use soon
-                            </span>
-                        }
-                    </div>
-                }
-            }
-            @if (recipe.IngredientGroups.Count == 0 || recipe.IngredientGroups.All(g => g.Items.Count == 0))
-            {
-                <p style="color: var(--color-text-muted)">No ingredients yet.</p>
-            }
-        </div>
-    </div>
-
-    @* ── Cost meta-bar (omitted when CostCompleteness=None per J3) ────────────── *@
-    @if (cost.Completeness != CostCompleteness.None && cost.Amount.HasValue)
-    {
-        <div class="catalog-section">
-            <div class="recipe-cost-bar">
-                <span class="recipe-cost-bar__label">Cost per serving</span>
-                <span class="recipe-cost-bar__amount" style="font-family:var(--font-mono)">
-                    @cost.Amount.Value.ToString("C2")
-                    @if (cost.Completeness == CostCompleteness.Partial)
-                    {
-                        <span class="recipe-cost-bar__estimate" title="Partial cost estimate — @(cost.CostableCount - cost.PricedCount) ingredient(s) have no price">~</span>
-                    }
-                </span>
-                @if (cost.Completeness == CostCompleteness.Partial)
-                {
-                    <span class="recipe-cost-bar__note">
-                        Estimate — @cost.PricedCount of @cost.CostableCount ingredients priced
-                    </span>
-                }
-            </div>
-        </div>
-    }
-
-    @* ── Ingredients: ordered list grouped by group_heading (C6) ─────────────── *@
-    <div class="catalog-section">
-        <h3 class="catalog-section__heading">Ingredients</h3>
-        @foreach (var group in recipe.IngredientGroups)
-        {
-            if (group.Heading is { } heading)
-            {
-                <h4 class="recipe-group-heading">@heading</h4>
-            }
-            <ul class="recipe-ingredient-list" role="list">
-                @foreach (var item in group.Items)
-                {
-                    <li class="recipe-ingredient-list__item">
-                        @if (item.IsUntracked)
-                        {
-                            @* Untracked staples: show name only, no qty/unit (C12 — "to taste") *@
-                            <span class="recipe-ingredient__name">@item.ProductName</span>
-                            <span class="recipe-ingredient__note recipe-ingredient__note--untracked">untracked</span>
-                        }
-                        else
-                        {
-                            @* Tracked ingredients: qty scaled by Alpine (J3 step 5) + unit + product name *@
-                            @if (item.Quantity.HasValue)
-                            {
-                                <span class="recipe-ingredient__qty"
-                                      x-text="fmt(@(item.Quantity.Value.ToString(CultureInfo.InvariantCulture)))">@item.Quantity.Value.ToString("G29", CultureInfo.InvariantCulture)</span>
-                            }
-                            @if (!string.IsNullOrEmpty(item.UnitCode))
-                            {
-                                <span class="recipe-ingredient__unit">@item.UnitCode</span>
-                            }
-                            <span class="recipe-ingredient__name">@item.ProductName</span>
-                        }
-                    </li>
-                }
-            </ul>
-        }
-        @if (recipe.IngredientGroups.Count == 0 || recipe.IngredientGroups.All(g => g.Items.Count == 0))
-        {
-            <p class="recipe-ingredient-list--empty" style="color: var(--color-text-muted)">No ingredients yet.</p>
-        }
-    </div>
-
-    @* ── Directions: derived steps / section headings from C13 parse ─────────── *@
-    @if (recipe.DirectionBlocks.Count > 0)
-    {
-        <div class="catalog-section">
-            <h3 class="catalog-section__heading">Directions</h3>
-            <div class="recipe-directions" id="recipe-directions">
-                @foreach (var block in recipe.DirectionBlocks)
-                {
-                    @if (block.Kind == DirectionBlockKind.Section)
-                    {
-                        <h4 class="recipe-direction-section">@block.Text</h4>
+                        <img class="rd-hero__photo"
+                             src="/Recipes/@recipe.Id?handler=Photo"
+                             alt="@recipe.Name"
+                             loading="lazy" />
                     }
                     else
                     {
-                        <div class="recipe-direction-step">
-                            <span class="recipe-direction-step__num" aria-hidden="true">@block.StepNumber</span>
-                            <p class="recipe-direction-step__text">@block.Text</p>
+                        <div class="rd-hero__placeholder" aria-hidden="true">
+                            <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
                         </div>
                     }
-                }
-            </div>
-        </div>
-    }
+                    <div class="rd-hero__scrim" aria-hidden="true"></div>
+                    <div class="rd-hero__info">
+                        @if (recipe.Tags.Count > 0)
+                        {
+                            <div class="rd-hero__tags" role="list" aria-label="Tags">
+                                @foreach (var tag in recipe.Tags)
+                                {
+                                    var tagName = tag.Name ?? tag.Id.ToString("N")[..8];
+                                    <span class="recipe-tag-mini" role="listitem">
+                                        <span class="recipe-tag-mini__dot" style="background:@IndexModel.TagColor(tagName)"></span>
+                                        @tagName
+                                    </span>
+                                }
+                            </div>
+                        }
+                        <h1 class="rd-hero__name">@recipe.Name</h1>
+                        @if (!string.IsNullOrWhiteSpace(recipe.Source))
+                        {
+                            <p class="rd-hero__blurb">@recipe.Source</p>
+                        }
+                    </div>
+                </div>
 
-</div>
+                @* ── Meta stat strip: cook time / servings / cost per serving ── *@
+                <div class="rd-meta" role="list" aria-label="Recipe stats">
+                    <div class="rd-meta__cell" role="listitem">
+                        <div class="rd-meta__ico" aria-hidden="true">
+                            <svg class="icon"><use href="#i-clock" /></svg>
+                        </div>
+                        <div class="rd-meta__body">
+                            <div class="rd-meta__val">
+                                @(cookTimeDisplay ?? "—")
+                            </div>
+                            <div class="rd-meta__lbl">Cook time</div>
+                        </div>
+                    </div>
+                    <div class="rd-meta__cell" role="listitem">
+                        <div class="rd-meta__ico" aria-hidden="true">
+                            <svg class="icon"><use href="#i-servings" /></svg>
+                        </div>
+                        <div class="rd-meta__body">
+                            <div class="rd-meta__val">
+                                <span x-text="servings + (servings === 1 ? ' serving' : ' servings')">@recipe.DefaultServings servings</span>
+                            </div>
+                            <div class="rd-meta__lbl">
+                                Yields<span x-show="scale !== 1" x-cloak>
+                                    &nbsp;·&nbsp;scaled <span x-text="Math.round(scale * 100) / 100"></span>&times;
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="rd-meta__cell" role="listitem">
+                        <div class="rd-meta__ico" aria-hidden="true">
+                            <svg class="icon"><use href="#i-tag" /></svg>
+                        </div>
+                        <div class="rd-meta__body">
+                            @if (cost.Completeness != CostCompleteness.None && cost.Amount.HasValue)
+                            {
+                                <div class="rd-meta__val rd-meta__val--mono">
+                                    @cost.Amount.Value.ToString("C2", CultureInfo.CurrentCulture)
+                                    @if (cost.Completeness == CostCompleteness.Partial)
+                                    {
+                                        <span title="Partial cost estimate — @(cost.CostableCount - cost.PricedCount) ingredient(s) have no price">~</span>
+                                    }
+                                </div>
+                                <div class="rd-meta__lbl">
+                                    Per serving&nbsp;·&nbsp;@costTotal!.Value.ToString("C2", CultureInfo.CurrentCulture) total
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="rd-meta__val" style="color:var(--color-text-faint)">—</div>
+                                <div class="rd-meta__lbl">Cost per serving</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @* ── Directions: derived steps/sections (C13) ──────────────────── *@
+                @if (recipe.DirectionBlocks.Count > 0)
+                {
+                    <div class="rd-directions">
+                        <div class="recipe-directions" id="recipe-directions">
+                            @foreach (var block in recipe.DirectionBlocks)
+                            {
+                                if (block.Kind == DirectionBlockKind.Section)
+                                {
+                                    <h4 class="recipe-direction-section">@block.Text</h4>
+                                }
+                                else
+                                {
+                                    <div class="recipe-direction-step">
+                                        <span class="recipe-direction-step__num" aria-hidden="true">@block.StepNumber</span>
+                                        <p class="recipe-direction-step__text">@block.Text</p>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+
+            </div>@* /rd-main *@
+
+            @* ═══════════════════════════════════════════════════════════════
+               ACTION RAIL: fulfillment card + ingredients card
+               ═══════════════════════════════════════════════════════════════ *@
+            <div class="rd-rail">
+
+                @* ── Fulfillment rail card ──────────────────────────────────── *@
+                <div class="rd-fulf-card @(fulfillment.Overall.FullyCookable ? "rd-fulf-card--cookable" : "")">
+                    <div class="rd-fulf-top">
+                        <div class="rd-fulf-headline">
+                            <span class="rd-fulf-count @(lvlClass)">@inStockCount of @totalTracked</span>
+                            <span class="rd-fulf-of">ingredients</span>
+                        </div>
+                        <div class="rd-fulf-sub">in your pantry right now</div>
+                        <div class="rd-fulf-bar-wrap" role="progressbar" aria-valuenow="@pct" aria-valuemin="0" aria-valuemax="100">
+                            <span class="rd-fulf-bar-fill @(lvlClass)-bg" style="width:@(pct)%"></span>
+                        </div>
+                        <div class="rd-fulf-chips">
+                            @if (inStockCount > 0)
+                            {
+                                <span class="rd-fulf-chip rd-fulf-chip--have">
+                                    <span class="rd-fulf-chip__dot fulf-hi-bg"></span>
+                                    @inStockCount in stock
+                                </span>
+                            }
+                            @if (lowCount > 0)
+                            {
+                                <span class="rd-fulf-chip rd-fulf-chip--low">
+                                    <span class="rd-fulf-chip__dot fulf-mid-bg"></span>
+                                    @lowCount running low
+                                </span>
+                            }
+                            @if (missingCount > 0)
+                            {
+                                <span class="rd-fulf-chip rd-fulf-chip--miss">
+                                    <span class="rd-fulf-chip__dot fulf-lo-bg"></span>
+                                    @missingCount to buy
+                                </span>
+                            }
+                        </div>
+                    </div>
+
+                    @* contextual note: expiring-soon takes priority over ready-to-cook *@
+                    @if (soonCount > 0)
+                    {
+                        <div class="rd-fulf-note rd-fulf-note--soon" role="note">
+                            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                            <span><b>@soonCount ingredient@(soonCount == 1 ? "" : "s") expiring soon.</b> A good reason to cook this now and use them up.</span>
+                        </div>
+                    }
+                    else if (fulfillment.Overall.FullyCookable)
+                    {
+                        <div class="rd-fulf-note rd-fulf-note--ready" role="note">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                            <span><b>You have everything.</b> Nothing to buy — you can make this tonight.</span>
+                        </div>
+                    }
+
+                    <div class="rd-actions">
+                        <button type="button" class="btn btn--cook" disabled title="Coming in P2-3">
+                            <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+                            Cook this
+                        </button>
+                        @* Add missing to shopping list — behaviour wired in plantry-n2u.2 (P2-4b). *@
+                        <button type="button" class="btn btn--soft"
+                                data-missing-count="@missingCount"
+                                disabled="@(missingCount == 0 ? "disabled" : null)"
+                                title="@(missingCount == 0 ? "Nothing to add" : "Coming in P2-4b")">
+                            <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>
+                            @(missingCount == 0 ? "Nothing to add" : $"Add {missingCount} missing to shopping list")
+                        </button>
+                        <a href="/Recipes/@recipe.Id/Edit" class="btn btn--secondary">
+                            <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                            Edit recipe
+                        </a>
+                    </div>
+                </div>
+
+                @* ── Ingredients card with servings stepper in header ────────── *@
+                <div class="rd-ing-card">
+                    <div class="rd-ing-head">
+                        <h3>Ingredients</h3>
+                        <div class="rd-ing-head__spacer"></div>
+                        <span class="rd-serv-stepper__lbl">Servings</span>
+                        <div class="rd-serv-stepper" role="group" aria-label="Servings">
+                            <button type="button"
+                                    class="rd-serv-stepper__btn"
+                                    aria-label="Fewer servings"
+                                    @@click="servings = Math.max(1, servings - 1)"
+                                    :disabled="servings <= 1">
+                                <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                            </button>
+                            <span class="rd-serv-stepper__val" x-text="servings">@recipe.DefaultServings</span>
+                            <button type="button"
+                                    class="rd-serv-stepper__btn"
+                                    aria-label="More servings"
+                                    @@click="servings = Math.min(24, servings + 1)"
+                                    :disabled="servings >= 24">
+                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="rd-ing-list" role="list" aria-label="Ingredients">
+                        @foreach (var group in recipe.IngredientGroups)
+                        {
+                            @if (group.Heading is { } heading)
+                            {
+                                <div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+                                    <h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">@heading</h4>
+                                </div>
+                            }
+                            @foreach (var item in group.Items)
+                            {
+                                // Fulfillment status for this ingredient — look up by IngredientId.
+                                // (IngredientItemView carries Status already from RecipeDetailView.From)
+                                var status = item.Status;
+                                var statusClass = status switch
+                                {
+                                    IngredientStatus.InStock   => "rd-ing-status--have",
+                                    IngredientStatus.Low       => "rd-ing-status--low",
+                                    IngredientStatus.Missing   => "rd-ing-status--miss",
+                                    _                          => "rd-ing-status--untracked",
+                                };
+                                var iconRef = status switch
+                                {
+                                    IngredientStatus.InStock   => "#i-check",
+                                    IngredientStatus.Low       => "#i-alert",
+                                    IngredientStatus.Missing   => "#i-alert",
+                                    _                          => "#i-recipe",
+                                };
+                                var subClass = status switch
+                                {
+                                    IngredientStatus.InStock   => "rd-ing-sub--have",
+                                    IngredientStatus.Low       => "rd-ing-sub--low",
+                                    IngredientStatus.Missing   => "rd-ing-sub--miss",
+                                    _                          => "rd-ing-sub--untracked",
+                                };
+                                // Sub-label text.
+                                string subLabel;
+                                if (item.IsUntracked)
+                                {
+                                    subLabel = "untracked";
+                                }
+                                else if (status == IngredientStatus.InStock)
+                                {
+                                    subLabel = "In your pantry";
+                                }
+                                else if (status == IngredientStatus.Low)
+                                {
+                                    subLabel = "Running low";
+                                }
+                                else
+                                {
+                                    subLabel = "Not in your pantry";
+                                }
+
+                                <div class="rd-ing-row" role="listitem">
+                                    <div class="rd-ing-status @(statusClass)" aria-hidden="true">
+                                        <svg class="icon"><use href="@iconRef" /></svg>
+                                    </div>
+                                    <div class="rd-ing-main">
+                                        <div class="rd-ing-name">
+                                            @item.ProductName
+                                            @if (item.ExpiresWithinDays.HasValue)
+                                            {
+                                                <span class="rd-ing-soon">
+                                                    <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                                                    @item.ExpiresWithinDays.Value d
+                                                </span>
+                                            }
+                                        </div>
+                                        <div class="rd-ing-sub @(subClass)">@subLabel</div>
+                                    </div>
+                                    <div class="rd-ing-amt">
+                                        @if (!item.IsUntracked && item.Quantity.HasValue)
+                                        {
+                                            <span class="rd-ing-qty" x-text="fmt(@(item.Quantity.Value.ToString(CultureInfo.InvariantCulture)))">@item.Quantity.Value.ToString("G29", CultureInfo.InvariantCulture)</span>
+                                            @if (!string.IsNullOrEmpty(item.UnitCode))
+                                            {
+                                                <span> @item.UnitCode</span>
+                                            }
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        }
+                        @if (recipe.IngredientGroups.Count == 0 || recipe.IngredientGroups.All(g => g.Items.Count == 0))
+                        {
+                            <p class="rd-ing-row" style="color:var(--color-text-faint);font-size:14px">No ingredients yet.</p>
+                        }
+                    </div>
+                </div>
+
+            </div>@* /rd-rail *@
+
+        </div>@* /rd-grid *@
+    </div>@* /rd-wrap *@
+
+</div>@* /recipe-detail *@

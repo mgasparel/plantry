@@ -2,6 +2,9 @@
 @model Plantry.Web.Pages.Recipes.IndexModel
 @{
     ViewData["Title"] = "Recipes";
+    // .recipes-browse-wrap (max-width 1260px) sets its own width; opt out of the default
+    // 900px .page-content cap so the gallery/grid can use the full prototype width.
+    ViewData["ContentClass"] = "page-content--wide";
 }
 
 <div class="recipes-browse-wrap"

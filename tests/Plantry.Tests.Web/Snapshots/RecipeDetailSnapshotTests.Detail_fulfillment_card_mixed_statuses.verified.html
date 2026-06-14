@@ -1,33 +1,46 @@
-﻿<div class="catalog-section recipe-fulfillment-card">
-	<div class="catalog-section__header">
-		<h3 class="catalog-section__heading">Cookability</h3>
-		<span class="badge badge--warning">1 missing, 1 low</span>
+﻿<div class="rd-fulf-card ">
+	<div class="rd-fulf-top">
+		<div class="rd-fulf-headline">
+			<span class="rd-fulf-count fulf-mid">1 of 3</span>
+			<span class="rd-fulf-of">ingredients</span>
+		</div>
+		<div class="rd-fulf-sub">in your pantry right now</div>
+		<div class="rd-fulf-bar-wrap" role="progressbar" aria-valuenow="67" aria-valuemin="0" aria-valuemax="100">
+			<span class="rd-fulf-bar-fill fulf-mid-bg" style="width:67%"></span>
+		</div>
+		<div class="rd-fulf-chips">
+			<span class="rd-fulf-chip rd-fulf-chip--have">
+				<span class="rd-fulf-chip__dot fulf-hi-bg"></span>
+				1 in stock
+			</span>
+			<span class="rd-fulf-chip rd-fulf-chip--low">
+				<span class="rd-fulf-chip__dot fulf-mid-bg"></span>
+				1 running low
+			</span>
+			<span class="rd-fulf-chip rd-fulf-chip--miss">
+				<span class="rd-fulf-chip__dot fulf-lo-bg"></span>
+				1 to buy
+			</span>
+		</div>
 	</div>
-	<div class="recipe-ingr-pips" role="list" aria-label="Ingredient availability">
-		<div class="recipe-ingr-pip-row" role="listitem">
-			<span class="ingr-pip ingr-pip--instock" aria-label="In stock"></span>
-			<span class="recipe-ingr-pip-row__name">
-				Rigatoni
-			</span>
-		</div>
-		<div class="recipe-ingr-pip-row" role="listitem">
-			<span class="ingr-pip ingr-pip--low" aria-label="Low"></span>
-			<span class="recipe-ingr-pip-row__name">
-				Canned Tomatoes
-			</span>
-		</div>
-		<div class="recipe-ingr-pip-row" role="listitem">
-			<span class="ingr-pip ingr-pip--missing" aria-label="Missing"></span>
-			<span class="recipe-ingr-pip-row__name">
-				Garlic Cloves
-			</span>
-		</div>
-		<div class="recipe-ingr-pip-row" role="listitem">
-			<span class="ingr-pip ingr-pip--untracked" aria-label="Untracked"></span>
-			<span class="recipe-ingr-pip-row__name">
-				Salt
-				<span class="recipe-ingr-pip-row__note">untracked</span>
-			</span>
-		</div>
+	<div class="rd-actions">
+		<button type="button" class="btn btn--cook" disabled="" title="Coming in P2-3">
+			<svg class="icon" aria-hidden="true">
+				<use href="#i-flame"></use>
+			</svg>
+			Cook this
+		</button>
+		<button type="button" class="btn btn--soft" data-missing-count="1" title="Coming in P2-4b">
+			<svg class="icon" aria-hidden="true">
+				<use href="#i-cart"></use>
+			</svg>
+			Add 1 missing to shopping list
+		</button>
+		<a href="/Recipes/Guid_1/Edit" class="btn btn--secondary">
+			<svg class="icon" aria-hidden="true">
+				<use href="#i-edit"></use>
+			</svg>
+			Edit recipe
+		</a>
 	</div>
 </div>

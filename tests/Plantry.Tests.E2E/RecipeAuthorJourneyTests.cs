@@ -185,26 +185,26 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await page.WaitForURLAsync(DetailUrlPattern);
             Assert.DoesNotMatch(@"/Edit$", page.Url);
 
-            // Recipe name is the page heading
-            var heading = await page.Locator("h2.catalog-section__heading").TextContentAsync();
+            // Recipe name is the page heading (now h1 overlaid on the hero)
+            var heading = await page.Locator("h1.rd-hero__name").TextContentAsync();
             Assert.Contains(recipeName, heading, StringComparison.OrdinalIgnoreCase);
 
-            // Tomato ingredient renders in the list
-            await Assertions.Expect(page.Locator(".recipe-ingredient-list__item", new() { HasText = tomatoName }))
+            // Tomato ingredient renders in the ingredients rail card
+            await Assertions.Expect(page.Locator(".rd-ing-row", new() { HasText = tomatoName }))
                 .ToBeVisibleAsync();
 
-            // Olive Oil untracked staple renders (untracked label)
-            await Assertions.Expect(page.Locator(".recipe-ingredient-list__item", new() { HasText = "Olive Oil" }))
+            // Olive Oil untracked staple renders (untracked sub-label)
+            await Assertions.Expect(page.Locator(".rd-ing-row", new() { HasText = "Olive Oil" }))
                 .ToBeVisibleAsync();
-            await Assertions.Expect(page.Locator(".recipe-ingredient__note--untracked"))
+            await Assertions.Expect(page.Locator(".rd-ing-sub--untracked"))
                 .ToBeVisibleAsync();
 
-            // Tag pill "Italian" is present
-            await Assertions.Expect(page.Locator(".recipe-tags .badge", new() { HasText = "Italian" }))
+            // Tag mini-pill "Italian" is present in the hero overlay
+            await Assertions.Expect(page.Locator(".rd-hero__tags .recipe-tag-mini", new() { HasText = "Italian" }))
                 .ToBeVisibleAsync();
 
             // Photo is rendered (hero img tag present)
-            await Assertions.Expect(page.Locator(".recipe-hero__img"))
+            await Assertions.Expect(page.Locator(".rd-hero__photo"))
                 .ToBeVisibleAsync();
         }
         finally
@@ -286,11 +286,12 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             Assert.DoesNotMatch(@"/Edit$", page.Url);
 
             // ── Assert: Detail reflects updated servings ──────────────────────────
-            var servingsText = await page.Locator(".recipe-meta__item").First.TextContentAsync();
+            // The servings stepper val shows the current servings count in the ingredients card header.
+            var servingsText = await page.Locator(".rd-serv-stepper__val").InnerTextAsync();
             Assert.Contains("4", servingsText);
 
-            // Recipe name still visible
-            var heading = await page.Locator("h2.catalog-section__heading").TextContentAsync();
+            // Recipe name still visible in hero
+            var heading = await page.Locator("h1.rd-hero__name").TextContentAsync();
             Assert.Contains(recipeName, heading, StringComparison.OrdinalIgnoreCase);
         }
         finally
@@ -331,14 +332,16 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await page.WaitForURLAsync(DetailUrlPattern);
 
             // ── Verify the default quantity is shown ──────────────────────────────
-            var qtySpan = page.Locator(".recipe-ingredient__qty").First;
+            // Ingredient quantities are now in .rd-ing-qty spans inside the ingredients rail card.
+            var qtySpan = page.Locator(".rd-ing-qty").First;
             await Assertions.Expect(qtySpan).ToBeVisibleAsync();
             var defaultQty = await qtySpan.InnerTextAsync();
             // The Alpine x-text renders the quantity; default servings = 2, qty = 200.
             Assert.Contains("200", defaultQty, StringComparison.Ordinal);
 
             // ── Step servings up: 2 → 4 ─────────────────────────────────────────
-            var moreBtn = page.Locator(".recipe-servings-stepper__btn[aria-label='More servings']");
+            // Stepper is now .rd-serv-stepper__btn in the ingredients card header.
+            var moreBtn = page.Locator(".rd-serv-stepper__btn[aria-label='More servings']");
             await Assertions.Expect(moreBtn).ToBeVisibleAsync();
             // Click twice to go from 2 → 4 servings.
             await moreBtn.ClickAsync();
@@ -346,14 +349,14 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             // Alpine rescales: 200 × (4/2) = 400.
             // x-text runs client-side; give Alpine a tick to rerender.
-            await page.WaitForFunctionAsync("document.querySelector('.recipe-ingredient__qty').textContent.trim() !== '200'");
+            await page.WaitForFunctionAsync("document.querySelector('.rd-ing-qty').textContent.trim() !== '200'");
 
             var scaledQty = await qtySpan.InnerTextAsync();
             Assert.Contains("400", scaledQty, StringComparison.Ordinal);
 
-            // Servings label updates too.
-            var stepperVal = await page.Locator(".recipe-servings-stepper__val").InnerTextAsync();
-            Assert.Contains("4 servings", stepperVal, StringComparison.OrdinalIgnoreCase);
+            // Servings stepper val updates too (shows current count, not "N servings").
+            var stepperVal = await page.Locator(".rd-serv-stepper__val").InnerTextAsync();
+            Assert.Contains("4", stepperVal, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

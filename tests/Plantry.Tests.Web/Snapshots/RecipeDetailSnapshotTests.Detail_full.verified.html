@@ -4,139 +4,252 @@
          get scale() { return this.servings / this.defaultServings; },
          fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); }
      }">
-	<div class="recipe-hero">
-		<img class="recipe-hero__img" src="/Recipes/Guid_1?handler=Photo" alt="Tomato Pasta" loading="lazy">
-	</div>
-	<div class="catalog-section">
-		<div class="catalog-section__header">
-			<div>
-				<h2 class="catalog-section__heading">Tomato Pasta</h2>
-				<div class="recipe-meta">
-					<span class="recipe-meta__item">
-						<span class="recipe-servings-stepper" role="group" aria-label="Servings">
-							<button type="button" class="recipe-servings-stepper__btn" aria-label="Fewer servings" @click="servings = Math.max(1, servings - 1)" :disabled="servings <= 1">−</button>
-							<span class="recipe-servings-stepper__val" x-text="servings + (servings === 1 ? ' serving' : ' servings')">4 servings</span>
-							<button type="button" class="recipe-servings-stepper__btn" aria-label="More servings" @click="servings = servings + 1">+</button>
-						</span>
-					</span>
-					<span class="recipe-meta__item">
-						<svg class="icon" aria-hidden="true">
-							<use href="#i-clock"></use>
-						</svg>
-						30 min
-					</span>
-					<span class="recipe-meta__item recipe-meta__source">
-						Nonna's recipe book
-					</span>
+	<div class="rd-wrap">
+		<a href="/Recipes" class="rd-back">
+			<svg class="icon" aria-hidden="true">
+				<use href="#i-chevron-right"></use>
+			</svg>
+			All recipes
+		</a>
+		<div class="rd-grid">
+			<div class="rd-main">
+				<div class="rd-hero">
+					<img class="rd-hero__photo" src="/Recipes/Guid_1?handler=Photo" alt="Tomato Pasta" loading="lazy">
+					<div class="rd-hero__scrim" aria-hidden="true"></div>
+					<div class="rd-hero__info">
+						<div class="rd-hero__tags" role="list" aria-label="Tags">
+							<span class="recipe-tag-mini" role="listitem">
+								<span class="recipe-tag-mini__dot" style="background:#27ae60"></span>
+								Vegetarian
+							</span>
+							<span class="recipe-tag-mini" role="listitem">
+								<span class="recipe-tag-mini__dot" style="background:#e74c3c"></span>
+								Spicy
+							</span>
+						</div>
+						<h1 class="rd-hero__name">Tomato Pasta</h1>
+						<p class="rd-hero__blurb">Nonna's recipe book</p>
+					</div>
+				</div>
+				<div class="rd-meta" role="list" aria-label="Recipe stats">
+					<div class="rd-meta__cell" role="listitem">
+						<div class="rd-meta__ico" aria-hidden="true">
+							<svg class="icon">
+								<use href="#i-clock"></use>
+							</svg>
+						</div>
+						<div class="rd-meta__body">
+							<div class="rd-meta__val">
+								30 min
+							</div>
+							<div class="rd-meta__lbl">Cook time</div>
+						</div>
+					</div>
+					<div class="rd-meta__cell" role="listitem">
+						<div class="rd-meta__ico" aria-hidden="true">
+							<svg class="icon">
+								<use href="#i-servings"></use>
+							</svg>
+						</div>
+						<div class="rd-meta__body">
+							<div class="rd-meta__val">
+								<span x-text="servings + (servings === 1 ? ' serving' : ' servings')">4 servings</span>
+							</div>
+							<div class="rd-meta__lbl">
+								Yields<span x-show="scale !== 1" x-cloak="">
+									·&nbsp;scaled
+									<span x-text="Math.round(scale * 100) / 100"></span>×
+								</span>
+							</div>
+						</div>
+					</div>
+					<div class="rd-meta__cell" role="listitem">
+						<div class="rd-meta__ico" aria-hidden="true">
+							<svg class="icon">
+								<use href="#i-tag"></use>
+							</svg>
+						</div>
+						<div class="rd-meta__body">
+							<div class="rd-meta__val rd-meta__val--mono">
+								$0.39
+								<span title="Partial cost estimate — 1 ingredient(s) have no price">~</span>
+							</div>
+							<div class="rd-meta__lbl">
+								Per serving&nbsp;·&nbsp;$1.55 total
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="rd-directions">
+					<div class="recipe-directions" id="recipe-directions">
+						<div class="recipe-direction-step">
+							<span class="recipe-direction-step__num" aria-hidden="true">1</span>
+							<p class="recipe-direction-step__text">Bring a large pot of salted water to the boil.</p>
+						</div>
+						<div class="recipe-direction-step">
+							<span class="recipe-direction-step__num" aria-hidden="true">2</span>
+							<p class="recipe-direction-step__text">Cook pasta according to package directions until al dente.</p>
+						</div>
+						<h4 class="recipe-direction-section">For the sauce</h4>
+						<div class="recipe-direction-step">
+							<span class="recipe-direction-step__num" aria-hidden="true">1</span>
+							<p class="recipe-direction-step__text">Heat olive oil in a pan over medium heat.</p>
+						</div>
+						<div class="recipe-direction-step">
+							<span class="recipe-direction-step__num" aria-hidden="true">2</span>
+							<p class="recipe-direction-step__text">Add garlic and cook until fragrant. Add tomatoes and simmer for 15 minutes.</p>
+						</div>
+						<div class="recipe-direction-step">
+							<span class="recipe-direction-step__num" aria-hidden="true">3</span>
+							<p class="recipe-direction-step__text">Drain pasta and toss with sauce. Season to taste.</p>
+						</div>
+					</div>
 				</div>
 			</div>
-			<div class="card__head-actions">
-				<a href="/Recipes/Guid_1/Edit" class="btn btn--secondary btn--sm">Edit</a>
-				<button type="button" class="btn btn--ghost btn--sm" disabled="" title="Coming in P2-3">Cook</button>
-				<button type="button" class="btn btn--ghost btn--sm" disabled="" title="Coming in P2-4">Add missing</button>
-			</div>
-		</div>
-		<div class="recipe-tags" role="list" aria-label="Tags">
-			<span class="badge badge--neutral" role="listitem">Vegetarian</span>
-			<span class="badge badge--neutral" role="listitem">Spicy</span>
-		</div>
-	</div>
-	<div class="catalog-section recipe-fulfillment-card">
-		<div class="catalog-section__header">
-			<h3 class="catalog-section__heading">Cookability</h3>
-			<span class="badge badge--warning">1 missing, 1 low</span>
-		</div>
-		<div class="recipe-ingr-pips" role="list" aria-label="Ingredient availability">
-			<div class="recipe-ingr-pip-row" role="listitem">
-				<span class="ingr-pip ingr-pip--instock" aria-label="In stock"></span>
-				<span class="recipe-ingr-pip-row__name">
-					Rigatoni
-				</span>
-			</div>
-			<div class="recipe-ingr-pip-row" role="listitem">
-				<span class="ingr-pip ingr-pip--low" aria-label="Low"></span>
-				<span class="recipe-ingr-pip-row__name">
-					Canned Tomatoes
-				</span>
-			</div>
-			<div class="recipe-ingr-pip-row" role="listitem">
-				<span class="ingr-pip ingr-pip--missing" aria-label="Missing"></span>
-				<span class="recipe-ingr-pip-row__name">
-					Garlic Cloves
-				</span>
-			</div>
-			<div class="recipe-ingr-pip-row" role="listitem">
-				<span class="ingr-pip ingr-pip--untracked" aria-label="Untracked"></span>
-				<span class="recipe-ingr-pip-row__name">
-					Salt
-					<span class="recipe-ingr-pip-row__note">untracked</span>
-				</span>
-			</div>
-		</div>
-	</div>
-	<div class="catalog-section">
-		<div class="recipe-cost-bar">
-			<span class="recipe-cost-bar__label">Cost per serving</span>
-			<span class="recipe-cost-bar__amount" style="font-family:var(--font-mono)">
-				$0.39
-				<span class="recipe-cost-bar__estimate" title="Partial cost estimate — 1 ingredient(s) have no price">~</span>
-			</span>
-			<span class="recipe-cost-bar__note">
-				Estimate — 2 of 3 ingredients priced
-			</span>
-		</div>
-	</div>
-	<div class="catalog-section">
-		<h3 class="catalog-section__heading">Ingredients</h3>
-		<h4 class="recipe-group-heading">Pasta</h4>
-		<ul class="recipe-ingredient-list" role="list">
-			<li class="recipe-ingredient-list__item">
-				<span class="recipe-ingredient__qty" x-text="fmt(400)">400</span>
-				<span class="recipe-ingredient__unit">g</span>
-				<span class="recipe-ingredient__name">Rigatoni</span>
-			</li>
-		</ul>
-		<h4 class="recipe-group-heading">Sauce</h4>
-		<ul class="recipe-ingredient-list" role="list">
-			<li class="recipe-ingredient-list__item">
-				<span class="recipe-ingredient__qty" x-text="fmt(500)">500</span>
-				<span class="recipe-ingredient__unit">g</span>
-				<span class="recipe-ingredient__name">Canned Tomatoes</span>
-			</li>
-			<li class="recipe-ingredient-list__item">
-				<span class="recipe-ingredient__qty" x-text="fmt(3)">3</span>
-				<span class="recipe-ingredient__unit">ea</span>
-				<span class="recipe-ingredient__name">Garlic Cloves</span>
-			</li>
-			<li class="recipe-ingredient-list__item">
-				<span class="recipe-ingredient__name">Salt</span>
-				<span class="recipe-ingredient__note recipe-ingredient__note--untracked">untracked</span>
-			</li>
-		</ul>
-	</div>
-	<div class="catalog-section">
-		<h3 class="catalog-section__heading">Directions</h3>
-		<div class="recipe-directions" id="recipe-directions">
-			<div class="recipe-direction-step">
-				<span class="recipe-direction-step__num" aria-hidden="true">1</span>
-				<p class="recipe-direction-step__text">Bring a large pot of salted water to the boil.</p>
-			</div>
-			<div class="recipe-direction-step">
-				<span class="recipe-direction-step__num" aria-hidden="true">2</span>
-				<p class="recipe-direction-step__text">Cook pasta according to package directions until al dente.</p>
-			</div>
-			<h4 class="recipe-direction-section">For the sauce</h4>
-			<div class="recipe-direction-step">
-				<span class="recipe-direction-step__num" aria-hidden="true">1</span>
-				<p class="recipe-direction-step__text">Heat olive oil in a pan over medium heat.</p>
-			</div>
-			<div class="recipe-direction-step">
-				<span class="recipe-direction-step__num" aria-hidden="true">2</span>
-				<p class="recipe-direction-step__text">Add garlic and cook until fragrant. Add tomatoes and simmer for 15 minutes.</p>
-			</div>
-			<div class="recipe-direction-step">
-				<span class="recipe-direction-step__num" aria-hidden="true">3</span>
-				<p class="recipe-direction-step__text">Drain pasta and toss with sauce. Season to taste.</p>
+			<div class="rd-rail">
+				<div class="rd-fulf-card ">
+					<div class="rd-fulf-top">
+						<div class="rd-fulf-headline">
+							<span class="rd-fulf-count fulf-mid">1 of 3</span>
+							<span class="rd-fulf-of">ingredients</span>
+						</div>
+						<div class="rd-fulf-sub">in your pantry right now</div>
+						<div class="rd-fulf-bar-wrap" role="progressbar" aria-valuenow="67" aria-valuemin="0" aria-valuemax="100">
+							<span class="rd-fulf-bar-fill fulf-mid-bg" style="width:67%"></span>
+						</div>
+						<div class="rd-fulf-chips">
+							<span class="rd-fulf-chip rd-fulf-chip--have">
+								<span class="rd-fulf-chip__dot fulf-hi-bg"></span>
+								1 in stock
+							</span>
+							<span class="rd-fulf-chip rd-fulf-chip--low">
+								<span class="rd-fulf-chip__dot fulf-mid-bg"></span>
+								1 running low
+							</span>
+							<span class="rd-fulf-chip rd-fulf-chip--miss">
+								<span class="rd-fulf-chip__dot fulf-lo-bg"></span>
+								1 to buy
+							</span>
+						</div>
+					</div>
+					<div class="rd-actions">
+						<button type="button" class="btn btn--cook" disabled="" title="Coming in P2-3">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-flame"></use>
+							</svg>
+							Cook this
+						</button>
+						<button type="button" class="btn btn--soft" data-missing-count="1" title="Coming in P2-4b">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-cart"></use>
+							</svg>
+							Add 1 missing to shopping list
+						</button>
+						<a href="/Recipes/Guid_1/Edit" class="btn btn--secondary">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-edit"></use>
+							</svg>
+							Edit recipe
+						</a>
+					</div>
+				</div>
+				<div class="rd-ing-card">
+					<div class="rd-ing-head">
+						<h3>Ingredients</h3>
+						<div class="rd-ing-head__spacer"></div>
+						<span class="rd-serv-stepper__lbl">Servings</span>
+						<div class="rd-serv-stepper" role="group" aria-label="Servings">
+							<button type="button" class="rd-serv-stepper__btn" aria-label="Fewer servings" @click="servings = Math.max(1, servings - 1)" :disabled="servings <= 1">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-minus"></use>
+								</svg>
+							</button>
+							<span class="rd-serv-stepper__val" x-text="servings">4</span>
+							<button type="button" class="rd-serv-stepper__btn" aria-label="More servings" @click="servings = Math.min(24, servings + 1)" :disabled="servings >= 24">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-plus"></use>
+								</svg>
+							</button>
+						</div>
+					</div>
+					<div class="rd-ing-list" role="list" aria-label="Ingredients">
+						<div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+							<h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">Pasta</h4>
+						</div>
+						<div class="rd-ing-row" role="listitem">
+							<div class="rd-ing-status rd-ing-status--have" aria-hidden="true">
+								<svg class="icon">
+									<use href="#i-check"></use>
+								</svg>
+							</div>
+							<div class="rd-ing-main">
+								<div class="rd-ing-name">
+									Rigatoni
+								</div>
+								<div class="rd-ing-sub rd-ing-sub--have">In your pantry</div>
+							</div>
+							<div class="rd-ing-amt">
+								<span class="rd-ing-qty" x-text="fmt(400)">400</span>
+								<span>
+									g</span>
+							</div>
+						</div>
+						<div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+							<h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">Sauce</h4>
+						</div>
+						<div class="rd-ing-row" role="listitem">
+							<div class="rd-ing-status rd-ing-status--low" aria-hidden="true">
+								<svg class="icon">
+									<use href="#i-alert"></use>
+								</svg>
+							</div>
+							<div class="rd-ing-main">
+								<div class="rd-ing-name">
+									Canned Tomatoes
+								</div>
+								<div class="rd-ing-sub rd-ing-sub--low">Running low</div>
+							</div>
+							<div class="rd-ing-amt">
+								<span class="rd-ing-qty" x-text="fmt(500)">500</span>
+								<span>
+									g</span>
+							</div>
+						</div>
+						<div class="rd-ing-row" role="listitem">
+							<div class="rd-ing-status rd-ing-status--miss" aria-hidden="true">
+								<svg class="icon">
+									<use href="#i-alert"></use>
+								</svg>
+							</div>
+							<div class="rd-ing-main">
+								<div class="rd-ing-name">
+									Garlic Cloves
+								</div>
+								<div class="rd-ing-sub rd-ing-sub--miss">Not in your pantry</div>
+							</div>
+							<div class="rd-ing-amt">
+								<span class="rd-ing-qty" x-text="fmt(3)">3</span>
+								<span>
+									ea</span>
+							</div>
+						</div>
+						<div class="rd-ing-row" role="listitem">
+							<div class="rd-ing-status rd-ing-status--untracked" aria-hidden="true">
+								<svg class="icon">
+									<use href="#i-recipe"></use>
+								</svg>
+							</div>
+							<div class="rd-ing-main">
+								<div class="rd-ing-name">
+									Salt
+								</div>
+								<div class="rd-ing-sub rd-ing-sub--untracked">untracked</div>
+							</div>
+							<div class="rd-ing-amt">
+							</div>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>

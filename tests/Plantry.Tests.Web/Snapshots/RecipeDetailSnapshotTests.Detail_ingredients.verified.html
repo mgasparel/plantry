@@ -1,23 +1,97 @@
-﻿<ul class="recipe-ingredient-list" role="list">
-	<li class="recipe-ingredient-list__item">
-		<span class="recipe-ingredient__qty" x-text="fmt(400)">400</span>
-		<span class="recipe-ingredient__unit">g</span>
-		<span class="recipe-ingredient__name">Rigatoni</span>
-	</li>
-</ul>
-<ul class="recipe-ingredient-list" role="list">
-	<li class="recipe-ingredient-list__item">
-		<span class="recipe-ingredient__qty" x-text="fmt(500)">500</span>
-		<span class="recipe-ingredient__unit">g</span>
-		<span class="recipe-ingredient__name">Canned Tomatoes</span>
-	</li>
-	<li class="recipe-ingredient-list__item">
-		<span class="recipe-ingredient__qty" x-text="fmt(3)">3</span>
-		<span class="recipe-ingredient__unit">ea</span>
-		<span class="recipe-ingredient__name">Garlic Cloves</span>
-	</li>
-	<li class="recipe-ingredient-list__item">
-		<span class="recipe-ingredient__name">Salt</span>
-		<span class="recipe-ingredient__note recipe-ingredient__note--untracked">untracked</span>
-	</li>
-</ul>
+﻿<div class="rd-ing-card">
+	<div class="rd-ing-head">
+		<h3>Ingredients</h3>
+		<div class="rd-ing-head__spacer"></div>
+		<span class="rd-serv-stepper__lbl">Servings</span>
+		<div class="rd-serv-stepper" role="group" aria-label="Servings">
+			<button type="button" class="rd-serv-stepper__btn" aria-label="Fewer servings" @click="servings = Math.max(1, servings - 1)" :disabled="servings <= 1">
+				<svg class="icon" aria-hidden="true">
+					<use href="#i-minus"></use>
+				</svg>
+			</button>
+			<span class="rd-serv-stepper__val" x-text="servings">4</span>
+			<button type="button" class="rd-serv-stepper__btn" aria-label="More servings" @click="servings = Math.min(24, servings + 1)" :disabled="servings >= 24">
+				<svg class="icon" aria-hidden="true">
+					<use href="#i-plus"></use>
+				</svg>
+			</button>
+		</div>
+	</div>
+	<div class="rd-ing-list" role="list" aria-label="Ingredients">
+		<div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+			<h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">Pasta</h4>
+		</div>
+		<div class="rd-ing-row" role="listitem">
+			<div class="rd-ing-status rd-ing-status--have" aria-hidden="true">
+				<svg class="icon">
+					<use href="#i-check"></use>
+				</svg>
+			</div>
+			<div class="rd-ing-main">
+				<div class="rd-ing-name">
+					Rigatoni
+				</div>
+				<div class="rd-ing-sub rd-ing-sub--have">In your pantry</div>
+			</div>
+			<div class="rd-ing-amt">
+				<span class="rd-ing-qty" x-text="fmt(400)">400</span>
+				<span>
+					g</span>
+			</div>
+		</div>
+		<div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+			<h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">Sauce</h4>
+		</div>
+		<div class="rd-ing-row" role="listitem">
+			<div class="rd-ing-status rd-ing-status--low" aria-hidden="true">
+				<svg class="icon">
+					<use href="#i-alert"></use>
+				</svg>
+			</div>
+			<div class="rd-ing-main">
+				<div class="rd-ing-name">
+					Canned Tomatoes
+				</div>
+				<div class="rd-ing-sub rd-ing-sub--low">Running low</div>
+			</div>
+			<div class="rd-ing-amt">
+				<span class="rd-ing-qty" x-text="fmt(500)">500</span>
+				<span>
+					g</span>
+			</div>
+		</div>
+		<div class="rd-ing-row" role="listitem">
+			<div class="rd-ing-status rd-ing-status--miss" aria-hidden="true">
+				<svg class="icon">
+					<use href="#i-alert"></use>
+				</svg>
+			</div>
+			<div class="rd-ing-main">
+				<div class="rd-ing-name">
+					Garlic Cloves
+				</div>
+				<div class="rd-ing-sub rd-ing-sub--miss">Not in your pantry</div>
+			</div>
+			<div class="rd-ing-amt">
+				<span class="rd-ing-qty" x-text="fmt(3)">3</span>
+				<span>
+					ea</span>
+			</div>
+		</div>
+		<div class="rd-ing-row" role="listitem">
+			<div class="rd-ing-status rd-ing-status--untracked" aria-hidden="true">
+				<svg class="icon">
+					<use href="#i-recipe"></use>
+				</svg>
+			</div>
+			<div class="rd-ing-main">
+				<div class="rd-ing-name">
+					Salt
+				</div>
+				<div class="rd-ing-sub rd-ing-sub--untracked">untracked</div>
+			</div>
+			<div class="rd-ing-amt">
+			</div>
+		</div>
+	</div>
+</div>

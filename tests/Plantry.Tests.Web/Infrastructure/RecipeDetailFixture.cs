@@ -151,6 +151,10 @@ public static class RecipeDetailFixture
             [TomatoId] = new(TomatoId, Price: 1.50m,  Quantity: 1000m, UnitId: GramUnitId, UnitPrice: 0.0015m),
             [GarlicId] = new(GarlicId, Price: 0.50m,  Quantity: 1m,    UnitId: EachUnitId, UnitPrice: 0.50m),
         };
+
+    /// <summary>No price points → nothing costable is priced → CostCompleteness.None (dash cell).</summary>
+    public static IReadOnlyDictionary<Guid, PricePoint> PricesNone() =>
+        new Dictionary<Guid, PricePoint>();
 }
 
 /// <summary>

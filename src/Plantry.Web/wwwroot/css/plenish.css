@@ -36,6 +36,9 @@
   --color-accent-hover:#46683f;
   --color-accent-subtle:#e3e8e3;
 
+  /* Warm "cook" callout — distinct from the green primary (proto --accent). */
+  --color-cook:        #bd853f;
+
   --color-success:     #3d7a4e;
   --color-success-bg:  #e6f0e8;
   --color-warning:     #b0701f;
@@ -113,6 +116,7 @@
   --color-accent:      #14774f;
   --color-accent-hover:#169059;
   --color-accent-subtle:#e1ece5;
+  --color-cook:        #e0662f;
   --color-sidebar-bg:  #ffffff;
   --color-sidebar-text:#566a5e;
   --color-sidebar-muted:#93a399;
@@ -133,6 +137,7 @@
   --color-accent:      #36578a;
   --color-accent-hover:#3f649c;
   --color-accent-subtle:#e2e8f1;
+  --color-cook:        #c2772f;
   --color-sidebar-bg:  #ffffff;
   --color-sidebar-text:#5c6671;
   --color-sidebar-muted:#97a0ab;
@@ -284,6 +289,13 @@ button { font-family: inherit; cursor: pointer; }
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* Wide pages own their own width/padding via an inner wrapper (e.g. .rd-wrap):
+   lift the default content cap but keep normal document-flow scrolling. */
+.page-content--wide {
+  padding: 0;
+  max-width: none;
 }
 
 .app-content:has(.page-content--fluid) {
@@ -1714,21 +1726,19 @@ button { font-family: inherit; cursor: pointer; }
 }
 .recipe-ingredient__note--untracked { font-style: italic; }
 
-.recipe-directions { display: flex; flex-direction: column; gap: var(--space-4); }
+.recipe-directions { display: flex; flex-direction: column; gap: var(--space-3); }
+/* Section heading (e.g. "Method") — warm accent, uppercase, no divider (proto .md h2). */
 .recipe-direction-section {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-cook);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin: var(--space-2) 0 0;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border-subtle);
+  letter-spacing: 0.07em;
+  margin: var(--space-3) 0 0;
+  padding: 0;
 }
 .recipe-directions .recipe-direction-section:first-child {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: none;
+  margin-top: var(--space-4);
 }
 .recipe-direction-step {
   display: grid;
@@ -1736,24 +1746,25 @@ button { font-family: inherit; cursor: pointer; }
   gap: var(--space-3);
   align-items: start;
 }
+/* Step number — green tint pill (proto --primary-soft / --primary), no border. */
 .recipe-direction-step__num {
   width: 1.75rem;
   height: 1.75rem;
   border-radius: 50%;
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border);
+  background: var(--color-accent-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent);
   flex-shrink: 0;
   line-height: 1;
 }
 .recipe-direction-step__text {
   margin: 0;
-  line-height: 1.6;
+  line-height: 1.62;
   font-size: var(--font-size-sm);
 }
 
@@ -2429,4 +2440,529 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 12px;
   color: var(--color-text-faint);
   width: 100%;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RECIPE DETAIL — two-column "decision + action" screen (plantry-v0f)
+   Components: rd-grid / rd-hero (overlaid) / rd-meta stat strip /
+               rd-detail-fulf-card / rd-ing-card / rd-ing-row
+   Dev component library: Pages/Dev/Index.cshtml
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Two-column detail grid ──────────────────────────────────────────────── */
+.rd-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 28px 64px;
+}
+
+/* "← All recipes" pill above the grid. */
+.rd-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+.rd-back:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-text);
+  text-decoration: none;
+}
+.rd-back .icon { transform: rotate(180deg); } /* chevron-right → points left */
+
+.rd-grid {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 24px;
+  align-items: start;
+}
+
+.rd-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rd-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 12px;
+}
+
+/* ── Overlaid hero (name / tags / blurb on top of photo, behind scrim) ───── */
+.rd-hero {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+
+/* photo or placeholder fills the whole hero */
+.rd-hero__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* themed placeholder tile (no photo) */
+.rd-hero__placeholder {
+  position: absolute;
+  inset: 0;
+  background: var(--color-surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-faint);
+}
+.rd-hero__placeholder::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 2px, transparent 2px 11px);
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+.rd-hero__placeholder .icon { width: 4rem; height: 4rem; opacity: 0.3; }
+
+/* gradient scrim — bottom 65% darkens to show text */
+.rd-hero__scrim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 65%;
+  z-index: 1;
+  background: linear-gradient(to top, rgba(18,17,14,.84) 4%, rgba(18,17,14,.44) 44%, transparent 100%);
+  pointer-events: none;
+}
+
+/* text overlay: tags → h1 → blurb, bottom-anchored */
+.rd-hero__info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  padding: 20px 22px;
+  color: #fff;
+}
+
+.rd-hero__tags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.rd-hero__name {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.rd-hero__blurb {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: rgba(255,255,255,.84);
+  max-width: 56ch;
+}
+
+/* ── Meta stat strip (cook time / servings / cost per serving) ───────────── */
+/*
+ * Three equal cells separated by hairline dividers.
+ * Each cell: icon square + (value / label) stack.
+ * Rendered as a bordered card below the hero.
+ */
+.rd-meta {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.rd-meta__cell {
+  flex: 1;
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.rd-meta__cell + .rd-meta__cell {
+  border-left: 1px solid var(--color-border);
+}
+
+.rd-meta__ico {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+}
+
+.rd-meta__ico .icon { width: 17px; height: 17px; }
+
+.rd-meta__body { min-width: 0; }
+
+.rd-meta__val {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rd-meta__val--mono { font-family: var(--font-mono); }
+
+.rd-meta__lbl {
+  font-size: 11px;
+  color: var(--color-text-faint);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Directions card in the main column ─────────────────────────────────── */
+.rd-directions {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 8px 26px 26px;
+}
+
+/* ── Fulfillment rail card ───────────────────────────────────────────────── */
+/*
+ * "X of Y ingredients" headline + progress bar + breakdown chips +
+ * contextual note (expiring-soon / ready-to-cook) + action buttons.
+ * When cookable, the border gets a subtle green tint.
+ */
+.rd-fulf-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.rd-fulf-card--cookable {
+  border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border));
+}
+
+.rd-fulf-top {
+  padding: 18px 18px 16px;
+}
+
+/* "2 of 4 ingredients" headline */
+.rd-fulf-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.rd-fulf-count {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.rd-fulf-of {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.rd-fulf-sub {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* progress bar */
+.rd-fulf-bar-wrap {
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  overflow: hidden;
+  margin: 12px 0 10px;
+}
+
+.rd-fulf-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 400ms cubic-bezier(.4,0,.2,1);
+}
+
+/* breakdown chips: in stock / running low / to buy */
+.rd-fulf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rd-fulf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.rd-fulf-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.rd-fulf-chip--have { background: var(--color-success-bg); color: var(--color-success); }
+.rd-fulf-chip--low  { background: var(--color-warning-bg); color: var(--color-warning); }
+.rd-fulf-chip--miss { background: var(--color-danger-bg);  color: var(--color-danger); }
+
+/* contextual note (expiring-soon or ready-to-cook) */
+.rd-fulf-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 18px 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.rd-fulf-note .icon { flex-shrink: 0; width: 15px; height: 15px; margin-top: 1px; }
+
+.rd-fulf-note--soon  { background: var(--color-warning-bg); color: var(--color-warning); }
+.rd-fulf-note--ready { background: var(--color-success-bg); color: var(--color-success); }
+.rd-fulf-note b { font-weight: 700; }
+
+/* action buttons stack */
+.rd-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 18px 18px;
+}
+
+.rd-actions .btn { width: 100%; justify-content: center; }
+
+/* Cook this — the rail's hero callout: warm fill, larger than the rest. */
+.btn--cook {
+  background: var(--color-cook);
+  color: var(--color-text-on-accent);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-3) var(--space-6);
+  font-size: var(--font-size-base);
+}
+
+.btn--cook:hover { filter: brightness(1.05); }
+
+/* Soft tinted secondary action (e.g. "Add N missing to shopping list"). */
+.btn--soft {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+.btn--soft:hover { filter: brightness(0.97); }
+
+/* Muted, non-actionable look for disabled rail buttons. */
+.rd-actions .btn:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+  filter: none;
+  cursor: not-allowed;
+}
+
+/* ── Ingredients rail card ───────────────────────────────────────────────── */
+/*
+ * Ingredients card in the right rail. Header: "Ingredients" h3 + spacer +
+ * servings stepper (reuses .rd-serv-step). Rows: .rd-ing-row.
+ */
+.rd-ing-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.rd-ing-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 4px;
+}
+
+.rd-ing-head h3 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.rd-ing-head__spacer { flex: 1; }
+
+/* servings stepper inside ingredients card header */
+.rd-serv-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: 2px;
+}
+
+.rd-serv-stepper__lbl {
+  font-size: 12px;
+  color: var(--color-text-faint);
+  font-weight: 600;
+  margin-right: 7px;
+}
+
+.rd-serv-stepper__btn {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.rd-serv-stepper__btn:hover:not(:disabled) {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.rd-serv-stepper__btn:disabled { opacity: .35; cursor: not-allowed; }
+.rd-serv-stepper__btn .icon { width: 14px; height: 14px; }
+
+.rd-serv-stepper__val {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+
+/* ingredient list */
+.rd-ing-list { padding: 6px 8px 10px; }
+
+/* one ingredient row: status pip + name/sub + scaled amount */
+.rd-ing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.rd-ing-row + .rd-ing-row { border-top: 1px solid var(--color-border); }
+/* No divider directly above a group heading — the heading already separates sections,
+   so the trailing rule after a group's last item just looks cluttered. */
+.rd-ing-row + .rd-ing-row:has(> h4) { border-top: none; }
+
+/* status icon box */
+.rd-ing-status {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+.rd-ing-status .icon { width: 14px; height: 14px; }
+
+.rd-ing-status--have { background: var(--color-success-bg); color: var(--color-success); }
+.rd-ing-status--low  { background: var(--color-warning-bg); color: var(--color-warning); }
+.rd-ing-status--miss { background: var(--color-danger-bg);  color: var(--color-danger); }
+/* untracked: no colored box — just a small neutral dot for visual rhythm */
+.rd-ing-status--untracked {
+  background: var(--color-surface-2);
+  color: var(--color-text-faint);
+}
+
+.rd-ing-main { flex: 1; min-width: 0; }
+
+.rd-ing-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* expiring-soon inline badge */
+.rd-ing-soon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.rd-ing-soon .icon { width: 10px; height: 10px; }
+
+.rd-ing-sub {
+  font-size: 11.5px;
+  margin-top: 1px;
+}
+
+.rd-ing-sub--have { color: var(--color-text-faint); }
+.rd-ing-sub--low  { color: var(--color-warning); font-weight: 600; }
+.rd-ing-sub--miss { color: var(--color-danger); font-weight: 600; }
+.rd-ing-sub--untracked { color: var(--color-text-faint); font-style: italic; }
+
+.rd-ing-amt {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+/* ── Responsive: collapse to single column on narrow viewports ───────────── */
+@media (max-width: 1080px) {
+  .rd-grid { grid-template-columns: 1fr; }
+  .rd-rail { position: static; }
 }
