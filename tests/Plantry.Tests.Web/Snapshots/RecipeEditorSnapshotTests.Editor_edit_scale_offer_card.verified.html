@@ -1,0 +1,20 @@
+﻿<div class="card" x-show="showScaleOffer()" x-cloak="">
+	<div class="card__head">
+		<div>
+			<h3 class="card__head-title">Scale ingredients?</h3>
+			<p class="card__head-sub">You changed the default servings. How should ingredient quantities be adjusted?</p>
+		</div>
+	</div>
+	<div class="card__body">
+		<div class="seg-ctrl" role="group" aria-label="Scale mode">
+			<label class="seg-ctrl__item">
+				<input type="radio" name="_scaleMode" value="Proportional" x-model="scaleMode">
+				<span>Proportional — scale quantities</span>
+			</label>
+			<label class="seg-ctrl__item">
+				<input type="radio" name="_scaleMode" value="Keep" x-model="scaleMode">
+				<span>Keep — preserve quantities</span>
+			</label>
+		</div>
+	</div>
+</div>

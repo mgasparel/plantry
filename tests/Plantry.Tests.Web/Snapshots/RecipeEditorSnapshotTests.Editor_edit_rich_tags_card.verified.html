@@ -1,0 +1,18 @@
+﻿<div class="card">
+	<div class="card__head">
+		<div>
+			<h3 class="card__head-title">Tags</h3>
+			<p class="card__head-sub">Type a tag name and press Enter or comma to add it. New tags are created automatically.</p>
+		</div>
+	</div>
+	<div class="card__body">
+		<template x-for="(tag, ti) in tags" :key="ti"><input type="hidden" name="Input.Tags" :value="tag"></template>
+		<div class="recipe-tag-editor" style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text" @click="$refs.tagInput.focus()">
+			<template x-for="(tag, ti) in tags" :key="ti"><span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
+					<span x-text="tag"></span>
+					<button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @click.stop="removeTag(ti)">×</button>
+				</span></template>
+			<input type="text" x-ref="tagInput" x-model="newTag" placeholder="Add a tag…" class="field__input" style="border:none;outline:none;box-shadow:none;padding:0;min-width:8rem;flex:1" @keydown.enter.prevent="addTag()" @keydown.comma.prevent="addTag()" @keydown.backspace="if (!newTag &amp;&amp; tags.length) removeTag(tags.length - 1)">
+		</div>
+	</div>
+</div>
