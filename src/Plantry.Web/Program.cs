@@ -155,8 +155,13 @@ builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
 // FulfillmentService with live stock snapshots (available qty + soonest expiry) from Inventory.
 builder.Services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>();
 
-// Recipe domain services (P2-2a). FulfillmentService is a pure domain computation over its ports.
+// Recipes → Pricing anti-corruption adapter (P2-2b, recipes-domain-model.md §8). Supplies
+// CostingService with the latest PriceObservation per product from the Pricing context.
+builder.Services.AddScoped<IPriceReader, PriceReaderAdapter>();
+
+// Recipe domain services (P2-2a/P2-2b). Both are pure domain computations over their ports.
 builder.Services.AddScoped<FulfillmentService>();
+builder.Services.AddScoped<CostingService>();
 
 // Recipe authoring application service (P2-1c, recipes-domain-model.md §7) — orchestrates create/edit
 // over the Catalog ports + the recipe/tag repositories. Consumed by the P2-1d editor page.
