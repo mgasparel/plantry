@@ -24,10 +24,10 @@ Before building any UI element:
 > (documentation, ownership, history, decisions). **Always verify against
 > actual source files before making changes** — the index may be stale.
 
-Last indexed: 2026-06-14 (commit 049e1e1). Confidence: 100%.
+Last indexed: 2026-06-14 (commit df9edee). Confidence: 100%.
 ### Architecture
-Plantry is a multi-tenant household food and recipe management platform that ingests inventory transactions, catalog definitions, and recipe ingredients, processes them through a Domain-Driven Design (DDD) pipeline featuring row-level database security, and outputs real-time stock journals, intake tracking, and interactive planning tools via an ASP.NET Core web application orchestrated by .NET Aspire. The system is designed around a modular architecture where each domain (Inventory, Recipes, Catalog, Intake) is isolated, yet bound together by a shared kernel that enforces tenancy boundaries at the database connection level. This ensures that household data remains strictly segregated while allowing rich domain interactions. The codebase is organized with clear entry points for both execution and architectural onboarding:
-Plantry is structured as a highly cohesive Modular Monolith.
+Plantry is a multi-tenant household inventory and meal planning platform: it ingests user-defined recipes, grocery catalogs, and consumption logs, processes them through isolated domain sub-systems (Inventory, Recipes, Catalog, Intake) using Domain-Driven Design (DDD) principles, and outputs real-time stock tracking, automated meal planning, and consumption analytics via a web UI orchestrated by a .NET Aspire host. The system enforces strict data isolation between households using a database-level Row-Level Security (RLS) connection interceptor, ensuring that all domain entities—from product stocks to recipes—are securely scoped to a specific household identifier. The codebase is structured around two primary runtime entry points and two documentation entry points:
+  The .NET Aspire orchestration project. This file configures the application topology, registers backing services (such as databases and caches), and wires up project dependencies for local development and deployment.
 ### Entry Points
 - `docs/ADRs/index.md`
 - `docs/DomainDesign/DataModels/index.md`
@@ -59,23 +59,23 @@ Plantry is structured as a highly cohesive Modular Monolith.
 ### Hotspots (High Churn)
 | File | Churn | 90d Commits | Owner |
 |------|-------|-------------|-------|
-| `src/Plantry.Web/wwwroot/css/plenish.css` | 100.0th %ile | 13 | Michael Gasparelli |
-| `src/Plantry.Web/Pages/Dev/Index.cshtml` | 99.7th %ile | 11 | Michael Gasparelli |
+| `src/Plantry.Web/wwwroot/css/plenish.css` | 100.0th %ile | 16 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Dev/Index.cshtml` | 99.7th %ile | 14 | Michael Gasparelli |
 | `src/Plantry.Web/Pages/Intake/Review.cshtml.cs` | 99.5th %ile | 10 | Michael Gasparelli |
-| `tests/Plantry.Tests.Web/ReviewBoundaryTests.cs` | 99.2th %ile | 4 | Michael Gasparelli |
-| `tests/Plantry.Tests.Architecture/BoundaryTests.cs` | 98.9th %ile | 5 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Recipes/Edit.cshtml` | 99.2th %ile | 3 | Michael Gasparelli |
+| `src/Plantry.Web/Pages/Recipes/Details.cshtml` | 99.0th %ile | 3 | Michael Gasparelli |
 
 ## Code health
-Hotspot health: 7.16/10 (stable) ·
-Average: 9.08/10 ·
+Hotspot health: 7.57/10 (stable) ·
+Average: 9.06/10 ·
 Worst: 1.0/10 (`src/Plantry.Web/Pages/Intake/Review.cshtml.cs`)
 
 ### Critical biomarkers
 - `src/Plantry.Catalog.Infrastructure/CatalogDbContext.cs` — untested hotspot — impact −2.0
 - `src/Plantry.Intake/Domain/ImportLine.cs` — change entropy — impact −1.1
 - `src/Plantry.Web/Pages/Intake/Review.cshtml.cs` — change entropy — impact −1.0
-- `src/Plantry.Intake.Infrastructure/IntakeDbContext.cs` — hidden coupling — impact −0.9
-- `src/Plantry.Intake.Infrastructure/IntakeDbContext.cs` — hidden coupling — impact −0.9
+- `src/Plantry.Intake/Domain/ImportLine.cs` — hidden coupling — impact −0.7
+- `src/Plantry.Intake/Domain/ImportLine.cs` — hidden coupling — impact −0.7
 
 ### Repowise MCP Tools
 
