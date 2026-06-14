@@ -299,6 +299,68 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Journey 3: Inspect — servings stepper rescales ingredient quantities ─────
+
+    [Fact(DisplayName = "J3 Inspect: browse → open recipe → step servings up → ingredient quantities rescale")]
+    public async Task InspectRecipe_StepServingsUp_QuantitiesRescale()
+    {
+        var email = $"recipe-inspect-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe Inspect Household");
+
+            // ── Seed a product ────────────────────────────────────────────────────
+            var flourName = $"Bread Flour {Guid.NewGuid():N}".Substring(0, 22);
+            await SeedProductAsync(page, flourName);
+
+            // ── Create a recipe with a known ingredient quantity ──────────────────
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Loaf {Guid.NewGuid():N}".Substring(0, 16);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            await AddProductIngredientAsync(page, flourName, qty: "200", unitLabel: "ea");
+
+            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.WaitForURLAsync(DetailUrlPattern);
+
+            // ── Verify the default quantity is shown ──────────────────────────────
+            var qtySpan = page.Locator(".recipe-ingredient__qty").First;
+            await Assertions.Expect(qtySpan).ToBeVisibleAsync();
+            var defaultQty = await qtySpan.InnerTextAsync();
+            // The Alpine x-text renders the quantity; default servings = 2, qty = 200.
+            Assert.Contains("200", defaultQty, StringComparison.Ordinal);
+
+            // ── Step servings up: 2 → 4 ─────────────────────────────────────────
+            var moreBtn = page.Locator(".recipe-servings-stepper__btn[aria-label='More servings']");
+            await Assertions.Expect(moreBtn).ToBeVisibleAsync();
+            // Click twice to go from 2 → 4 servings.
+            await moreBtn.ClickAsync();
+            await moreBtn.ClickAsync();
+
+            // Alpine rescales: 200 × (4/2) = 400.
+            // x-text runs client-side; give Alpine a tick to rerender.
+            await page.WaitForFunctionAsync("document.querySelector('.recipe-ingredient__qty').textContent.trim() !== '200'");
+
+            var scaledQty = await qtySpan.InnerTextAsync();
+            Assert.Contains("400", scaledQty, StringComparison.Ordinal);
+
+            // Servings label updates too.
+            var stepperVal = await page.Locator(".recipe-servings-stepper__val").InnerTextAsync();
+            Assert.Contains("4 servings", stepperVal, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-inspect.zip" });
+        }
+    }
+
     // ── Shared helpers ────────────────────────────────────────────────────────────
 
     /// <summary>Smallest valid 1×1 PNG for photo upload (same helper as ReceiptIntakeJourneyTests).</summary>

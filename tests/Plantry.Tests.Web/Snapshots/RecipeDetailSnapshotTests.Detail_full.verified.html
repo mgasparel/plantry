@@ -1,4 +1,9 @@
-﻿<div id="recipe-detail">
+﻿<div id="recipe-detail" x-data="{
+         servings: 4,
+         defaultServings: 4,
+         get scale() { return this.servings / this.defaultServings; },
+         fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); }
+     }">
 	<div class="recipe-hero">
 		<img class="recipe-hero__img" src="/Recipes/Guid_1?handler=Photo" alt="Tomato Pasta" loading="lazy">
 	</div>
@@ -8,7 +13,11 @@
 				<h2 class="catalog-section__heading">Tomato Pasta</h2>
 				<div class="recipe-meta">
 					<span class="recipe-meta__item">
-						4 servings
+						<span class="recipe-servings-stepper" role="group" aria-label="Servings">
+							<button type="button" class="recipe-servings-stepper__btn" aria-label="Fewer servings" @click="servings = Math.max(1, servings - 1)" :disabled="servings <= 1">−</button>
+							<span class="recipe-servings-stepper__val" x-text="servings + (servings === 1 ? ' serving' : ' servings')">4 servings</span>
+							<button type="button" class="recipe-servings-stepper__btn" aria-label="More servings" @click="servings = servings + 1">+</button>
+						</span>
 					</span>
 					<span class="recipe-meta__item">
 						<svg class="icon" aria-hidden="true">
@@ -32,14 +41,57 @@
 			<span class="badge badge--neutral" role="listitem">Spicy</span>
 		</div>
 	</div>
+	<div class="catalog-section recipe-fulfillment-card">
+		<div class="catalog-section__header">
+			<h3 class="catalog-section__heading">Cookability</h3>
+			<span class="badge badge--warning">1 missing, 1 low</span>
+		</div>
+		<div class="recipe-ingr-pips" role="list" aria-label="Ingredient availability">
+			<div class="recipe-ingr-pip-row" role="listitem">
+				<span class="ingr-pip ingr-pip--instock" aria-label="In stock"></span>
+				<span class="recipe-ingr-pip-row__name">
+					Rigatoni
+				</span>
+			</div>
+			<div class="recipe-ingr-pip-row" role="listitem">
+				<span class="ingr-pip ingr-pip--low" aria-label="Low"></span>
+				<span class="recipe-ingr-pip-row__name">
+					Canned Tomatoes
+				</span>
+			</div>
+			<div class="recipe-ingr-pip-row" role="listitem">
+				<span class="ingr-pip ingr-pip--missing" aria-label="Missing"></span>
+				<span class="recipe-ingr-pip-row__name">
+					Garlic Cloves
+				</span>
+			</div>
+			<div class="recipe-ingr-pip-row" role="listitem">
+				<span class="ingr-pip ingr-pip--untracked" aria-label="Untracked"></span>
+				<span class="recipe-ingr-pip-row__name">
+					Salt
+					<span class="recipe-ingr-pip-row__note">untracked</span>
+				</span>
+			</div>
+		</div>
+	</div>
+	<div class="catalog-section">
+		<div class="recipe-cost-bar">
+			<span class="recipe-cost-bar__label">Cost per serving</span>
+			<span class="recipe-cost-bar__amount" style="font-family:var(--font-mono)">
+				$0.39
+				<span class="recipe-cost-bar__estimate" title="Partial cost estimate — 1 ingredient(s) have no price">~</span>
+			</span>
+			<span class="recipe-cost-bar__note">
+				Estimate — 2 of 3 ingredients priced
+			</span>
+		</div>
+	</div>
 	<div class="catalog-section">
 		<h3 class="catalog-section__heading">Ingredients</h3>
 		<h4 class="recipe-group-heading">Pasta</h4>
 		<ul class="recipe-ingredient-list" role="list">
 			<li class="recipe-ingredient-list__item">
-				<span class="recipe-ingredient__qty">
-					400
-				</span>
+				<span class="recipe-ingredient__qty" x-text="fmt(400)">400</span>
 				<span class="recipe-ingredient__unit">g</span>
 				<span class="recipe-ingredient__name">Rigatoni</span>
 			</li>
@@ -47,16 +99,12 @@
 		<h4 class="recipe-group-heading">Sauce</h4>
 		<ul class="recipe-ingredient-list" role="list">
 			<li class="recipe-ingredient-list__item">
-				<span class="recipe-ingredient__qty">
-					500
-				</span>
+				<span class="recipe-ingredient__qty" x-text="fmt(500)">500</span>
 				<span class="recipe-ingredient__unit">g</span>
 				<span class="recipe-ingredient__name">Canned Tomatoes</span>
 			</li>
 			<li class="recipe-ingredient-list__item">
-				<span class="recipe-ingredient__qty">
-					3
-				</span>
+				<span class="recipe-ingredient__qty" x-text="fmt(3)">3</span>
 				<span class="recipe-ingredient__unit">ea</span>
 				<span class="recipe-ingredient__name">Garlic Cloves</span>
 			</li>

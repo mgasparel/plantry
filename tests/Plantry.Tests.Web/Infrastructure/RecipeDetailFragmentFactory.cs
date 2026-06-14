@@ -12,10 +12,13 @@ namespace Plantry.Tests.Web.Infrastructure;
 
 /// <summary>
 /// L4 WebApplicationFactory for the recipe Detail page. Boots the real <c>Plantry.Web</c> pipeline
-/// (routing, authorization, Razor rendering) but replaces the three Postgres-backed seams the Detail
-/// page depends on — the recipe repository, the tag repository, and the catalog product reader —
-/// with in-memory fakes, and swaps cookie auth for a header-driven test scheme. No database is
-/// touched, so the rendered HTML is deterministic.
+/// (routing, authorization, Razor rendering) but replaces all Postgres-backed seams the Detail
+/// page depends on — the recipe repository, the tag repository, the catalog product reader, the
+/// inventory stock reader, the price reader, and the unit converter — with in-memory fakes, and
+/// swaps cookie auth for a header-driven test scheme. No database is touched; rendered HTML is deterministic.
+///
+/// <para>Default scenario (used by the base snapshot tests): mixed fulfillment status —
+/// Pasta InStock, Tomatoes Low, Garlic Missing, Salt Untracked; Partial cost (Garlic un-priced).</para>
 /// </summary>
 public sealed class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
 {
@@ -23,6 +26,8 @@ public sealed class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
     public Recipe Recipe { get; } = RecipeDetailFixture.Build();
 
     public Guid RecipeId => Recipe.Id.Value;
+
+    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -54,6 +59,20 @@ public sealed class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<ICatalogProductReader>();
             services.AddSingleton<ICatalogProductReader>(
                 new FakeCatalogProductReader(RecipeDetailFixture.Products(), RecipeDetailFixture.UnitCodes()));
+
+            // Inventory stock reader: mixed statuses (Pasta=InStock, Tomatoes=Low, Garlic=Missing).
+            services.RemoveAll<IInventoryStockReader>();
+            services.AddSingleton<IInventoryStockReader>(
+                new FakeDetailStockReader(RecipeDetailFixture.Stock(Today)));
+
+            // Price reader: Pasta + Tomatoes priced, Garlic not → Partial.
+            services.RemoveAll<IPriceReader>();
+            services.AddSingleton<IPriceReader>(
+                new FakeDetailPriceReader(RecipeDetailFixture.Prices()));
+
+            // Unit converter: identity (ingredient unit == product default unit in fixture).
+            services.RemoveAll<IUnitConverter>();
+            services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
         });
     }
 }

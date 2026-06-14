@@ -1140,3 +1140,96 @@
     </div>
     <pre class="code-sample"><code>@("<div class=\"recipes-grid\">\n  <div class=\"recipes-grid__head\"><!-- 6 col header buttons --></div>\n  <a class=\"recipes-grid__row\" href=\"/Recipes/{id}\">\n    <div class=\"recipes-grid__name-cell\"><!-- thumb + name + tags --></div>\n    <div class=\"fulf-meter\"><!-- bar + pct + sub --></div>\n    <div class=\"recipes-grid__cell recipes-grid__cell--cost num\">{cost}</div>\n    <div class=\"recipes-grid__cell\">{time}</div>\n    <div class=\"recipes-grid__cell\">{serves}</div>\n    <div><svg class=\"icon recipes-grid__chev\">…</svg></div>\n  </a>\n</div>")</code></pre>
 </section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — servings stepper</h2>
+    </div>
+    <p>
+        <code>.recipe-servings-stepper</code> — inline +/− control for the recipe Detail page that
+        rescales ingredient quantities client-side via Alpine (J3 step 5). The stepper is wrapped
+        in a <code>recipe-meta__item</code> span. Bind <code>x-data</code> at the
+        <code>#recipe-detail</code> root with <code>servings</code> and <code>defaultServings</code>
+        to drive Alpine's <code>x-text="fmt(baseQty)"</code> on each ingredient quantity span.
+    </p>
+    <div style="display:inline-flex;align-items:center;gap:12px;padding:12px 0"
+         x-data="{ servings: 4, defaultServings: 4 }">
+        <span class="recipe-servings-stepper" role="group" aria-label="Servings">
+            <button type="button"
+                    class="recipe-servings-stepper__btn"
+                    aria-label="Fewer servings"
+                    @@click="servings = Math.max(1, servings - 1)"
+                    :disabled="servings <= 1">−</button>
+            <span class="recipe-servings-stepper__val"
+                  x-text="servings + (servings === 1 ? ' serving' : ' servings')">4 servings</span>
+            <button type="button"
+                    class="recipe-servings-stepper__btn"
+                    aria-label="More servings"
+                    @@click="servings = servings + 1">+</button>
+        </span>
+    </div>
+    <pre class="code-sample"><code>@("<span class=\"recipe-servings-stepper\" role=\"group\" aria-label=\"Servings\">\n  <button type=\"button\" class=\"recipe-servings-stepper__btn\" aria-label=\"Fewer servings\"\n          @click=\"servings = Math.max(1, servings - 1)\" :disabled=\"servings <= 1\">−</button>\n  <span class=\"recipe-servings-stepper__val\"\n        x-text=\"servings + (servings === 1 ? ' serving' : ' servings')\">4 servings</span>\n  <button type=\"button\" class=\"recipe-servings-stepper__btn\" aria-label=\"More servings\"\n          @click=\"servings = servings + 1\">+</button>\n</span>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — ingredient status pips</h2>
+    </div>
+    <p>
+        <code>.ingr-pip</code> — a small colored status dot per ingredient in the Detail page
+        fulfillment card (P2-2d). Four states: <code>ingr-pip--instock</code> (green),
+        <code>ingr-pip--low</code> (amber), <code>ingr-pip--missing</code> (red),
+        <code>ingr-pip--untracked</code> (neutral grey). Rows use <code>.recipe-ingr-pip-row</code>
+        with optional <code>.recipe-ingr-pip-row__soon</code> for the Use-soon badge.
+    </p>
+    <div class="recipe-ingr-pips" style="max-width:340px">
+        <div class="recipe-ingr-pip-row" role="listitem">
+            <span class="ingr-pip ingr-pip--instock" aria-label="In stock"></span>
+            <span class="recipe-ingr-pip-row__name">Rigatoni</span>
+        </div>
+        <div class="recipe-ingr-pip-row" role="listitem">
+            <span class="ingr-pip ingr-pip--low" aria-label="Low"></span>
+            <span class="recipe-ingr-pip-row__name">Canned Tomatoes</span>
+        </div>
+        <div class="recipe-ingr-pip-row" role="listitem">
+            <span class="ingr-pip ingr-pip--missing" aria-label="Missing"></span>
+            <span class="recipe-ingr-pip-row__name">Garlic Cloves</span>
+            <span class="recipe-ingr-pip-row__soon">
+                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
+            </span>
+        </div>
+        <div class="recipe-ingr-pip-row" role="listitem">
+            <span class="ingr-pip ingr-pip--untracked" aria-label="Untracked"></span>
+            <span class="recipe-ingr-pip-row__name">Salt <span class="recipe-ingr-pip-row__note">untracked</span></span>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"recipe-ingr-pips\" role=\"list\">\n  <div class=\"recipe-ingr-pip-row\" role=\"listitem\">\n    <span class=\"ingr-pip ingr-pip--instock\" aria-label=\"In stock\"></span>\n    <span class=\"recipe-ingr-pip-row__name\">Product Name</span>\n    <!-- optional: <span class=\"recipe-ingr-pip-row__soon\"><svg …></svg> Use soon</span> -->\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Recipe detail — cost meta-bar</h2>
+    </div>
+    <p>
+        <code>.recipe-cost-bar</code> — the cost-per-serving meta-bar for the recipe Detail page
+        (P2-2d). Omitted entirely when <code>CostCompleteness=None</code> (never shown as zero, J3).
+        When <code>Partial</code>, appends <code>.recipe-cost-bar__estimate</code> (~) and a note line.
+        Amount uses <code>var(--font-mono)</code>.
+    </p>
+    <div>
+        <p style="font-size:13px;color:var(--color-text-muted);margin-bottom:8px">Full cost:</p>
+        <div class="recipe-cost-bar">
+            <span class="recipe-cost-bar__label">Cost per serving</span>
+            <span class="recipe-cost-bar__amount" style="font-family:var(--font-mono)">$1.40</span>
+        </div>
+        <p style="font-size:13px;color:var(--color-text-muted);margin:16px 0 8px">Partial cost:</p>
+        <div class="recipe-cost-bar">
+            <span class="recipe-cost-bar__label">Cost per serving</span>
+            <span class="recipe-cost-bar__amount" style="font-family:var(--font-mono)">
+                $0.90 <span class="recipe-cost-bar__estimate" title="Partial cost estimate — 1 ingredient(s) have no price">~</span>
+            </span>
+            <span class="recipe-cost-bar__note">Estimate — 2 of 3 ingredients priced</span>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<!-- Full -->\n<div class=\"recipe-cost-bar\">\n  <span class=\"recipe-cost-bar__label\">Cost per serving</span>\n  <span class=\"recipe-cost-bar__amount\" style=\"font-family:var(--font-mono)\">$1.40</span>\n</div>\n<!-- Partial -->\n<div class=\"recipe-cost-bar\">\n  <span class=\"recipe-cost-bar__label\">Cost per serving</span>\n  <span class=\"recipe-cost-bar__amount\" style=\"font-family:var(--font-mono)\">\n    $0.90 <span class=\"recipe-cost-bar__estimate\" title=\"…\">~</span>\n  </span>\n  <span class=\"recipe-cost-bar__note\">Estimate — 2 of 3 ingredients priced</span>\n</div>")</code></pre>
+</section>

@@ -1,12 +1,23 @@
 @page "/Recipes/{id:guid}"
 @using System.Globalization
+@using Plantry.Recipes.Domain
 @model Plantry.Web.Pages.Recipes.DetailsModel
 @{
     ViewData["Title"] = Model.Recipe.Name;
     var recipe = Model.Recipe;
+    var fulfillment = recipe.Fulfillment;
+    var cost = recipe.Cost;
+
 }
 
-<div id="recipe-detail">
+@* ── Alpine scope: servings stepper + ingredient quantity scaling ─────────── *@
+<div id="recipe-detail"
+     x-data="{
+         servings: @recipe.DefaultServings,
+         defaultServings: @recipe.DefaultServings,
+         get scale() { return this.servings / this.defaultServings; },
+         fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); }
+     }">
 
     @* ── Hero: photo or themed placeholder ──────────────────────────────────── *@
     <div class="recipe-hero">
@@ -25,14 +36,26 @@
         }
     </div>
 
-    @* ── Meta: name, servings, cook time, source, tag pills ─────────────────── *@
+    @* ── Meta: name, servings stepper, cook time, source, tag pills ──────────── *@
     <div class="catalog-section">
         <div class="catalog-section__header">
             <div>
                 <h2 class="catalog-section__heading">@recipe.Name</h2>
                 <div class="recipe-meta">
+                    @* Servings stepper — Alpine client-side; rescales ingredient quantities (J3 step 5) *@
                     <span class="recipe-meta__item">
-                        @recipe.DefaultServings @(recipe.DefaultServings == 1 ? "serving" : "servings")
+                        <span class="recipe-servings-stepper" role="group" aria-label="Servings">
+                            <button type="button"
+                                    class="recipe-servings-stepper__btn"
+                                    aria-label="Fewer servings"
+                                    @@click="servings = Math.max(1, servings - 1)"
+                                    :disabled="servings <= 1">−</button>
+                            <span class="recipe-servings-stepper__val" x-text="servings + (servings === 1 ? ' serving' : ' servings')">@recipe.DefaultServings servings</span>
+                            <button type="button"
+                                    class="recipe-servings-stepper__btn"
+                                    aria-label="More servings"
+                                    @@click="servings = servings + 1">+</button>
+                        </span>
                     </span>
                     @if (recipe.CookTimeMinutes.HasValue)
                     {
@@ -67,6 +90,104 @@
         }
     </div>
 
+    @* ── Fulfillment card: per-ingredient status pips + overall summary ───────── *@
+    <div class="catalog-section recipe-fulfillment-card">
+        <div class="catalog-section__header">
+            <h3 class="catalog-section__heading">Cookability</h3>
+            @if (fulfillment.Overall.FullyCookable)
+            {
+                <span class="badge badge--success">
+                    <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+                    Ready to cook
+                </span>
+            }
+            else if (fulfillment.Overall.MissingCount > 0 || fulfillment.Overall.LowCount > 0)
+            {
+                var parts = new List<string>();
+                if (fulfillment.Overall.MissingCount > 0)
+                    parts.Add($"{fulfillment.Overall.MissingCount} missing");
+                if (fulfillment.Overall.LowCount > 0)
+                    parts.Add($"{fulfillment.Overall.LowCount} low");
+                <span class="badge badge--warning">@string.Join(", ", parts)</span>
+            }
+            else
+            {
+                <span class="badge badge--neutral">No tracked ingredients</span>
+            }
+        </div>
+
+        @* Per-ingredient status pips (one per ingredient in ordinal order) *@
+        <div class="recipe-ingr-pips" role="list" aria-label="Ingredient availability">
+            @foreach (var group in recipe.IngredientGroups)
+            {
+                @foreach (var item in group.Items)
+                {
+                    var pipClass = item.Status switch
+                    {
+                        IngredientStatus.InStock   => "ingr-pip--instock",
+                        IngredientStatus.Low       => "ingr-pip--low",
+                        IngredientStatus.Missing   => "ingr-pip--missing",
+                        _                          => "ingr-pip--untracked",
+                    };
+                    var pipLabel = item.Status switch
+                    {
+                        IngredientStatus.InStock   => "In stock",
+                        IngredientStatus.Low       => "Low",
+                        IngredientStatus.Missing   => "Missing",
+                        _                          => "Untracked",
+                    };
+                    var useSoonSuffix = item.ExpiresWithinDays.HasValue
+                        ? $" — expires in {item.ExpiresWithinDays.Value} day{(item.ExpiresWithinDays.Value == 1 ? "" : "s")}"
+                        : "";
+                    <div class="recipe-ingr-pip-row" role="listitem">
+                        <span class="ingr-pip @(pipClass)" aria-label="@(pipLabel)@(useSoonSuffix)"></span>
+                        <span class="recipe-ingr-pip-row__name">
+                            @item.ProductName
+                            @if (item.IsUntracked)
+                            {
+                                <span class="recipe-ingr-pip-row__note">untracked</span>
+                            }
+                        </span>
+                        @if (item.ExpiresWithinDays.HasValue)
+                        {
+                            <span class="recipe-ingr-pip-row__soon">
+                                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                                Use soon
+                            </span>
+                        }
+                    </div>
+                }
+            }
+            @if (recipe.IngredientGroups.Count == 0 || recipe.IngredientGroups.All(g => g.Items.Count == 0))
+            {
+                <p style="color: var(--color-text-muted)">No ingredients yet.</p>
+            }
+        </div>
+    </div>
+
+    @* ── Cost meta-bar (omitted when CostCompleteness=None per J3) ────────────── *@
+    @if (cost.Completeness != CostCompleteness.None && cost.Amount.HasValue)
+    {
+        <div class="catalog-section">
+            <div class="recipe-cost-bar">
+                <span class="recipe-cost-bar__label">Cost per serving</span>
+                <span class="recipe-cost-bar__amount" style="font-family:var(--font-mono)">
+                    @cost.Amount.Value.ToString("C2")
+                    @if (cost.Completeness == CostCompleteness.Partial)
+                    {
+                        <span class="recipe-cost-bar__estimate" title="Partial cost estimate — @(cost.CostableCount - cost.PricedCount) ingredient(s) have no price">~</span>
+                    }
+                </span>
+                @if (cost.Completeness == CostCompleteness.Partial)
+                {
+                    <span class="recipe-cost-bar__note">
+                        Estimate — @cost.PricedCount of @cost.CostableCount ingredients priced
+                    </span>
+                }
+            </div>
+        </div>
+    }
+
     @* ── Ingredients: ordered list grouped by group_heading (C6) ─────────────── *@
     <div class="catalog-section">
         <h3 class="catalog-section__heading">Ingredients</h3>
@@ -88,12 +209,11 @@
                         }
                         else
                         {
-                            @* Tracked ingredients: qty + unit (if present) + product name *@
+                            @* Tracked ingredients: qty scaled by Alpine (J3 step 5) + unit + product name *@
                             @if (item.Quantity.HasValue)
                             {
-                                <span class="recipe-ingredient__qty">
-                                    @item.Quantity.Value.ToString("G29", CultureInfo.InvariantCulture)
-                                </span>
+                                <span class="recipe-ingredient__qty"
+                                      x-text="fmt(@(item.Quantity.Value.ToString(CultureInfo.InvariantCulture)))">@item.Quantity.Value.ToString("G29", CultureInfo.InvariantCulture)</span>
                             }
                             @if (!string.IsNullOrEmpty(item.UnitCode))
                             {

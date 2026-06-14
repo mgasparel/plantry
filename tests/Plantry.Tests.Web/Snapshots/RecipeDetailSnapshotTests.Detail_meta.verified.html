@@ -1,6 +1,10 @@
 ﻿<div class="recipe-meta">
 	<span class="recipe-meta__item">
-		4 servings
+		<span class="recipe-servings-stepper" role="group" aria-label="Servings">
+			<button type="button" class="recipe-servings-stepper__btn" aria-label="Fewer servings" @click="servings = Math.max(1, servings - 1)" :disabled="servings <= 1">−</button>
+			<span class="recipe-servings-stepper__val" x-text="servings + (servings === 1 ? ' serving' : ' servings')">4 servings</span>
+			<button type="button" class="recipe-servings-stepper__btn" aria-label="More servings" @click="servings = servings + 1">+</button>
+		</span>
 	</span>
 	<span class="recipe-meta__item">
 		<svg class="icon" aria-hidden="true">
