@@ -130,7 +130,7 @@ a mechanical next step.
 |------|---------|----------------------|
 | **FIX** | Must be resolved before this change merges. Covers both hard correctness/security/tenancy defects **and** cheap, safe, already-decided quality wins. | Fix it in-loop, then re-run the full gate (build → test → critic). |
 | **DEFER** | A real issue, but resolving it is genuinely *open* — see the boundary below. | Auto-file a `bd` issue capturing the finding + a concrete recommendation, then proceed. Never silently dropped. |
-| **NOTE** | Informational; nothing to act on (e.g. a pre-existing transitive-dependency warning). | Record in the report only. |
+| **NOTE** | Informational; **no recommended action** (e.g. a pre-existing transitive-dependency warning). A finding with a next step is FIX or DEFER — see *Guardrails on NOTE*. | Record in the report only. |
 
 ### The FIX vs DEFER boundary
 
@@ -163,6 +163,32 @@ silently; a bead is cheap and reversible.
   DEFER — file the bead instead of expanding the diff.
 - **Re-verify.** Every FIX re-runs the full gate; FIX is bounded by the loop's pass cap. Confident-but-wrong
   fixes are caught by test/critic, not shipped.
+
+### Guardrails on NOTE
+
+- **NOTE is only for findings with no recommended action.** If the finding carries a concrete next
+  step — add a test, change a line, file a bead — it is a FIX or a DEFER, never a NOTE. Reserve NOTE
+  for observations nothing acts on: pre-existing transitive-dependency warnings, deliberate design
+  choices, FYI context.
+- A finding whose text contains "follow-up", "tracked as", "should later", or "consider …" is
+  **mis-tiered as NOTE** — it has named an action. Re-classify it FIX (close it in-loop) or DEFER
+  (file the bead, which is what tracks it — not the prose).
+
+### Author acknowledgments do not lower a tier
+
+- An author's in-code comment, `TODO`, commit note, or "known gap / follow-up" annotation carries
+  **zero** weight in classification. Tier the finding exactly as if the acknowledgment were absent.
+- An acknowledged-but-unaddressed gap with **no tracked bead** is the *worst* case, not a mitigated
+  one — close it (FIX) or file the bead (DEFER). Never downgrade to NOTE because the author already
+  conceded the problem. Self-acknowledgment is precisely how a blind review gets talked out of a
+  finding it would otherwise block on.
+
+### Tiers may not silently soften across passes
+
+- *(Multi-pass loops only.)* If a finding is classified at a **lower** tier than a related finding
+  flagged in an earlier pass, the report must state **why the earlier concern is now resolved** — not
+  merely renamed or acknowledged. Renaming a misleading test does not resolve "the behavior is
+  untested." Absent a stated resolution, carry the earlier (higher) tier forward.
 
 ### Default tier per gate
 

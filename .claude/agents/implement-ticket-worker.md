@@ -145,7 +145,11 @@ diff output):
 > (Gates 1–8) **and the Action tiers section** (FIX / DEFER / NOTE, plus the FIX-vs-DEFER
 > boundary). Apply all gates and classify every finding into exactly one tier using that
 > boundary. Remember: effort/size is never a reason to DEFER, and an apparent design fork
-> that an existing ADR or pattern already settles is a FIX (cite it), not a DEFER.
+> that an existing ADR or pattern already settles is a FIX (cite it), not a DEFER. A finding
+> that names a concrete action is never a NOTE — it is FIX or DEFER. And an author's own
+> "known gap / follow-up / TODO" comment in the diff carries zero weight: tier the finding as
+> if the comment were absent (an acknowledged gap with no tracked bead is a FIX or a DEFER,
+> never a NOTE).
 >
 > **LOAD-BEARING REQUIREMENT for FIX findings:** Every FIX finding MUST include explicit,
 > self-contained fix instructions — what is wrong, exactly where (file:line), and the
