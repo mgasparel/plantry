@@ -7,8 +7,10 @@ namespace Plantry.Recipes.Domain;
 /// Append-only root — an immutable record that a recipe was cooked (recipes-domain-model.md §1, C3 / R8).
 /// Never updated or deleted, so it carries no <c>updated_at</c>. Its id is the <c>source_ref</c> Inventory's
 /// <c>Consume</c> stamps on the resulting journal rows. The <c>recipe_id</c> FK is <c>ON DELETE RESTRICT</c> —
-/// safe because a cooked recipe is soft-deleted, never physically removed. P2-0 step maps the shape only;
-/// the <c>CookRecipe</c> flow lands later.
+/// safe because a cooked recipe is soft-deleted, never physically removed.
+/// <para>
+/// Created only via <see cref="Record"/>; no mutators exist because the aggregate is append-only (R8).
+/// </para>
 /// </summary>
 public sealed class CookEvent : AggregateRoot<CookEventId>
 {
@@ -23,4 +25,52 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
     public DateTimeOffset CookedAt { get; private set; }
 
     private CookEvent() { } // EF
+
+    private CookEvent(
+        CookEventId id,
+        HouseholdId householdId,
+        RecipeId recipeId,
+        int servingsCooked,
+        Guid cookedBy,
+        DateTimeOffset cookedAt)
+    {
+        Id = id;
+        HouseholdId = householdId;
+        RecipeId = recipeId;
+        ServingsCooked = servingsCooked;
+        CookedBy = cookedBy;
+        CookedAt = cookedAt;
+    }
+
+    /// <summary>
+    /// The single creation point for a cook record (R8 — append-only, no update or delete).
+    /// <paramref name="servingsCooked"/> must be &gt;= 1 (R2 / CHECK on the DB column).
+    /// No domain event is raised here; <c>RecipeCooked</c> is emitted by the
+    /// <c>CookRecipe</c> application service (P2-3c) which orchestrates the full flow.
+    /// </summary>
+    /// <param name="recipeId">The recipe that was cooked.</param>
+    /// <param name="householdId">The tenant this cook event belongs to.</param>
+    /// <param name="servingsCooked">Number of servings produced; must be &gt;= 1.</param>
+    /// <param name="cookedBy">Identity of the user who initiated the cook.</param>
+    /// <param name="clock">Wall-clock source for <see cref="CookedAt"/>.</param>
+    /// <returns>The new <see cref="CookEvent"/>, or a <c>Recipes.InvalidServings</c> failure.</returns>
+    public static Result<CookEvent> Record(
+        RecipeId recipeId,
+        HouseholdId householdId,
+        int servingsCooked,
+        Guid cookedBy,
+        IClock clock)
+    {
+        if (servingsCooked < 1)
+            return Result<CookEvent>.Failure(Error.Custom("Recipes.InvalidServings",
+                "Servings cooked must be at least 1."));
+
+        return Result<CookEvent>.Success(new CookEvent(
+            CookEventId.New(),
+            householdId,
+            recipeId,
+            servingsCooked,
+            cookedBy,
+            clock.UtcNow));
+    }
 }
