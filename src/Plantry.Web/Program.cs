@@ -134,6 +134,7 @@ builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>
             npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IRecipeRepository, RecipeRepository>();
+builder.Services.AddScoped<ITagRepository, TagRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
 // Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +
@@ -142,6 +143,10 @@ builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 builder.Services.AddScoped<ICatalogProductReader, CatalogProductReaderAdapter>();
 builder.Services.AddScoped<ICatalogWriter, CatalogWriterAdapter>();
 builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
+
+// Recipe authoring application service (P2-1c, recipes-domain-model.md §7) — orchestrates create/edit
+// over the Catalog ports + the recipe/tag repositories. Consumed by the P2-1d editor page.
+builder.Services.AddScoped<AuthorRecipe>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
