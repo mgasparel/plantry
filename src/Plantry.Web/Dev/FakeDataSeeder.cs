@@ -8,6 +8,8 @@ using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
 using Plantry.Inventory.Infrastructure;
+using Plantry.Recipes.Domain;
+using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -27,6 +29,7 @@ public sealed class FakeDataSeeder(
     CatalogDbContext catalogDb,
     PlantryIdentityDbContext identityDb,
     InventoryDbContext inventoryDb,
+    RecipesDbContext recipesDb,
     IClock clock)
 {
     public const string DemoEmail = "demo@plantry.dev";
@@ -90,6 +93,9 @@ public sealed class FakeDataSeeder(
         try
         {
             await SeedProductsAsync(householdId, ct);
+            // Recipes reference the products just committed above, so they must seed after them.
+            // Tags are already in place — RegisterHouseholdCommand ran RecipesReferenceDataSeeder.
+            await SeedRecipesAsync(householdId, ct);
         }
         finally
         {
@@ -146,6 +152,55 @@ public sealed class FakeDataSeeder(
 
         await catalogDb.Products.AddRangeAsync(allProducts, ct);
         await catalogDb.SaveChangesAsync(ct);
+    }
+
+    private async Task SeedRecipesAsync(HouseholdId householdId, CancellationToken ct)
+    {
+        // Resolve the products + tags this household already has (seeded above / by the reference
+        // seeder). Both reads honour the armed query filter, so they only ever see this household.
+        var products = await catalogDb.Products.ToDictionaryAsync(p => p.Name, ct);
+        var tags = await recipesDb.Tags.ToDictionaryAsync(t => t.Name, ct);
+
+        var recipes = new List<Recipe>();
+        foreach (var seed in RecipeSeeds)
+        {
+            // Defensive: skip a recipe whose ingredients aren't all in the seeded catalog.
+            if (seed.Lines.Any(l => !products.ContainsKey(l.Product)))
+                continue;
+
+            var created = Recipe.Create(householdId, seed.Name, seed.Servings, clock);
+            if (created.IsFailure)
+                throw new InvalidOperationException(
+                    $"Seed recipe '{seed.Name}' is invalid: {created.Error.Description}");
+
+            var recipe = created.Value;
+            recipe.SetSource(seed.Source, clock);
+            recipe.SetCookTime(seed.CookTimeMinutes, clock);
+            recipe.SetDirections(seed.Directions, clock);
+
+            // Each line is measured in its product's default unit, so no conversion path is ever
+            // required (R7 is an app-layer concern; here we sidestep it by construction). A null
+            // quantity is a "to taste" line — quantity and unit are then both null per R5.
+            var lines = seed.Lines.Select((l, i) =>
+            {
+                var product = products[l.Product];
+                Guid? unit = l.Qty.HasValue ? product.DefaultUnitId.Value : null;
+                return new IngredientLine(product.Id.Value, l.Qty, unit, l.Group, i);
+            }).ToList();
+
+            var replaced = recipe.ReplaceIngredients(lines, clock);
+            if (replaced.IsFailure)
+                throw new InvalidOperationException(
+                    $"Seed recipe '{seed.Name}' ingredients are invalid: {replaced.Error.Description}");
+
+            var tagIds = seed.Tags.Where(tags.ContainsKey).Select(t => tags[t].Id).ToList();
+            recipe.SetTags(tagIds, clock);
+
+            recipes.Add(recipe);
+        }
+
+        await recipesDb.Recipes.AddRangeAsync(recipes, ct);
+        await recipesDb.SaveChangesAsync(ct);
     }
 
     private List<Product> BuildProducts(
@@ -213,6 +268,12 @@ public sealed class FakeDataSeeder(
                 await inventoryDb.StockEntries.ExecuteDeleteAsync(ct);
                 await inventoryDb.ProductStocks.ExecuteDeleteAsync(ct);
 
+                // Recipes (their ingredients soft-reference catalog products by Guid). Cook events
+                // first — they FK → recipe; the recipe cascade then clears ingredients/tags/photo.
+                await recipesDb.CookEvents.ExecuteDeleteAsync(ct);
+                await recipesDb.Recipes.ExecuteDeleteAsync(ct);
+                await recipesDb.Tags.ExecuteDeleteAsync(ct);
+
                 // Product cascade FK handles product_skus and product_conversions.
                 await catalogDb.Products.ExecuteDeleteAsync(ct);
                 await catalogDb.Locations.ExecuteDeleteAsync(ct);
@@ -238,6 +299,7 @@ public sealed class FakeDataSeeder(
         catalogDb.SetHouseholdId(id);
         identityDb.SetHouseholdId(id);
         inventoryDb.SetHouseholdId(id);
+        recipesDb.SetHouseholdId(id);
     }
 
     private void DisarmTenant()
@@ -246,6 +308,7 @@ public sealed class FakeDataSeeder(
         catalogDb.SetHouseholdId(Guid.Empty);
         identityDb.SetHouseholdId(Guid.Empty);
         inventoryDb.SetHouseholdId(Guid.Empty);
+        recipesDb.SetHouseholdId(Guid.Empty);
     }
 
     // ── Static seed data ──────────────────────────────────────────────────────────
@@ -360,4 +423,119 @@ public sealed class FakeDataSeeder(
         ["Rolled oats"]  = [("cup", "g", 90m)],    // 1 cup rolled oats ≈ 90 g
         ["Butter"]       = [("tbsp", "g", 14m)],   // 1 tbsp butter ≈ 14 g
     };
+
+    // ── Recipe seed data ──────────────────────────────────────────────────────────
+    // A handful of demo recipes spanning the seeded Diet/Protein/Flavor tags. Every product
+    // name below must exist in ProductTemplates above (recipes whose ingredients aren't all
+    // seeded are skipped). Qty is in the product's default unit; a null Qty is a "to taste" line.
+
+    private sealed record RecipeSeed(
+        string Name,
+        string? Source,
+        int? CookTimeMinutes,
+        int Servings,
+        string[] Tags,
+        (string Product, decimal? Qty, string? Group)[] Lines,
+        string Directions);
+
+    private static readonly RecipeSeed[] RecipeSeeds =
+    [
+        new("Chicken & Chickpea Curry", "Plantry kitchen", 40, 4,
+            ["Poultry", "Spicy"],
+            [
+                ("Chicken breast",   600m, null),
+                ("Onions",           200m, null),
+                ("Garlic",            15m, null),
+                ("Chopped tomatoes", 400m, null),
+                ("Coconut milk",     400m, null),
+                ("Chickpeas",        400m, null),
+                ("Cumin — ground",    10m, null),
+                ("Paprika — smoked",   5m, null),
+                ("Olive oil",         30m, null),
+                ("Sea salt",        null, null),
+            ],
+            """
+            Heat the olive oil in a large pan and soften the diced onions for 5 minutes.
+            Stir in the garlic, cumin and smoked paprika and cook until fragrant.
+            Add the diced chicken and brown all over.
+            Pour in the chopped tomatoes and coconut milk, then add the drained chickpeas.
+            Simmer for 25 minutes until the sauce thickens and the chicken is cooked through.
+            Season to taste and serve with rice.
+            """),
+
+        new("Beef Chilli con Carne", null, 50, 4,
+            ["Meat", "Spicy"],
+            [
+                ("Beef mince",        500m, null),
+                ("Onions",            150m, null),
+                ("Garlic",             10m, null),
+                ("Bell peppers",      150m, null),
+                ("Chopped tomatoes",  400m, null),
+                ("Red kidney beans",  400m, null),
+                ("Cumin — ground",     10m, null),
+                ("Cayenne pepper",      3m, null),
+                ("Olive oil",          30m, null),
+                ("Sea salt",         null, null),
+            ],
+            """
+            Brown the beef mince in the olive oil, breaking it up as it cooks, then set aside.
+            Soften the onions and peppers in the same pan, then add the garlic, cumin and cayenne.
+            Return the mince, stir in the chopped tomatoes and kidney beans.
+            Simmer gently for 35 minutes, stirring occasionally, until rich and thick.
+            Season to taste and serve.
+            """),
+
+        new("Salmon & Vegetable Traybake", null, 35, 2,
+            ["Fish"],
+            [
+                ("Salmon fillet", 280m, "For the traybake"),
+                ("Potatoes",      400m, "For the traybake"),
+                ("Broccoli",      200m, "For the traybake"),
+                ("Bell peppers",  150m, "For the traybake"),
+                ("Olive oil",      30m, "For the traybake"),
+                ("Lemons",        100m, "To finish"),
+                ("Black pepper", null, "To finish"),
+                ("Sea salt",     null, "To finish"),
+            ],
+            """
+            Heat the oven to 200°C. Toss the chopped potatoes and peppers in half the olive oil and roast for 15 minutes.
+            Add the broccoli and the salmon fillets, drizzle with the remaining oil.
+            Roast for a further 15 minutes until the salmon flakes easily and the vegetables are tender.
+            Finish with a squeeze of lemon and season to taste.
+            """),
+
+        new("Chickpea & Spinach Stew", "Weeknight vegan", 30, 4,
+            ["Vegan", "Vegetarian", "Spicy"],
+            [
+                ("Chickpeas",        400m, null),
+                ("Spinach",          200m, null),
+                ("Onions",           150m, null),
+                ("Garlic",            10m, null),
+                ("Chopped tomatoes", 400m, null),
+                ("Coconut milk",     400m, null),
+                ("Cumin — ground",    10m, null),
+                ("Olive oil",         30m, null),
+                ("Sea salt",        null, null),
+            ],
+            """
+            Soften the onions in the olive oil, then stir in the garlic and cumin.
+            Add the chopped tomatoes, coconut milk and drained chickpeas and simmer for 15 minutes.
+            Stir through the spinach a handful at a time until wilted.
+            Season to taste and serve.
+            """),
+
+        new("Greek Yogurt Overnight Oats", null, 5, 1,
+            ["Vegetarian"],
+            [
+                ("Rolled oats",     50m, null),
+                ("Whole milk",     0.2m, null),
+                ("Greek yogurt",  0.15m, null),
+                ("Frozen berries",  80m, null),
+            ],
+            """
+            Stir the oats, milk and yogurt together in a jar or bowl.
+            Top with the frozen berries, cover and refrigerate overnight.
+            Eat straight from the fridge in the morning.
+            """),
+    ];
 }
