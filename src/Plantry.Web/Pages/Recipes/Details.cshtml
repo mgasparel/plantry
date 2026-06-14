@@ -1,0 +1,138 @@
+@page "/Recipes/{id:guid}"
+@using System.Globalization
+@model Plantry.Web.Pages.Recipes.DetailsModel
+@{
+    ViewData["Title"] = Model.Recipe.Name;
+    var recipe = Model.Recipe;
+}
+
+<div id="recipe-detail">
+
+    @* ── Hero: photo or themed placeholder ──────────────────────────────────── *@
+    <div class="recipe-hero">
+        @if (recipe.HasPhoto)
+        {
+            <img class="recipe-hero__img"
+                 src="/Recipes/@recipe.Id?handler=Photo"
+                 alt="@recipe.Name"
+                 loading="lazy" />
+        }
+        else
+        {
+            <div class="recipe-hero__placeholder" aria-hidden="true">
+                <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+            </div>
+        }
+    </div>
+
+    @* ── Meta: name, servings, cook time, source, tag pills ─────────────────── *@
+    <div class="catalog-section">
+        <div class="catalog-section__header">
+            <div>
+                <h2 class="catalog-section__heading">@recipe.Name</h2>
+                <div class="recipe-meta">
+                    <span class="recipe-meta__item">
+                        @recipe.DefaultServings @(recipe.DefaultServings == 1 ? "serving" : "servings")
+                    </span>
+                    @if (recipe.CookTimeMinutes.HasValue)
+                    {
+                        <span class="recipe-meta__item">
+                            <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
+                            @recipe.CookTimeMinutes min
+                        </span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(recipe.Source))
+                    {
+                        <span class="recipe-meta__item recipe-meta__source">
+                            @recipe.Source
+                        </span>
+                    }
+                </div>
+            </div>
+            <div class="card__head-actions">
+                <a href="/Recipes/@recipe.Id/Edit" class="btn btn--secondary btn--sm">Edit</a>
+                <button type="button" class="btn btn--ghost btn--sm" disabled title="Coming in P2-3">Cook</button>
+                <button type="button" class="btn btn--ghost btn--sm" disabled title="Coming in P2-4">Add missing</button>
+            </div>
+        </div>
+
+        @if (recipe.Tags.Count > 0)
+        {
+            <div class="recipe-tags" role="list" aria-label="Tags">
+                @foreach (var tag in recipe.Tags)
+                {
+                    <span class="badge badge--neutral" role="listitem">@(tag.Name ?? tag.Id.ToString("N")[..8])</span>
+                }
+            </div>
+        }
+    </div>
+
+    @* ── Ingredients: ordered list grouped by group_heading (C6) ─────────────── *@
+    <div class="catalog-section">
+        <h3 class="catalog-section__heading">Ingredients</h3>
+        @foreach (var group in recipe.IngredientGroups)
+        {
+            if (group.Heading is { } heading)
+            {
+                <h4 class="recipe-group-heading">@heading</h4>
+            }
+            <ul class="recipe-ingredient-list" role="list">
+                @foreach (var item in group.Items)
+                {
+                    <li class="recipe-ingredient-list__item">
+                        @if (item.IsUntracked)
+                        {
+                            @* Untracked staples: show name only, no qty/unit (C12 — "to taste") *@
+                            <span class="recipe-ingredient__name">@item.ProductName</span>
+                            <span class="recipe-ingredient__note recipe-ingredient__note--untracked">untracked</span>
+                        }
+                        else
+                        {
+                            @* Tracked ingredients: qty + unit (if present) + product name *@
+                            @if (item.Quantity.HasValue)
+                            {
+                                <span class="recipe-ingredient__qty">
+                                    @item.Quantity.Value.ToString("G29", CultureInfo.InvariantCulture)
+                                </span>
+                            }
+                            @if (!string.IsNullOrEmpty(item.UnitCode))
+                            {
+                                <span class="recipe-ingredient__unit">@item.UnitCode</span>
+                            }
+                            <span class="recipe-ingredient__name">@item.ProductName</span>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+        @if (recipe.IngredientGroups.Count == 0 || recipe.IngredientGroups.All(g => g.Items.Count == 0))
+        {
+            <p class="recipe-ingredient-list--empty" style="color: var(--color-text-muted)">No ingredients yet.</p>
+        }
+    </div>
+
+    @* ── Directions: derived steps / section headings from C13 parse ─────────── *@
+    @if (recipe.DirectionBlocks.Count > 0)
+    {
+        <div class="catalog-section">
+            <h3 class="catalog-section__heading">Directions</h3>
+            <div class="recipe-directions" id="recipe-directions">
+                @foreach (var block in recipe.DirectionBlocks)
+                {
+                    @if (block.Kind == DirectionBlockKind.Section)
+                    {
+                        <h4 class="recipe-direction-section">@block.Text</h4>
+                    }
+                    else
+                    {
+                        <div class="recipe-direction-step">
+                            <span class="recipe-direction-step__num" aria-hidden="true">@block.StepNumber</span>
+                            <p class="recipe-direction-step__text">@block.Text</p>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+</div>

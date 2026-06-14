@@ -63,7 +63,7 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         }
 
         await using var read = NewCatalogDb();
-        var reader = new CatalogProductReaderAdapter(new ProductRepository(read));
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read));
 
         var result = await reader.FindAsync(productId.Value);
 
@@ -100,7 +100,7 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         }
 
         await using var read = NewCatalogDb();
-        var reader = new CatalogProductReaderAdapter(new ProductRepository(read));
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read));
 
         var parentView = await reader.FindAsync(parentId.Value);
         Assert.NotNull(parentView);
@@ -127,7 +127,7 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         }
 
         await using var read = NewCatalogDb();
-        var reader = new CatalogProductReaderAdapter(new ProductRepository(read));
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read));
 
         var flMatches = await reader.SearchAsync("fl");
         Assert.Equal(2, flMatches.Count);
@@ -138,6 +138,40 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         Assert.Single(flourMatches);
 
         Assert.Empty(await reader.SearchAsync("   "));
+    }
+
+    [Fact(DisplayName = "Reader batch-resolves product summaries and unit codes for an ingredient list")]
+    public async Task Reader_Batch_Resolves_Summaries_And_Unit_Codes()
+    {
+        ProductId trackedId;
+        ProductId stapleId;
+        await using (var setup = NewCatalogDb())
+        {
+            var flour = Product.Create(_household, "Flour", _gramsId, Clock);
+            var salt = Product.Create(_household, "Salt", _gramsId, Clock);
+            salt.SetTrackStock(false, Clock); // untracked staple (C12)
+            await setup.Products.AddRangeAsync(flour, salt);
+            await setup.SaveChangesAsync();
+            trackedId = flour.Id;
+            stapleId = salt.Id;
+        }
+
+        await using var read = NewCatalogDb();
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read));
+
+        var summaries = await reader.ResolveSummariesAsync([trackedId.Value, stapleId.Value, Guid.NewGuid()]);
+        Assert.Equal(2, summaries.Count); // the unknown id is omitted
+        Assert.Equal("Flour", summaries[trackedId.Value].Name);
+        Assert.True(summaries[trackedId.Value].TrackStock);
+        Assert.False(summaries[stapleId.Value].TrackStock);
+
+        var codes = await reader.ResolveUnitCodesAsync([_gramsId.Value, _cupsId.Value, Guid.NewGuid()]);
+        Assert.Equal(2, codes.Count); // the unknown id is omitted
+        Assert.Equal("g", codes[_gramsId.Value]);
+        Assert.Equal("cup", codes[_cupsId.Value]);
+
+        Assert.Empty(await reader.ResolveSummariesAsync([]));
+        Assert.Empty(await reader.ResolveUnitCodesAsync([]));
     }
 
     [Fact(DisplayName = "Writer inline-creates an untracked staple (track_stock = false)")]
