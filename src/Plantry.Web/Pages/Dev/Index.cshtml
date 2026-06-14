@@ -686,6 +686,157 @@
 </section>
 
 @*
+    ── Recipe editor components (P2-1d) ────────────────────────────────────────────────────────────
+    These components are the building blocks of the recipe author/edit form (J6/J7). They are
+    added to the library here first, then consumed by Pages/Recipes/Edit.cshtml.
+*@
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Ingredient row editor (<code>.ingredient-row</code>)</h2>
+    </div>
+    <p>
+        <code>.ingredient-row</code> is one editable ingredient line in the recipe editor (J6/J7).
+        Each row has: a drag handle, a product search field (htmx-driven <code>searchableSelect</code>),
+        a quantity + unit pair (hidden for untracked staples, C12), an optional group heading, and a delete
+        button. Rows are rendered by an Alpine <code>x-for</code> template loop that keeps draft state
+        per row (ADR-005). The <code>.ingredient-row--needs-conversion</code> modifier applies a warning
+        left-border when a <code>NeedsConversion</code> result is returned (C10).
+        An inline staple-create escape hatch (C12) replaces the product-search field with a plain text
+        input when the user clicks <em>Create as staple</em>.
+    </p>
+    <p>
+        Drag-reorder is native HTML5 drag: <code>draggable="true"</code> + Alpine event handlers
+        <code>dragStart(idx)</code> / <code>dragOver(idx)</code> / <code>drop()</code> that splice
+        the <code>rows[]</code> array and call <code>reassignOrdinals()</code> so hidden ordinal inputs
+        stay contiguous. This mirrors the <code>_SortableList</code> pattern (htmx POST on drop) but
+        is entirely Alpine-owned because the ingredient list is not persisted until submit.
+    </p>
+    <div class="card" style="max-width: 48rem">
+        <div class="card__body" style="padding: 0" x-data="{ rows: [{ id: 1, product: 'Whole milk', qty: '2', unit: 'cup', group: '' }], dragIdx: null }">
+            <div id="ingredient-rows-demo">
+                <template x-for="(row, idx) in rows" :key="row.id">
+                    <div class="ingredient-row" draggable="true"
+                         @@dragstart.self="dragIdx = idx"
+                         @@dragover.prevent="if (dragIdx !== null && dragIdx !== idx) { const m = rows.splice(dragIdx, 1)[0]; rows.splice(idx, 0, m); dragIdx = idx; }"
+                         @@drop="dragIdx = null">
+                        <div class="ingredient-row__body">
+                            <div class="ingredient-row__drag" aria-hidden="true" style="cursor:grab;color:var(--color-text-muted);padding:var(--space-2);display:flex;align-items:center">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/></svg>
+                            </div>
+                            <input type="text" class="field__input" placeholder="Search products…" :value="row.product" style="flex:2;min-width:0" />
+                            <input type="number" class="field__input" placeholder="Qty" :value="row.qty" style="width:5rem;text-align:center;flex-shrink:0" />
+                            <select class="field__input" style="min-width:5rem;flex-shrink:0">
+                                <option>cup</option><option>g</option><option>ea</option>
+                            </select>
+                            <input type="text" class="field__input" placeholder="Group" :value="row.group" style="flex:1;min-width:0;font-size:var(--font-size-sm)" />
+                            <button type="button" class="btn btn--ghost btn--sm" @@click="rows.splice(idx, 1)" style="flex-shrink:0;color:var(--color-danger)">
+                                <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div style="padding: var(--space-4)">
+                <button type="button" class="btn btn--ghost btn--sm" @@click="rows.push({ id: Date.now(), product: '', qty: '', unit: '', group: '' })">
+                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                    Add ingredient
+                </button>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("// Alpine x-data on the outer container:\n// rows: [{ ordinal, productId, productName, qty, unitId, groupHeading, isUntracked, ... }]\n// addRow(), removeRow(idx), dragStart(idx), dragOver(idx), drop(), reassignOrdinals()\n\n// Each row:\n<div class=\"ingredient-row\" draggable=\"true\" :class=\"{'ingredient-row--needs-conversion': row.needsConversion}\"\n     @dragstart.self=\"dragStart(idx)\" @dragover.prevent=\"dragOver(idx)\" @drop=\"drop()\">\n  <div class=\"ingredient-row__body\">\n    <div class=\"ingredient-row__drag\"><!-- drag handle icon --></div>\n    <!-- product search, qty, unit, group heading, delete -->\n  </div>\n  <!-- inline conversion form shown when row.needsConversion -->\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Tag multi-select with inline create</h2>
+    </div>
+    <p>
+        The recipe tag editor is a chip-based multi-select: typed tag names become badge chips inside
+        a bordered container; pressing <kbd>Enter</kbd> or <kbd>,</kbd> adds the tag (minting it if new
+        via <code>AuthorRecipe</code> on submit). Backspace with an empty input removes the last chip.
+        The container acts as a single focusable field — clicking anywhere inside it forwards focus to
+        the text input. No server round-trip for add/remove; Alpine owns the <code>tags[]</code> array
+        and hidden <code>&lt;input type="hidden" name="Input.Tags"&gt;</code> inputs post the array.
+    </p>
+    <div style="max-width: 36rem" x-data="{ tags: ['Weeknight', 'Soup'], newTag: '' }">
+        <template x-for="(tag, ti) in tags" :key="ti">
+            <input type="hidden" name="Input.Tags" :value="tag" />
+        </template>
+        <div class="recipe-tag-editor"
+             style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text"
+             @@click="$refs.tagInput.focus()">
+            <template x-for="(tag, ti) in tags" :key="ti">
+                <span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
+                    <span x-text="tag"></span>
+                    <button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @@click.stop="tags.splice(ti, 1)">×</button>
+                </span>
+            </template>
+            <input type="text" x-ref="tagInput" x-model="newTag" placeholder="Add a tag…"
+                   class="field__input"
+                   style="border:none;outline:none;box-shadow:none;padding:0;min-width:8rem;flex:1"
+                   @@keydown.enter.prevent="const t=newTag.trim(); if(t && !tags.includes(t)) tags.push(t); newTag='';"
+                   @@keydown.comma.prevent="const t=newTag.trim(); if(t && !tags.includes(t)) tags.push(t); newTag='';"
+                   @@keydown.backspace="if (!newTag && tags.length) tags.splice(tags.length - 1, 1)" />
+        </div>
+        <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-2) 0 0">
+            Current tags: <code x-text="JSON.stringify(tags)"></code>
+        </p>
+    </div>
+    <style>.recipe-tag-editor:focus-within { border-color: var(--color-accent); }</style>
+    <pre class="code-sample"><code>@("// Alpine x-data: { tags: ['Weeknight'], newTag: '' }\n// Hidden inputs post the array:\n<template x-for=\"(tag, ti) in tags\" :key=\"ti\">\n  <input type=\"hidden\" name=\"Input.Tags\" :value=\"tag\" />\n</template>\n\n<div class=\"recipe-tag-editor\" @click=\"$refs.tagInput.focus()\">\n  <template x-for=\"(tag, ti) in tags\" :key=\"ti\">\n    <span class=\"badge badge--neutral\">\n      <span x-text=\"tag\"></span>\n      <button type=\"button\" @click.stop=\"tags.splice(ti, 1)\">×</button>\n    </span>\n  </template>\n  <input type=\"text\" x-ref=\"tagInput\" x-model=\"newTag\" placeholder=\"Add a tag…\"\n         @keydown.enter.prevent=\"addTag()\" @keydown.comma.prevent=\"addTag()\"\n         @keydown.backspace=\"if (!newTag && tags.length) removeTag(tags.length - 1)\" />\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Servings scale offer (J7 step 3)</h2>
+    </div>
+    <p>
+        On the recipe edit form, when the user changes the <em>Default servings</em> value on a recipe
+        that already has ingredients, a <code>.seg-ctrl</code> toggle appears asking whether to
+        <strong>Proportional</strong>ly scale the ingredient quantities or <strong>Keep</strong> them
+        as-is. Alpine controls visibility via <code>showScaleOffer()</code> which returns true when
+        <code>servings !== origServings &amp;&amp; hasIngredients</code>. The selected mode posts via a
+        hidden input (<code>Input.ScaleMode</code>) which <code>AuthorRecipe</code> applies during the
+        <code>Recipe.ChangeDefaultServings</code> call.
+    </p>
+    <div style="max-width: 36rem" x-data="{ servings: 4, origServings: 4, scaleMode: 'Keep', hasIngredients: true, showOffer() { return this.hasIngredients && this.servings !== this.origServings; } }">
+        <div class="form-stack" style="gap:var(--space-3)">
+            <div class="form-grid">
+                <field stacked asp-for="FieldRowDemo.Quantity">
+                    <input type="number" class="field__input" x-model.number="servings" min="1" step="1" />
+                </field>
+            </div>
+            <div class="card" x-show="showOffer()" x-cloak>
+                <div class="card__head">
+                    <div>
+                        <h3 class="card__head-title">Scale ingredients?</h3>
+                        <p class="card__head-sub">You changed the default servings. How should ingredient quantities be adjusted?</p>
+                    </div>
+                </div>
+                <div class="card__body">
+                    <div class="seg-ctrl" role="group" aria-label="Scale mode">
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="demo-scale" value="Proportional" x-model="scaleMode" />
+                            <span>Proportional — scale quantities</span>
+                        </label>
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="demo-scale" value="Keep" x-model="scaleMode" />
+                            <span>Keep — preserve quantities</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-2) 0 0">
+            Change the servings from 4 to something else to see the offer appear.
+        </p>
+    </div>
+    <pre class="code-sample"><code>@("// Alpine: showScaleOffer() { return !isCreate && hasIngredients && parseInt(servings) !== origServings; }\n// Hidden input posts selected mode:\n<input type=\"hidden\" name=\"Input.ScaleMode\" :value=\"scaleMode\" />\n\n<div class=\"card\" x-show=\"showScaleOffer()\" x-cloak>\n  <div class=\"card__body\">\n    <div class=\"seg-ctrl\" role=\"group\" aria-label=\"Scale mode\">\n      <label class=\"seg-ctrl__item\">\n        <input type=\"radio\" name=\"_scaleMode\" value=\"Proportional\" x-model=\"scaleMode\" />\n        <span>Proportional — scale quantities</span>\n      </label>\n      <label class=\"seg-ctrl__item\">\n        <input type=\"radio\" name=\"_scaleMode\" value=\"Keep\" x-model=\"scaleMode\" />\n        <span>Keep — preserve quantities</span>\n      </label>\n    </div>\n  </div>\n</div>")</code></pre>
+</section>
+
+@*
     ── ADR-013 OOB fragment partials (registered per .claude/CLAUDE.md requirement) ──────────────
     These partials are the building blocks of the row-action OOB-bundle contract (ADR-013 §1).
     They are pre-approved by ADR-013 — registration here is mandatory, not a new component proposal.

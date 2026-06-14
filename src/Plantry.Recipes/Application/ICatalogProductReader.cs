@@ -36,10 +36,19 @@ public interface ICatalogProductReader
     /// </summary>
     Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
         IReadOnlyList<Guid> unitIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists all active (non-archived) units for the household — the ingredient editor needs them
+    /// to populate the unit dropdown. Returns id and display code for each unit, ordered by code.
+    /// </summary>
+    Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default);
 }
 
 /// <summary>The display slice of a Catalog product for a recipe ingredient row (name + stock-tracking).</summary>
 public sealed record CatalogProductSummary(Guid Id, string Name, bool TrackStock);
+
+/// <summary>A unit option for the ingredient editor dropdown.</summary>
+public sealed record CatalogUnitOption(Guid Id, string Code);
 
 /// <summary>
 /// The slice of a Catalog product Recipes depends on, including the depth-1 parent/variant tree.

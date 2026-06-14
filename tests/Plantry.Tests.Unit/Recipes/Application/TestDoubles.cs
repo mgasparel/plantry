@@ -97,6 +97,9 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
     public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
         IReadOnlyList<Guid> unitIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+    public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
 }
 
 /// <summary>

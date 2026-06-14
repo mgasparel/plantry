@@ -75,6 +75,15 @@ public sealed class CatalogProductReaderAdapter(IProductRepository products, IUn
             .ToDictionary(u => u.Id.Value, u => u.Code);
     }
 
+    public async Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default)
+    {
+        var all = await units.ListAsync(ct);
+        return all
+            .OrderBy(u => u.Code)
+            .Select(u => new CatalogUnitOption(u.Id.Value, u.Code))
+            .ToList();
+    }
+
     private static readonly IReadOnlyDictionary<Guid, CatalogProductSummary> EmptySummaries =
         new Dictionary<Guid, CatalogProductSummary>();
     private static readonly IReadOnlyDictionary<Guid, string> EmptyCodes = new Dictionary<Guid, string>();
