@@ -31,7 +31,14 @@ using Plantry.Web.Tenancy;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.Services.AddRazorPages();
+builder.Services.AddRazorPages(options =>
+{
+    // Explicit create-recipe route: the page-level route "/Recipes/{id:guid?}/Edit" only matches when
+    // an id is present (ASP.NET Core does not collapse optional mid-path segments into a shorter URL).
+    // Adding "/Recipes/New" as an alias routes the new-recipe form without an id binding, which causes
+    // EditModel.Id to be null → create branch (J6).
+    options.Conventions.AddPageRoute("/Recipes/Edit", "Recipes/New");
+});
 
 // The injected connection string is the database owner — used for migrations (which create
 // roles, schemas, and RLS policies). At runtime the app instead connects as the non-superuser
