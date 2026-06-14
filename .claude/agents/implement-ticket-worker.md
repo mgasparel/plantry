@@ -193,16 +193,21 @@ bd note <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<one-
 **Then act on the tiers:**
 
 - **Any FIX findings** (`VERDICT: FAILED`):
-  - If `pass_count == 3`: **Park** (`critic-loop-exhausted`; include last report path in notes).
+  - If `pass_count == 3`: run the **Park procedure** below (`critic-loop-exhausted`). Do not file
+    DEFER beads for a parked issue — the human triages the whole report.
   - Otherwise: apply every FIX instruction exactly as specified, then loop back to **4a**.
     (Honour the scope ceiling: if a FIX would spread beyond this change's footprint, the critic
     should have classified it DEFER — if you discover mid-fix that it does, stop and re-classify
     it as DEFER rather than expanding the diff.)
 - **No FIX findings** (`VERDICT: PASS`): before proceeding to **Step 5**, resolve the other tiers:
-  - **DEFER findings** — for each, create a tracked issue so it is never silently dropped:
+  - **DEFER findings** — for each, create a tracked issue so it is never silently dropped.
+    Set priority by the finding's gate, and label it `code-review` so gate-filed beads are
+    filterable apart from hand-authored `Quality` work:
+    - gates **1–5** → `--priority=1` (correctness / security / tenancy / AI-staging)
+    - gates **6–8** → `--priority=2` (UI conventions / persistence contract / product alignment)
     ```bash
-    bd create --title="<short title>" --description="<finding + file:line + WHY DEFER + RECOMMEND, verbatim from the critic>" --type=task --priority=3
-    bd note <issue-id> "Deferred follow-up filed as <new-id>: <one-line gist>"
+    bd create --title="<short title>" --description="<finding + file:line + WHY DEFER + RECOMMEND, verbatim from the critic>" --type=task --priority=<1 if gate 1–5 else 2> --labels code-review
+    bd note <issue-id> "Deferred follow-up filed as <new-id> (P<priority>, code-review): <one-line gist>"
     ```
   - **NOTE findings** — recorded in the report and commit message only; no further action.
   - Then proceed to **Step 5**.
@@ -277,11 +282,13 @@ Triggered by any condition in the table below:
    per-pass critic report already exists, reference it and add a summary of why it
    was not resolved.
 
-2. Update the issue:
+2. Update the issue. Log the **outstanding detail** onto the bead, not just the report path —
+   a parked issue must carry enough for a human to act without opening the worktree:
    ```bash
    bd update <issue-id> --status blocked
    bd update <issue-id> --add-label needs-human
    bd update <issue-id> --notes "Auto-parked <timestamp>: <reason-string>. Report: .preflight/<timestamp>-issue-<issue-id>.md"
+   bd note <issue-id> "Park detail: <the unresolved findings/errors verbatim — for critic-loop-exhausted, every outstanding FIX finding with file:line + gate + fix instruction; for build/test loops, the failing output>"
    ```
 
 3. Output verdict:
