@@ -11,13 +11,15 @@ namespace Plantry.Web.Pages.Recipes;
 /// Loads the recipe with its ingredient list, tag membership, and optional photo. Product names are
 /// resolved via <see cref="ICatalogProductReader"/>; tag names via <see cref="ITagRepository"/>.
 /// Directions are derived into steps/sections at render (C13) — not persisted as rows.
-/// Live fulfillment and cost (P2-2) are not present on this page.
+/// Live fulfillment (P2-2a) and cost (P2-2b) are computed at default servings and passed to the view.
 /// </summary>
 [Authorize]
 public sealed class DetailsModel(
     IRecipeRepository recipes,
     ITagRepository tags,
-    ICatalogProductReader catalog) : PageModel
+    ICatalogProductReader catalog,
+    FulfillmentService fulfillmentService,
+    CostingService costingService) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
@@ -46,7 +48,14 @@ public sealed class DetailsModel(
         var tagIds = recipe.Tags.Select(rt => rt.TagId).ToList();
         var tagLookup = await tags.ResolveNamesAsync(tagIds, ct);
 
-        Recipe = RecipeDetailView.From(recipe, productLookup, unitLookup, tagLookup, ParseDirections(recipe.Directions));
+        // Compute live fulfillment and cost at default servings (P2-2a / P2-2b).
+        // Sequential awaits required — FulfillmentService and CostingService share the scoped EF
+        // DbContexts; concurrent Task.WhenAll would throw InvalidOperationException (see BrowseRecipesQuery.cs:51-53).
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var fulfillment = await fulfillmentService.ComputeAsync(recipe, recipe.DefaultServings, today, ct);
+        var cost = await costingService.ComputeAsync(recipe, recipe.DefaultServings, ct);
+
+        Recipe = RecipeDetailView.From(recipe, productLookup, unitLookup, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost);
         return Page();
     }
 
@@ -126,15 +135,23 @@ public sealed record RecipeDetailView(
     bool HasPhoto,
     IReadOnlyList<TagView> Tags,
     IReadOnlyList<IngredientGroupView> IngredientGroups,
-    IReadOnlyList<DirectionBlock> DirectionBlocks)
+    IReadOnlyList<DirectionBlock> DirectionBlocks,
+    FulfillmentResult Fulfillment,
+    CostPerServing Cost)
 {
     internal static RecipeDetailView From(
         Recipe recipe,
         IReadOnlyDictionary<Guid, CatalogProductSummary> productLookup,
         IReadOnlyDictionary<Guid, string> unitLookup,
         IReadOnlyDictionary<TagId, string> tagLookup,
-        IReadOnlyList<DirectionBlock> directions)
+        IReadOnlyList<DirectionBlock> directions,
+        FulfillmentResult fulfillment,
+        CostPerServing cost)
     {
+        // Index fulfillment lines by IngredientId for O(1) lookup during ingredient group building.
+        var fulfillmentByIngredientId = fulfillment.Lines
+            .ToDictionary(l => l.IngredientId, l => l);
+
         // Group ingredients by GroupHeading (null heading = ungrouped), preserving ordinal order.
         var groups = recipe.Ingredients
             .OrderBy(i => i.Ordinal)
@@ -149,11 +166,14 @@ public sealed record RecipeDetailView(
                     var unitCode = !isUntracked && i.UnitId is { } unitId
                         ? unitLookup.GetValueOrDefault(unitId)
                         : null;
+                    fulfillmentByIngredientId.TryGetValue(i.Id, out var ingFulfillment);
                     return new IngredientItemView(
                         ProductName: product?.Name ?? "(unknown product)",
                         Quantity: isUntracked ? null : i.Quantity,
                         UnitCode: unitCode,
-                        IsUntracked: isUntracked);
+                        IsUntracked: isUntracked,
+                        Status: ingFulfillment?.Status ?? IngredientStatus.Untracked,
+                        ExpiresWithinDays: ingFulfillment?.ExpiresWithinDays);
                 }).ToList()))
             .ToList();
 
@@ -170,7 +190,9 @@ public sealed record RecipeDetailView(
             HasPhoto: recipe.Photo is not null,
             Tags: tagViews,
             IngredientGroups: groups,
-            DirectionBlocks: directions);
+            DirectionBlocks: directions,
+            Fulfillment: fulfillment,
+            Cost: cost);
     }
 }
 
@@ -182,12 +204,14 @@ public sealed record IngredientGroupView(
     string? Heading,
     IReadOnlyList<IngredientItemView> Items);
 
-/// <summary>A single ingredient row with resolved product name, quantity, unit code, and tracked state.</summary>
+/// <summary>A single ingredient row with resolved product name, quantity, unit code, tracked state, and live fulfillment status.</summary>
 public sealed record IngredientItemView(
     string ProductName,
     decimal? Quantity,
     string? UnitCode,
-    bool IsUntracked);
+    bool IsUntracked,
+    IngredientStatus Status,
+    int? ExpiresWithinDays);
 
 /// <summary>A derived direction block produced by <see cref="DetailsModel.ParseDirections"/> (C13).</summary>
 public sealed record DirectionBlock(

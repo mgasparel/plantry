@@ -2306,3 +2306,127 @@ button { font-family: inherit; cursor: pointer; }
   font-weight: 600;
 }
 .recipes-browse-empty__body { font-size: 14px; }
+
+/* ── Recipe detail — servings stepper (J3 step 5) ───────────────────────────── */
+/* Inline +/− control that rescales ingredient quantities client-side via Alpine.  */
+.recipe-servings-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+}
+.recipe-servings-stepper__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.recipe-servings-stepper__btn:hover:not(:disabled) {
+  background: var(--color-bg-subtle);
+  border-color: var(--color-text-muted);
+}
+.recipe-servings-stepper__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.recipe-servings-stepper__val {
+  font-size: 14px;
+  min-width: 80px;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* ── Recipe detail — ingredient status pips (P2-2d) ─────────────────────────── */
+/* .ingr-pip: a small colored dot indicating per-ingredient availability status.   */
+/* Status modifier classes use the existing fulf level color tokens.               */
+.ingr-pip {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ingr-pip--instock  { background: var(--color-success); }
+.ingr-pip--low      { background: var(--color-warning); }
+.ingr-pip--missing  { background: var(--color-danger); }
+.ingr-pip--untracked { background: var(--color-border); }
+
+.recipe-ingr-pips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.recipe-ingr-pip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-text);
+}
+.recipe-ingr-pip-row__name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recipe-ingr-pip-row__note {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--color-text-faint);
+}
+.recipe-ingr-pip-row__soon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-expiry-soon);
+  white-space: nowrap;
+}
+.recipe-ingr-pip-row__soon .icon { width: 12px; height: 12px; }
+
+/* ── Recipe detail — fulfillment card section ────────────────────────────────── */
+.recipe-fulfillment-card .catalog-section__header {
+  align-items: center;
+}
+
+/* ── Recipe detail — cost meta-bar (P2-2d) ──────────────────────────────────── */
+/* Omitted entirely when CostCompleteness=None (never shown as zero, J3).         */
+.recipe-cost-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 0 2px;
+}
+.recipe-cost-bar__label {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.recipe-cost-bar__amount {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.recipe-cost-bar__estimate {
+  font-size: 14px;
+  color: var(--color-text-faint);
+  cursor: default;
+}
+.recipe-cost-bar__note {
+  font-size: 12px;
+  color: var(--color-text-faint);
+  width: 100%;
+}

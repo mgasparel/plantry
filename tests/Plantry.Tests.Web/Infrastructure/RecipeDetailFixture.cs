@@ -4,6 +4,7 @@ using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using RecipesDomain = Plantry.Recipes.Domain;
+using ProductStock = Plantry.Recipes.Application.ProductStock;
 
 namespace Plantry.Tests.Web.Infrastructure;
 
@@ -98,6 +99,58 @@ public static class RecipeDetailFixture
             [VegetarianTagId] = "Vegetarian",
             [SpicyTagId]      = "Spicy",
         };
+
+    /// <summary>
+    /// Stock snapshots for the fixture recipe's tracked ingredients.
+    /// Pasta (Rigatoni): 600g available — InStock (need 400g).
+    /// Tomatoes: 200g available — Low (need 500g).
+    /// Garlic: 0 — Missing; expiry set to today+2 for Use-soon flag.
+    /// Salt: untracked — no stock record needed.
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, ProductStock> Stock(DateOnly today) =>
+        new Dictionary<Guid, ProductStock>
+        {
+            [PastaId]  = new(PastaId,  600m, GramUnitId, SoonestExpiry: null),
+            [TomatoId] = new(TomatoId, 200m, GramUnitId, SoonestExpiry: null),
+            // Garlic: no stock record (Missing). Expiry on a non-zero lot wouldn't apply here
+            // because the product has 0 stock. We omit it so FulfillmentService returns Missing.
+            // (We add Garlic to the expiry scenario via GarlicExpiryStock below.)
+        };
+
+    /// <summary>
+    /// Stock snapshots for the "expiry" scenario: Garlic has 5 cloves but expires in 2 days
+    /// (Use-soon flag). Pasta and Tomatoes same as normal fixture.
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, ProductStock> StockWithExpiry(DateOnly today) =>
+        new Dictionary<Guid, ProductStock>
+        {
+            [PastaId]  = new(PastaId,  600m, GramUnitId, SoonestExpiry: null),
+            [TomatoId] = new(TomatoId, 600m, GramUnitId, SoonestExpiry: null),
+            [GarlicId] = new(GarlicId, 5m,   EachUnitId, SoonestExpiry: today.AddDays(2)),
+        };
+
+    /// <summary>
+    /// Price points for the fixture. Pasta priced; Tomatoes priced; Garlic not priced → Partial.
+    /// Pasta: $2/kg = $0.002/g → 400g → $0.80 total.
+    /// Tomatoes: $1.50/kg = $0.0015/g → 500g → $0.75 total.
+    /// Total = $1.55, /4 servings = $0.3875/serving.
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, PricePoint> Prices() =>
+        new Dictionary<Guid, PricePoint>
+        {
+            [PastaId]  = new(PastaId,  Price: 2.00m,  Quantity: 1000m, UnitId: GramUnitId, UnitPrice: 0.002m),
+            [TomatoId] = new(TomatoId, Price: 1.50m,  Quantity: 1000m, UnitId: GramUnitId, UnitPrice: 0.0015m),
+            // GarlicId intentionally omitted → Partial cost.
+        };
+
+    /// <summary>Price points with all products priced → Full cost.</summary>
+    public static IReadOnlyDictionary<Guid, PricePoint> PricesFull() =>
+        new Dictionary<Guid, PricePoint>
+        {
+            [PastaId]  = new(PastaId,  Price: 2.00m,  Quantity: 1000m, UnitId: GramUnitId, UnitPrice: 0.002m),
+            [TomatoId] = new(TomatoId, Price: 1.50m,  Quantity: 1000m, UnitId: GramUnitId, UnitPrice: 0.0015m),
+            [GarlicId] = new(GarlicId, Price: 0.50m,  Quantity: 1m,    UnitId: EachUnitId, UnitPrice: 0.50m),
+        };
 }
 
 /// <summary>
@@ -190,4 +243,46 @@ public sealed class FakeCatalogProductReader(
 
     public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+}
+
+/// <summary>
+/// In-memory <see cref="IInventoryStockReader"/> for the recipe detail L4 tests.
+/// </summary>
+public sealed class FakeDetailStockReader(IReadOnlyDictionary<Guid, ProductStock> stock)
+    : IInventoryStockReader
+{
+    public Task<ProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult(stock.GetValueOrDefault(productId));
+
+    public Task<IReadOnlyDictionary<Guid, ProductStock>> FindStockBatchAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, ProductStock> result = productIds
+            .Where(stock.ContainsKey)
+            .ToDictionary(id => id, id => stock[id]);
+        return Task.FromResult(result);
+    }
+}
+
+/// <summary>
+/// In-memory <see cref="IPriceReader"/> for the recipe detail L4 tests.
+/// </summary>
+public sealed class FakeDetailPriceReader(IReadOnlyDictionary<Guid, PricePoint> prices) : IPriceReader
+{
+    public Task<PricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult(prices.GetValueOrDefault(productId));
+}
+
+/// <summary>
+/// Identity <see cref="IUnitConverter"/> for the recipe detail L4 tests —
+/// same-unit converts to itself. Sufficient for fixture where ingredient unit == product default unit.
+/// </summary>
+public sealed class FakeDetailUnitConverter : IUnitConverter
+{
+    public Task<Plantry.SharedKernel.Result<decimal>> ConvertAsync(
+        Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
+        Task.FromResult(fromUnitId == toUnitId
+            ? Plantry.SharedKernel.Result<decimal>.Success(amount)
+            : Plantry.SharedKernel.Result<decimal>.Failure(
+                Plantry.SharedKernel.Error.Custom("Test.NoPath", "No unit conversion path.")));
 }
