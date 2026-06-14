@@ -152,9 +152,12 @@ builder.Services.AddScoped<ICatalogProductReader, CatalogProductReaderAdapter>()
 builder.Services.AddScoped<ICatalogWriter, CatalogWriterAdapter>();
 builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
 
-// Recipes → Inventory anti-corruption adapter (P2-2a, recipes-domain-model.md §8). Supplies
-// FulfillmentService with live stock snapshots (available qty + soonest expiry) from Inventory.
+// Recipes → Inventory anti-corruption adapters (P2-2a / P2-3b, recipes-domain-model.md §8).
+// Read port supplies FulfillmentService with live stock snapshots (available qty + soonest expiry).
+// Write port (IInventoryConsumer) lets the Cook flow decrement the pantry via Inventory's single
+// Consume primitive without the Recipes context touching Inventory tables directly (ADR-011).
 builder.Services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>();
+builder.Services.AddScoped<IInventoryConsumer, InventoryConsumerAdapter>();
 
 // Recipes → Pricing anti-corruption adapter (P2-2b, recipes-domain-model.md §8). Supplies
 // CostingService with the latest PriceObservation per product from the Pricing context.
