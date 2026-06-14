@@ -123,6 +123,7 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             b.Property(p => p.DefaultLocationId)
                 .HasConversion(id => id == null ? (Guid?)null : id.Value.Value, v => v == null ? (LocationId?)null : LocationId.From(v.Value))
                 .HasColumnName("default_location_id");
+            b.Property(p => p.TrackStock).HasColumnName("track_stock");
             b.Property(p => p.DefaultDueDays).HasColumnName("default_due_days");
             b.Property(p => p.DefaultDueDaysAfterOpening).HasColumnName("default_due_days_after_opening");
             b.Property(p => p.DefaultDueDaysAfterFreezing).HasColumnName("default_due_days_after_freezing");

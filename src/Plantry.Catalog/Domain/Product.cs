@@ -16,6 +16,15 @@ public sealed class Product : AggregateRoot<ProductId>
     public CategoryId? CategoryId { get; private set; }
     public UnitId DefaultUnitId { get; private set; }
     public LocationId? DefaultLocationId { get; private set; }
+
+    /// <summary>
+    /// Whether this product participates in quantity accounting (catalog.md "untracked staples").
+    /// True for ordinary goods; <c>false</c> for an untracked staple (salt, water, oil) that is always
+    /// on hand — Inventory skips its lots, Recipes fulfillment treats it as always satisfied, Cook
+    /// skips its consume, and Shopping never auto-adds it. Inline auto-create (from a recipe author or
+    /// intake) mints the product with <c>track_stock = false</c>; the user can enable tracking later.
+    /// </summary>
+    public bool TrackStock { get; private set; } = true;
     public int? DefaultDueDays { get; private set; }
     public int? DefaultDueDaysAfterOpening { get; private set; }
     public int? DefaultDueDaysAfterFreezing { get; private set; }
@@ -40,20 +49,25 @@ public sealed class Product : AggregateRoot<ProductId>
 
     private Product() { } // EF
 
-    private Product(ProductId id, HouseholdId householdId, string name, UnitId defaultUnitId, DateTimeOffset now)
+    private Product(ProductId id, HouseholdId householdId, string name, UnitId defaultUnitId, bool trackStock, DateTimeOffset now)
     {
         Id = id;
         HouseholdId = householdId;
         Name = name;
         DefaultUnitId = defaultUnitId;
+        TrackStock = trackStock;
         CreatedAt = now;
         UpdatedAt = now;
     }
 
-    public static Product Create(HouseholdId householdId, string name, UnitId defaultUnitId, IClock clock)
+    /// <param name="trackStock">
+    /// Pass <c>false</c> to mint an untracked staple (inline auto-create, C12); defaults to <c>true</c>
+    /// for ordinary stock-holding goods.
+    /// </param>
+    public static Product Create(HouseholdId householdId, string name, UnitId defaultUnitId, IClock clock, bool trackStock = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        return new Product(ProductId.New(), householdId, name.Trim(), defaultUnitId, clock.UtcNow);
+        return new Product(ProductId.New(), householdId, name.Trim(), defaultUnitId, trackStock, clock.UtcNow);
     }
 
     public bool IsArchived => ArchivedAt is not null;
@@ -85,6 +99,13 @@ public sealed class Product : AggregateRoot<ProductId>
     public void SetDefaultLocation(LocationId? locationId, IClock clock)
     {
         DefaultLocationId = locationId;
+        Touch(clock);
+    }
+
+    /// <summary>Enable or disable quantity accounting for this product (e.g. promoting an untracked staple to a tracked good).</summary>
+    public void SetTrackStock(bool trackStock, IClock clock)
+    {
+        TrackStock = trackStock;
         Touch(clock);
     }
 
