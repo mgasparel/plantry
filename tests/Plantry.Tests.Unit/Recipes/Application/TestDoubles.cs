@@ -43,6 +43,15 @@ internal sealed class FakeTagRepository : ITagRepository
         Task.FromResult(Items.SingleOrDefault(t =>
             t.HouseholdId == householdId && string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)));
 
+    public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(
+        IReadOnlyList<TagId> ids, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<TagId, string> result = Items
+            .Where(t => ids.Contains(t.Id))
+            .ToDictionary(t => t.Id, t => t.Name);
+        return Task.FromResult(result);
+    }
+
     public Task AddAsync(Tag tag, CancellationToken ct = default)
     {
         Items.Add(tag);
@@ -74,6 +83,20 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
             .ToList();
         return Task.FromResult(hits);
     }
+
+    public Task<IReadOnlyDictionary<Guid, CatalogProductSummary>> ResolveSummariesAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, CatalogProductSummary> result = productIds
+            .Where(_products.ContainsKey)
+            .Distinct()
+            .ToDictionary(id => id, id => new CatalogProductSummary(id, _products[id].Name, _products[id].TrackStock));
+        return Task.FromResult(result);
+    }
+
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyList<Guid> unitIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 }
 
 /// <summary>

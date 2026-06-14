@@ -18,7 +18,28 @@ public interface ICatalogProductReader
     /// <paramref name="nameQuery"/> (case-insensitive). Empty/whitespace query returns no candidates.
     /// </summary>
     Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(string nameQuery, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batch display resolution for a set of products in a single round-trip — the name and
+    /// <c>track_stock</c> each ingredient row needs to render. Unlike <see cref="FindAsync"/>, this
+    /// does <b>not</b> load the depth-1 parent/variant tree (the read-only render has no use for the
+    /// DM-19 rollup); callers that need the tree must use <see cref="FindAsync"/>. Ids absent from
+    /// this household are simply omitted from the result. Use over a loop of <see cref="FindAsync"/>
+    /// when resolving a whole ingredient list, to avoid an N+1 round-trip per row.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, CatalogProductSummary>> ResolveSummariesAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolves unit ids to their display code (e.g. "g", "ea") in a single round-trip — for
+    /// rendering an ingredient quantity beside its unit. Ids absent from this household are omitted.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyList<Guid> unitIds, CancellationToken ct = default);
 }
+
+/// <summary>The display slice of a Catalog product for a recipe ingredient row (name + stock-tracking).</summary>
+public sealed record CatalogProductSummary(Guid Id, string Name, bool TrackStock);
 
 /// <summary>
 /// The slice of a Catalog product Recipes depends on, including the depth-1 parent/variant tree.
