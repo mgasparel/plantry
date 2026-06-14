@@ -135,12 +135,13 @@ builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 
 // Recipes context (Phase 2). P2-1 adds domain behaviour, EF child-collection mapping, and the
-// IRecipeRepository; later P2 steps add application services.
+// IRecipeRepository; P2-3a adds ICookEventRepository; later P2 steps add application services.
 builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IRecipeRepository, RecipeRepository>();
+builder.Services.AddScoped<ICookEventRepository, CookEventRepository>();
 builder.Services.AddScoped<ITagRepository, TagRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 

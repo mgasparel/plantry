@@ -159,6 +159,12 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             b.Property(c => c.CookedBy).HasColumnName("cooked_by").IsRequired();
             b.Property(c => c.CookedAt).HasColumnName("cooked_at");
 
+            // The FK to recipe (household_id, recipe_id) ON DELETE RESTRICT is created via raw SQL
+            // in the InitialRecipesSchema migration — EF models no relationship here, mirroring the
+            // same pattern used for recipe_ingredient and the other child tables in that migration.
+            // CookEvent is an independent aggregate root, not a child of Recipe, so there is no
+            // navigation property in either direction.
+
             b.HasIndex(c => new { c.HouseholdId, c.RecipeId, c.CookedAt })
                 .HasDatabaseName("ix_cook_event_household_recipe_cooked");
             b.HasQueryFilter(c => c.HouseholdId == HouseholdId.From(_householdId));
