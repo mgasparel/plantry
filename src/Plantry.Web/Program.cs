@@ -130,6 +130,7 @@ builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
