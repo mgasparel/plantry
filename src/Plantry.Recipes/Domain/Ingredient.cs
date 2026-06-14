@@ -6,8 +6,8 @@ namespace Plantry.Recipes.Domain;
 /// <summary>
 /// Ordered child of <see cref="Recipe"/> — one required item per row (recipes-domain-model.md §1, O1).
 /// Wholesale-replaced with fresh ids on every save (Resolved call 2); nothing outside the aggregate
-/// quotes an <see cref="IngredientId"/>. P2-0 step maps the shape only — the both-set-or-both-null
-/// (R5) and ordinal-contiguity (R6) invariants are enforced in P2-1's authoring service / DB CHECK.
+/// quotes an <see cref="IngredientId"/>. R5 (qty/unit both-or-neither) and ordinal-contiguity (R6)
+/// are enforced by <see cref="Recipe.ReplaceIngredients"/>.
 /// </summary>
 public sealed class Ingredient : Entity<IngredientId>
 {
@@ -27,4 +27,27 @@ public sealed class Ingredient : Entity<IngredientId>
     public int Ordinal { get; private set; }
 
     private Ingredient() { } // EF
+
+    internal static Ingredient Create(
+        IngredientId id,
+        HouseholdId householdId,
+        RecipeId recipeId,
+        Guid productId,
+        decimal? quantity,
+        Guid? unitId,
+        string? groupHeading,
+        int ordinal)
+    {
+        return new Ingredient
+        {
+            Id = id,
+            HouseholdId = householdId,
+            RecipeId = recipeId,
+            ProductId = productId,
+            Quantity = quantity,
+            UnitId = unitId,
+            GroupHeading = groupHeading,
+            Ordinal = ordinal,
+        };
+    }
 }

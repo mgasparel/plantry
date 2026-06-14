@@ -10,11 +10,8 @@ namespace Plantry.Recipes.Infrastructure;
 /// (hot-path separated), and the <c>recipe_tag</c> membership join — plus the standalone <c>tag</c>
 /// vocabulary root and the append-only <c>cook_event</c> root.
 /// <para>
-/// This P2-0 step maps the schema, migration and RLS only; the Recipe aggregate's child-navigation
-/// mapping and repository land in P2-1. The tenant-safe composite <c>(household_id, parent_id)</c> FKs,
-/// CHECK constraints, and per-table RLS policies are applied in the migration's raw-SQL block (mirroring
-/// <c>intake.InitialIntakeSchema</c>) rather than via EF relationships, so this context maps no
-/// navigations yet. Each table is independently RLS-filtered on <c>household_id</c>.
+/// The Recipe aggregate's child collections (_ingredients list, _tags list, _photo reference) are
+/// wired via backing fields and PropertyAccessMode.Field, mirroring IntakeDbContext / InventoryDbContext.
 /// </para>
 /// </summary>
 public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options) : DbContext(options)
@@ -50,6 +47,36 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             b.Property(r => r.ArchivedAt).HasColumnName("archived_at");
             b.Property(r => r.CreatedAt).HasColumnName("created_at");
             b.Property(r => r.UpdatedAt).HasColumnName("updated_at");
+
+            // Child ingredient collection — backed by _ingredients field.
+            b.HasMany(r => r.Ingredients)
+                .WithOne()
+                .HasForeignKey(i => i.RecipeId)
+                .HasPrincipalKey(r => r.Id)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(r => r.Ingredients)
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .HasField("_ingredients");
+
+            // Tag membership join — backed by _tags field.
+            b.HasMany(r => r.Tags)
+                .WithOne()
+                .HasForeignKey(rt => rt.RecipeId)
+                .HasPrincipalKey(r => r.Id)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(r => r.Tags)
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .HasField("_tags");
+
+            // 1:1 photo — backed by _photo field.
+            b.HasOne(r => r.Photo)
+                .WithOne()
+                .HasForeignKey<RecipePhoto>(p => p.Id)
+                .HasPrincipalKey<Recipe>(r => r.Id)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(r => r.Photo)
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .HasField("_photo");
 
             // Browse-sort backing indexes (J2): the unique name index serves Name; created_at serves
             // "Recently added"; cook_time_minutes serves Cook time.

@@ -15,6 +15,7 @@ using Plantry.Intake.Infrastructure;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
+using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -124,12 +125,13 @@ builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
             sp.GetRequiredService<DomainEventDispatchInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 
-// Recipes context (Phase 2). Schema-only at P2-0 — same RLS interceptor as the other contexts;
-// repositories and application services land in later P2 steps.
+// Recipes context (Phase 2). P2-1 adds domain behaviour, EF child-collection mapping, and the
+// IRecipeRepository; later P2 steps add application services.
 builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+builder.Services.AddScoped<IRecipeRepository, RecipeRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
