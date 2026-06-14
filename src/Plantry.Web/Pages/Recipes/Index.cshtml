@@ -1,0 +1,14 @@
+@page
+@model Plantry.Web.Pages.Recipes.IndexModel
+@{
+    ViewData["Title"] = "Recipes";
+}
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Recipes</h2>
+    <div class="empty-state">
+        <svg class="empty-state__icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+        <div class="empty-state__title">No recipes yet</div>
+        <p class="empty-state__body">Your household's recipes will live here — what you cook, what's in season, and what you can make from the stock you already have.</p>
+    </div>
+</section>
