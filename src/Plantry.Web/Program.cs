@@ -15,6 +15,7 @@ using Plantry.Intake.Infrastructure;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
+using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel.Domain;
@@ -24,6 +25,7 @@ using Plantry.Web.Events;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.Pricing;
+using Plantry.Web.Recipes;
 using Plantry.Web.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -133,6 +135,13 @@ builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IRecipeRepository, RecipeRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
+
+// Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +
+// Web-adapter seam: Recipes.Application owns the interfaces, these implement them over Catalog's
+// repositories/commands and pure UnitConverter, so the Recipes projects stay → SharedKernel only.
+builder.Services.AddScoped<ICatalogProductReader, CatalogProductReaderAdapter>();
+builder.Services.AddScoped<ICatalogWriter, CatalogWriterAdapter>();
+builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 

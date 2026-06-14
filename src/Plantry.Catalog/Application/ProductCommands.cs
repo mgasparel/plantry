@@ -15,7 +15,8 @@ public sealed class CreateProductCommand(
     ICategoryRepository categories,
     ILocationRepository locations,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    bool trackStock = true)
 {
     public async Task<Result<ProductId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -29,7 +30,7 @@ public sealed class CreateProductCommand(
         if (await products.FindByNameAsync(name.Trim(), ct) is not null)
             return Error.Custom("Catalog.DuplicateProductName", $"A product named '{name}' already exists.");
 
-        var product = Product.Create(HouseholdId.From(householdId), name, UnitId.From(defaultUnitId), clock);
+        var product = Product.Create(HouseholdId.From(householdId), name, UnitId.From(defaultUnitId), clock, trackStock);
         if (categoryId is { } catId) product.SetCategory(CategoryId.From(catId), clock);
         if (defaultLocationId is { } locId) product.SetDefaultLocation(LocationId.From(locId), clock);
 

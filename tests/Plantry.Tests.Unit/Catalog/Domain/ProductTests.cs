@@ -33,8 +33,27 @@ public sealed class ProductTests
         Assert.Null(product.DefaultLocationId);
         Assert.False(product.HasVariants);
         Assert.False(product.IsArchived);
+        Assert.True(product.TrackStock); // ordinary goods track stock by default
         Assert.Empty(product.Skus);
         Assert.Empty(product.Conversions);
+    }
+
+    [Fact]
+    public void Create_Can_Mint_An_Untracked_Staple()
+    {
+        var staple = Product.Create(HouseholdId, "Salt", UnitId, Clock, trackStock: false);
+
+        Assert.False(staple.TrackStock);
+    }
+
+    [Fact]
+    public void SetTrackStock_Toggles_The_Flag()
+    {
+        var staple = Product.Create(HouseholdId, "Salt", UnitId, Clock, trackStock: false);
+
+        staple.SetTrackStock(true, Clock);
+
+        Assert.True(staple.TrackStock);
     }
 
     [Theory]
