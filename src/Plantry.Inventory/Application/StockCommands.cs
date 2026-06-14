@@ -91,7 +91,8 @@ public sealed class ConsumeStockCommand(
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    StockSourceType sourceType = StockSourceType.Manual)
 {
     public async Task<Result<ConsumeOutcome>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -113,7 +114,7 @@ public sealed class ConsumeStockCommand(
             var outcome = stock.Consume(
                 amount, unitId, reason, converter, userId, clock,
                 sourceRef: sourceRef,
-                sourceType: StockSourceType.Manual,
+                sourceType: sourceType,
                 targetEntry: targetEntryId is { } id ? StockEntryId.From(id) : null);
 
             if (outcome.IsFailure)
