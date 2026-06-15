@@ -1,0 +1,37 @@
+﻿<div class="cook-rail">
+	<div class="card">
+		<div class="card__head">
+			<div>
+				<h3 class="card__head-title">Ready to cook?</h3>
+				<p class="card__head-sub" style="color:var(--color-warning)">Some ingredients are short — you can still proceed.</p>
+			</div>
+		</div>
+		<div class="card__body">
+			<form method="post" action="/Recipes/Guid_1/Cook?Servings=4">
+				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+				<template x-for="ingId in skippedIds" :key="ingId"><input type="hidden" name="SkippedIngredientIds" :value="ingId"></template>
+				<div class="cook-rail-summary">
+					<div class="cook-rail-stat">
+						<span class="cook-rail-stat__val" x-text="activeCount">3</span>
+						<span class="cook-rail-stat__lbl">ingredients</span>
+					</div>
+					<div class="cook-rail-stat" x-show="skippedIds.length > 0" x-cloak="">
+						<span class="cook-rail-stat__val" x-text="skippedIds.length"></span>
+						<span class="cook-rail-stat__lbl">skipped</span>
+					</div>
+				</div>
+				<div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+					<button type="submit" class="btn btn--cook btn--full">
+						<svg class="icon" aria-hidden="true">
+							<use href="#i-flame"></use>
+						</svg>
+						Confirm cook
+					</button>
+					<a href="/Recipes/Guid_1" class="btn btn--secondary btn--full" style="text-align:center">
+						Cancel
+					</a>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>

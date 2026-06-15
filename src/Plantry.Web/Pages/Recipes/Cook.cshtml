@@ -1,0 +1,331 @@
+@page "/Recipes/{id:guid}/Cook"
+@using System.Globalization
+@model Plantry.Web.Pages.Recipes.CookModel
+@{
+    ViewData["Title"] = $"Cook {Model.Cook.RecipeName}";
+    ViewData["ContentClass"] = "page-content--wide";
+    var cook = Model.Cook;
+    var hasShortfall = cook.Lines.Any(l => l.IsShortfall);
+    var trackedLines = cook.Lines.Where(l => !l.IsUntracked).ToList();
+}
+
+@* ── Alpine scope: per-line skip state + variant picker selections ────────── *@
+<div id="cook-confirm"
+     x-data="cookConfirm(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+         cook.Lines.Where(l => !l.IsUntracked).Select(l => new {
+             id = l.IngredientId.ToString(),
+             variantId = l.IsParent && l.VariantOptions.Any(v => v.IsAutoSelected)
+                 ? l.VariantOptions.First(v => v.IsAutoSelected).VariantId.ToString()
+                 : (string?)null
+         })
+     )))">
+
+    <div class="rd-wrap">
+        <a href="/Recipes/@cook.RecipeId" class="rd-back">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+            Back to recipe
+        </a>
+
+        <div class="cook-grid">
+
+            @* ═══════════════════════════════════════════════════════════════
+               MAIN: Ingredients confirmation list
+               ═══════════════════════════════════════════════════════════════ *@
+            <div class="cook-main">
+                <div class="cook-header">
+                    <h1 class="cook-title">
+                        <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+                        Cook @cook.RecipeName
+                    </h1>
+                    <p class="cook-sub">
+                        @cook.DesiredServings serving@(cook.DesiredServings == 1 ? "" : "s")
+                        @if (cook.Scale != 1m)
+                        {
+                            <span class="cook-scale-badge">×@cook.Scale.ToString("G3", CultureInfo.InvariantCulture)</span>
+                        }
+                    </p>
+                </div>
+
+                @* Shortfall notice — never blocks, just informs (C8/R9) *@
+                @if (hasShortfall)
+                {
+                    <div class="cook-shortfall-notice" role="alert">
+                        <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+                        <span>
+                            <b>Some ingredients are running low or missing.</b>
+                            You can still confirm — the cook will use whatever is available.
+                        </span>
+                    </div>
+                }
+
+                <div class="card">
+                    <div class="card__head">
+                        <div>
+                            <h3 class="card__head-title">Ingredients</h3>
+                            <p class="card__head-sub">
+                                Scaled to @cook.DesiredServings serving@(cook.DesiredServings == 1 ? "" : "s")
+                                @if (cook.DesiredServings != cook.DefaultServings)
+                                {
+                                    <span>from @cook.DefaultServings default</span>
+                                }
+                            </p>
+                        </div>
+                    </div>
+                    <div class="card__body cook-ing-list" role="list" aria-label="Ingredients">
+
+                        @{ string? lastGroup = null; }
+                        @foreach (var line in cook.Lines)
+                        {
+                            if (line.GroupHeading != lastGroup && line.GroupHeading is not null)
+                            {
+                                lastGroup = line.GroupHeading;
+                                <div class="cook-ing-group-heading">@line.GroupHeading</div>
+                            }
+                            else if (line.GroupHeading is null)
+                            {
+                                lastGroup = null;
+                            }
+
+                            if (line.IsUntracked)
+                            {
+                                @* Untracked staple (C12): shown greyed, no qty, no picker *@
+                                <div class="cook-ing-row cook-ing-row--untracked" role="listitem">
+                                    <div class="cook-ing-row__name">@line.ProductName</div>
+                                    <div class="cook-ing-row__sub">to taste</div>
+                                </div>
+                            }
+                            else
+                            {
+                                var ingIdStr = line.IngredientId.ToString();
+                                @* Tracked ingredient: skip toggle + variant picker if parent *@
+                                <div class="cook-ing-row"
+                                     role="listitem"
+                                     :class="{ 'cook-ing-row--skipped': isSkipped('@ingIdStr') }"
+                                     x-data="{}">
+
+                                    @* Status indicator *@
+                                    @if (line.IsShortfall)
+                                    {
+                                        <div class="cook-ing-status cook-ing-status--shortfall" aria-label="Shortfall">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="cook-ing-status cook-ing-status--ok" aria-label="In stock">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                        </div>
+                                    }
+
+                                    <div class="cook-ing-row__body">
+                                        <div class="cook-ing-row__name">
+                                            @line.ProductName
+                                            @if (line.IsShortfall && line.ScaledQuantity.HasValue && line.AvailableQuantity.HasValue)
+                                            {
+                                                <span class="cook-shortfall-tag">
+                                                    have @(FormatQty(line.AvailableQuantity.Value)) / need @(FormatQty(line.ScaledQuantity.Value)) @line.UnitCode
+                                                </span>
+                                            }
+                                        </div>
+
+                                        @* Quantity display *@
+                                        @if (line.ScaledQuantity.HasValue)
+                                        {
+                                            <div class="cook-ing-row__qty">
+                                                @FormatQty(line.ScaledQuantity.Value)
+                                                @if (!string.IsNullOrEmpty(line.UnitCode))
+                                                {
+                                                    <span> @line.UnitCode</span>
+                                                }
+                                            </div>
+                                        }
+
+                                        @* Variant Disambiguation Picker (C7/C11) *@
+                                        @if (line.IsParent && line.VariantOptions.Count > 0)
+                                        {
+                                            <div class="cook-picker" id="cook-picker-@ingIdStr">
+                                                <div class="cook-picker__label">Choose variant</div>
+                                                <div class="suggest-opts">
+                                                    @foreach (var variant in line.VariantOptions)
+                                                    {
+                                                        var variantIdStr = variant.VariantId.ToString();
+                                                        if (!variant.IsCompatible)
+                                                        {
+                                                            @* Unit-incompatible: visible but disabled (C11) *@
+                                                            <button type="button"
+                                                                    class="suggest-opt"
+                                                                    disabled
+                                                                    title="Unit incompatible — cannot use for this ingredient"
+                                                                    aria-disabled="true">
+                                                                @variant.VariantName
+                                                                @if (variant.AvailableQuantity > 0)
+                                                                {
+                                                                    <span class="rk">@(FormatQty(variant.AvailableQuantity)) @variant.UnitCode</span>
+                                                                }
+                                                                <span class="rk cook-picker__incompat">unit mismatch</span>
+                                                            </button>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button type="button"
+                                                                    class="suggest-opt"
+                                                                    :class="{ 'sel': pickerVariant('@ingIdStr') === '@variantIdStr' }"
+                                                                    @@click="setVariant('@ingIdStr', '@variantIdStr')"
+                                                                    :disabled="isSkipped('@ingIdStr')">
+                                                                <svg class="icon" aria-hidden="true"
+                                                                     x-show="pickerVariant('@ingIdStr') === '@variantIdStr'">
+                                                                    <use href="#i-check" />
+                                                                </svg>
+                                                                @variant.VariantName
+                                                                <span class="rk">
+                                                                    @if (variant.AvailableQuantity > 0)
+                                                                    {
+                                                                        @(FormatQty(variant.AvailableQuantity))
+                                                                        @(" ")@variant.UnitCode
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span>none</span>
+                                                                    }
+                                                                </span>
+                                                                @if (variant.IsAutoSelected)
+                                                                {
+                                                                    <span class="rk">best</span>
+                                                                }
+                                                            </button>
+                                                        }
+                                                    }
+                                                </div>
+                                                @* Hidden input carries the chosen variant id to the form post *@
+                                                <input type="hidden"
+                                                       name="PickerSelections[@line.IngredientId].IngredientId"
+                                                       value="@line.IngredientId" />
+                                                <input type="hidden"
+                                                       name="PickerSelections[@line.IngredientId].VariantId"
+                                                       :value="pickerVariant('@ingIdStr') ?? '@(line.VariantOptions.FirstOrDefault(v => v.IsAutoSelected)?.VariantId.ToString() ?? "")'" />
+                                            </div>
+                                        }
+                                    </div>
+
+                                    @* Skip toggle (C9) *@
+                                    <div class="cook-ing-row__actions">
+                                        <button type="button"
+                                                class="btn btn--ghost btn--sm cook-skip-btn"
+                                                @@click="toggleSkip('@ingIdStr')"
+                                                :aria-pressed="isSkipped('@ingIdStr')"
+                                                aria-label="Skip ingredient">
+                                            <span x-show="!isSkipped('@ingIdStr')">Skip</span>
+                                            <span x-show="isSkipped('@ingIdStr')">Undo</span>
+                                        </button>
+                                    </div>
+
+                                    @* Skipped overlay *@
+                                    <div class="cook-ing-row__skip-overlay"
+                                         x-show="isSkipped('@ingIdStr')"
+                                         x-cloak>Skipped</div>
+                                </div>
+                            }
+                        }
+
+                        @if (!cook.Lines.Any())
+                        {
+                            <p style="color:var(--color-text-faint);font-size:14px;padding:12px 0">No tracked ingredients.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* ═══════════════════════════════════════════════════════════════
+               ACTION RAIL: confirm + back
+               ═══════════════════════════════════════════════════════════════ *@
+            <div class="cook-rail">
+                <div class="card">
+                    <div class="card__head">
+                        <div>
+                            <h3 class="card__head-title">Ready to cook?</h3>
+                            @if (hasShortfall)
+                            {
+                                <p class="card__head-sub" style="color:var(--color-warning)">Some ingredients are short — you can still proceed.</p>
+                            }
+                            else
+                            {
+                                <p class="card__head-sub" style="color:var(--color-success)">Everything looks good.</p>
+                            }
+                        </div>
+                    </div>
+                    <div class="card__body">
+                        <form method="post" action="/Recipes/@cook.RecipeId/Cook?Servings=@cook.DesiredServings">
+                            @Html.AntiForgeryToken()
+
+                            @* Skipped ingredient ids — generated dynamically by Alpine *@
+                            <template x-for="ingId in skippedIds" :key="ingId">
+                                <input type="hidden" name="SkippedIngredientIds" :value="ingId" />
+                            </template>
+
+                            @* Variant picker selections (hidden inputs emitted per parent-product line above) *@
+
+                            <div class="cook-rail-summary">
+                                <div class="cook-rail-stat">
+                                    <span class="cook-rail-stat__val" x-text="activeCount">@trackedLines.Count</span>
+                                    <span class="cook-rail-stat__lbl">ingredients</span>
+                                </div>
+                                <div class="cook-rail-stat" x-show="skippedIds.length > 0" x-cloak>
+                                    <span class="cook-rail-stat__val" x-text="skippedIds.length"></span>
+                                    <span class="cook-rail-stat__lbl">skipped</span>
+                                </div>
+                            </div>
+
+                            <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+                                <button type="submit" class="btn btn--cook btn--full">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+                                    Confirm cook
+                                </button>
+                                <a href="/Recipes/@cook.RecipeId" class="btn btn--secondary btn--full" style="text-align:center">
+                                    Cancel
+                                </a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+        </div>@* /cook-grid *@
+    </div>@* /rd-wrap *@
+</div>@* /cook-confirm *@
+
+@functions {
+    private static string FormatQty(decimal qty) =>
+        qty % 1 == 0
+            ? qty.ToString("G29", CultureInfo.InvariantCulture)
+            : qty.ToString("G4", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.');
+}
+
+@section Scripts {
+<script>
+function cookConfirm(lines) {
+    // lines: [{id: "guid", variantId: "guid-or-null"}, ...]
+    return {
+        // Track which ingredients are skipped.
+        skippedIds: [],
+        // Track variant picker selections: {[ingId]: variantId}.
+        _variants: Object.fromEntries(
+            lines.filter(l => l.variantId).map(l => [l.id, l.variantId])
+        ),
+
+        isSkipped(ingId) { return this.skippedIds.includes(ingId); },
+        toggleSkip(ingId) {
+            if (this.isSkipped(ingId)) {
+                this.skippedIds = this.skippedIds.filter(id => id !== ingId);
+            } else {
+                this.skippedIds.push(ingId);
+            }
+        },
+        pickerVariant(ingId) { return this._variants[ingId] ?? null; },
+        setVariant(ingId, variantId) { this._variants[ingId] = variantId; },
+        get activeCount() {
+            return @trackedLines.Count - this.skippedIds.length;
+        },
+    };
+}
+</script>
+}
