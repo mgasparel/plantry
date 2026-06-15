@@ -139,4 +139,26 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
         CheckedBy = userId;
         UpdatedAt = clock.UtcNow;
     }
+
+    /// <summary>
+    /// Merges an incoming duplicate-product add into this existing unchecked item:
+    /// increments Quantity by <paramref name="incomingQuantity"/> when both are non-null,
+    /// replaces when only incoming is non-null, and leaves it unchanged when incoming is null.
+    /// Also adopts the incoming unitId if provided and the current item has none.
+    /// Called exclusively by <see cref="ShoppingList.MergeItem"/> (shopping.md resolved call 5).
+    /// </summary>
+    internal void MergeFrom(decimal? incomingQuantity, Guid? incomingUnitId, IClock clock)
+    {
+        if (incomingQuantity.HasValue)
+        {
+            Quantity = Quantity.HasValue
+                ? Quantity.Value + incomingQuantity.Value
+                : incomingQuantity.Value;
+        }
+
+        if (incomingUnitId.HasValue && UnitId is null)
+            UnitId = incomingUnitId;
+
+        UpdatedAt = clock.UtcNow;
+    }
 }
