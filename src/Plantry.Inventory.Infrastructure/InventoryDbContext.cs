@@ -126,6 +126,7 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
                 .HasColumnName("source_type")
                 .HasMaxLength(20);
             b.Property(j => j.SourceRef).HasColumnName("source_ref");
+            b.Property(j => j.SourceLineRef).HasColumnName("source_line_ref");
             b.Property(j => j.OccurredAt).HasColumnName("occurred_at");
             b.Property(j => j.UserId).HasColumnName("user_id").IsRequired();
 
@@ -141,6 +142,10 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
             b.HasIndex(j => j.HouseholdId);
             b.HasIndex(j => new { j.HouseholdId, j.ProductId });
             b.HasIndex(j => j.StockEntryId);
+            // Idempotency lookup: for a given household + cook event (source_ref) + line (source_line_ref),
+            // find whether any journal row already carries this token (plantry-292a).
+            b.HasIndex(j => new { j.HouseholdId, j.SourceRef, j.SourceLineRef })
+                .HasDatabaseName("ix_stock_journal_idempotency");
 
             b.HasQueryFilter(j => j.HouseholdId == HouseholdId.From(_householdId));
         });

@@ -79,6 +79,11 @@ public sealed class AddStockCommand(
 /// through the <see cref="IProductConversionProvider"/> port, loads the root under a row lock, and
 /// runs <see cref="ProductStock.Consume"/> inside a transaction so the lock serializes concurrent
 /// consumes (DM-13). Returns the <see cref="ConsumeOutcome"/> so the UI can surface any shortfall.
+///
+/// <paramref name="sourceLineRef"/> is the per-consume-operation idempotency token (plantry-292a).
+/// When supplied, a re-driven consume with the same token is a no-op — the repository row-lock plus
+/// the aggregate's journal scan guarantee this is safe to call multiple times from the cook adapter.
+/// Pass <c>null</c> from the manual-consume path (Pantry Detail) to leave existing behaviour unchanged.
 /// </summary>
 public sealed class ConsumeStockCommand(
     Guid productId,
@@ -92,7 +97,8 @@ public sealed class ConsumeStockCommand(
     IProductConversionProvider conversions,
     IClock clock,
     ITenantContext tenant,
-    StockSourceType sourceType = StockSourceType.Manual)
+    StockSourceType sourceType = StockSourceType.Manual,
+    Guid? sourceLineRef = null)
 {
     public async Task<Result<ConsumeOutcome>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -115,7 +121,8 @@ public sealed class ConsumeStockCommand(
                 amount, unitId, reason, converter, userId, clock,
                 sourceRef: sourceRef,
                 sourceType: sourceType,
-                targetEntry: targetEntryId is { } id ? StockEntryId.From(id) : null);
+                targetEntry: targetEntryId is { } id ? StockEntryId.From(id) : null,
+                sourceLineRef: sourceLineRef);
 
             if (outcome.IsFailure)
                 return outcome; // nothing mutated (planning pass failed) — commits as a no-op

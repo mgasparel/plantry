@@ -20,6 +20,11 @@ public interface IInventoryConsumer
     /// the source reference. Returns a <see cref="ConsumeResult"/> that reports any shortfall; never
     /// throws on shortfall. Throws <see cref="InvalidOperationException"/> when the product has no
     /// stock record at all (no lots ever added).
+    ///
+    /// <paramref name="sourceLineRef"/> is the per-consume-operation idempotency token (plantry-292a):
+    /// the ingredient line id that uniquely identifies this consume within the cook. When set,
+    /// re-driving an already-applied token is a no-op — no further journal rows are written and stock
+    /// is not changed. Pass the <c>IngredientId</c> (as a <see cref="Guid"/>) from the cook adapter.
     /// </summary>
     Task<ConsumeResult> ConsumeAsync(
         Guid productId,
@@ -28,6 +33,7 @@ public interface IInventoryConsumer
         ConsumeReason reason,
         Guid cookEventId,
         Guid userId,
+        Guid sourceLineRef,
         CancellationToken ct = default);
 }
 

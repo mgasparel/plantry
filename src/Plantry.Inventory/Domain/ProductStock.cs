@@ -74,7 +74,7 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
         _entries.Add(entry);
         _journal.Add(StockJournalEntry.Record(
             HouseholdId, ProductId, entry.Id, +quantity, unitId,
-            StockReason.Purchase, sourceType, sourceRef, now, userId));
+            StockReason.Purchase, sourceType, sourceRef, sourceLineRef: null, now, userId));
         UpdatedAt = now;
         return entry;
     }
@@ -88,16 +88,28 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     /// Conversion is resolved in a planning pass <b>before</b> any lot is mutated, so an unresolvable
     /// unit fails loudly with the <see cref="IQuantityConverter"/>'s <see cref="Error"/> and leaves
     /// the aggregate untouched. Never over-deducts.
+    ///
+    /// When <paramref name="sourceLineRef"/> is supplied, the method first checks whether any
+    /// existing journal row already carries that token. If so, it short-circuits to a no-op
+    /// (returns an empty <see cref="ConsumeOutcome"/> with zero shortfall) without mutating any
+    /// lot or writing any journal row — this is the idempotency guarantee (plantry-292a). The check
+    /// is per-consume-operation: one consume fans out to N per-lot rows, all stamped with the same
+    /// token, and any one of those rows triggers the short-circuit on a re-drive.
     /// </summary>
     public Result<ConsumeOutcome> Consume(
         decimal amount, Guid unitId, StockReason reason, IQuantityConverter converter,
         Guid userId, IClock clock, Guid? sourceRef = null, StockSourceType? sourceType = null,
-        StockEntryId? targetEntry = null)
+        StockEntryId? targetEntry = null, Guid? sourceLineRef = null)
     {
         if (amount <= 0m)
             return Error.Custom("Inventory.InvalidConsumeAmount", "Consume amount must be positive.");
         if (!reason.IsRemoval())
             return Error.Custom("Inventory.InvalidConsumeReason", "Consume cannot record a Purchase; use AddStock.");
+
+        // Idempotency short-circuit (plantry-292a): if any journal row already carries this token,
+        // the consume was already applied — return a no-op outcome without mutating any lot.
+        if (sourceLineRef is { } token && _journal.Any(j => j.SourceLineRef == token))
+            return new ConsumeOutcome([], ShortfallAmount: 0m, unitId);
 
         var candidates = targetEntry is { } target
             ? _entries.Where(e => e.Id == target && e.IsActive).ToList()
@@ -133,7 +145,7 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
             lot.Deduct(takeInLot, clock);
             _journal.Add(StockJournalEntry.Record(
                 HouseholdId, ProductId, lot.Id, -takeInLot, lot.UnitId,
-                reason, sourceType, sourceRef, now, userId));
+                reason, sourceType, sourceRef, sourceLineRef, now, userId));
             deductions.Add(new LotDeduction(lot.Id, takeInLot, lot.UnitId));
         }
 

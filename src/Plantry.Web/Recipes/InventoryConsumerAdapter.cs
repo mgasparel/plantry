@@ -31,6 +31,7 @@ public sealed class InventoryConsumerAdapter(
         ConsumeReason reason,
         Guid cookEventId,
         Guid userId,
+        Guid sourceLineRef,
         CancellationToken ct = default)
     {
         var stockReason = reason switch
@@ -51,7 +52,8 @@ public sealed class InventoryConsumerAdapter(
             conversions,
             clock,
             tenant,
-            StockSourceType.Cook);
+            StockSourceType.Cook,
+            sourceLineRef: sourceLineRef);
 
         var result = await command.ExecuteAsync(ct);
 
