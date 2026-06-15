@@ -18,3 +18,4 @@ Architecture Decision Records for Plantry.
 | [ADR-012](ADR-012.md) | Deployment & runtime topology (Docker homelab, Aspire app model) | Accepted |
 | [ADR-013](ADR-013.md) | Intake review form: targeted out-of-band swaps over full-region re-render | Accepted · validated by spike 2026-06-12 |
 | [ADR-014](ADR-014.md) | Cross-context writes are eventually consistent, never one shared transaction | Accepted |
+| [ADR-015](ADR-015.md) | Operational/maintenance endpoints may return JSON; UI handlers stay hypermedia | Accepted |

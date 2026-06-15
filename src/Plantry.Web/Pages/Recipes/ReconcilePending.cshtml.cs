@@ -14,6 +14,12 @@ namespace Plantry.Web.Pages.Recipes;
 /// at <see cref="CookRecipe"/> entry (before every new cook). No background poller is wired up
 /// (ADR-010 defers infra until next-cook latency proves insufficient).
 /// </para>
+/// <para>
+/// It returns JSON rather than hypermedia: this is a machine-facing operational hook with no
+/// interactive UI consumer, the documented carve-out from ADR-004's hypermedia rule (see ADR-015).
+/// If a UI surface (e.g. a "Reconcile now" button) is ever added, convert this to return a notice
+/// partial at that point.
+/// </para>
 /// </summary>
 [Authorize]
 public sealed class ReconcilePendingModel(ReconcilePendingCooks reconciler) : PageModel
