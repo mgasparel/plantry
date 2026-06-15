@@ -173,6 +173,30 @@ public sealed class FakeCookInventoryConsumer : IInventoryConsumer
         Task.FromResult(new ConsumeResult(ShortfallAmount: 0m, RequestUnitId: unitId));
 }
 
+/// <summary>
+/// Recording IInventoryConsumer for OnPostAsync resolution-mapping tests (plantry-oej).
+/// Captures every ConsumeAsync call so tests can assert which products were (or were not) consumed.
+/// </summary>
+public sealed class RecordingFakeCookInventoryConsumer : IInventoryConsumer
+{
+    private readonly List<ConsumeCall> _calls = [];
+
+    /// <summary>All ConsumeAsync calls received, in invocation order.</summary>
+    public IReadOnlyList<ConsumeCall> Calls => _calls;
+
+    public Task<ConsumeResult> ConsumeAsync(
+        Guid productId, decimal quantity, Guid unitId,
+        ConsumeReason reason, Guid cookEventId, Guid userId,
+        Guid sourceLineRef, CancellationToken ct = default)
+    {
+        _calls.Add(new ConsumeCall(productId, quantity, unitId));
+        return Task.FromResult(new ConsumeResult(ShortfallAmount: 0m, RequestUnitId: unitId));
+    }
+}
+
+/// <summary>Recorded arguments from one <see cref="IInventoryConsumer.ConsumeAsync"/> call.</summary>
+public sealed record ConsumeCall(Guid ProductId, decimal Quantity, Guid UnitId);
+
 /// <summary>No-op ICookEventRepository for Cook L4 tests.</summary>
 public sealed class FakeCookEventRepository : ICookEventRepository
 {
