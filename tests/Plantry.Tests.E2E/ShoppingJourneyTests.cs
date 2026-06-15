@@ -63,7 +63,7 @@ public sealed class ShoppingJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             await page.FillAsync("[name='Input.DisplayName']", "Shop User");
             await page.FillAsync("[name='Input.Password']", password);
             await page.ClickAsync("button[type=submit]");
-            await page.WaitForURLAsync("**/Pantry**");
+            await page.WaitForURLAsync("**/Today**");
 
             // ── Step 2: Seed a catalog product so it's searchable on the list ────
             await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");

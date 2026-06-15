@@ -49,7 +49,7 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             var page = await context.NewPageAsync();
             page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
 
-            // ── Register a household (lands on Pantry, logged in) ─────────────────
+            // ── Register a household (lands on Today home, logged in) ─────────────
             await page.GotoAsync($"{BaseUrl}/Account/Register");
             await page.WaitForURLAsync("**/Account/Register");
             await page.FillAsync("[name='Input.HouseholdName']", "Smoke Stock Household");
@@ -57,7 +57,7 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.FillAsync("[name='Input.DisplayName']", "Smoke User");
             await page.FillAsync("[name='Input.Password']", password);
             await page.ClickAsync("button[type=submit]");
-            await page.WaitForURLAsync("**/Pantry**");
+            await page.WaitForURLAsync("**/Today**");
 
             // ── Create a stock-holding product ───────────────────────────────────
             await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");

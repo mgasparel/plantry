@@ -52,7 +52,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
-    /// <summary>Registers a fresh household and returns the page (landed on /Pantry).</summary>
+    /// <summary>Registers a fresh household and returns the page (landed on /Today).</summary>
     private async Task<IPage> RegisterHouseholdAsync(IBrowserContext context, string email, string householdName)
     {
         var page = await context.NewPageAsync();
@@ -65,7 +65,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         await page.FillAsync("[name='Input.DisplayName']", "Test User");
         await page.FillAsync("[name='Input.Password']", "testpass1");
         await page.ClickAsync("button[type=submit]");
-        await page.WaitForURLAsync("**/Pantry**");
+        await page.WaitForURLAsync("**/Today**");
 
         return page;
     }
