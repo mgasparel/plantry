@@ -175,8 +175,14 @@ builder.Services.AddScoped<AuthorRecipe>();
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
 
+// Reconcile-pending-cooks service (P2-3d / plantry-292c). Re-drives Pending consume lines left by
+// interrupted cooks — called opportunistically at CookRecipe entry and on-demand via the dedicated
+// endpoint. No background poller (ADR-010 defers infra until needed).
+builder.Services.AddScoped<ReconcilePendingCooks>();
+
 // Cook-a-recipe application service (P2-3c, recipes-domain-model.md §7). Drives the J4 cook flow:
 // ServingsScale + variant resolution (C7/C11) + atomic consume + cook event write (§7/§8).
+// Runs an opportunistic reconciliation sweep (292c) at entry before starting the new cook.
 builder.Services.AddScoped<CookRecipe>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));

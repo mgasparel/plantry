@@ -15,6 +15,13 @@ public sealed class CookEventRepository(RecipesDbContext db) : ICookEventReposit
             .OrderByDescending(c => c.CookedAt)
             .ToListAsync(ct);
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default) =>
+        await db.CookEvents
+            .Include(c => c.ConsumeLines)
+            .Where(c => c.ConsumeLines.Any(l => l.Status == CookConsumeLineStatus.Pending))
+            .ToListAsync(ct);
+
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);
 }

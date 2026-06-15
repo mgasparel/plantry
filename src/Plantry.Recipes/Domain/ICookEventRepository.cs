@@ -15,5 +15,13 @@ public interface ICookEventRepository
     /// </summary>
     Task<IReadOnlyList<CookEvent>> ListByRecipeAsync(RecipeId recipeId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Returns all <see cref="CookEvent"/> aggregates for the household that have at least one
+    /// <see cref="CookConsumeLine"/> in <see cref="CookConsumeLineStatus.Pending"/> state, with
+    /// their <see cref="CookEvent.ConsumeLines"/> eagerly loaded.
+    /// Used by <c>ReconcilePendingCooks</c> (292c) to find interrupted cooks for re-driving.
+    /// </summary>
+    Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }

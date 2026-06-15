@@ -10,6 +10,9 @@ namespace Plantry.Recipes.Application;
 /// <para>
 /// Flow (anchor-first, plantry-292b):
 /// <list type="number">
+/// <item>Opportunistic reconciliation sweep (292c): re-drives any Pending lines from interrupted
+/// prior cooks before starting the new cook, so stale Pending lines are cleared at the earliest
+/// opportunity without needing a background poller (ADR-010).</item>
 /// <item>Applies <c>ServingsScale = desiredServings / recipe.DefaultServings</c> to each ingredient's
 /// required quantity.</item>
 /// <item>Accepts caller-supplied <see cref="IngredientResolution"/>[] — the Variant Disambiguation
@@ -37,13 +40,24 @@ public sealed class CookRecipe(
     ICatalogProductReader products,
     IDomainEventDispatcher eventDispatcher,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ReconcilePendingCooks reconciler)
 {
     public async Task<CookRecipeResult> ExecuteAsync(CookRecipeCommand command, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdGuid)
             return new CookRecipeResult.Invalid(Error.Unauthorized);
         var household = HouseholdId.From(householdGuid);
+
+        // ── Opportunistic reconciliation (292c) ──────────────────────────────────
+        // Sweep the household's Pending consume lines from any interrupted prior cooks before
+        // starting a new cook. No-op when there is nothing pending. Non-cancellation failures
+        // are swallowed so a stuck reconciliation never blocks the new cook from proceeding.
+        // OperationCanceledException propagates: if the request is cancelled, there's no point
+        // continuing the new cook either.
+        try { await reconciler.ExecuteAsync(ct); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* reconciliation is best-effort; do not block the new cook */ }
 
         if (command.DesiredServings < 1)
             return new CookRecipeResult.Invalid(
