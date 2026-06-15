@@ -209,6 +209,9 @@ public sealed class CookRecipe(
         await cookEvents.SaveChangesAsync(ct);
 
         // ── Emit RecipeCooked (§9) ───────────────────────────────────────────────
+        // Dispatched post-commit and non-transactionally: if dispatch fails, the CookEvent and
+        // consumes are already durable but this side effect is lost. Tolerable only while RecipeCooked
+        // has no subscriber — see the guardrail at the handler registration in Program.cs (ADR-014).
         var cookedEvent = new RecipeCookedEvent(
             recipe.Id,
             household,
