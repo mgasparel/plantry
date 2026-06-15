@@ -127,6 +127,11 @@ builder.Services.AddScoped<PricingQueries>();
 builder.Services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
 builder.Services.AddScoped<DomainEventDispatchInterceptor>();
 builder.Services.AddScoped<IDomainEventHandler<ImportSessionCommittedEvent>, ImportSessionCommittedLogHandler>();
+// GUARDRAIL (ADR-014): domain events dispatch AFTER SaveChanges with no transactional outbox, so a
+// dispatch failure is a lost-event window. RecipeCookedEvent has no subscriber today, so the window
+// is latent. Before registering the FIRST RecipeCookedEvent handler here, either build the outbox or
+// explicitly accept that handler as at-most-once — if it produces durable, reconcilable output,
+// prefer self-reconciliation (the plantry-292 saga pattern) over a generic outbox.
 
 builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
