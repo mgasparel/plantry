@@ -18,6 +18,8 @@ using Plantry.Pricing.Infrastructure;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
+using Plantry.Shopping.Domain;
+using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Dev;
@@ -145,6 +147,15 @@ builder.Services.AddScoped<ICookEventRepository, CookEventRepository>();
 builder.Services.AddScoped<ITagRepository, TagRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
+// Shopping context (P2-S). Mutable working-state context — items edited in place and hard-deleted
+// on clear (shopping.md resolved call 2). ShoppingReferenceDataSeeder seeds one list per household.
+builder.Services.AddDbContext<ShoppingDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.Shopping.Infrastructure"))
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+builder.Services.AddScoped<IShoppingListRepository, ShoppingListRepository>();
+builder.Services.AddScoped<IReferenceDataSeeder, ShoppingReferenceDataSeeder>();
+
 // Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +
 // Web-adapter seam: Recipes.Application owns the interfaces, these implement them over Catalog's
 // repositories/commands and pure UnitConverter, so the Recipes projects stay → SharedKernel only.
@@ -251,6 +262,12 @@ if (app.Environment.IsDevelopment())
         .Options;
     await using (var recipesDb = new RecipesDbContext(recipesMigrateOpts))
         await recipesDb.Database.MigrateAsync();
+
+    var shoppingMigrateOpts = new DbContextOptionsBuilder<ShoppingDbContext>()
+        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Shopping.Infrastructure"))
+        .Options;
+    await using (var shoppingDb = new ShoppingDbContext(shoppingMigrateOpts))
+        await shoppingDb.Database.MigrateAsync();
 
     // Auto-seed on first startup: no-ops if the demo user already exists.
     await using var seedScope = app.Services.CreateAsyncScope();

@@ -1,0 +1,142 @@
+using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
+
+namespace Plantry.Shopping.Domain;
+
+/// <summary>
+/// Child entity of the <see cref="ShoppingList"/> aggregate.
+/// Invariant: exactly one of <see cref="ProductId"/> / <see cref="FreeText"/> is non-null
+/// (enforced by the domain factory and by CHECK num_nonnulls(product_id, free_text) = 1 in the DB).
+/// Mutable working state — items are edited in place and hard-deleted on clear (shopping.md, resolved call 2).
+/// </summary>
+public sealed class ShoppingListItem : Entity<ShoppingListItemId>
+{
+    // EF constructor
+    private ShoppingListItem() { }
+
+    private ShoppingListItem(
+        ShoppingListItemId id,
+        HouseholdId householdId,
+        ShoppingListId shoppingListId,
+        Guid? productId,
+        string? freeText,
+        decimal? quantity,
+        Guid? unitId,
+        string? note,
+        ItemSource source,
+        Guid? sourceRef,
+        DateTimeOffset createdAt)
+    {
+        Id = id;
+        HouseholdId = householdId;
+        ShoppingListId = shoppingListId;
+        ProductId = productId;
+        FreeText = freeText;
+        Quantity = quantity;
+        UnitId = unitId;
+        Note = note;
+        Source = source;
+        SourceRef = sourceRef;
+        CreatedAt = createdAt;
+        UpdatedAt = createdAt;
+    }
+
+    public HouseholdId HouseholdId { get; private set; }
+    public ShoppingListId ShoppingListId { get; private set; }
+
+    /// <summary>Soft ref → catalog.product. Null when FreeText is set.</summary>
+    public Guid? ProductId { get; private set; }
+
+    /// <summary>For non-catalog items. Null when ProductId is set.</summary>
+    public string? FreeText { get; private set; }
+
+    public decimal? Quantity { get; private set; }
+
+    /// <summary>Soft ref → catalog.unit.</summary>
+    public Guid? UnitId { get; private set; }
+
+    public string? Note { get; private set; }
+
+    /// <summary>Null = unchecked. Drives checked-to-bottom ordering and "clear checked" (SPEC §3c/§3e).</summary>
+    public DateTimeOffset? CheckedAt { get; private set; }
+
+    /// <summary>Attribution — soft ref → identity user.</summary>
+    public Guid? CheckedBy { get; private set; }
+
+    public ItemSource Source { get; private set; }
+
+    /// <summary>Soft ref to the originating recipe / meal_plan / deal.</summary>
+    public Guid? SourceRef { get; private set; }
+
+    public DateTimeOffset CreatedAt { get; private set; }
+    public DateTimeOffset UpdatedAt { get; private set; }
+
+    public bool IsChecked => CheckedAt.HasValue;
+
+    /// <summary>
+    /// Creates a new catalog-backed item (exactly one of productId / freeText: productId path).
+    /// </summary>
+    internal static ShoppingListItem ForProduct(
+        HouseholdId householdId,
+        ShoppingListId shoppingListId,
+        Guid productId,
+        decimal? quantity,
+        Guid? unitId,
+        string? note,
+        ItemSource source,
+        Guid? sourceRef,
+        IClock clock)
+    {
+        return new ShoppingListItem(
+            ShoppingListItemId.New(),
+            householdId,
+            shoppingListId,
+            productId: productId,
+            freeText: null,
+            quantity: quantity,
+            unitId: unitId,
+            note: note,
+            source: source,
+            sourceRef: sourceRef,
+            createdAt: clock.UtcNow);
+    }
+
+    /// <summary>
+    /// Creates a new free-text item (exactly one of productId / freeText: freeText path).
+    /// </summary>
+    internal static ShoppingListItem ForFreeText(
+        HouseholdId householdId,
+        ShoppingListId shoppingListId,
+        string freeText,
+        decimal? quantity,
+        Guid? unitId,
+        string? note,
+        IClock clock)
+    {
+        if (string.IsNullOrWhiteSpace(freeText))
+            throw new ArgumentException("FreeText may not be blank.", nameof(freeText));
+
+        return new ShoppingListItem(
+            ShoppingListItemId.New(),
+            householdId,
+            shoppingListId,
+            productId: null,
+            freeText: freeText,
+            quantity: quantity,
+            unitId: unitId,
+            note: note,
+            source: ItemSource.Manual,
+            sourceRef: null,
+            createdAt: clock.UtcNow);
+    }
+
+    /// <summary>
+    /// Sets CheckedAt and CheckedBy. Idempotent if already checked (re-stamps the time).
+    /// </summary>
+    internal void CheckOff(Guid userId, IClock clock)
+    {
+        CheckedAt = clock.UtcNow;
+        CheckedBy = userId;
+        UpdatedAt = clock.UtcNow;
+    }
+}
