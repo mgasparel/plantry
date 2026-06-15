@@ -65,7 +65,7 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             var page = await context.NewPageAsync();
             page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
 
-            // ── Step 1: Register a household (lands on Pantry, logged in) ─────────
+            // ── Step 1: Register a household (lands on Today home, logged in) ──────
             await page.GotoAsync($"{BaseUrl}/Account/Register");
             await page.WaitForURLAsync("**/Account/Register");
 
@@ -74,7 +74,7 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.FillAsync("[name='Input.DisplayName']", "Smoke User");
             await page.FillAsync("[name='Input.Password']", password);
             await page.ClickAsync("button[type=submit]");
-            await page.WaitForURLAsync("**/Pantry**");
+            await page.WaitForURLAsync("**/Today**");
 
             // ── Step 2: Navigate to Catalog → Products → Create ───────────────────
             await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");

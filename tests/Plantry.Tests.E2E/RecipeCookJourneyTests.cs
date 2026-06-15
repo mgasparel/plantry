@@ -65,7 +65,7 @@ public sealed class RecipeCookJourneyTests(AppHostFixture appHost) : IAsyncLifet
             await page.FillAsync("[name='Input.DisplayName']", "Cook User");
             await page.FillAsync("[name='Input.Password']", "testpass1");
             await page.ClickAsync("button[type=submit]");
-            await page.WaitForURLAsync("**/Pantry**");
+            await page.WaitForURLAsync("**/Today**");
 
             // ── Create a tracked product ──────────────────────────────────────────
             await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");

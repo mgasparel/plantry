@@ -42,7 +42,7 @@ public sealed class RegisterModel(
 
     public IActionResult OnGet()
     {
-        if (User.Identity?.IsAuthenticated == true) return RedirectToPage("/Pantry/Index");
+        if (User.Identity?.IsAuthenticated == true) return RedirectToPage("/Today/Index");
         return Page();
     }
 
@@ -80,6 +80,6 @@ public sealed class RegisterModel(
             HouseholdIdClaims.ClaimType, result.Value.Value.ToString()));
 
         await signInManager.SignInAsync(user, isPersistent: false);
-        return RedirectToPage("/Pantry/Index");
+        return RedirectToPage("/Today/Index");
     }
 }

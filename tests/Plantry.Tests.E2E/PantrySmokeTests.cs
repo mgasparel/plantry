@@ -8,8 +8,11 @@ namespace Plantry.Tests.E2E;
 /// <summary>
 /// L5 E2E smoke tests (Playwright).
 ///
-/// PHASE-1-PLAN.md done-when for Slice 0:
-///   "E2E smoke (register → login → see empty Pantry) passes"
+/// PHASE-1-PLAN.md done-when for Slice 0 (updated post nav-IA rework):
+///   "E2E smoke (register → login → land on Today home) passes"
+///
+/// Post nav-IA rework (plantry-8r6 + plantry-pqu), /Today is the app home.
+/// Register and login both redirect there instead of /Pantry.
 ///
 /// Boots the whole service graph from the Aspire AppHost via AppHostFixture —
 /// no manually started app instance required.
@@ -40,8 +43,8 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
         _playwright.Dispose();
     }
 
-    [Fact(DisplayName = "Register → Login → See empty Pantry")]
-    public async Task RegisterLoginSeePantry()
+    [Fact(DisplayName = "Register → Login → See Today home")]
+    public async Task RegisterLoginSeeTodayHome()
     {
         var uniqueEmail = $"smoke-{Guid.NewGuid():N}@test.local";
         const string password = "testpass1";
@@ -73,12 +76,12 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.FillAsync("[name='Input.Password']", password);
             await page.ClickAsync("button[type=submit]");
 
-            // ── Step 2: Should be redirected to Pantry ────────────────────────────
-            await page.WaitForURLAsync("**/Pantry**");
+            // ── Step 2: Should be redirected to Today home ────────────────────────
+            await page.WaitForURLAsync("**/Today**");
 
-            // ── Step 3: Empty state is shown ──────────────────────────────────────
-            var emptyTitle = await page.Locator(".empty-state").TextContentAsync();
-            Assert.Contains("Nothing here yet", emptyTitle, StringComparison.OrdinalIgnoreCase);
+            // ── Step 3: Today home is shown ───────────────────────────────────────
+            var heading = await page.Locator(".catalog-section__heading").TextContentAsync();
+            Assert.Contains("Today", heading, StringComparison.OrdinalIgnoreCase);
 
             // ── Step 4: Sign out, then sign back in ───────────────────────────────
 
@@ -93,10 +96,10 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.FillAsync("[name='Input.Password']", password);
             await page.ClickAsync("button[type=submit]");
 
-            await page.WaitForURLAsync("**/Pantry**");
+            await page.WaitForURLAsync("**/Today**");
 
-            var titleAfterLogin = await page.Locator(".empty-state").TextContentAsync();
-            Assert.Contains("Nothing here yet", titleAfterLogin, StringComparison.OrdinalIgnoreCase);
+            var headingAfterLogin = await page.Locator(".catalog-section__heading").TextContentAsync();
+            Assert.Contains("Today", headingAfterLogin, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

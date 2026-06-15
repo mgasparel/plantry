@@ -25,7 +25,7 @@ public sealed class LoginModel(SignInManager<AppUser> signInManager) : PageModel
 
     public IActionResult OnGet()
     {
-        if (User.Identity?.IsAuthenticated == true) return RedirectToPage("/Pantry/Index");
+        if (User.Identity?.IsAuthenticated == true) return RedirectToPage("/Today/Index");
         return Page();
     }
 
@@ -36,7 +36,7 @@ public sealed class LoginModel(SignInManager<AppUser> signInManager) : PageModel
         var result = await signInManager.PasswordSignInAsync(
             Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: true);
 
-        if (result.Succeeded) return RedirectToPage("/Pantry/Index");
+        if (result.Succeeded) return RedirectToPage("/Today/Index");
 
         ModelState.AddModelError(string.Empty,
             result.IsLockedOut ? "Account locked. Try again later." : "Invalid email or password.");

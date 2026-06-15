@@ -63,7 +63,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             var page = await context.NewPageAsync();
             page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
 
-            // ── Register a household (lands on Pantry, logged in) ─────────────────
+            // ── Register a household (lands on Today home, logged in) ─────────────
             await page.GotoAsync($"{BaseUrl}/Account/Register");
             await page.WaitForURLAsync("**/Account/Register");
             await page.FillAsync("[name='Input.HouseholdName']", "Intake Journey Household");
@@ -71,7 +71,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await page.FillAsync("[name='Input.DisplayName']", "Intake User");
             await page.FillAsync("[name='Input.Password']", password);
             await page.ClickAsync("button[type=submit]");
-            await page.WaitForURLAsync("**/Pantry**");
+            await page.WaitForURLAsync("**/Today**");
 
             // ── Seed one catalog product so the fake parser has a real match to suggest ──
             await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
