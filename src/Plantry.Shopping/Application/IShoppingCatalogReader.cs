@@ -28,6 +28,22 @@ public interface IShoppingCatalogReader
     /// </summary>
     Task<IReadOnlyList<ShoppingProductCandidate>> ListProductsAsync(
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Attempts to convert <paramref name="amount"/> from <paramref name="fromUnitId"/> into
+    /// <paramref name="toUnitId"/> using the household's unit table and
+    /// <paramref name="productId"/>'s product-specific conversion overrides.
+    /// Returns the converted quantity on success, <c>null</c> when no conversion path exists
+    /// (i.e. the units are cross-dimension and no product conversion bridges them).
+    /// Delegates to <c>Catalog.Domain.UnitConverter</c> via the adapter — Shopping never reads
+    /// Catalog's EF context directly (ADR-002).
+    /// </summary>
+    Task<decimal?> TryConvertAsync(
+        decimal amount,
+        Guid fromUnitId,
+        Guid toUnitId,
+        Guid productId,
+        CancellationToken ct = default);
 }
 
 /// <summary>Summary of a catalog product for Shopping read-model enrichment.</summary>

@@ -104,6 +104,7 @@ public sealed class IndexModel(
                 sourceRef: null,
                 intentionalDuplicate: false,
                 repository: repository,
+                catalogReader: catalog,
                 clock: clock,
                 tenant: tenant)
             : new AddItemCommand(
@@ -116,6 +117,7 @@ public sealed class IndexModel(
                 sourceRef: null,
                 intentionalDuplicate: false,
                 repository: repository,
+                catalogReader: catalog,
                 clock: clock,
                 tenant: tenant);
 

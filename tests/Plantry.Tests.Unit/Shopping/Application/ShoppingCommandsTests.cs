@@ -8,7 +8,8 @@ namespace Plantry.Tests.Unit.Shopping.Application;
 /// <summary>
 /// L2 unit tests for AddItemCommand, CheckOffCommand, and ClearCheckedCommand.
 /// Uses in-memory doubles — no database required.
-/// Covers: merge vs. intentional-dup, exactly-one-of constraint, check-off/clear lifecycle.
+/// Covers: merge vs. intentional-dup, exactly-one-of constraint, check-off/clear lifecycle,
+/// and unit-mismatch merge policy (plantry-xw6).
 /// </summary>
 public sealed class ShoppingCommandsTests
 {
@@ -34,10 +35,12 @@ public sealed class ShoppingCommandsTests
         FakeShoppingListRepository repo,
         Guid productId,
         decimal? qty = 1m,
-        bool intentionalDuplicate = false) =>
-        new(productId, null, qty, _unitId, null,
+        bool intentionalDuplicate = false,
+        Guid? unitId = null,
+        FakeShoppingCatalogReader? catalogReader = null) =>
+        new(productId, null, qty, unitId ?? _unitId, null,
             ItemSource.Manual, null, intentionalDuplicate,
-            repo, Clock, new FakeTenantContext(_household));
+            repo, catalogReader ?? new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(_household));
 
     private AddItemCommand AddFreeText(
         FakeShoppingListRepository repo,
@@ -45,7 +48,7 @@ public sealed class ShoppingCommandsTests
         decimal? qty = null) =>
         new(null, text, qty, null, null,
             ItemSource.Manual, null, false,
-            repo, Clock, new FakeTenantContext(_household));
+            repo, new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(_household));
 
     private CheckOffCommand CheckOff(
         FakeShoppingListRepository repo,
@@ -131,7 +134,7 @@ public sealed class ShoppingCommandsTests
         var cmd = new AddItemCommand(
             Guid.CreateVersion7(), "also text", 1m, null, null,
             ItemSource.Manual, null, false,
-            repo, Clock, new FakeTenantContext(_household));
+            repo, new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(_household));
 
         var result = await cmd.ExecuteAsync();
 
@@ -147,7 +150,7 @@ public sealed class ShoppingCommandsTests
         var cmd = new AddItemCommand(
             null, null, 1m, null, null,
             ItemSource.Manual, null, false,
-            repo, Clock, new FakeTenantContext(_household));
+            repo, new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(_household));
 
         var result = await cmd.ExecuteAsync();
 
@@ -163,7 +166,7 @@ public sealed class ShoppingCommandsTests
         var cmd = new AddItemCommand(
             _product1, null, 1m, null, null,
             ItemSource.Manual, null, false,
-            repo, Clock, new FakeTenantContext(null));
+            repo, new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(null));
 
         var result = await cmd.ExecuteAsync();
 
@@ -259,5 +262,103 @@ public sealed class ShoppingCommandsTests
 
         Assert.True(result.IsFailure);
         Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
+    // ── AddItemCommand — unit-mismatch merge policy (plantry-xw6) ────────────
+
+    [Fact(DisplayName = "AddItem — same units: merges by summing as before (regression guard)")]
+    public async Task AddItem_SameUnits_MergesBySum()
+    {
+        var (repo, list) = SeedList();
+        var unitA = Guid.CreateVersion7();
+
+        // First add: 2 × unitA
+        var first = await AddProduct(repo, _product1, qty: 2m, unitId: unitA).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+
+        // Second add: 3 × unitA — same unit, should merge to 5
+        var second = await AddProduct(repo, _product1, qty: 3m, unitId: unitA).ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Single(list.Items);
+        Assert.Equal(5m, list.Items[0].Quantity);
+        Assert.Equal(unitA, list.Items[0].UnitId);
+        Assert.Equal(first.Value, second.Value); // same item returned
+    }
+
+    [Fact(DisplayName = "AddItem — convertible unit mismatch (e.g. g→kg): merges with converted total in existing unit")]
+    public async Task AddItem_ConvertibleMismatch_MergesWithConvertedTotal()
+    {
+        var (repo, list) = SeedList();
+        var unitKg = Guid.CreateVersion7(); // existing unit
+        var unitG = Guid.CreateVersion7();  // incoming unit
+
+        // Register: 500 g of product1 → 0.5 kg
+        var catalogReader = new FakeShoppingCatalogReader();
+        catalogReader.RegisterConversion(fromUnitId: unitG, toUnitId: unitKg, productId: _product1, convertedAmount: 0.5m);
+
+        // First add: 1 kg (existing item in kg)
+        var first = await AddProduct(repo, _product1, qty: 1m, unitId: unitKg, catalogReader: catalogReader).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+        Assert.Single(list.Items);
+
+        // Second add: 500 g — should be converted to 0.5 kg and merged → 1.5 kg total
+        var second = await AddProduct(repo, _product1, qty: 500m, unitId: unitG, catalogReader: catalogReader).ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Single(list.Items);                    // still one item
+        Assert.Equal(1.5m, list.Items[0].Quantity);   // 1 kg + 0.5 kg converted
+        Assert.Equal(unitKg, list.Items[0].UnitId);   // expressed in existing (kg) unit
+        Assert.Equal(first.Value, second.Value);      // same item ID
+    }
+
+    [Fact(DisplayName = "AddItem — unconvertible unit mismatch (cross-dimension, no product conversion): inserts second line")]
+    public async Task AddItem_UnconvertibleMismatch_InsertsSecondLine()
+    {
+        var (repo, list) = SeedList();
+        var unitMass = Guid.CreateVersion7();   // e.g. grams
+        var unitVolume = Guid.CreateVersion7(); // e.g. mL — different dimension, no conversion registered
+
+        // No conversion registered in the fake catalog reader (returns null by default).
+        var catalogReader = new FakeShoppingCatalogReader();
+
+        // First add: 100 g
+        var first = await AddProduct(repo, _product1, qty: 100m, unitId: unitMass, catalogReader: catalogReader).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+        Assert.Single(list.Items);
+
+        // Second add: 200 mL — unconvertible → second line
+        var second = await AddProduct(repo, _product1, qty: 200m, unitId: unitVolume, catalogReader: catalogReader).ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Equal(2, list.Items.Count);            // second line inserted
+        Assert.NotEqual(first.Value, second.Value);
+    }
+
+    [Fact(DisplayName = "AddItem — one side has no unit (null vs. set): inserts second line")]
+    public async Task AddItem_OneSideNullUnit_InsertsSecondLine()
+    {
+        var (repo, list) = SeedList();
+        var unitA = Guid.CreateVersion7();
+
+        // First add: quantity with a unit
+        var first = await new AddItemCommand(
+            _product1, null, 1m, unitA, null,
+            ItemSource.Manual, null, false,
+            repo, new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(_household))
+            .ExecuteAsync();
+        Assert.True(first.IsSuccess);
+        Assert.Single(list.Items);
+
+        // Second add: same product but no unit → mismatch (null vs. set) → second line
+        var second = await new AddItemCommand(
+            _product1, null, 2m, null, null,
+            ItemSource.Manual, null, false,
+            repo, new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(_household))
+            .ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Equal(2, list.Items.Count);   // second line, not a merge
+        Assert.NotEqual(first.Value, second.Value);
     }
 }

@@ -63,4 +63,19 @@ public sealed class ShoppingCatalogReaderAdapter(
             .Select(p => new ShoppingProductCandidate(p.Id.Value, p.Name))
             .ToList();
     }
+
+    public async Task<decimal?> TryConvertAsync(
+        decimal amount,
+        Guid fromUnitId,
+        Guid toUnitId,
+        Guid productId,
+        CancellationToken ct = default)
+    {
+        var allUnits = await units.ListAsync(ct);
+        var product = await products.FindAsync(ProductId.From(productId), ct);
+        IReadOnlyCollection<ProductConversion> conversions = product?.Conversions ?? [];
+
+        var result = UnitConverter.Convert(amount, fromUnitId, toUnitId, allUnits, conversions);
+        return result.IsSuccess ? result.Value : null;
+    }
 }

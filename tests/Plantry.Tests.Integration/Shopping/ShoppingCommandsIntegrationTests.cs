@@ -55,7 +55,7 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
             var cmd = new AddItemCommand(
                 _product1, null, 2m, _unitId, null,
                 ItemSource.Manual, null, false,
-                repo, SystemClock.Instance, new SimpleTenantContext(_household.Value));
+                repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, new SimpleTenantContext(_household.Value));
             var r = await cmd.ExecuteAsync();
             Assert.True(r.IsSuccess);
         }
@@ -75,7 +75,7 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
             var cmd = new AddItemCommand(
                 _product1, null, 3m, _unitId, null,
                 ItemSource.Manual, null, false,
-                repo, SystemClock.Instance, new SimpleTenantContext(_household.Value));
+                repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, new SimpleTenantContext(_household.Value));
             var r = await cmd.ExecuteAsync();
             Assert.True(r.IsSuccess);
         }
@@ -99,7 +99,7 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
             var cmd = new AddItemCommand(
                 _product1, null, 1m, _unitId, null,
                 ItemSource.Manual, null, false,
-                repo, SystemClock.Instance, new SimpleTenantContext(_household.Value));
+                repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, new SimpleTenantContext(_household.Value));
             Assert.True((await cmd.ExecuteAsync()).IsSuccess);
         }
 
@@ -110,7 +110,7 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
             var cmd = new AddItemCommand(
                 _product1, null, 1m, _unitId, null,
                 ItemSource.Manual, null, intentionalDuplicate: true,
-                repo, SystemClock.Instance, new SimpleTenantContext(_household.Value));
+                repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, new SimpleTenantContext(_household.Value));
             Assert.True((await cmd.ExecuteAsync()).IsSuccess);
         }
 
@@ -135,12 +135,12 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
             var tenant = new SimpleTenantContext(_household.Value);
 
             var r1 = await new AddItemCommand(_product1, null, 1m, _unitId, null,
-                ItemSource.Manual, null, false, repo, SystemClock.Instance, tenant).ExecuteAsync();
+                ItemSource.Manual, null, false, repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, tenant).ExecuteAsync();
             Assert.True(r1.IsSuccess);
             item1Id = r1.Value;
 
             await new AddItemCommand(_product2, null, 1m, _unitId, null,
-                ItemSource.Manual, null, false, repo, SystemClock.Instance, tenant).ExecuteAsync();
+                ItemSource.Manual, null, false, repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, tenant).ExecuteAsync();
 
             var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
             listId = list.Id;
@@ -202,4 +202,23 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
     {
         public Guid? HouseholdId { get; } = householdId;
     }
+}
+
+/// <summary>
+/// Stub <see cref="IShoppingCatalogReader"/> for integration tests — conversion is not exercised
+/// by the persistence-focused L3 tests; TryConvertAsync always returns null so the fallback
+/// (insert a second line) would apply for any unit-mismatch scenario, but no such scenario is
+/// tested here.
+/// </summary>
+internal sealed class NullShoppingCatalogReader : IShoppingCatalogReader
+{
+    public static readonly NullShoppingCatalogReader Instance = new();
+    public Task<IReadOnlyDictionary<Guid, ShoppingProductSummary>> ResolveSummariesAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, ShoppingProductSummary>>(new Dictionary<Guid, ShoppingProductSummary>());
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(IReadOnlyList<Guid> unitIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+    public Task<IReadOnlyList<ShoppingProductCandidate>> ListProductsAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ShoppingProductCandidate>>([]);
+    public Task<decimal?> TryConvertAsync(decimal amount, Guid fromUnitId, Guid toUnitId, Guid productId, CancellationToken ct = default)
+        => Task.FromResult<decimal?>(null);
 }
