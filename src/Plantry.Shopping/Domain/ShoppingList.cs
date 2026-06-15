@@ -88,6 +88,19 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
         _items.FirstOrDefault(i => i.ProductId == productId && !i.IsChecked);
 
     /// <summary>
+    /// Merges an incoming quantity into an existing unchecked product line in place
+    /// (shopping.md resolved call 5 — duplicate-product merge path). The item must
+    /// already belong to this list; use <see cref="FindUncheckedByProduct"/> first.
+    /// </summary>
+    public void MergeItem(ShoppingListItem existing, decimal? incomingQuantity, Guid? incomingUnitId, IClock clock)
+    {
+        if (!_items.Contains(existing))
+            throw new InvalidOperationException($"Item {existing.Id} does not belong to list {Id}.");
+        existing.MergeFrom(incomingQuantity, incomingUnitId, clock);
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
     /// Checks off an item by ID. Stamps CheckedAt/CheckedBy. Throws if the item is not found.
     /// </summary>
     public void CheckOff(ShoppingListItemId itemId, Guid userId, IClock clock)
