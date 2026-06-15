@@ -11,7 +11,9 @@ namespace Plantry.Recipes.Domain;
 /// without a partial shortfall); a journal row exists in Inventory.</item>
 /// <item><see cref="Shorted"/> — the product had no stock record at all
 /// (<see cref="InvalidOperationException"/> from the consumer), or the shortfall equalled the full
-/// requested quantity. No journal row was written; reconciliation (292c) may re-drive this line.</item>
+/// requested quantity. No journal row was written. Reconciliation (292c) does NOT re-drive Shorted
+/// lines — without new stock being added, a re-drive would produce the same outcome. Re-drive
+/// Pending lines only.</item>
 /// </list>
 /// </summary>
 public enum CookConsumeLineStatus { Pending, Applied, Shorted }

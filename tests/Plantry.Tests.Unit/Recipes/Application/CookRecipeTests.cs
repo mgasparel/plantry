@@ -37,7 +37,8 @@ public sealed class CookRecipeTests
         var products = new FakeCatalogProductReader();
         var dispatcher = new FakeDomainEventDispatcher();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
-        var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, Clock, tenant);
+        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant);
+        var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, Clock, tenant, reconciler);
         return new Harness
         {
             Recipes = recipes,
@@ -579,6 +580,83 @@ public sealed class CookRecipeTests
         Assert.Equal(trackedVariant.Id, call.ProductId);
         Assert.Equal(60m, call.Quantity);
     }
+
+    // ── Opportunistic reconciliation sweep (292c) ────────────────────────────────
+
+    /// <summary>
+    /// Verifies that ReconcilePendingCooks runs before the new cook starts: a Pending consume line
+    /// from a prior interrupted cook is transitioned to Applied during the sweep, and the new cook
+    /// still completes successfully.
+    /// </summary>
+    [Fact]
+    public async Task Opportunistic_Sweep_Reconciles_Pending_Lines_Before_New_Cook()
+    {
+        var h = BuildHarness();
+
+        // Seed a prior interrupted cook: one Pending consume line.
+        var priorCook = CookEvent.Record(RecipeId.New(), Household, servingsCooked: 1,
+            Guid.CreateVersion7(), Clock).Value;
+        var priorProductId = Guid.CreateVersion7();
+        var priorUnitId = Guid.CreateVersion7();
+        priorCook.AddConsumeLine(Guid.CreateVersion7(), priorProductId, 50m, priorUnitId);
+        h.CookEvents.Items.Add(priorCook);
+
+        // Build and start a new cook for a different recipe.
+        var (recipe, _, _) = BuildTrackedRecipe(h);
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        // New cook completed successfully.
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        // The prior Pending line was swept to Applied or Shorted during reconciliation.
+        var priorLine = Assert.Single(priorCook.ConsumeLines);
+        Assert.NotEqual(CookConsumeLineStatus.Pending, priorLine.Status);
+    }
+
+    /// <summary>
+    /// Verifies that a non-cancellation failure in the reconciliation sweep is swallowed and
+    /// the new cook still proceeds to a Cooked result (reconciliation is best-effort).
+    /// </summary>
+    [Fact]
+    public async Task Cook_Proceeds_When_Reconciliation_Sweep_Fails()
+    {
+        var h = BuildHarness();
+
+        // Wire the repository to throw a non-OCE on ListWithPendingLinesAsync so the
+        // sweep fails before it can do any work.
+        h.CookEvents.OnListWithPendingLines = _ =>
+            throw new InvalidOperationException("Simulated reconciliation failure.");
+
+        var (recipe, _, _) = BuildTrackedRecipe(h);
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+
+        // Should not throw — reconciliation failure is swallowed, cook proceeds.
+        var result = await h.Service.ExecuteAsync(command);
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+    }
+
+    /// <summary>
+    /// Verifies that an OperationCanceledException from the reconciliation sweep propagates out
+    /// of ExecuteAsync (a cancelled request should abort the whole cook, not silently continue).
+    /// </summary>
+    [Fact]
+    public async Task Cook_Aborts_When_Request_Cancelled_During_Reconciliation()
+    {
+        var h = BuildHarness();
+
+        // Wire the repository to throw OCE on ListWithPendingLinesAsync so cancellation
+        // propagates before any other work begins.
+        using var cts = new CancellationTokenSource();
+        h.CookEvents.OnListWithPendingLines = _ => throw new OperationCanceledException(cts.Token);
+
+        var (recipe, _, _) = BuildTrackedRecipe(h);
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => h.Service.ExecuteAsync(command));
+    }
 }
 
 // ── Test doubles ─────────────────────────────────────────────────────────────────────────────────
@@ -595,6 +673,14 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
     /// </summary>
     public Action? OnSaveChanges { get; set; }
 
+    /// <summary>
+    /// Optional factory invoked instead of the default implementation of
+    /// <see cref="ListWithPendingLinesAsync"/>. Used in opportunistic-sweep tests (292c) to
+    /// inject failures (throw an exception) or a cancelled token.
+    /// When set, the real list logic is bypassed entirely.
+    /// </summary>
+    public Func<CancellationToken, Task<IReadOnlyList<CookEvent>>>? OnListWithPendingLines { get; set; }
+
     public Task AddAsync(CookEvent cookEvent, CancellationToken ct = default)
     {
         Items.Add(cookEvent);
@@ -604,6 +690,15 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
     public Task<IReadOnlyList<CookEvent>> ListByRecipeAsync(RecipeId recipeId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CookEvent>>(Items.Where(e => e.RecipeId == recipeId)
             .OrderByDescending(e => e.CookedAt).ToList());
+
+    public Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default)
+    {
+        if (OnListWithPendingLines is not null)
+            return OnListWithPendingLines(ct);
+        return Task.FromResult<IReadOnlyList<CookEvent>>(Items
+            .Where(e => e.ConsumeLines.Any(l => l.Status == CookConsumeLineStatus.Pending))
+            .ToList());
+    }
 
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
