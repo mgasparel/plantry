@@ -1,0 +1,29 @@
+@using Plantry.Shopping.Application
+@model ShoppingListItemView
+
+@{
+    var checkedClass = Model.IsChecked ? " shopping-item--checked" : "";
+    var checkOffUrl = Url.Page("./Index", "CheckOff", new { listId = Model.ListId, itemId = Model.ItemId });
+}
+
+<li class="shopping-item@(checkedClass)" id="shopping-item-@Model.ItemId">
+    @* Check-off checkbox (SPEC §3c): htmx-posts on change; global htmx-antiforgery.js adds the token. *@
+    <label class="shopping-item__check-label" aria-label="@(Model.IsChecked ? "Checked" : "Uncheck") @Model.DisplayName">
+        <input type="checkbox"
+               class="shopping-item__checkbox"
+               checked="@Model.IsChecked"
+               hx-post="@checkOffUrl"
+               hx-trigger="change"
+               hx-target="#shopping-list"
+               hx-swap="outerHTML" />
+    </label>
+
+    <span class="shopping-item__name">@Model.DisplayName</span>
+
+    @if (Model.Quantity.HasValue)
+    {
+        <span class="shopping-item__qty">
+            @(Model.Quantity.Value.ToString("0.###"))@(Model.UnitCode is not null ? " " + Model.UnitCode : "")
+        </span>
+    }
+</li>

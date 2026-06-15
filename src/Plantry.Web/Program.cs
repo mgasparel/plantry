@@ -18,6 +18,7 @@ using Plantry.Pricing.Infrastructure;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
+using Plantry.Shopping.Application;
 using Plantry.Shopping.Domain;
 using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Domain;
@@ -28,6 +29,7 @@ using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.Pricing;
 using Plantry.Web.Recipes;
+using Plantry.Web.Shopping;
 using Plantry.Web.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -160,6 +162,12 @@ builder.Services.AddDbContext<ShoppingDbContext>((sp, opts) =>
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IShoppingListRepository, ShoppingListRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, ShoppingReferenceDataSeeder>();
+
+// Shopping → Catalog ACL adapter (P2-Sc). ShoppingCatalogReaderAdapter implements the Shopping
+// anti-corruption port over Catalog repositories so Shopping.Application never takes a direct
+// dependency on the Catalog EF context (Gate 2). ShoppingListQueryService assembles the read model.
+builder.Services.AddScoped<IShoppingCatalogReader, ShoppingCatalogReaderAdapter>();
+builder.Services.AddScoped<ShoppingListQueryService>();
 
 // Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +
 // Web-adapter seam: Recipes.Application owns the interfaces, these implement them over Catalog's

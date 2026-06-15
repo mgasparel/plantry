@@ -1,0 +1,80 @@
+@using Plantry.Shopping.Application
+@model Plantry.Web.Pages.Shopping.ShoppingListPartialModel
+
+@{
+    var list = Model.List;
+    var oobAttr = Model.Oob ? " hx-swap-oob=\"true\"" : "";
+    var hasChecked = list is not null && list.CheckedCount > 0;
+}
+
+<div id="shopping-list"@Html.Raw(oobAttr)>
+    @if (list is null)
+    {
+        <div class="empty-state">
+            <p class="empty-state__message">No shopping list found. Start by adding an item above.</p>
+        </div>
+    }
+    else if (list.TotalCount == 0)
+    {
+        <div class="empty-state">
+            <p class="empty-state__message">Your list is empty — add your first item above.</p>
+        </div>
+    }
+    else
+    {
+        @* Clear-checked action (SPEC §3e) *@
+        @if (hasChecked)
+        {
+            <div class="shopping-list__actions">
+                <form method="post" action="@Url.Page("./Index", "ClearChecked")">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn--ghost btn--sm">
+                        Clear @list.CheckedCount checked @(list.CheckedCount == 1 ? "item" : "items")
+                    </button>
+                </form>
+            </div>
+        }
+
+        @* Named-category groups *@
+        @foreach (var group in list.Groups)
+        {
+            <section class="shopping-group" aria-label="@group.CategoryName">
+                <h3 class="shopping-group__heading">@group.CategoryName</h3>
+                <ul class="shopping-group__items" role="list">
+                    @foreach (var item in group.Items)
+                    {
+                        <partial name="_ShoppingItem" model="item" />
+                    }
+                </ul>
+            </section>
+        }
+
+        @* Uncategorized bucket (free-text items + products with no category, unchecked only) *@
+        @if (list.UncategorizedItems.Count > 0)
+        {
+            <section class="shopping-group" aria-label="Uncategorized">
+                <h3 class="shopping-group__heading">Uncategorized</h3>
+                <ul class="shopping-group__items" role="list">
+                    @foreach (var item in list.UncategorizedItems)
+                    {
+                        <partial name="_ShoppingItem" model="item" />
+                    }
+                </ul>
+            </section>
+        }
+
+        @* Checked items sink to the bottom (SPEC §3c: struck-through, below all unchecked groups) *@
+        @if (list.CheckedItems.Count > 0)
+        {
+            <section class="shopping-group shopping-group--checked" aria-label="Checked items">
+                <h3 class="shopping-group__heading">Checked</h3>
+                <ul class="shopping-group__items" role="list">
+                    @foreach (var item in list.CheckedItems)
+                    {
+                        <partial name="_ShoppingItem" model="item" />
+                    }
+                </ul>
+            </section>
+        }
+    }
+</div>

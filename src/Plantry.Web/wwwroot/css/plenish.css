@@ -3214,3 +3214,100 @@ button { font-family: inherit; cursor: pointer; }
   .cook-grid { grid-template-columns: 1fr; }
   .cook-rail { position: static; }
 }
+
+/* ── Shopping list (P2-Sc) ─────────────────────────────────────────────── */
+
+.shopping-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
+}
+
+.shopping-toolbar__title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  margin: 0;
+}
+
+.shopping-list__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+/* Category group */
+.shopping-group {
+  margin-bottom: var(--space-5);
+}
+
+.shopping-group__heading {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shopping-group__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Per-item row */
+.shopping-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
+}
+
+.shopping-item:last-child {
+  border-bottom: none;
+}
+
+/* Checked state: muted + strikethrough on the name */
+.shopping-item--checked .shopping-item__name {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+.shopping-item--checked {
+  opacity: 0.65;
+}
+
+.shopping-item__check-form {
+  display: contents;
+}
+
+.shopping-item__check-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.shopping-item__checkbox {
+  width: 1.125rem;
+  height: 1.125rem;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.shopping-item__name {
+  flex: 1;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
+
+.shopping-item__qty {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
