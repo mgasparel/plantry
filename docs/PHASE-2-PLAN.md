@@ -173,15 +173,18 @@ history is recorded. (J4)
   CRUD at cook time — swap / skip / modify / add (C9); for each tracked, non-skipped line,
   `IInventoryConsumer.Consume(quantity, unit, reason="Recipe", sourceRef=cookEventId)`
   (ADR-011), **consuming whatever is available, never blocking on shortfall** (C8 / R9); skip
-  untracked staples (C12); write the `CookEvent` and all consumes in **one transaction**; emit
+  untracked staples (C12); write the `CookEvent` as the authoritative anchor **first**, then
+  drive the consumes as an **idempotent, reconcilable** follow-on keyed by `cookEventId`
+  (cross-context = eventual consistency, **not** a shared transaction — ADR-014); emit
   `RecipeCooked` (with `cookedBy`, O2).
 - Inventory implements `IInventoryConsumer`, wrapping its existing, mutation-tested `Consume`.
 - **Cook UI**: confirmation screen, scaled quantities, the variant picker, per-line edit,
   shortfall-but-proceed, confirm → return to Detail with fulfillment re-computed.
 
 **Tests / done-when.** L1 / L2 `CookRecipe` (skip untracked, consume-available, resolution
-splits, CookEvent write); L2 atomicity (CookEvent + consumes in one transaction; a partial
-cook keeps its journal record); reuse Inventory's existing Consume coverage; L4 picker
+splits, CookEvent write); L2 recoverability (CookEvent written before consumes; consumes
+idempotent + reconcilable via `sourceRef=cookEventId`, so a partial cook never decrements
+without its anchor record — ADR-014); reuse Inventory's existing Consume coverage; L4 picker
 fragments; L5 cook → pantry decremented → `cook_event` written.
 
 **Refs.** Recipes journey J4; domain model §4/§7; R9; C7/C8/C9/C11/C12; ADR-011; DM-13/19.
