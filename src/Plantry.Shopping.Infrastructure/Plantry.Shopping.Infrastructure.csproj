@@ -8,11 +8,16 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.Shopping\Plantry.Shopping.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+    <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />
   </ItemGroup>
 
 </Project>

@@ -44,7 +44,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(conn, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = ["identity", "catalog", "inventory", "pricing", "intake", "recipes"],
+            SchemasToInclude = ["identity", "catalog", "inventory", "pricing", "intake", "recipes", "shopping"],
         });
     }
 
@@ -95,6 +95,12 @@ public sealed class PostgresFixture : IAsyncLifetime
             .Options;
         await using var recipesDb = new Plantry.Recipes.Infrastructure.RecipesDbContext(recipesOpts);
         await recipesDb.Database.MigrateAsync();
+
+        var shoppingOpts = new DbContextOptionsBuilder<Plantry.Shopping.Infrastructure.ShoppingDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+        await using var shoppingDb = new Plantry.Shopping.Infrastructure.ShoppingDbContext(shoppingOpts);
+        await shoppingDb.Database.MigrateAsync();
     }
 }
 
