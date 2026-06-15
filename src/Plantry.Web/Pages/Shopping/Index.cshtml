@@ -1,0 +1,54 @@
+@page
+@model Plantry.Web.Pages.Shopping.IndexModel
+@{
+    ViewData["Title"] = "Shopping";
+}
+
+<div class="shopping-toolbar">
+    <h1 class="shopping-toolbar__title">Shopping list</h1>
+</div>
+
+@* Add item form (SPEC §3b) *@
+<div class="card" style="margin-bottom: var(--space-5)">
+    <div class="card__head">
+        <div>
+            <h2 class="card__head-title">Add item</h2>
+        </div>
+    </div>
+    <div class="card__body">
+        <form class="form-grid" id="add-item-form"
+              hx-post="@Url.Page("./Index", "AddItem")"
+              hx-target="#shopping-list" hx-swap="outerHTML">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert" style="grid-column: 1 / -1"></div>
+
+            @* Product search — uses the searchable-select component (component library) *@
+            <field asp-for="Input.ProductId" stacked label="Product">
+                <searchable-select asp-for="Input.ProductId"
+                                   items="Model.ProductOptions"
+                                   search-url="@Url.Page("./Index", "FilterProducts")"
+                                   placeholder="Search products…" />
+                <span asp-validation-for="Input.ProductId" class="field__error"></span>
+            </field>
+
+            @* OR: free-text name *@
+            <field asp-for="Input.FreeText" stacked label="Or free text">
+                <input asp-for="Input.FreeText" class="field__input" placeholder="e.g. Sriracha" maxlength="200" />
+                <span asp-validation-for="Input.FreeText" class="field__error"></span>
+            </field>
+
+            <field asp-for="Input.Quantity" stacked label="Qty (optional)">
+                <input asp-for="Input.Quantity" class="field__input" type="number" step="any" min="0" placeholder="e.g. 2" />
+                <span asp-validation-for="Input.Quantity" class="field__error"></span>
+            </field>
+
+            <div style="grid-column: 1 / -1; display: flex; gap: var(--space-3)">
+                <button type="submit" class="btn btn--primary">Add to list</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@* Shopping list fragment (groups + uncategorized + clear-checked) *@
+<partial name="_ShoppingList"
+         model="new Plantry.Web.Pages.Shopping.ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, false)" />
