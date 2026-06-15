@@ -175,6 +175,10 @@ builder.Services.AddScoped<AuthorRecipe>();
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
 
+// Cook-a-recipe application service (P2-3c, recipes-domain-model.md §7). Drives the J4 cook flow:
+// ServingsScale + variant resolution (C7/C11) + atomic consume + cook event write (§7/§8).
+builder.Services.AddScoped<CookRecipe>();
+
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
 // The real Gemini parser is the production default. Three deterministic alternatives replace it:

@@ -233,10 +233,12 @@
                     }
 
                     <div class="rd-actions">
-                        <button type="button" class="btn btn--cook" disabled title="Coming in P2-3">
+                        <a :href="`/Recipes/@recipe.Id/Cook?Servings=${servings}`"
+                           href="/Recipes/@recipe.Id/Cook?Servings=@recipe.DefaultServings"
+                           class="btn btn--cook">
                             <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
                             Cook this
-                        </button>
+                        </a>
                         @* Add missing to shopping list — behaviour wired in plantry-n2u.2 (P2-4b). *@
                         <button type="button" class="btn btn--soft"
                                 data-missing-count="@missingCount"
