@@ -98,9 +98,9 @@ public sealed class CookRecipeTests
         // No consumes for an untracked staple.
         Assert.Empty(h.Consumer.Calls);
         Assert.Empty(cooked.LineResults);
-        // CookEvent is still written.
+        // CookEvent is still written (anchor commit + status commit = 2 saves).
         Assert.Single(h.CookEvents.Items);
-        Assert.Equal(1, h.CookEvents.SaveChangesCalls);
+        Assert.Equal(2, h.CookEvents.SaveChangesCalls);
     }
 
     [Fact]
@@ -325,9 +325,9 @@ public sealed class CookRecipeTests
         var result = await h.Service.ExecuteAsync(command);
 
         var cooked = Assert.IsType<CookRecipeResult.Cooked>(result);
-        // CookEvent is written even with a 100% shortfall.
+        // CookEvent is written even with a 100% shortfall (anchor commit + status commit = 2 saves).
         Assert.Single(h.CookEvents.Items);
-        Assert.Equal(1, h.CookEvents.SaveChangesCalls);
+        Assert.Equal(2, h.CookEvents.SaveChangesCalls);
         // The shortfall is reported but did not block.
         var line = Assert.Single(cooked.LineResults);
         Assert.Equal(100m, line.ShortfallAmount);
@@ -395,14 +395,144 @@ public sealed class CookRecipeTests
 
         // Cook must not propagate the exception — treat it as a full shortfall (C8/R9).
         var cooked = Assert.IsType<CookRecipeResult.Cooked>(result);
-        // CookEvent is still written (atomicity: journal record exists even on full stock-out).
+        // CookEvent is still written (anchor commit + status commit = 2 saves).
         Assert.Single(h.CookEvents.Items);
-        Assert.Equal(1, h.CookEvents.SaveChangesCalls);
+        Assert.Equal(2, h.CookEvents.SaveChangesCalls);
         // The line reports a full shortfall equal to the requested quantity.
         var line = Assert.Single(cooked.LineResults);
         Assert.Equal(150m, line.ShortfallAmount);
         Assert.Equal(unitId, line.ShortfallUnitId);
         Assert.True(line.HasShortfall);
+    }
+
+    // ── Anchor-first ordering: CookEvent+lines committed before any consume (292b L2) ───
+
+    [Fact]
+    public async Task AnchorFirst_CookEvent_And_Lines_Committed_Before_First_Consume()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, unitId) = BuildTrackedRecipe(h, quantity: 100m);
+
+        // Record the order of saves vs. consume calls.
+        var saveCount = 0;
+        var consumeCallsSeen = new List<int>(); // consume count at each save
+        h.CookEvents.OnSaveChanges = () => saveCount++;
+        h.Consumer.OnConsumeAsync = () => consumeCallsSeen.Add(saveCount);
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+        await h.Service.ExecuteAsync(command);
+
+        // First consume must have seen exactly 1 SaveChanges already (the anchor commit).
+        Assert.NotEmpty(consumeCallsSeen);
+        Assert.Equal(1, consumeCallsSeen[0]);
+    }
+
+    // ── After cook: all lines are Applied or Shorted, none left Pending (292b L2) ───
+
+    [Fact]
+    public async Task AfterCook_Applied_Line_Has_Applied_Status()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, _) = BuildTrackedRecipe(h, quantity: 200m);
+        // No shortfall — fully satisfied.
+        h.Consumer.SetShortfall(productId, 0m);
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+        await h.Service.ExecuteAsync(command);
+
+        var evt = Assert.Single(h.CookEvents.Items);
+        var line = Assert.Single(evt.ConsumeLines);
+        Assert.Equal(CookConsumeLineStatus.Applied, line.Status);
+        Assert.Equal(0m, line.Shortfall);
+    }
+
+    [Fact]
+    public async Task AfterCook_Partial_Shortfall_Line_Has_Applied_Status_With_Shortfall()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, _) = BuildTrackedRecipe(h, quantity: 200m);
+        // Partial shortfall — pantry satisfied 150 of 200.
+        h.Consumer.SetShortfall(productId, 50m);
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+        await h.Service.ExecuteAsync(command);
+
+        var evt = Assert.Single(h.CookEvents.Items);
+        var line = Assert.Single(evt.ConsumeLines);
+        // A partial shortfall still produced a journal row — line is Applied (not Shorted).
+        Assert.Equal(CookConsumeLineStatus.Applied, line.Status);
+        Assert.Equal(50m, line.Shortfall);
+    }
+
+    [Fact]
+    public async Task AfterCook_NoStock_Line_Has_Shorted_Status()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, _) = BuildTrackedRecipe(h, quantity: 150m);
+        h.Consumer.ThrowNoStock(productId);
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+        await h.Service.ExecuteAsync(command);
+
+        var evt = Assert.Single(h.CookEvents.Items);
+        var line = Assert.Single(evt.ConsumeLines);
+        Assert.Equal(CookConsumeLineStatus.Shorted, line.Status);
+        Assert.Equal(150m, line.Shortfall);
+    }
+
+    [Fact]
+    public async Task AfterCook_No_Lines_Remain_Pending()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var pA = h.Products.AddTracked(unit, "A");
+        var pB = h.Products.AddTracked(unit, "B");
+
+        var recipe = Recipe.Create(Household, "Mixed", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+            [
+                new IngredientLine(pA.Id, 100m, unit, null, 0),
+                new IngredientLine(pB.Id, 50m, unit, null, 1),
+            ],
+            Clock);
+        h.Recipes.Items.Add(recipe);
+
+        // A is fully satisfied; B has no stock.
+        h.Consumer.SetShortfall(pA.Id, 0m);
+        h.Consumer.ThrowNoStock(pB.Id);
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 2, _userId, Resolutions: []);
+        await h.Service.ExecuteAsync(command);
+
+        var evt = Assert.Single(h.CookEvents.Items);
+        Assert.Equal(2, evt.ConsumeLines.Count);
+        // No line should remain Pending after a completed cook.
+        Assert.DoesNotContain(evt.ConsumeLines, l => l.Status == CookConsumeLineStatus.Pending);
+    }
+
+    [Fact]
+    public async Task AnchorFirst_ConsumeLines_Present_And_Pending_At_First_Save()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, unitId) = BuildTrackedRecipe(h, quantity: 100m);
+
+        // Capture a snapshot of each line's status at the time of the first (anchor) save.
+        // Must capture value types (Status is an enum) not object references, because
+        // MarkApplied/MarkShorted mutate the line in-place after the first save.
+        List<CookConsumeLineStatus>? statusesAtFirstSave = null;
+        h.CookEvents.OnSaveChanges = () =>
+        {
+            if (statusesAtFirstSave is null && h.CookEvents.Items.Count > 0)
+                statusesAtFirstSave = [.. h.CookEvents.Items[0].ConsumeLines.Select(l => l.Status)];
+        };
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+        await h.Service.ExecuteAsync(command);
+
+        // Lines should have been present and Pending at the time of the first (anchor) save.
+        Assert.NotNull(statusesAtFirstSave);
+        Assert.Single(statusesAtFirstSave);
+        Assert.Equal(CookConsumeLineStatus.Pending, statusesAtFirstSave[0]);
     }
 
     // ── Untracked variant in explicit allocation is skipped (C12) ────────────────────
@@ -458,6 +588,13 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
     public List<CookEvent> Items { get; } = [];
     public int SaveChangesCalls { get; private set; }
 
+    /// <summary>
+    /// Optional callback invoked at the start of each <see cref="SaveChangesAsync"/> call,
+    /// before incrementing <see cref="SaveChangesCalls"/>. Used to observe state at save time
+    /// in ordering tests (292b L2).
+    /// </summary>
+    public Action? OnSaveChanges { get; set; }
+
     public Task AddAsync(CookEvent cookEvent, CancellationToken ct = default)
     {
         Items.Add(cookEvent);
@@ -470,6 +607,7 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
 
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
+        OnSaveChanges?.Invoke();
         SaveChangesCalls++;
         return Task.CompletedTask;
     }
@@ -484,6 +622,12 @@ internal sealed class FakeInventoryConsumer : IInventoryConsumer
     public List<ConsumeCall> Calls { get; } = [];
     private readonly Dictionary<Guid, decimal> _shortfalls = [];
     private readonly HashSet<Guid> _noStockThrows = [];
+
+    /// <summary>
+    /// Optional callback invoked at the start of each <see cref="ConsumeAsync"/> call.
+    /// Used in ordering tests (292b L2) to observe state before the consume executes.
+    /// </summary>
+    public Action? OnConsumeAsync { get; set; }
 
     public void SetShortfall(Guid productId, decimal shortfall) =>
         _shortfalls[productId] = shortfall;
@@ -501,6 +645,8 @@ internal sealed class FakeInventoryConsumer : IInventoryConsumer
         ConsumeReason reason, Guid cookEventId, Guid userId,
         Guid sourceLineRef, CancellationToken ct = default)
     {
+        OnConsumeAsync?.Invoke();
+
         if (_noStockThrows.Contains(productId))
             throw new InvalidOperationException($"No stock record for product {productId}.");
 

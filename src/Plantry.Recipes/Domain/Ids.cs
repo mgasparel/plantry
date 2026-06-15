@@ -25,6 +25,13 @@ public readonly record struct CookEventId(Guid Value)
     public override string ToString() => Value.ToString();
 }
 
+public readonly record struct CookConsumeLineId(Guid Value)
+{
+    public static CookConsumeLineId New() => new(Guid.CreateVersion7());
+    public static CookConsumeLineId From(Guid value) => new(value);
+    public override string ToString() => Value.ToString();
+}
+
 public readonly record struct TagId(Guid Value)
 {
     public static TagId New() => new(Guid.CreateVersion7());

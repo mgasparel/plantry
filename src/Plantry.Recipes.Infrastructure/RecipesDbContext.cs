@@ -20,6 +20,7 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
     public DbSet<RecipePhoto> RecipePhotos => Set<RecipePhoto>();
     public DbSet<CookEvent> CookEvents => Set<CookEvent>();
+    public DbSet<CookConsumeLine> CookConsumeLines => Set<CookConsumeLine>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
 
@@ -165,9 +166,53 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             // CookEvent is an independent aggregate root, not a child of Recipe, so there is no
             // navigation property in either direction.
 
+            // Child consume lines — backed by _lines field (292b).
+            b.HasMany(c => c.ConsumeLines)
+                .WithOne()
+                .HasForeignKey(l => l.CookEventId)
+                .HasPrincipalKey(c => c.Id)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(c => c.ConsumeLines)
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .HasField("_lines");
+
             b.HasIndex(c => new { c.HouseholdId, c.RecipeId, c.CookedAt })
                 .HasDatabaseName("ix_cook_event_household_recipe_cooked");
             b.HasQueryFilter(c => c.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<CookConsumeLine>(b =>
+        {
+            b.ToTable("cook_consume_line");
+            b.HasKey(l => l.Id);
+            b.Property(l => l.Id)
+                .HasConversion(id => id.Value, v => CookConsumeLineId.From(v))
+                .HasColumnName("cook_consume_line_id")
+                .ValueGeneratedNever();
+            b.Property(l => l.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(l => l.CookEventId)
+                .HasConversion(id => id.Value, v => CookEventId.From(v))
+                .HasColumnName("cook_event_id")
+                .IsRequired();
+            b.Property(l => l.IngredientId).HasColumnName("ingredient_id").IsRequired();
+            b.Property(l => l.ProductId).HasColumnName("product_id").IsRequired();
+            b.Property(l => l.Quantity).HasColumnName("quantity").HasPrecision(12, 3).IsRequired();
+            b.Property(l => l.UnitId).HasColumnName("unit_id").IsRequired();
+            b.Property(l => l.Status)
+                .HasConversion(
+                    s => s.ToDbValue(),
+                    v => CookConsumeLineStatusExtensions.Parse(v))
+                .HasColumnName("status")
+                .IsRequired();
+            b.Property(l => l.Shortfall).HasColumnName("shortfall").HasPrecision(12, 3).IsRequired();
+
+            // Index to support 292c reconciliation: find Pending lines for a given cook event.
+            b.HasIndex(l => new { l.HouseholdId, l.CookEventId, l.Status })
+                .HasDatabaseName("ix_cook_consume_line_household_event_status");
+            b.HasQueryFilter(l => l.HouseholdId == HouseholdId.From(_householdId));
         });
 
         builder.Entity<Tag>(b =>

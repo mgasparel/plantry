@@ -8,7 +8,7 @@ namespace Plantry.Recipes.Application;
 /// <summary>
 /// Application service that drives the J4 Cook-a-Recipe flow (recipes-domain-model.md §7).
 /// <para>
-/// Flow:
+/// Flow (anchor-first, plantry-292b):
 /// <list type="number">
 /// <item>Applies <c>ServingsScale = desiredServings / recipe.DefaultServings</c> to each ingredient's
 /// required quantity.</item>
@@ -17,15 +17,16 @@ namespace Plantry.Recipes.Application;
 /// allocations (<c>variantProductId, quantity, unitId</c>). When no resolution is supplied for an
 /// ingredient, default auto-selection (C7) is applied: the ingredient's own product is used with
 /// its scaled quantity.</item>
-/// <item>For each tracked, not-skipped line/allocation: calls
-/// <see cref="IInventoryConsumer.ConsumeAsync"/> — consuming whatever is available, never blocking
-/// on shortfall (C8/R9). Records any shortfall in the result for display.</item>
+/// <item>Mints the <see cref="CookEvent"/> and adds all planned <see cref="CookConsumeLine"/>
+/// children in <see cref="CookConsumeLineStatus.Pending"/> state.</item>
+/// <item>Persists the <see cref="CookEvent"/> + its Pending lines in ONE Recipes transaction
+/// (the anchor commit) — before any Inventory consume call runs (292b L2).</item>
+/// <item>For each Pending line: calls <see cref="IInventoryConsumer.ConsumeAsync"/>; marks the
+/// line <see cref="CookConsumeLineStatus.Applied"/> (with any shortfall) on success, or
+/// <see cref="CookConsumeLineStatus.Shorted"/> on <see cref="InvalidOperationException"/>
+/// (no-stock). Persists the updated statuses in a second Recipes transaction.</item>
 /// <item>Skips untracked staples entirely (C12).</item>
-/// <item>Writes the <see cref="CookEvent"/> and performs ALL consumes in ONE unit of work so a
-/// partial cook cannot lose its journal record (atomicity note, §7). The
-/// <see cref="CookEventId"/> is stamped as <c>sourceRef</c> on every consume call.</item>
-/// <item>Emits <see cref="RecipeCookedEvent"/> after the event is written and consumes complete
-/// (§9, O2).</item>
+/// <item>Emits <see cref="RecipeCookedEvent"/> after all lines are resolved (§9, O2).</item>
 /// </list>
 /// </para>
 /// </summary>
@@ -135,55 +136,62 @@ public sealed class CookRecipe(
                 ingredient.Id));
         }
 
-        // ── Persist CookEvent then execute consumes (atomicity note, §7) ─────────
-        // Stage the CookEvent before any consume calls so the journal record exists
-        // even if a subsequent consume raises an unexpected exception.
-        await cookEvents.AddAsync(cookEvent, ct);
+        // ── Anchor-first: add all consume lines as Pending, then commit (292b) ───
+        // Stage the CookEvent and all Pending CookConsumeLines in a single Recipes
+        // transaction BEFORE any inventory call runs. If the process dies mid-cook,
+        // a reconciler (292c) can detect Pending lines and re-drive them idempotently
+        // via the sourceLineRef token (292a).
+        foreach (var target in consumeTargets)
+            cookEvent.AddConsumeLine(target.IngredientId.Value, target.ProductId, target.Quantity, target.UnitId);
 
+        await cookEvents.AddAsync(cookEvent, ct);
+        await cookEvents.SaveChangesAsync(ct); // ← anchor commit: CookEvent + Pending lines are durable
+
+        // ── Execute consumes; transition each line to Applied or Shorted ─────────
         var lineResults = new List<CookLineResult>();
 
-        foreach (var target in consumeTargets)
+        foreach (var line in cookEvent.ConsumeLines)
         {
             // Never block on shortfall (C8/R9). ConsumeAsync reports shortfall in the result.
             // ConsumeAsync throws InvalidOperationException when the product has no stock record
-            // at all (no lots ever added). Treat that as a full shortfall — the cook proceeds
-            // and the caller sees a fully-short line rather than an unhandled 500.
+            // at all (no lots ever added). Treat that as a Shorted line — cook proceeds and the
+            // caller sees a fully-short line rather than an unhandled 500.
             decimal shortfall;
             Guid shortfallUnit;
             try
             {
                 var consumeResult = await consumer.ConsumeAsync(
-                    target.ProductId,
-                    target.Quantity,
-                    target.UnitId,
+                    line.ProductId,
+                    line.Quantity,
+                    line.UnitId,
                     ConsumeReason.Recipe,
                     cookEvent.Id.Value,
                     command.UserId,
-                    sourceLineRef: target.IngredientId.Value,
+                    sourceLineRef: line.IngredientId,
                     ct);
 
                 shortfall = consumeResult.ShortfallAmount;
                 shortfallUnit = consumeResult.RequestUnitId;
+                line.MarkApplied(shortfall);
             }
             catch (InvalidOperationException)
             {
-                // No stock record for this product — report as fully short (C8).
-                shortfall = target.Quantity;
-                shortfallUnit = target.UnitId;
+                // No stock record for this product — fully short (C8).
+                shortfall = line.Quantity;
+                shortfallUnit = line.UnitId;
+                line.MarkShorted();
             }
 
             lineResults.Add(new CookLineResult(
-                target.IngredientId,
-                target.ProductId,
-                target.Quantity,
-                target.UnitId,
+                IngredientId.From(line.IngredientId),
+                line.ProductId,
+                line.Quantity,
+                line.UnitId,
                 shortfall,
                 shortfallUnit));
         }
 
-        // Commit the CookEvent (and any inventory journal rows the consumer staged
-        // in the same DbContext, if the adapter shares it — or as two separate commits
-        // when they are separate; either way the CookEvent is durably written first).
+        // Persist the line status transitions (Applied / Shorted) — second Recipes commit.
         await cookEvents.SaveChangesAsync(ct);
 
         // ── Emit RecipeCooked (§9) ───────────────────────────────────────────────
