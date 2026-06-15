@@ -637,6 +637,46 @@ public sealed class CookRecipeTests
         Assert.IsType<CookRecipeResult.Cooked>(result);
     }
 
+    // ── Idempotency scope: each cook uses its own per-line token (plantry-fks) ─────
+
+    /// <summary>
+    /// Regression test (plantry-fks): cooking the same recipe twice must produce two independent
+    /// consume calls — one per cook — and must NOT short-circuit the second cook.
+    /// Before the fix, sourceLineRef was set to line.IngredientId (stable across cooks), so the
+    /// second cook's consume was treated as a duplicate of the first and silently skipped.
+    /// After the fix, sourceLineRef is line.Id.Value (CookConsumeLineId, unique per cook).
+    /// </summary>
+    [Fact]
+    public async Task CookingSameRecipeTwice_IssuesTowoIndependentConsumeCalls()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, unitId) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m);
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+
+        // First cook.
+        var result1 = await h.Service.ExecuteAsync(command);
+        Assert.IsType<CookRecipeResult.Cooked>(result1);
+
+        // Second cook of the same recipe with the same servings.
+        var result2 = await h.Service.ExecuteAsync(command);
+        Assert.IsType<CookRecipeResult.Cooked>(result2);
+
+        // Each cook must have issued its OWN consume call — two total, not one.
+        // (The reconciler runs as an opportunistic sweep before the second cook, but the
+        // first cook's lines are already Applied, so the reconciler is a no-op here.)
+        var cookCalls = h.Consumer.Calls.Where(c => c.ProductId == productId).ToList();
+        Assert.Equal(2, cookCalls.Count);
+
+        // Both consume calls must carry the SAME cookEvent.Id as sourceRef, but DIFFERENT sourceLineRefs
+        // (each cook mints a new CookConsumeLine with a fresh Id).
+        var sourceRefs = cookCalls.Select(c => c.CookEventId).Distinct().ToList();
+        Assert.Equal(2, sourceRefs.Count); // two different CookEvent ids
+
+        var lineRefs = cookCalls.Select(c => c.SourceLineRef).Distinct().ToList();
+        Assert.Equal(2, lineRefs.Count); // two different sourceLineRef tokens
+    }
+
     /// <summary>
     /// Verifies that an OperationCanceledException from the reconciliation sweep propagates out
     /// of ExecuteAsync (a cancelled request should abort the whole cook, not silently continue).

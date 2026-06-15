@@ -81,7 +81,7 @@ public sealed class ReconcilePendingCooks(
                         ConsumeReason.Recipe,
                         cookEvent.Id.Value,
                         cookEvent.CookedBy,
-                        sourceLineRef: line.IngredientId,
+                        sourceLineRef: line.Id.Value,
                         ct);
 
                     line.MarkApplied(result.ShortfallAmount);

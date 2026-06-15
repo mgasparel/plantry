@@ -241,11 +241,15 @@ public sealed class ReconcilePendingCooksTests
         Assert.Equal(2, h.CookEvents.SaveChangesCalls);
     }
 
-    // ── sourceLineRef is passed as the idempotency token ──────────────────────────
+    // ── sourceLineRef is the per-cook-unique CookConsumeLine.Id (plantry-fks) ──────
 
     [Fact]
-    public async Task SourceLineRef_Is_The_IngredientId_Of_The_Pending_Line()
+    public async Task SourceLineRef_Is_The_CookConsumeLineId_Not_IngredientId()
     {
+        // plantry-fks: sourceLineRef must be the per-cook-unique CookConsumeLine.Id (line.Id.Value),
+        // NOT the IngredientId. Using IngredientId caused the same recipe cooked a second time to
+        // be treated as a duplicate of the first cook's consume — the second deduction was silently
+        // skipped.
         var h = BuildHarness();
         var recipeId = RecipeId.New();
         var userId = Guid.CreateVersion7();
@@ -254,14 +258,15 @@ public sealed class ReconcilePendingCooksTests
         var ingredientId = Guid.CreateVersion7();
         var productId = Guid.CreateVersion7();
         var unitId = Guid.CreateVersion7();
-        cookEvent.AddConsumeLine(ingredientId, productId, 100m, unitId);
+        var line = cookEvent.AddConsumeLine(ingredientId, productId, 100m, unitId);
         h.CookEvents.Items.Add(cookEvent);
 
         await h.Service.ExecuteAsync();
 
         var call = Assert.Single(h.Consumer.Calls);
-        // The sourceLineRef must be the CookConsumeLine's IngredientId (292a idempotency token).
-        Assert.Equal(ingredientId, call.SourceLineRef);
+        // The sourceLineRef must be the per-cook-unique CookConsumeLineId, not the IngredientId.
+        Assert.Equal(line.Id.Value, call.SourceLineRef);
+        Assert.NotEqual(ingredientId, call.SourceLineRef);
     }
 
     // ── SaveChanges is called per CookEvent ────────────────────────────────────────
@@ -277,5 +282,23 @@ public sealed class ReconcilePendingCooksTests
         await h.Service.ExecuteAsync();
 
         Assert.Equal(2, h.CookEvents.SaveChangesCalls);
+    }
+
+    // ── Shortfall preservation on re-drive (plantry-fks) ─────────────────────────
+
+    [Fact]
+    public async Task Reconcile_Preserves_Real_Shortfall_When_ConsumeAsync_Reports_Partial()
+    {
+        // plantry-fks AC5: reconciling a Pending line whose consume reports a real partial
+        // shortfall must record that shortfall on MarkApplied — not zero it.
+        var h = BuildHarness();
+        var (cookEvent, productId, _) = SeedPendingCook(h, quantity: 100m);
+        h.Consumer.SetShortfall(productId, 35m); // 65 available, 35 short
+
+        await h.Service.ExecuteAsync();
+
+        var line = Assert.Single(cookEvent.ConsumeLines);
+        Assert.Equal(CookConsumeLineStatus.Applied, line.Status);
+        Assert.Equal(35m, line.Shortfall); // real shortfall preserved, not zeroed
     }
 }

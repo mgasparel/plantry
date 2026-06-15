@@ -21,10 +21,14 @@ public interface IInventoryConsumer
     /// throws on shortfall. Throws <see cref="InvalidOperationException"/> when the product has no
     /// stock record at all (no lots ever added).
     ///
-    /// <paramref name="sourceLineRef"/> is the per-consume-operation idempotency token (plantry-292a):
-    /// the ingredient line id that uniquely identifies this consume within the cook. When set,
-    /// re-driving an already-applied token is a no-op — no further journal rows are written and stock
-    /// is not changed. Pass the <c>IngredientId</c> (as a <see cref="Guid"/>) from the cook adapter.
+    /// <paramref name="sourceLineRef"/> is the per-consume-operation idempotency token (plantry-292a /
+    /// plantry-fks): the <c>CookConsumeLine.Id</c> (a per-cook-unique <see cref="Guid"/>) that
+    /// uniquely identifies this consume within one cook. The guard scopes by
+    /// (<paramref name="cookEventId"/>, <paramref name="sourceLineRef"/>) — both must match an
+    /// existing journal row for the short-circuit to fire. When it does, the call is a no-op:
+    /// no further journal rows are written and stock is not changed. Do NOT pass the ingredient id
+    /// — that is stable across every cook of a recipe and would cause a second cook of the same
+    /// recipe to skip its consume.
     /// </summary>
     Task<ConsumeResult> ConsumeAsync(
         Guid productId,

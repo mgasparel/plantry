@@ -11,9 +11,11 @@ namespace Plantry.Recipes.Domain;
 /// <see cref="CookConsumeLineStatus.Applied"/> or <see cref="CookConsumeLineStatus.Shorted"/>
 /// after <c>IInventoryConsumer.ConsumeAsync</c> returns.
 /// <para>
-/// <see cref="IngredientId"/> is the idempotency token passed to
-/// <c>IInventoryConsumer.ConsumeAsync</c> as <c>sourceLineRef</c> (292a). It is a bare
-/// <see cref="Guid"/> soft-ref — no FK to <c>recipe_ingredient</c>, consistent with DM-3.
+/// <see cref="IngredientId"/> is a bare <see cref="Guid"/> soft-ref — no FK to
+/// <c>recipe_ingredient</c>, consistent with DM-3. It is NOT the idempotency token: the
+/// <c>sourceLineRef</c> passed to <c>IInventoryConsumer.ConsumeAsync</c> is this line's own
+/// <see cref="Entity{TId}.Id"/> value — a per-cook-unique guid — so that two cooks of the same
+/// recipe each get an independent token (plantry-fks).
 /// </para>
 /// </summary>
 public sealed class CookConsumeLine : Entity<CookConsumeLineId>
@@ -23,7 +25,8 @@ public sealed class CookConsumeLine : Entity<CookConsumeLineId>
 
     /// <summary>
     /// The ingredient this line resolves (soft-ref, DM-3).
-    /// Doubles as the <c>sourceLineRef</c> idempotency token on the Inventory consume call (292a).
+    /// NOT the idempotency token — see <see cref="Entity{TId}.Id"/> for the per-cook-unique token
+    /// passed as <c>sourceLineRef</c> on the Inventory consume call (plantry-fks).
     /// </summary>
     public Guid IngredientId { get; private set; }
 
