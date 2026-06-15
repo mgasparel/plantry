@@ -198,7 +198,7 @@ button { font-family: inherit; cursor: pointer; }
 
 .sidebar__nav {
   list-style: none;
-  flex: 1;
+  flex: none;
   padding: var(--space-2) var(--space-3);
 }
 
@@ -256,6 +256,7 @@ button { font-family: inherit; cursor: pointer; }
 .sidebar__link--active .icon { color: currentColor; }
 
 .sidebar__footer {
+  margin-top: auto;
   padding: var(--space-4) var(--space-3);
   border-top: 1px solid var(--color-border);
 }
