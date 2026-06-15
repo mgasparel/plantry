@@ -95,8 +95,9 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
     /// <c>SaveChangesAsync</c> — all lines are committed together with the root.
     /// </summary>
     /// <param name="ingredientId">
-    /// The ingredient this line resolves; doubles as the <c>sourceLineRef</c> idempotency
-    /// token on the Inventory consume call (292a).
+    /// The ingredient this line resolves (soft-ref, DM-3). The <c>sourceLineRef</c> idempotency
+    /// token on the Inventory consume call is the returned line's own <see cref="CookConsumeLine.Id"/>
+    /// — a per-cook-unique Guid — NOT this ingredient id (plantry-fks).
     /// </param>
     /// <param name="productId">The resolved product to consume.</param>
     /// <param name="quantity">Scaled quantity to consume.</param>

@@ -235,10 +235,10 @@ public sealed class ProductStockConsumeTests
             sourceLineRef: token);
 
         Assert.True(first.IsSuccess);
-        Assert.Equal(1, first.Value.Deductions.Count);
+        Assert.Single(first.Value.Deductions);
         Assert.Equal(70m, lot.Quantity);
         // Journal: 1 Purchase + 1 Consumed (2 total, 1 removal).
-        Assert.Equal(1, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
+        Assert.Single(stock.Journal, j => j.Reason != StockReason.Purchase);
 
         // Second consume with the same token — must be a no-op.
         var second = stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
@@ -249,7 +249,7 @@ public sealed class ProductStockConsumeTests
         Assert.False(second.Value.HasShortfall);     // zero shortfall (not a real shortage)
         Assert.Equal(70m, lot.Quantity);             // unchanged — idempotent
         // Still only 1 removal journal row written.
-        Assert.Equal(1, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
+        Assert.Single(stock.Journal, j => j.Reason != StockReason.Purchase);
     }
 
     [Fact(DisplayName = "A different sourceLineRef on the same aggregate is NOT treated as a duplicate")]
@@ -266,7 +266,7 @@ public sealed class ProductStockConsumeTests
             sourceLineRef: Guid.NewGuid());
 
         Assert.True(second.IsSuccess);
-        Assert.Equal(1, second.Value.Deductions.Count);
+        Assert.Single(second.Value.Deductions);
         Assert.Equal(40m, lot.Quantity); // 100 - 30 - 30 = 40
         Assert.Equal(2, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
     }
@@ -303,5 +303,71 @@ public sealed class ProductStockConsumeTests
 
         Assert.Equal(40m, lot.Quantity); // 100 - 30 - 30 = 40
         Assert.Equal(2, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
+    }
+
+    // ── Cross-cook scope (plantry-fks) ────────────────────────────────────────────
+
+    [Fact(DisplayName = "Same sourceLineRef under a DIFFERENT sourceRef is NOT treated as a duplicate (cross-cook scope)")]
+    public void Consume_SameSourceLineRef_DifferentSourceRef_IsNotIdempotencyMatch()
+    {
+        // plantry-fks regression: cooking the same recipe twice must deduct stock both times.
+        // Before the fix, the guard matched on sourceLineRef alone (= ingredientId, stable across
+        // every cook), so the second cook's consume was silently skipped.
+        // After the fix, the guard requires BOTH (sourceRef, sourceLineRef) to match.
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(100m, Unit, Location, User, clock, expiryDate: Day(1));
+
+        var sharedLineRefToken = Guid.NewGuid(); // same ingredient, same "line ref" across cooks
+        var cookRef1 = Guid.NewGuid();            // cook 1's CookEvent id
+        var cookRef2 = Guid.NewGuid();            // cook 2's CookEvent id — different
+
+        // Cook 1: deducts 30 units.
+        var first = stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceRef: cookRef1, sourceLineRef: sharedLineRefToken);
+
+        Assert.True(first.IsSuccess);
+        Assert.Equal(70m, lot.Quantity);
+        Assert.Equal(1, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
+
+        // Cook 2: same sourceLineRef but DIFFERENT sourceRef — must NOT be treated as a duplicate.
+        var second = stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceRef: cookRef2, sourceLineRef: sharedLineRefToken);
+
+        Assert.True(second.IsSuccess);
+        Assert.Single(second.Value.Deductions);         // a real deduction happened
+        Assert.Equal(40m, lot.Quantity);                // 100 - 30 - 30 = 40
+        Assert.Equal(2, stock.Journal.Count(j => j.Reason != StockReason.Purchase)); // two distinct journal rows
+    }
+
+    [Fact(DisplayName = "Short-circuit recomputes the original shortfall instead of returning zero")]
+    public void Consume_IdempotentRedrive_ReturnsOriginalShortfall_NotZero()
+    {
+        // plantry-fks fix 1: when the consume already ran and was partially short,
+        // a re-drive must return the SAME shortfall — not 0 — so ReconcilePendingCooks
+        // preserves the real shortfall on MarkApplied.
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(50m, Unit, Location, User, clock, expiryDate: Day(1)); // only 50 on hand
+        var cookRef = Guid.NewGuid();
+        var lineRef = Guid.NewGuid();
+
+        // First consume: request 80, only 50 available → shortfall = 30.
+        var first = stock.Consume(80m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceRef: cookRef, sourceLineRef: lineRef);
+
+        Assert.True(first.IsSuccess);
+        Assert.True(first.Value.HasShortfall);
+        Assert.Equal(30m, first.Value.ShortfallAmount);
+        Assert.Equal(0m, lot.Quantity); // lot fully depleted
+
+        // Re-drive with the same (cookRef, lineRef) — must report the original 30 shortfall, not 0.
+        var redrive = stock.Consume(80m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceRef: cookRef, sourceLineRef: lineRef);
+
+        Assert.True(redrive.IsSuccess);
+        Assert.Empty(redrive.Value.Deductions);         // no lots touched again
+        Assert.Equal(30m, redrive.Value.ShortfallAmount); // shortfall recomputed, not zeroed
+        Assert.Equal(0m, lot.Quantity);                  // unchanged
+        // Still only 1 removal journal row.
+        Assert.Equal(1, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
     }
 }

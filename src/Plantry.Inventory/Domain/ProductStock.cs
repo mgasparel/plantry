@@ -89,12 +89,16 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     /// unit fails loudly with the <see cref="IQuantityConverter"/>'s <see cref="Error"/> and leaves
     /// the aggregate untouched. Never over-deducts.
     ///
-    /// When <paramref name="sourceLineRef"/> is supplied, the method first checks whether any
-    /// existing journal row already carries that token. If so, it short-circuits to a no-op
-    /// (returns an empty <see cref="ConsumeOutcome"/> with zero shortfall) without mutating any
-    /// lot or writing any journal row — this is the idempotency guarantee (plantry-292a). The check
-    /// is per-consume-operation: one consume fans out to N per-lot rows, all stamped with the same
-    /// token, and any one of those rows triggers the short-circuit on a re-drive.
+    /// When <paramref name="sourceLineRef"/> is supplied alongside <paramref name="sourceRef"/>,
+    /// the method first checks whether any existing journal row already carries the
+    /// (<paramref name="sourceRef"/>, <paramref name="sourceLineRef"/>) pair. If so, it
+    /// short-circuits to a no-op without mutating any lot or writing any journal row — this is the
+    /// idempotency guarantee (plantry-292a / plantry-fks). Both dimensions are required: a
+    /// <paramref name="sourceLineRef"/> alone is not unique across cooks (the same ingredient id
+    /// recurs in every cook of a recipe), so <paramref name="sourceRef"/> (the CookEvent id)
+    /// scopes the check to one cook. Instead of returning zero shortfall, the short-circuit
+    /// recomputes the original shortfall from the matching journal rows so that
+    /// <c>ReconcilePendingCooks</c> preserves real partial shortfalls on re-drive.
     /// </summary>
     public Result<ConsumeOutcome> Consume(
         decimal amount, Guid unitId, StockReason reason, IQuantityConverter converter,
@@ -106,10 +110,41 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
         if (!reason.IsRemoval())
             return Error.Custom("Inventory.InvalidConsumeReason", "Consume cannot record a Purchase; use AddStock.");
 
-        // Idempotency short-circuit (plantry-292a): if any journal row already carries this token,
-        // the consume was already applied — return a no-op outcome without mutating any lot.
-        if (sourceLineRef is { } token && _journal.Any(j => j.SourceLineRef == token))
-            return new ConsumeOutcome([], ShortfallAmount: 0m, unitId);
+        // Idempotency short-circuit (plantry-292a / plantry-fks fix 2): if any journal row already
+        // carries this (sourceRef, sourceLineRef) pair, the consume was already applied — return a
+        // no-op outcome without mutating any lot. Both dimensions are required: sourceLineRef alone
+        // is not unique across cooks (a recipe's ingredient appears in every cook), so we scope by
+        // sourceRef (the CookEvent id) as well, matching the (household_id, source_ref,
+        // source_line_ref) durable index.
+        //
+        // Shortfall recompute (plantry-fks fix 1): instead of returning 0, compute the shortfall the
+        // original consume recorded — i.e. what was REQUESTED minus the sum of the journal rows that
+        // came from that consume (summed in the request unit, which is unitId here). This preserves
+        // the real partial shortfall when ReconcilePendingCooks re-drives a line whose consume
+        // already committed.
+        if (sourceLineRef is { } token)
+        {
+            var priorRows = _journal
+                .Where(j => j.SourceLineRef == token && j.SourceRef == sourceRef)
+                .ToList();
+            if (priorRows.Count > 0)
+            {
+                // Each prior row's Delta is in the lot's unit; convert back to the request unit to
+                // reconstruct what was actually deducted. The sum of Abs(Delta) in request-unit
+                // terms is the satisfied portion; shortfall = amount − satisfied.
+                // If conversion is unavailable for any row the prior rows must have been in the
+                // same unit (same-unit consume), so we fall back to summing the deltas directly.
+                // Either way we never over-estimate the shortfall.
+                var satisfied = 0m;
+                foreach (var row in priorRows)
+                {
+                    var converted = converter.Convert(Math.Abs(row.Delta), row.UnitId, unitId);
+                    satisfied += converted.IsSuccess ? converted.Value : Math.Abs(row.Delta);
+                }
+                var recomputedShortfall = Math.Max(0m, amount - satisfied);
+                return new ConsumeOutcome([], recomputedShortfall, unitId);
+            }
+        }
 
         var candidates = targetEntry is { } target
             ? _entries.Where(e => e.Id == target && e.IsActive).ToList()
