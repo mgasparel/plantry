@@ -220,4 +220,88 @@ public sealed class ProductStockConsumeTests
         Assert.Equal(500m, deduction.Amount);             // recorded in the lot's unit
         Assert.Equal(grams, deduction.UnitId);
     }
+
+    // ── Idempotency (plantry-292a) ────────────────────────────────────────────
+
+    [Fact(DisplayName = "Re-driving a consume with the same sourceLineRef is a no-op — no journal row, no stock change")]
+    public void Consume_WithSourceLineRef_IsIdempotent_OnRedrive()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(100m, Unit, Location, User, clock, expiryDate: Day(1));
+        var token = Guid.NewGuid();
+
+        // First consume — should apply and write a journal row.
+        var first = stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceLineRef: token);
+
+        Assert.True(first.IsSuccess);
+        Assert.Equal(1, first.Value.Deductions.Count);
+        Assert.Equal(70m, lot.Quantity);
+        // Journal: 1 Purchase + 1 Consumed (2 total, 1 removal).
+        Assert.Equal(1, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
+
+        // Second consume with the same token — must be a no-op.
+        var second = stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceLineRef: token);
+
+        Assert.True(second.IsSuccess);
+        Assert.Empty(second.Value.Deductions);       // no lots touched
+        Assert.False(second.Value.HasShortfall);     // zero shortfall (not a real shortage)
+        Assert.Equal(70m, lot.Quantity);             // unchanged — idempotent
+        // Still only 1 removal journal row written.
+        Assert.Equal(1, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
+    }
+
+    [Fact(DisplayName = "A different sourceLineRef on the same aggregate is NOT treated as a duplicate")]
+    public void Consume_DifferentSourceLineRef_IsNotIdempotencyMatch()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(100m, Unit, Location, User, clock, expiryDate: Day(1));
+
+        stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceLineRef: Guid.NewGuid());
+
+        // Second consume with a DIFFERENT token — must apply normally.
+        var second = stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceLineRef: Guid.NewGuid());
+
+        Assert.True(second.IsSuccess);
+        Assert.Equal(1, second.Value.Deductions.Count);
+        Assert.Equal(40m, lot.Quantity); // 100 - 30 - 30 = 40
+        Assert.Equal(2, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
+    }
+
+    [Fact(DisplayName = "sourceLineRef is stamped on every per-lot journal row of a multi-lot consume")]
+    public void Consume_SourceLineRef_StampedOnEachJournalRow()
+    {
+        var stock = NewStock(out var clock);
+        stock.AddStock(50m, Unit, Location, User, clock, expiryDate: Day(1));
+        stock.AddStock(50m, Unit, Location, User, clock, expiryDate: Day(2));
+        var token = Guid.NewGuid();
+        var sourceRef = Guid.NewGuid();
+
+        stock.Consume(80m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceRef: sourceRef, sourceLineRef: token);
+
+        var removalRows = stock.Journal.Where(j => j.Reason != StockReason.Purchase).ToList();
+        Assert.Equal(2, removalRows.Count); // one per lot touched
+        Assert.All(removalRows, j => Assert.Equal(token, j.SourceLineRef));
+        Assert.All(removalRows, j => Assert.Equal(sourceRef, j.SourceRef));
+    }
+
+    [Fact(DisplayName = "Null sourceLineRef on manual consume never short-circuits (regression)")]
+    public void Consume_NullSourceLineRef_DoesNotTriggerIdempotency()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(100m, Unit, Location, User, clock, expiryDate: Day(1));
+
+        // Two consumes both with null sourceLineRef — each should apply.
+        stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceLineRef: null);
+        stock.Consume(30m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            sourceLineRef: null);
+
+        Assert.Equal(40m, lot.Quantity); // 100 - 30 - 30 = 40
+        Assert.Equal(2, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
+    }
 }

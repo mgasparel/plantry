@@ -479,7 +479,7 @@ internal sealed class FakeInventoryConsumer : IInventoryConsumer
 {
     public sealed record ConsumeCall(
         Guid ProductId, decimal Quantity, Guid UnitId,
-        ConsumeReason Reason, Guid CookEventId, Guid UserId);
+        ConsumeReason Reason, Guid CookEventId, Guid UserId, Guid SourceLineRef);
 
     public List<ConsumeCall> Calls { get; } = [];
     private readonly Dictionary<Guid, decimal> _shortfalls = [];
@@ -499,12 +499,12 @@ internal sealed class FakeInventoryConsumer : IInventoryConsumer
     public Task<ConsumeResult> ConsumeAsync(
         Guid productId, decimal quantity, Guid unitId,
         ConsumeReason reason, Guid cookEventId, Guid userId,
-        CancellationToken ct = default)
+        Guid sourceLineRef, CancellationToken ct = default)
     {
         if (_noStockThrows.Contains(productId))
             throw new InvalidOperationException($"No stock record for product {productId}.");
 
-        Calls.Add(new ConsumeCall(productId, quantity, unitId, reason, cookEventId, userId));
+        Calls.Add(new ConsumeCall(productId, quantity, unitId, reason, cookEventId, userId, sourceLineRef));
         var shortfall = _shortfalls.GetValueOrDefault(productId, 0m);
         return Task.FromResult(new ConsumeResult(shortfall, unitId));
     }

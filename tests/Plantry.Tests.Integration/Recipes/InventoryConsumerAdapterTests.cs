@@ -67,9 +67,10 @@ public sealed class InventoryConsumerAdapterTests(PostgresFixture db) : IAsyncLi
             await invDb.SaveChangesAsync();
         }
 
+        var sourceLineRef = Guid.CreateVersion7();
         var result = await BuildAdapter().ConsumeAsync(
             _productId, quantity: 200m, _unitId,
-            ConsumeReason.Recipe, cookEventId, _userId);
+            ConsumeReason.Recipe, cookEventId, _userId, sourceLineRef);
 
         // Shortfall is zero — 500 g available, 200 g consumed.
         Assert.False(result.HasShortfall);
@@ -113,7 +114,7 @@ public sealed class InventoryConsumerAdapterTests(PostgresFixture db) : IAsyncLi
         // Consume 150 g — should drain the soonest-expiry lot (100 g) then take 50 g from the later.
         var result = await BuildAdapter().ConsumeAsync(
             _productId, quantity: 150m, _unitId,
-            ConsumeReason.Recipe, cookEventId, _userId);
+            ConsumeReason.Recipe, cookEventId, _userId, sourceLineRef: Guid.CreateVersion7());
 
         Assert.False(result.HasShortfall);
 
@@ -153,7 +154,7 @@ public sealed class InventoryConsumerAdapterTests(PostgresFixture db) : IAsyncLi
 
         var result = await BuildAdapter().ConsumeAsync(
             _productId, quantity: 300m, _unitId,
-            ConsumeReason.Recipe, cookEventId, _userId);
+            ConsumeReason.Recipe, cookEventId, _userId, sourceLineRef: Guid.CreateVersion7());
 
         Assert.True(result.HasShortfall);
         Assert.Equal(200m, result.ShortfallAmount); // 300 requested − 100 available
@@ -179,7 +180,7 @@ public sealed class InventoryConsumerAdapterTests(PostgresFixture db) : IAsyncLi
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             BuildAdapter().ConsumeAsync(
                 unknownProductId, quantity: 50m, _unitId,
-                ConsumeReason.Recipe, cookEventId, _userId));
+                ConsumeReason.Recipe, cookEventId, _userId, sourceLineRef: Guid.CreateVersion7()));
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

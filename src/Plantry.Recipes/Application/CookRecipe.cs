@@ -159,6 +159,7 @@ public sealed class CookRecipe(
                     ConsumeReason.Recipe,
                     cookEvent.Id.Value,
                     command.UserId,
+                    sourceLineRef: target.IngredientId.Value,
                     ct);
 
                 shortfall = consumeResult.ShortfallAmount;

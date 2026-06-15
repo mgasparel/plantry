@@ -19,8 +19,11 @@ public sealed class ProductStockRepository(InventoryDbContext db) : IProductStoc
 
         if (root is null) return null;
 
-        // Bring the lots into the tracked graph (the FromSql above loads only the root row).
+        // Bring the lots and journal into the tracked graph (the FromSql above loads only the
+        // root row). The journal is needed so ProductStock.Consume can perform the sourceLineRef
+        // idempotency check against already-applied tokens (plantry-292a).
         await db.Entry(root).Collection(p => p.Entries).LoadAsync(ct);
+        await db.Entry(root).Collection(p => p.Journal).LoadAsync(ct);
         return root;
     }
 

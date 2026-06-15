@@ -169,7 +169,7 @@ public sealed class FakeCookInventoryConsumer : IInventoryConsumer
     public Task<ConsumeResult> ConsumeAsync(
         Guid productId, decimal quantity, Guid unitId,
         ConsumeReason reason, Guid cookEventId, Guid userId,
-        CancellationToken ct = default) =>
+        Guid sourceLineRef, CancellationToken ct = default) =>
         Task.FromResult(new ConsumeResult(ShortfallAmount: 0m, RequestUnitId: unitId));
 }
 
