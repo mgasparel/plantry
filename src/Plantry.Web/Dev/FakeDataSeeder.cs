@@ -7,6 +7,7 @@ using Plantry.Catalog.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
+using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -87,6 +88,8 @@ public sealed class FakeDataSeeder(
 
         await userManager.AddClaimAsync(user, new Claim(HouseholdIdClaims.ClaimType, householdId.Value.ToString()));
 
+        var userId = Guid.Parse(user.Id);
+
         // Arm both the Postgres GUC (via TenantContext → interceptor) and the EF query filter
         // (via SetHouseholdId), mirroring what RlsMiddleware does for authenticated requests.
         ArmTenant(householdId.Value);
@@ -96,6 +99,8 @@ public sealed class FakeDataSeeder(
             // Recipes reference the products just committed above, so they must seed after them.
             // Tags are already in place — RegisterHouseholdCommand ran RecipesReferenceDataSeeder.
             await SeedRecipesAsync(householdId, ct);
+            // Inventory must seed after products (needs product ids + default units/locations).
+            await SeedInventoryAsync(householdId, userId, ct);
         }
         finally
         {
@@ -246,6 +251,65 @@ public sealed class FakeDataSeeder(
         }
 
         return products;
+    }
+
+    private async Task SeedInventoryAsync(HouseholdId householdId, Guid userId, CancellationToken ct)
+    {
+        // Load only leaf products — parents (HasVariants = true) cannot hold stock directly.
+        var products = await catalogDb.Products
+            .Where(p => !p.HasVariants)
+            .ToDictionaryAsync(p => p.Name, ct);
+
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+
+        // Products absent from this dict are intentionally Missing (no ProductStock created).
+        // "Bell peppers" and "Frozen berries" are omitted to produce two Missing ingredients
+        // across the seeded recipes.
+        var stockPlan = new Dictionary<string, (decimal Qty, DateOnly? Expiry)>
+        {
+            // Chicken & Chickpea Curry
+            ["Chicken breast"]   = (800m,  today.AddDays(2)),   // InStock — expiring soon (2 d)
+            ["Onions"]           = (500m,  null),
+            ["Garlic"]           = (50m,   null),
+            ["Chopped tomatoes"] = (1200m, null),
+            ["Coconut milk"]     = (800m,  null),
+            ["Chickpeas"]        = (800m,  null),
+            ["Cumin — ground"]   = (50m,   null),
+            ["Paprika — smoked"] = (30m,   null),
+            ["Olive oil"]        = (300m,  null),
+            // Beef Chilli con Carne (Bell peppers intentionally missing)
+            ["Beef mince"]       = (600m,  null),
+            ["Red kidney beans"] = (400m,  null),
+            ["Cayenne pepper"]   = (20m,   null),
+            // Salmon & Vegetable Traybake (Bell peppers missing; Salmon and Broccoli low)
+            ["Salmon fillet"]    = (150m,  null),   // Low — recipe needs 280 g
+            ["Potatoes"]         = (600m,  null),
+            ["Broccoli"]         = (100m,  null),   // Low — recipe needs 200 g
+            ["Lemons"]           = (200m,  null),
+            // Chickpea & Spinach Stew
+            ["Spinach"]          = (250m,  today.AddDays(3)),   // InStock — expiring soon (3 d)
+            // Greek Yogurt Overnight Oats (Frozen berries intentionally missing)
+            ["Rolled oats"]      = (200m,  null),
+            ["Whole milk"]       = (1m,    null),               // 1 l
+            ["Greek yogurt"]     = (0.3m,  today.AddDays(-3)), // InStock — already expired (0 d badge)
+        };
+
+        var stocks = new List<ProductStock>();
+        foreach (var (name, (qty, expiry)) in stockPlan)
+        {
+            if (!products.TryGetValue(name, out var product)) continue;
+
+            var locationId = product.DefaultLocationId?.Value
+                ?? throw new InvalidOperationException($"Seed product '{name}' has no default location.");
+
+            var stock = ProductStock.Start(householdId, product.Id.Value, clock);
+            stock.AddStock(qty, product.DefaultUnitId.Value, locationId, userId, clock,
+                expiryDate: expiry);
+            stocks.Add(stock);
+        }
+
+        await inventoryDb.ProductStocks.AddRangeAsync(stocks, ct);
+        await inventoryDb.SaveChangesAsync(ct);
     }
 
     private async Task DeleteAllAsync(CancellationToken ct)
@@ -456,10 +520,15 @@ public sealed class FakeDataSeeder(
             ],
             """
             Heat the olive oil in a large pan and soften the diced onions for 5 minutes.
+
             Stir in the garlic, cumin and smoked paprika and cook until fragrant.
+
             Add the diced chicken and brown all over.
+
             Pour in the chopped tomatoes and coconut milk, then add the drained chickpeas.
+
             Simmer for 25 minutes until the sauce thickens and the chicken is cooked through.
+
             Season to taste and serve with rice.
             """),
 
@@ -479,9 +548,13 @@ public sealed class FakeDataSeeder(
             ],
             """
             Brown the beef mince in the olive oil, breaking it up as it cooks, then set aside.
+
             Soften the onions and peppers in the same pan, then add the garlic, cumin and cayenne.
+
             Return the mince, stir in the chopped tomatoes and kidney beans.
+
             Simmer gently for 35 minutes, stirring occasionally, until rich and thick.
+
             Season to taste and serve.
             """),
 
@@ -498,9 +571,14 @@ public sealed class FakeDataSeeder(
                 ("Sea salt",     null, "To finish"),
             ],
             """
+            # Roast the vegetables
             Heat the oven to 200°C. Toss the chopped potatoes and peppers in half the olive oil and roast for 15 minutes.
+
+            # Add salmon and finish
             Add the broccoli and the salmon fillets, drizzle with the remaining oil.
+
             Roast for a further 15 minutes until the salmon flakes easily and the vegetables are tender.
+
             Finish with a squeeze of lemon and season to taste.
             """),
 
@@ -519,8 +597,11 @@ public sealed class FakeDataSeeder(
             ],
             """
             Soften the onions in the olive oil, then stir in the garlic and cumin.
+
             Add the chopped tomatoes, coconut milk and drained chickpeas and simmer for 15 minutes.
+
             Stir through the spinach a handful at a time until wilted.
+
             Season to taste and serve.
             """),
 
@@ -534,7 +615,9 @@ public sealed class FakeDataSeeder(
             ],
             """
             Stir the oats, milk and yogurt together in a jar or bowl.
+
             Top with the frozen berries, cover and refrigerate overnight.
+
             Eat straight from the fridge in the morning.
             """),
     ];
