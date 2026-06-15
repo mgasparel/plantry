@@ -118,4 +118,8 @@ public sealed class FakeShoppingCatalogReader(
 
     public Task<IReadOnlyList<ShoppingProductCandidate>> ListProductsAsync(CancellationToken ct = default) =>
         Task.FromResult(candidates);
+
+    /// <summary>Web-layer fake: conversion is not exercised in snapshot tests; always returns null.</summary>
+    public Task<decimal?> TryConvertAsync(decimal amount, Guid fromUnitId, Guid toUnitId, Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<decimal?>(null);
 }

@@ -14,6 +14,13 @@ namespace Plantry.Shopping.Application;
 /// the merge and force a second line (e.g. buying the same product from two different stores).
 /// There is no DB unique constraint; the constraint is entirely app-layer intent.</para>
 ///
+/// <para><b>Unit mismatch on merge (plantry-xw6):</b> when the existing and incoming units differ,
+/// the command attempts to convert the incoming quantity to the existing item's unit via
+/// <paramref name="catalogReader"/>. If conversion succeeds the merged sum is expressed in the
+/// existing unit. If conversion is not possible (cross-dimension with no product conversion, or
+/// exactly one side has no unit) a second line is inserted instead of silently summing meaningless
+/// quantities.</para>
+///
 /// <para><b>Free-text items (freeText set):</b> no merge — free-text items are always inserted.</para>
 ///
 /// <para>Exactly one of <paramref name="productId"/> / <paramref name="freeText"/> must be set;
@@ -32,6 +39,7 @@ public sealed class AddItemCommand(
     Guid? sourceRef,
     bool intentionalDuplicate,
     IShoppingListRepository repository,
+    IShoppingCatalogReader catalogReader,
     IClock clock,
     ITenantContext tenant)
 {
@@ -62,9 +70,41 @@ public sealed class AddItemCommand(
                 var existing = list.FindUncheckedByProduct(productId.Value);
                 if (existing is not null)
                 {
-                    list.MergeItem(existing, quantity, unitId, clock);
-                    await repository.SaveAsync(ct);
-                    return existing.Id;
+                    // Determine whether the units are compatible for merging.
+                    // Policy (plantry-xw6):
+                    //   1. Units match (or both null) → merge by summing in the existing unit.
+                    //   2. Units differ, both non-null, conversion exists → convert incoming to
+                    //      existing unit, then merge (sum) in that unit.
+                    //   3. Units differ, both non-null, no conversion → insert a second line.
+                    //   4. Exactly one side has a unit (null vs. non-null) → insert a second line.
+                    bool unitsCompatible = existing.UnitId == unitId; // covers both-null and equal case
+
+                    if (!unitsCompatible)
+                    {
+                        // Both units must be non-null and convertible for a merge to proceed.
+                        if (existing.UnitId.HasValue && unitId.HasValue && quantity.HasValue)
+                        {
+                            var converted = await catalogReader.TryConvertAsync(
+                                quantity.Value, unitId.Value, existing.UnitId.Value, productId.Value, ct);
+
+                            if (converted.HasValue)
+                            {
+                                // Conversion succeeded: merge using the converted amount in the existing unit.
+                                list.MergeItem(existing, converted.Value, existing.UnitId, clock);
+                                await repository.SaveAsync(ct);
+                                return existing.Id;
+                            }
+                            // No conversion path → fall through to insert a second line.
+                        }
+                        // One or both sides have no unit, or quantity is null → fall through to insert a second line.
+                    }
+                    else
+                    {
+                        // Units match (or both null): merge by summing as before.
+                        list.MergeItem(existing, quantity, unitId, clock);
+                        await repository.SaveAsync(ct);
+                        return existing.Id;
+                    }
                 }
             }
 
