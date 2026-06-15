@@ -1,0 +1,36 @@
+@page
+@model Plantry.Web.Pages.More.IndexModel
+@{
+    ViewData["Title"] = "More";
+}
+
+<div class="catalog-section">
+    <h1 class="catalog-section__heading">More</h1>
+</div>
+
+<nav class="more-hub" aria-label="More options">
+    <a href="/Pantry" class="more-hub__item">
+        <svg class="icon more-hub__icon" aria-hidden="true"><use href="#i-pantry" /></svg>
+        <div class="more-hub__text">
+            <span class="more-hub__label">Pantry</span>
+            <span class="more-hub__sub">Your stock and inventory</span>
+        </div>
+        <svg class="icon more-hub__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+    </a>
+    <a href="/Catalog" class="more-hub__item">
+        <svg class="icon more-hub__icon" aria-hidden="true"><use href="#i-tag" /></svg>
+        <div class="more-hub__text">
+            <span class="more-hub__label">Catalog</span>
+            <span class="more-hub__sub">Products, categories, units &amp; locations</span>
+        </div>
+        <svg class="icon more-hub__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+    </a>
+    <a href="/Settings" class="more-hub__item">
+        <svg class="icon more-hub__icon" aria-hidden="true"><use href="#i-settings" /></svg>
+        <div class="more-hub__text">
+            <span class="more-hub__label">Settings</span>
+            <span class="more-hub__sub">Account and household settings</span>
+        </div>
+        <svg class="icon more-hub__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+    </a>
+</nav>
