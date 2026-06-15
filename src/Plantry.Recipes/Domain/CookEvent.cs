@@ -9,7 +9,11 @@ namespace Plantry.Recipes.Domain;
 /// <c>Consume</c> stamps on the resulting journal rows. The <c>recipe_id</c> FK is <c>ON DELETE RESTRICT</c> —
 /// safe because a cooked recipe is soft-deleted, never physically removed.
 /// <para>
-/// Created only via <see cref="Record"/>; no mutators exist because the aggregate is append-only (R8).
+/// Created via <see cref="Record"/>. Child <see cref="ConsumeLines"/> are added via
+/// <see cref="AddConsumeLine"/> during the anchor-first persist step (292b): all lines start
+/// <see cref="CookConsumeLineStatus.Pending"/> and are committed before any inventory call runs.
+/// After each consume the caller marks the line <see cref="CookConsumeLineStatus.Applied"/> or
+/// <see cref="CookConsumeLineStatus.Shorted"/> via the line's own mutators, then commits again.
 /// </para>
 /// </summary>
 public sealed class CookEvent : AggregateRoot<CookEventId>
@@ -23,6 +27,17 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
     /// <summary>Soft ref → identity user (O2); captured at write time — append-only, so unrecoverable if missed.</summary>
     public Guid CookedBy { get; private set; }
     public DateTimeOffset CookedAt { get; private set; }
+
+    // ── Consume plan children (292b) ────────────────────────────────────────
+    private readonly List<CookConsumeLine> _lines = [];
+
+    /// <summary>
+    /// The planned consume operations for this cook. Committed in
+    /// <see cref="CookConsumeLineStatus.Pending"/> before any inventory call; each line
+    /// transitions to <see cref="CookConsumeLineStatus.Applied"/> or
+    /// <see cref="CookConsumeLineStatus.Shorted"/> after its inventory call returns.
+    /// </summary>
+    public IReadOnlyList<CookConsumeLine> ConsumeLines => _lines.AsReadOnly();
 
     private CookEvent() { } // EF
 
@@ -72,5 +87,32 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
             servingsCooked,
             cookedBy,
             clock.UtcNow));
+    }
+
+    /// <summary>
+    /// Appends a planned consume line in <see cref="CookConsumeLineStatus.Pending"/> state
+    /// (292b anchor-first step). Called by <c>CookRecipe</c> before the first
+    /// <c>SaveChangesAsync</c> — all lines are committed together with the root.
+    /// </summary>
+    /// <param name="ingredientId">
+    /// The ingredient this line resolves; doubles as the <c>sourceLineRef</c> idempotency
+    /// token on the Inventory consume call (292a).
+    /// </param>
+    /// <param name="productId">The resolved product to consume.</param>
+    /// <param name="quantity">Scaled quantity to consume.</param>
+    /// <param name="unitId">Unit of <paramref name="quantity"/>.</param>
+    /// <returns>The newly-added <see cref="CookConsumeLine"/>.</returns>
+    public CookConsumeLine AddConsumeLine(Guid ingredientId, Guid productId, decimal quantity, Guid unitId)
+    {
+        var line = new CookConsumeLine(
+            CookConsumeLineId.New(),
+            HouseholdId,
+            Id,
+            ingredientId,
+            productId,
+            quantity,
+            unitId);
+        _lines.Add(line);
+        return line;
     }
 }
