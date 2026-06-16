@@ -6,7 +6,7 @@
 		Checked off
 	</span>
 	<span class="spacer"></span>
-	<form method="post" action="/Shopping?handler=ClearChecked">
+	<form method="post" action="/Shopping?handler=ClearChecked" hx-post="/Shopping?handler=ClearChecked" hx-target="#shopping-list" hx-swap="outerHTML">
 		<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
 		<button type="submit" class="sl-clear">
 			<svg class="icon" aria-hidden="true">
