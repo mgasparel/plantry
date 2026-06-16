@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using DiffEngine;
 
 namespace Plantry.Tests.Web.Infrastructure;
 
@@ -17,6 +18,11 @@ public static partial class VerifyModuleInitializer
     [ModuleInitializer]
     public static void Initialize()
     {
+        // Never launch an external diff tool (vim/gVim or any other) on snapshot mismatch. The test still
+        // fails and the .received.* file is written for manual inspection; the diff-tool launch is noise on
+        // local machines and wrong in CI.
+        DiffRunner.Disabled = true;
+
         // Pin the culture so currency ("$2.99") and date ("1 Jul") formatting — which the row VM renders via
         // CurrentCulture — is identical on every machine/CI, keeping the committed baselines stable.
         var culture = CultureInfo.GetCultureInfo("en-US");
