@@ -8,38 +8,9 @@
     var hasChecked = list is not null && list.CheckedCount > 0;
     var categoryOptions = Model.CategoryOptions;
     var unitOptionsList = Model.UnitOptionsList;
-    var suggestions = Model.Suggestions;
 }
 
 <div id="shopping-list"@Html.Raw(oobAttr)>
-    @* ── Pantry suggestions strip (plantry-48l) ───────────────────────────── *@
-    @* Rendered outside the empty-state guard so suggestions appear even when list is empty. *@
-    @if (suggestions.Count > 0)
-    {
-        <div class="sl-suggest" aria-label="Running low in your pantry">
-            <div class="sl-suggest-label">Running low in your pantry</div>
-            <div class="sl-sug-chips">
-                @foreach (var sug in suggestions)
-                {
-                    <div class="sl-sug">
-                        <partial name="Shared/_CatChip" model="new CatChipViewModel(sug.CategoryName, sug.CategoryHue)" />
-                        <span class="sl-sug-name">@sug.Name</span>
-                        <span class="sl-sug-stock @(sug.OnHand <= 0 ? "out" : "")">@sug.StockLabel</span>
-                        <form method="post" action="@Url.Page("./Index", "AddItem")"
-                              hx-post="@Url.Page("./Index", "AddItem")"
-                              hx-target="#shopping-list" hx-swap="outerHTML">
-                            @Html.AntiForgeryToken()
-                            <input type="hidden" name="Input.ProductId" value="@sug.ProductId" />
-                            <button type="submit" class="sadd" aria-label="Add @sug.Name to list">
-                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                            </button>
-                        </form>
-                    </div>
-                }
-            </div>
-        </div>
-    }
-
     @if (list is null || list.TotalCount == 0)
     {
         <div class="sl-empty">

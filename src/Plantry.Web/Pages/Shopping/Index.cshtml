@@ -39,7 +39,14 @@
         <partial name="_AddForm" model="Model" />
     </div>
 
+    @* ── Pantry suggestions strip (plantry-48l / plantry-14q) ──────────── *@
+    @* Decoupled from #shopping-list; lives in its own #pantry-suggestions container.
+       Only recomputed/re-rendered by the 3 handlers that change onListProductIds
+       (product-backed AddItem, DeleteItem, ClearChecked) via OOB swap. *@
+    <partial name="_PantrySuggestions"
+             model="new Plantry.Web.Pages.Shopping.PantrySuggestionsPartialModel(Model.Suggestions, false)" />
+
     @* ── Shopping list fragment (groups + checked + empty) ─────────────── *@
     <partial name="_ShoppingList"
-             model="new Plantry.Web.Pages.Shopping.ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, Model.CategoryOptions, Model.UnitOptionsList, Model.Suggestions, false)" />
+             model="new Plantry.Web.Pages.Shopping.ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, Model.CategoryOptions, Model.UnitOptionsList, false)" />
 </div>

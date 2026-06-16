@@ -1,0 +1,36 @@
+@using Plantry.Shopping.Application
+@using Plantry.Web.Pages.Shared
+@model Plantry.Web.Pages.Shopping.PantrySuggestionsPartialModel
+
+@{
+    var suggestions = Model.Suggestions;
+    var oobAttr = Model.Oob ? " hx-swap-oob=\"true\"" : "";
+}
+
+<div id="pantry-suggestions"@Html.Raw(oobAttr)>
+    @if (suggestions.Count > 0)
+    {
+        <div class="sl-suggest" aria-label="Running low in your pantry">
+            <div class="sl-suggest-label">Running low in your pantry</div>
+            <div class="sl-sug-chips">
+                @foreach (var sug in suggestions)
+                {
+                    <div class="sl-sug">
+                        <partial name="Shared/_CatChip" model="new CatChipViewModel(sug.CategoryName, sug.CategoryHue)" />
+                        <span class="sl-sug-name">@sug.Name</span>
+                        <span class="sl-sug-stock @(sug.OnHand <= 0 ? "out" : "")">@sug.StockLabel</span>
+                        <form method="post" action="@Url.Page("./Index", "AddItem")"
+                              hx-post="@Url.Page("./Index", "AddItem")"
+                              hx-target="#shopping-list" hx-swap="outerHTML">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="Input.ProductId" value="@sug.ProductId" />
+                            <button type="submit" class="sadd" aria-label="Add @sug.Name to list">
+                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                            </button>
+                        </form>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
