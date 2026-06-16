@@ -1,0 +1,14 @@
+@using Plantry.Web.Pages.Shopping
+@model IndexModel
+@*
+    Response partial for mutation handlers that change item counts but do NOT change
+    onListProductIds (CheckOff, UncheckItem, EditQuantity, SetNote, Recategorize).
+    Renders two fragments:
+      1. #shopping-list — the refreshed list (main swap via hx-target).
+      2. #sl-summary    — the header stat box (OOB swap) so totals update live without
+         a full page reload (plantry-3dh.2 A).
+*@
+<partial name="_ShoppingList"
+         model="new ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, Model.CategoryOptions, Model.UnitOptionsList, false)" />
+<partial name="_ShoppingSummary"
+         model="new ShoppingSummaryPartialModel(Model.ShoppingList, true)" />

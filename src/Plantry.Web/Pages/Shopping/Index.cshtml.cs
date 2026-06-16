@@ -209,7 +209,8 @@ public sealed class IndexModel(
     /// <summary>
     /// POST: checks off one item (SPEC §3c).
     /// Accepts the item id and the list id from the form.
-    /// Returns the updated list fragment only — CheckOff does not change onListProductIds.
+    /// Returns the updated list fragment plus OOB-swaps #sl-summary so header totals
+    /// update live (plantry-3dh.2 A).
     /// </summary>
     public async Task<IActionResult> OnPostCheckOffAsync(Guid listId, Guid itemId)
     {
@@ -231,7 +232,8 @@ public sealed class IndexModel(
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
         // CheckOff does not change onListProductIds — do not recompute or re-render suggestions.
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        // OOB-swap the summary so checked/to-buy counts refresh (plantry-3dh.2 A).
+        return Partial("_ShoppingListWithSummary", this);
     }
 
     /// <summary>
@@ -256,7 +258,8 @@ public sealed class IndexModel(
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
         // UncheckItem does not change onListProductIds — do not recompute or re-render suggestions.
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        // OOB-swap the summary so checked/to-buy counts refresh (plantry-3dh.2 A).
+        return Partial("_ShoppingListWithSummary", this);
     }
 
     /// <summary>
@@ -312,7 +315,8 @@ public sealed class IndexModel(
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
         // EditQuantity does not change onListProductIds — do not recompute or re-render suggestions.
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        // OOB-swap the summary to keep totals current (plantry-3dh.2 A).
+        return Partial("_ShoppingListWithSummary", this);
     }
 
     /// <summary>
@@ -338,7 +342,8 @@ public sealed class IndexModel(
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
         // SetNote does not change onListProductIds — do not recompute or re-render suggestions.
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        // OOB-swap the summary to keep totals current (plantry-3dh.2 A).
+        return Partial("_ShoppingListWithSummary", this);
     }
 
     /// <summary>
@@ -365,7 +370,8 @@ public sealed class IndexModel(
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
         // Recategorize does not change onListProductIds — do not recompute or re-render suggestions.
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        // OOB-swap the summary to keep totals current (plantry-3dh.2 A).
+        return Partial("_ShoppingListWithSummary", this);
     }
 
     /// <summary>
@@ -463,6 +469,15 @@ public sealed record ShoppingListPartialModel(
 /// </summary>
 public sealed record PantrySuggestionsPartialModel(
     IReadOnlyList<PantrySuggestion> Suggestions,
+    bool Oob);
+
+/// <summary>
+/// View model passed to the <c>_ShoppingSummary</c> partial (plantry-3dh.2 A).
+/// <see cref="Oob"/> drives an htmx out-of-band swap of <c>#sl-summary</c> when set,
+/// keeping the header stat box (to buy / checked / total) in sync after every mutation.
+/// </summary>
+public sealed record ShoppingSummaryPartialModel(
+    ShoppingListView? List,
     bool Oob);
 
 /// <summary>

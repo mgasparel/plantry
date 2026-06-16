@@ -1,0 +1,25 @@
+@using Plantry.Shopping.Application
+@model Plantry.Web.Pages.Shopping.ShoppingSummaryPartialModel
+
+@{
+    var list = Model.List;
+    var activeCount = list is not null ? list.TotalCount - list.CheckedCount : 0;
+    var checkedCount = list?.CheckedCount ?? 0;
+    var totalCount = list?.TotalCount ?? 0;
+    var oobAttr = Model.Oob ? " hx-swap-oob=\"true\"" : "";
+}
+
+<div id="sl-summary"@Html.Raw(oobAttr) class="sl-summary">
+    <div class="ss">
+        <div class="n">@activeCount</div>
+        <div class="l">to buy</div>
+    </div>
+    <div class="ss done">
+        <div class="n">@checkedCount</div>
+        <div class="l">checked</div>
+    </div>
+    <div class="ss">
+        <div class="n">@totalCount</div>
+        <div class="l">total</div>
+    </div>
+</div>
