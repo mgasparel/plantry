@@ -1,0 +1,93 @@
+@model System.Collections.Generic.IReadOnlyList<Plantry.Web.Pages.Recipes.IngredientGroupView>
+@using System.Globalization
+@using Plantry.Recipes.Domain
+@* Shared partial: renders the #rd-ing-rows content — group headings and per-ingredient rows.
+   Consumed by both Details.cshtml (initial full-page render) and _DetailsFulfilmentCard.cshtml
+   (OOB swap on servings-stepper change). Single source of truth for row/badge/status-switch markup
+   so that downstream changes (e.g. plantry-17n expired-badge) only need to land here. *@
+@foreach (var group in Model)
+{
+    @if (group.Heading is { } heading)
+    {
+        <div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+            <h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">@heading</h4>
+        </div>
+    }
+    @foreach (var item in group.Items)
+    {
+        // Fulfillment status for this ingredient — carried by IngredientItemView from RecipeDetailView.From.
+        var status = item.Status;
+        var statusClass = status switch
+        {
+            IngredientStatus.InStock   => "rd-ing-status--have",
+            IngredientStatus.Low       => "rd-ing-status--low",
+            IngredientStatus.Missing   => "rd-ing-status--miss",
+            _                          => "rd-ing-status--untracked",
+        };
+        var iconRef = status switch
+        {
+            IngredientStatus.InStock   => "#i-check",
+            IngredientStatus.Low       => "#i-alert",
+            IngredientStatus.Missing   => "#i-alert",
+            _                          => "#i-recipe",
+        };
+        var subClass = status switch
+        {
+            IngredientStatus.InStock   => "rd-ing-sub--have",
+            IngredientStatus.Low       => "rd-ing-sub--low",
+            IngredientStatus.Missing   => "rd-ing-sub--miss",
+            _                          => "rd-ing-sub--untracked",
+        };
+        // Sub-label text.
+        string subLabel;
+        if (item.IsUntracked)
+        {
+            subLabel = "untracked";
+        }
+        else if (status == IngredientStatus.InStock)
+        {
+            subLabel = "In your pantry";
+        }
+        else if (status == IngredientStatus.Low)
+        {
+            subLabel = "Running low";
+        }
+        else
+        {
+            subLabel = "Not in your pantry";
+        }
+
+        <div class="rd-ing-row" role="listitem">
+            <div class="rd-ing-status @(statusClass)" aria-hidden="true">
+                <svg class="icon"><use href="@iconRef" /></svg>
+            </div>
+            <div class="rd-ing-main">
+                <div class="rd-ing-name">
+                    @item.ProductName
+                    @if (item.ExpiresWithinDays.HasValue)
+                    {
+                        <span class="rd-ing-soon">
+                            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                            @item.ExpiresWithinDays.Value d
+                        </span>
+                    }
+                </div>
+                <div class="rd-ing-sub @(subClass)">@subLabel</div>
+            </div>
+            <div class="rd-ing-amt">
+                @if (!item.IsUntracked && item.Quantity.HasValue)
+                {
+                    <span class="rd-ing-qty" x-text="fmt(@(item.Quantity.Value.ToString(CultureInfo.InvariantCulture)))">@item.Quantity.Value.ToString("G29", CultureInfo.InvariantCulture)</span>
+                    @if (!string.IsNullOrEmpty(item.UnitCode))
+                    {
+                        <span> @item.UnitCode</span>
+                    }
+                }
+            </div>
+        </div>
+    }
+}
+@if (Model.Count == 0 || Model.All(g => g.Items.Count == 0))
+{
+    <p class="rd-ing-row" style="color:var(--color-text-faint);font-size:14px">No ingredients yet.</p>
+}
