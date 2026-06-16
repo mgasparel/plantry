@@ -1,0 +1,207 @@
+@model Plantry.Web.Pages.Recipes.DetailsFulfilmentCardModel
+@using System.Globalization
+@using Plantry.Recipes.Domain
+@{
+    var vm = Model;
+    var oobAttr = vm.Oob ? " hx-swap-oob=\"true\"" : "";
+    var fulfillment = vm.Fulfillment;
+    var recipeId = vm.RecipeId;
+    var missingCount = fulfillment.Overall.MissingCount;
+    var lowCount = fulfillment.Overall.LowCount;
+    var totalTracked = fulfillment.Lines.Count(l => l.Status != IngredientStatus.Untracked);
+    var inStockCount = fulfillment.Lines.Count(l => l.Status == IngredientStatus.InStock);
+    var soonCount = fulfillment.Lines.Count(l => l.ExpiresWithinDays.HasValue);
+    var pct = totalTracked > 0
+        ? (int)Math.Round(100.0 * (inStockCount + lowCount) / totalTracked)
+        : 100;
+    var lvlClass = pct >= 80 ? "fulf-hi" : pct >= 50 ? "fulf-mid" : "fulf-lo";
+}
+
+@* Primary swap target: the fulfillment rail card.
+   Triggered by the servings stepper via hx-get on Details.cshtml. *@
+<div id="rd-fulf-card" class="rd-fulf-card @(fulfillment.Overall.FullyCookable ? "rd-fulf-card--cookable" : "")">
+    <div class="rd-fulf-top">
+        <div class="rd-fulf-headline">
+            <span class="rd-fulf-count @(lvlClass)">@inStockCount of @totalTracked</span>
+            <span class="rd-fulf-of">ingredients</span>
+        </div>
+        <div class="rd-fulf-sub">in your pantry right now</div>
+        <div class="rd-fulf-bar-wrap" role="progressbar" aria-valuenow="@pct" aria-valuemin="0" aria-valuemax="100">
+            <span class="rd-fulf-bar-fill @(lvlClass)-bg" style="width:@(pct)%"></span>
+        </div>
+        <div class="rd-fulf-chips">
+            @if (inStockCount > 0)
+            {
+                <span class="rd-fulf-chip rd-fulf-chip--have">
+                    <span class="rd-fulf-chip__dot fulf-hi-bg"></span>
+                    @inStockCount in stock
+                </span>
+            }
+            @if (lowCount > 0)
+            {
+                <span class="rd-fulf-chip rd-fulf-chip--low">
+                    <span class="rd-fulf-chip__dot fulf-mid-bg"></span>
+                    @lowCount running low
+                </span>
+            }
+            @if (missingCount > 0)
+            {
+                <span class="rd-fulf-chip rd-fulf-chip--miss">
+                    <span class="rd-fulf-chip__dot fulf-lo-bg"></span>
+                    @missingCount to buy
+                </span>
+            }
+        </div>
+    </div>
+
+    @* Contextual note: expiring-soon takes priority over ready-to-cook. *@
+    @if (soonCount > 0)
+    {
+        <div class="rd-fulf-note rd-fulf-note--soon" role="note">
+            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+            <span><b>@soonCount ingredient@(soonCount == 1 ? "" : "s") expiring soon.</b> A good reason to cook this now and use them up.</span>
+        </div>
+    }
+    else if (fulfillment.Overall.FullyCookable)
+    {
+        <div class="rd-fulf-note rd-fulf-note--ready" role="note">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            <span><b>You have everything.</b> Nothing to buy — you can make this tonight.</span>
+        </div>
+    }
+
+    <div class="rd-actions">
+        @* Cook link: Alpine binding carries current servings; fallback href uses default. *@
+        <a :href="`/Recipes/@recipeId/Cook?Servings=${servings}`"
+           href="/Recipes/@recipeId/Cook?Servings=@vm.DefaultServings"
+           class="btn btn--cook">
+            <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+            Cook this
+        </a>
+
+        @* Hidden input keeps the current Alpine servings value available to htmx via hx-include.
+           Alpine's :value binding keeps it in sync whenever the servings stepper changes. *@
+        <input type="hidden" id="rd-servings-input" name="servings" :value="servings" />
+
+        @* Add missing to shopping list — J5 step 6 (P2-4b). *@
+        @if (missingCount > 0)
+        {
+            @* On success, flip to the "Added" confirm state. The flag lives in the
+               #recipe-detail Alpine scope, so we bridge htmx's afterRequest event via an
+               Alpine listener (@@htmx:after-request) — NOT hx-on, which runs in global JS
+               scope and cannot see Alpine component state. Mirrors Intake/Upload.cshtml. *@
+            <button type="button" class="btn btn--soft"
+                    hx-post="/Recipes/@recipeId?handler=AddMissing"
+                    hx-include="#rd-servings-input"
+                    hx-swap="none"
+                    @@htmx:after-request="if ($event.detail.successful) missingAdded = true"
+                    :disabled="missingAdded">
+                <svg class="icon" aria-hidden="true" x-show="!missingAdded"><use href="#i-cart" /></svg>
+                <svg class="icon" aria-hidden="true" x-show="missingAdded" x-cloak><use href="#i-check" /></svg>
+                <span x-show="!missingAdded">Add @missingCount missing to shopping list</span>
+                <span x-show="missingAdded" x-cloak>Added</span>
+            </button>
+        }
+        else
+        {
+            <button type="button" class="btn btn--soft" disabled>
+                <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>
+                Nothing to add
+            </button>
+        }
+        <a href="/Recipes/@recipeId/Edit" class="btn btn--secondary">
+            <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+            Edit recipe
+        </a>
+    </div>
+</div>
+
+@* OOB swap: per-ingredient status dots and sub-labels in the ingredients card.
+   Emitted ONLY when Oob=true (htmx partial response from OnGetFulfilmentAsync).
+   On initial full-page render Oob=false, so this entire block is omitted — the
+   main Details.cshtml renders #rd-ing-rows exactly once inside the ingredients card.
+   Rendering it twice (even without hx-swap-oob) would create a duplicate ingredient
+   list visible in the rail. Mirrors the Oob-gated emission pattern in
+   _PantryList.cshtml and _StockDetail.cshtml (which also suppress their fragment
+   entirely on non-OOB renders rather than just dropping the attribute). *@
+@if (vm.Oob)
+{
+<div id="rd-ing-rows"@Html.Raw(oobAttr)>
+    @foreach (var group in vm.IngredientGroups)
+    {
+        @if (group.Heading is { } heading)
+        {
+            <div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+                <h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">@heading</h4>
+            </div>
+        }
+        @foreach (var item in group.Items)
+        {
+            var status = item.Status;
+            var statusClass = status switch
+            {
+                IngredientStatus.InStock   => "rd-ing-status--have",
+                IngredientStatus.Low       => "rd-ing-status--low",
+                IngredientStatus.Missing   => "rd-ing-status--miss",
+                _                          => "rd-ing-status--untracked",
+            };
+            var iconRef = status switch
+            {
+                IngredientStatus.InStock   => "#i-check",
+                IngredientStatus.Low       => "#i-alert",
+                IngredientStatus.Missing   => "#i-alert",
+                _                          => "#i-recipe",
+            };
+            var subClass = status switch
+            {
+                IngredientStatus.InStock   => "rd-ing-sub--have",
+                IngredientStatus.Low       => "rd-ing-sub--low",
+                IngredientStatus.Missing   => "rd-ing-sub--miss",
+                _                          => "rd-ing-sub--untracked",
+            };
+            string subLabel;
+            if (item.IsUntracked)
+                subLabel = "untracked";
+            else if (status == IngredientStatus.InStock)
+                subLabel = "In your pantry";
+            else if (status == IngredientStatus.Low)
+                subLabel = "Running low";
+            else
+                subLabel = "Not in your pantry";
+
+            <div class="rd-ing-row" role="listitem">
+                <div class="rd-ing-status @(statusClass)" aria-hidden="true">
+                    <svg class="icon"><use href="@iconRef" /></svg>
+                </div>
+                <div class="rd-ing-main">
+                    <div class="rd-ing-name">
+                        @item.ProductName
+                        @if (item.ExpiresWithinDays.HasValue)
+                        {
+                            <span class="rd-ing-soon">
+                                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                                @item.ExpiresWithinDays.Value d
+                            </span>
+                        }
+                    </div>
+                    <div class="rd-ing-sub @(subClass)">@subLabel</div>
+                </div>
+                <div class="rd-ing-amt">
+                    @if (!item.IsUntracked && item.Quantity.HasValue)
+                    {
+                        <span class="rd-ing-qty" x-text="fmt(@(item.Quantity.Value.ToString(CultureInfo.InvariantCulture)))">@item.Quantity.Value.ToString("G29", CultureInfo.InvariantCulture)</span>
+                        @if (!string.IsNullOrEmpty(item.UnitCode))
+                        {
+                            <span> @item.UnitCode</span>
+                        }
+                    }
+                </div>
+            </div>
+        }
+    }
+    @if (vm.IngredientGroups.Count == 0 || vm.IngredientGroups.All(g => g.Items.Count == 0))
+    {
+        <p class="rd-ing-row" style="color:var(--color-text-faint);font-size:14px">No ingredients yet.</p>
+    }
+</div>
+}

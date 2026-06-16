@@ -1,4 +1,4 @@
-﻿<div class="rd-fulf-card ">
+﻿<div id="rd-fulf-card" class="rd-fulf-card ">
 	<div class="rd-fulf-top">
 		<div class="rd-fulf-headline">
 			<span class="rd-fulf-count fulf-mid">1 of 3</span>
@@ -30,7 +30,6 @@
 			</svg>
 			Cook this
 		</a>
-		<input type="hidden" name="__RequestVerificationToken" value="{scrubbed-antiforgery-token}">
 		<input type="hidden" id="rd-servings-input" name="servings" :value="servings">
 		<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddMissing" hx-include="#rd-servings-input" hx-swap="none" @htmx:after-request="if ($event.detail.successful) missingAdded = true" :disabled="missingAdded">
 			<svg class="icon" aria-hidden="true" x-show="!missingAdded">

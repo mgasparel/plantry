@@ -61,6 +61,76 @@ public sealed class DetailsModel(
     }
 
     /// <summary>
+    /// htmx GET handler for the fulfillment rail card partial (recipes-journeys.md J3).
+    /// Called by the servings stepper on the Detail page whenever servings changes; returns
+    /// the <c>_DetailsFulfilmentCard</c> partial recomputed at <paramref name="servings"/>.
+    /// The partial includes an OOB swap for <c>#rd-ing-rows</c> so per-ingredient status dots
+    /// and sub-labels also update without a full-page reload.
+    /// Returns 404 when the recipe does not exist; returns the partial at DefaultServings
+    /// when <paramref name="servings"/> is out of range (≤0 or >24).
+    /// </summary>
+    public async Task<IActionResult> OnGetFulfilmentAsync(int servings, CancellationToken ct)
+    {
+        var id = RecipeId.From(Id);
+        var recipe = await recipes.GetByIdAsync(id, ct);
+        if (recipe is null) return NotFound();
+
+        // Clamp requested servings to a valid range (mirrors the stepper bounds in the view).
+        var desiredServings = servings is > 0 and <= 24 ? servings : recipe.DefaultServings;
+
+        var productIds = recipe.Ingredients.Select(i => i.ProductId).Distinct().ToList();
+        var productLookup = await catalog.ResolveSummariesAsync(productIds, ct);
+
+        var unitIds = recipe.Ingredients
+            .Where(i => i.UnitId is not null)
+            .Select(i => i.UnitId!.Value)
+            .Distinct()
+            .ToList();
+        var unitLookup = await catalog.ResolveUnitCodesAsync(unitIds, ct);
+
+        // Recompute fulfillment at the requested servings (not hardcoded to DefaultServings).
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var fulfillment = await fulfillmentService.ComputeAsync(recipe, desiredServings, today, ct);
+
+        // Build a fulfillment-keyed ingredient group list so the partial can render
+        // per-ingredient status dots updated to the new serving count.
+        var fulfillmentByIngredientId = fulfillment.Lines.ToDictionary(l => l.IngredientId, l => l);
+        var ingredientGroups = recipe.Ingredients
+            .OrderBy(i => i.Ordinal)
+            .GroupBy(i => i.GroupHeading)
+            .Select(g => new IngredientGroupView(
+                Heading: g.Key,
+                Items: g.Select(i =>
+                {
+                    productLookup.TryGetValue(i.ProductId, out var product);
+                    var isUntracked = product is { TrackStock: false };
+                    var unitCode = !isUntracked && i.UnitId is { } unitId
+                        ? unitLookup.GetValueOrDefault(unitId)
+                        : null;
+                    fulfillmentByIngredientId.TryGetValue(i.Id, out var ingFulfillment);
+                    return new IngredientItemView(
+                        ProductName: product?.Name ?? "(unknown product)",
+                        Quantity: isUntracked ? null : i.Quantity,
+                        UnitCode: unitCode,
+                        IsUntracked: isUntracked,
+                        Status: ingFulfillment?.Status ?? IngredientStatus.Untracked,
+                        ExpiresWithinDays: ingFulfillment?.ExpiresWithinDays);
+                }).ToList()))
+            .ToList();
+
+        // Oob: true so the partial's #rd-ing-rows block carries hx-swap-oob="true" and htmx
+        // replaces the ingredient rows in place alongside the primary #rd-fulf-card swap.
+        var vm = new DetailsFulfilmentCardModel(
+            RecipeId: recipe.Id.Value,
+            DefaultServings: recipe.DefaultServings,
+            Fulfillment: fulfillment,
+            IngredientGroups: ingredientGroups,
+            Oob: true);
+
+        return Partial("_DetailsFulfilmentCard", vm);
+    }
+
+    /// <summary>
     /// Streams the recipe photo bytes with the stored content type (mirrors how Intake serves
     /// <c>import_receipt</c> bytes — recipes-domain-model.md Resolved call 3).
     /// Returns 404 when the recipe has no photo or the recipe itself does not exist.
@@ -241,3 +311,26 @@ public sealed record DirectionBlock(
     int StepNumber);
 
 public enum DirectionBlockKind { Step, Section }
+
+/// <summary>
+/// View model for the <c>_DetailsFulfilmentCard</c> partial (recipes-journeys.md J3).
+/// Carries the fulfillment result recomputed at the requested servings, plus the full ingredient
+/// group list (with updated per-line statuses) for the OOB ingredient-rows swap.
+/// <para>
+/// <see cref="Oob"/> controls whether <c>#rd-ing-rows</c> is emitted with
+/// <c>hx-swap-oob="true"</c>. Set to <c>true</c> only in the htmx partial handler
+/// (<see cref="DetailsModel.OnGetFulfilmentAsync"/>) so the OOB swap fires during a
+/// fragment response. On the initial full-page render the flag is <c>false</c>, which
+/// produces a clean inline block without the OOB attribute — htmx never processes
+/// <c>hx-swap-oob</c> on elements already present in the initial DOM, so omitting it
+/// prevents a visible duplicate ingredient list appearing in the rail.
+/// Mirrors the <c>Model.Oob</c> pattern used by <c>_PantrySuggestions.cshtml</c> and
+/// <c>_ShoppingSummary.cshtml</c>.
+/// </para>
+/// </summary>
+public sealed record DetailsFulfilmentCardModel(
+    Guid RecipeId,
+    int DefaultServings,
+    FulfillmentResult Fulfillment,
+    IReadOnlyList<IngredientGroupView> IngredientGroups,
+    bool Oob = false);

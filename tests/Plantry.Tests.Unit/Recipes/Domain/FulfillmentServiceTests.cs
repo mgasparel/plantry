@@ -394,6 +394,38 @@ public sealed class FulfillmentServiceTests
         Assert.Equal(IngredientStatus.InStock, resultAt2.Lines[0].Status);
     }
 
+    // ── Details page bug (plantry-6vg): fulfillment must recompute at selected servings ─────────
+
+    /// <summary>
+    /// Regression guard for plantry-6vg: the Detail page used to call FulfillmentService with
+    /// DefaultServings HARDCODED, so scaling the recipe past available stock left it falsely
+    /// showing "cookable". This test asserts that the service produces a different result when
+    /// desiredServings exceeds the stock threshold — the handler must pass the user-selected
+    /// servings, not DefaultServings.
+    /// Repro: 500 g available; recipe needs 400 g at 2 servings (InStock); needs 800 g at 4 (Low).
+    /// </summary>
+    [Fact]
+    public async Task Fulfillment_At_Selected_Servings_Reflects_Scale_Past_Available_Stock()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var chickpeas = h.Catalog.AddTrackedLeaf(unit, "Chickpeas");
+        h.Stock.Add(chickpeas.Id, available: 500m, unit);
+
+        // 400 g at default 2 servings → InStock at 2; Low when doubled to 4 (needs 800 g).
+        var recipe = BuildRecipe(chickpeas.Id, 400m, unit, defaultServings: 2);
+
+        var atDefault = await h.Service.ComputeAsync(recipe, desiredServings: 2, today: Today);
+        Assert.Equal(IngredientStatus.InStock, atDefault.Lines[0].Status);
+        Assert.True(atDefault.Overall.FullyCookable, "Should be cookable at default servings.");
+
+        var atDoubled = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+        Assert.Equal(IngredientStatus.Low, atDoubled.Lines[0].Status);
+        Assert.False(atDoubled.Overall.FullyCookable, "Should NOT be cookable when scaled past available stock.");
+        Assert.Equal(1, atDoubled.Overall.LowCount);
+        Assert.Equal(0, atDoubled.Overall.MissingCount);
+    }
+
     // ── Parent/variant expiry-soon flag ──────────────────────────────────────
 
     [Fact]
