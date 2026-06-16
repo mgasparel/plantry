@@ -1,4 +1,5 @@
 @page "/Recipes/{id:guid}"
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
 @using System.Globalization
 @using Plantry.Recipes.Domain
 @model Plantry.Web.Pages.Recipes.DetailsModel
@@ -36,11 +37,12 @@
 
 }
 
-@* ── Alpine scope: servings stepper + ingredient quantity scaling ─────────── *@
+@* ── Alpine scope: servings stepper + ingredient quantity scaling + add-missing state ─────────── *@
 <div id="recipe-detail"
      x-data="{
          servings: @recipe.DefaultServings,
          defaultServings: @recipe.DefaultServings,
+         missingAdded: false,
          get scale() { return this.servings / this.defaultServings; },
          fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); }
      }">
@@ -239,14 +241,41 @@
                             <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
                             Cook this
                         </a>
-                        @* Add missing to shopping list — behaviour wired in plantry-n2u.2 (P2-4b). *@
-                        <button type="button" class="btn btn--soft"
-                                data-missing-count="@missingCount"
-                                disabled="@(missingCount == 0 ? "disabled" : null)"
-                                title="@(missingCount == 0 ? "Nothing to add" : "Coming in P2-4b")">
-                            <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>
-                            @(missingCount == 0 ? "Nothing to add" : $"Add {missingCount} missing to shopping list")
-                        </button>
+                        @* Antiforgery token — required so the htmx POST to OnPostAddMissingAsync
+                           passes ASP.NET Core validation. The global htmx-antiforgery.js hook
+                           picks it up via document.querySelector('input[name="__RequestVerificationToken"]').
+                           (The layout also emits one in the sidebar logout form, but emitting it
+                           explicitly here makes the dependency clear and resilient to layout changes.) *@
+                        @{ var __rdTokens = Antiforgery.GetAndStoreTokens(ViewContext.HttpContext); }
+                        <input type="hidden" name="@__rdTokens.FormFieldName" value="@__rdTokens.RequestToken" />
+
+                        @* Hidden input keeps the current Alpine servings value available to htmx
+                           via hx-include. Alpine's :value binding keeps it in sync whenever the
+                           servings stepper changes. *@
+                        <input type="hidden" id="rd-servings-input" name="servings" :value="servings" />
+
+                        @* Add missing to shopping list — J5 step 6 (P2-4b). *@
+                        @if (missingCount > 0)
+                        {
+                            <button type="button" class="btn btn--soft"
+                                    hx-post="@Url.Page("./Details", "AddMissing", new { id = recipe.Id })"
+                                    hx-include="#rd-servings-input"
+                                    hx-swap="none"
+                                    hx-on::after-request="if (event.detail.successful) { missingAdded = true }"
+                                    :disabled="missingAdded">
+                                <svg class="icon" aria-hidden="true" x-show="!missingAdded"><use href="#i-cart" /></svg>
+                                <svg class="icon" aria-hidden="true" x-show="missingAdded" x-cloak><use href="#i-check" /></svg>
+                                <span x-show="!missingAdded">Add @missingCount missing to shopping list</span>
+                                <span x-show="missingAdded" x-cloak>Added</span>
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn--soft" disabled>
+                                <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>
+                                Nothing to add
+                            </button>
+                        }
                         <a href="/Recipes/@recipe.Id/Edit" class="btn btn--secondary">
                             <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
                             Edit recipe
@@ -264,7 +293,7 @@
                             <button type="button"
                                     class="rd-serv-stepper__btn"
                                     aria-label="Fewer servings"
-                                    @@click="servings = Math.max(1, servings - 1)"
+                                    @@click="servings = Math.max(1, servings - 1); missingAdded = false"
                                     :disabled="servings <= 1">
                                 <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
                             </button>
@@ -272,7 +301,7 @@
                             <button type="button"
                                     class="rd-serv-stepper__btn"
                                     aria-label="More servings"
-                                    @@click="servings = Math.min(24, servings + 1)"
+                                    @@click="servings = Math.min(24, servings + 1); missingAdded = false"
                                     :disabled="servings >= 24">
                                 <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
                             </button>

@@ -11,6 +11,19 @@ using Plantry.SharedKernel.Tenancy;
 namespace Plantry.Tests.Web.Infrastructure;
 
 /// <summary>
+/// No-op <see cref="IShoppingListWriter"/> for the recipe Detail L4 snapshot tests.
+/// The Detail page GET handler never calls the shopping writer — only the POST AddMissing
+/// handler does. This fake satisfies the DI container so <see cref="AddMissingToShoppingList"/>
+/// can be resolved for the GET path without a real Shopping database connection.
+/// </summary>
+file sealed class NullShoppingListWriter : IShoppingListWriter
+{
+    public static readonly NullShoppingListWriter Instance = new();
+    public Task AddItemsAsync(IEnumerable<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
+        => Task.CompletedTask;
+}
+
+/// <summary>
 /// L4 WebApplicationFactory for the recipe Detail page. Boots the real <c>Plantry.Web</c> pipeline
 /// (routing, authorization, Razor rendering) but replaces all Postgres-backed seams the Detail
 /// page depends on — the recipe repository, the tag repository, the catalog product reader, the
@@ -82,6 +95,11 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             // Unit converter: identity (ingredient unit == product default unit in fixture).
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
+
+            // Shopping list writer: no-op for GET-path tests (AddMissing is POST-only).
+            // Satisfies the AddMissingToShoppingList DI constructor without a real Shopping DB.
+            services.RemoveAll<IShoppingListWriter>();
+            services.AddSingleton<IShoppingListWriter>(NullShoppingListWriter.Instance);
         });
     }
 }

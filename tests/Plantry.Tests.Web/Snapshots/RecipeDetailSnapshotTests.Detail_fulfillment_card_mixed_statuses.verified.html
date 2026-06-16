@@ -30,11 +30,17 @@
 			</svg>
 			Cook this
 		</a>
-		<button type="button" class="btn btn--soft" data-missing-count="1" title="Coming in P2-4b">
-			<svg class="icon" aria-hidden="true">
+		<input type="hidden" name="__RequestVerificationToken" value="{scrubbed-antiforgery-token}">
+		<input type="hidden" id="rd-servings-input" name="servings" :value="servings">
+		<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddMissing" hx-include="#rd-servings-input" hx-swap="none" hx-on::after-request="if (event.detail.successful) { missingAdded = true }" :disabled="missingAdded">
+			<svg class="icon" aria-hidden="true" x-show="!missingAdded">
 				<use href="#i-cart"></use>
 			</svg>
-			Add 1 missing to shopping list
+			<svg class="icon" aria-hidden="true" x-show="missingAdded" x-cloak="">
+				<use href="#i-check"></use>
+			</svg>
+			<span x-show="!missingAdded">Add 1 missing to shopping list</span>
+			<span x-show="missingAdded" x-cloak="">Added</span>
 		</button>
 		<a href="/Recipes/Guid_1/Edit" class="btn btn--secondary">
 			<svg class="icon" aria-hidden="true">
