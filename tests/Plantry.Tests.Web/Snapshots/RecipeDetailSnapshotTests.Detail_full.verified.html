@@ -2,8 +2,15 @@
          servings: 4,
          defaultServings: 4,
          missingAdded: false,
+         _fulfTimer: null,
          get scale() { return this.servings / this.defaultServings; },
-         fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); }
+         fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); },
+         refreshFulfilment() {
+             clearTimeout(this._fulfTimer);
+             this._fulfTimer = setTimeout(() => {
+                 htmx.ajax('GET', '/Recipes/Guid_1?handler=Fulfilment&amp;servings=' + this.servings, { target: '#rd-fulf-card', swap: 'outerHTML' });
+             }, 250);
+         }
      }">
 	<div class="rd-wrap">
 		<a href="/Recipes" class="rd-back">
@@ -108,7 +115,8 @@
 				</div>
 			</div>
 			<div class="rd-rail">
-				<div class="rd-fulf-card ">
+				<input type="hidden" name="__RequestVerificationToken" value="{scrubbed-antiforgery-token}">
+				<div id="rd-fulf-card" class="rd-fulf-card ">
 					<div class="rd-fulf-top">
 						<div class="rd-fulf-headline">
 							<span class="rd-fulf-count fulf-mid">1 of 3</span>
@@ -140,7 +148,6 @@
 							</svg>
 							Cook this
 						</a>
-						<input type="hidden" name="__RequestVerificationToken" value="{scrubbed-antiforgery-token}">
 						<input type="hidden" id="rd-servings-input" name="servings" :value="servings">
 						<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddMissing" hx-include="#rd-servings-input" hx-swap="none" @htmx:after-request="if ($event.detail.successful) missingAdded = true" :disabled="missingAdded">
 							<svg class="icon" aria-hidden="true" x-show="!missingAdded">
@@ -166,13 +173,13 @@
 						<div class="rd-ing-head__spacer"></div>
 						<span class="rd-serv-stepper__lbl">Servings</span>
 						<div class="rd-serv-stepper" role="group" aria-label="Servings">
-							<button type="button" class="rd-serv-stepper__btn" aria-label="Fewer servings" @click="servings = Math.max(1, servings - 1); missingAdded = false" :disabled="servings <= 1">
+							<button type="button" class="rd-serv-stepper__btn" aria-label="Fewer servings" @click="servings = Math.max(1, servings - 1); missingAdded = false; refreshFulfilment()" :disabled="servings <= 1">
 								<svg class="icon" aria-hidden="true">
 									<use href="#i-minus"></use>
 								</svg>
 							</button>
 							<span class="rd-serv-stepper__val" x-text="servings">4</span>
-							<button type="button" class="rd-serv-stepper__btn" aria-label="More servings" @click="servings = Math.min(24, servings + 1); missingAdded = false" :disabled="servings >= 24">
+							<button type="button" class="rd-serv-stepper__btn" aria-label="More servings" @click="servings = Math.min(24, servings + 1); missingAdded = false; refreshFulfilment()" :disabled="servings >= 24">
 								<svg class="icon" aria-hidden="true">
 									<use href="#i-plus"></use>
 								</svg>
@@ -180,79 +187,81 @@
 						</div>
 					</div>
 					<div class="rd-ing-list" role="list" aria-label="Ingredients">
-						<div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
-							<h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">Pasta</h4>
-						</div>
-						<div class="rd-ing-row" role="listitem">
-							<div class="rd-ing-status rd-ing-status--have" aria-hidden="true">
-								<svg class="icon">
-									<use href="#i-check"></use>
-								</svg>
+						<div id="rd-ing-rows">
+							<div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+								<h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">Pasta</h4>
 							</div>
-							<div class="rd-ing-main">
-								<div class="rd-ing-name">
-									Rigatoni
+							<div class="rd-ing-row" role="listitem">
+								<div class="rd-ing-status rd-ing-status--have" aria-hidden="true">
+									<svg class="icon">
+										<use href="#i-check"></use>
+									</svg>
 								</div>
-								<div class="rd-ing-sub rd-ing-sub--have">In your pantry</div>
-							</div>
-							<div class="rd-ing-amt">
-								<span class="rd-ing-qty" x-text="fmt(400)">400</span>
-								<span>
-									g</span>
-							</div>
-						</div>
-						<div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
-							<h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">Sauce</h4>
-						</div>
-						<div class="rd-ing-row" role="listitem">
-							<div class="rd-ing-status rd-ing-status--low" aria-hidden="true">
-								<svg class="icon">
-									<use href="#i-alert"></use>
-								</svg>
-							</div>
-							<div class="rd-ing-main">
-								<div class="rd-ing-name">
-									Canned Tomatoes
+								<div class="rd-ing-main">
+									<div class="rd-ing-name">
+										Rigatoni
+									</div>
+									<div class="rd-ing-sub rd-ing-sub--have">In your pantry</div>
 								</div>
-								<div class="rd-ing-sub rd-ing-sub--low">Running low</div>
-							</div>
-							<div class="rd-ing-amt">
-								<span class="rd-ing-qty" x-text="fmt(500)">500</span>
-								<span>
-									g</span>
-							</div>
-						</div>
-						<div class="rd-ing-row" role="listitem">
-							<div class="rd-ing-status rd-ing-status--miss" aria-hidden="true">
-								<svg class="icon">
-									<use href="#i-alert"></use>
-								</svg>
-							</div>
-							<div class="rd-ing-main">
-								<div class="rd-ing-name">
-									Garlic Cloves
+								<div class="rd-ing-amt">
+									<span class="rd-ing-qty" x-text="fmt(400)">400</span>
+									<span>
+										g</span>
 								</div>
-								<div class="rd-ing-sub rd-ing-sub--miss">Not in your pantry</div>
 							</div>
-							<div class="rd-ing-amt">
-								<span class="rd-ing-qty" x-text="fmt(3)">3</span>
-								<span>
-									ea</span>
+							<div class="rd-ing-row" style="padding-bottom:2px;padding-top:10px">
+								<h4 style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-faint);font-weight:700;">Sauce</h4>
 							</div>
-						</div>
-						<div class="rd-ing-row" role="listitem">
-							<div class="rd-ing-status rd-ing-status--untracked" aria-hidden="true">
-								<svg class="icon">
-									<use href="#i-recipe"></use>
-								</svg>
-							</div>
-							<div class="rd-ing-main">
-								<div class="rd-ing-name">
-									Salt
+							<div class="rd-ing-row" role="listitem">
+								<div class="rd-ing-status rd-ing-status--low" aria-hidden="true">
+									<svg class="icon">
+										<use href="#i-alert"></use>
+									</svg>
 								</div>
-								<div class="rd-ing-sub rd-ing-sub--untracked">untracked</div>
+								<div class="rd-ing-main">
+									<div class="rd-ing-name">
+										Canned Tomatoes
+									</div>
+									<div class="rd-ing-sub rd-ing-sub--low">Running low</div>
+								</div>
+								<div class="rd-ing-amt">
+									<span class="rd-ing-qty" x-text="fmt(500)">500</span>
+									<span>
+										g</span>
+								</div>
 							</div>
-							<div class="rd-ing-amt">
+							<div class="rd-ing-row" role="listitem">
+								<div class="rd-ing-status rd-ing-status--miss" aria-hidden="true">
+									<svg class="icon">
+										<use href="#i-alert"></use>
+									</svg>
+								</div>
+								<div class="rd-ing-main">
+									<div class="rd-ing-name">
+										Garlic Cloves
+									</div>
+									<div class="rd-ing-sub rd-ing-sub--miss">Not in your pantry</div>
+								</div>
+								<div class="rd-ing-amt">
+									<span class="rd-ing-qty" x-text="fmt(3)">3</span>
+									<span>
+										ea</span>
+								</div>
+							</div>
+							<div class="rd-ing-row" role="listitem">
+								<div class="rd-ing-status rd-ing-status--untracked" aria-hidden="true">
+									<svg class="icon">
+										<use href="#i-recipe"></use>
+									</svg>
+								</div>
+								<div class="rd-ing-main">
+									<div class="rd-ing-name">
+										Salt
+									</div>
+									<div class="rd-ing-sub rd-ing-sub--untracked">untracked</div>
+								</div>
+								<div class="rd-ing-amt">
+								</div>
 							</div>
 						</div>
 					</div>
