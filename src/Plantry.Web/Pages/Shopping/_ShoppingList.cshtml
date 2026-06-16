@@ -1,10 +1,13 @@
 @using Plantry.Shopping.Application
+@using Plantry.Web.Pages.Shared
 @model Plantry.Web.Pages.Shopping.ShoppingListPartialModel
 
 @{
     var list = Model.List;
     var oobAttr = Model.Oob ? " hx-swap-oob=\"true\"" : "";
     var hasChecked = list is not null && list.CheckedCount > 0;
+    var categoryOptions = Model.CategoryOptions;
+    var unitOptionsList = Model.UnitOptionsList;
 }
 
 <div id="shopping-list"@Html.Raw(oobAttr)>
@@ -35,7 +38,7 @@
                 <div class="sl-rows">
                     @foreach (var item in group.Items)
                     {
-                        <partial name="_ShoppingItem" model="item" />
+                        <partial name="_ShoppingItem" model="new ShoppingItemPartialModel(item, categoryOptions, unitOptionsList)" />
                     }
                 </div>
             </div>
@@ -54,7 +57,7 @@
                 <div class="sl-rows">
                     @foreach (var item in list.UncategorizedItems)
                     {
-                        <partial name="_ShoppingItem" model="item" />
+                        <partial name="_ShoppingItem" model="new ShoppingItemPartialModel(item, categoryOptions, unitOptionsList)" />
                     }
                 </div>
             </div>
@@ -81,7 +84,7 @@
                 <div class="sl-rows">
                     @foreach (var item in list.CheckedItems)
                     {
-                        <partial name="_ShoppingItem" model="item" />
+                        <partial name="_ShoppingItem" model="new ShoppingItemPartialModel(item, categoryOptions, unitOptionsList)" />
                     }
                 </div>
             </div>

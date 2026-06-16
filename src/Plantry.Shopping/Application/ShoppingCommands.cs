@@ -319,6 +319,47 @@ public sealed class SetNoteCommand(
 }
 
 /// <summary>
+/// Assigns or clears a category on a single shopping list item (recategorize action, plantry-259).
+/// Only meaningful for free-text items or product-backed items whose product has no catalog category.
+/// Setting categoryId to a valid Guid places the item in the named category group on the next
+/// list read. Tenancy enforced as defense-in-depth alongside the EF query filter.
+/// </summary>
+public sealed class SetCategoryCommand(
+    ShoppingListId listId,
+    ShoppingListItemId itemId,
+    Guid? categoryId,
+    IShoppingListRepository repository,
+    IClock clock,
+    ITenantContext tenant)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var list = await repository.GetByIdAsync(listId, ct);
+        if (list is null)
+            return Error.NotFound;
+
+        // Tenant guard — defense-in-depth alongside EF query filter.
+        if (list.HouseholdId != HouseholdId.From(householdId))
+            return Error.Unauthorized;
+
+        try
+        {
+            list.SetItemCategory(itemId, categoryId, clock);
+        }
+        catch (InvalidOperationException)
+        {
+            return Error.NotFound;
+        }
+
+        await repository.SaveAsync(ct);
+        return Result.Success();
+    }
+}
+
+/// <summary>
 /// Hard-deletes all checked items from the household's shopping list (SPEC §3e,
 /// shopping.md resolved call 2 — mutable working state, no audit trail for clears).
 /// </summary>

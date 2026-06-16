@@ -366,6 +366,59 @@ public sealed class ShoppingListTests
         Assert.Equal("original B", itemB.Note);
     }
 
+    // ── SetItemCategory (plantry-259) ─────────────────────────────────────
+
+    [Fact(DisplayName = "SetItemCategory assigns the categoryId to the target item")]
+    public void SetItemCategory_Sets_CategoryId()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddFreeTextItem("Sourdough", quantity: null, unitId: null, note: null, _clock);
+        var categoryId = Guid.CreateVersion7();
+
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        list.SetItemCategory(item.Id, categoryId, _clock);
+
+        Assert.Equal(categoryId, item.CategoryId);
+        Assert.Equal(_clock.UtcNow, item.UpdatedAt);
+    }
+
+    [Fact(DisplayName = "SetItemCategory can clear the category by passing null")]
+    public void SetItemCategory_CanClear_CategoryId()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddFreeTextItem("Sourdough", quantity: null, unitId: null, note: null, _clock);
+        var categoryId = Guid.CreateVersion7();
+        list.SetItemCategory(item.Id, categoryId, _clock);
+        Assert.NotNull(item.CategoryId);
+
+        list.SetItemCategory(item.Id, null, _clock);
+
+        Assert.Null(item.CategoryId);
+    }
+
+    [Fact(DisplayName = "SetItemCategory on an unknown itemId throws InvalidOperationException")]
+    public void SetItemCategory_Unknown_Item_Throws()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            list.SetItemCategory(ShoppingListItemId.New(), Guid.CreateVersion7(), _clock));
+    }
+
+    [Fact(DisplayName = "SetItemCategory does not affect sibling items")]
+    public void SetItemCategory_Does_Not_Affect_Sibling_Items()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var itemA = list.AddFreeTextItem("Bread", quantity: null, unitId: null, note: null, _clock);
+        var itemB = list.AddFreeTextItem("Milk", quantity: null, unitId: null, note: null, _clock);
+        var categoryId = Guid.CreateVersion7();
+
+        list.SetItemCategory(itemA.Id, categoryId, _clock);
+
+        Assert.Equal(categoryId, itemA.CategoryId);
+        Assert.Null(itemB.CategoryId);
+    }
+
     // ── ItemSource enum helpers ───────────────────────────────────────────
 
     [Theory(DisplayName = "ItemSourceExtensions round-trips all source values")]

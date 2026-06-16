@@ -48,6 +48,13 @@ public sealed class ShoppingListQueryService(
             .Distinct()
             .ToList();
 
+        // Collect CategoryIds stored directly on items (used for recategorized free-text items, plantry-259).
+        var itemCategoryIds = list.Items
+            .Where(i => i.CategoryId.HasValue)
+            .Select(i => i.CategoryId!.Value)
+            .Distinct()
+            .ToList();
+
         var summaries = productIds.Count > 0
             ? await catalog.ResolveSummariesAsync(productIds, ct)
             : (IReadOnlyDictionary<Guid, ShoppingProductSummary>)new Dictionary<Guid, ShoppingProductSummary>();
@@ -55,6 +62,18 @@ public sealed class ShoppingListQueryService(
         var unitCodes = unitIds.Count > 0
             ? await catalog.ResolveUnitCodesAsync(unitIds, ct)
             : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
+
+        // Resolve category name/hue for items with a direct CategoryId (recategorized free-text items).
+        // Uses ListCategoriesAsync to batch-resolve; result is keyed by category id.
+        IReadOnlyDictionary<Guid, ShoppingCategoryOption> itemCategories =
+            new Dictionary<Guid, ShoppingCategoryOption>();
+        if (itemCategoryIds.Count > 0)
+        {
+            var allCategories = await catalog.ListCategoriesAsync(ct);
+            itemCategories = allCategories
+                .Where(c => itemCategoryIds.Contains(c.CategoryId))
+                .ToDictionary(c => c.CategoryId);
+        }
 
         // Enrich product-backed items with pantry stock levels via the Shopping→Inventory read port.
         // Free-text items have no product id and receive no pantry data.
@@ -64,7 +83,7 @@ public sealed class ShoppingListQueryService(
 
         // Map all items to view models.
         var itemViews = list.Items
-            .Select(i => MapItem(i, summaries, unitCodes, stockLevels))
+            .Select(i => MapItem(i, summaries, unitCodes, stockLevels, itemCategories))
             .ToList();
 
         // Partition: checked items sink to the bottom (SPEC §3c). Only unchecked items
@@ -80,11 +99,10 @@ public sealed class ShoppingListQueryService(
             .ToList();
 
         // Group unchecked items: product-backed items bucket by their resolved category name;
-        // free-text items (no product_id) fall into Uncategorized (shopping.md resolved call 3).
+        // free-text items with a CategoryId bucket by the resolved category name (plantry-259);
+        // free-text items with no CategoryId fall into Uncategorized (shopping.md resolved call 3).
         var allGroups = uncheckedItems
-            .GroupBy(v => v.ProductId.HasValue
-                ? (summaries.TryGetValue(v.ProductId.Value, out var s) ? s.CategoryName ?? UncategorizedBucket : UncategorizedBucket)
-                : UncategorizedBucket)
+            .GroupBy(v => v.CategoryName ?? UncategorizedBucket)
             .Select(g => new ShoppingCategoryGroup(g.Key, g.ToList()))
             .OrderBy(g => g.CategoryName == UncategorizedBucket ? 1 : 0)
             .ThenBy(g => g.CategoryName, StringComparer.OrdinalIgnoreCase)
@@ -115,7 +133,8 @@ public sealed class ShoppingListQueryService(
         ShoppingListItem item,
         IReadOnlyDictionary<Guid, ShoppingProductSummary> summaries,
         IReadOnlyDictionary<Guid, string> unitCodes,
-        IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> stockLevels)
+        IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> stockLevels,
+        IReadOnlyDictionary<Guid, ShoppingCategoryOption> itemCategories)
     {
         string? productName = null;
         string? categoryName = null;
@@ -126,6 +145,15 @@ public sealed class ShoppingListQueryService(
             productName = summary.Name;
             categoryName = summary.CategoryName;
             categoryHue = summary.CategoryHue;
+        }
+
+        // For free-text items (no ProductId), resolve category from the item's own CategoryId
+        // if one was set via the recategorize action (plantry-259).
+        if (productName is null && item.CategoryId.HasValue
+            && itemCategories.TryGetValue(item.CategoryId.Value, out var catOption))
+        {
+            categoryName = catOption.Name;
+            categoryHue = catOption.Hue;
         }
 
         string? unitCode = item.UnitId.HasValue && unitCodes.TryGetValue(item.UnitId.Value, out var code)

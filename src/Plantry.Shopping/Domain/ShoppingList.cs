@@ -161,6 +161,19 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
     }
 
     /// <summary>
+    /// Assigns or clears a category on a single item (recategorize action, plantry-259).
+    /// Primarily meaningful for free-text items that have no catalog product driving their category.
+    /// Throws if the item is not found on this list.
+    /// </summary>
+    public void SetItemCategory(ShoppingListItemId itemId, Guid? categoryId, IClock clock)
+    {
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException($"Item {itemId} not found on list {Id}.");
+        item.SetCategory(categoryId, clock);
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
     /// Hard-removes all checked items from the list (SPEC §3e, shopping.md resolved call 2).
     /// </summary>
     public IReadOnlyList<ShoppingListItem> ClearChecked(IClock clock)

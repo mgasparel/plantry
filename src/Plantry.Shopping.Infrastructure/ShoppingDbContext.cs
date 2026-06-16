@@ -74,6 +74,7 @@ public sealed class ShoppingDbContext(DbContextOptions<ShoppingDbContext> option
             b.Property(i => i.FreeText).HasColumnName("free_text");
             b.Property(i => i.Quantity).HasColumnName("quantity").HasPrecision(12, 3);
             b.Property(i => i.UnitId).HasColumnName("unit_id");
+            b.Property(i => i.CategoryId).HasColumnName("category_id");
             b.Property(i => i.Note).HasColumnName("note");
             b.Property(i => i.CheckedAt).HasColumnName("checked_at");
             b.Property(i => i.CheckedBy).HasColumnName("checked_by");

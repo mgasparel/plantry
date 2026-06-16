@@ -221,4 +221,8 @@ internal sealed class NullShoppingCatalogReader : IShoppingCatalogReader
         => Task.FromResult<IReadOnlyList<ShoppingProductCandidate>>([]);
     public Task<decimal?> TryConvertAsync(decimal amount, Guid fromUnitId, Guid toUnitId, Guid productId, CancellationToken ct = default)
         => Task.FromResult<decimal?>(null);
+    public Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ShoppingUnitOption>>([]);
+    public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>([]);
 }

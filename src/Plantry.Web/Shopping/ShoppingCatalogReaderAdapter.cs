@@ -82,4 +82,23 @@ public sealed class ShoppingCatalogReaderAdapter(
         var result = UnitConverter.Convert(amount, fromUnitId, toUnitId, allUnits, conversions);
         return result.IsSuccess ? result.Value : null;
     }
+
+    public async Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default)
+    {
+        var allUnits = await units.ListAsync(ct);
+        return allUnits
+            .OrderBy(u => u.Code, StringComparer.OrdinalIgnoreCase)
+            .Select(u => new ShoppingUnitOption(u.Id.Value, u.Code, u.Name))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default)
+    {
+        var activeCategories = await categories.ListActiveAsync(ct);
+        return activeCategories
+            .OrderBy(c => c.SortOrder)
+            .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(c => new ShoppingCategoryOption(c.Id.Value, c.Name, c.Hue))
+            .ToList();
+    }
 }

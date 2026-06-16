@@ -651,4 +651,92 @@ public sealed class ShoppingCommandsTests
         Assert.True(result.IsFailure);
         Assert.Equal("Unauthorized", result.Error.Code);
     }
+
+    // ── SetCategoryCommand (plantry-259) ──────────────────────────────────────
+
+    [Fact(DisplayName = "SetCategory — assigns categoryId to a free-text item")]
+    public async Task SetCategory_AssignsCategoryId()
+    {
+        var (repo, list) = SeedList();
+        // Use AddFreeText to create the item
+        var addResult = await AddFreeText(repo, "Sourdough").ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+        var item = list.Items.Single(i => i.Id == addResult.Value);
+        var categoryId = Guid.CreateVersion7();
+
+        var cmd = new SetCategoryCommand(list.Id, addResult.Value, categoryId, repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(categoryId, item.CategoryId);
+    }
+
+    [Fact(DisplayName = "SetCategory — null categoryId clears the assignment")]
+    public async Task SetCategory_NullCategoryId_ClearsAssignment()
+    {
+        var (repo, list) = SeedList();
+        var addResult = await AddFreeText(repo, "Sourdough").ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+        var item = list.Items.Single(i => i.Id == addResult.Value);
+        var categoryId = Guid.CreateVersion7();
+        // Assign first
+        await new SetCategoryCommand(list.Id, addResult.Value, categoryId, repo, Clock, new FakeTenantContext(_household)).ExecuteAsync();
+        Assert.NotNull(item.CategoryId);
+
+        // Now clear it
+        var result = await new SetCategoryCommand(list.Id, addResult.Value, null, repo, Clock, new FakeTenantContext(_household)).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(item.CategoryId);
+    }
+
+    [Fact(DisplayName = "SetCategory — unknown item ID returns NotFound")]
+    public async Task SetCategory_UnknownItem_ReturnsNotFound()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new SetCategoryCommand(list.Id, ShoppingListItemId.New(), Guid.CreateVersion7(), repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "SetCategory — unknown list ID returns NotFound")]
+    public async Task SetCategory_UnknownList_ReturnsNotFound()
+    {
+        var (repo, _) = SeedList();
+
+        var cmd = new SetCategoryCommand(ShoppingListId.New(), ShoppingListItemId.New(), Guid.CreateVersion7(), repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "SetCategory — no household in context returns Unauthorized")]
+    public async Task SetCategory_NoTenant_ReturnsUnauthorized()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new SetCategoryCommand(list.Id, ShoppingListItemId.New(), Guid.CreateVersion7(), repo, Clock, new FakeTenantContext(null));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "SetCategory — wrong household returns Unauthorized")]
+    public async Task SetCategory_WrongHousehold_ReturnsUnauthorized()
+    {
+        var (repo, list) = SeedList();
+        var addResult = await AddFreeText(repo, "Sourdough").ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+
+        var cmd = new SetCategoryCommand(list.Id, addResult.Value, Guid.CreateVersion7(), repo, Clock, new FakeTenantContext(Guid.NewGuid()));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
 }

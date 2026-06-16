@@ -63,6 +63,12 @@ internal sealed class FakeShoppingCatalogReader : IShoppingCatalogReader
             : null;
         return Task.FromResult(result);
     }
+
+    public Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ShoppingUnitOption>>([]);
+
+    public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>([]);
 }
 
 /// <summary>
