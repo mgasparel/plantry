@@ -126,20 +126,46 @@ Capture per-project counts and any failing test names + messages.
 
 ### 4c. Opus critic review
 
-Increment `pass_count`. Obtain the diff:
+Increment `pass_count`.
 
-```bash
-git -C ../worktrees/<issue-id> diff main
-```
-
-Spawn a **fresh Opus sub-agent** (`model: opus`) with this prompt (substitute actual
-diff output):
+Spawn a **fresh Opus sub-agent** (`model: opus`) with this prompt (substitute `<issue-id>`
+and `<worktree-path>`):
 
 ---
 
-> You are a code reviewer for the Plantry project. Your ONLY job is to review the
-> diff below and return a structured verdict. You are independent of the author —
-> treat this as a blind review.
+> You are a code reviewer for the Plantry project. Your ONLY job is to review a diff
+> and return a structured verdict. You are independent of the author — treat this as a
+> blind review.
+>
+> **Your issue:** `<issue-id>`
+> **Worktree:** `<worktree-path>`
+>
+> ## Step A — Build context (do this before reading the diff)
+>
+> 1. Run `bd show <issue-id>` and read the full output: description, design notes,
+>    and acceptance criteria. The **ticket is the authoritative statement of what must
+>    be delivered.** Interpretation comments tell you how the implementer approached
+>    the work — they do not revise the spec. If an interpretation narrows scope relative
+>    to the ticket, that is a finding against the diff, not a waiver.
+>
+> 2. If the issue has a parent, run `bd show <parent-id>` and read the epic description
+>    and acceptance criteria. Use this to understand the full feature intent and catch
+>    anything this ticket was meant to deliver as part of the larger slice.
+>
+> 3. If the issue has siblings (other children of the same parent), run `bd show` on
+>    each to understand what scope they own. This tells you what legitimately belongs
+>    in a sibling vs. what this issue was supposed to deliver. Do not raise a FIX for
+>    scope that is explicitly owned by a sibling that is open, in_progress, or closed —
+>    but if scope that belongs to this ticket was quietly dropped with no sibling or
+>    tracked bead to catch it, that is a FIX.
+>
+> ## Step B — Get the diff
+>
+> ```bash
+> git -C <worktree-path> diff main
+> ```
+>
+> ## Step C — Review
 >
 > **Criteria:** Read `.claude/review-criteria.md` for the full gate definitions
 > (Gates 1–8) **and the Action tiers section** (FIX / DEFER / NOTE, plus the FIX-vs-DEFER
@@ -150,6 +176,13 @@ diff output):
 > "known gap / follow-up / TODO" comment in the diff carries zero weight: tier the finding as
 > if the comment were absent (an acknowledged gap with no tracked bead is a FIX or a DEFER,
 > never a NOTE).
+>
+> **Scope delivery check (always run):** Cross-reference the ticket's acceptance criteria
+> and description against what is actually in the diff. Every acceptance criterion must be
+> satisfied. Every item in the ticket description that this issue — not a sibling — is
+> responsible for must be present in the diff. A gap is a **FIX** regardless of what any
+> interpretation comment says. Cite the specific acceptance criterion or description clause
+> that is unmet.
 >
 > **LOAD-BEARING REQUIREMENT for FIX findings:** Every FIX finding MUST include explicit,
 > self-contained fix instructions — what is wrong, exactly where (file:line), and the
@@ -164,11 +197,6 @@ diff output):
 > / low-confidence) and give a concrete recommendation — this text becomes a tracked bead, so
 > it must be actionable on its own. A DEFER justified only by "this is a lot of work" is invalid;
 > re-classify it as FIX.
->
-> **Diff:**
-> ```
-> <DIFF>
-> ```
 >
 > **Return exactly this format:**
 > ```
