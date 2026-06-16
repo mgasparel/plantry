@@ -110,11 +110,13 @@ public sealed class ShoppingListQueryService(
     {
         string? productName = null;
         string? categoryName = null;
+        int? categoryHue = null;
 
         if (item.ProductId.HasValue && summaries.TryGetValue(item.ProductId.Value, out var summary))
         {
             productName = summary.Name;
             categoryName = summary.CategoryName;
+            categoryHue = summary.CategoryHue;
         }
 
         string? unitCode = item.UnitId.HasValue && unitCodes.TryGetValue(item.UnitId.Value, out var code)
@@ -131,6 +133,8 @@ public sealed class ShoppingListQueryService(
             UnitId: item.UnitId,
             UnitCode: unitCode,
             CategoryName: categoryName,
+            CategoryHue: categoryHue,
+            Note: item.Note,
             IsChecked: item.IsChecked,
             CheckedAt: item.CheckedAt,
             CreatedAt: item.CreatedAt);
