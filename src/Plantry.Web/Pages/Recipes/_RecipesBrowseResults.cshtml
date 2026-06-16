@@ -9,7 +9,10 @@
 @if (rows.Count == 0)
 {
     @* ── Empty state (no recipes at all vs filters match nothing) ─────────────── *@
-    if (allTags.Count == 0 && string.IsNullOrEmpty(Model.Q) && !Model.Soon && Model.TagId is null)
+    @* Distinguish the two by whether any filter is active — NOT by allTags.Count.
+       The Recipes seeder mints 8 default tags on household creation (DM-9), so
+       allTags is never empty for a real household and can't proxy "has no recipes". *@
+    if (string.IsNullOrEmpty(Model.Q) && !Model.Soon && Model.TagId is null)
     {
         @* Zero-data state: household has no recipes yet *@
         <div class="empty-state">

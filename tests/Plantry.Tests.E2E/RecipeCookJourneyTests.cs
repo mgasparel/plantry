@@ -100,7 +100,7 @@ public sealed class RecipeCookJourneyTests(AppHostFixture appHost) : IAsyncLifet
             await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
 
             // ── Verify product appears in pantry with 500g ────────────────────────
-            var pantryRow = page.Locator(".catalog-list__row", new() { HasText = productName });
+            var pantryRow = page.Locator("tr", new() { HasText = productName });
             await Assertions.Expect(pantryRow).ToBeVisibleAsync();
 
             // ── Create a recipe using this product ────────────────────────────────
