@@ -64,12 +64,22 @@
             <div class="rd-ing-main">
                 <div class="rd-ing-name">
                     @item.ProductName
-                    @if (item.ExpiresWithinDays.HasValue)
+                    @if (item.ExpiresWithinDays is { } d)
                     {
-                        <span class="rd-ing-soon">
-                            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
-                            @item.ExpiresWithinDays.Value d
-                        </span>
+                        @if (d < 0)
+                        {
+                            <span class="rd-ing-soon rd-ing-soon--expired">
+                                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                                Expired @(-d)d ago
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="rd-ing-soon">
+                                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                                @d d
+                            </span>
+                        }
                     }
                 </div>
                 <div class="rd-ing-sub @(subClass)">@subLabel</div>

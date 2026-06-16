@@ -3074,6 +3074,12 @@ button { font-family: inherit; cursor: pointer; }
 
 .rd-ing-soon .icon { width: 10px; height: 10px; }
 
+/* expired variant — same pill shape, danger/red color token */
+.rd-ing-soon--expired {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
 .rd-ing-sub {
   font-size: 11.5px;
   margin-top: 1px;

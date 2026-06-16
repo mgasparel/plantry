@@ -130,6 +130,18 @@ public static class RecipeDetailFixture
         };
 
     /// <summary>
+    /// Stock snapshots for the "expired" scenario (plantry-17n): Garlic has 5 cloves but
+    /// expired 3 days ago (negative ExpiresWithinDays). Pasta and Tomatoes InStock, no expiry.
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, ProductStock> StockWithExpiredLot(DateOnly today) =>
+        new Dictionary<Guid, ProductStock>
+        {
+            [PastaId]  = new(PastaId,  600m, GramUnitId, SoonestExpiry: null),
+            [TomatoId] = new(TomatoId, 600m, GramUnitId, SoonestExpiry: null),
+            [GarlicId] = new(GarlicId, 5m,   EachUnitId, SoonestExpiry: today.AddDays(-3)),
+        };
+
+    /// <summary>
     /// Price points for the fixture. Pasta priced; Tomatoes priced; Garlic not priced → Partial.
     /// Pasta: $2/kg = $0.002/g → 400g → $0.80 total.
     /// Tomatoes: $1.50/kg = $0.0015/g → 500g → $0.75 total.
