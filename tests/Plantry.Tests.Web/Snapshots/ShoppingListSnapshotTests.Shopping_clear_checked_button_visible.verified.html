@@ -1,7 +1,17 @@
-﻿<div class="shopping-list__actions">
+﻿<div class="sl-checked-head">
+	<span class="lbl">
+		<svg class="icon" aria-hidden="true">
+			<use href="#i-check"></use>
+		</svg>
+		Checked off
+	</span>
+	<span class="spacer"></span>
 	<form method="post" action="/Shopping?handler=ClearChecked">
 		<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-		<button type="submit" class="btn btn--ghost btn--sm">
+		<button type="submit" class="sl-clear">
+			<svg class="icon" aria-hidden="true">
+				<use href="#i-trash"></use>
+			</svg>
 			Clear 1 checked item
 		</button>
 	</form>

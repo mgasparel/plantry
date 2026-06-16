@@ -72,8 +72,8 @@ public sealed class ShoppingListSnapshotTests(ShoppingListFragmentFactory factor
     {
         var html = await GetShoppingPageAsync();
         // The Uncategorized section heading should appear and contain the free-text item.
-        var groups = ExtractAll(html, ".shopping-group").ToList();
-        // Verify only the "Uncategorized" group heading section
+        var groups = ExtractAll(html, ".sl-group").ToList();
+        // Verify only the "Uncategorized" group (sl-* board uses aria-label="Uncategorized")
         var uncategorized = groups.FirstOrDefault(g => g.Contains("Uncategorized"))
             ?? throw new InvalidOperationException("No Uncategorized group found.");
         await Verify(uncategorized, "html");
@@ -86,7 +86,8 @@ public sealed class ShoppingListSnapshotTests(ShoppingListFragmentFactory factor
     {
         var html = await GetShoppingPageAsync();
         var doc = Parser.ParseDocument(html);
-        var checkedItems = doc.QuerySelectorAll(".shopping-item--checked");
+        // sl-* board: checked items have .sl-item.done
+        var checkedItems = doc.QuerySelectorAll(".sl-item.done");
         // There should be exactly one checked item (Flour).
         Assert.Single(checkedItems);
         var checkedItem = checkedItems.Single();
@@ -102,7 +103,8 @@ public sealed class ShoppingListSnapshotTests(ShoppingListFragmentFactory factor
     {
         var html = await GetShoppingPageAsync();
         var doc = Parser.ParseDocument(html);
-        var actions = doc.QuerySelector(".shopping-list__actions");
+        // sl-* board: clear-checked section header is .sl-checked-head
+        var actions = doc.QuerySelector(".sl-checked-head");
         Assert.NotNull(actions);
         using var writer = new StringWriter();
         actions!.ToHtml(writer, new PrettyMarkupFormatter());

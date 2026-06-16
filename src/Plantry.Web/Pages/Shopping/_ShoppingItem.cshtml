@@ -2,28 +2,53 @@
 @model ShoppingListItemView
 
 @{
-    var checkedClass = Model.IsChecked ? " shopping-item--checked" : "";
+    var doneClass = Model.IsChecked ? " done" : "";
+    var checkOnClass = Model.IsChecked ? " on" : "";
+    var isFreeText = Model.ProductId is null && Model.FreeText is not null;
     var checkOffUrl = Url.Page("./Index", "CheckOff", new { listId = Model.ListId, itemId = Model.ItemId });
+    var hasNote = !string.IsNullOrWhiteSpace(Model.Note);
 }
 
-<li class="shopping-item@(checkedClass)" id="shopping-item-@Model.ItemId">
-    @* Check-off checkbox (SPEC §3c): htmx-posts on change; global htmx-antiforgery.js adds the token. *@
-    <label class="shopping-item__check-label" aria-label="@(Model.IsChecked ? "Checked" : "Uncheck") @Model.DisplayName">
-        <input type="checkbox"
-               class="shopping-item__checkbox"
-               checked="@Model.IsChecked"
-               hx-post="@checkOffUrl"
-               hx-trigger="change"
-               hx-target="#shopping-list"
-               hx-swap="outerHTML" />
-    </label>
+<div class="sl-item@(doneClass)" id="shopping-item-@Model.ItemId">
+    @* Square check-off button (SPEC §3c): htmx-posts on click; global htmx-antiforgery.js adds the token. *@
+    <button type="button"
+            class="sl-check@(checkOnClass)"
+            hx-post="@checkOffUrl"
+            hx-target="#shopping-list"
+            hx-swap="outerHTML"
+            aria-label="@(Model.IsChecked ? "Uncheck" : "Check off") @Model.DisplayName">
+        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+    </button>
 
-    <span class="shopping-item__name">@Model.DisplayName</span>
+    <div class="sl-body">
+        <div class="sl-name">
+            @Model.DisplayName
+            @if (isFreeText)
+            {
+                <span class="free-tag">custom</span>
+            }
+        </div>
+        @if (!Model.IsChecked && hasNote)
+        {
+            <div class="sl-sub">
+                <span class="sl-note">
+                    <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                    @Model.Note
+                </span>
+            </div>
+        }
+    </div>
 
+    @* Quantity pill (read-only — inline editor layered by plantry-dem) *@
     @if (Model.Quantity.HasValue)
     {
-        <span class="shopping-item__qty">
-            @(Model.Quantity.Value.ToString("0.###"))@(Model.UnitCode is not null ? " " + Model.UnitCode : "")
+        <span class="sl-qty">
+            @(Model.Quantity.Value.ToString("0.###"))@(Model.UnitCode is not null ? " " + Model.UnitCode : "")
         </span>
     }
-</li>
+
+    @* Action buttons (hover-revealed shell; actions wired by plantry-853 / plantry-dem) *@
+    <div class="sl-actions" aria-label="Item actions">
+        @* Placeholder: actions populated by sibling beads (plantry-853, plantry-dem) *@
+    </div>
+</div>

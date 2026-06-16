@@ -1,9 +1,17 @@
-﻿<li class="shopping-item shopping-item--checked" id="shopping-item-Guid_1">
-	<label class="shopping-item__check-label" aria-label="Checked Flour">
-		<input type="checkbox" class="shopping-item__checkbox" checked="checked" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=CheckOff" hx-trigger="change" hx-target="#shopping-list" hx-swap="outerHTML">
-	</label>
-	<span class="shopping-item__name">Flour</span>
-	<span class="shopping-item__qty">
-		500&nbsp;L
+﻿<div class="sl-item done" id="shopping-item-Guid_1">
+	<button type="button" class="sl-check on" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=CheckOff" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Uncheck Flour">
+		<svg class="icon" aria-hidden="true">
+			<use href="#i-check"></use>
+		</svg>
+	</button>
+	<div class="sl-body">
+		<div class="sl-name">
+			Flour
+		</div>
+	</div>
+	<span class="sl-qty">
+		500 L
 	</span>
-</li>
+	<div class="sl-actions" aria-label="Item actions">
+	</div>
+</div>

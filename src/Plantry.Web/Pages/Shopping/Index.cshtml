@@ -2,53 +2,106 @@
 @model Plantry.Web.Pages.Shopping.IndexModel
 @{
     ViewData["Title"] = "Shopping";
+    var list = Model.ShoppingList;
+    var activeCount = list is not null ? list.TotalCount - list.CheckedCount : 0;
+    var checkedCount = list?.CheckedCount ?? 0;
+    var totalCount = list?.TotalCount ?? 0;
 }
 
-<div class="shopping-toolbar">
-    <h1 class="shopping-toolbar__title">Shopping list</h1>
-</div>
-
-@* Add item form (SPEC §3b) *@
-<div class="card" style="margin-bottom: var(--space-5)">
-    <div class="card__head">
+<div class="sl-wrap">
+    @* ── Header (sl-head) ──────────────────────────────────────────────── *@
+    <div class="sl-head">
         <div>
-            <h2 class="card__head-title">Add item</h2>
+            <h1>Shopping List</h1>
+            <p>One shared list for your household &middot; grouped by aisle.</p>
+        </div>
+        <div class="spacer"></div>
+        <div class="sl-summary">
+            <div class="ss">
+                <div class="n">@activeCount</div>
+                <div class="l">to buy</div>
+            </div>
+            <div class="ss done">
+                <div class="n">@checkedCount</div>
+                <div class="l">checked</div>
+            </div>
+            <div class="ss">
+                <div class="n">@totalCount</div>
+                <div class="l">total</div>
+            </div>
         </div>
     </div>
-    <div class="card__body">
-        <form class="form-grid" id="add-item-form"
+
+    @* ── Add item form (sl-add card, SPEC §3b) ─────────────────────────── *@
+    <div class="sl-add">
+        <form id="add-item-form"
               hx-post="@Url.Page("./Index", "AddItem")"
               hx-target="#shopping-list" hx-swap="outerHTML">
             @Html.AntiForgeryToken()
-            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert" style="grid-column: 1 / -1"></div>
 
-            @* Product search — uses the searchable-select component (component library) *@
-            <field asp-for="Input.ProductId" stacked label="Product">
-                <searchable-select asp-for="Input.ProductId"
-                                   items="Model.ProductOptions"
-                                   search-url="@Url.Page("./Index", "FilterProducts")"
-                                   placeholder="Search products…" />
-                <span asp-validation-for="Input.ProductId" class="field__error"></span>
-            </field>
+            <div class="sl-add-grid">
+                @* Catalog search — searchable-select component *@
+                <div class="sl-field">
+                    <label for="Input_ProductId">
+                        <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg>
+                        Search catalog
+                    </label>
+                    <searchable-select asp-for="Input.ProductId"
+                                       items="Model.ProductOptions"
+                                       search-url="@Url.Page("./Index", "FilterProducts")"
+                                       placeholder="e.g. Chicken Breast, Spinach…" />
+                </div>
 
-            @* OR: free-text name *@
-            <field asp-for="Input.FreeText" stacked label="Or free text">
-                <input asp-for="Input.FreeText" class="field__input" placeholder="e.g. Sriracha" maxlength="200" />
-                <span asp-validation-for="Input.FreeText" class="field__error"></span>
-            </field>
+                <div class="sl-or"><span>or</span></div>
 
-            <field asp-for="Input.Quantity" stacked label="Qty (optional)">
-                <input asp-for="Input.Quantity" class="field__input" type="number" step="any" min="0" placeholder="e.g. 2" />
-                <span asp-validation-for="Input.Quantity" class="field__error"></span>
-            </field>
-
-            <div style="grid-column: 1 / -1; display: flex; gap: var(--space-3)">
-                <button type="submit" class="btn btn--primary">Add to list</button>
+                @* Free-text custom item *@
+                <div class="sl-field">
+                    <label asp-for="Input.FreeText">
+                        <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                        Custom item
+                    </label>
+                    <input asp-for="Input.FreeText"
+                           class="sl-input"
+                           placeholder="e.g. Paper towels"
+                           maxlength="200" />
+                </div>
             </div>
+
+            @* Footer: qty stepper + unit (read-only) + Add button *@
+            <div class="sl-add-foot" x-data="{ qty: 1 }">
+                <div class="sl-field">
+                    <label asp-for="Input.Quantity">Quantity</label>
+                    <div class="sl-qty-stepper">
+                        <button type="button" class="sl-qbtn" aria-label="Decrease"
+                                @@click="qty = Math.max(0, +(qty - 1).toFixed(2))">
+                            <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                        </button>
+                        <input asp-for="Input.Quantity" type="number" min="0" step="any"
+                               x-model.number="qty" />
+                        <button type="button" class="sl-qbtn" aria-label="Increase"
+                                @@click="qty = +(qty + 1).toFixed(2)">
+                            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                        </button>
+                    </div>
+                </div>
+                @* Unit is read-only text until the unit-options bead lands *@
+                <div class="sl-field">
+                    <label>Unit</label>
+                    <span class="sl-qsel-ro">ea</span>
+                </div>
+                <div class="spacer"></div>
+                <button type="submit" class="btn btn--primary btn--lg">
+                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                    Add to list
+                </button>
+            </div>
+
+            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"
+                 style="margin-top: 12px"></div>
         </form>
     </div>
-</div>
 
-@* Shopping list fragment (groups + uncategorized + clear-checked) *@
-<partial name="_ShoppingList"
-         model="new Plantry.Web.Pages.Shopping.ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, false)" />
+    @* ── Shopping list fragment (groups + checked + empty) ─────────────── *@
+    <partial name="_ShoppingList"
+             model="new Plantry.Web.Pages.Shopping.ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, false)" />
+</div>
