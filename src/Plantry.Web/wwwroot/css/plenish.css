@@ -3553,6 +3553,18 @@ button.sl-qty:hover { background: var(--color-surface-3, var(--color-surface-2))
 .sl-recat-option:hover { background: var(--color-surface-2); }
 .sl-recat-menu form { display: block; }
 
+/* ---- colored-dot category pill (plantry-3dh.3): used in roomy contexts like the recat dropdown */
+.sl-cat-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 600; color: var(--color-text-muted);
+  background: var(--color-surface-2); border-radius: 9999px; padding: 2px 8px 2px 5px;
+  flex-shrink: 0;
+}
+.sl-cat-pill__dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--cdp-color, var(--color-text-faint));
+}
+
 .sl-actions { display: flex; align-items: center; gap: 5px; flex: none; opacity: 0; transition: opacity var(--transition-fast); }
 .sl-item:hover .sl-actions, .sl-item.menu-open .sl-actions { opacity: 1; }
 .sl-act {
