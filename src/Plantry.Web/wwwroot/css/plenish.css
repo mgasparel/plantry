@@ -3437,7 +3437,11 @@ button { font-family: inherit; cursor: pointer; }
 /* ---- list groups -------------------------------------------------------- */
 .sl-group {
   background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
-  margin-bottom: 14px; overflow: hidden;
+  margin-bottom: 14px;
+  /* overflow stays visible so the absolutely-positioned .sl-recat-menu can escape the
+     last row without being clipped (plantry-3dh.1 D). Rows have no background fill, so
+     square row corners do not bleed past the group's rounded border. */
+  overflow: visible;
 }
 .sl-group-head {
   display: flex; align-items: center; gap: 10px; padding: 13px 16px 11px;

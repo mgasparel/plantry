@@ -33,72 +33,10 @@
     </div>
 
     @* ── Add item form (sl-add card, SPEC §3b) ─────────────────────────── *@
+    @* Extracted to _AddForm so an AddItem POST can swap it out-of-band — clearing it on
+       success or re-rendering it with validation errors on failure (plantry-3dh.1 A/B/C). *@
     <div class="sl-add">
-        <form id="add-item-form"
-              hx-post="@Url.Page("./Index", "AddItem")"
-              hx-target="#shopping-list" hx-swap="outerHTML">
-            @Html.AntiForgeryToken()
-
-            <div class="sl-add-grid">
-                @* Catalog search — searchable-select component *@
-                <div class="sl-field">
-                    <label for="Input_ProductId">
-                        <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg>
-                        Search catalog
-                    </label>
-                    <searchable-select asp-for="Input.ProductId"
-                                       items="Model.ProductOptions"
-                                       search-url="@Url.Page("./Index", "FilterProducts")"
-                                       placeholder="e.g. Chicken Breast, Spinach…" />
-                </div>
-
-                <div class="sl-or"><span>or</span></div>
-
-                @* Free-text custom item *@
-                <div class="sl-field">
-                    <label asp-for="Input.FreeText">
-                        <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
-                        Custom item
-                    </label>
-                    <input asp-for="Input.FreeText"
-                           class="sl-input"
-                           placeholder="e.g. Paper towels"
-                           maxlength="200" />
-                </div>
-            </div>
-
-            @* Footer: qty stepper + unit (read-only) + Add button *@
-            <div class="sl-add-foot" x-data="{ qty: 1 }">
-                <div class="sl-field">
-                    <label asp-for="Input.Quantity">Quantity</label>
-                    <div class="sl-qty-stepper">
-                        <button type="button" class="sl-qbtn" aria-label="Decrease"
-                                @@click="qty = Math.max(0, +(qty - 1).toFixed(2))">
-                            <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                        </button>
-                        <input asp-for="Input.Quantity" type="number" min="0" step="any"
-                               x-model.number="qty" />
-                        <button type="button" class="sl-qbtn" aria-label="Increase"
-                                @@click="qty = +(qty + 1).toFixed(2)">
-                            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                        </button>
-                    </div>
-                </div>
-                @* Unit select: populated from household catalog units (plantry-259). *@
-                <div class="sl-field">
-                    <label asp-for="Input.UnitId">Unit</label>
-                    <select asp-for="Input.UnitId" asp-items="Model.UnitOptions" class="sl-qsel" aria-label="Unit"></select>
-                </div>
-                <div class="spacer"></div>
-                <button type="submit" class="btn btn--primary btn--lg">
-                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                    Add to list
-                </button>
-            </div>
-
-            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"
-                 style="margin-top: 12px"></div>
-        </form>
+        <partial name="_AddForm" model="Model" />
     </div>
 
     @* ── Shopping list fragment (groups + checked + empty) ─────────────── *@

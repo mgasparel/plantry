@@ -121,18 +121,18 @@ public sealed class IndexModel(
     /// </summary>
     public async Task<IActionResult> OnPostAddItemAsync()
     {
-        // Exactly one of ProductId / FreeText must be set.
         var hasProduct = Input.ProductId.HasValue;
         var hasFreeText = !string.IsNullOrWhiteSpace(Input.FreeText);
 
-        if (hasProduct == hasFreeText)
+        // Neither provided → surface a validation error back into the add form (plantry-3dh.1 C).
+        if (!hasProduct && !hasFreeText)
         {
-            ModelState.AddModelError(string.Empty, hasProduct
-                ? "Cannot supply both a product and a free-text name."
-                : "Choose a product or enter an item name.");
-            return await ReloadPageAsync();
+            ModelState.AddModelError(string.Empty, "Choose a product or enter an item name.");
+            return await RenderAddResultAsync();
         }
 
+        // A product selection wins over any leftover custom-item text, so picking a product
+        // always succeeds regardless of stale free-text in the box (plantry-3dh.1 B).
         var cmd = hasProduct
             ? new AddItemCommand(
                 productId: Input.ProductId,
@@ -165,14 +165,27 @@ public sealed class IndexModel(
         if (result.IsFailure)
         {
             ModelState.AddModelError(string.Empty, result.Error.Description);
-            return await ReloadPageAsync();
+            return await RenderAddResultAsync();
         }
 
+        // Success → reset the form so the out-of-band swap renders it cleared (plantry-3dh.1 A).
+        // ModelState must be cleared too, or the tag helpers re-bind the submitted values.
+        ModelState.Clear();
+        Input = new AddItemInputModel();
+        return await RenderAddResultAsync();
+    }
+
+    /// <summary>
+    /// Renders the AddItem POST response: the refreshed list fragment (main swap) plus the
+    /// add form as an out-of-band swap. On success the form is cleared; on failure it carries
+    /// the validation summary (plantry-3dh.1 A/C).
+    /// </summary>
+    private async Task<IActionResult> RenderAddResultAsync()
+    {
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
         Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        // Return the full shopping list fragment; hx-swap="outerHTML" on #shopping-list
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: true));
+        return Partial("_AddPostResult", this);
     }
 
     /// <summary>
@@ -353,14 +366,6 @@ public sealed class IndexModel(
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private async Task<IActionResult> ReloadPageAsync()
-    {
-        ShoppingList = await queryService.GetListAsync();
-        await LoadAddOptionsAsync();
-        Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
-    }
 
     private async Task LoadAddOptionsAsync()
     {

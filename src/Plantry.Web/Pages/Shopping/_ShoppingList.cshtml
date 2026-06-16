@@ -101,7 +101,9 @@
                     Checked off
                 </span>
                 <span class="spacer"></span>
-                <form method="post" action="@Url.Page("./Index", "ClearChecked")">
+                <form method="post" action="@Url.Page("./Index", "ClearChecked")"
+                      hx-post="@Url.Page("./Index", "ClearChecked")"
+                      hx-target="#shopping-list" hx-swap="outerHTML">
                     @Html.AntiForgeryToken()
                     <button type="submit" class="sl-clear">
                         <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
