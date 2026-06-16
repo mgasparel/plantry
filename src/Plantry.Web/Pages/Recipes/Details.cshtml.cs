@@ -19,7 +19,8 @@ public sealed class DetailsModel(
     ITagRepository tags,
     ICatalogProductReader catalog,
     FulfillmentService fulfillmentService,
-    CostingService costingService) : PageModel
+    CostingService costingService,
+    AddMissingToShoppingList addMissingService) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
@@ -70,6 +71,26 @@ public sealed class DetailsModel(
         var recipe = await recipes.GetByIdAsync(id, ct);
         if (recipe?.Photo is null) return NotFound();
         return File(recipe.Photo.Content, recipe.Photo.ContentType);
+    }
+
+    /// <summary>
+    /// htmx POST handler for the "Add X missing to shopping list" button (P2-4b, J5 step 6).
+    /// Calls <see cref="AddMissingToShoppingList"/> at <paramref name="servings"/>; on success
+    /// returns 200 OK (no body — the Alpine state flip is handled client-side via hx-on::after-request).
+    /// Returns 400 on invalid input, 403 on auth failure, 404 if the recipe was not found.
+    /// </summary>
+    public async Task<IActionResult> OnPostAddMissingAsync(int servings, CancellationToken ct)
+    {
+        var result = await addMissingService.ExecuteAsync(RecipeId.From(Id), servings, ct);
+        return result switch
+        {
+            AddMissingResult.Added          => new OkResult(),
+            AddMissingResult.NothingMissing => new OkResult(),  // idempotent — button tapped with 0 missing
+            AddMissingResult.NotFound       => NotFound(),
+            AddMissingResult.Unauthorized   => Forbid(),
+            AddMissingResult.Invalid        => BadRequest(),
+            _                               => StatusCode(500),
+        };
     }
 
     /// <summary>
