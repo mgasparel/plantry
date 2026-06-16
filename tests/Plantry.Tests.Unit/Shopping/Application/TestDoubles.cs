@@ -12,6 +12,27 @@ internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
 }
 
 /// <summary>
+/// In-memory <see cref="IShoppingPantryReader"/> for unit tests.
+/// Stock levels are registered per product id; unregistered products are omitted (as if never stocked).
+/// </summary>
+internal sealed class FakeShoppingPantryReader : IShoppingPantryReader
+{
+    private readonly Dictionary<Guid, ShoppingPantryStockLevel> _levels = [];
+
+    public void RegisterStock(Guid productId, ShoppingPantryStockLevel level) =>
+        _levels[productId] = level;
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingPantryStockLevel>> GetStockLevelsAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> result = productIds
+            .Where(_levels.ContainsKey)
+            .ToDictionary(id => id, id => _levels[id]);
+        return Task.FromResult(result);
+    }
+}
+
+/// <summary>
 /// Fake <see cref="IShoppingCatalogReader"/> for unit tests.
 /// The conversion table is a dictionary keyed by (fromUnitId, toUnitId, productId) → converted amount,
 /// populated per-test. All other methods return empty stubs.

@@ -19,6 +19,7 @@ namespace Plantry.Web.Pages.Shopping;
 public sealed class IndexModel(
     ShoppingListQueryService queryService,
     IShoppingCatalogReader catalog,
+    IShoppingPantryReader pantry,
     IShoppingListRepository repository,
     IClock clock,
     ITenantContext tenant) : PageModel
@@ -60,7 +61,8 @@ public sealed class IndexModel(
 
     /// <summary>
     /// htmx product search handler for the searchable-select on the add form.
-    /// Returns matching product options as HTML option elements.
+    /// Returns matching product options as HTML option elements, enriched with pantry
+    /// stock hints (.ostock) via the <see cref="IShoppingPantryReader"/> port.
     /// </summary>
     public async Task<ContentResult> OnGetFilterProductsAsync(string? q)
     {
@@ -68,10 +70,34 @@ public sealed class IndexModel(
         var matches = candidates
             .Where(p => string.IsNullOrWhiteSpace(q) || p.Name.Contains(q.Trim(), StringComparison.OrdinalIgnoreCase))
             .Take(20)
-            .Select(p => new SelectListItem(p.Name, p.ProductId.ToString()));
+            .ToList();
 
+        // Enrich with stock levels for all matching products in one batch call.
+        var productIds = matches.Select(p => p.ProductId).ToList();
+        var stockLevels = productIds.Count > 0
+            ? await pantry.GetStockLevelsAsync(productIds)
+            : (IReadOnlyDictionary<Guid, ShoppingPantryStockLevel>)new Dictionary<Guid, ShoppingPantryStockLevel>();
+
+        var enc = HtmlEncoder.Default;
         var html = new StringBuilder();
-        SearchableSelectTagHelper.AppendOptions(html, matches, HtmlEncoder.Default);
+        foreach (var match in matches)
+        {
+            html.Append($"""<li role="option" data-value="{enc.Encode(match.ProductId.ToString())}" @click="select($el.dataset.value, $el.querySelector('[data-label]')?.dataset.label ?? $el.textContent.trim())">""");
+            html.Append($"""<span data-label="{enc.Encode(match.Name)}">{enc.Encode(match.Name)}</span>""");
+            if (stockLevels.TryGetValue(match.ProductId, out var stock))
+            {
+                if (stock.OnHand > 0)
+                {
+                    var lowClass = stock.IsLow ? " low" : "";
+                    html.Append($"""<span class="ostock{lowClass}">{enc.Encode(stock.OnHand.ToString("0.###"))} {enc.Encode(stock.UnitCode)} in pantry</span>""");
+                }
+                else
+                {
+                    html.Append("""<span class="ostock out">out</span>""");
+                }
+            }
+            html.Append("</li>");
+        }
         return Content(html.ToString(), "text/html");
     }
 

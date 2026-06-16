@@ -20,10 +20,30 @@ public sealed record ShoppingListItemView(
     string? Note,
     bool IsChecked,
     System.DateTimeOffset? CheckedAt,
-    System.DateTimeOffset CreatedAt)
+    System.DateTimeOffset CreatedAt,
+    /// <summary>
+    /// On-hand quantity in the product's display unit, enriched via <see cref="IShoppingPantryReader"/>.
+    /// Null for free-text items (no product id) or when the product has no stock record in Inventory.
+    /// </summary>
+    decimal? OnHand = null,
+    /// <summary>
+    /// Display unit code for the on-hand quantity (e.g. "g", "ea"). Null when <see cref="OnHand"/> is null.
+    /// </summary>
+    string? PantryUnitCode = null,
+    /// <summary>
+    /// True when the pantry stock is at or below par (or zero). Null when <see cref="OnHand"/> is null.
+    /// Shopping renders this as the "· low" warning sub-line.
+    /// </summary>
+    bool? IsLow = null)
 {
     /// <summary>Display label — product name or free-text, never null for a well-formed item.</summary>
     public string DisplayName => ProductName ?? FreeText ?? "(unnamed)";
+
+    /// <summary>
+    /// True when pantry stock data is available for this item (i.e. it is a product-backed item
+    /// with a stock record in Inventory). Drives the .sl-instock sub-line visibility.
+    /// </summary>
+    public bool HasPantryStock => OnHand.HasValue;
 }
 
 /// <summary>

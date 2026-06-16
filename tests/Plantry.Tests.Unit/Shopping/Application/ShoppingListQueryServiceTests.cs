@@ -8,9 +8,11 @@ namespace Plantry.Tests.Unit.Shopping.Application;
 /// <summary>
 /// L2 unit tests for <see cref="ShoppingListQueryService"/>.
 /// Verifies that Note and CategoryHue round-trip through the view model
-/// (plantry-77f acceptance criteria). CategoryCode derivation is intentionally
-/// not in the read model — downstream markup feeds <c>CatChipViewModel(CategoryName, CategoryHue)</c>
-/// to the shared <c>_CatChip</c> partial, which owns the code derivation.
+/// (plantry-77f acceptance criteria), and that pantry stock levels (on-hand / IsLow)
+/// are enriched via the Shopping→Inventory ACL port (plantry-juh).
+/// CategoryCode derivation is intentionally not in the read model — downstream markup
+/// feeds <c>CatChipViewModel(CategoryName, CategoryHue)</c> to the shared <c>_CatChip</c>
+/// partial, which owns the code derivation.
 /// </summary>
 public sealed class ShoppingListQueryServiceTests
 {
@@ -24,9 +26,14 @@ public sealed class ShoppingListQueryServiceTests
 
     private ShoppingListQueryService BuildService(
         FakeShoppingListRepository repo,
-        FakeShoppingCatalogReaderWithSummaries catalog)
+        FakeShoppingCatalogReaderWithSummaries catalog,
+        FakeShoppingPantryReader? pantryReader = null)
     {
-        return new ShoppingListQueryService(repo, catalog, new FakeTenantContext(_household));
+        return new ShoppingListQueryService(
+            repo,
+            catalog,
+            pantryReader ?? new FakeShoppingPantryReader(),
+            new FakeTenantContext(_household));
     }
 
     private ShoppingList SeedListWithProductItem(
@@ -178,6 +185,94 @@ public sealed class ShoppingListQueryServiceTests
         var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
         Assert.Equal(55, item.CategoryHue);
         Assert.Equal("mature preferred", item.Note);
+    }
+
+    // ── Pantry stock enrichment (plantry-juh) ─────────────────────────────────
+
+    [Fact(DisplayName = "GetList — product with stock: OnHand and PantryUnitCode populated on view model")]
+    public async Task GetList_ProductWithStock_OnHandAndUnitCodePopulated()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Milk", "Dairy"));
+
+        var pantry = new FakeShoppingPantryReader();
+        pantry.RegisterStock(_productId, new ShoppingPantryStockLevel(_productId, 2.5m, "L", IsLow: false));
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, pantry);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(2.5m, item.OnHand);
+        Assert.Equal("L", item.PantryUnitCode);
+        Assert.False(item.IsLow);
+        Assert.True(item.HasPantryStock);
+    }
+
+    [Fact(DisplayName = "GetList — product with zero stock: IsLow = true")]
+    public async Task GetList_ProductWithZeroStock_IsLowTrue()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Eggs", "Dairy"));
+
+        var pantry = new FakeShoppingPantryReader();
+        pantry.RegisterStock(_productId, new ShoppingPantryStockLevel(_productId, 0m, "ea", IsLow: true));
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, pantry);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(0m, item.OnHand);
+        Assert.True(item.IsLow);
+        Assert.True(item.HasPantryStock);
+    }
+
+    [Fact(DisplayName = "GetList — product with no inventory record: OnHand null, HasPantryStock false")]
+    public async Task GetList_ProductWithNoStockRecord_OnHandNullHasPantryStockFalse()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Flour", "Baking"));
+
+        // Pantry reader returns empty — product has never been stocked.
+        var pantry = new FakeShoppingPantryReader();
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, pantry);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Null(item.OnHand);
+        Assert.Null(item.PantryUnitCode);
+        Assert.Null(item.IsLow);
+        Assert.False(item.HasPantryStock);
+    }
+
+    [Fact(DisplayName = "GetList — free-text item: HasPantryStock false regardless of pantry reader")]
+    public async Task GetList_FreeTextItem_HasPantryStockFalse()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        var pantry = new FakeShoppingPantryReader();
+
+        SeedListWithFreeTextItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, pantry);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.UncategorizedItems);
+        Assert.False(item.HasPantryStock);
+        Assert.Null(item.OnHand);
     }
 }
 

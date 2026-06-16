@@ -28,13 +28,36 @@
                 <span class="free-tag">custom</span>
             }
         </div>
-        @if (!Model.IsChecked && hasNote)
+        @if (!Model.IsChecked && (hasNote || Model.HasPantryStock))
         {
             <div class="sl-sub">
-                <span class="sl-note">
-                    <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
-                    @Model.Note
-                </span>
+                @if (Model.HasPantryStock)
+                {
+                    if (Model.OnHand > 0)
+                    {
+                        <span class="sl-instock">@(Model.OnHand!.Value.ToString("0.###")) @Model.PantryUnitCode in pantry</span>
+                    }
+                    else
+                    {
+                        <span class="sl-instock out">out</span>
+                    }
+                    @if (Model.IsLow == true)
+                    {
+                        <span class="dot" aria-hidden="true"></span>
+                        <span class="sl-low">low</span>
+                    }
+                }
+                @if (hasNote && Model.HasPantryStock)
+                {
+                    <span class="dot" aria-hidden="true"></span>
+                }
+                @if (hasNote)
+                {
+                    <span class="sl-note">
+                        <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                        @Model.Note
+                    </span>
+                }
             </div>
         }
     </div>
