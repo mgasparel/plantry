@@ -25,13 +25,21 @@ public sealed record ReviewProductOption(
     Guid? DefaultLocationId,
     IReadOnlyList<ReviewSkuOption> Skus,
     /// <summary>Default shelf-life in days from the date of purchase — null when the product has no expiry default.</summary>
-    int? DefaultDueDays = null);
+    int? DefaultDueDays = null,
+    /// <summary>Category id of this product. Null when uncategorised.</summary>
+    Guid? CategoryId = null,
+    /// <summary>Hue in degrees (0–359) from the product's category. Null when uncategorised or no hue assigned.</summary>
+    int? CategoryHue = null);
 
 public sealed record ReviewUnitOption(Guid Id, string Code, string Name);
 
 public sealed record ReviewLocationOption(Guid Id, string Name);
 
-public sealed record ReviewCategoryOption(Guid Id, string Name);
+public sealed record ReviewCategoryOption(
+    Guid Id,
+    string Name,
+    /// <summary>Hue in degrees (0–359) on the oklch colour wheel. Null means no hue assigned (renders neutral chip).</summary>
+    int? Hue = null);
 
 public sealed record ReviewReferenceData(
     IReadOnlyList<ReviewProductOption> Products,

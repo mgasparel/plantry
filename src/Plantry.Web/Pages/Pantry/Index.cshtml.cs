@@ -163,7 +163,7 @@ public sealed class IndexModel(
             Rows: [.. rows.Select(item => new GridRow(
             [
                 GridCell.Link(item.Name, $"/Pantry/Products/Detail/{item.ProductId}"),
-                item.CategoryName is { } cat ? GridCell.Text(cat) : GridCell.Muted("—"),
+                GridCell.CategoryChip(item.CategoryName, item.CategoryHue),
                 item.LocationDisplay is { } loc ? GridCell.Text(loc) : GridCell.Muted("—"),
                 item.IsVariant ? GridCell.Badge("Variant", BadgeTone.Neutral) : GridCell.Muted("—"),
                 GridCell.Text($"{item.TotalQuantity:0.###} {item.DisplayUnitCode}"),

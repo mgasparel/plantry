@@ -25,16 +25,26 @@ public sealed class ReviewReferenceDataProvider(
 
         var unitCodesById = activeUnits.ToDictionary(u => u.Id, u => u.Code);
 
+        var categoriesById = activeCategories.ToDictionary(c => c.Id);
+
         var productOptions = activeProducts
             .Where(p => p.CanHoldStock)
-            .Select(p => new ReviewProductOption(
-                p.Id.Value,
-                p.Name,
-                unitCodesById.TryGetValue(p.DefaultUnitId, out var code) ? code : "?",
-                p.DefaultUnitId.Value,
-                p.DefaultLocationId?.Value,
-                p.Skus.Select(s => new ReviewSkuOption(s.Id.Value, s.Label)).ToList(),
-                DefaultDueDays: p.DefaultDueDays))
+            .Select(p =>
+            {
+                var categoryHue = p.CategoryId is { } cid && categoriesById.TryGetValue(cid, out var cat)
+                    ? cat.Hue
+                    : null;
+                return new ReviewProductOption(
+                    p.Id.Value,
+                    p.Name,
+                    unitCodesById.TryGetValue(p.DefaultUnitId, out var code) ? code : "?",
+                    p.DefaultUnitId.Value,
+                    p.DefaultLocationId?.Value,
+                    p.Skus.Select(s => new ReviewSkuOption(s.Id.Value, s.Label)).ToList(),
+                    DefaultDueDays: p.DefaultDueDays,
+                    CategoryId: p.CategoryId?.Value,
+                    CategoryHue: categoryHue);
+            })
             .ToList();
 
         var unitOptions = activeUnits
@@ -46,7 +56,7 @@ public sealed class ReviewReferenceDataProvider(
             .ToList();
 
         var categoryOptions = activeCategories
-            .Select(c => new ReviewCategoryOption(c.Id.Value, c.Name))
+            .Select(c => new ReviewCategoryOption(c.Id.Value, c.Name, c.Hue))
             .ToList();
 
         return new ReviewReferenceData(productOptions, unitOptions, locationOptions, categoryOptions);

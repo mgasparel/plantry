@@ -65,6 +65,7 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             b.Property(c => c.Name).HasColumnName("name").HasMaxLength(100).IsRequired();
             b.Property(c => c.DefaultDueDays).HasColumnName("default_due_days");
             b.Property(c => c.SortOrder).HasColumnName("sort_order");
+            b.Property(c => c.Hue).HasColumnName("hue");
             b.Property(c => c.ArchivedAt).HasColumnName("archived_at");
 
             b.HasIndex(c => new { c.HouseholdId, c.Name }).IsUnique();

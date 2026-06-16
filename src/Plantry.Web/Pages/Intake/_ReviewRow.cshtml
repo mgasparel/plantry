@@ -1,4 +1,5 @@
 @using System.Globalization
+@using Plantry.Intake.Application
 @using Plantry.Intake.Domain
 @using Plantry.Web.Pages.Intake
 @*
@@ -106,6 +107,30 @@
     var rowError = ViewData["RowError"] as string;
     var openDrawer = startOpen || !string.IsNullOrEmpty(rowError);
 
+    // Category chip — resolve chip hue + code for this row.
+    // Priority: new-product chosen category > matched/pre-fill product's category.
+    var categoryById = page.Session.ReferenceData.Categories
+        .ToDictionary(c => c.Id);
+    var productById = page.Session.ReferenceData.Products
+        .ToDictionary(p => p.Id);
+
+    ReviewCategoryOption? chipCategory = null;
+    if (line.IsNewProduct && line.NewProductCategoryId is { } newCatId && categoryById.TryGetValue(newCatId, out var newCat))
+        chipCategory = newCat;
+    else if (!line.IsNewProduct && rowModel.PrefillProductId is { } chipPrefillPid
+             && productById.TryGetValue(chipPrefillPid, out var chipPrefillProd)
+             && chipPrefillProd.CategoryId is { } prodCatId
+             && categoryById.TryGetValue(prodCatId, out var prodCat))
+        chipCategory = prodCat;
+
+    int? chipHue = chipCategory?.Hue;
+    string chipCode = chipCategory?.Name is { Length: >= 2 } n ? n[..2].ToUpperInvariant()
+        : chipCategory?.Name is { Length: 1 } n1 ? n1.ToUpperInvariant()
+        : "?";
+    var chipStyle = chipHue.HasValue
+        ? $"--cc-bg: oklch(0.92 0.045 {chipHue}); --cc-fg: oklch(0.42 0.105 {chipHue})"
+        : null;
+
     // ADR-013 step 6 — v (qty) and d (expiry) are part of the row's JSON x-data; no interpolated JS literals.
     decimal? qtyInit = rowModel.PrefillQuantity;
     string? expiryInit = string.IsNullOrEmpty(expiryValue) ? null : expiryValue;
@@ -195,8 +220,15 @@
         else
         {
             <div class="import-row__main">
-                @* Category color chip — neutral placeholder; real hue wired by the Category-color-chips bead *@
-                <div class="cat-chip cat-chip--neutral">?</div>
+                @* Category color chip — hue derived from the matched product's category (or new-product category). *@
+                @if (chipHue.HasValue)
+                {
+                    <div class="cat-chip" style="@chipStyle">@chipCode</div>
+                }
+                else
+                {
+                    <div class="cat-chip cat-chip--neutral">?</div>
+                }
 
                 <div class="import-row__id">
                     <div class="import-row__name">
