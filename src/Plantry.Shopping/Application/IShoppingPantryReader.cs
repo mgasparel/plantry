@@ -23,6 +23,16 @@ public interface IShoppingPantryReader
     Task<IReadOnlyDictionary<Guid, ShoppingPantryStockLevel>> GetStockLevelsAsync(
         IReadOnlyList<Guid> productIds,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns all household pantry products with <see cref="ShoppingPantryStockLevel.IsLow"/> set to
+    /// <c>true</c> (at or below par, or with no active stock). Used by the "Running low in your pantry"
+    /// suggestions strip (plantry-48l) to discover which products to surface regardless of whether they
+    /// are already on the current shopping list. The caller is responsible for excluding products already
+    /// present on the list and for applying the display cap.
+    /// </summary>
+    Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
+        CancellationToken ct = default);
 }
 
 /// <summary>

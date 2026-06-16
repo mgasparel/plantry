@@ -1905,3 +1905,57 @@
     </div>
     <pre class="code-sample"><code>@("<!-- Checked section header -->\n<div class=\"sl-checked-head\">\n  <span class=\"lbl\">\n    <svg class=\"icon\"><use href=\"#i-check\"/></svg> Checked off\n  </span>\n  <span class=\"spacer\"></span>\n  <form method=\"post\" action=\"/Shopping?handler=ClearChecked\">\n    @AntiForgeryToken\n    <button type=\"submit\" class=\"sl-clear\">\n      <svg class=\"icon\"><use href=\"#i-trash\"/></svg>\n      Clear {count} checked {item|items}\n    </button>\n  </form>\n</div>\n\n<!-- Empty state -->\n<div class=\"sl-empty\">\n  <div class=\"big\">Your list is empty</div>\n  Add a product from the catalog or type a custom item above.\n</div>")</code></pre>
 </section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Shopping List — "Running low in your pantry" suggestions strip (<code>.sl-suggest</code>, <code>.sl-sug</code>) (plantry-48l)</h2>
+    </div>
+    <p>
+        <code>.sl-suggest</code> is a card rendered ABOVE the category groups when there are pantry products
+        at or below par that are NOT already on the active list (capped at 5). The strip heading
+        (<code>.sl-suggest-label</code>) is in warning colour. Each chip (<code>.sl-sug</code>) shows:
+        the shared <code>_CatChip</code> partial (colour dot / category code), the product name (<code>.sl-sug-name</code>),
+        a stock label (<code>.sl-sug-stock</code> — "N unit left" or "out"), and a round <code>.sadd</code>
+        button (accent background, plus icon) that POSTs to <code>?handler=AddItem</code> with just
+        <code>Input.ProductId</code> set. On POST htmx swaps <code>#shopping-list</code> with
+        <code>outerHTML</code> — the strip automatically disappears for the added product in the refreshed
+        fragment.
+    </p>
+    <div style="max-width: 700px">
+        @{
+            var devSugChip1 = new Plantry.Web.Pages.Shared.CatChipViewModel("Dairy", 200);
+            var devSugChip2 = new Plantry.Web.Pages.Shared.CatChipViewModel("Produce", 130);
+            var devSugChip3 = new Plantry.Web.Pages.Shared.CatChipViewModel(null, null);
+        }
+        <div class="sl-suggest" aria-label="Running low in your pantry">
+            <div class="sl-suggest-label">Running low in your pantry</div>
+            <div class="sl-sug-chips">
+                <div class="sl-sug">
+                    <partial name="Shared/_CatChip" model="devSugChip1" />
+                    <span class="sl-sug-name">Whole Milk</span>
+                    <span class="sl-sug-stock">0.5 L left</span>
+                    <button type="button" class="sadd" aria-label="Add Whole Milk to list">
+                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                    </button>
+                </div>
+                <div class="sl-sug">
+                    <partial name="Shared/_CatChip" model="devSugChip2" />
+                    <span class="sl-sug-name">Spinach</span>
+                    <span class="sl-sug-stock out">out</span>
+                    <button type="button" class="sadd" aria-label="Add Spinach to list">
+                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                    </button>
+                </div>
+                <div class="sl-sug">
+                    <partial name="Shared/_CatChip" model="devSugChip3" />
+                    <span class="sl-sug-name">Flour</span>
+                    <span class="sl-sug-stock out">out</span>
+                    <button type="button" class="sadd" aria-label="Add Flour to list">
+                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<!-- Rendered above category groups in _ShoppingList.cshtml when Model.Suggestions.Count > 0 -->\n<div class=\"sl-suggest\" aria-label=\"Running low in your pantry\">\n  <div class=\"sl-suggest-label\">Running low in your pantry</div>\n  <div class=\"sl-sug-chips\">\n    @foreach (var sug in Model.Suggestions)\n    {\n      <div class=\"sl-sug\">\n        <partial name=\"Shared/_CatChip\" model=\"new CatChipViewModel(sug.CategoryName, sug.CategoryHue)\" />\n        <span class=\"sl-sug-name\">@sug.Name</span>\n        <span class=\"sl-sug-stock @(sug.OnHand <= 0 ? \\\"out\\\" : \\\"\\\")\">@sug.StockLabel</span>\n        <form method=\"post\" hx-post=\"/Shopping?handler=AddItem\"\n              hx-target=\"#shopping-list\" hx-swap=\"outerHTML\">\n          @AntiForgeryToken\n          <input type=\"hidden\" name=\"Input.ProductId\" value=\"@sug.ProductId\" />\n          <button type=\"submit\" class=\"sadd\" aria-label=\"Add @sug.Name to list\">\n            <svg class=\"icon\"><use href=\"#i-plus\"/></svg>\n          </button>\n        </form>\n      </div>\n    }\n  </div>\n</div>")</code></pre>
+</section>

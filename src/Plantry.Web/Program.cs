@@ -175,6 +175,7 @@ builder.Services.AddScoped<IShoppingCatalogReader, ShoppingCatalogReaderAdapter>
 builder.Services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>();
 
 builder.Services.AddScoped<ShoppingListQueryService>();
+builder.Services.AddScoped<PantrySuggestionService>();
 
 // Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +
 // Web-adapter seam: Recipes.Application owns the interfaces, these implement them over Catalog's
