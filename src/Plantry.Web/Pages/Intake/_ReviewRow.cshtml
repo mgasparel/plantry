@@ -123,13 +123,7 @@
              && categoryById.TryGetValue(prodCatId, out var prodCat))
         chipCategory = prodCat;
 
-    int? chipHue = chipCategory?.Hue;
-    string chipCode = chipCategory?.Name is { Length: >= 2 } n ? n[..2].ToUpperInvariant()
-        : chipCategory?.Name is { Length: 1 } n1 ? n1.ToUpperInvariant()
-        : "?";
-    var chipStyle = chipHue.HasValue
-        ? $"--cc-bg: oklch(0.92 0.045 {chipHue}); --cc-fg: oklch(0.42 0.105 {chipHue})"
-        : null;
+    var catChip = new Plantry.Web.Pages.Shared.CatChipViewModel(chipCategory?.Name, chipCategory?.Hue);
 
     // ADR-013 step 6 — v (qty) and d (expiry) are part of the row's JSON x-data; no interpolated JS literals.
     decimal? qtyInit = rowModel.PrefillQuantity;
@@ -221,14 +215,7 @@
         {
             <div class="import-row__main">
                 @* Category color chip — hue derived from the matched product's category (or new-product category). *@
-                @if (chipHue.HasValue)
-                {
-                    <div class="cat-chip" style="@chipStyle">@chipCode</div>
-                }
-                else
-                {
-                    <div class="cat-chip cat-chip--neutral">?</div>
-                }
+                <partial name="Shared/_CatChip" model="catChip" />
 
                 <div class="import-row__id">
                     <div class="import-row__name">

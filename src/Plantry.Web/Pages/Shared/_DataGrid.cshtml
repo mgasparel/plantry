@@ -87,23 +87,8 @@ else
                                     <span class="badge @ToneClass(cell.Tone)">@cell.Value</span>
                                     break;
                                 case GridCellKind.CategoryChip:
-                                {
-                                    // Chip code = first two letters of category name, uppercased.
-                                    var chipName = cell.Value;
-                                    var chipCode = chipName is { Length: >= 2 } ? chipName[..2].ToUpperInvariant()
-                                        : chipName is { Length: 1 } ? chipName[..1].ToUpperInvariant()
-                                        : "?";
-                                    var chipHueVal = cell.Hue;
-                                    if (chipHueVal.HasValue)
-                                    {
-                                        <div class="cat-chip" style="--cc-bg: oklch(0.92 0.045 @chipHueVal); --cc-fg: oklch(0.42 0.105 @chipHueVal)">@chipCode</div>
-                                    }
-                                    else
-                                    {
-                                        <div class="cat-chip cat-chip--neutral">?</div>
-                                    }
+                                    <partial name="Shared/_CatChip" model="new Plantry.Web.Pages.Shared.CatChipViewModel(cell.Value, cell.Hue)" />
                                     break;
-                                }
                                 case GridCellKind.Actions:
                                     foreach (var action in cell.Items)
                                     {
