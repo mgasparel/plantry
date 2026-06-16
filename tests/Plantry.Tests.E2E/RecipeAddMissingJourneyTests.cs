@@ -112,10 +112,18 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
             // Button should NOT be disabled.
             await Assertions.Expect(addMissingBtn).ToBeEnabledAsync();
 
-            // ── Step 5: Tap the button and assert it flips to "Added" ─────────────
-            await addMissingBtn.ClickAsync();
-            // The button shows "Added" after the htmx POST succeeds (Alpine state flip).
-            await Assertions.Expect(addMissingBtn).ToContainTextAsync("Added");
+            // ── Step 5: Tap the button and wait for the htmx POST to round-trip ───
+            // The button keeps BOTH the "Add … missing" and "Added" spans in the DOM permanently
+            // (Alpine x-show/x-cloak only toggle display:none), so a textContent assertion such as
+            // ToContainText("Added") matches the hidden span INSTANTLY and does not wait for the
+            // POST. Gate on the POST response and the user-visible disabled state instead — the
+            // button is disabled (:disabled="missingAdded") only after htmx:after-request fires on a
+            // successful 2xx, which is sent only after the server has committed the write. This
+            // guarantees the row is persisted before we navigate to /Shopping.
+            await page.RunAndWaitForResponseAsync(
+                async () => await addMissingBtn.ClickAsync(),
+                r => r.Url.Contains("handler=AddMissing") && r.Status == 200);
+            await Assertions.Expect(addMissingBtn).ToBeDisabledAsync();
 
             // ── Step 6: Navigate to Shopping and assert the ingredient appears ─────
             await page.GotoAsync($"{BaseUrl}/Shopping");
@@ -158,7 +166,7 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
         await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            @"SELECT COUNT(*) FROM shopping.shopping_item
+            @"SELECT COUNT(*) FROM shopping.shopping_list_item
               WHERE product_id = @p AND source = 'recipe'",
             conn);
         cmd.Parameters.AddWithValue("@p", productId);
