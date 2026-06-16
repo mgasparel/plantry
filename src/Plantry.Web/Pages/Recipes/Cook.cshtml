@@ -11,14 +11,15 @@
 
 @* ── Alpine scope: per-line skip state + variant picker selections ────────── *@
 <div id="cook-confirm"
-     x-data="cookConfirm(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+     x-data="cookConfirm(@System.Text.Json.JsonSerializer.Serialize(
          cook.Lines.Where(l => !l.IsUntracked).Select(l => new {
              id = l.IngredientId.ToString(),
              variantId = l.IsParent && l.VariantOptions.Any(v => v.IsAutoSelected)
                  ? l.VariantOptions.First(v => v.IsAutoSelected).VariantId.ToString()
-                 : (string?)null
+                 : (string?)null,
+             qty = l.ScaledQuantity.HasValue ? (object)l.ScaledQuantity.Value : null
          })
-     )))">
+     ))">
 
     <div class="rd-wrap">
         <a href="/Recipes/@cook.RecipeId" class="rd-back">
@@ -128,14 +129,30 @@
                                             }
                                         </div>
 
-                                        @* Quantity display *@
+                                        @* Quantity stepper (C9 modify) — only when ScaledQuantity known *@
                                         @if (line.ScaledQuantity.HasValue)
                                         {
-                                            <div class="cook-ing-row__qty">
-                                                @FormatQty(line.ScaledQuantity.Value)
+                                            <div class="cook-ing-row__qty-edit">
+                                                <div class="qty-stepper">
+                                                    <button type="button" class="qty-btn" aria-label="Decrease"
+                                                            @@click="adjustQty('@ingIdStr', -1)"
+                                                            :disabled="isSkipped('@ingIdStr')">
+                                                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                                    </button>
+                                                    <input class="field__input" type="number" min="0" step="any"
+                                                           style="text-align:center"
+                                                           :value="quantity('@ingIdStr')"
+                                                           @@input="setQuantity('@ingIdStr', $event.target.value)"
+                                                           :disabled="isSkipped('@ingIdStr')" />
+                                                    <button type="button" class="qty-btn" aria-label="Increase"
+                                                            @@click="adjustQty('@ingIdStr', 1)"
+                                                            :disabled="isSkipped('@ingIdStr')">
+                                                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                                    </button>
+                                                </div>
                                                 @if (!string.IsNullOrEmpty(line.UnitCode))
                                                 {
-                                                    <span> @line.UnitCode</span>
+                                                    <span class="cook-ing-row__unit">@line.UnitCode</span>
                                                 }
                                             </div>
                                         }
@@ -262,6 +279,11 @@
                                 <input type="hidden" name="SkippedIngredientIds" :value="ingId" />
                             </template>
 
+                            @* Quantity overrides — emitted only for lines the user changed (C9 modify) *@
+                            <template x-for="m in modifiedQuantities" :key="m.id">
+                                <input type="hidden" :name="`QuantityOverrides[${m.id}]`" :value="m.qty" />
+                            </template>
+
                             @* Variant picker selections (hidden inputs emitted per parent-product line above) *@
 
                             <div class="cook-rail-summary">
@@ -303,13 +325,21 @@
 @section Scripts {
 <script>
 function cookConfirm(lines) {
-    // lines: [{id: "guid", variantId: "guid-or-null"}, ...]
+    // lines: [{id: "guid", variantId: "guid-or-null", qty: <number|null>}, ...]
     return {
         // Track which ingredients are skipped.
         skippedIds: [],
         // Track variant picker selections: {[ingId]: variantId}.
         _variants: Object.fromEntries(
             lines.filter(l => l.variantId).map(l => [l.id, l.variantId])
+        ),
+        // Track quantity values: {[ingId]: number}.
+        _quantities: Object.fromEntries(
+            lines.filter(l => l.qty != null).map(l => [l.id, l.qty])
+        ),
+        // Original (scaled) quantities for change detection.
+        _origQuantities: Object.fromEntries(
+            lines.filter(l => l.qty != null).map(l => [l.id, l.qty])
         ),
 
         isSkipped(ingId) { return this.skippedIds.includes(ingId); },
@@ -322,6 +352,27 @@ function cookConfirm(lines) {
         },
         pickerVariant(ingId) { return this._variants[ingId] ?? null; },
         setVariant(ingId, variantId) { this._variants[ingId] = variantId; },
+        quantity(ingId) {
+            const v = this._quantities[ingId];
+            return v != null ? v : '';
+        },
+        setQuantity(ingId, raw) {
+            const n = parseFloat(raw);
+            this._quantities[ingId] = (!isNaN(n) && n >= 0) ? n : null;
+        },
+        adjustQty(ingId, delta) {
+            const cur = this._quantities[ingId] ?? this._origQuantities[ingId] ?? 0;
+            const next = Math.max(0, cur + delta);
+            this._quantities[ingId] = next;
+        },
+        get modifiedQuantities() {
+            return Object.entries(this._quantities)
+                .filter(([id, v]) => {
+                    if (v == null || isNaN(v) || v < 0) return false;
+                    return v !== (this._origQuantities[id] ?? null);
+                })
+                .map(([id, qty]) => ({ id, qty }));
+        },
         get activeCount() {
             return @trackedLines.Count - this.skippedIds.length;
         },

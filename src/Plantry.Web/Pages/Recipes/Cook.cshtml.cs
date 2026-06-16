@@ -57,6 +57,15 @@ public sealed class CookModel(
     [BindProperty]
     public List<PickerSelectionInput> PickerSelections { get; set; } = [];
 
+    /// <summary>
+    /// Per-line quantity overrides from the Cook page qty-stepper (C9 modify).
+    /// Key = IngredientId, Value = user-entered quantity. Only present when the user
+    /// changed a quantity from its scaled default. Posted as
+    /// <c>QuantityOverrides[{guid}]={value}</c> hidden inputs emitted by Alpine.
+    /// </summary>
+    [BindProperty]
+    public Dictionary<Guid, decimal> QuantityOverrides { get; set; } = [];
+
     public async Task<IActionResult> OnGetAsync(CancellationToken ct)
     {
         var id = RecipeId.From(Id);
@@ -303,14 +312,27 @@ public sealed class CookModel(
                 continue;
             }
 
+            var scaledQty = ingredient.Quantity.HasValue ? ingredient.Quantity.Value * scale : 0m;
+            var hasOverride = QuantityOverrides.TryGetValue(ingId.Value, out var ovr) && ovr >= 0m;
+            var effectiveQty = hasOverride ? ovr : scaledQty;
+
             if (pickerIndex.TryGetValue(ingId.Value, out var chosenVariantId))
             {
-                // User selected a specific variant; allocate the scaled quantity to it.
-                var scaledQty = ingredient.Quantity.HasValue ? ingredient.Quantity.Value * scale : 0m;
+                // User selected a specific variant; allocate the effective quantity to it.
                 var unitId = ingredient.UnitId ?? Guid.Empty;
                 resolutions.Add(new IngredientResolution(ingId, IsSkipped: false, Allocations:
                 [
-                    new VariantAllocation(chosenVariantId, scaledQty, unitId),
+                    new VariantAllocation(chosenVariantId, effectiveQty, unitId),
+                ]));
+            }
+            else if (hasOverride)
+            {
+                // Leaf ingredient with a quantity override: emit an explicit resolution so
+                // CookRecipe uses the user-entered quantity rather than the scaled default.
+                var unitId = ingredient.UnitId ?? Guid.Empty;
+                resolutions.Add(new IngredientResolution(ingId, IsSkipped: false, Allocations:
+                [
+                    new VariantAllocation(ingredient.ProductId, effectiveQty, unitId),
                 ]));
             }
             // No entry for this ingredient → default auto-selection in CookRecipe service.

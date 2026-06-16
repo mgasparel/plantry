@@ -196,6 +196,100 @@ public sealed class CookOnPostResolutionTests : IDisposable
         Assert.DoesNotContain(calls, c => c.ProductId == CookConfirmFixture.GarlicFreshId);
         Assert.DoesNotContain(calls, c => c.ProductId == CookConfirmFixture.GarlicGranuleId);
     }
+
+    /// <summary>
+    /// AC4 (C9 modify): A QuantityOverrides entry for a leaf ingredient overrides the scaled
+    /// quantity in the consume call.
+    ///
+    /// Pasta (leaf, 400g at scale=1). POST QuantityOverrides[pastaIngredientId]=250 →
+    /// the consume must be (PastaId, 250m, GramUnitId) not 400m.
+    /// </summary>
+    [Fact]
+    public async Task Leaf_quantity_override_changes_consume_quantity()
+    {
+        var client = AuthenticatedClient();
+
+        var pastaIngredientId = _factory.Recipe.Ingredients
+            .Single(i => i.ProductId == CookConfirmFixture.PastaId)
+            .Id.Value;
+
+        var response = await PostCookAsync(client,
+        [
+            new($"QuantityOverrides[{pastaIngredientId}]", "250"),
+        ]);
+
+        Assert.True(
+            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
+            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
+
+        var calls = _factory.Consumer.Calls;
+
+        // Pasta must be consumed at the overridden quantity, not the scaled default.
+        var pastaCall = calls.Single(c => c.ProductId == CookConfirmFixture.PastaId);
+        Assert.Equal(250m, pastaCall.Quantity);
+        Assert.Equal(CookConfirmFixture.GramUnitId, pastaCall.UnitId);
+    }
+
+    /// <summary>
+    /// AC5 (C9 modify): A PickerSelections entry combined with a QuantityOverrides entry
+    /// produces a consume targeting the chosen variant at the overridden quantity.
+    ///
+    /// Garlic (parent, 3 ea at scale=1) with PickerSelections[0]={GarlicParentIngredientId,
+    /// GarlicFreshId} and QuantityOverrides[garlicIngredientId]=5 → consume (GarlicFreshId,
+    /// 5m, EachUnitId).
+    /// </summary>
+    [Fact]
+    public async Task Picker_plus_override_consumes_variant_at_overridden_quantity()
+    {
+        var client = AuthenticatedClient();
+
+        var garlicIngredientId = _factory.Recipe.Ingredients
+            .Single(i => i.ProductId == CookConfirmFixture.GarlicParentId)
+            .Id.Value;
+
+        var response = await PostCookAsync(client,
+        [
+            new("PickerSelections[0].IngredientId", garlicIngredientId.ToString()),
+            new("PickerSelections[0].VariantId",    CookConfirmFixture.GarlicFreshId.ToString()),
+            new($"QuantityOverrides[{garlicIngredientId}]", "5"),
+        ]);
+
+        Assert.True(
+            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
+            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
+
+        var calls = _factory.Consumer.Calls;
+
+        var variantCall = calls.Single(c => c.ProductId == CookConfirmFixture.GarlicFreshId);
+        Assert.Equal(5m, variantCall.Quantity);
+        Assert.Equal(CookConfirmFixture.EachUnitId, variantCall.UnitId);
+    }
+
+    /// <summary>
+    /// AC6 (C9 modify / regression): When no QuantityOverrides are posted, a leaf ingredient
+    /// continues to use the scaled quantity (regression guard).
+    ///
+    /// Pasta (leaf, 400g at scale=1) with no override → consume (PastaId, 400m, GramUnitId).
+    /// </summary>
+    [Fact]
+    public async Task No_override_leaf_uses_scaled_quantity()
+    {
+        var client = AuthenticatedClient();
+
+        // Post nothing — no skips, no overrides.
+        var response = await PostCookAsync(client, []);
+
+        Assert.True(
+            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
+            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
+
+        var calls = _factory.Consumer.Calls;
+
+        // Pasta must be consumed at the scaled default (400g, scale=1).
+        var pastaCall = calls.Single(c => c.ProductId == CookConfirmFixture.PastaId);
+        Assert.Equal(400m, pastaCall.Quantity);
+        Assert.Equal(CookConfirmFixture.GramUnitId, pastaCall.UnitId);
+    }
 }
 
 // ── WAF factory for OnPostAsync resolution-mapping tests ─────────────────────────────────────────

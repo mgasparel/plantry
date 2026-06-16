@@ -3259,11 +3259,20 @@ button { font-family: inherit; cursor: pointer; }
   white-space: nowrap;
 }
 
-.cook-ing-row__qty {
-  font-family: var(--font-mono);
+.cook-ing-row__qty-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cook-ing-row__qty-edit .qty-stepper {
+  max-width: 160px;
+  flex: 0 0 auto;
+}
+.cook-ing-row__unit {
   font-size: 12px;
   color: var(--color-text-muted);
-  margin-top: 2px;
+  white-space: nowrap;
 }
 
 .cook-ing-row__actions {
