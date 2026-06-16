@@ -50,7 +50,9 @@ public interface IShoppingCatalogReader
 public sealed record ShoppingProductSummary(
     Guid ProductId,
     string Name,
-    string? CategoryName);
+    string? CategoryName,
+    /// <summary>Hue in degrees (0–359) on the oklch colour wheel, inherited from the product's category. Null when uncategorised or category has no hue.</summary>
+    int? CategoryHue = null);
 
 /// <summary>Lightweight product option for the add-item product search.</summary>
 public sealed record ShoppingProductCandidate(Guid ProductId, string Name);

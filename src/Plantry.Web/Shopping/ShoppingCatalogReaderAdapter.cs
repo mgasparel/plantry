@@ -31,12 +31,16 @@ public sealed class ShoppingCatalogReaderAdapter(
                 t => t.id,
                 t =>
                 {
-                    string? categoryName = t.product.CategoryId is { } categoryId
-                                          && categoriesById.TryGetValue(categoryId, out var category)
-                        ? category.Name
+                    Category? category = t.product.CategoryId is { } categoryId
+                        && categoriesById.TryGetValue(categoryId, out var cat)
+                        ? cat
                         : null;
 
-                    return new ShoppingProductSummary(t.id, t.product.Name, categoryName);
+                    return new ShoppingProductSummary(
+                        t.id,
+                        t.product.Name,
+                        CategoryName: category?.Name,
+                        CategoryHue: category?.Hue);
                 });
     }
 

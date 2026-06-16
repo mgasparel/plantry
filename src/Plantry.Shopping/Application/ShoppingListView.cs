@@ -14,6 +14,10 @@ public sealed record ShoppingListItemView(
     Guid? UnitId,
     string? UnitCode,
     string? CategoryName,
+    /// <summary>Hue in degrees (0–359) on the oklch colour wheel, inherited from the product's category. Null when uncategorised or category has no hue (renders neutral chip).</summary>
+    int? CategoryHue,
+    /// <summary>Optional item note, persisted on the domain entity and surfaced for the note sub-line in the UI.</summary>
+    string? Note,
     bool IsChecked,
     System.DateTimeOffset? CheckedAt,
     System.DateTimeOffset CreatedAt)
