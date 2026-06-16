@@ -36,7 +36,7 @@ public sealed class ShoppingJourneyTests(AppHostFixture appHost) : IAsyncLifetim
         _playwright.Dispose();
     }
 
-    [Fact(Skip = "plantry-xw4: E2E times out (120s) since plantry-8r6 mobile-IA layout change; root cause not yet isolated", DisplayName = "Shopping: add product item + free-text item → check one off → clear checked → list shows only unchecked")]
+    [Fact(DisplayName = "Shopping: add product item + free-text item → check one off → clear checked → list shows only unchecked")]
     public async Task ShoppingJourney_AddCheckClear()
     {
         var uniqueEmail = $"shop-{Guid.NewGuid():N}@test.local";
@@ -82,7 +82,9 @@ public sealed class ShoppingJourneyTests(AppHostFixture appHost) : IAsyncLifetim
 
             // ── Step 4: Add the free-text item ────────────────────────────────────
             await page.FillAsync("[name='Input.FreeText']", freeTextName);
-            await page.ClickAsync("button[type=submit]");
+            // Use the "Add to list" submit button by its text to avoid ambiguity with
+            // the quantity-stepper save buttons that also have type=submit.
+            await page.ClickAsync("button[type=submit]:has-text('Add to list')");
             // Wait for htmx swap to refresh the list.
             await page.WaitForSelectorAsync("#shopping-list");
 
@@ -106,35 +108,38 @@ public sealed class ShoppingJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             // Click the matching option.
             await page.Locator(".searchable-select__listbox [role='option']",
                 new() { HasText = productName }).First.ClickAsync();
-            await page.ClickAsync("button[type=submit]");
+            await page.ClickAsync("button[type=submit]:has-text('Add to list')");
             await page.WaitForSelectorAsync("#shopping-list");
 
             listText = await page.Locator("#shopping-list").TextContentAsync();
             Assert.Contains(productName, listText, StringComparison.OrdinalIgnoreCase);
 
             // ── Step 6: Check off the free-text item ──────────────────────────────
-            // Both items should now be on the list. Check the free-text item's checkbox.
-            // The checkbox triggers an htmx POST on change.
-            var checkbox = page.Locator(".shopping-item__checkbox").First;
-            await checkbox.CheckAsync();
+            // After the Shopping List visual redesign (plantry-ah3), the check control
+            // is a <button class="sl-check"> (not a checkbox input). The item row is
+            // <div class="sl-item"> and gains class "done" when checked.
+            // The button fires hx-post to the CheckOff handler on click.
+            var checkBtn = page.Locator(".sl-check").First;
+            await checkBtn.ClickAsync();
             // Wait for htmx to swap the list.
             await page.WaitForResponseAsync(r => r.Url.Contains("CheckOff"));
 
-            // After check-off, the checked item should have the --checked class.
-            var checkedItem = page.Locator(".shopping-item--checked");
+            // After check-off, the checked item row gains the "done" class (sl-item.done).
+            var checkedItem = page.Locator(".sl-item.done");
             Assert.True(await checkedItem.CountAsync() >= 1, "At least one item should be checked.");
 
             // ── Step 7: Clear checked items ───────────────────────────────────────
-            var clearBtn = page.Locator(".shopping-list__actions button");
+            // After redesign the clear button is .sl-clear (a submit inside .sl-checked-head form).
+            var clearBtn = page.Locator(".sl-clear");
             await clearBtn.ClickAsync();
             await page.WaitForSelectorAsync("#shopping-list");
 
-            // After clearing, no item should have the --checked class.
-            Assert.Equal(0, await page.Locator(".shopping-item--checked").CountAsync());
+            // After clearing, no item should have the "done" class.
+            Assert.Equal(0, await page.Locator(".sl-item.done").CountAsync());
 
             // At least one item remains (the product item, which was not checked).
             Assert.True(
-                await page.Locator(".shopping-item").CountAsync() >= 1,
+                await page.Locator(".sl-item").CountAsync() >= 1,
                 "At least one unchecked item should remain after clearing.");
         }
         finally

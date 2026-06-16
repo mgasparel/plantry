@@ -43,7 +43,7 @@ public sealed class RecipeCookJourneyTests(AppHostFixture appHost) : IAsyncLifet
 
     // ── Journey: Cook → pantry decremented → cook_event written ────────────────
 
-    [Fact(Skip = "plantry-xw4: global quick-add sheet in _Layout collides with page .sheet/.sheet__panel (strict-mode)", DisplayName = "J4 Cook: confirm cook → cook_event written + pantry stock decremented + Detail fulfillment updated")]
+    [Fact(DisplayName = "J4 Cook: confirm cook → cook_event written + pantry stock decremented + Detail fulfillment updated")]
     public async Task CookRecipe_ConfirmCook_DecrementsStockWritesCookEvent()
     {
         var email = $"cook-journey-{Guid.NewGuid():N}@test.local";
@@ -76,11 +76,13 @@ public sealed class RecipeCookJourneyTests(AppHostFixture appHost) : IAsyncLifet
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
             // ── Add 500g of stock ─────────────────────────────────────────────────
+            // Scope to #sheet-host to avoid strict-mode collision with the global
+            // quick-add sheet in _Layout (both use .sheet/.sheet__panel classes).
             await page.GotoAsync($"{BaseUrl}/Pantry");
             await page.WaitForURLAsync("**/Pantry**");
             await page.ClickAsync("button:has-text('Add stock')");
 
-            var sheet = page.Locator(".sheet__panel");
+            var sheet = page.Locator("#sheet-host .sheet__panel");
             await Assertions.Expect(sheet).ToBeVisibleAsync();
 
             var productSearch = sheet.Locator("input[role='combobox']");
@@ -110,8 +112,10 @@ public sealed class RecipeCookJourneyTests(AppHostFixture appHost) : IAsyncLifet
             await page.FillAsync("[name='Input.DefaultServings']", "2");
 
             // Add flour ingredient via the ingredient sheet.
+            // Scope to #recipe-editor to avoid strict-mode collision with the global
+            // quick-add sheet in _Layout (both use .sheet/.sheet__panel classes).
             await page.ClickAsync("button:has-text('Add ingredient')");
-            var ingSheet = page.Locator(".sheet");
+            var ingSheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(ingSheet).ToBeVisibleAsync();
             await ingSheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 8));
             var ingOption = page.Locator("#prod-list-sheet li[role='option']", new() { HasText = productName });

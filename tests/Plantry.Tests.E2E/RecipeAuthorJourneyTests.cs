@@ -85,10 +85,15 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
     // ── Ingredient sheet helpers (the editor adds/edits ingredients via a modal sheet) ──
 
     /// <summary>Opens the add-ingredient sheet, picks a product via search, fills qty + unit, and commits.</summary>
+    /// <remarks>
+    /// Scoped to #recipe-editor .sheet to avoid Playwright strict-mode violations: both the global
+    /// quick-add sheet in _Layout and the per-page ingredient sheet use .sheet/.sheet__panel class
+    /// names. #recipe-editor is the root Alpine x-data div that wraps the editor form and its sheet.
+    /// </remarks>
     private async Task AddProductIngredientAsync(IPage page, string productName, string qty, string unitLabel)
     {
         await page.ClickAsync("button:has-text('Add ingredient')");
-        var sheet = page.Locator(".sheet");
+        var sheet = page.Locator("#recipe-editor .sheet");
         await Assertions.Expect(sheet).ToBeVisibleAsync();
 
         // Type char-by-char (PressSequentially) so the htmx "keyup" trigger fires — the listbox is
@@ -107,10 +112,13 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
     }
 
     /// <summary>Opens the add-ingredient sheet, switches to inline-staple mode, fills name + unit, and commits.</summary>
+    /// <remarks>
+    /// Scoped to #recipe-editor .sheet to avoid Playwright strict-mode violations (see AddProductIngredientAsync).
+    /// </remarks>
     private async Task AddStapleIngredientAsync(IPage page, string stapleName, string unitLabel)
     {
         await page.ClickAsync("button:has-text('Add ingredient')");
-        var sheet = page.Locator(".sheet");
+        var sheet = page.Locator("#recipe-editor .sheet");
         await Assertions.Expect(sheet).ToBeVisibleAsync();
 
         await sheet.Locator("button:has-text('Create as staple')").ClickAsync();
@@ -125,7 +133,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
     // ── Journey 1: Create ─────────────────────────────────────────────────────────
 
-    [Fact(Skip = "plantry-xw4: global quick-add sheet in _Layout collides with page .sheet/.sheet__panel (strict-mode)", DisplayName = "J6 Create: new recipe → ingredient search + inline staple + new tag + photo → Detail shows content")]
+    [Fact(DisplayName = "J6 Create: new recipe → ingredient search + inline staple + new tag + photo → Detail shows content")]
     public async Task CreateRecipe_WithIngredients_LandsOnDetailWithExpectedContent()
     {
         var email = $"recipe-create-{Guid.NewGuid():N}@test.local";
@@ -215,7 +223,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
     // ── Journey 2: Edit ───────────────────────────────────────────────────────────
 
-    [Fact(Skip = "plantry-xw4: global quick-add sheet in _Layout collides with page .sheet/.sheet__panel (strict-mode)", DisplayName = "J7 Edit: change servings (Proportional) + edit ingredient → Detail reflects changes")]
+    [Fact(DisplayName = "J7 Edit: change servings (Proportional) + edit ingredient → Detail reflects changes")]
     public async Task EditRecipe_ChangeServingsProportional_DetailReflectsChanges()
     {
         var email = $"recipe-edit-{Guid.NewGuid():N}@test.local";
@@ -272,7 +280,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             // ── Also change the first ingredient quantity via its edit sheet ───────
             await page.Locator(".ingredient-row").First
                 .Locator("button[aria-label='Edit ingredient']").ClickAsync();
-            var editSheet = page.Locator(".sheet");
+            var editSheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(editSheet).ToBeVisibleAsync();
             var qtyInput = editSheet.Locator("input[type='number']");
             await qtyInput.ClearAsync();
@@ -302,7 +310,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
     // ── Journey 3: Inspect — servings stepper rescales ingredient quantities ─────
 
-    [Fact(Skip = "plantry-xw4: global quick-add sheet in _Layout collides with page .sheet/.sheet__panel (strict-mode)", DisplayName = "J3 Inspect: browse → open recipe → step servings up → ingredient quantities rescale")]
+    [Fact(DisplayName = "J3 Inspect: browse → open recipe → step servings up → ingredient quantities rescale")]
     public async Task InspectRecipe_StepServingsUp_QuantitiesRescale()
     {
         var email = $"recipe-inspect-{Guid.NewGuid():N}@test.local";
