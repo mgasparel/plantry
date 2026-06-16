@@ -217,6 +217,16 @@ builder.Services.AddScoped<ReconcilePendingCooks>();
 // Runs an opportunistic reconciliation sweep (292c) at entry before starting the new cook.
 builder.Services.AddScoped<CookRecipe>();
 
+// Recipes → Shopping anti-corruption write adapter (P2-4a, recipes-domain-model.md §8 IShoppingListWriter).
+// ShoppingListWriterAdapter implements the port over Shopping's AddItemCommand, stamping source=recipe +
+// source_ref=recipeId and delegating the merge rule to Shopping (DM-18 / shopping.md resolved call 5).
+builder.Services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
+
+// Add-missing-to-shopping-list application service (P2-4a, recipes-domain-model.md §7, J5).
+// Computes a fresh FulfillmentResult at the displayed servings, takes Missing lines (excluding untracked),
+// scales quantities, and calls IShoppingListWriter.AddItems(source=recipe, source_ref=recipeId).
+builder.Services.AddScoped<AddMissingToShoppingList>();
+
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
 // The real Gemini parser is the production default. Three deterministic alternatives replace it:
