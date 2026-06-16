@@ -107,8 +107,9 @@
         }
 
         @* Recategorize dropdown (plantry-259): shown only for uncategorized items (CategoryName is null).
-           The .sl-recat-menu is positioned relative to the .sl-body and opens on tag-button click.
-           x-on:click.outside closes it when user clicks elsewhere. *@
+           The .sl-recat-menu is position:absolute anchored to .sl-item (position:relative), with
+           right:0 so it opens flush with the right edge of the row — directly below the tag button
+           in .sl-actions (plantry-3dh.2 B). x-on:click.outside closes it when user clicks elsewhere. *@
         @if (showRecat)
         {
             <div class="sl-recat-menu" x-show="showRecat" x-cloak x-on:click.outside="showRecat = false">

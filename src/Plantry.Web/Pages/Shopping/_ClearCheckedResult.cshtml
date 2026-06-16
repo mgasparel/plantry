@@ -1,13 +1,16 @@
 @using Plantry.Web.Pages.Shopping
 @model IndexModel
 @*
-    Response for a ClearChecked POST. Renders two top-level fragments:
-      1. #shopping-list — the refreshed list, swapped into the button's hx-target (main swap).
-      2. #pantry-suggestions — OOB swap to refresh the suggestions strip (plantry-14q).
+    Response for a ClearChecked POST. Renders three top-level fragments:
+      1. #shopping-list    — the refreshed list, swapped into the button's hx-target (main swap).
+      2. #sl-summary       — OOB swap to keep the header stat box live (plantry-3dh.2 A).
+      3. #pantry-suggestions — OOB swap to refresh the suggestions strip (plantry-14q).
     ClearChecked always emits the suggestions OOB because cleared items may be product-backed,
     and removing them from the list may expose new candidates in the strip.
 *@
 <partial name="_ShoppingList"
          model="new ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, Model.CategoryOptions, Model.UnitOptionsList, false)" />
+<partial name="_ShoppingSummary"
+         model="new ShoppingSummaryPartialModel(Model.ShoppingList, true)" />
 <partial name="_PantrySuggestions"
          model="new PantrySuggestionsPartialModel(Model.Suggestions, true)" />

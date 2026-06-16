@@ -2,10 +2,6 @@
 @model Plantry.Web.Pages.Shopping.IndexModel
 @{
     ViewData["Title"] = "Shopping";
-    var list = Model.ShoppingList;
-    var activeCount = list is not null ? list.TotalCount - list.CheckedCount : 0;
-    var checkedCount = list?.CheckedCount ?? 0;
-    var totalCount = list?.TotalCount ?? 0;
 }
 
 <div class="sl-wrap">
@@ -16,20 +12,10 @@
             <p>One shared list for your household &middot; grouped by aisle.</p>
         </div>
         <div class="spacer"></div>
-        <div class="sl-summary">
-            <div class="ss">
-                <div class="n">@activeCount</div>
-                <div class="l">to buy</div>
-            </div>
-            <div class="ss done">
-                <div class="n">@checkedCount</div>
-                <div class="l">checked</div>
-            </div>
-            <div class="ss">
-                <div class="n">@totalCount</div>
-                <div class="l">total</div>
-            </div>
-        </div>
+        @* Summary stat box extracted to a partial so every mutation handler can OOB-swap
+           #sl-summary and keep to-buy / checked / total counts live (plantry-3dh.2 A). *@
+        <partial name="_ShoppingSummary"
+                 model="new Plantry.Web.Pages.Shopping.ShoppingSummaryPartialModel(Model.ShoppingList, false)" />
     </div>
 
     @* ── Add item form (sl-add card, SPEC §3b) ─────────────────────────── *@
