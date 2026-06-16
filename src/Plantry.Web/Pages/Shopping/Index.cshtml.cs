@@ -31,6 +31,12 @@ public sealed class IndexModel(
     public IReadOnlyList<SelectListItem> ProductOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
 
+    /// <summary>Active categories for the recategorize dropdown (plantry-259).</summary>
+    public IReadOnlyList<ShoppingCategoryOption> CategoryOptions { get; private set; } = [];
+
+    /// <summary>All household units for the inline qty editor unit select (plantry-259).</summary>
+    public IReadOnlyList<ShoppingUnitOption> UnitOptionsList { get; private set; } = [];
+
     // ── Input models ──────────────────────────────────────────────────────────
 
     [BindProperty]
@@ -157,7 +163,7 @@ public sealed class IndexModel(
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
         // Return the full shopping list fragment; hx-swap="outerHTML" on #shopping-list
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: true));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: true));
     }
 
     /// <summary>
@@ -184,7 +190,7 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
@@ -208,7 +214,7 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
@@ -232,7 +238,7 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
@@ -258,7 +264,7 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
@@ -283,7 +289,33 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+    }
+
+    /// <summary>
+    /// POST: assigns a category to a single uncategorized item (recategorize action, plantry-259).
+    /// After assignment the query service re-groups the list, moving the item into the named category.
+    /// Returns the updated list fragment.
+    /// </summary>
+    public async Task<IActionResult> OnPostRecategorizeAsync(Guid listId, Guid itemId, Guid? categoryId)
+    {
+        var cmd = new SetCategoryCommand(
+            listId: ShoppingListId.From(listId),
+            itemId: ShoppingListItemId.From(itemId),
+            categoryId: categoryId,
+            repository: repository,
+            clock: clock,
+            tenant: tenant);
+
+        var result = await cmd.ExecuteAsync();
+        if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
+        {
+            return Forbid();
+        }
+
+        ShoppingList = await queryService.GetListAsync();
+        await LoadAddOptionsAsync();
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
@@ -301,7 +333,7 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -310,7 +342,7 @@ public sealed class IndexModel(
     {
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     private async Task LoadAddOptionsAsync()
@@ -320,27 +352,18 @@ public sealed class IndexModel(
             .Select(p => new SelectListItem(p.Name, p.ProductId.ToString()))
             .ToList();
 
-        // Unit options: resolved via the catalog reader.
-        // For the initial load we populate from the catalog reader's unit list;
-        // the add form only needs a basic "no unit" + common options.
-        // Units are loaded directly via the query service's catalog reader.
-        // We use an empty list here and rely on the searchable-select's server
-        // search for products; unit is optional (a select with common units will
-        // be populated via the catalog reader — but IShoppingCatalogReader does
-        // not expose a ListUnitsAsync; use the unit repository injected indirectly
-        // through the catalog reader adapter).
-        // Interpretation: units list is populated server-side from the catalog
-        // unit repository. Since ShoppingCatalogReaderAdapter holds a reference
-        // to IUnitRepository, and the Web page does not directly hold that reference,
-        // the simplest correct approach is to expose unit listing via the catalog
-        // reader port. For now, units are optional on add and the select shows a
-        // "No unit" option — the unit options are populated from whatever the catalog
-        // reader can provide. We do NOT add a ListUnitsAsync to the port here to
-        // avoid expanding the scope; a deferred bead covers enriching the unit select.
-        // The unit field posts an optional Guid? UnitId; if no unit is selected the
-        // item is stored without a unit (valid per domain — Quantity and UnitId are
-        // both nullable).
-        UnitOptions = [];
+        // Unit options: sourced from the household's catalog unit table via ListUnitsAsync (plantry-259).
+        // The "no unit" option (empty value) is always prepended so users can add items without a unit.
+        var unitOptions = await catalog.ListUnitsAsync();
+        UnitOptionsList = unitOptions;
+        UnitOptions = unitOptions
+            .Select(u => new SelectListItem($"{u.Code} — {u.Name}", u.UnitId.ToString()))
+            .Prepend(new SelectListItem("no unit", ""))
+            .ToList();
+
+        // Category options: sourced from the household's active catalog categories (plantry-259).
+        // Used to populate the recategorize dropdown on uncategorized items.
+        CategoryOptions = await catalog.ListCategoriesAsync();
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -356,4 +379,16 @@ public sealed record ShoppingListPartialModel(
     ShoppingListView? List,
     IReadOnlyList<SelectListItem> ProductOptions,
     IReadOnlyList<SelectListItem> UnitOptions,
+    IReadOnlyList<ShoppingCategoryOption> CategoryOptions,
+    IReadOnlyList<ShoppingUnitOption> UnitOptionsList,
     bool Oob);
+
+/// <summary>
+/// View model passed to the <c>_ShoppingItem</c> partial — combines the item view with the
+/// category options list (for the recategorize dropdown) and unit options list (for the
+/// inline qty editor unit select), both populated server-side from the catalog (plantry-259).
+/// </summary>
+public sealed record ShoppingItemPartialModel(
+    ShoppingListItemView Item,
+    IReadOnlyList<ShoppingCategoryOption> CategoryOptions,
+    IReadOnlyList<ShoppingUnitOption> UnitOptions);

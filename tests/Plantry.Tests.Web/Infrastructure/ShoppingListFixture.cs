@@ -76,6 +76,24 @@ public static class ShoppingListFixture
             [MilkProductId]  = new(MilkProductId,  OnHand: 2m,   UnitCode: "L",  IsLow: false),
             [FlourProductId] = new(FlourProductId, OnHand: 0m,   UnitCode: "g",  IsLow: true),
         };
+
+    /// <summary>
+    /// Unit options for the fixture (plantry-259) — used to populate add-form and inline qty editor.
+    /// </summary>
+    public static IReadOnlyList<ShoppingUnitOption> UnitOptions() =>
+    [
+        new(UnitId, "L", "Litre"),
+        new(Guid.Parse("33333333-3333-3333-3333-333333333311"), "g", "Gram"),
+    ];
+
+    /// <summary>
+    /// Category options for the fixture (plantry-259) — used to populate the recategorize dropdown.
+    /// </summary>
+    public static IReadOnlyList<ShoppingCategoryOption> CategoryOptionsList() =>
+    [
+        new(Guid.Parse("44444444-4444-4444-4444-444444444401"), "Dairy", 210),
+        new(Guid.Parse("44444444-4444-4444-4444-444444444402"), "Baking", 30),
+    ];
 }
 
 // ── Shopping page fakes ───────────────────────────────────────────────────────────────────────────
@@ -134,4 +152,12 @@ public sealed class FakeShoppingCatalogReader(
     /// <summary>Web-layer fake: conversion is not exercised in snapshot tests; always returns null.</summary>
     public Task<decimal?> TryConvertAsync(decimal amount, Guid fromUnitId, Guid toUnitId, Guid productId, CancellationToken ct = default) =>
         Task.FromResult<decimal?>(null);
+
+    /// <summary>Returns the fixture unit list for snapshot tests.</summary>
+    public Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ShoppingUnitOption>>(ShoppingListFixture.UnitOptions());
+
+    /// <summary>Returns the fixture category list for snapshot tests.</summary>
+    public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>(ShoppingListFixture.CategoryOptionsList());
 }

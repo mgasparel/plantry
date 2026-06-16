@@ -63,6 +63,13 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     /// <summary>Attribution — soft ref → identity user.</summary>
     public Guid? CheckedBy { get; private set; }
 
+    /// <summary>
+    /// Soft ref → catalog.category. Set by <see cref="SetCategory"/> (recategorize action).
+    /// Null for product-backed items (their category is derived from the product's catalog entry)
+    /// and for uncategorized free-text items. Only meaningful when <see cref="FreeText"/> is set.
+    /// </summary>
+    public Guid? CategoryId { get; private set; }
+
     public ItemSource Source { get; private set; }
 
     /// <summary>Soft ref to the originating recipe / meal_plan / deal.</summary>
@@ -193,6 +200,19 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     internal void SetNote(string? note, IClock clock)
     {
         Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Assigns a category to this item (recategorize action, plantry-259).
+    /// Primarily meaningful for free-text items that have no catalog product driving their category.
+    /// Setting a non-null <paramref name="categoryId"/> places the item in the named category group
+    /// when the shopping list is re-queried. Passing null clears the assignment (moves item back to Uncategorized).
+    /// Called exclusively by <see cref="ShoppingList.SetItemCategory"/>.
+    /// </summary>
+    internal void SetCategory(Guid? categoryId, IClock clock)
+    {
+        CategoryId = categoryId;
         UpdatedAt = clock.UtcNow;
     }
 }

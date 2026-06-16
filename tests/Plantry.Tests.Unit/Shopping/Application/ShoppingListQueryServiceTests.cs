@@ -274,6 +274,54 @@ public sealed class ShoppingListQueryServiceTests
         Assert.False(item.HasPantryStock);
         Assert.Null(item.OnHand);
     }
+
+    // ── SetCategory / recategorize grouping (plantry-259) ────────────────────
+
+    [Fact(DisplayName = "GetList — free-text item with CategoryId set: appears in named group, not Uncategorized")]
+    public async Task GetList_FreeTextItemWithCategoryId_AppearsInNamedGroup()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        var categoryId = Guid.CreateVersion7();
+        catalog.RegisterCategory(categoryId, new ShoppingCategoryOption(categoryId, "Bread & Bakery", Hue: 30));
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), SystemClock.Instance);
+        var item = list.AddFreeTextItem("Sourdough", quantity: null, unitId: null, note: null, SystemClock.Instance);
+        // Simulate recategorize by setting CategoryId on the domain entity directly (domain unit)
+        list.SetItemCategory(item.Id, categoryId, SystemClock.Instance);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        // Item should be in a named group, not UncategorizedItems
+        Assert.Empty(view.UncategorizedItems);
+        var group = Assert.Single(view.Groups);
+        Assert.Equal("Bread & Bakery", group.CategoryName);
+        var viewItem = Assert.Single(group.Items);
+        Assert.Equal("Sourdough", viewItem.DisplayName);
+        Assert.Equal("Bread & Bakery", viewItem.CategoryName);
+        Assert.Equal(30, viewItem.CategoryHue);
+    }
+
+    [Fact(DisplayName = "GetList — free-text item without CategoryId: appears in Uncategorized")]
+    public async Task GetList_FreeTextItemWithoutCategoryId_AppearsInUncategorized()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        SeedListWithFreeTextItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        Assert.Empty(view.Groups);
+        var item = Assert.Single(view.UncategorizedItems);
+        Assert.Equal("Sourdough bread", item.DisplayName);
+        Assert.Null(item.CategoryName);
+    }
 }
 
 /// <summary>
@@ -284,12 +332,16 @@ internal sealed class FakeShoppingCatalogReaderWithSummaries : IShoppingCatalogR
 {
     private readonly Dictionary<Guid, ShoppingProductSummary> _summaries = [];
     private readonly Dictionary<(Guid from, Guid to, Guid product), decimal> _conversions = [];
+    private readonly Dictionary<Guid, ShoppingCategoryOption> _categories = [];
 
     public void RegisterSummary(Guid productId, ShoppingProductSummary summary) =>
         _summaries[productId] = summary;
 
     public void RegisterConversion(Guid fromUnitId, Guid toUnitId, Guid productId, decimal convertedAmount) =>
         _conversions[(fromUnitId, toUnitId, productId)] = convertedAmount;
+
+    public void RegisterCategory(Guid categoryId, ShoppingCategoryOption option) =>
+        _categories[categoryId] = option;
 
     public Task<IReadOnlyDictionary<Guid, ShoppingProductSummary>> ResolveSummariesAsync(
         IReadOnlyList<Guid> productIds, CancellationToken ct = default)
@@ -314,4 +366,10 @@ internal sealed class FakeShoppingCatalogReaderWithSummaries : IShoppingCatalogR
             : null;
         return Task.FromResult(result);
     }
+
+    public Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ShoppingUnitOption>>([]);
+
+    public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>(_categories.Values.ToList());
 }

@@ -3507,7 +3507,6 @@ button.sl-qty:hover { background: var(--color-surface-3, var(--color-surface-2))
   height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md);
   background: var(--color-surface); color: var(--color-text); font-family: inherit;
   font-size: 13px; padding: 0 8px; cursor: pointer;
-  /* plantry-259 will supply the full option list — currently shows only current unit */
 }
 .sl-qsel:focus { outline: none; border-color: var(--color-accent); }
 .sl-act.save { border-color: var(--color-accent); color: var(--color-accent); }
@@ -3523,6 +3522,27 @@ button.sl-qty:hover { background: var(--color-surface-3, var(--color-surface-2))
   font-size: 13px; padding: 0 10px;
 }
 .sl-noteinput:focus { outline: none; border-color: var(--color-accent); }
+
+/* ---- recategorize dropdown (plantry-259) --------------------------------- */
+.sl-recat-menu {
+  position: absolute; z-index: 40; min-width: 180px; max-width: 260px;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); padding: 4px 0; margin-top: 4px;
+}
+.sl-recat-head {
+  font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--color-text-faint); padding: 6px 12px 4px;
+}
+.sl-recat-option {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 12px; background: none; border: none; cursor: pointer; text-align: left;
+  font-size: 13px; font-weight: 500; color: var(--color-text);
+  transition: background var(--transition-fast);
+}
+.sl-recat-option:hover { background: var(--color-surface-2); }
+.sl-recat-menu form { display: block; }
+/* Position the menu relative to .sl-body so it appears below the item name row */
+.sl-body { position: relative; }
 
 .sl-actions { display: flex; align-items: center; gap: 5px; flex: none; opacity: 0; transition: opacity var(--transition-fast); }
 .sl-item:hover .sl-actions, .sl-item.menu-open .sl-actions { opacity: 1; }

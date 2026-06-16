@@ -1,68 +1,75 @@
 @using Plantry.Shopping.Application
+@using Plantry.Web.Pages.Shared
 @using System.Text.Json
-@model ShoppingListItemView
+@model Plantry.Web.Pages.Shopping.ShoppingItemPartialModel
 
 @{
-    var doneClass = Model.IsChecked ? " done" : "";
-    var checkOnClass = Model.IsChecked ? " on" : "";
-    var isFreeText = Model.ProductId is null && Model.FreeText is not null;
-    var checkOffUrl = Url.Page("./Index", "CheckOff", new { listId = Model.ListId, itemId = Model.ItemId });
-    var uncheckUrl = Url.Page("./Index", "UncheckItem", new { listId = Model.ListId, itemId = Model.ItemId });
-    var deleteUrl = Url.Page("./Index", "DeleteItem", new { listId = Model.ListId, itemId = Model.ItemId });
-    var editQtyUrl = Url.Page("./Index", "EditQuantity", new { listId = Model.ListId, itemId = Model.ItemId });
-    var setNoteUrl = Url.Page("./Index", "SetNote", new { listId = Model.ListId, itemId = Model.ItemId });
-    var hasNote = !string.IsNullOrWhiteSpace(Model.Note);
+    var item = Model.Item;
+    var categoryOptions = Model.CategoryOptions;
+    var unitOptionsList = Model.UnitOptions;
+    var doneClass = item.IsChecked ? " done" : "";
+    var checkOnClass = item.IsChecked ? " on" : "";
+    var isFreeText = item.ProductId is null && item.FreeText is not null;
+    // Show recategorize button only when item has no resolved category and there are categories to pick from.
+    var showRecat = !item.IsChecked && item.CategoryName is null && categoryOptions.Count > 0;
+    var checkOffUrl = Url.Page("./Index", "CheckOff", new { listId = item.ListId, itemId = item.ItemId });
+    var uncheckUrl = Url.Page("./Index", "UncheckItem", new { listId = item.ListId, itemId = item.ItemId });
+    var deleteUrl = Url.Page("./Index", "DeleteItem", new { listId = item.ListId, itemId = item.ItemId });
+    var editQtyUrl = Url.Page("./Index", "EditQuantity", new { listId = item.ListId, itemId = item.ItemId });
+    var setNoteUrl = Url.Page("./Index", "SetNote", new { listId = item.ListId, itemId = item.ItemId });
+    var recatUrl = Url.Page("./Index", "Recategorize", new { listId = item.ListId, itemId = item.ItemId });
+    var hasNote = !string.IsNullOrWhiteSpace(item.Note);
     // The toggle posts to the uncheck handler if checked, or the check-off handler if unchecked.
-    var toggleUrl = Model.IsChecked ? uncheckUrl : checkOffUrl;
+    var toggleUrl = item.IsChecked ? uncheckUrl : checkOffUrl;
     // Alpine x-data: use JsonSerializer so Razor HTML-encodes the quotes correctly.
     // Never use @Html.Raw(JsonSerializer...) inside a double-quoted x-data attribute.
-    var currentQty = Model.Quantity.HasValue ? Model.Quantity.Value.ToString("0.###") : "";
-    var currentNote = Model.Note ?? "";
+    var currentQty = item.Quantity.HasValue ? item.Quantity.Value.ToString("0.###") : "";
+    var currentNote = item.Note ?? "";
     // Serialize booleans for Alpine — plain JS literals, no string wrapping needed.
 }
 
 <div class="sl-item@(doneClass)"
-     id="shopping-item-@Model.ItemId"
-     x-data="{ editingQty: false, editingNote: false, qty: @(JsonSerializer.Serialize(currentQty)), note: @(JsonSerializer.Serialize(currentNote)) }"
-     x-on:keydown.escape.window="editingQty = false; editingNote = false">
+     id="shopping-item-@item.ItemId"
+     x-data="{ editingQty: false, editingNote: false, showRecat: false, qty: @(JsonSerializer.Serialize(currentQty)), note: @(JsonSerializer.Serialize(currentNote)) }"
+     x-on:keydown.escape.window="editingQty = false; editingNote = false; showRecat = false">
     @* Square check toggle (SPEC §3c): posts check-off or uncheck depending on current state. *@
     <button type="button"
             class="sl-check@(checkOnClass)"
             hx-post="@toggleUrl"
             hx-target="#shopping-list"
             hx-swap="outerHTML"
-            aria-label="@(Model.IsChecked ? "Uncheck" : "Check off") @Model.DisplayName">
+            aria-label="@(item.IsChecked ? "Uncheck" : "Check off") @item.DisplayName">
         <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
     </button>
 
     <div class="sl-body">
         <div class="sl-name">
-            @Model.DisplayName
+            @item.DisplayName
             @if (isFreeText)
             {
                 <span class="free-tag">custom</span>
             }
         </div>
-        @if (!Model.IsChecked && (hasNote || Model.HasPantryStock))
+        @if (!item.IsChecked && (hasNote || item.HasPantryStock))
         {
             <div class="sl-sub">
-                @if (Model.HasPantryStock)
+                @if (item.HasPantryStock)
                 {
-                    if (Model.OnHand > 0)
+                    if (item.OnHand > 0)
                     {
-                        <span class="sl-instock">@(Model.OnHand!.Value.ToString("0.###")) @Model.PantryUnitCode in pantry</span>
+                        <span class="sl-instock">@(item.OnHand!.Value.ToString("0.###")) @item.PantryUnitCode in pantry</span>
                     }
                     else
                     {
                         <span class="sl-instock out">out</span>
                     }
-                    @if (Model.IsLow == true)
+                    @if (item.IsLow == true)
                     {
                         <span class="dot" aria-hidden="true"></span>
                         <span class="sl-low">low</span>
                     }
                 }
-                @if (hasNote && Model.HasPantryStock)
+                @if (hasNote && item.HasPantryStock)
                 {
                     <span class="dot" aria-hidden="true"></span>
                 }
@@ -70,14 +77,14 @@
                 {
                     <span class="sl-note">
                         <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
-                        @Model.Note
+                        @item.Note
                     </span>
                 }
             </div>
         }
 
         @* Inline note editor: .sl-noterow expands below the name row when editingNote is true *@
-        @if (!Model.IsChecked)
+        @if (!item.IsChecked)
         {
             <div class="sl-noterow" x-show="editingNote" x-cloak>
                 <form hx-post="@setNoteUrl"
@@ -91,27 +98,51 @@
                            placeholder="Add a note…"
                            maxlength="500"
                            x-model="note"
-                           aria-label="Note for @Model.DisplayName" />
+                           aria-label="Note for @item.DisplayName" />
                     <button type="submit" class="sl-act save" aria-label="Save note">
                         <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
                     </button>
                 </form>
             </div>
         }
+
+        @* Recategorize dropdown (plantry-259): shown only for uncategorized items (CategoryName is null).
+           The .sl-recat-menu is positioned relative to the .sl-body and opens on tag-button click.
+           x-on:click.outside closes it when user clicks elsewhere. *@
+        @if (showRecat)
+        {
+            <div class="sl-recat-menu" x-show="showRecat" x-cloak x-on:click.outside="showRecat = false">
+                <div class="sl-recat-head">Move to category</div>
+                @foreach (var cat in categoryOptions)
+                {
+                    <form hx-post="@recatUrl"
+                          hx-target="#shopping-list"
+                          hx-swap="outerHTML"
+                          x-on:submit="showRecat = false">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="categoryId" value="@cat.CategoryId" />
+                        <button type="submit" class="sl-recat-option">
+                            <partial name="Shared/_CatChip" model="new CatChipViewModel(cat.Name, cat.Hue)" />
+                            @cat.Name
+                        </button>
+                    </form>
+                }
+            </div>
+        }
     </div>
 
     @* Quantity pill: clicking swaps to the inline stepper when not checked. *@
-    @if (!Model.IsChecked)
+    @if (!item.IsChecked)
     {
         @* Read-only pill — shown when not editing *@
         <button type="button"
                 class="sl-qty"
                 x-show="!editingQty"
                 x-on:click="editingQty = true"
-                aria-label="Edit quantity for @Model.DisplayName">
-            @if (Model.Quantity.HasValue)
+                aria-label="Edit quantity for @item.DisplayName">
+            @if (item.Quantity.HasValue)
             {
-                @(Model.Quantity.Value.ToString("0.###"))@(Model.UnitCode is not null ? " " + Model.UnitCode : "")
+                @(item.Quantity.Value.ToString("0.###"))@(item.UnitCode is not null ? " " + item.UnitCode : "")
             }
             else
             {
@@ -145,17 +176,20 @@
                     <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
                 </button>
             </div>
-            @* Unit select — plantry-259 will supply the full unit options list.
-               For now, render with the current unit as the only option (or no-unit if none set).
-               The current unitId is posted back so save is a no-op for the unit. *@
+            @* Unit select: populated with the household's full unit list (plantry-259).
+               The current item's unit is pre-selected; "no unit" is always available. *@
             <select name="unitId" class="sl-qsel" aria-label="Unit">
-                @if (Model.UnitId.HasValue)
+                <option value="">no unit</option>
+                @foreach (var u in unitOptionsList)
                 {
-                    <option value="@Model.UnitId.Value">@(Model.UnitCode ?? Model.UnitId.Value.ToString())</option>
-                }
-                else
-                {
-                    <option value="">no unit</option>
+                    if (item.UnitId == u.UnitId)
+                    {
+                        <option value="@u.UnitId" selected>@u.Code</option>
+                    }
+                    else
+                    {
+                        <option value="@u.UnitId">@u.Code</option>
+                    }
                 }
             </select>
             <button type="submit" class="sl-act save" aria-label="Save quantity">
@@ -166,26 +200,37 @@
     else
     {
         @* Checked items: read-only qty pill, no editor *@
-        @if (Model.Quantity.HasValue)
+        @if (item.Quantity.HasValue)
         {
             <span class="sl-qty">
-                @(Model.Quantity.Value.ToString("0.###"))@(Model.UnitCode is not null ? " " + Model.UnitCode : "")
+                @(item.Quantity.Value.ToString("0.###"))@(item.UnitCode is not null ? " " + item.UnitCode : "")
             </span>
         }
     }
 
     @* Action buttons (hover-revealed). Same .sl-actions group as plantry-853; editor buttons added here (plantry-dem). *@
     <div class="sl-actions" aria-label="Item actions">
-        @if (!Model.IsChecked)
+        @if (!item.IsChecked)
         {
             @* Pencil: toggle the note editor inline below the row *@
             <button type="button"
                     class="sl-act"
                     x-on:click="editingNote = !editingNote; if (editingNote) $nextTick(() => $el.closest('.sl-item').querySelector('.sl-noteinput')?.focus())"
                     x-bind:class="editingNote ? 'sl-act active' : 'sl-act'"
-                    aria-label="@(hasNote ? "Edit" : "Add") note for @Model.DisplayName">
+                    aria-label="@(hasNote ? "Edit" : "Add") note for @item.DisplayName">
                 <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
             </button>
+            @* Tag: recategorize button — shown only when item has no category (plantry-259). *@
+            @if (showRecat)
+            {
+                <button type="button"
+                        class="sl-act"
+                        x-on:click="showRecat = !showRecat"
+                        x-bind:class="showRecat ? 'sl-act active' : 'sl-act'"
+                        aria-label="Move @item.DisplayName to a category">
+                    <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
+                </button>
+            }
         }
         @* Delete button: hard-removes this item regardless of checked state. *@
         <button type="button"
@@ -193,7 +238,7 @@
                 hx-post="@deleteUrl"
                 hx-target="#shopping-list"
                 hx-swap="outerHTML"
-                aria-label="Delete @Model.DisplayName">
+                aria-label="Delete @item.DisplayName">
             <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
         </button>
     </div>

@@ -44,7 +44,27 @@ public interface IShoppingCatalogReader
         Guid toUnitId,
         Guid productId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns all active units for the household, ordered by code — used to populate the unit
+    /// select on the add-item form and inline qty editor (plantry-259).
+    /// Units are catalog/household-defined; the list is sourced from <c>IUnitRepository</c>.
+    /// </summary>
+    Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns all active (non-archived) categories for the household, ordered by name —
+    /// used to populate the recategorize dropdown for uncategorized items (plantry-259).
+    /// Categories are catalog/household-defined; the list is sourced from <c>ICategoryRepository</c>.
+    /// </summary>
+    Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default);
 }
+
+/// <summary>Lightweight unit option for the add-item unit select and inline qty editor.</summary>
+public sealed record ShoppingUnitOption(Guid UnitId, string Code, string Name);
+
+/// <summary>Lightweight category option for the recategorize dropdown.</summary>
+public sealed record ShoppingCategoryOption(Guid CategoryId, string Name, int? Hue);
 
 /// <summary>Summary of a catalog product for Shopping read-model enrichment.</summary>
 public sealed record ShoppingProductSummary(
