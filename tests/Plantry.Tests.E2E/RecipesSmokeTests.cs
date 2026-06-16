@@ -33,7 +33,7 @@ public sealed class RecipesSmokeTests(AppHostFixture appHost) : IAsyncLifetime
         _playwright.Dispose();
     }
 
-    [Fact(Skip = "plantry-xw4: E2E times out (120s) since plantry-8r6 mobile-IA layout change; root cause not yet isolated", DisplayName = "Login → open empty Recipes page")]
+    [Fact(DisplayName = "Login → open empty Recipes page")]
     public async Task LoginNavigateSeeEmptyRecipes()
     {
         var uniqueEmail = $"smoke-{Guid.NewGuid():N}@test.local";

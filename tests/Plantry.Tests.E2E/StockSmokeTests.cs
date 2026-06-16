@@ -34,7 +34,7 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
         _playwright.Dispose();
     }
 
-    [Fact(Skip = "plantry-xw4: global quick-add sheet in _Layout collides with page .sheet/.sheet__panel (strict-mode)", DisplayName = "Add stock → see in pantry → consume → see remaining + journal")]
+    [Fact(DisplayName = "Add stock → see in pantry → consume → see remaining + journal")]
     public async Task AddStockConsumeSeeRemaining()
     {
         var uniqueEmail = $"smoke-{Guid.NewGuid():N}@test.local";
@@ -68,12 +68,14 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
             // ── Add stock via the htmx sheet on the Pantry ───────────────────────
+            // Scope to #sheet-host to avoid strict-mode collision with the global
+            // quick-add sheet in _Layout (both use .sheet/.sheet__panel classes).
             await page.GotoAsync($"{BaseUrl}/Pantry");
             await page.WaitForURLAsync("**/Pantry**");
             await page.ClickAsync("button:has-text('Add stock')");
-            await Assertions.Expect(page.Locator(".sheet__panel")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
 
-            var productSearch = page.Locator(".sheet__panel input[role='combobox']");
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
             await productSearch.FillAsync(productName);
             var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
             await Assertions.Expect(productOption).ToBeVisibleAsync();
@@ -94,7 +96,7 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await Assertions.Expect(page.Locator(".pantry-detail__total")).ToContainTextAsync("500 g");
 
             await page.ClickAsync("button:has-text('Consume')");
-            await Assertions.Expect(page.Locator(".sheet__panel")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
             await page.FillAsync("[name='Input.Amount']", "200");
             await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
             await page.ClickAsync("button:has-text('Confirm')");
