@@ -1,49 +1,95 @@
 ﻿<div id="shopping-list">
-	<div class="shopping-list__actions">
+	<div class="sl-group" aria-label="Dairy">
+		<div class="sl-group-head">
+			<span class="cdot" style="background: var(--color-text-faint)" aria-hidden="true"></span>
+			<h3>Dairy</h3>
+			<span class="count">1</span>
+			<span class="spacer"></span>
+		</div>
+		<div class="sl-rows">
+			<div class="sl-item" id="shopping-item-Guid_1">
+				<button type="button" class="sl-check" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=CheckOff" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Check off Milk">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-check"></use>
+					</svg>
+				</button>
+				<div class="sl-body">
+					<div class="sl-name">
+						Milk
+					</div>
+				</div>
+				<span class="sl-qty">
+					2 L
+				</span>
+				<div class="sl-actions" aria-label="Item actions">
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="sl-group" aria-label="Uncategorized">
+		<div class="sl-group-head">
+			<svg class="icon" aria-hidden="true" style="color: var(--color-text-faint); width: 16px; height: 16px; flex: none">
+				<use href="#i-tag"></use>
+			</svg>
+			<h3>Uncategorized</h3>
+			<span class="count">1</span>
+			<span class="spacer"></span>
+		</div>
+		<div class="sl-rows">
+			<div class="sl-item" id="shopping-item-Guid_3">
+				<button type="button" class="sl-check" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_3&amp;handler=CheckOff" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Check off Sriracha">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-check"></use>
+					</svg>
+				</button>
+				<div class="sl-body">
+					<div class="sl-name">
+						Sriracha
+						<span class="free-tag">custom</span>
+					</div>
+				</div>
+				<div class="sl-actions" aria-label="Item actions">
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="sl-checked-head">
+		<span class="lbl">
+			<svg class="icon" aria-hidden="true">
+				<use href="#i-check"></use>
+			</svg>
+			Checked off
+		</span>
+		<span class="spacer"></span>
 		<form method="post" action="/Shopping?handler=ClearChecked">
 			<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-			<button type="submit" class="btn btn--ghost btn--sm">
+			<button type="submit" class="sl-clear">
+				<svg class="icon" aria-hidden="true">
+					<use href="#i-trash"></use>
+				</svg>
 				Clear 1 checked item
 			</button>
 		</form>
 	</div>
-	<section class="shopping-group" aria-label="Dairy">
-		<h3 class="shopping-group__heading">Dairy</h3>
-		<ul class="shopping-group__items" role="list">
-			<li class="shopping-item" id="shopping-item-Guid_1">
-				<label class="shopping-item__check-label" aria-label="Uncheck Milk">
-					<input type="checkbox" class="shopping-item__checkbox" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=CheckOff" hx-trigger="change" hx-target="#shopping-list" hx-swap="outerHTML">
-				</label>
-				<span class="shopping-item__name">Milk</span>
-				<span class="shopping-item__qty">
-					2&nbsp;L
+	<div class="sl-group" aria-label="Checked items">
+		<div class="sl-rows">
+			<div class="sl-item done" id="shopping-item-Guid_4">
+				<button type="button" class="sl-check on" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_4&amp;handler=CheckOff" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Uncheck Flour">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-check"></use>
+					</svg>
+				</button>
+				<div class="sl-body">
+					<div class="sl-name">
+						Flour
+					</div>
+				</div>
+				<span class="sl-qty">
+					500 L
 				</span>
-			</li>
-		</ul>
-	</section>
-	<section class="shopping-group" aria-label="Uncategorized">
-		<h3 class="shopping-group__heading">Uncategorized</h3>
-		<ul class="shopping-group__items" role="list">
-			<li class="shopping-item" id="shopping-item-Guid_3">
-				<label class="shopping-item__check-label" aria-label="Uncheck Sriracha">
-					<input type="checkbox" class="shopping-item__checkbox" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_3&amp;handler=CheckOff" hx-trigger="change" hx-target="#shopping-list" hx-swap="outerHTML">
-				</label>
-				<span class="shopping-item__name">Sriracha</span>
-			</li>
-		</ul>
-	</section>
-	<section class="shopping-group shopping-group--checked" aria-label="Checked items">
-		<h3 class="shopping-group__heading">Checked</h3>
-		<ul class="shopping-group__items" role="list">
-			<li class="shopping-item shopping-item--checked" id="shopping-item-Guid_4">
-				<label class="shopping-item__check-label" aria-label="Checked Flour">
-					<input type="checkbox" class="shopping-item__checkbox" checked="checked" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_4&amp;handler=CheckOff" hx-trigger="change" hx-target="#shopping-list" hx-swap="outerHTML">
-				</label>
-				<span class="shopping-item__name">Flour</span>
-				<span class="shopping-item__qty">
-					500&nbsp;L
-				</span>
-			</li>
-		</ul>
-	</section>
+				<div class="sl-actions" aria-label="Item actions">
+				</div>
+			</div>
+		</div>
+	</div>
 </div>

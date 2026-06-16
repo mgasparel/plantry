@@ -3356,7 +3356,181 @@ button { font-family: inherit; cursor: pointer; }
   .cook-rail { position: static; }
 }
 
-/* ── Shopping list (P2-Sc) ─────────────────────────────────────────────── */
+/* ── Shopping list sl-* board (plantry-ah3 visual redesign) ────────────── */
+
+/* Token mapping from prototype: --surface→--color-surface, --surface-2→--color-surface-2,
+   --line→--color-border, --line-strong→--color-border, --ink→--color-text,
+   --ink-soft→--color-text-muted, --ink-faint→--color-text-faint, --primary→--color-accent,
+   --primary-soft→--color-accent-subtle, --primary-ink→--color-text-on-accent,
+   --good→--color-success, --good-soft→--color-success-bg, --bad→--color-danger,
+   --bad-soft→--color-danger-bg, --warn→--color-warning, --radius→--radius-lg,
+   --radius-sm→--radius-md, --radius-xs→--radius-sm, --shadow-card→--shadow-md,
+   --shadow-pop→--shadow-lg, --font-mono→--font-mono */
+
+.sl-wrap { max-width: 900px; margin: 0 auto; padding: 34px 30px 90px; }
+
+/* ---- header ------------------------------------------------------------- */
+.sl-head { display: flex; align-items: flex-end; gap: 18px; margin-bottom: 20px; }
+.sl-head h1 { font-size: 30px; letter-spacing: -0.025em; margin: 0 0 5px; font-weight: 700; }
+.sl-head p { margin: 0; color: var(--color-text-muted); font-size: 14.5px; }
+.sl-head .spacer { flex: 1; }
+.sl-summary { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); white-space: nowrap; }
+.sl-summary .ss { padding: 9px 16px; }
+.sl-summary .ss + .ss { border-left: 1px solid var(--color-border); }
+.sl-summary .ss .n { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.sl-summary .ss .l { font-size: 11.5px; color: var(--color-text-faint); margin-top: 1px; }
+.sl-summary .ss.done .n { color: var(--color-success); }
+
+/* ---- add item form ------------------------------------------------------ */
+.sl-add {
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md); padding: 16px; margin-bottom: 16px;
+}
+.sl-add-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: end; }
+.sl-or {
+  align-self: stretch; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--color-text-faint); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+  padding-bottom: 10px; position: relative;
+}
+.sl-or::before, .sl-or::after { content: ""; width: 1px; flex: 1; background: var(--color-border); }
+.sl-or span { padding: 6px 0; }
+
+.sl-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.sl-field > label {
+  font-size: 11.5px; font-weight: 600; color: var(--color-text-muted); letter-spacing: .02em;
+  display: flex; align-items: center; gap: 6px;
+}
+.sl-input {
+  font-family: inherit; font-size: 14px; color: var(--color-text); width: 100%;
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  border-radius: var(--radius-md); padding: 10px 12px;
+}
+.sl-input::placeholder { color: var(--color-text-faint); }
+.sl-input:focus { outline: 2px solid var(--color-accent-subtle); border-color: var(--color-accent); }
+
+/* footer row: qty + unit (read-only until unit-options bead) + submit */
+.sl-add-foot { display: flex; align-items: flex-end; gap: 12px; margin-top: 14px; }
+.sl-add-foot .sl-field { flex: none; }
+.sl-add-foot .spacer { flex: 1; }
+.sl-qsel-ro {
+  font-family: inherit; font-size: 14px; color: var(--color-text-muted); font-weight: 500;
+  border: 1px solid var(--color-border); background: var(--color-surface-2); border-radius: var(--radius-md);
+  padding: 0 9px; height: 40px; min-width: 60px; display: inline-flex; align-items: center;
+}
+.sl-qty-stepper { display: flex; align-items: stretch; height: 40px; }
+.sl-qty-stepper input {
+  width: 56px; text-align: center; border: 1px solid var(--color-border); border-left: none; border-right: none;
+  font-family: inherit; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--color-text);
+  background: var(--color-surface); -moz-appearance: textfield;
+}
+.sl-qty-stepper input::-webkit-outer-spin-button, .sl-qty-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sl-qty-stepper input:focus { outline: none; border-color: var(--color-accent); }
+.sl-qbtn {
+  width: 38px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-muted);
+  display: grid; place-items: center;
+}
+.sl-qbtn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.sl-qbtn:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.sl-qbtn:hover { background: var(--color-surface-2); color: var(--color-text); }
+.sl-qbtn svg { width: 15px; height: 15px; }
+
+/* ---- list groups -------------------------------------------------------- */
+.sl-group {
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  margin-bottom: 14px; overflow: hidden;
+}
+.sl-group-head {
+  display: flex; align-items: center; gap: 10px; padding: 13px 16px 11px;
+  border-bottom: 1px solid var(--color-border);
+}
+.sl-group-head .cdot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.sl-group-head h3 {
+  margin: 0; font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--color-text-muted);
+}
+.sl-group-head .count {
+  font-size: 11.5px; font-weight: 700; color: var(--color-text-faint); font-variant-numeric: tabular-nums;
+  background: var(--color-surface-2); border-radius: 9999px; padding: 1px 8px;
+}
+.sl-group-head .spacer { flex: 1; }
+
+.sl-rows { display: flex; flex-direction: column; }
+
+/* ---- item row ---- */
+.sl-item {
+  display: flex; align-items: center; gap: 13px; padding: 12px 16px;
+}
+.sl-item + .sl-item { border-top: 1px solid var(--color-border); }
+
+.sl-check {
+  width: 24px; height: 24px; border-radius: var(--radius-sm); flex: none; display: grid; place-items: center;
+  border: 2px solid var(--color-border); background: var(--color-surface); color: transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  cursor: pointer;
+}
+.sl-check:hover { border-color: var(--color-accent); }
+.sl-check.on { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-text-on-accent); }
+.sl-check svg { width: 15px; height: 15px; }
+
+.sl-body { flex: 1; min-width: 0; }
+.sl-name {
+  font-weight: 600; font-size: 15px; letter-spacing: -0.01em; color: var(--color-text);
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.sl-name .free-tag {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--color-text-faint); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0 5px;
+}
+.sl-sub { display: flex; align-items: center; gap: 9px; margin-top: 3px; font-size: 12.5px; color: var(--color-text-faint); flex-wrap: wrap; }
+.sl-sub .dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .6; }
+.sl-note { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-muted); font-style: italic; }
+.sl-note svg { width: 12px; height: 12px; opacity: .7; font-style: normal; }
+
+.sl-qty {
+  font-family: var(--font-mono); font-size: 12.5px; color: var(--color-text-muted); white-space: nowrap; flex: none;
+  background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 9999px; padding: 4px 11px;
+}
+
+.sl-actions { display: flex; align-items: center; gap: 5px; flex: none; opacity: 0; transition: opacity var(--transition-fast); }
+.sl-item:hover .sl-actions, .sl-item.menu-open .sl-actions { opacity: 1; }
+.sl-act {
+  width: 30px; height: 30px; border-radius: var(--radius-md); flex: none; display: grid; place-items: center;
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-muted); transition: all var(--transition-fast);
+}
+.sl-act:hover { background: var(--color-surface-2); color: var(--color-text); }
+.sl-act.danger:hover { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
+.sl-act svg { width: 15px; height: 15px; }
+
+/* ---- checked section ---------------------------------------------------- */
+.sl-checked-head { display: flex; align-items: center; gap: 12px; margin: 24px 2px 11px; }
+.sl-checked-head .lbl {
+  font-size: 12px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--color-text-faint);
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+}
+.sl-checked-head .spacer { flex: 1; height: 1px; background: var(--color-border); }
+.sl-clear {
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-muted);
+  border-radius: var(--radius-md); padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.sl-clear:hover { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
+.sl-clear svg { width: 14px; height: 14px; }
+
+.sl-item.done .sl-name { text-decoration: line-through; text-decoration-color: var(--color-border); color: var(--color-text-faint); }
+.sl-item.done .sl-check { background: var(--color-text-faint); border-color: var(--color-text-faint); color: var(--color-surface); }
+.sl-item.done .sl-check:hover { background: var(--color-danger); border-color: var(--color-danger); }
+.sl-item.done .sl-qty { opacity: .55; }
+
+/* ---- empty state -------------------------------------------------------- */
+.sl-empty { text-align: center; padding: 56px 20px; color: var(--color-text-faint); }
+.sl-empty .big { font-size: 16px; color: var(--color-text-muted); margin-bottom: 6px; font-weight: 600; }
+
+@media (max-width: 720px) {
+  .sl-add-grid { grid-template-columns: 1fr; }
+  .sl-or { flex-direction: row; padding: 2px 0; }
+  .sl-or::before, .sl-or::after { width: auto; height: 1px; }
+}
+
+/* ── Shopping list (P2-Sc, legacy classes — retained for backward compat) ── */
 
 .shopping-toolbar {
   display: flex;

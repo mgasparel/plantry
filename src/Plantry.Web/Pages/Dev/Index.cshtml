@@ -1522,3 +1522,253 @@
     </div>
     <pre class="code-sample"><code>@("<div class=\"rd-ing-card\">\n  <div class=\"rd-ing-head\">\n    <h3>Ingredients</h3>\n    <div class=\"rd-ing-head__spacer\"></div>\n    <span class=\"rd-serv-stepper__lbl\">Servings</span>\n    <div class=\"rd-serv-stepper\" role=\"group\" aria-label=\"Servings\">\n      <button class=\"rd-serv-stepper__btn\" @@click=\"servings=Math.max(1,servings-1)\" :disabled=\"servings<=1\">\n        <svg class=\"icon\"><use href=\"#i-minus\"/></svg></button>\n      <span class=\"rd-serv-stepper__val\" x-text=\"servings\">4</span>\n      <button class=\"rd-serv-stepper__btn\" @@click=\"servings=Math.min(24,servings+1)\" :disabled=\"servings>=24\">\n        <svg class=\"icon\"><use href=\"#i-plus\"/></svg></button>\n    </div>\n  </div>\n  <div class=\"rd-ing-list\" role=\"list\">\n    <div class=\"rd-ing-row\" role=\"listitem\">\n      <div class=\"rd-ing-status rd-ing-status--have\"><svg class=\"icon\"><use href=\"#i-check\"/></svg></div>\n      <div class=\"rd-ing-main\">\n        <div class=\"rd-ing-name\">Product Name\n          <!-- optional: <span class=\"rd-ing-soon\"><svg…>timer</svg> 3d</span> -->\n        </div>\n        <div class=\"rd-ing-sub rd-ing-sub--have\">In your pantry</div>\n      </div>\n      <div class=\"rd-ing-amt\"><span x-text=\"fmt(baseQty)\">400</span> g</div>\n    </div>\n  </div>\n</div>")</code></pre>
 </section>
+
+@* ── Shopping List sl-* board components (plantry-ah3) ──────────────────────── *@
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Shopping List — header (<code>.sl-head</code> + <code>.sl-summary</code>)</h2>
+    </div>
+    <p>
+        <code>.sl-head</code> is a flex row: title + subtitle + spacer + <code>.sl-summary</code> stat box.
+        The stat box (<code>.ss</code> cells) shows to-buy / checked / total counts; the checked cell gets
+        <code>.done</code> to colour its count green (<code>--color-success</code>). All three counts are
+        derivable from <code>ShoppingListView.TotalCount</code> and <code>ShoppingListView.CheckedCount</code>.
+    </p>
+    <div style="max-width: 860px">
+        <div class="sl-head">
+            <div>
+                <h1 style="font-size: 30px; letter-spacing: -0.025em; margin: 0 0 5px; font-weight: 700">Shopping List</h1>
+                <p style="margin: 0; color: var(--color-text-muted); font-size: 14.5px">One shared list for your household &middot; grouped by aisle.</p>
+            </div>
+            <div class="spacer"></div>
+            <div class="sl-summary">
+                <div class="ss"><div class="n">8</div><div class="l">to buy</div></div>
+                <div class="ss done"><div class="n">3</div><div class="l">checked</div></div>
+                <div class="ss"><div class="n">11</div><div class="l">total</div></div>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"sl-head\">\n  <div>\n    <h1>Shopping List</h1>\n    <p>One shared list for your household · grouped by aisle.</p>\n  </div>\n  <div class=\"spacer\"></div>\n  <div class=\"sl-summary\">\n    <div class=\"ss\"><div class=\"n\">@activeCount</div><div class=\"l\">to buy</div></div>\n    <div class=\"ss done\"><div class=\"n\">@checkedCount</div><div class=\"l\">checked</div></div>\n    <div class=\"ss\"><div class=\"n\">@totalCount</div><div class=\"l\">total</div></div>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Shopping List — add form (<code>.sl-add</code>)</h2>
+    </div>
+    <p>
+        <code>.sl-add</code> is a card wrapping a <code>.sl-add-grid</code> (catalog search | OR divider | custom text input)
+        and a <code>.sl-add-foot</code> footer row (qty stepper + unit read-only label + Add button).
+        The <code>.sl-or</code> divider renders as a vertical rule with "or" in the centre; at ≤720px it
+        collapses to a horizontal rule. The qty stepper uses <code>.sl-qty-stepper</code> + <code>.sl-qbtn</code>
+        flanking a number input. Unit is rendered as <code>.sl-qsel-ro</code> (read-only span) until the
+        unit-options bead (plantry-dem) lands.
+    </p>
+    <div style="max-width: 860px">
+        <div class="sl-add">
+            <div class="sl-add-grid">
+                <div class="sl-field">
+                    <label><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg> Search catalog</label>
+                    <input class="sl-input" placeholder="e.g. Chicken Breast, Spinach…" />
+                </div>
+                <div class="sl-or"><span>or</span></div>
+                <div class="sl-field">
+                    <label><svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg> Custom item</label>
+                    <input class="sl-input" placeholder="e.g. Paper towels" />
+                </div>
+            </div>
+            <div class="sl-add-foot" x-data="{ qty: 1 }">
+                <div class="sl-field">
+                    <label>Quantity</label>
+                    <div class="sl-qty-stepper">
+                        <button type="button" class="sl-qbtn" aria-label="Decrease"
+                                @@click="qty = Math.max(0, +(qty - 1).toFixed(2))">
+                            <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                        </button>
+                        <input type="number" min="0" step="any" x-model.number="qty" />
+                        <button type="button" class="sl-qbtn" aria-label="Increase"
+                                @@click="qty = +(qty + 1).toFixed(2)">
+                            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="sl-field">
+                    <label>Unit</label>
+                    <span class="sl-qsel-ro">ea</span>
+                </div>
+                <div class="spacer"></div>
+                <button type="button" class="btn btn--primary btn--lg">
+                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                    Add to list
+                </button>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"sl-add\">\n  <div class=\"sl-add-grid\">\n    <div class=\"sl-field\">\n      <label>Search catalog</label>\n      <!-- searchable-select component -->\n    </div>\n    <div class=\"sl-or\"><span>or</span></div>\n    <div class=\"sl-field\">\n      <label>Custom item</label>\n      <input asp-for=\"Input.FreeText\" class=\"sl-input\" placeholder=\"e.g. Paper towels\" maxlength=\"200\" />\n    </div>\n  </div>\n  <div class=\"sl-add-foot\" x-data=\"{ qty: 1 }\">\n    <div class=\"sl-field\">\n      <label>Quantity</label>\n      <div class=\"sl-qty-stepper\">\n        <button type=\"button\" class=\"sl-qbtn\" @@click=\"qty = Math.max(0, +(qty-1).toFixed(2))\"><svg class=\"icon\"><use href=\"#i-minus\"/></svg></button>\n        <input asp-for=\"Input.Quantity\" type=\"number\" min=\"0\" step=\"any\" x-model.number=\"qty\" />\n        <button type=\"button\" class=\"sl-qbtn\" @@click=\"qty = +(qty+1).toFixed(2)\"><svg class=\"icon\"><use href=\"#i-plus\"/></svg></button>\n      </div>\n    </div>\n    <div class=\"sl-field\">\n      <label>Unit</label>\n      <span class=\"sl-qsel-ro\">ea</span>  <!-- read-only until plantry-dem unit-options bead -->\n    </div>\n    <div class=\"spacer\"></div>\n    <button type=\"submit\" class=\"btn btn--primary btn--lg\">Add to list</button>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Shopping List — category group (<code>.sl-group</code>)</h2>
+    </div>
+    <p>
+        <code>.sl-group</code> is a bordered card grouping items by category. The <code>.sl-group-head</code>
+        carries a <code>.cdot</code> colour dot (oklch hue from <code>CategoryHue</code>), an uppercase
+        category name (<code>h3</code>), and a <code>.count</code> badge. Use the <code>_CatChip</code>
+        partial separately for chip-style chips (see the Category chip section above). The dot here is a
+        simpler <code>10×10px</code> circle — render with inline <code>style="background: oklch(0.6 0.12 {hue})"</code>.
+        For uncategorised items replace the dot with a tag icon.
+    </p>
+    <div style="max-width: 600px">
+        <div class="sl-group" aria-label="Produce">
+            <div class="sl-group-head">
+                <span class="cdot" style="background: oklch(0.6 0.12 145)" aria-hidden="true"></span>
+                <h3>Produce</h3>
+                <span class="count">3</span>
+                <span class="spacer"></span>
+            </div>
+            <div class="sl-rows">
+                <div class="sl-item">
+                    <button type="button" class="sl-check" aria-label="Check off Spinach">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body"><div class="sl-name">Spinach</div></div>
+                    <span class="sl-qty">1 clamshell</span>
+                    <div class="sl-actions"></div>
+                </div>
+                <div class="sl-item">
+                    <button type="button" class="sl-check" aria-label="Check off Bananas">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body">
+                        <div class="sl-name">Bananas</div>
+                        <div class="sl-sub">
+                            <span class="sl-note">
+                                <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                                Slightly green please
+                            </span>
+                        </div>
+                    </div>
+                    <span class="sl-qty">1 bunch</span>
+                    <div class="sl-actions"></div>
+                </div>
+                <div class="sl-item">
+                    <button type="button" class="sl-check" aria-label="Check off Paper towels">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body">
+                        <div class="sl-name">Paper towels <span class="free-tag">custom</span></div>
+                    </div>
+                    <span class="sl-qty">1 pack</span>
+                    <div class="sl-actions"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"sl-group\" aria-label=\"{categoryName}\">\n  <div class=\"sl-group-head\">\n    <!-- colour dot (has category): -->\n    <span class=\"cdot\" style=\"background: oklch(0.6 0.12 {hue})\" aria-hidden=\"true\"></span>\n    <!-- OR tag icon (uncategorised): -->\n    <svg class=\"icon\" style=\"color: var(--color-text-faint); width:16px; height:16px; flex:none\"><use href=\"#i-tag\"/></svg>\n    <h3>Category Name</h3>\n    <span class=\"count\">{count}</span>\n    <span class=\"spacer\"></span>\n  </div>\n  <div class=\"sl-rows\">\n    <!-- .sl-item rows -->\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Shopping List — item row (<code>.sl-item</code>)</h2>
+    </div>
+    <p>
+        <code>.sl-item</code> is the row layout: <code>.sl-check</code> (square 24×24 checkbox button,
+        rounded-sm, fills accent when checked via <code>.on</code>) + <code>.sl-body</code> (name + optional
+        note sub-line) + <code>.sl-qty</code> pill (monospace, 999px border-radius) + <code>.sl-actions</code>
+        (hover-revealed, 0→1 opacity). Free-text items show a <code>.free-tag</code> "custom" badge in the name.
+        Checked items get <code>.done</code>: name struck-through with faint colour, check filled with
+        <code>--color-text-faint</code>. Action buttons are shell-only in this bead; wired by sibling beads
+        (plantry-853, plantry-dem).
+    </p>
+    <div style="max-width: 600px">
+        <div class="sl-group">
+            <div class="sl-rows">
+                <div class="sl-item">
+                    <button type="button" class="sl-check" aria-label="Check off Whole Milk">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body"><div class="sl-name">Whole Milk</div></div>
+                    <span class="sl-qty">2 L</span>
+                    <div class="sl-actions">
+                        <button type="button" class="sl-act" title="Add note" aria-label="Add note">
+                            <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                        </button>
+                        <button type="button" class="sl-act danger" title="Remove" aria-label="Remove">
+                            <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="sl-item">
+                    <button type="button" class="sl-check" aria-label="Check off Chicken">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body">
+                        <div class="sl-name">Chicken Breast</div>
+                        <div class="sl-sub">
+                            <span class="sl-note">
+                                <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                                Portion and freeze the family pack
+                            </span>
+                        </div>
+                    </div>
+                    <span class="sl-qty">1.4 kg</span>
+                    <div class="sl-actions"></div>
+                </div>
+                <div class="sl-item done">
+                    <button type="button" class="sl-check on" aria-label="Uncheck Roma Tomatoes">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body"><div class="sl-name">Roma Tomatoes</div></div>
+                    <span class="sl-qty">6 ea</span>
+                    <div class="sl-actions"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<!-- Unchecked item -->\n<div class=\"sl-item\" id=\"shopping-item-{itemId}\">\n  <button type=\"button\" class=\"sl-check\"\n          hx-post=\"/Shopping?handler=CheckOff&listId={listId}&itemId={itemId}\"\n          hx-target=\"#shopping-list\" hx-swap=\"outerHTML\"\n          aria-label=\"Check off {name}\">\n    <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-check\"/></svg>\n  </button>\n  <div class=\"sl-body\">\n    <div class=\"sl-name\">\n      {name}\n      <!-- free-text items only: -->\n      <span class=\"free-tag\">custom</span>\n    </div>\n    <!-- optional note sub-line (hidden when checked): -->\n    <div class=\"sl-sub\">\n      <span class=\"sl-note\"><svg class=\"icon\"><use href=\"#i-edit\"/></svg> {note}</span>\n    </div>\n  </div>\n  <span class=\"sl-qty\">{qty} {unit}</span>\n  <div class=\"sl-actions\" aria-label=\"Item actions\"><!-- wired by sibling beads --></div>\n</div>\n\n<!-- Checked item — add .done to .sl-item and .on to .sl-check -->\n<div class=\"sl-item done\">\n  <button type=\"button\" class=\"sl-check on\" …>…</button>\n  …\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Shopping List — checked section (<code>.sl-checked-head</code> + <code>.sl-clear</code>)</h2>
+    </div>
+    <p>
+        <code>.sl-checked-head</code> is the divider that appears above the checked-items group.
+        It contains a <code>.lbl</code> (check icon + "Checked off" text), a <code>.spacer</code>
+        hairline, and a <code>.sl-clear</code> button. On hover, <code>.sl-clear</code> shifts to
+        danger colours. The checked group uses a plain <code>.sl-group</code> (no group-head
+        — the <code>.sl-checked-head</code> serves as the header). The <code>.sl-empty</code>
+        state appears when the list has no items at all.
+    </p>
+    <div style="max-width: 600px">
+        <div class="sl-checked-head">
+            <span class="lbl">
+                <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                Checked off
+            </span>
+            <span class="spacer"></span>
+            <button type="button" class="sl-clear">
+                <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                Clear 2 checked items
+            </button>
+        </div>
+        <div class="sl-group">
+            <div class="sl-rows">
+                <div class="sl-item done">
+                    <button type="button" class="sl-check on" aria-label="Uncheck Eggs">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body"><div class="sl-name">Eggs</div></div>
+                    <span class="sl-qty">12 ct</span>
+                    <div class="sl-actions"></div>
+                </div>
+            </div>
+        </div>
+        <div class="sl-empty" style="margin-top: 24px">
+            <div class="big">Your list is empty</div>
+            Add a product from the catalog or type a custom item above.
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<!-- Checked section header -->\n<div class=\"sl-checked-head\">\n  <span class=\"lbl\">\n    <svg class=\"icon\"><use href=\"#i-check\"/></svg> Checked off\n  </span>\n  <span class=\"spacer\"></span>\n  <form method=\"post\" action=\"/Shopping?handler=ClearChecked\">\n    @AntiForgeryToken\n    <button type=\"submit\" class=\"sl-clear\">\n      <svg class=\"icon\"><use href=\"#i-trash\"/></svg>\n      Clear {count} checked {item|items}\n    </button>\n  </form>\n</div>\n\n<!-- Empty state -->\n<div class=\"sl-empty\">\n  <div class=\"big\">Your list is empty</div>\n  Add a product from the catalog or type a custom item above.\n</div>")</code></pre>
+</section>

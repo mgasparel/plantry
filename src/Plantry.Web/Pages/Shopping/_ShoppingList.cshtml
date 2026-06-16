@@ -8,73 +8,83 @@
 }
 
 <div id="shopping-list"@Html.Raw(oobAttr)>
-    @if (list is null)
+    @if (list is null || list.TotalCount == 0)
     {
-        <div class="empty-state">
-            <p class="empty-state__message">No shopping list found. Start by adding an item above.</p>
-        </div>
-    }
-    else if (list.TotalCount == 0)
-    {
-        <div class="empty-state">
-            <p class="empty-state__message">Your list is empty — add your first item above.</p>
+        <div class="sl-empty">
+            <div class="big">Your list is empty</div>
+            Add a product from the catalog or type a custom item above.
         </div>
     }
     else
     {
-        @* Clear-checked action (SPEC §3e) *@
-        @if (hasChecked)
-        {
-            <div class="shopping-list__actions">
-                <form method="post" action="@Url.Page("./Index", "ClearChecked")">
-                    @Html.AntiForgeryToken()
-                    <button type="submit" class="btn btn--ghost btn--sm">
-                        Clear @list.CheckedCount checked @(list.CheckedCount == 1 ? "item" : "items")
-                    </button>
-                </form>
-            </div>
-        }
-
-        @* Named-category groups *@
+        @* Named-category groups (unchecked items only) *@
         @foreach (var group in list.Groups)
         {
-            <section class="shopping-group" aria-label="@group.CategoryName">
-                <h3 class="shopping-group__heading">@group.CategoryName</h3>
-                <ul class="shopping-group__items" role="list">
+            // Derive the color dot hue from the first item in the group that has a CategoryHue
+            var groupHue = group.Items.FirstOrDefault(i => i.CategoryHue.HasValue)?.CategoryHue;
+            var dotStyle = groupHue.HasValue
+                ? $"background: oklch(0.6 0.12 {groupHue})"
+                : "background: var(--color-text-faint)";
+            <div class="sl-group" aria-label="@group.CategoryName">
+                <div class="sl-group-head">
+                    <span class="cdot" style="@dotStyle" aria-hidden="true"></span>
+                    <h3>@group.CategoryName</h3>
+                    <span class="count">@group.Items.Count</span>
+                    <span class="spacer"></span>
+                </div>
+                <div class="sl-rows">
                     @foreach (var item in group.Items)
                     {
                         <partial name="_ShoppingItem" model="item" />
                     }
-                </ul>
-            </section>
+                </div>
+            </div>
         }
 
-        @* Uncategorized bucket (free-text items + products with no category, unchecked only) *@
+        @* Uncategorized bucket (free-text + products with no category, unchecked only) *@
         @if (list.UncategorizedItems.Count > 0)
         {
-            <section class="shopping-group" aria-label="Uncategorized">
-                <h3 class="shopping-group__heading">Uncategorized</h3>
-                <ul class="shopping-group__items" role="list">
+            <div class="sl-group" aria-label="Uncategorized">
+                <div class="sl-group-head">
+                    <svg class="icon" aria-hidden="true" style="color: var(--color-text-faint); width: 16px; height: 16px; flex: none"><use href="#i-tag" /></svg>
+                    <h3>Uncategorized</h3>
+                    <span class="count">@list.UncategorizedItems.Count</span>
+                    <span class="spacer"></span>
+                </div>
+                <div class="sl-rows">
                     @foreach (var item in list.UncategorizedItems)
                     {
                         <partial name="_ShoppingItem" model="item" />
                     }
-                </ul>
-            </section>
+                </div>
+            </div>
         }
 
         @* Checked items sink to the bottom (SPEC §3c: struck-through, below all unchecked groups) *@
-        @if (list.CheckedItems.Count > 0)
+        @if (hasChecked)
         {
-            <section class="shopping-group shopping-group--checked" aria-label="Checked items">
-                <h3 class="shopping-group__heading">Checked</h3>
-                <ul class="shopping-group__items" role="list">
+            <div class="sl-checked-head">
+                <span class="lbl">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    Checked off
+                </span>
+                <span class="spacer"></span>
+                <form method="post" action="@Url.Page("./Index", "ClearChecked")">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="sl-clear">
+                        <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                        Clear @list.CheckedCount checked @(list.CheckedCount == 1 ? "item" : "items")
+                    </button>
+                </form>
+            </div>
+            <div class="sl-group" aria-label="Checked items">
+                <div class="sl-rows">
                     @foreach (var item in list.CheckedItems)
                     {
                         <partial name="_ShoppingItem" model="item" />
                     }
-                </ul>
-            </section>
+                </div>
+            </div>
         }
     }
 </div>
