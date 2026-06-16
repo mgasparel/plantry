@@ -238,6 +238,87 @@ public sealed class DeleteItemCommand(
 }
 
 /// <summary>
+/// Edits the quantity and unit of a single shopping list item in place (plantry-dem).
+/// The item must belong to the household's current list. Tenancy is enforced via
+/// the list's <c>HouseholdId</c> compared to the tenant context — defense-in-depth
+/// alongside the EF query filter.
+/// </summary>
+public sealed class EditQuantityCommand(
+    ShoppingListId listId,
+    ShoppingListItemId itemId,
+    decimal? quantity,
+    Guid? unitId,
+    IShoppingListRepository repository,
+    IClock clock,
+    ITenantContext tenant)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var list = await repository.GetByIdAsync(listId, ct);
+        if (list is null)
+            return Error.NotFound;
+
+        // Tenant guard — defense-in-depth alongside EF query filter.
+        if (list.HouseholdId != HouseholdId.From(householdId))
+            return Error.Unauthorized;
+
+        try
+        {
+            list.EditItemQuantity(itemId, quantity, unitId, clock);
+        }
+        catch (InvalidOperationException)
+        {
+            return Error.NotFound;
+        }
+
+        await repository.SaveAsync(ct);
+        return Result.Success();
+    }
+}
+
+/// <summary>
+/// Sets or clears the note on a single shopping list item (plantry-dem).
+/// Null or whitespace-only note clears the field. Tenancy enforced as defense-in-depth.
+/// </summary>
+public sealed class SetNoteCommand(
+    ShoppingListId listId,
+    ShoppingListItemId itemId,
+    string? note,
+    IShoppingListRepository repository,
+    IClock clock,
+    ITenantContext tenant)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var list = await repository.GetByIdAsync(listId, ct);
+        if (list is null)
+            return Error.NotFound;
+
+        // Tenant guard — defense-in-depth alongside EF query filter.
+        if (list.HouseholdId != HouseholdId.From(householdId))
+            return Error.Unauthorized;
+
+        try
+        {
+            list.SetItemNote(itemId, note, clock);
+        }
+        catch (InvalidOperationException)
+        {
+            return Error.NotFound;
+        }
+
+        await repository.SaveAsync(ct);
+        return Result.Success();
+    }
+}
+
+/// <summary>
 /// Hard-deletes all checked items from the household's shopping list (SPEC §3e,
 /// shopping.md resolved call 2 — mutable working state, no audit trail for clears).
 /// </summary>

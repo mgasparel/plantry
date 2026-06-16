@@ -135,6 +135,32 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
     }
 
     /// <summary>
+    /// Edits the quantity and unit of a single item in place (inline qty/unit editor, plantry-dem).
+    /// Quantity may be null (clears the quantity). UnitId may be null (no unit).
+    /// Throws if the item is not found on this list.
+    /// </summary>
+    public void EditItemQuantity(ShoppingListItemId itemId, decimal? quantity, Guid? unitId, IClock clock)
+    {
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException($"Item {itemId} not found on list {Id}.");
+        item.EditQuantity(quantity, unitId, clock);
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Sets or clears the note on a single item (inline note editor, plantry-dem).
+    /// Null or whitespace-only note clears the note field.
+    /// Throws if the item is not found on this list.
+    /// </summary>
+    public void SetItemNote(ShoppingListItemId itemId, string? note, IClock clock)
+    {
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException($"Item {itemId} not found on list {Id}.");
+        item.SetNote(note, clock);
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
     /// Hard-removes all checked items from the list (SPEC §3e, shopping.md resolved call 2).
     /// </summary>
     public IReadOnlyList<ShoppingListItem> ClearChecked(IClock clock)

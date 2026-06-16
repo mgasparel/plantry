@@ -1,4 +1,4 @@
-<div class="sl-item done" id="shopping-item-Guid_1">
+﻿<div class="sl-item done" id="shopping-item-Guid_1" x-data="{ editingQty: false, editingNote: false, qty: &quot;500&quot;, note: &quot;&quot; }" x-on:keydown.escape.window="editingQty = false; editingNote = false">
 	<button type="button" class="sl-check on" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=UncheckItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Uncheck Flour">
 		<svg class="icon" aria-hidden="true">
 			<use href="#i-check"></use>

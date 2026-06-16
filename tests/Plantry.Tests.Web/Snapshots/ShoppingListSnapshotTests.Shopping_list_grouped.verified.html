@@ -1,4 +1,4 @@
-<div id="shopping-list">
+﻿<div id="shopping-list">
 	<div class="sl-group" aria-label="Dairy">
 		<div class="sl-group-head">
 			<span class="cdot" style="background: var(--color-text-faint)" aria-hidden="true"></span>
@@ -7,7 +7,7 @@
 			<span class="spacer"></span>
 		</div>
 		<div class="sl-rows">
-			<div class="sl-item" id="shopping-item-Guid_1">
+			<div class="sl-item" id="shopping-item-Guid_1" x-data="{ editingQty: false, editingNote: false, qty: &quot;2&quot;, note: &quot;&quot; }" x-on:keydown.escape.window="editingQty = false; editingNote = false">
 				<button type="button" class="sl-check" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=CheckOff" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Check off Milk">
 					<svg class="icon" aria-hidden="true">
 						<use href="#i-check"></use>
@@ -20,11 +20,51 @@
 					<div class="sl-sub">
 						<span class="sl-instock">2 L in pantry</span>
 					</div>
+					<div class="sl-noterow" x-show="editingNote" x-cloak="">
+						<form hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=SetNote" hx-target="#shopping-list" hx-swap="outerHTML" x-on:submit="editingNote = false">
+							<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+							<input type="text" name="note" class="sl-noteinput" placeholder="Add a note…" maxlength="500" x-model="note" aria-label="Note for Milk">
+							<button type="submit" class="sl-act save" aria-label="Save note">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-check"></use>
+								</svg>
+							</button>
+						</form>
+					</div>
 				</div>
-				<span class="sl-qty">
+				<button type="button" class="sl-qty" x-show="!editingQty" x-on:click="editingQty = true" aria-label="Edit quantity for Milk">
 					2 L
-				</span>
+				</button>
+				<form class="sl-qtyedit" x-show="editingQty" x-cloak="" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=EditQuantity" hx-target="#shopping-list" hx-swap="outerHTML" x-on:submit="editingQty = false">
+					<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+					<div class="sl-qty-stepper">
+						<button type="button" class="sl-qbtn" aria-label="Decrease" x-on:click="qty = (+qty - 1) < 0 ? '0' : (+qty - 1).toFixed(3).replace(/\.?0+$/, '') || '0'">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-minus"></use>
+							</svg>
+						</button>
+						<input type="number" name="quantity" min="0" step="any" x-model="qty" aria-label="Quantity">
+						<button type="button" class="sl-qbtn" aria-label="Increase" x-on:click="qty = (+qty + 1).toFixed(3).replace(/\.?0+$/, '') || '1'">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-plus"></use>
+							</svg>
+						</button>
+					</div>
+					<select name="unitId" class="sl-qsel" aria-label="Unit">
+						<option value="Guid_3">L</option>
+					</select>
+					<button type="submit" class="sl-act save" aria-label="Save quantity">
+						<svg class="icon" aria-hidden="true">
+							<use href="#i-check"></use>
+						</svg>
+					</button>
+				</form>
 				<div class="sl-actions" aria-label="Item actions">
+					<button type="button" class="sl-act" x-on:click="editingNote = !editingNote; if (editingNote) $nextTick(() => $el.closest('.sl-item').querySelector('.sl-noteinput')?.focus())" x-bind:class="editingNote ? 'sl-act active' : 'sl-act'" aria-label="Add note for Milk">
+						<svg class="icon" aria-hidden="true">
+							<use href="#i-edit"></use>
+						</svg>
+					</button>
 					<button type="button" class="sl-act danger" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=DeleteItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Delete Milk">
 						<svg class="icon" aria-hidden="true">
 							<use href="#i-trash"></use>
@@ -44,8 +84,8 @@
 			<span class="spacer"></span>
 		</div>
 		<div class="sl-rows">
-			<div class="sl-item" id="shopping-item-Guid_3">
-				<button type="button" class="sl-check" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_3&amp;handler=CheckOff" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Check off Sriracha">
+			<div class="sl-item" id="shopping-item-Guid_4" x-data="{ editingQty: false, editingNote: false, qty: &quot;&quot;, note: &quot;&quot; }" x-on:keydown.escape.window="editingQty = false; editingNote = false">
+				<button type="button" class="sl-check" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_4&amp;handler=CheckOff" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Check off Sriracha">
 					<svg class="icon" aria-hidden="true">
 						<use href="#i-check"></use>
 					</svg>
@@ -55,9 +95,55 @@
 						Sriracha
 						<span class="free-tag">custom</span>
 					</div>
+					<div class="sl-noterow" x-show="editingNote" x-cloak="">
+						<form hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_4&amp;handler=SetNote" hx-target="#shopping-list" hx-swap="outerHTML" x-on:submit="editingNote = false">
+							<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+							<input type="text" name="note" class="sl-noteinput" placeholder="Add a note…" maxlength="500" x-model="note" aria-label="Note for Sriracha">
+							<button type="submit" class="sl-act save" aria-label="Save note">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-check"></use>
+								</svg>
+							</button>
+						</form>
+					</div>
 				</div>
+				<button type="button" class="sl-qty" x-show="!editingQty" x-on:click="editingQty = true" aria-label="Edit quantity for Sriracha">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-edit"></use>
+					</svg>
+					<span>qty</span>
+				</button>
+				<form class="sl-qtyedit" x-show="editingQty" x-cloak="" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_4&amp;handler=EditQuantity" hx-target="#shopping-list" hx-swap="outerHTML" x-on:submit="editingQty = false">
+					<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+					<div class="sl-qty-stepper">
+						<button type="button" class="sl-qbtn" aria-label="Decrease" x-on:click="qty = (+qty - 1) < 0 ? '0' : (+qty - 1).toFixed(3).replace(/\.?0+$/, '') || '0'">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-minus"></use>
+							</svg>
+						</button>
+						<input type="number" name="quantity" min="0" step="any" x-model="qty" aria-label="Quantity">
+						<button type="button" class="sl-qbtn" aria-label="Increase" x-on:click="qty = (+qty + 1).toFixed(3).replace(/\.?0+$/, '') || '1'">
+							<svg class="icon" aria-hidden="true">
+								<use href="#i-plus"></use>
+							</svg>
+						</button>
+					</div>
+					<select name="unitId" class="sl-qsel" aria-label="Unit">
+						<option value="">no unit</option>
+					</select>
+					<button type="submit" class="sl-act save" aria-label="Save quantity">
+						<svg class="icon" aria-hidden="true">
+							<use href="#i-check"></use>
+						</svg>
+					</button>
+				</form>
 				<div class="sl-actions" aria-label="Item actions">
-					<button type="button" class="sl-act danger" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_3&amp;handler=DeleteItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Delete Sriracha">
+					<button type="button" class="sl-act" x-on:click="editingNote = !editingNote; if (editingNote) $nextTick(() => $el.closest('.sl-item').querySelector('.sl-noteinput')?.focus())" x-bind:class="editingNote ? 'sl-act active' : 'sl-act'" aria-label="Add note for Sriracha">
+						<svg class="icon" aria-hidden="true">
+							<use href="#i-edit"></use>
+						</svg>
+					</button>
+					<button type="button" class="sl-act danger" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_4&amp;handler=DeleteItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Delete Sriracha">
 						<svg class="icon" aria-hidden="true">
 							<use href="#i-trash"></use>
 						</svg>
@@ -86,8 +172,8 @@
 	</div>
 	<div class="sl-group" aria-label="Checked items">
 		<div class="sl-rows">
-			<div class="sl-item done" id="shopping-item-Guid_4">
-				<button type="button" class="sl-check on" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_4&amp;handler=UncheckItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Uncheck Flour">
+			<div class="sl-item done" id="shopping-item-Guid_5" x-data="{ editingQty: false, editingNote: false, qty: &quot;500&quot;, note: &quot;&quot; }" x-on:keydown.escape.window="editingQty = false; editingNote = false">
+				<button type="button" class="sl-check on" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_5&amp;handler=UncheckItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Uncheck Flour">
 					<svg class="icon" aria-hidden="true">
 						<use href="#i-check"></use>
 					</svg>
@@ -101,7 +187,7 @@
 					500 L
 				</span>
 				<div class="sl-actions" aria-label="Item actions">
-					<button type="button" class="sl-act danger" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_4&amp;handler=DeleteItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Delete Flour">
+					<button type="button" class="sl-act danger" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_5&amp;handler=DeleteItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Delete Flour">
 						<svg class="icon" aria-hidden="true">
 							<use href="#i-trash"></use>
 						</svg>
