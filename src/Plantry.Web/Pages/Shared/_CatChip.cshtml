@@ -1,0 +1,33 @@
+@model Plantry.Web.Pages.Shared.CatChipViewModel
+
+@*
+    Renders a category colour chip — the two-letter code badge coloured with the
+    category's hue in oklch space.
+
+    Code derivation: first two characters of Name, uppercased; single-character
+    names produce one uppercase letter; absent/null Name produces "?".
+
+    Palette: --cc-bg: oklch(0.92 0.045 H); --cc-fg: oklch(0.42 0.105 H).
+    When Hue is null the chip renders with .cat-chip--neutral (no colour).
+
+    Usage:
+        <partial name="Shared/_CatChip" model="new CatChipViewModel(category.Name, category.Hue)" />
+*@
+
+@{
+    var code = Model.Name is { Length: >= 2 } n ? n[..2].ToUpperInvariant()
+        : Model.Name is { Length: 1 } n1 ? n1.ToUpperInvariant()
+        : "?";
+    var style = Model.Hue.HasValue
+        ? $"--cc-bg: oklch(0.92 0.045 {Model.Hue}); --cc-fg: oklch(0.42 0.105 {Model.Hue})"
+        : null;
+}
+
+@if (Model.Hue.HasValue)
+{
+    <div class="cat-chip" style="@style">@code</div>
+}
+else
+{
+    <div class="cat-chip cat-chip--neutral">?</div>
+}

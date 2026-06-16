@@ -2,26 +2,12 @@
 @model Plantry.Web.Pages.Pantry.Products.DetailModel
 @{
     ViewData["Title"] = Model.Detail?.Name ?? "Product";
-    var catHue = Model.Detail?.CategoryHue;
-    var catName = Model.Detail?.CategoryName;
-    var catCode = catName is { Length: >= 2 } ? catName[..2].ToUpperInvariant()
-        : catName is { Length: 1 } ? catName[..1].ToUpperInvariant()
-        : "?";
-    var catStyle = catHue.HasValue
-        ? $"--cc-bg: oklch(0.92 0.045 {catHue}); --cc-fg: oklch(0.42 0.105 {catHue})"
-        : null;
+    var catChip = new Plantry.Web.Pages.Shared.CatChipViewModel(Model.Detail?.CategoryName, Model.Detail?.CategoryHue);
 }
 
 <div class="pantry-detail__header">
     <div style="display: flex; align-items: center; gap: var(--space-3)">
-        @if (catHue.HasValue)
-        {
-            <div class="cat-chip" style="@catStyle">@catCode</div>
-        }
-        else
-        {
-            <div class="cat-chip cat-chip--neutral">?</div>
-        }
+        <partial name="Shared/_CatChip" model="catChip" />
         <div>
             <h1 class="pantry-detail__title">@Model.Detail!.Name</h1>
             <p id="product-total" class="pantry-detail__total">@Model.Detail.TotalQuantity.ToString("0.###") @Model.Detail.DisplayUnitCode in stock</p>

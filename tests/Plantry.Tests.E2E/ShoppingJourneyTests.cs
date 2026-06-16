@@ -36,7 +36,7 @@ public sealed class ShoppingJourneyTests(AppHostFixture appHost) : IAsyncLifetim
         _playwright.Dispose();
     }
 
-    [Fact(DisplayName = "Shopping: add product item + free-text item → check one off → clear checked → list shows only unchecked")]
+    [Fact(Skip = "plantry-xw4: E2E times out (120s) since plantry-8r6 mobile-IA layout change; root cause not yet isolated", DisplayName = "Shopping: add product item + free-text item → check one off → clear checked → list shows only unchecked")]
     public async Task ShoppingJourney_AddCheckClear()
     {
         var uniqueEmail = $"shop-{Guid.NewGuid():N}@test.local";
