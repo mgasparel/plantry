@@ -3578,6 +3578,35 @@ button.sl-qty:hover { background: var(--color-surface-3, var(--color-surface-2))
 .sl-empty { text-align: center; padding: 56px 20px; color: var(--color-text-faint); }
 .sl-empty .big { font-size: 16px; color: var(--color-text-muted); margin-bottom: 6px; font-weight: 600; }
 
+/* ---- suggestions strip (.sl-suggest, plantry-48l) ----------------------- */
+.sl-suggest {
+  margin-bottom: 18px; padding: 13px 16px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.sl-suggest-label {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-warning); margin-bottom: 10px;
+}
+.sl-sug-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.sl-sug {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 5px 8px 5px 7px; font-size: 13px;
+}
+.sl-sug .cat-chip { font-size: 10px; padding: 1px 5px; }
+.sl-sug-name { font-weight: 600; color: var(--color-text); white-space: nowrap; }
+.sl-sug-stock { color: var(--color-warning); font-size: 12px; white-space: nowrap; }
+.sl-sug-stock.out { color: var(--color-danger); }
+button.sadd {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--color-accent); color: var(--color-text-on-accent);
+  border: none; cursor: pointer; flex: none;
+}
+button.sadd:hover { background: var(--color-accent-hover, color-mix(in oklch, var(--color-accent) 85%, black)); }
+button.sadd svg { width: 13px; height: 13px; }
+
 @media (max-width: 720px) {
   .sl-add-grid { grid-template-columns: 1fr; }
   .sl-or { flex-direction: row; padding: 2px 0; }

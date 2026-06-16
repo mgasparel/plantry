@@ -18,6 +18,7 @@ namespace Plantry.Web.Pages.Shopping;
 [Authorize]
 public sealed class IndexModel(
     ShoppingListQueryService queryService,
+    PantrySuggestionService suggestionService,
     IShoppingCatalogReader catalog,
     IShoppingPantryReader pantry,
     IShoppingListRepository repository,
@@ -36,6 +37,12 @@ public sealed class IndexModel(
 
     /// <summary>All household units for the inline qty editor unit select (plantry-259).</summary>
     public IReadOnlyList<ShoppingUnitOption> UnitOptionsList { get; private set; } = [];
+
+    /// <summary>
+    /// Pantry suggestions for the "Running low in your pantry" strip (plantry-48l).
+    /// Low/out products not already on the active list, capped at 5.
+    /// </summary>
+    public IReadOnlyList<PantrySuggestion> Suggestions { get; private set; } = [];
 
     // ── Input models ──────────────────────────────────────────────────────────
 
@@ -63,6 +70,7 @@ public sealed class IndexModel(
     {
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
     }
 
     /// <summary>
@@ -162,8 +170,9 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
         // Return the full shopping list fragment; hx-swap="outerHTML" on #shopping-list
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: true));
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: true));
     }
 
     /// <summary>
@@ -190,7 +199,8 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
     }
 
     /// <summary>
@@ -214,7 +224,8 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
     }
 
     /// <summary>
@@ -238,7 +249,8 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
     }
 
     /// <summary>
@@ -264,7 +276,8 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
     }
 
     /// <summary>
@@ -289,7 +302,8 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
     }
 
     /// <summary>
@@ -315,7 +329,8 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
     }
 
     /// <summary>
@@ -333,7 +348,8 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -342,7 +358,8 @@ public sealed class IndexModel(
     {
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
+        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
     }
 
     private async Task LoadAddOptionsAsync()
@@ -366,6 +383,29 @@ public sealed class IndexModel(
         CategoryOptions = await catalog.ListCategoriesAsync();
     }
 
+    /// <summary>
+    /// Builds the "Running low in your pantry" suggestion list (plantry-48l).
+    /// Collects product ids already on the list (checked and unchecked), then delegates
+    /// to <see cref="PantrySuggestionService"/> for the fetch → exclude → cap → enrich pipeline.
+    /// </summary>
+    public Task<IReadOnlyList<PantrySuggestion>> LoadSuggestionsAsync(
+        ShoppingListView? list,
+        CancellationToken ct = default)
+    {
+        // Collect product ids already on the list (unchecked AND checked) so we can exclude them.
+        // A checked item is "in progress" (user is buying it), so it should not appear as a suggestion.
+        IReadOnlySet<Guid> onListProductIds = list is null
+            ? (IReadOnlySet<Guid>)new HashSet<Guid>()
+            : list.Groups.SelectMany(g => g.Items)
+                .Concat(list.UncategorizedItems)
+                .Concat(list.CheckedItems)
+                .Where(i => i.ProductId.HasValue)
+                .Select(i => i.ProductId!.Value)
+                .ToHashSet();
+
+        return suggestionService.GetSuggestionsAsync(onListProductIds, ct);
+    }
+
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 }
 
@@ -381,6 +421,7 @@ public sealed record ShoppingListPartialModel(
     IReadOnlyList<SelectListItem> UnitOptions,
     IReadOnlyList<ShoppingCategoryOption> CategoryOptions,
     IReadOnlyList<ShoppingUnitOption> UnitOptionsList,
+    IReadOnlyList<PantrySuggestion> Suggestions,
     bool Oob);
 
 /// <summary>

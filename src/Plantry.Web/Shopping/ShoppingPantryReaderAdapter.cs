@@ -47,17 +47,50 @@ public sealed class ShoppingPantryReaderAdapter(
         if (relevantStock.Count == 0)
             return new Dictionary<Guid, ShoppingPantryStockLevel>();
 
+        var levels = await AggregateStockLevelsAsync(relevantStock, ct);
+        return levels.ToDictionary(l => l.ProductId);
+    }
+
+    /// <inheritdoc cref="IShoppingPantryReader.GetLowStockProductsAsync"/>
+    public async Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
+        CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdGuid)
+            return [];
+
+        var householdId = HouseholdId.From(householdGuid);
+
+        // Load all household stock aggregates; RLS scoping ensures household isolation.
+        var allStock = await stocks.ListForHouseholdAsync(householdId, ct);
+        if (allStock.Count == 0)
+            return [];
+
+        var levels = await AggregateStockLevelsAsync(allStock, ct);
+        return levels.Where(l => l.IsLow).ToList();
+    }
+
+    // ── Shared aggregation helper ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Aggregates on-hand quantities for the given product-stock records into
+    /// <see cref="ShoppingPantryStockLevel"/> instances. Loads catalog product info and
+    /// unit converters in batch calls; skips products whose catalog entry is missing.
+    /// </summary>
+    private async Task<List<ShoppingPantryStockLevel>> AggregateStockLevelsAsync(
+        List<ProductStock> stockRecords,
+        CancellationToken ct)
+    {
         // Load catalog info for default unit id and unit code for relevant products.
         var allCatalogProducts = await catalog.ListProductsAsync(ct);
         var catalogByProduct = allCatalogProducts.ToDictionary(p => p.Id);
 
         // Load converters for all relevant products in one batch call.
-        var stockProductIds = relevantStock.Select(s => s.ProductId).ToList();
+        var stockProductIds = stockRecords.Select(s => s.ProductId).ToList();
         var convertersByProduct = await conversions.ForProductsAsync(stockProductIds, ct);
 
-        var result = new Dictionary<Guid, ShoppingPantryStockLevel>(relevantStock.Count);
+        var result = new List<ShoppingPantryStockLevel>(stockRecords.Count);
 
-        foreach (var productStock in relevantStock)
+        foreach (var productStock in stockRecords)
         {
             if (!catalogByProduct.TryGetValue(productStock.ProductId, out var catalogInfo))
                 continue; // product no longer in catalog — skip
@@ -84,11 +117,11 @@ public sealed class ShoppingPantryReaderAdapter(
             // are added to the domain, this computation extends to also flag onHand <= par.
             var isLow = total <= 0m;
 
-            result[productStock.ProductId] = new ShoppingPantryStockLevel(
+            result.Add(new ShoppingPantryStockLevel(
                 ProductId: productStock.ProductId,
                 OnHand: total,
                 UnitCode: unitCode,
-                IsLow: isLow);
+                IsLow: isLow));
         }
 
         return result;

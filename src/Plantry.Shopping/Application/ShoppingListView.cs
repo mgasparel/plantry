@@ -67,3 +67,31 @@ public sealed record ShoppingListView(
 public sealed record ShoppingCategoryGroup(
     string CategoryName,
     IReadOnlyList<ShoppingListItemView> Items);
+
+/// <summary>
+/// One chip in the "Running low in your pantry" suggestions strip (plantry-48l).
+/// Represents a pantry product that is at or below par and NOT already on the active shopping list.
+/// Resolved by the page model by joining low-stock products from <see cref="IShoppingPantryReader"/>
+/// with catalog summaries from <see cref="IShoppingCatalogReader"/>.
+/// </summary>
+/// <param name="ProductId">Catalog product id — used as the hidden input value for the one-click add.</param>
+/// <param name="Name">Product display name.</param>
+/// <param name="OnHand">On-hand quantity in <see cref="UnitCode"/> units. Zero means "out of stock".</param>
+/// <param name="UnitCode">Display unit code (e.g. "g", "ea").</param>
+/// <param name="IsLow">True when on-hand is at or below par (always true for suggestions).</param>
+/// <param name="CategoryName">Category name for the colour chip. Null when uncategorised.</param>
+/// <param name="CategoryHue">Hue in degrees (0–359) for the colour dot. Null when uncategorised.</param>
+public sealed record PantrySuggestion(
+    Guid ProductId,
+    string Name,
+    decimal OnHand,
+    string UnitCode,
+    bool IsLow,
+    string? CategoryName,
+    int? CategoryHue)
+{
+    /// <summary>Label shown next to the chip: "N unit" or "out" when zero.</summary>
+    public string StockLabel => OnHand > 0
+        ? $"{OnHand:0.###} {UnitCode} left"
+        : "out";
+}

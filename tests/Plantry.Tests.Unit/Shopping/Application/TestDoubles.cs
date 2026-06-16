@@ -30,6 +30,15 @@ internal sealed class FakeShoppingPantryReader : IShoppingPantryReader
             .ToDictionary(id => id, id => _levels[id]);
         return Task.FromResult(result);
     }
+
+    public Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<ShoppingPantryStockLevel> result = _levels.Values
+            .Where(l => l.IsLow)
+            .ToList();
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>

@@ -60,9 +60,11 @@ public sealed class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IShoppingPantryReader>(
                 new FakeShoppingPantryReaderForSnapshots(stockLevels));
 
-            // Re-register ShoppingListQueryService so it picks up the fakes above.
+            // Re-register ShoppingListQueryService and PantrySuggestionService so they pick up the fakes.
             services.RemoveAll<ShoppingListQueryService>();
             services.AddScoped<ShoppingListQueryService>();
+            services.RemoveAll<PantrySuggestionService>();
+            services.AddScoped<PantrySuggestionService>();
         });
     }
 }
@@ -81,6 +83,15 @@ internal sealed class FakeShoppingPantryReaderForSnapshots(
         IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> result = productIds
             .Where(levels.ContainsKey)
             .ToDictionary(id => id, id => levels[id]);
+        return Task.FromResult(result);
+    }
+
+    public Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<ShoppingPantryStockLevel> result = levels.Values
+            .Where(l => l.IsLow)
+            .ToList();
         return Task.FromResult(result);
     }
 }
