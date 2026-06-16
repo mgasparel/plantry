@@ -480,6 +480,39 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Category dot pill</h2>
+    </div>
+    <p>
+        <code>.sl-cat-pill</code> — a compact inline pill for roomy contexts (e.g. the recat dropdown).
+        Renders a small colored dot (hue-driven via <code>--cdp-color: oklch(0.55 0.14 H)</code>) plus
+        the category name. Prefer this over <code>_CatChip</code> wherever there is enough horizontal
+        space for the label. In space-constrained spots (suggestion strip, etc.) keep <code>_CatChip</code>.
+    </p>
+
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; margin-bottom: var(--space-4)">
+        <span class="sl-cat-pill">
+            <span class="sl-cat-pill__dot" style="--cdp-color: oklch(0.55 0.14 145)" aria-hidden="true"></span>
+            Produce
+        </span>
+        <span class="sl-cat-pill">
+            <span class="sl-cat-pill__dot" style="--cdp-color: oklch(0.55 0.14 210)" aria-hidden="true"></span>
+            Dairy &amp; Eggs
+        </span>
+        <span class="sl-cat-pill">
+            <span class="sl-cat-pill__dot" style="--cdp-color: oklch(0.55 0.14 30)" aria-hidden="true"></span>
+            Meat &amp; Fish
+        </span>
+        <span class="sl-cat-pill">
+            <span class="sl-cat-pill__dot" aria-hidden="true"></span>
+            Uncategorized
+        </span>
+    </div>
+
+    <pre class="code-sample"><code>@("{@{\n    var dotStyle = cat.Hue.HasValue ? $\"--cdp-color: oklch(0.55 0.14 {cat.Hue})\" : null;\n}\n<span class=\"sl-cat-pill\">\n    <span class=\"sl-cat-pill__dot\" style=\"@dotStyle\" aria-hidden=\"true\"></span>\n    @cat.Name\n</span>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Review progress bar</h2>
     </div>
     <p>

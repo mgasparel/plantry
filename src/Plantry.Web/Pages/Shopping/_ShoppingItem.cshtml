@@ -123,8 +123,15 @@
                         @Html.AntiForgeryToken()
                         <input type="hidden" name="categoryId" value="@cat.CategoryId" />
                         <button type="submit" class="sl-recat-option">
-                            <partial name="Shared/_CatChip" model="new CatChipViewModel(cat.Name, cat.Hue)" />
-                            @cat.Name
+                            @{
+                                var dotStyle = cat.Hue.HasValue
+                                    ? $"--cdp-color: oklch(0.55 0.14 {cat.Hue})"
+                                    : null;
+                            }
+                            <span class="sl-cat-pill">
+                                <span class="sl-cat-pill__dot" style="@dotStyle" aria-hidden="true"></span>
+                                @cat.Name
+                            </span>
                         </button>
                     </form>
                 }

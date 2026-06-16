@@ -36,16 +36,20 @@
 						<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
 						<input type="hidden" name="categoryId" value="Guid_3">
 						<button type="submit" class="sl-recat-option">
-							<div class="cat-chip" style="--cc-bg: oklch(0.92 0.045 210); --cc-fg: oklch(0.42 0.105 210)">DA</div>
-							Dairy
+							<span class="sl-cat-pill">
+								<span class="sl-cat-pill__dot" style="--cdp-color: oklch(0.55 0.14 210)" aria-hidden="true"></span>
+								Dairy
+							</span>
 						</button>
 					</form>
 					<form hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=Recategorize" hx-target="#shopping-list" hx-swap="outerHTML" x-on:submit="showRecat = false">
 						<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
 						<input type="hidden" name="categoryId" value="Guid_4">
 						<button type="submit" class="sl-recat-option">
-							<div class="cat-chip" style="--cc-bg: oklch(0.92 0.045 30); --cc-fg: oklch(0.42 0.105 30)">BA</div>
-							Baking
+							<span class="sl-cat-pill">
+								<span class="sl-cat-pill__dot" style="--cdp-color: oklch(0.55 0.14 30)" aria-hidden="true"></span>
+								Baking
+							</span>
 						</button>
 					</form>
 				</div>
