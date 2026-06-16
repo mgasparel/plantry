@@ -257,11 +257,15 @@
                         @* Add missing to shopping list — J5 step 6 (P2-4b). *@
                         @if (missingCount > 0)
                         {
+                            @* On success, flip to the "Added" confirm state. The flag lives in the
+                               #recipe-detail Alpine scope, so we bridge htmx's afterRequest event via an
+                               Alpine listener (@@htmx:after-request) — NOT hx-on, which runs in global JS
+                               scope and cannot see Alpine component state. Mirrors Intake/Upload.cshtml. *@
                             <button type="button" class="btn btn--soft"
                                     hx-post="@Url.Page("./Details", "AddMissing", new { id = recipe.Id })"
                                     hx-include="#rd-servings-input"
                                     hx-swap="none"
-                                    hx-on::after-request="if (event.detail.successful) { missingAdded = true }"
+                                    @@htmx:after-request="if ($event.detail.successful) missingAdded = true"
                                     :disabled="missingAdded">
                                 <svg class="icon" aria-hidden="true" x-show="!missingAdded"><use href="#i-cart" /></svg>
                                 <svg class="icon" aria-hidden="true" x-show="missingAdded" x-cloak><use href="#i-check" /></svg>

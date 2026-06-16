@@ -142,7 +142,7 @@
 						</a>
 						<input type="hidden" name="__RequestVerificationToken" value="{scrubbed-antiforgery-token}">
 						<input type="hidden" id="rd-servings-input" name="servings" :value="servings">
-						<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddMissing" hx-include="#rd-servings-input" hx-swap="none" hx-on::after-request="if (event.detail.successful) { missingAdded = true }" :disabled="missingAdded">
+						<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddMissing" hx-include="#rd-servings-input" hx-swap="none" @htmx:after-request="if ($event.detail.successful) missingAdded = true" :disabled="missingAdded">
 							<svg class="icon" aria-hidden="true" x-show="!missingAdded">
 								<use href="#i-cart"></use>
 							</svg>
