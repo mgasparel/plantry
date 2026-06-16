@@ -3484,6 +3484,14 @@ button { font-family: inherit; cursor: pointer; }
 .sl-sub .dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .6; }
 .sl-note { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-muted); font-style: italic; }
 .sl-note svg { width: 12px; height: 12px; opacity: .7; font-style: normal; }
+/* Pantry stock sub-line (.sl-instock) and low indicator (.sl-low) */
+.sl-instock { color: var(--color-success); font-variant-numeric: tabular-nums; }
+.sl-instock.out { color: var(--color-text-faint); }
+.sl-low { color: var(--color-warning); font-weight: 500; }
+/* Search dropdown stock hint (.ostock) inside the searchable-select listbox */
+.ostock { display: block; font-size: 11px; margin-top: 1px; color: var(--color-success); }
+.ostock.out { color: var(--color-text-faint); }
+.ostock.low { color: var(--color-warning); }
 
 .sl-qty {
   font-family: var(--font-mono); font-size: 12.5px; color: var(--color-text-muted); white-space: nowrap; flex: none;

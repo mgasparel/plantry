@@ -167,6 +167,13 @@ builder.Services.AddScoped<IReferenceDataSeeder, ShoppingReferenceDataSeeder>();
 // anti-corruption port over Catalog repositories so Shopping.Application never takes a direct
 // dependency on the Catalog EF context (Gate 2). ShoppingListQueryService assembles the read model.
 builder.Services.AddScoped<IShoppingCatalogReader, ShoppingCatalogReaderAdapter>();
+
+// Shopping → Inventory ACL adapter (plantry-juh). ShoppingPantryReaderAdapter implements the
+// Shopping anti-corruption port over Inventory's persistence layer so Shopping.Application never
+// reads Inventory tables directly (ADR-002). Supplies on-hand quantities and low flags for the
+// item subline and search-dropdown stock hints.
+builder.Services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>();
+
 builder.Services.AddScoped<ShoppingListQueryService>();
 
 // Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +

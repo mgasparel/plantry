@@ -46,7 +46,13 @@ document.addEventListener('alpine:init', function () {
             chooseHighlighted() {
                 var opts = this.options();
                 var opt = opts[this.highlighted] || opts[0];
-                if (opt) this.select(opt.getAttribute('data-value'), opt.textContent.trim());
+                if (opt) {
+                    // Resolve label the same way the @click handler does: prefer [data-label]
+                    // so enriched options (e.g. with an .ostock stock-hint child span) do not
+                    // concatenate the extra text into the combobox input.
+                    var label = (opt.querySelector('[data-label]') || {}).dataset?.label ?? opt.textContent.trim();
+                    this.select(opt.getAttribute('data-value'), label);
+                }
             }
         };
     });

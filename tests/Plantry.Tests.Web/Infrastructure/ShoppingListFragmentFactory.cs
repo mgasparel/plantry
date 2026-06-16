@@ -17,6 +17,7 @@ namespace Plantry.Tests.Web.Infrastructure;
 /// <list type="bullet">
 ///   <item><see cref="IShoppingListRepository"/> — returns the fixture list.</item>
 ///   <item><see cref="IShoppingCatalogReader"/> — returns fixture product/unit data.</item>
+///   <item><see cref="IShoppingPantryReader"/> — returns fixture pantry stock levels (plantry-juh).</item>
 ///   <item><see cref="ShoppingListQueryService"/> — real service over the fakes above.</item>
 /// </list>
 /// No database is touched; rendered HTML is deterministic.
@@ -42,6 +43,7 @@ public sealed class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             var summaries = ShoppingListFixture.ProductSummaries();
             var unitCodes = ShoppingListFixture.UnitCodes();
             var candidates = ShoppingListFixture.ProductCandidates();
+            var stockLevels = ShoppingListFixture.StockLevels();
 
             // Shopping repository: one fixture list.
             services.RemoveAll<IShoppingListRepository>();
@@ -53,9 +55,32 @@ public sealed class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IShoppingCatalogReader>(
                 new FakeShoppingCatalogReader(summaries, unitCodes, candidates));
 
+            // Shopping pantry reader: fixture on-hand stock levels (plantry-juh).
+            services.RemoveAll<IShoppingPantryReader>();
+            services.AddSingleton<IShoppingPantryReader>(
+                new FakeShoppingPantryReaderForSnapshots(stockLevels));
+
             // Re-register ShoppingListQueryService so it picks up the fakes above.
             services.RemoveAll<ShoppingListQueryService>();
             services.AddScoped<ShoppingListQueryService>();
         });
+    }
+}
+
+/// <summary>
+/// In-memory <see cref="IShoppingPantryReader"/> for the Shopping L4 snapshot tests.
+/// Returns the fixture pantry stock levels registered in <see cref="ShoppingListFixture.StockLevels"/>.
+/// </summary>
+internal sealed class FakeShoppingPantryReaderForSnapshots(
+    IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> levels)
+    : IShoppingPantryReader
+{
+    public Task<IReadOnlyDictionary<Guid, ShoppingPantryStockLevel>> GetStockLevelsAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> result = productIds
+            .Where(levels.ContainsKey)
+            .ToDictionary(id => id, id => levels[id]);
+        return Task.FromResult(result);
     }
 }

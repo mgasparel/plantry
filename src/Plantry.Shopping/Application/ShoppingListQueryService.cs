@@ -8,7 +8,8 @@ namespace Plantry.Shopping.Application;
 /// Assembles the shopping list read model (SPEC §3a, shopping.md resolved call 3).
 /// Loads the aggregate, then enriches each item with catalog data (product name, category name,
 /// unit code) resolved via <see cref="IShoppingCatalogReader"/> — a cross-context anti-corruption
-/// port implemented by the Web adapter layer.
+/// port implemented by the Web adapter layer. Pantry on-hand quantities and low flags are enriched
+/// via <see cref="IShoppingPantryReader"/> (the Shopping→Inventory ACL port) for product-backed items.
 ///
 /// <para>Ordering: unchecked items first (ordered by <c>created_at</c> ascending), checked items
 /// last (ordered by <c>checked_at</c> ascending, i.e. most-recently-checked last). This gives a
@@ -20,6 +21,7 @@ namespace Plantry.Shopping.Application;
 public sealed class ShoppingListQueryService(
     IShoppingListRepository repository,
     IShoppingCatalogReader catalog,
+    IShoppingPantryReader pantry,
     ITenantContext tenant)
 {
     private const string UncategorizedBucket = "Uncategorized";
@@ -54,9 +56,15 @@ public sealed class ShoppingListQueryService(
             ? await catalog.ResolveUnitCodesAsync(unitIds, ct)
             : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
 
+        // Enrich product-backed items with pantry stock levels via the Shopping→Inventory read port.
+        // Free-text items have no product id and receive no pantry data.
+        var stockLevels = productIds.Count > 0
+            ? await pantry.GetStockLevelsAsync(productIds, ct)
+            : (IReadOnlyDictionary<Guid, ShoppingPantryStockLevel>)new Dictionary<Guid, ShoppingPantryStockLevel>();
+
         // Map all items to view models.
         var itemViews = list.Items
-            .Select(i => MapItem(i, summaries, unitCodes))
+            .Select(i => MapItem(i, summaries, unitCodes, stockLevels))
             .ToList();
 
         // Partition: checked items sink to the bottom (SPEC §3c). Only unchecked items
@@ -106,7 +114,8 @@ public sealed class ShoppingListQueryService(
     private static ShoppingListItemView MapItem(
         ShoppingListItem item,
         IReadOnlyDictionary<Guid, ShoppingProductSummary> summaries,
-        IReadOnlyDictionary<Guid, string> unitCodes)
+        IReadOnlyDictionary<Guid, string> unitCodes,
+        IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> stockLevels)
     {
         string? productName = null;
         string? categoryName = null;
@@ -123,6 +132,17 @@ public sealed class ShoppingListQueryService(
             ? code
             : null;
 
+        // Enrich with pantry stock level if available (product-backed items only).
+        decimal? onHand = null;
+        string? pantryUnitCode = null;
+        bool? isLow = null;
+        if (item.ProductId.HasValue && stockLevels.TryGetValue(item.ProductId.Value, out var stock))
+        {
+            onHand = stock.OnHand;
+            pantryUnitCode = stock.UnitCode;
+            isLow = stock.IsLow;
+        }
+
         return new ShoppingListItemView(
             ItemId: item.Id.Value,
             ListId: item.ShoppingListId.Value,
@@ -137,6 +157,9 @@ public sealed class ShoppingListQueryService(
             Note: item.Note,
             IsChecked: item.IsChecked,
             CheckedAt: item.CheckedAt,
-            CreatedAt: item.CreatedAt);
+            CreatedAt: item.CreatedAt,
+            OnHand: onHand,
+            PantryUnitCode: pantryUnitCode,
+            IsLow: isLow);
     }
 }
