@@ -141,6 +141,17 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     }
 
     /// <summary>
+    /// Clears CheckedAt and CheckedBy, returning the item to unchecked state.
+    /// Idempotent if already unchecked.
+    /// </summary>
+    internal void Uncheck(IClock clock)
+    {
+        CheckedAt = null;
+        CheckedBy = null;
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
     /// Merges an incoming duplicate-product add into this existing unchecked item:
     /// increments Quantity by <paramref name="incomingQuantity"/> when both are non-null,
     /// replaces when only incoming is non-null, and leaves it unchanged when incoming is null.

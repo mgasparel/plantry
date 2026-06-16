@@ -1,4 +1,4 @@
-﻿<div class="sl-group" aria-label="Uncategorized">
+<div class="sl-group" aria-label="Uncategorized">
 	<div class="sl-group-head">
 		<svg class="icon" aria-hidden="true" style="color: var(--color-text-faint); width: 16px; height: 16px; flex: none">
 			<use href="#i-tag"></use>
@@ -21,6 +21,11 @@
 				</div>
 			</div>
 			<div class="sl-actions" aria-label="Item actions">
+				<button type="button" class="sl-act danger" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=DeleteItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Delete Sriracha">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-trash"></use>
+					</svg>
+				</button>
 			</div>
 		</div>
 	</div>

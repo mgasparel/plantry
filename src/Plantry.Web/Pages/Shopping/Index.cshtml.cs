@@ -188,6 +188,54 @@ public sealed class IndexModel(
     }
 
     /// <summary>
+    /// POST: unchecks a previously checked item (inverse of CheckOff).
+    /// Returns the updated list fragment.
+    /// </summary>
+    public async Task<IActionResult> OnPostUncheckItemAsync(Guid listId, Guid itemId)
+    {
+        var cmd = new UncheckItemCommand(
+            listId: ShoppingListId.From(listId),
+            itemId: ShoppingListItemId.From(itemId),
+            repository: repository,
+            clock: clock,
+            tenant: tenant);
+
+        var result = await cmd.ExecuteAsync();
+        if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
+        {
+            return Forbid();
+        }
+
+        ShoppingList = await queryService.GetListAsync();
+        await LoadAddOptionsAsync();
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+    }
+
+    /// <summary>
+    /// POST: hard-deletes a single item from the list.
+    /// Returns the updated list fragment.
+    /// </summary>
+    public async Task<IActionResult> OnPostDeleteItemAsync(Guid listId, Guid itemId)
+    {
+        var cmd = new DeleteItemCommand(
+            listId: ShoppingListId.From(listId),
+            itemId: ShoppingListItemId.From(itemId),
+            repository: repository,
+            clock: clock,
+            tenant: tenant);
+
+        var result = await cmd.ExecuteAsync();
+        if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
+        {
+            return Forbid();
+        }
+
+        ShoppingList = await queryService.GetListAsync();
+        await LoadAddOptionsAsync();
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+    }
+
+    /// <summary>
     /// POST: clears all checked items (SPEC §3e).
     /// Returns the updated list fragment.
     /// </summary>
