@@ -4,7 +4,7 @@ namespace Plantry.Web.Pages.Shared;
 public enum GridAlign { Start, Center, End }
 
 /// <summary>The closed vocabulary of cell presentations the `_DataGrid` partial knows how to render.</summary>
-public enum GridCellKind { Text, Muted, Link, Badge, Actions }
+public enum GridCellKind { Text, Muted, Link, Badge, Actions, CategoryChip }
 
 /// <summary>Tonal badge palette, mapped to the generic `.badge--*` modifiers (design tokens) in plenish.css.</summary>
 public enum BadgeTone { Neutral, Info, Success, Warning, Danger }
@@ -70,11 +70,22 @@ public sealed record GridCell
     /// <summary>The actions for an Actions cell.</summary>
     public IReadOnlyList<GridAction> Items { get; init; } = [];
 
+    /// <summary>oklch hue (0–359) for a CategoryChip cell. Null renders the neutral "?" chip.</summary>
+    public int? Hue { get; init; }
+
     public static GridCell Text(string value) => new() { Kind = GridCellKind.Text, Value = value };
     public static GridCell Muted(string value) => new() { Kind = GridCellKind.Muted, Value = value };
     public static GridCell Link(string value, string url) => new() { Kind = GridCellKind.Link, Value = value, Url = url };
     public static GridCell Badge(string value, BadgeTone tone) => new() { Kind = GridCellKind.Badge, Value = value, Tone = tone };
     public static GridCell Actions(params GridAction[] actions) => new() { Kind = GridCellKind.Actions, Items = actions };
+
+    /// <summary>
+    /// A category colour chip: a small two-letter pill derived from <paramref name="categoryName"/>'s first two
+    /// characters, coloured via oklch CSS variables at <paramref name="hue"/> degrees. When <paramref name="hue"/>
+    /// is null or <paramref name="categoryName"/> is null a neutral "?" chip is rendered.
+    /// </summary>
+    public static GridCell CategoryChip(string? categoryName, int? hue) =>
+        new() { Kind = GridCellKind.CategoryChip, Value = categoryName, Hue = hue };
 }
 
 /// <summary>One row — a list of cells the page has already mapped, positionally aligned with <see cref="DataGridViewModel.Columns"/>.</summary>

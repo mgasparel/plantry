@@ -81,6 +81,65 @@ public sealed class CategoryTests
         Assert.Equal(42, category.SortOrder);
     }
 
+    // ── Hue ──────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Create_Sets_Hue()
+    {
+        var category = Category.Create(HouseholdId, "Dairy", hue: 210);
+
+        Assert.Equal(210, category.Hue);
+    }
+
+    [Fact]
+    public void Create_Allows_Null_Hue()
+    {
+        var category = Category.Create(HouseholdId, "Dairy");
+
+        Assert.Null(category.Hue);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(360)]
+    public void Create_Rejects_OutOfRange_Hue(int hue)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Category.Create(HouseholdId, "Dairy", hue: hue));
+    }
+
+    [Fact]
+    public void SetHue_Updates_Value()
+    {
+        var category = Category.Create(HouseholdId, "Dairy");
+
+        category.SetHue(120);
+
+        Assert.Equal(120, category.Hue);
+    }
+
+    [Fact]
+    public void SetHue_Allows_Clearing_To_Null()
+    {
+        var category = Category.Create(HouseholdId, "Dairy", hue: 210);
+
+        category.SetHue(null);
+
+        Assert.Null(category.Hue);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(360)]
+    public void SetHue_Rejects_OutOfRange(int hue)
+    {
+        var category = Category.Create(HouseholdId, "Dairy");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => category.SetHue(hue));
+    }
+
+    // ── Archive ───────────────────────────────────────────────────────────────────
+
     [Fact]
     public void New_Category_Is_Not_Archived()
     {

@@ -30,4 +30,6 @@ public sealed record CatalogProductInfo(
     Guid DefaultUnitId,
     string DefaultUnitCode,
     bool CanHoldStock,
-    bool IsVariant = false);
+    bool IsVariant = false,
+    /// <summary>Hue in degrees (0–359) on the oklch colour wheel, inherited from the product's category. Null when uncategorised or category has no hue.</summary>
+    int? CategoryHue = null);

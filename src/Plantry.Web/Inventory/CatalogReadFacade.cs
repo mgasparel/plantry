@@ -20,11 +20,11 @@ public sealed class CatalogReadFacade(
         if (product is null) return null;
 
         var unitsById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value);
-        string? categoryName = product.CategoryId is { } categoryId
-            ? (await categories.FindAsync(categoryId, ct))?.Name
-            : null;
+        (string? name, int? hue) categoryInfo = product.CategoryId is { } categoryId
+            ? await categories.FindAsync(categoryId, ct) is { } cat ? (cat.Name, cat.Hue) : (null, null)
+            : (null, null);
 
-        return ToInfo(product, unitsById, categoryName);
+        return ToInfo(product, unitsById, categoryInfo.name, categoryInfo.hue);
     }
 
     public async Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default)
@@ -34,8 +34,13 @@ public sealed class CatalogReadFacade(
         var categoriesById = (await categories.ListAsync(ct)).ToDictionary(c => c.Id);
 
         return active
-            .Select(p => ToInfo(p, unitsById,
-                p.CategoryId is { } categoryId && categoriesById.TryGetValue(categoryId, out var c) ? c.Name : null))
+            .Select(p =>
+            {
+                var (catName, catHue) = p.CategoryId is { } cid && categoriesById.TryGetValue(cid, out var cat)
+                    ? (cat.Name, cat.Hue)
+                    : ((string?)null, (int?)null);
+                return ToInfo(p, unitsById, catName, catHue);
+            })
             .ToList();
     }
 
@@ -45,7 +50,7 @@ public sealed class CatalogReadFacade(
     public async Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) =>
         (await locations.ListAsync(ct)).ToDictionary(l => l.Id.Value, l => l.Name);
 
-    private static CatalogProductInfo ToInfo(Product p, Dictionary<Guid, Unit> unitsById, string? categoryName) =>
+    private static CatalogProductInfo ToInfo(Product p, Dictionary<Guid, Unit> unitsById, string? categoryName, int? categoryHue = null) =>
         new(
             p.Id.Value,
             p.Name,
@@ -53,5 +58,6 @@ public sealed class CatalogReadFacade(
             p.DefaultUnitId.Value,
             unitsById.TryGetValue(p.DefaultUnitId.Value, out var unit) ? unit.Code : "?",
             p.CanHoldStock,
-            p.IsVariant);
+            p.IsVariant,
+            CategoryHue: categoryHue);
 }

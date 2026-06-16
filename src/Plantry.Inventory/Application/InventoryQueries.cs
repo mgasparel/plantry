@@ -26,7 +26,9 @@ public sealed record PantryListItem(
     string DisplayUnitCode,
     int LotCount,
     DateOnly? SoonestExpiry,
-    ExpiryTone ExpiryTone);
+    ExpiryTone ExpiryTone,
+    /// <summary>Hue in degrees (0–359) from the product's category. Null when uncategorised or no hue assigned.</summary>
+    int? CategoryHue = null);
 
 /// <summary>One physical lot on the product detail page (SPEC §1b).</summary>
 public sealed record StockLotRow(
@@ -54,7 +56,10 @@ public sealed record ProductStockDetail(
     string DisplayUnitCode,
     decimal TotalQuantity,
     IReadOnlyList<StockLotRow> Lots,
-    IReadOnlyList<StockJournalRow> History);
+    IReadOnlyList<StockJournalRow> History,
+    string? CategoryName = null,
+    /// <summary>Hue in degrees (0–359) from the product's category. Null when uncategorised or no hue assigned.</summary>
+    int? CategoryHue = null);
 
 /// <summary>
 /// Builds the pantry list and product-stock detail read models. Inventory owns the lots/journal; the
@@ -117,7 +122,8 @@ public sealed class InventoryQueryService(
                 displayUnitCode,
                 activeLots.Count,
                 soonest,
-                ToneFor(soonest, today)));
+                ToneFor(soonest, today),
+                CategoryHue: product.CategoryHue));
         }
 
         return items
@@ -172,7 +178,9 @@ public sealed class InventoryQueryService(
             displayUnitCode,
             total,
             lots,
-            history);
+            history,
+            CategoryName: product?.CategoryName,
+            CategoryHue: product?.CategoryHue);
     }
 
     /// <summary>

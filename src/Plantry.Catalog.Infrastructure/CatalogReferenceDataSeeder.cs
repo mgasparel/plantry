@@ -52,23 +52,23 @@ public sealed class CatalogReferenceDataSeeder(CatalogDbContext db) : IReference
     private static List<Category> BuildCategories(HouseholdId hid)
     {
         int i = 0;
-        Category Cat(string name, int? days = null) =>
-            Category.Create(hid, name, days, sortOrder: i++ * 10);
+        Category Cat(string name, int? days = null, int? hue = null) =>
+            Category.Create(hid, name, days, sortOrder: i++ * 10, hue: hue);
 
         return [
-            Cat("Dairy & Eggs",        7),
-            Cat("Meat & Fish",         3),
-            Cat("Fruits and Vegetables", 5),
-            Cat("Bread & Bakery",      4),
-            Cat("Deli",                5),
-            Cat("Frozen",              90),
-            Cat("Pantry Staples"),
-            Cat("Canned & Jarred"),
-            Cat("Drinks"),
-            Cat("Condiments"),
-            Cat("Herbs and Spices"),
-            Cat("Snacks"),
-            Cat("Other"),
+            Cat("Dairy & Eggs",          7,  hue: 210),
+            Cat("Meat & Fish",           3,  hue: 10),
+            Cat("Fruits and Vegetables", 5,  hue: 145),
+            Cat("Bread & Bakery",        4,  hue: 30),
+            Cat("Deli",                  5,  hue: 45),
+            Cat("Frozen",                90, hue: 200),
+            Cat("Pantry Staples",           hue: 60),
+            Cat("Canned & Jarred",          hue: 25),
+            Cat("Drinks",                   hue: 240),
+            Cat("Condiments",               hue: 80),
+            Cat("Herbs and Spices",         hue: 120),
+            Cat("Snacks",                   hue: 350),
+            Cat("Other",                    hue: 270),
         ];
     }
 
