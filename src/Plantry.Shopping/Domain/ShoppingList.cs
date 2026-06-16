@@ -112,6 +112,29 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
     }
 
     /// <summary>
+    /// Unchecks a previously checked item by ID. Clears CheckedAt/CheckedBy. Throws if the item is not found.
+    /// </summary>
+    public void UncheckItem(ShoppingListItemId itemId, IClock clock)
+    {
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException($"Item {itemId} not found on list {Id}.");
+        item.Uncheck(clock);
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Hard-removes a single item from the list by ID. Throws if the item is not found.
+    /// Distinct from <see cref="ClearChecked"/> — removes any item regardless of checked state.
+    /// </summary>
+    public void RemoveItem(ShoppingListItemId itemId, IClock clock)
+    {
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException($"Item {itemId} not found on list {Id}.");
+        _items.Remove(item);
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
     /// Hard-removes all checked items from the list (SPEC §3e, shopping.md resolved call 2).
     /// </summary>
     public IReadOnlyList<ShoppingListItem> ClearChecked(IClock clock)

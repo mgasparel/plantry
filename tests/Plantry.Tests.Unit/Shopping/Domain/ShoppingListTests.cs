@@ -108,6 +108,95 @@ public sealed class ShoppingListTests
         Assert.False(itemB.IsChecked);
     }
 
+    // ── UncheckItem ──────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "UncheckItem clears checked_at and checked_by, making IsChecked false")]
+    public void UncheckItem_Clears_CheckedAt_And_CheckedBy()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, null, null, null, ItemSource.Manual, null, _clock);
+        list.CheckOff(item.Id, UserId, _clock);
+        Assert.True(item.IsChecked);
+
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        list.UncheckItem(item.Id, _clock);
+
+        Assert.False(item.IsChecked);
+        Assert.Null(item.CheckedAt);
+        Assert.Null(item.CheckedBy);
+    }
+
+    [Fact(DisplayName = "UncheckItem on an unknown itemId throws InvalidOperationException")]
+    public void UncheckItem_Unknown_Item_Throws()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            list.UncheckItem(ShoppingListItemId.New(), _clock));
+    }
+
+    [Fact(DisplayName = "UncheckItem is idempotent when item is already unchecked")]
+    public void UncheckItem_AlreadyUnchecked_IsNoop()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, null, null, null, ItemSource.Manual, null, _clock);
+        Assert.False(item.IsChecked);
+
+        // Should not throw; item stays unchecked
+        list.UncheckItem(item.Id, _clock);
+
+        Assert.False(item.IsChecked);
+        Assert.Null(item.CheckedAt);
+    }
+
+    // ── RemoveItem ───────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "RemoveItem hard-deletes the item from the list")]
+    public void RemoveItem_Removes_Item_From_List()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, null, null, null, ItemSource.Manual, null, _clock);
+        Assert.Single(list.Items);
+
+        list.RemoveItem(item.Id, _clock);
+
+        Assert.Empty(list.Items);
+    }
+
+    [Fact(DisplayName = "RemoveItem removes a checked item")]
+    public void RemoveItem_Removes_Checked_Item()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, null, null, null, ItemSource.Manual, null, _clock);
+        list.CheckOff(item.Id, UserId, _clock);
+
+        list.RemoveItem(item.Id, _clock);
+
+        Assert.Empty(list.Items);
+    }
+
+    [Fact(DisplayName = "RemoveItem does not affect sibling items")]
+    public void RemoveItem_Does_Not_Affect_Sibling_Items()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var itemA = list.AddItem(ProductA, null, null, null, ItemSource.Manual, null, _clock);
+        var itemB = list.AddItem(ProductB, null, null, null, ItemSource.Manual, null, _clock);
+
+        list.RemoveItem(itemA.Id, _clock);
+
+        Assert.Single(list.Items);
+        Assert.Equal(itemB.Id, list.Items[0].Id);
+    }
+
+    [Fact(DisplayName = "RemoveItem on an unknown itemId throws InvalidOperationException")]
+    public void RemoveItem_Unknown_Item_Throws()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            list.RemoveItem(ShoppingListItemId.New(), _clock));
+    }
+
     // ── ClearChecked ─────────────────────────────────────────────────────
 
     [Fact(DisplayName = "ClearChecked hard-removes only checked items, leaving unchecked intact")]

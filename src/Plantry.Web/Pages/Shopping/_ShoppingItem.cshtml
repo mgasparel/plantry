@@ -6,14 +6,18 @@
     var checkOnClass = Model.IsChecked ? " on" : "";
     var isFreeText = Model.ProductId is null && Model.FreeText is not null;
     var checkOffUrl = Url.Page("./Index", "CheckOff", new { listId = Model.ListId, itemId = Model.ItemId });
+    var uncheckUrl = Url.Page("./Index", "UncheckItem", new { listId = Model.ListId, itemId = Model.ItemId });
+    var deleteUrl = Url.Page("./Index", "DeleteItem", new { listId = Model.ListId, itemId = Model.ItemId });
     var hasNote = !string.IsNullOrWhiteSpace(Model.Note);
+    // The toggle posts to the uncheck handler if checked, or the check-off handler if unchecked.
+    var toggleUrl = Model.IsChecked ? uncheckUrl : checkOffUrl;
 }
 
 <div class="sl-item@(doneClass)" id="shopping-item-@Model.ItemId">
-    @* Square check-off button (SPEC §3c): htmx-posts on click; global htmx-antiforgery.js adds the token. *@
+    @* Square check toggle (SPEC §3c): posts check-off or uncheck depending on current state. *@
     <button type="button"
             class="sl-check@(checkOnClass)"
-            hx-post="@checkOffUrl"
+            hx-post="@toggleUrl"
             hx-target="#shopping-list"
             hx-swap="outerHTML"
             aria-label="@(Model.IsChecked ? "Uncheck" : "Check off") @Model.DisplayName">
@@ -70,8 +74,16 @@
         </span>
     }
 
-    @* Action buttons (hover-revealed shell; actions wired by plantry-853 / plantry-dem) *@
+    @* Action buttons (hover-revealed). Delete is wired here; inline editor buttons added by plantry-dem. *@
     <div class="sl-actions" aria-label="Item actions">
-        @* Placeholder: actions populated by sibling beads (plantry-853, plantry-dem) *@
+        @* Delete button: hard-removes this item regardless of checked state. *@
+        <button type="button"
+                class="sl-act danger"
+                hx-post="@deleteUrl"
+                hx-target="#shopping-list"
+                hx-swap="outerHTML"
+                aria-label="Delete @Model.DisplayName">
+            <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+        </button>
     </div>
 </div>

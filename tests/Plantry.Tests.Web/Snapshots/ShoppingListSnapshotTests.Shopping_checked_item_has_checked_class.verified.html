@@ -1,5 +1,5 @@
-﻿<div class="sl-item done" id="shopping-item-Guid_1">
-	<button type="button" class="sl-check on" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=CheckOff" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Uncheck Flour">
+<div class="sl-item done" id="shopping-item-Guid_1">
+	<button type="button" class="sl-check on" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=UncheckItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Uncheck Flour">
 		<svg class="icon" aria-hidden="true">
 			<use href="#i-check"></use>
 		</svg>
@@ -13,5 +13,10 @@
 		500 L
 	</span>
 	<div class="sl-actions" aria-label="Item actions">
+		<button type="button" class="sl-act danger" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=DeleteItem" hx-target="#shopping-list" hx-swap="outerHTML" aria-label="Delete Flour">
+			<svg class="icon" aria-hidden="true">
+				<use href="#i-trash"></use>
+			</svg>
+		</button>
 	</div>
 </div>

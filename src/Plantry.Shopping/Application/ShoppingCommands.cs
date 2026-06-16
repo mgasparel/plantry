@@ -162,6 +162,82 @@ public sealed class CheckOffCommand(
 }
 
 /// <summary>
+/// Unchecks a previously checked shopping list item: clears <c>checked_at</c> and <c>checked_by</c>.
+/// Idempotent — unchecking an already-unchecked item is a no-op (just re-stamps updated_at).
+/// </summary>
+public sealed class UncheckItemCommand(
+    ShoppingListId listId,
+    ShoppingListItemId itemId,
+    IShoppingListRepository repository,
+    IClock clock,
+    ITenantContext tenant)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var list = await repository.GetByIdAsync(listId, ct);
+        if (list is null)
+            return Error.NotFound;
+
+        // Tenant guard — defense-in-depth alongside EF query filter.
+        if (list.HouseholdId != HouseholdId.From(householdId))
+            return Error.Unauthorized;
+
+        try
+        {
+            list.UncheckItem(itemId, clock);
+        }
+        catch (InvalidOperationException)
+        {
+            return Error.NotFound;
+        }
+
+        await repository.SaveAsync(ct);
+        return Result.Success();
+    }
+}
+
+/// <summary>
+/// Hard-deletes a single item from the household's shopping list.
+/// Distinct from <see cref="ClearCheckedCommand"/> — removes any item regardless of checked state.
+/// </summary>
+public sealed class DeleteItemCommand(
+    ShoppingListId listId,
+    ShoppingListItemId itemId,
+    IShoppingListRepository repository,
+    IClock clock,
+    ITenantContext tenant)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var list = await repository.GetByIdAsync(listId, ct);
+        if (list is null)
+            return Error.NotFound;
+
+        // Tenant guard — defense-in-depth alongside EF query filter.
+        if (list.HouseholdId != HouseholdId.From(householdId))
+            return Error.Unauthorized;
+
+        try
+        {
+            list.RemoveItem(itemId, clock);
+        }
+        catch (InvalidOperationException)
+        {
+            return Error.NotFound;
+        }
+
+        await repository.SaveAsync(ct);
+        return Result.Success();
+    }
+}
+
+/// <summary>
 /// Hard-deletes all checked items from the household's shopping list (SPEC §3e,
 /// shopping.md resolved call 2 — mutable working state, no audit trail for clears).
 /// </summary>

@@ -264,6 +264,140 @@ public sealed class ShoppingCommandsTests
         Assert.Equal("Unauthorized", result.Error.Code);
     }
 
+    // ── UncheckItemCommand ────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "UncheckItem — clears checked_at and checked_by")]
+    public async Task UncheckItem_ClearsCheckedFields()
+    {
+        var (repo, list) = SeedList();
+
+        var addResult = await AddProduct(repo, _product1).ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+        var item = list.Items.Single(i => i.Id == addResult.Value);
+
+        // Check it off first
+        await CheckOff(repo, list.Id, addResult.Value).ExecuteAsync();
+        Assert.True(item.IsChecked);
+
+        // Now uncheck
+        var cmd = new UncheckItemCommand(list.Id, addResult.Value, repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.False(item.IsChecked);
+        Assert.Null(item.CheckedAt);
+        Assert.Null(item.CheckedBy);
+    }
+
+    [Fact(DisplayName = "UncheckItem — unknown item ID returns NotFound")]
+    public async Task UncheckItem_UnknownItem_ReturnsNotFound()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new UncheckItemCommand(list.Id, ShoppingListItemId.New(), repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "UncheckItem — unknown list ID returns NotFound")]
+    public async Task UncheckItem_UnknownList_ReturnsNotFound()
+    {
+        var (repo, _) = SeedList();
+
+        var cmd = new UncheckItemCommand(ShoppingListId.New(), ShoppingListItemId.New(), repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "UncheckItem — no household in context returns Unauthorized")]
+    public async Task UncheckItem_NoTenant_ReturnsUnauthorized()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new UncheckItemCommand(list.Id, ShoppingListItemId.New(), repo, Clock, new FakeTenantContext(null));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
+    // ── DeleteItemCommand ─────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "DeleteItem — removes the item from the list")]
+    public async Task DeleteItem_RemovesItem()
+    {
+        var (repo, list) = SeedList();
+
+        var addResult = await AddProduct(repo, _product1).ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+        Assert.Single(list.Items);
+
+        var cmd = new DeleteItemCommand(list.Id, addResult.Value, repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(list.Items);
+    }
+
+    [Fact(DisplayName = "DeleteItem — removes a checked item")]
+    public async Task DeleteItem_RemovesCheckedItem()
+    {
+        var (repo, list) = SeedList();
+
+        var addResult = await AddProduct(repo, _product1).ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+
+        // Check it off
+        await CheckOff(repo, list.Id, addResult.Value).ExecuteAsync();
+        Assert.True(list.Items.Single().IsChecked);
+
+        var cmd = new DeleteItemCommand(list.Id, addResult.Value, repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(list.Items);
+    }
+
+    [Fact(DisplayName = "DeleteItem — unknown item ID returns NotFound")]
+    public async Task DeleteItem_UnknownItem_ReturnsNotFound()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new DeleteItemCommand(list.Id, ShoppingListItemId.New(), repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "DeleteItem — unknown list ID returns NotFound")]
+    public async Task DeleteItem_UnknownList_ReturnsNotFound()
+    {
+        var (repo, _) = SeedList();
+
+        var cmd = new DeleteItemCommand(ShoppingListId.New(), ShoppingListItemId.New(), repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "DeleteItem — no household in context returns Unauthorized")]
+    public async Task DeleteItem_NoTenant_ReturnsUnauthorized()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new DeleteItemCommand(list.Id, ShoppingListItemId.New(), repo, Clock, new FakeTenantContext(null));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
     // ── AddItemCommand — unit-mismatch merge policy (plantry-xw6) ────────────
 
     [Fact(DisplayName = "AddItem — same units: merges by summing as before (regression guard)")]
