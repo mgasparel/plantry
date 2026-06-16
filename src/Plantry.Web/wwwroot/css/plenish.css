@@ -3496,7 +3496,33 @@ button { font-family: inherit; cursor: pointer; }
 .sl-qty {
   font-family: var(--font-mono); font-size: 12.5px; color: var(--color-text-muted); white-space: nowrap; flex: none;
   background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 9999px; padding: 4px 11px;
+  /* plantry-dem: qty pill is now a button for unchecked items — reset button defaults */
+  cursor: pointer;
 }
+button.sl-qty:hover { background: var(--color-surface-3, var(--color-surface-2)); border-color: var(--color-accent); color: var(--color-text); }
+
+/* ---- inline qty editor (plantry-dem) ----------------------------------- */
+.sl-qtyedit { display: flex; align-items: center; gap: 6px; flex: none; }
+.sl-qsel {
+  height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text); font-family: inherit;
+  font-size: 13px; padding: 0 8px; cursor: pointer;
+  /* plantry-259 will supply the full option list — currently shows only current unit */
+}
+.sl-qsel:focus { outline: none; border-color: var(--color-accent); }
+.sl-act.save { border-color: var(--color-accent); color: var(--color-accent); }
+.sl-act.save:hover { background: var(--color-accent); color: var(--color-surface); border-color: var(--color-accent); }
+.sl-act.active { background: var(--color-surface-2); color: var(--color-text); border-color: var(--color-accent); }
+
+/* ---- inline note row (plantry-dem) ------------------------------------- */
+.sl-noterow { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.sl-noterow form { display: flex; align-items: center; gap: 6px; width: 100%; }
+.sl-noteinput {
+  flex: 1; height: 34px; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); color: var(--color-text); font-family: inherit;
+  font-size: 13px; padding: 0 10px;
+}
+.sl-noteinput:focus { outline: none; border-color: var(--color-accent); }
 
 .sl-actions { display: flex; align-items: center; gap: 5px; flex: none; opacity: 0; transition: opacity var(--transition-fast); }
 .sl-item:hover .sl-actions, .sl-item.menu-open .sl-actions { opacity: 1; }

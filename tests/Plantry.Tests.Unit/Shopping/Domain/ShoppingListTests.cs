@@ -253,6 +253,119 @@ public sealed class ShoppingListTests
         Assert.Null(found);
     }
 
+    // ── EditItemQuantity (plantry-dem) ───────────────────────────────────
+
+    [Fact(DisplayName = "EditItemQuantity sets Quantity and UnitId on the target item")]
+    public void EditItemQuantity_Sets_Quantity_And_UnitId()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, quantity: 1m, unitId: null, note: null, ItemSource.Manual, null, _clock);
+        var newUnitId = Guid.CreateVersion7();
+
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        list.EditItemQuantity(item.Id, quantity: 3.5m, unitId: newUnitId, _clock);
+
+        Assert.Equal(3.5m, item.Quantity);
+        Assert.Equal(newUnitId, item.UnitId);
+        Assert.Equal(_clock.UtcNow, item.UpdatedAt);
+    }
+
+    [Fact(DisplayName = "EditItemQuantity can clear quantity (set to null)")]
+    public void EditItemQuantity_Can_Clear_Quantity()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null, ItemSource.Manual, null, _clock);
+
+        list.EditItemQuantity(item.Id, quantity: null, unitId: null, _clock);
+
+        Assert.Null(item.Quantity);
+        Assert.Null(item.UnitId);
+    }
+
+    [Fact(DisplayName = "EditItemQuantity on an unknown itemId throws InvalidOperationException")]
+    public void EditItemQuantity_Unknown_Item_Throws()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            list.EditItemQuantity(ShoppingListItemId.New(), quantity: 1m, unitId: null, _clock));
+    }
+
+    [Fact(DisplayName = "EditItemQuantity does not affect sibling items")]
+    public void EditItemQuantity_Does_Not_Affect_Sibling_Items()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var itemA = list.AddItem(ProductA, quantity: 1m, unitId: null, note: null, ItemSource.Manual, null, _clock);
+        var itemB = list.AddItem(ProductB, quantity: 5m, unitId: null, note: null, ItemSource.Manual, null, _clock);
+
+        list.EditItemQuantity(itemA.Id, quantity: 9m, unitId: null, _clock);
+
+        Assert.Equal(9m, itemA.Quantity);
+        Assert.Equal(5m, itemB.Quantity);
+    }
+
+    // ── SetItemNote (plantry-dem) ─────────────────────────────────────────
+
+    [Fact(DisplayName = "SetItemNote sets the note text on the target item")]
+    public void SetItemNote_Sets_Note()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, null, null, null, ItemSource.Manual, null, _clock);
+
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        list.SetItemNote(item.Id, "get the organic kind", _clock);
+
+        Assert.Equal("get the organic kind", item.Note);
+        Assert.Equal(_clock.UtcNow, item.UpdatedAt);
+    }
+
+    [Fact(DisplayName = "SetItemNote trims whitespace from the note")]
+    public void SetItemNote_Trims_Whitespace()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, null, null, null, ItemSource.Manual, null, _clock);
+
+        list.SetItemNote(item.Id, "  organic  ", _clock);
+
+        Assert.Equal("organic", item.Note);
+    }
+
+    [Theory(DisplayName = "SetItemNote with null or whitespace-only clears the note")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void SetItemNote_ClearsNote_When_NullOrWhitespace(string? noteInput)
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, null, null, note: "old note", ItemSource.Manual, null, _clock);
+
+        list.SetItemNote(item.Id, noteInput, _clock);
+
+        Assert.Null(item.Note);
+    }
+
+    [Fact(DisplayName = "SetItemNote on an unknown itemId throws InvalidOperationException")]
+    public void SetItemNote_Unknown_Item_Throws()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            list.SetItemNote(ShoppingListItemId.New(), "note", _clock));
+    }
+
+    [Fact(DisplayName = "SetItemNote does not affect sibling items")]
+    public void SetItemNote_Does_Not_Affect_Sibling_Items()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var itemA = list.AddItem(ProductA, null, null, note: "original A", ItemSource.Manual, null, _clock);
+        var itemB = list.AddItem(ProductB, null, null, note: "original B", ItemSource.Manual, null, _clock);
+
+        list.SetItemNote(itemA.Id, "updated A", _clock);
+
+        Assert.Equal("updated A", itemA.Note);
+        Assert.Equal("original B", itemB.Note);
+    }
+
     // ── ItemSource enum helpers ───────────────────────────────────────────
 
     [Theory(DisplayName = "ItemSourceExtensions round-trips all source values")]

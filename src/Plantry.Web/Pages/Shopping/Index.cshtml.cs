@@ -236,6 +236,57 @@ public sealed class IndexModel(
     }
 
     /// <summary>
+    /// POST: edits the quantity and unit of a single item (plantry-dem, inline qty/unit editor).
+    /// Returns the updated list fragment.
+    /// </summary>
+    public async Task<IActionResult> OnPostEditQuantityAsync(Guid listId, Guid itemId, decimal? quantity, Guid? unitId)
+    {
+        var cmd = new EditQuantityCommand(
+            listId: ShoppingListId.From(listId),
+            itemId: ShoppingListItemId.From(itemId),
+            quantity: quantity,
+            unitId: unitId,
+            repository: repository,
+            clock: clock,
+            tenant: tenant);
+
+        var result = await cmd.ExecuteAsync();
+        if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
+        {
+            return Forbid();
+        }
+
+        ShoppingList = await queryService.GetListAsync();
+        await LoadAddOptionsAsync();
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+    }
+
+    /// <summary>
+    /// POST: sets or clears the note on a single item (plantry-dem, inline note editor).
+    /// Returns the updated list fragment.
+    /// </summary>
+    public async Task<IActionResult> OnPostSetNoteAsync(Guid listId, Guid itemId, string? note)
+    {
+        var cmd = new SetNoteCommand(
+            listId: ShoppingListId.From(listId),
+            itemId: ShoppingListItemId.From(itemId),
+            note: note,
+            repository: repository,
+            clock: clock,
+            tenant: tenant);
+
+        var result = await cmd.ExecuteAsync();
+        if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
+        {
+            return Forbid();
+        }
+
+        ShoppingList = await queryService.GetListAsync();
+        await LoadAddOptionsAsync();
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, Oob: false));
+    }
+
+    /// <summary>
     /// POST: clears all checked items (SPEC §3e).
     /// Returns the updated list fragment.
     /// </summary>

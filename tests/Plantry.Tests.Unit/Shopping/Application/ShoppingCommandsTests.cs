@@ -495,4 +495,160 @@ public sealed class ShoppingCommandsTests
         Assert.Equal(2, list.Items.Count);   // second line, not a merge
         Assert.NotEqual(first.Value, second.Value);
     }
+
+    // ── EditQuantityCommand (plantry-dem) ─────────────────────────────────────
+
+    [Fact(DisplayName = "EditQuantity — sets quantity and unitId on the item")]
+    public async Task EditQuantity_SetsQuantityAndUnit()
+    {
+        var (repo, list) = SeedList();
+        var addResult = await AddProduct(repo, _product1, qty: 1m).ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+        var item = list.Items.Single(i => i.Id == addResult.Value);
+        var newUnitId = Guid.CreateVersion7();
+
+        var cmd = new EditQuantityCommand(list.Id, addResult.Value, quantity: 5m, unitId: newUnitId, repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(5m, item.Quantity);
+        Assert.Equal(newUnitId, item.UnitId);
+    }
+
+    [Fact(DisplayName = "EditQuantity — unknown item ID returns NotFound")]
+    public async Task EditQuantity_UnknownItem_ReturnsNotFound()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new EditQuantityCommand(list.Id, ShoppingListItemId.New(), quantity: 1m, unitId: null, repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "EditQuantity — unknown list ID returns NotFound")]
+    public async Task EditQuantity_UnknownList_ReturnsNotFound()
+    {
+        var (repo, _) = SeedList();
+
+        var cmd = new EditQuantityCommand(ShoppingListId.New(), ShoppingListItemId.New(), quantity: 1m, unitId: null, repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "EditQuantity — no household in context returns Unauthorized")]
+    public async Task EditQuantity_NoTenant_ReturnsUnauthorized()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new EditQuantityCommand(list.Id, ShoppingListItemId.New(), quantity: 1m, unitId: null, repo, Clock, new FakeTenantContext(null));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "EditQuantity — wrong household returns Unauthorized")]
+    public async Task EditQuantity_WrongHousehold_ReturnsUnauthorized()
+    {
+        var (repo, list) = SeedList();
+        var addResult = await AddProduct(repo, _product1, qty: 1m).ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+
+        // Different household tenant
+        var cmd = new EditQuantityCommand(list.Id, addResult.Value, quantity: 5m, unitId: null, repo, Clock, new FakeTenantContext(Guid.NewGuid()));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
+    // ── SetNoteCommand (plantry-dem) ──────────────────────────────────────────
+
+    [Fact(DisplayName = "SetNote — sets the note on the item")]
+    public async Task SetNote_SetsNote()
+    {
+        var (repo, list) = SeedList();
+        var addResult = await AddProduct(repo, _product1).ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+        var item = list.Items.Single(i => i.Id == addResult.Value);
+
+        var cmd = new SetNoteCommand(list.Id, addResult.Value, note: "organic only", repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("organic only", item.Note);
+    }
+
+    [Fact(DisplayName = "SetNote — null note clears the note field")]
+    public async Task SetNote_NullNote_ClearsNote()
+    {
+        var (repo, list) = SeedList();
+        var addResult = await AddProduct(repo, _product1).ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+        var item = list.Items.Single(i => i.Id == addResult.Value);
+        // Set a note first
+        await new SetNoteCommand(list.Id, addResult.Value, note: "first note", repo, Clock, new FakeTenantContext(_household)).ExecuteAsync();
+        Assert.NotNull(item.Note);
+
+        // Now clear it
+        var result = await new SetNoteCommand(list.Id, addResult.Value, note: null, repo, Clock, new FakeTenantContext(_household)).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(item.Note);
+    }
+
+    [Fact(DisplayName = "SetNote — unknown item ID returns NotFound")]
+    public async Task SetNote_UnknownItem_ReturnsNotFound()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new SetNoteCommand(list.Id, ShoppingListItemId.New(), note: "x", repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "SetNote — unknown list ID returns NotFound")]
+    public async Task SetNote_UnknownList_ReturnsNotFound()
+    {
+        var (repo, _) = SeedList();
+
+        var cmd = new SetNoteCommand(ShoppingListId.New(), ShoppingListItemId.New(), note: "x", repo, Clock, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "SetNote — no household in context returns Unauthorized")]
+    public async Task SetNote_NoTenant_ReturnsUnauthorized()
+    {
+        var (repo, list) = SeedList();
+
+        var cmd = new SetNoteCommand(list.Id, ShoppingListItemId.New(), note: "x", repo, Clock, new FakeTenantContext(null));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "SetNote — wrong household returns Unauthorized")]
+    public async Task SetNote_WrongHousehold_ReturnsUnauthorized()
+    {
+        var (repo, list) = SeedList();
+        var addResult = await AddProduct(repo, _product1).ExecuteAsync();
+        Assert.True(addResult.IsSuccess);
+
+        // Different household tenant
+        var cmd = new SetNoteCommand(list.Id, addResult.Value, note: "x", repo, Clock, new FakeTenantContext(Guid.NewGuid()));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
 }

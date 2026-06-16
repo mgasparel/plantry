@@ -1731,6 +1731,139 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Shopping List — inline item editors (<code>.sl-qtyedit</code>, <code>.sl-noterow</code>) (plantry-dem)</h2>
+    </div>
+    <p>
+        Two inline editors expand in place on the item row (unchecked items only).
+    </p>
+    <p>
+        <strong>Qty/unit editor</strong> (<code>.sl-qtyedit</code>): the <code>.sl-qty</code> pill is rendered
+        as a <code>&lt;button&gt;</code> for unchecked items. Clicking it sets <code>editingQty = true</code>
+        in Alpine, swapping the pill out (via <code>x-show="!editingQty"</code>) for a <code>.sl-qtyedit</code>
+        form containing the <code>.sl-qty-stepper</code>, a <code>.sl-qsel</code> unit select, and a
+        <code>.sl-act.save</code> button. The form posts to <code>?handler=EditQuantity</code>; on
+        <code>x-on:submit</code> sets <code>editingQty = false</code>.
+        Note: <code>.sl-qsel</code> currently renders only the current unit option pending plantry-259 (full unit list).
+    </p>
+    <p>
+        <strong>Note editor</strong> (<code>.sl-noterow</code>): the pencil button in <code>.sl-actions</code>
+        toggles <code>editingNote</code>. The <code>.sl-noterow</code> (inside <code>.sl-body</code>) contains
+        a form with a <code>.sl-noteinput</code> text input and <code>.sl-act.save</code> button. Posts to
+        <code>?handler=SetNote</code>. The active pencil button uses <code>.sl-act.active</code>.
+        Escape collapses both editors via <code>x-on:keydown.escape.window</code> on the <code>.sl-item</code>.
+    </p>
+    <div style="max-width: 660px">
+        <div class="sl-group">
+            <div class="sl-rows">
+                @* Qty editor open (editingQty = true) *@
+                <div class="sl-item"
+                     x-data="{ editingQty: true, editingNote: false, qty: '2', note: '' }"
+                     x-on:keydown.escape.window="editingQty = false; editingNote = false">
+                    <button type="button" class="sl-check" aria-label="Check off Whole Milk">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body">
+                        <div class="sl-name">Whole Milk</div>
+                        <div class="sl-noterow" x-show="editingNote" x-cloak>
+                            <form>
+                                <input type="text" name="note" class="sl-noteinput" placeholder="Add a note…" maxlength="500" x-model="note" aria-label="Note for Whole Milk" />
+                                <button type="submit" class="sl-act save" aria-label="Save note">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <button type="button" class="sl-qty" x-show="!editingQty" x-on:click="editingQty = true" aria-label="Edit quantity for Whole Milk">2 L</button>
+                    <form class="sl-qtyedit" x-show="editingQty" x-cloak x-on:submit="editingQty = false">
+                        <div class="sl-qty-stepper">
+                            <button type="button" class="sl-qbtn" aria-label="Decrease"
+                                    x-on:click="qty = (+qty - 1) < 0 ? '0' : (+qty - 1).toFixed(3).replace(/\.?0+$/, '') || '0'">
+                                <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                            </button>
+                            <input type="number" name="quantity" min="0" step="any" x-model="qty" aria-label="Quantity" />
+                            <button type="button" class="sl-qbtn" aria-label="Increase"
+                                    x-on:click="qty = (+qty + 1).toFixed(3).replace(/\.?0+$/, '') || '1'">
+                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                            </button>
+                        </div>
+                        @* .sl-qsel: full unit list supplied by plantry-259; currently only current unit shown *@
+                        <select name="unitId" class="sl-qsel" aria-label="Unit">
+                            <option value="">L</option>
+                        </select>
+                        <button type="submit" class="sl-act save" aria-label="Save quantity">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                        </button>
+                    </form>
+                    <div class="sl-actions" aria-label="Item actions">
+                        <button type="button" class="sl-act"
+                                x-on:click="editingNote = !editingNote"
+                                x-bind:class="editingNote ? 'sl-act active' : 'sl-act'"
+                                aria-label="Add note for Whole Milk">
+                            <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                        </button>
+                        <button type="button" class="sl-act danger" aria-label="Delete Whole Milk">
+                            <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                        </button>
+                    </div>
+                </div>
+                @* Note editor open (editingNote = true) *@
+                <div class="sl-item"
+                     x-data="{ editingQty: false, editingNote: true, qty: '1.4', note: '' }"
+                     x-on:keydown.escape.window="editingQty = false; editingNote = false">
+                    <button type="button" class="sl-check" aria-label="Check off Chicken Breast">
+                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <div class="sl-body">
+                        <div class="sl-name">Chicken Breast</div>
+                        <div class="sl-noterow" x-show="editingNote" x-cloak>
+                            <form x-on:submit="editingNote = false">
+                                <input type="text" name="note" class="sl-noteinput" placeholder="Add a note…" maxlength="500" x-model="note" aria-label="Note for Chicken Breast" />
+                                <button type="submit" class="sl-act save" aria-label="Save note">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <button type="button" class="sl-qty" x-show="!editingQty" x-on:click="editingQty = true" aria-label="Edit quantity for Chicken Breast">1.4 kg</button>
+                    <form class="sl-qtyedit" x-show="editingQty" x-cloak x-on:submit="editingQty = false">
+                        <div class="sl-qty-stepper">
+                            <button type="button" class="sl-qbtn" aria-label="Decrease"
+                                    x-on:click="qty = (+qty - 1) < 0 ? '0' : (+qty - 1).toFixed(3).replace(/\.?0+$/, '') || '0'">
+                                <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                            </button>
+                            <input type="number" name="quantity" min="0" step="any" x-model="qty" aria-label="Quantity" />
+                            <button type="button" class="sl-qbtn" aria-label="Increase"
+                                    x-on:click="qty = (+qty + 1).toFixed(3).replace(/\.?0+$/, '') || '1'">
+                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                            </button>
+                        </div>
+                        <select name="unitId" class="sl-qsel" aria-label="Unit">
+                            <option value="">kg</option>
+                        </select>
+                        <button type="submit" class="sl-act save" aria-label="Save quantity">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                        </button>
+                    </form>
+                    <div class="sl-actions" aria-label="Item actions">
+                        @* Active state when note editor is open *@
+                        <button type="button"
+                                x-on:click="editingNote = !editingNote"
+                                x-bind:class="editingNote ? 'sl-act active' : 'sl-act'"
+                                aria-label="Edit note for Chicken Breast">
+                            <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                        </button>
+                        <button type="button" class="sl-act danger" aria-label="Delete Chicken Breast">
+                            <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Shopping List — checked section (<code>.sl-checked-head</code> + <code>.sl-clear</code>)</h2>
     </div>
     <p>

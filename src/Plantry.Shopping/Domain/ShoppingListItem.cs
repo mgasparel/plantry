@@ -172,4 +172,27 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
 
         UpdatedAt = clock.UtcNow;
     }
+
+    /// <summary>
+    /// Sets the quantity and unit on the item (inline qty/unit editor, plantry-dem).
+    /// Quantity may be null (clears the quantity). UnitId may be null (no unit).
+    /// Called exclusively by <see cref="ShoppingList.EditItemQuantity"/>.
+    /// </summary>
+    internal void EditQuantity(decimal? quantity, Guid? unitId, IClock clock)
+    {
+        Quantity = quantity;
+        UnitId = unitId;
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Sets or clears the note on the item (inline note editor, plantry-dem).
+    /// Null or whitespace-only note is stored as null (no note).
+    /// Called exclusively by <see cref="ShoppingList.SetItemNote"/>.
+    /// </summary>
+    internal void SetNote(string? note, IClock clock)
+    {
+        Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        UpdatedAt = clock.UtcNow;
+    }
 }
