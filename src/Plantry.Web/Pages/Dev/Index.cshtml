@@ -1530,6 +1530,20 @@
                     </div>
                     <div class="rd-ing-amt"><span x-text="fmt(500)">500</span> g</div>
                 </div>
+                @* rd-ing-soon--expired: danger/red pill for stock that has passed its use-by date (plantry-17n) *@
+                <div class="rd-ing-row" role="listitem">
+                    <div class="rd-ing-status rd-ing-status--have" aria-hidden="true">
+                        <svg class="icon"><use href="#i-check" /></svg>
+                    </div>
+                    <div class="rd-ing-main">
+                        <div class="rd-ing-name">
+                            Double Cream
+                            <span class="rd-ing-soon rd-ing-soon--expired"><svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Expired 3d ago</span>
+                        </div>
+                        <div class="rd-ing-sub rd-ing-sub--have">In your pantry</div>
+                    </div>
+                    <div class="rd-ing-amt"><span x-text="fmt(200)">200</span> ml</div>
+                </div>
                 <div class="rd-ing-row" role="listitem">
                     <div class="rd-ing-status rd-ing-status--miss" aria-hidden="true">
                         <svg class="icon"><use href="#i-alert" /></svg>

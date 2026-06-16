@@ -426,6 +426,64 @@ public sealed class FulfillmentServiceTests
         Assert.Equal(0, atDoubled.Overall.MissingCount);
     }
 
+    // ── Expired stock (negative ExpiresWithinDays) — plantry-17n ─────────────
+
+    [Fact]
+    public async Task Expired_Lot_Sets_Negative_ExpiresWithinDays()
+    {
+        // Lot expired 3 days ago → ExpiresWithinDays == -3 (not clamped to 0).
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var cream = h.Catalog.AddTrackedLeaf(unit);
+        h.Stock.Add(cream.Id, available: 200m, unit, soonestExpiry: Today.AddDays(-3));
+
+        var recipe = BuildRecipe(cream.Id, 100m, unit);
+
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.NotNull(line.ExpiresWithinDays);
+        Assert.Equal(-3, line.ExpiresWithinDays);
+    }
+
+    [Fact]
+    public async Task Far_Overdue_Lot_Sets_Large_Negative_ExpiresWithinDays()
+    {
+        // Lot expired 30 days ago → -30 (gate admits all negatives, never re-clamped).
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var yogurt = h.Catalog.AddTrackedLeaf(unit);
+        h.Stock.Add(yogurt.Id, available: 150m, unit, soonestExpiry: Today.AddDays(-30));
+
+        var recipe = BuildRecipe(yogurt.Id, 50m, unit);
+
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(-30, line.ExpiresWithinDays);
+    }
+
+    [Fact]
+    public async Task InStock_And_Expired_Reports_InStock_With_Negative_ExpiresWithinDays()
+    {
+        // An ingredient can be InStock (available >= required) AND expired at the same time.
+        // Status and ExpiresWithinDays are orthogonal — expiry flag does not block cookability.
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var milk = h.Catalog.AddTrackedLeaf(unit);
+        h.Stock.Add(milk.Id, available: 500m, unit, soonestExpiry: Today.AddDays(-2));
+
+        var recipe = BuildRecipe(milk.Id, 200m, unit);
+
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStock, line.Status);
+        Assert.Equal(-2, line.ExpiresWithinDays);
+        // Cookability is not blocked by expiry.
+        Assert.True(result.Overall.FullyCookable);
+    }
+
     // ── Parent/variant expiry-soon flag ──────────────────────────────────────
 
     [Fact]

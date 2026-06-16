@@ -15,7 +15,7 @@ namespace Plantry.Recipes.Domain;
 ///   <item>Tracked, parent product (DM-19): sum available stock across ALL variant children before comparing.</item>
 ///   <item>Tracked, leaf product: compare available vs scaled required (scaled = required × desired / default_servings).</item>
 ///   <item>InStock when available &gt;= required; Low when 0 &lt; available &lt; required; Missing when available == 0.</item>
-///   <item>ExpiresWithinDays is set when soonest expiry ≤ 4 days from today (J1/J3).</item>
+///   <item>ExpiresWithinDays is a <b>signed</b> integer set when soonest expiry ≤ 4 days from today (J1/J3): negative = days past use-by (expired); 0 = expires today; positive = days until expiry.</item>
 /// </list>
 /// </summary>
 public sealed class FulfillmentService(
@@ -200,7 +200,7 @@ public sealed class FulfillmentService(
         {
             var daysUntilExpiry = soonestExpiry.Value.DayNumber - today.DayNumber;
             if (daysUntilExpiry <= ExpiringSoonDays)
-                expiresWithinDays = Math.Max(0, daysUntilExpiry);
+                expiresWithinDays = daysUntilExpiry;
         }
 
         return new IngredientFulfillment(
@@ -257,8 +257,9 @@ public enum IngredientStatus
 /// <param name="IngredientId">The local ingredient this result covers.</param>
 /// <param name="Status">Availability classification.</param>
 /// <param name="ExpiresWithinDays">
-/// Set when the soonest active lot expires within <see cref="FulfillmentService.ExpiringSoonDays"/>
-/// days from today; null otherwise.
+/// Signed integer set when the soonest active lot's expiry is within <see cref="FulfillmentService.ExpiringSoonDays"/>
+/// days of today (including past dates); null when no expiry applies or expiry is beyond the threshold.
+/// Negative = days past use-by (expired); 0 = expires today; positive = days until expiry.
 /// </param>
 /// <param name="AvailableQuantity">
 /// Available quantity in the ingredient's unit; null when nothing is available or the ingredient is
