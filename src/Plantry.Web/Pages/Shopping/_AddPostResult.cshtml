@@ -1,13 +1,20 @@
 @using Plantry.Web.Pages.Shopping
 @model IndexModel
 @*
-    Response for an AddItem POST. Renders two top-level fragments:
+    Response for an AddItem POST. Renders two or three top-level fragments:
       1. #shopping-list — the refreshed list, swapped into the form's hx-target (main swap).
       2. #add-item-form — the add form with hx-swap-oob, swapped in place so it resets on
          success (Input was cleared by the handler) or shows validation errors on failure.
-    Together these deliver plantry-3dh.1 items A (clear on success) and C (validation feedback).
+      3. #pantry-suggestions — OOB swap, emitted only for product-backed adds (Model.SuggestionsOob).
+    Together these deliver plantry-3dh.1 items A (clear on success) and C (validation feedback),
+    and plantry-14q (decouple suggestions strip from list swap).
 *@
 <partial name="_ShoppingList"
-         model="new ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, Model.CategoryOptions, Model.UnitOptionsList, Model.Suggestions, false)" />
+         model="new ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, Model.CategoryOptions, Model.UnitOptionsList, false)" />
 @{ ViewData["FormOob"] = true; }
 <partial name="_AddForm" model="Model" />
+@if (Model.SuggestionsOob)
+{
+    <partial name="_PantrySuggestions"
+             model="new PantrySuggestionsPartialModel(Model.Suggestions, true)" />
+}

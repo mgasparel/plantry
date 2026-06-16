@@ -205,4 +205,78 @@ public sealed class PantrySuggestionServiceTests
         Assert.Single(suggestions);
         Assert.Equal("0.5 L left", suggestions[0].StockLabel);
     }
+
+    // ── Deterministic ordering (plantry-14q) ──────────────────────────────────
+
+    [Fact(DisplayName = "GetSuggestions — out-of-stock items (OnHand<=0) sort before low items")]
+    public async Task GetSuggestions_OutOfStock_SortedBeforeLow()
+    {
+        var lowId = Guid.NewGuid();
+        var outId = Guid.NewGuid();
+
+        var pantry = new FakeShoppingPantryReader();
+        pantry.RegisterStock(lowId, new ShoppingPantryStockLevel(lowId, OnHand: 0.5m, UnitCode: "ea", IsLow: true));
+        pantry.RegisterStock(outId, new ShoppingPantryStockLevel(outId, OnHand: 0m,   UnitCode: "ea", IsLow: true));
+
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(lowId, new ShoppingProductSummary(lowId, "Apple", null, null));
+        catalog.RegisterSummary(outId, new ShoppingProductSummary(outId, "Banana", null, null));
+
+        var svc = BuildService(pantry, catalog);
+        var suggestions = await svc.GetSuggestionsAsync(new HashSet<Guid>());
+
+        Assert.Equal(2, suggestions.Count);
+        // out-of-stock "Banana" must come before low-stock "Apple"
+        Assert.Equal(outId, suggestions[0].ProductId);
+        Assert.Equal(lowId, suggestions[1].ProductId);
+    }
+
+    [Fact(DisplayName = "GetSuggestions — within same stock tier, items are ordered by name ascending")]
+    public async Task GetSuggestions_WithinTier_OrderedByNameAscending()
+    {
+        var idC = Guid.NewGuid();
+        var idA = Guid.NewGuid();
+        var idB = Guid.NewGuid();
+
+        var pantry = new FakeShoppingPantryReader();
+        pantry.RegisterStock(idC, new ShoppingPantryStockLevel(idC, OnHand: 0m, UnitCode: "ea", IsLow: true));
+        pantry.RegisterStock(idA, new ShoppingPantryStockLevel(idA, OnHand: 0m, UnitCode: "ea", IsLow: true));
+        pantry.RegisterStock(idB, new ShoppingPantryStockLevel(idB, OnHand: 0m, UnitCode: "ea", IsLow: true));
+
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(idC, new ShoppingProductSummary(idC, "Cheddar", null, null));
+        catalog.RegisterSummary(idA, new ShoppingProductSummary(idA, "Apple",   null, null));
+        catalog.RegisterSummary(idB, new ShoppingProductSummary(idB, "Butter",  null, null));
+
+        var svc = BuildService(pantry, catalog);
+        var suggestions = await svc.GetSuggestionsAsync(new HashSet<Guid>());
+
+        Assert.Equal(3, suggestions.Count);
+        Assert.Equal("Apple",   suggestions[0].Name);
+        Assert.Equal("Butter",  suggestions[1].Name);
+        Assert.Equal("Cheddar", suggestions[2].Name);
+    }
+
+    [Fact(DisplayName = "GetSuggestions — Take(5) cap is applied after ordering, not before")]
+    public async Task GetSuggestions_CapAppliedAfterOrdering_CorrectTop5Selected()
+    {
+        // 7 out-of-stock products with names A–G; expected top 5 are A, B, C, D, E.
+        var names = new[] { "G", "F", "E", "D", "C", "B", "A" };
+        var pantry = new FakeShoppingPantryReader();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        foreach (var name in names)
+        {
+            var id = Guid.NewGuid();
+            pantry.RegisterStock(id, new ShoppingPantryStockLevel(id, OnHand: 0m, UnitCode: "ea", IsLow: true));
+            catalog.RegisterSummary(id, new ShoppingProductSummary(id, name, null, null));
+        }
+
+        var svc = BuildService(pantry, catalog);
+        var suggestions = await svc.GetSuggestionsAsync(new HashSet<Guid>());
+
+        Assert.Equal(PantrySuggestionService.SuggestionCap, suggestions.Count);
+        // After ordering by name ascending and taking 5, we expect A, B, C, D, E.
+        Assert.Equal(new[] { "A", "B", "C", "D", "E" }, suggestions.Select(s => s.Name).ToArray());
+    }
 }

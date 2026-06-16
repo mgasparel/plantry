@@ -39,10 +39,18 @@ public sealed class IndexModel(
     public IReadOnlyList<ShoppingUnitOption> UnitOptionsList { get; private set; } = [];
 
     /// <summary>
-    /// Pantry suggestions for the "Running low in your pantry" strip (plantry-48l).
-    /// Low/out products not already on the active list, capped at 5.
+    /// Pantry suggestions for the "Running low in your pantry" strip (plantry-48l / plantry-14q).
+    /// Populated only on the initial GET and the 3 affecting POST handlers. Empty on all other
+    /// handlers — those do not re-render the strip.
     /// </summary>
     public IReadOnlyList<PantrySuggestion> Suggestions { get; private set; } = [];
+
+    /// <summary>
+    /// True when the suggestions strip should be re-rendered as an OOB swap in the POST response.
+    /// Set only by the 3 affecting handlers: product-backed AddItem, DeleteItem (product-backed),
+    /// and ClearChecked. Non-affecting handlers leave this false and omit the OOB fragment.
+    /// </summary>
+    public bool SuggestionsOob { get; private set; }
 
     // ── Input models ──────────────────────────────────────────────────────────
 
@@ -118,6 +126,8 @@ public sealed class IndexModel(
     /// <summary>
     /// POST: adds an item (product-backed or free-text) to the list (SPEC §3b).
     /// On success, htmx-swaps the full list fragment so the new item appears in the correct group.
+    /// Product-backed adds also OOB-swap #pantry-suggestions (the new product may have been a
+    /// suggestion; free-text adds do not affect onListProductIds for product-backed suggestions).
     /// </summary>
     public async Task<IActionResult> OnPostAddItemAsync()
     {
@@ -128,7 +138,7 @@ public sealed class IndexModel(
         if (!hasProduct && !hasFreeText)
         {
             ModelState.AddModelError(string.Empty, "Choose a product or enter an item name.");
-            return await RenderAddResultAsync();
+            return await RenderAddResultAsync(updateSuggestions: false);
         }
 
         // A product selection wins over any leftover custom-item text, so picking a product
@@ -165,33 +175,41 @@ public sealed class IndexModel(
         if (result.IsFailure)
         {
             ModelState.AddModelError(string.Empty, result.Error.Description);
-            return await RenderAddResultAsync();
+            return await RenderAddResultAsync(updateSuggestions: false);
         }
 
         // Success → reset the form so the out-of-band swap renders it cleared (plantry-3dh.1 A).
         // ModelState must be cleared too, or the tag helpers re-bind the submitted values.
         ModelState.Clear();
         Input = new AddItemInputModel();
-        return await RenderAddResultAsync();
+
+        // Product-backed add changes onListProductIds → refresh the suggestions strip.
+        // Free-text add does not add a product-backed item, so the strip is unchanged.
+        return await RenderAddResultAsync(updateSuggestions: hasProduct);
     }
 
     /// <summary>
     /// Renders the AddItem POST response: the refreshed list fragment (main swap) plus the
-    /// add form as an out-of-band swap. On success the form is cleared; on failure it carries
-    /// the validation summary (plantry-3dh.1 A/C).
+    /// add form as an out-of-band swap. When <paramref name="updateSuggestions"/> is true,
+    /// also appends the suggestions partial as a second OOB fragment (product-backed add path).
+    /// On success the form is cleared; on failure it carries the validation summary (plantry-3dh.1 A/C).
     /// </summary>
-    private async Task<IActionResult> RenderAddResultAsync()
+    private async Task<IActionResult> RenderAddResultAsync(bool updateSuggestions)
     {
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        Suggestions = await LoadSuggestionsAsync(ShoppingList);
+        if (updateSuggestions)
+        {
+            Suggestions = await LoadSuggestionsAsync(ShoppingList);
+            SuggestionsOob = true;
+        }
         return Partial("_AddPostResult", this);
     }
 
     /// <summary>
     /// POST: checks off one item (SPEC §3c).
     /// Accepts the item id and the list id from the form.
-    /// Returns the updated list fragment (ordered: checked items sink to bottom).
+    /// Returns the updated list fragment only — CheckOff does not change onListProductIds.
     /// </summary>
     public async Task<IActionResult> OnPostCheckOffAsync(Guid listId, Guid itemId)
     {
@@ -212,13 +230,13 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
+        // CheckOff does not change onListProductIds — do not recompute or re-render suggestions.
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
     /// POST: unchecks a previously checked item (inverse of CheckOff).
-    /// Returns the updated list fragment.
+    /// Returns the updated list fragment only — UncheckItem does not change onListProductIds.
     /// </summary>
     public async Task<IActionResult> OnPostUncheckItemAsync(Guid listId, Guid itemId)
     {
@@ -237,13 +255,15 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
+        // UncheckItem does not change onListProductIds — do not recompute or re-render suggestions.
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
     /// POST: hard-deletes a single item from the list.
-    /// Returns the updated list fragment.
+    /// Returns the updated list fragment plus OOB-swaps #pantry-suggestions.
+    /// The OOB swap is always emitted on delete (ticket: emitting unconditionally is acceptable),
+    /// which ensures product-backed items removed from the list may now re-appear as suggestions.
     /// </summary>
     public async Task<IActionResult> OnPostDeleteItemAsync(Guid listId, Guid itemId)
     {
@@ -262,13 +282,15 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
+        // DeleteItem changes onListProductIds (for product-backed items) → refresh suggestions via OOB swap.
         Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
+        SuggestionsOob = true;
+        return Partial("_DeleteItemResult", this);
     }
 
     /// <summary>
     /// POST: edits the quantity and unit of a single item (plantry-dem, inline qty/unit editor).
-    /// Returns the updated list fragment.
+    /// Returns the updated list fragment only — EditQuantity does not change onListProductIds.
     /// </summary>
     public async Task<IActionResult> OnPostEditQuantityAsync(Guid listId, Guid itemId, decimal? quantity, Guid? unitId)
     {
@@ -289,13 +311,13 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
+        // EditQuantity does not change onListProductIds — do not recompute or re-render suggestions.
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
     /// POST: sets or clears the note on a single item (plantry-dem, inline note editor).
-    /// Returns the updated list fragment.
+    /// Returns the updated list fragment only — SetNote does not change onListProductIds.
     /// </summary>
     public async Task<IActionResult> OnPostSetNoteAsync(Guid listId, Guid itemId, string? note)
     {
@@ -315,14 +337,14 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
+        // SetNote does not change onListProductIds — do not recompute or re-render suggestions.
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
     /// POST: assigns a category to a single uncategorized item (recategorize action, plantry-259).
     /// After assignment the query service re-groups the list, moving the item into the named category.
-    /// Returns the updated list fragment.
+    /// Returns the updated list fragment only — Recategorize does not change onListProductIds.
     /// </summary>
     public async Task<IActionResult> OnPostRecategorizeAsync(Guid listId, Guid itemId, Guid? categoryId)
     {
@@ -342,13 +364,14 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
-        Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
+        // Recategorize does not change onListProductIds — do not recompute or re-render suggestions.
+        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Oob: false));
     }
 
     /// <summary>
     /// POST: clears all checked items (SPEC §3e).
-    /// Returns the updated list fragment.
+    /// Returns the updated list fragment plus OOB-swaps #pantry-suggestions (cleared checked items
+    /// may have been product-backed, so onListProductIds shrinks).
     /// </summary>
     public async Task<IActionResult> OnPostClearCheckedAsync()
     {
@@ -361,8 +384,10 @@ public sealed class IndexModel(
 
         ShoppingList = await queryService.GetListAsync();
         await LoadAddOptionsAsync();
+        // ClearChecked removes product-backed items → refresh suggestions via OOB swap.
         Suggestions = await LoadSuggestionsAsync(ShoppingList);
-        return Partial("_ShoppingList", new ShoppingListPartialModel(ShoppingList, ProductOptions, UnitOptions, CategoryOptions, UnitOptionsList, Suggestions, Oob: false));
+        SuggestionsOob = true;
+        return Partial("_ClearCheckedResult", this);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -391,7 +416,9 @@ public sealed class IndexModel(
     /// <summary>
     /// Builds the "Running low in your pantry" suggestion list (plantry-48l).
     /// Collects product ids already on the list (checked and unchecked), then delegates
-    /// to <see cref="PantrySuggestionService"/> for the fetch → exclude → cap → enrich pipeline.
+    /// to <see cref="PantrySuggestionService"/> for the fetch → exclude → order → cap → enrich pipeline.
+    /// Only called from handlers that change onListProductIds (AddItem product-backed, DeleteItem,
+    /// ClearChecked) and the initial GET.
     /// </summary>
     public Task<IReadOnlyList<PantrySuggestion>> LoadSuggestionsAsync(
         ShoppingListView? list,
@@ -419,6 +446,8 @@ public sealed class IndexModel(
 /// <see cref="Oob"/> drives an htmx out-of-band swap when set — the list fragment carries
 /// <c>hx-swap-oob="true"</c> so it can replace the list after a form POST that also updates
 /// the form state.
+/// Suggestions have been removed from this model (plantry-14q): the strip lives in its own
+/// <c>_PantrySuggestions</c> partial / <c>#pantry-suggestions</c> container.
 /// </summary>
 public sealed record ShoppingListPartialModel(
     ShoppingListView? List,
@@ -426,6 +455,13 @@ public sealed record ShoppingListPartialModel(
     IReadOnlyList<SelectListItem> UnitOptions,
     IReadOnlyList<ShoppingCategoryOption> CategoryOptions,
     IReadOnlyList<ShoppingUnitOption> UnitOptionsList,
+    bool Oob);
+
+/// <summary>
+/// View model passed to the <c>_PantrySuggestions</c> partial (plantry-14q).
+/// <see cref="Oob"/> drives an htmx out-of-band swap of <c>#pantry-suggestions</c> when set.
+/// </summary>
+public sealed record PantrySuggestionsPartialModel(
     IReadOnlyList<PantrySuggestion> Suggestions,
     bool Oob);
 
