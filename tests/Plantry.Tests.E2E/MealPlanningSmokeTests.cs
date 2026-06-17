@@ -73,10 +73,11 @@ public sealed class MealPlanningSmokeTests(AppHostFixture appHost) : IAsyncLifet
             // query filter returns zero slots and the planner-empty state renders
             // instead — these assertions would fail, catching the gotcha.
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
-            await Assertions.Expect(page.Locator(".plan-grid__slot-label")).ToHaveCountAsync(3);
+            // slot-band is the current CSS class (was plan-grid__slot-label before plantry-v0r rename)
+            await Assertions.Expect(page.Locator(".slot-band")).ToHaveCountAsync(3);
 
             // Use .sb-name to get just the label text (the slot band has other child spans)
-            var slotLabels = await page.Locator(".plan-grid__slot-label .sb-name").AllTextContentsAsync();
+            var slotLabels = await page.Locator(".slot-band .sb-name").AllTextContentsAsync();
             Assert.Contains("Breakfast", slotLabels);
             Assert.Contains("Lunch", slotLabels);
             Assert.Contains("Dinner", slotLabels);

@@ -49,8 +49,8 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
         Assert.Contains("Breakfast", html);
         Assert.Contains("Lunch", html);
         Assert.Contains("Dinner", html);
-        // CSS class used by the existing smoke test
-        Assert.Contains("plan-grid__slot-label", html);
+        // CSS class for the slot band header row (was plan-grid__slot-label; renamed to slot-band in plantry-v0r)
+        Assert.Contains("slot-band", html);
     }
 
     [Fact(DisplayName = "GET /MealPlan renders 7 day-head columns")]
