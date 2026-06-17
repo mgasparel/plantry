@@ -25,57 +25,12 @@
 
     @if (Model.Meals.Count > 0)
     {
-        @* One card per meal. Schema: UNIQUE(meal_plan_id, date, meal_slot_id) — one meal per cell.
-           "Add meal" button is intentionally absent: AssignMeal would silently replace the existing meal.
-           The edit pencil on each card covers editing. *@
+        @* One card per meal — shares the _MealCard partial with the full grid so an edited
+           cell keeps its photo, fulfillment, cost and attendees. *@
         @foreach (var meal in Model.Meals)
         {
-            <div class="meal-card @(meal.Note is not null ? "note" : "")"
-                 draggable="true"
-                 ondragstart="onDragStart(event, '@dateIso', '@slotId')">
-                <button class="mc-edit"
-                        hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId&mealId=@meal.MealId"
-                        hx-target="#meal-editor-dialog"
-                        hx-swap="innerHTML"
-                        aria-label="Edit meal">
-                    <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
-                </button>
-
-                @if (meal.Note is not null)
-                {
-                    <div class="note-ico">
-                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
-                    </div>
-                    <div class="note-txt">@meal.Note</div>
-                    <div class="note-sub">Free note · no dishes</div>
-                }
-                else
-                {
-                    <div class="mc-photo">
-                        <div class="mc-photo-img placeholder" style="background:linear-gradient(152deg,oklch(0.72 0.09 150),oklch(0.5 0.12 150))">
-                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h12a1 1 0 0 1 1 1v14H7a2 2 0 0 0-2 2V3Z" /></svg>
-                        </div>
-                        <div class="mc-photo-scrim"></div>
-                    </div>
-                    <div class="mc-body">
-                        <div class="mc-dishes">
-                            @for (int i = 0; i < meal.DishNames.Count; i++)
-                            {
-                                <div class="mc-dish">
-                                    @if (i > 0) { <span class="md-plus">+</span> }
-                                    <span class="md-name">@meal.DishNames[i]</span>
-                                </div>
-                            }
-                        </div>
-                        <div class="mc-spacer"></div>
-                        <div class="mc-bodyfoot">
-                            <span class="mc-fulf"><span class="fdot" style="background:var(--ink-faint)"></span><span>—%</span></span>
-                            <span class="mc-sep"></span>
-                            <span class="mc-cost">—</span>
-                        </div>
-                    </div>
-                }
-            </div>
+            @await Html.PartialAsync("_MealCard", new Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm(
+                meal, dateIso, Model.SlotId, Model.Members))
         }
     }
     else if (hasGhost)

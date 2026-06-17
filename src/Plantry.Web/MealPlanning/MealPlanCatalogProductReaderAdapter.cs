@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.MealPlanning.Application;
 
@@ -13,8 +14,11 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
 {
     public async Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
     {
+        // Compare the strongly-typed key, not p.Id.Value: EF can't translate a .Value access on a
+        // converted value-object key when it's combined with the converted-key household query filter.
+        var pid = ProductId.From(productId);
         return await db.Products.AnyAsync(
-            p => p.Id.Value == productId && !p.IsArchived, ct);
+            p => p.Id == pid && p.ArchivedAt == null, ct);
     }
 
     public async Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(
@@ -23,7 +27,7 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
         var q = string.IsNullOrWhiteSpace(nameQuery) ? "" : nameQuery.Trim();
 
         var products = await db.Products
-            .Where(p => !p.IsArchived &&
+            .Where(p => p.ArchivedAt == null &&
                         (q == "" || EF.Functions.ILike(p.Name, $"%{q}%")))
             .OrderBy(p => p.Name)
             .Take(maxResults)
@@ -37,9 +41,10 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
     {
         if (productIds.Count == 0) return new Dictionary<Guid, string>();
 
-        var ids = productIds.ToHashSet();
+        // Match on the strongly-typed key (same translation constraint as ExistsAsync).
+        var ids = productIds.Select(ProductId.From).ToHashSet();
         var products = await db.Products
-            .Where(p => ids.Contains(p.Id.Value) && !p.IsArchived)
+            .Where(p => ids.Contains(p.Id) && p.ArchivedAt == null)
             .ToListAsync(ct);
 
         return products.ToDictionary(p => p.Id.Value, p => p.Name);

@@ -9,6 +9,8 @@ using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
 using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
+using Plantry.MealPlanning.Domain;
+using Plantry.MealPlanning.Infrastructure;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel;
@@ -31,6 +33,7 @@ public sealed class FakeDataSeeder(
     PlantryIdentityDbContext identityDb,
     InventoryDbContext inventoryDb,
     RecipesDbContext recipesDb,
+    MealPlanningDbContext mealPlanningDb,
     IClock clock)
 {
     public const string DemoEmail = "demo@plantry.dev";
@@ -125,6 +128,10 @@ public sealed class FakeDataSeeder(
             await SeedRecipesAsync(householdId, ct);
             // Inventory must seed after products (needs product ids + default units/locations).
             await SeedInventoryAsync(householdId, userId, ct);
+            // Meal plan must seed after recipes (references their ids) and after the slot config that
+            // RegisterHouseholdCommand created (Breakfast/Lunch/Dinner) — gives the planner a populated
+            // current week on first load instead of an empty grid.
+            await SeedMealPlanAsync(householdId, userId, ct);
         }
         finally
         {
@@ -336,6 +343,51 @@ public sealed class FakeDataSeeder(
         await inventoryDb.SaveChangesAsync(ct);
     }
 
+    private async Task SeedMealPlanAsync(HouseholdId householdId, Guid userId, CancellationToken ct)
+    {
+        // The slot config (Breakfast/Lunch/Dinner) was created by MealPlanningReferenceDataSeeder
+        // during RegisterHouseholdCommand. Load it to resolve slot ids by label.
+        var config = await mealPlanningDb.MealSlotConfigs
+            .Include(c => c.Slots)
+            .FirstOrDefaultAsync(ct);
+        if (config is null) return;
+
+        MealSlot? Slot(string label) =>
+            config.Slots.FirstOrDefault(s => s.Label == label && s.IsActive);
+
+        // Recipes seeded above, resolved by name.
+        var recipes = await recipesDb.Recipes.ToDictionaryAsync(r => r.Name, ct);
+
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var monday = MealPlan.NormalizeToMonday(today);
+        var plan = MealPlan.Start(householdId, monday, clock);
+
+        void AssignRecipe(int dayOffset, string slotLabel, string recipeName, int servings)
+        {
+            if (!recipes.TryGetValue(recipeName, out var recipe)) return;
+            if (Slot(slotLabel) is not { } slot) return;
+            plan.AssignMeal(
+                monday.AddDays(dayOffset), slot.Id,
+                [new DishSpec(DishKind.Recipe, recipe.Id.Value, servings)],
+                attendeesOverride: null, source: "manual", createdBy: userId, clock);
+        }
+
+        // A representative half-full week: a mix of dinners, a lunch, a breakfast, and one free-text
+        // note — enough to exercise fulfillment/cost roll-ups, the use-soon badge, and insights.
+        AssignRecipe(0, "Breakfast", "Greek Yogurt Overnight Oats", 2);
+        AssignRecipe(0, "Dinner", "Chicken & Chickpea Curry", 4);
+        AssignRecipe(1, "Dinner", "Beef Chilli con Carne", 4);
+        AssignRecipe(2, "Dinner", "Salmon & Vegetable Traybake", 2);
+        AssignRecipe(3, "Lunch", "Chickpea & Spinach Stew", 4);
+        AssignRecipe(4, "Dinner", "Chicken & Chickpea Curry", 4); // intentional repeat → "planned twice" insight
+
+        if (Slot("Dinner") is { } fri)
+            plan.AssignNote(monday.AddDays(5), fri.Id, "Takeout", attendeesOverride: null, source: "manual", createdBy: userId, clock);
+
+        await mealPlanningDb.MealPlans.AddAsync(plan, ct);
+        await mealPlanningDb.SaveChangesAsync(ct);
+    }
+
     private async Task DeleteAllAsync(CancellationToken ct)
     {
         // Collect all household IDs before deleting anything, so we can arm tenant context
@@ -355,6 +407,14 @@ public sealed class FakeDataSeeder(
                 await inventoryDb.StockJournalEntries.ExecuteDeleteAsync(ct);
                 await inventoryDb.StockEntries.ExecuteDeleteAsync(ct);
                 await inventoryDb.ProductStocks.ExecuteDeleteAsync(ct);
+
+                // Meal plans + slot config soft-reference recipes/products by Guid (no FK), so order
+                // among contexts is free. Aggregate-root cascades clear PlannedMeals/PlannedDishes and
+                // MealSlots respectively.
+                await mealPlanningDb.MealPlans.ExecuteDeleteAsync(ct);
+                await mealPlanningDb.MealSlotConfigs.ExecuteDeleteAsync(ct);
+                await mealPlanningDb.UserPreferences.ExecuteDeleteAsync(ct);
+                await mealPlanningDb.TagStances.ExecuteDeleteAsync(ct);
 
                 // Recipes (their ingredients soft-reference catalog products by Guid). Cook events
                 // first — they FK → recipe; the recipe cascade then clears ingredients/tags/photo.
@@ -388,6 +448,7 @@ public sealed class FakeDataSeeder(
         identityDb.SetHouseholdId(id);
         inventoryDb.SetHouseholdId(id);
         recipesDb.SetHouseholdId(id);
+        mealPlanningDb.SetHouseholdId(id);
     }
 
     private void DisarmTenant()
@@ -397,6 +458,7 @@ public sealed class FakeDataSeeder(
         identityDb.SetHouseholdId(Guid.Empty);
         inventoryDb.SetHouseholdId(Guid.Empty);
         recipesDb.SetHouseholdId(Guid.Empty);
+        mealPlanningDb.SetHouseholdId(Guid.Empty);
     }
 
     // ── Static seed data ──────────────────────────────────────────────────────────

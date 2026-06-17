@@ -16,7 +16,10 @@
         kind = d.Kind.ToString().ToLower(),
         itemId = d.ItemId.ToString("D"),
         name = d.Name,
-        servings = d.Servings
+        servings = d.Servings,
+        fulfillment = d.FulfillmentPercent,
+        costPerServing = d.CostPerServing,
+        hasPhoto = d.HasPhoto
     }));
     var attJson = System.Text.Json.JsonSerializer.Serialize(currentAtt);
     var defaultAttJson = System.Text.Json.JsonSerializer.Serialize(defaultAtt);
@@ -27,12 +30,36 @@
 
 <div x-data="{
     mode: '@(isNote ? "note" : "dishes")',
-    note: @Html.Raw(noteJson),
-    dishes: @Html.Raw(dishesJson),
-    att: @Html.Raw(attJson),
-    defaultAtt: @Html.Raw(defaultAttJson),
+    note: @noteJson,
+    dishes: @dishesJson,
+    att: @attJson,
+    defaultAtt: @defaultAttJson,
     attOverridden: @(isOverridden ? "true" : "false"),
-    get canSave() { return this.mode === 'note' ? this.note.trim().length > 0 : this.dishes.length > 0; }
+    get canSave() { return this.mode === 'note' ? this.note.trim().length > 0 : this.dishes.length > 0; },
+    lvl(p) { return p >= 80 ? 'hi' : p >= 50 ? 'mid' : 'lo'; },
+    money(n) { return '$' + Number(n).toFixed(2); },
+    dishMeta(d) {
+        if (d.fulfillment == null) return 'pantry item';
+        let s = d.fulfillment + '% in pantry';
+        if (d.costPerServing != null) s += ' · ' + this.money(d.costPerServing * (d.servings || 1));
+        return s;
+    },
+    photoUrl(d) { return '/Recipes/Details?id=' + d.itemId + '&handler=Photo'; },
+    // Live meal roll-up — averages fulfillment over recipe dishes and sums cost (mirrors PL.rollup).
+    get roll() {
+        if (this.mode === 'note' || !this.dishes.length) return null;
+        let cost = 0, pctSum = 0, recipeCount = 0, anyCost = false, allCost = true;
+        this.dishes.forEach(d => {
+            if (d.fulfillment != null) { pctSum += d.fulfillment; recipeCount++; }
+            if (d.costPerServing != null) { cost += d.costPerServing * (d.servings || 1); anyCost = true; }
+            else { allCost = false; }
+        });
+        return {
+            pct: recipeCount ? Math.round(pctSum / recipeCount) : null,
+            cost: anyCost ? cost : null,
+            costPartial: anyCost && !allCost
+        };
+    }
 }" id="meal-editor-inner">
 
     @* Register Alpine component so addDishFromResult can call into it.
@@ -47,7 +74,10 @@
                 kind: el.dataset.kind,
                 itemId: el.dataset.itemId,
                 name: el.dataset.name,
-                servings: parseInt(el.dataset.servings, 10) || 1
+                servings: parseInt(el.dataset.servings, 10) || 1,
+                fulfillment: el.dataset.fulfillment === '' ? null : parseInt(el.dataset.fulfillment, 10),
+                costPerServing: el.dataset.costPerServing === '' ? null : parseFloat(el.dataset.costPerServing),
+                hasPhoto: el.dataset.hasPhoto === '1'
             });
             // clear the search input
             const input = document.getElementById('dish-search-input-@slotIdStr');
@@ -84,6 +114,7 @@
                 @foreach (var member in members)
                 {
                     var uid = member.UserId.ToString("D");
+                    var avColor = members.IndexOf(member) % 8;
                     <button type="button"
                             class="ed-att-chip"
                             :class="att.includes('@uid') ? '' : 'off'"
@@ -96,7 +127,7 @@
                                 attOverridden = JSON.stringify([...att].sort()) !== JSON.stringify([...defaultAtt].sort());
                             "
                             aria-label="Toggle @member.DisplayName">
-                        <span class="pl-av" style="width:22px;height:22px;border-radius:50%;background:var(--surface-3);display:inline-grid;place-items:center;font-size:9px;font-weight:700;">@member.Initials</span>
+                        <span class="pl-av" data-av-color="@avColor" style="width:22px;height:22px;font-size:9px;">@member.Initials</span>
                         @member.DisplayName
                     </button>
                 }
@@ -114,10 +145,19 @@
             <div class="ed-dishes" x-show="dishes.length > 0">
                 <template x-for="(d, idx) in dishes" :key="idx">
                     <div class="ed-dish">
-                        <div class="edd-thumb" style="width:40px;height:40px;border-radius:8px;flex:none;background:var(--surface-3);display:grid;place-items:center;font-size:14px;font-weight:700;" x-text="d.name.charAt(0)"></div>
+                        <template x-if="d.hasPhoto">
+                            <img class="edd-thumb edd-thumb--photo" :src="photoUrl(d)" :alt="d.name"
+                                 @@error="d.hasPhoto = false" />
+                        </template>
+                        <template x-if="!d.hasPhoto">
+                            <div class="edd-thumb edd-thumb--chip" x-text="d.name.charAt(0)"></div>
+                        </template>
                         <div class="edd-main">
                             <div class="edd-name" x-text="d.name"></div>
-                            <div class="edd-meta"><span>—</span></div>
+                            <div class="edd-meta">
+                                <span class="fdot" :class="'lvl-' + lvl(d.fulfillment) + '-bg'" x-show="d.fulfillment != null"></span>
+                                <span x-text="dishMeta(d)"></span>
+                            </div>
                         </div>
                         <div class="serv-step">
                             <button type="button" @@click="d.servings = Math.max(1, d.servings - 1)" aria-label="Fewer">−</button>
@@ -179,11 +219,27 @@
     @* Footer *@
     <div class="ed-foot">
         <div class="ed-rollup">
-            <div class="err">
-                <div class="err-l" x-show="mode === 'dishes' && dishes.length === 0">Add a dish to see fulfillment &amp; cost.</div>
-                <div class="err-l" x-show="mode === 'note'">A note keeps the slot — no dishes, no cost.</div>
-                <div class="err-l" x-show="mode === 'dishes' && dishes.length > 0">— % in your pantry</div>
-            </div>
+            <template x-if="roll">
+                <div class="ed-rollup-live">
+                    <div class="err">
+                        <div class="err-n">
+                            <span class="fdot" :class="'lvl-' + lvl(roll.pct) + '-bg'" x-show="roll.pct != null"></span>
+                            <span :class="roll.pct != null ? 'lvl-' + lvl(roll.pct) : ''" x-text="roll.pct != null ? roll.pct + '%' : '—'"></span>
+                        </div>
+                        <div class="err-l">in your pantry</div>
+                    </div>
+                    <div class="ed-div"></div>
+                    <div class="err">
+                        <div class="err-n mono" x-text="roll.cost != null ? (roll.costPartial ? '~' : '') + money(roll.cost) : '—'"></div>
+                        <div class="err-l">est. cost</div>
+                    </div>
+                </div>
+            </template>
+            <template x-if="!roll">
+                <div class="err">
+                    <div class="err-l" x-text="mode === 'note' ? 'A note keeps the slot — no dishes, no cost.' : 'Add a dish to see fulfillment & cost.'"></div>
+                </div>
+            </template>
         </div>
         <span class="spacer"></span>
 
@@ -207,13 +263,13 @@
             </button>
         }
 
-        <button type="button" class="btn btn-ghost" onclick="closeMealEditor()">Cancel</button>
+        <button type="button" class="btn btn--secondary" onclick="closeMealEditor()">Cancel</button>
 
         <button type="button"
-                class="btn btn-primary"
+                class="btn btn--primary"
                 :disabled="!canSave"
                 @@click="
-                    var params = new URLSearchParams();
+                    let params = new URLSearchParams();
                     params.append('mode', mode);
                     if (mode === 'note') {
                         params.append('note', note);
@@ -241,7 +297,7 @@
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: params.toString()
                     }).then(function(r) { return r.text(); }).then(function(html) {
-                        var cell = document.getElementById('cell-@(slot.Id.Value.ToString("N"))-@dateStr');
+                        let cell = document.getElementById('cell-@(slot.Id.Value.ToString("N"))-@dateStr');
                         if (cell) { cell.outerHTML = html; htmx.process(document.body); }
                     });
                     closeMealEditor();

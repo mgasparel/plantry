@@ -44,11 +44,15 @@ public interface IRecipeReadModel
 }
 
 /// <summary>Display facts for a recipe in the meal editor.</summary>
+/// <param name="HasPhoto">True when the recipe has a stored photo (served at
+/// <c>/Recipes/Details?id={RecipeId}&amp;handler=Photo</c>) — lets the dish picker show a thumbnail
+/// and fall back to an initial chip when absent.</param>
 public sealed record RecipeReadModel(
     Guid RecipeId,
     string Name,
     IReadOnlyList<Guid> TagIds,
-    int DefaultServings);
+    int DefaultServings,
+    bool HasPhoto = false);
 
 /// <summary>
 /// Live fulfillment and cost enrichment for a recipe dish at a given serving count.
