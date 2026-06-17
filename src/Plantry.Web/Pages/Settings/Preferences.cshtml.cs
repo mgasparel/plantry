@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -8,7 +9,7 @@ using Plantry.MealPlanning.Application;
 namespace Plantry.Web.Pages.Settings;
 
 [Authorize]
-public sealed class PreferencesModel(
+public sealed partial class PreferencesModel(
     SetPreferences service,
     UserManager<AppUser> userManager) : PageModel
 {
@@ -25,7 +26,8 @@ public sealed class PreferencesModel(
     }
 
     /// <summary>
-    /// htmx fragment handler: sets a single stance and returns the updated tag-row fragment.
+    /// htmx fragment handler: sets a single stance and returns the updated tag-row fragment
+    /// plus OOB fragments for the prefs-meta counter and the affected category count badge.
     /// Bound values: <c>tagId</c>, <c>stance</c> (Required | Preferred | Neutral | Disliked | Restricted),
     /// <c>tagName</c> (display name for re-rendering the row label).
     /// </summary>
@@ -38,8 +40,33 @@ public sealed class PreferencesModel(
 
         await service.SetStanceAsync(CurrentUserId, tagId, stance);
 
-        // Return the updated tag-row fragment for htmx to swap.
-        return Partial("Settings/_TagStanceRow", new TagStanceRowViewModel(tagId, tagName, stance, Saved: true));
+        // Fetch the updated view model so we can recompute the live counts.
+        ViewModel = await service.GetViewModelAsync(CurrentUserId);
+
+        // Primary swap: updated tag-row.
+        var tagRowResult = Partial("Settings/_TagStanceRow",
+            new TagStanceRowViewModel(tagId, tagName, stance, Saved: true));
+
+        // OOB swap: global prefs-meta line (counter + Reset button disabled state).
+        var currentMember = ViewModel.Members.FirstOrDefault(m => m.UserId == CurrentUserId);
+        var metaResult = Partial("Settings/_PrefsMeta",
+            new PrefsMetaViewModel(
+                currentMember?.Initials ?? "Y",
+                currentMember?.DisplayName ?? "You",
+                ViewModel.SetCount,
+                ViewModel.TotalTags));
+
+        // OOB swap: per-category count badge for the category containing this tag.
+        var affectedGroup = ViewModel.Groups.FirstOrDefault(g => g.Tags.Any(t => t.TagId == tagId));
+        PartialViewResult? catCountResult = null;
+        if (affectedGroup is not null)
+        {
+            var catSlug = CategorySlug(affectedGroup.Category);
+            catCountResult = Partial("Settings/_PrefsCatCount",
+                new PrefsCatCountViewModel(catSlug, affectedGroup.SetCount));
+        }
+
+        return new MultiFragmentResult(tagRowResult, metaResult, catCountResult);
     }
 
     /// <summary>htmx fragment handler: resets all stances to Neutral.</summary>
@@ -52,6 +79,15 @@ public sealed class PreferencesModel(
         ViewModel = await service.GetViewModelAsync(CurrentUserId);
         return Partial("_PreferencesGroups", ViewModel);
     }
+
+    /// <summary>Converts a category name to a slug suitable for use in a DOM id attribute.</summary>
+    /// <remarks>Single source of truth for the category slug: used both on GET (in _PreferencesGroups) and
+    /// on POST (in OnPostStanceAsync) to ensure the OOB swap targets the correct element.</remarks>
+    public static string CategorySlug(string category) =>
+        SlugUnsafeChars().Replace(category.ToLowerInvariant(), "-").Trim('-');
+
+    [GeneratedRegex(@"[^a-z0-9]+")]
+    private static partial Regex SlugUnsafeChars();
 
     private async Task<Guid> GetCurrentUserIdAsync()
     {
@@ -66,3 +102,12 @@ public sealed class PreferencesModel(
 
 /// <summary>View model for a single tag-row partial (the htmx swap target).</summary>
 public sealed record TagStanceRowViewModel(Guid TagId, string TagName, string Stance, bool Saved);
+
+/// <summary>View model for the prefs-meta OOB fragment (global counter + Reset button).</summary>
+public sealed record PrefsMetaViewModel(string Initials, string DisplayName, int SetCount, int TotalTags)
+{
+    public int NeutralCount => TotalTags - SetCount;
+}
+
+/// <summary>View model for a per-category count badge OOB fragment.</summary>
+public sealed record PrefsCatCountViewModel(string CategorySlug, int SetCount);

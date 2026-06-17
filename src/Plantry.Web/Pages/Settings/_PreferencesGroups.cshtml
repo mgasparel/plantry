@@ -7,22 +7,16 @@
         var dotStyle = group.CategoryHue.HasValue
             ? $"background: oklch(0.62 0.13 {group.CategoryHue})"
             : "background: var(--color-text-faint)";
+        @* stable slug id for OOB swaps — single source of truth: PreferencesModel.CategorySlug *@
+        var catSlug = Plantry.Web.Pages.Settings.PreferencesModel.CategorySlug(group.Category);
 
         <div class="tag-cat card">
             <div class="card-head">
                 <span class="cat-mark" style="@dotStyle" aria-hidden="true"></span>
                 <h3>@group.Category</h3>
                 <div class="spacer"></div>
-                <span class="cat-count">
-                    @if (group.SetCount > 0)
-                    {
-                        @($"{group.SetCount} set")
-                    }
-                    else
-                    {
-                        <span>All neutral</span>
-                    }
-                </span>
+                <partial name="Settings/_PrefsCatCount"
+                         model="@(new Plantry.Web.Pages.Settings.PrefsCatCountViewModel(catSlug, group.SetCount))" />
             </div>
             <div class="tag-rows">
                 @foreach (var tag in group.Tags)

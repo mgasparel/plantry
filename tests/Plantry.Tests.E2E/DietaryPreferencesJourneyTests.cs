@@ -93,6 +93,61 @@ public sealed class DietaryPreferencesJourneyTests(AppHostFixture appHost) : IAs
         }
     }
 
+    [Fact(DisplayName = "Stance click live-updates the prefs-meta counter without a full reload (OOB swap)")]
+    public async Task StanceClick_LiveUpdatesPrefsMetaCounter_WithoutFullReload()
+    {
+        var uniqueEmail = $"prefs-oob-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register ──────────────────────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "OOB Prefs Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "OOB User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Navigate to Preferences ───────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Settings/Preferences");
+            await page.WaitForURLAsync("**/Settings/Preferences**");
+
+            // Wait for the prefs-meta block and at least one tag row to appear.
+            await Assertions.Expect(page.Locator("#prefs-meta")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(".tag-row").First).ToBeVisibleAsync();
+
+            // Read the initial "N of M tags set" text from the prefs-meta block.
+            // Fresh user → should be "0 of M tags set".
+            var metaSpan = page.Locator("#prefs-meta span").Filter(new() { HasTextRegex = new System.Text.RegularExpressions.Regex(@"of \d+ tags set") });
+            var initialText = await metaSpan.InnerTextAsync();
+            Assert.Contains("0 of", initialText);
+
+            // ── Click the "Preferred" segment on the first tag row ─────────────────
+            var firstRow = page.Locator(".tag-row").First;
+            var preferredSeg = firstRow.Locator(".stance-seg").Nth(1); // Preferred
+            await page.RunAndWaitForResponseAsync(
+                async () => await preferredSeg.ClickAsync(),
+                r => r.Url.Contains("Settings/Preferences") && r.Status == 200);
+
+            // Wait for the htmx OOB swap to update the prefs-meta counter.
+            // The counter should now read "1 of M tags set" — without a page reload.
+            await Assertions.Expect(metaSpan).ToContainTextAsync("1 of");
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-prefs-oob.zip" });
+        }
+    }
+
     [Fact(DisplayName = "Set stance → change stance → clear stance (Neutral = no row stored)")]
     public async Task SetChangeAndClearStance_Journey()
     {

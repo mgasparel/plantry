@@ -1,0 +1,15 @@
+@model Plantry.Web.Pages.Settings.PrefsCatCountViewModel
+@* Per-category set-count badge — htmx OOB swap target (id=prefs-cat-count-{CategorySlug}).
+   Rendered inline on GET and swapped out-of-band on every stance POST for the affected category.
+   See OnPostStanceAsync in Preferences.cshtml.cs.
+*@
+<span class="cat-count" id="prefs-cat-count-@Model.CategorySlug">
+    @if (Model.SetCount > 0)
+    {
+        @($"{Model.SetCount} set")
+    }
+    else
+    {
+        <span>All neutral</span>
+    }
+</span>
