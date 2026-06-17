@@ -187,6 +187,52 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
         Assert.Contains("StackNoteTwo", html);
     }
 
+    [Fact(DisplayName = "MP-O8 regression: cell fragment returned after an assign still carries the add-meal button")]
+    public async Task AssignToFilledCell_Fragment_Still_Has_AddMealButton()
+    {
+        // The bug: _WeekGrid rendered an "Add meal" button on a filled cell, but the
+        // _MealCell *fragment* (what htmx swaps back after an assign) did not — so the
+        // button vanished after the first add. This drives the fragment path directly.
+        await using var factory = new MultiMealCellFragmentFactory();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, WeekGridFixture.HouseholdId.ToString());
+
+        // GET the page to obtain the antiforgery token + the seeded cell's date/slot
+        // (the seeded cell already renders an add-meal button in the full grid).
+        var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+
+        var cell = System.Text.RegularExpressions.Regex.Match(
+            pageHtml,
+            "class=\"add-meal\"[^>]*hx-get=\"/MealPlan\\?handler=Editor&date=([^&]+)&slotId=([^\"]+)\"");
+        Assert.True(cell.Success, "Expected an add-meal button with an Editor hx-get on the seeded cell.");
+        var date = cell.Groups[1].Value;
+        var slotId = cell.Groups[2].Value;
+
+        var form = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("__RequestVerificationToken", token),
+            new KeyValuePair<string, string>("mode", "note"),
+            new KeyValuePair<string, string>("note", "RegressionStackNote"),
+        });
+
+        var response = await client.PostAsync($"/MealPlan?handler=Assign&date={date}&slotId={slotId}", form);
+        response.EnsureSuccessStatusCode();
+        var fragment = await response.Content.ReadAsStringAsync();
+
+        // The returned cell fragment is filled, so it must still offer the add-meal affordance.
+        Assert.Contains("meal-card", fragment);
+        Assert.Contains("add-meal", fragment);
+    }
+
+    private static string ExtractAntiforgeryToken(string html)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"");
+        Assert.True(match.Success, "No antiforgery token found on the page.");
+        return match.Groups[1].Value;
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private static int CountOccurrences(string text, string pattern)
@@ -498,6 +544,12 @@ public sealed class MultiMealCellFragmentFactory : WeekGridFragmentFactory
             // Swap out the empty FakeMealPlanRepo with a pre-seeded two-meal variant
             services.RemoveAll<IMealPlanRepository>();
             services.AddScoped<IMealPlanRepository>(_ => new TwoMealCellRepo());
+
+            // Stub UserManager so the POST Assign handler's GetCurrentUserIdAsync
+            // doesn't reach the real Identity DbContext (Postgres) under test.
+            services.RemoveAll<UserManager<AppUser>>();
+            services.AddSingleton<UserManager<AppUser>>(
+                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000aa" }));
         });
     }
 }

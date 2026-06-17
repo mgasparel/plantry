@@ -32,6 +32,15 @@
             @await Html.PartialAsync("_MealCard", new Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm(
                 meal, dateIso, Model.SlotId, Model.Members))
         }
+        <button class="add-meal"
+                hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId"
+                hx-target="#meal-editor-dialog"
+                hx-swap="innerHTML"
+                title="Add another meal to this slot"
+                aria-label="Add another meal">
+            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+            Add meal
+        </button>
     }
     else if (hasGhost)
     {
