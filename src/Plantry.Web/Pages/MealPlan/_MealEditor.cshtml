@@ -1,0 +1,252 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.EditorPageModel
+@{
+    var vm = Model.Vm;
+    var slot = Model.Slot;
+    var members = Model.Members;
+    var dateStr = vm.Date.ToString("yyyy-MM-dd");
+    var dowLabel = vm.Date.DayOfWeek.ToString()[..3];
+    var monthDay = vm.Date.ToString("MMM d");
+    var isToday = vm.Date == DateOnly.FromDateTime(DateTime.Today);
+    var defaultAtt = vm.SlotDefaultAttendees ?? [];
+    var currentAtt = vm.AttendeesOverride ?? defaultAtt;
+    var isOverridden = vm.AttendeesOverride != null;
+    var isNote = vm.Note != null;
+    var dishesJson = System.Text.Json.JsonSerializer.Serialize(vm.Dishes.Select(d => new
+    {
+        kind = d.Kind.ToString().ToLower(),
+        itemId = d.ItemId.ToString("D"),
+        name = d.Name,
+        servings = d.Servings
+    }));
+    var attJson = System.Text.Json.JsonSerializer.Serialize(currentAtt);
+    var defaultAttJson = System.Text.Json.JsonSerializer.Serialize(defaultAtt);
+    var noteJson = System.Text.Json.JsonSerializer.Serialize(vm.Note ?? "");
+    var slotIdStr = slot.Id.Value.ToString("D");
+    var searchUrl = $"/MealPlan?handler=Search";
+}
+
+<div x-data="{
+    mode: '@(isNote ? "note" : "dishes")',
+    note: @Html.Raw(noteJson),
+    dishes: @Html.Raw(dishesJson),
+    att: @Html.Raw(attJson),
+    defaultAtt: @Html.Raw(defaultAttJson),
+    attOverridden: @(isOverridden ? "true" : "false"),
+    get canSave() { return this.mode === 'note' ? this.note.trim().length > 0 : this.dishes.length > 0; }
+}" id="meal-editor-inner">
+
+    @* Register Alpine component so addDishFromResult can call into it.
+       Alpine v3 exposes the reactive data object on el._x_dataStack[0].
+       (Alpine v2 used el.__x.$data — do not regress to v2 accessor.) *@
+    <script>
+        function addDishFromResult(el) {
+            const editorEl = document.getElementById('meal-editor-inner');
+            const d = editorEl && editorEl._x_dataStack && editorEl._x_dataStack[0];
+            if (!d) return;
+            d.dishes.push({
+                kind: el.dataset.kind,
+                itemId: el.dataset.itemId,
+                name: el.dataset.name,
+                servings: parseInt(el.dataset.servings, 10) || 1
+            });
+            // clear the search input
+            const input = document.getElementById('dish-search-input-@slotIdStr');
+            if (input) { input.value = ''; }
+        }
+    </script>
+
+    @* Header *@
+    <div class="ed-head">
+        <div class="eh-slot">
+            <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
+        </div>
+        <div>
+            <h2>@slot.Label</h2>
+            <div class="eh-sub">@dowLabel, @monthDay@(isToday ? " · Today" : "")</div>
+        </div>
+        <span class="spacer"></span>
+        <button class="ed-close" type="button" onclick="closeMealEditor()" aria-label="Close">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        </button>
+    </div>
+
+    @* Body *@
+    <div class="ed-body">
+
+        @* Who's eating *@
+        <div class="ed-sect">
+            <div class="ed-sect-head">
+                <span class="es-label">Who's eating</span>
+                <span class="spacer"></span>
+                <span class="ed-att-note" x-show="attOverridden">overrides slot default</span>
+            </div>
+            <div class="ed-att">
+                @foreach (var member in members)
+                {
+                    var uid = member.UserId.ToString("D");
+                    <button type="button"
+                            class="ed-att-chip"
+                            :class="att.includes('@uid') ? '' : 'off'"
+                            @@click="
+                                if (att.includes('@uid')) {
+                                    att = att.filter(function(x) { return x !== '@uid'; });
+                                } else {
+                                    att = [...att, '@uid'];
+                                }
+                                attOverridden = JSON.stringify([...att].sort()) !== JSON.stringify([...defaultAtt].sort());
+                            "
+                            aria-label="Toggle @member.DisplayName">
+                        <span class="pl-av" style="width:22px;height:22px;border-radius:50%;background:var(--surface-3);display:inline-grid;place-items:center;font-size:9px;font-weight:700;">@member.Initials</span>
+                        @member.DisplayName
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Dishes section *@
+        <div class="ed-sect" x-show="mode === 'dishes'">
+            <div class="ed-sect-head">
+                <span class="es-label">Dishes</span>
+                <span class="spacer"></span>
+                <div class="ed-note-toggle">or <button type="button" @@click="mode = 'note'; dishes = []">add a note instead</button></div>
+            </div>
+
+            <div class="ed-dishes" x-show="dishes.length > 0">
+                <template x-for="(d, idx) in dishes" :key="idx">
+                    <div class="ed-dish">
+                        <div class="edd-thumb" style="width:40px;height:40px;border-radius:8px;flex:none;background:var(--surface-3);display:grid;place-items:center;font-size:14px;font-weight:700;" x-text="d.name.charAt(0)"></div>
+                        <div class="edd-main">
+                            <div class="edd-name" x-text="d.name"></div>
+                            <div class="edd-meta"><span>—</span></div>
+                        </div>
+                        <div class="serv-step">
+                            <button type="button" @@click="d.servings = Math.max(1, d.servings - 1)" aria-label="Fewer">−</button>
+                            <span class="sv"><span x-text="d.servings"></span><small>serv</small></span>
+                            <button type="button" @@click="d.servings++" aria-label="More">+</button>
+                        </div>
+                        <button type="button" class="edd-del" @@click="dishes.splice(idx, 1)" aria-label="Remove dish">
+                            <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                        </button>
+                    </div>
+                </template>
+            </div>
+
+            @* Dish search typeahead *@
+            <div class="dish-search" x-data="{ dsOpen: false, dsQ: '' }">
+                <div class="ds-input">
+                    <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg>
+                    <input type="text"
+                           id="dish-search-input-@slotIdStr"
+                           x-model="dsQ"
+                           placeholder="Search recipes or pantry items to add…"
+                           @@focus="dsOpen = true"
+                           @@blur="setTimeout(function() { dsOpen = false; }, 200)"
+                           hx-get="@searchUrl"
+                           hx-trigger="input changed delay:200ms"
+                           hx-target="#dish-results-@slotIdStr"
+                           hx-swap="innerHTML"
+                           hx-include="[id='dish-search-input-@slotIdStr']"
+                           name="q"
+                           autocomplete="off" />
+                </div>
+                <div class="dish-menu"
+                     id="dish-results-@slotIdStr"
+                     x-show="dsOpen && dsQ.length > 0">
+                </div>
+            </div>
+        </div>
+
+        @* Note section *@
+        <div class="ed-sect" x-show="mode === 'note'">
+            <div class="ed-sect-head">
+                <span class="es-label">Note</span>
+                <span class="spacer"></span>
+                <div class="ed-note-toggle">or <button type="button" @@click="mode = 'dishes'; note = ''">plan dishes instead</button></div>
+            </div>
+            <div class="ed-note-field">
+                <input type="text" x-model="note" placeholder="e.g. Takeout, Out of town…" />
+            </div>
+            <div class="ed-note-chips">
+                @foreach (var preset in new[] { "Takeout", "Out of town", "Leftovers", "Dining out", "Skip this meal" })
+                {
+                    <button type="button" @@click="note = '@preset'">@preset</button>
+                }
+            </div>
+        </div>
+
+    </div>
+
+    @* Footer *@
+    <div class="ed-foot">
+        <div class="ed-rollup">
+            <div class="err">
+                <div class="err-l" x-show="mode === 'dishes' && dishes.length === 0">Add a dish to see fulfillment &amp; cost.</div>
+                <div class="err-l" x-show="mode === 'note'">A note keeps the slot — no dishes, no cost.</div>
+                <div class="err-l" x-show="mode === 'dishes' && dishes.length > 0">— % in your pantry</div>
+            </div>
+        </div>
+        <span class="spacer"></span>
+
+        @if (vm.IsEditing)
+        {
+            <button type="button" class="txt-btn danger"
+                    @@click="
+                        fetch('/MealPlan?handler=Clear&date=@dateStr&slotId=@slotIdStr', {
+                            method: 'POST',
+                            headers: {
+                                'RequestVerificationToken': document.querySelector('[name=__RequestVerificationToken]')?.value ?? '',
+                                'HX-Request': 'true'
+                            }
+                        }).then(r => r.text()).then(html => {
+                            const el = document.getElementById('cell-@(slot.Id.Value.ToString("N"))-@dateStr');
+                            if (el) el.outerHTML = html;
+                        });
+                        closeMealEditor();
+                    ">
+                Remove meal
+            </button>
+        }
+
+        <button type="button" class="btn btn-ghost" onclick="closeMealEditor()">Cancel</button>
+
+        <button type="button"
+                class="btn btn-primary"
+                :disabled="!canSave"
+                @@click="
+                    var params = new URLSearchParams();
+                    params.append('mode', mode);
+                    if (mode === 'note') {
+                        params.append('note', note);
+                    } else {
+                        // Emit three index-aligned arrays so BuildDishSpecs can preserve
+                        // per-dish servings regardless of kind order. Use URLSearchParams
+                        // and POST as body string — Object.fromEntries would collapse
+                        // repeated keys (e.g. dishKinds for a 2-dish meal), losing all
+                        // but the last dish.
+                        dishes.forEach(function(d) {
+                            params.append('dishKinds', d.kind);
+                            params.append('dishItemIds', d.itemId);
+                            params.append('dishServings', String(d.servings));
+                        });
+                    }
+                    att.forEach(function(uid) { params.append('attendeesOverride', uid); });
+                    if (attOverridden) params.append('attendeesOverridden', 'true');
+                    params.append('__RequestVerificationToken', document.querySelector('[name=__RequestVerificationToken]')?.value ?? '');
+
+                    // POST via fetch with params.toString() to preserve repeated keys.
+                    // htmx.ajax with Object.fromEntries(params) collapses duplicate keys
+                    // and would lose all but the last dish / attendee.
+                    fetch('/MealPlan?handler=Assign&date=@dateStr&slotId=@slotIdStr', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString()
+                    }).then(function(r) { return r.text(); }).then(function(html) {
+                        var cell = document.getElementById('cell-@(slot.Id.Value.ToString("N"))-@dateStr');
+                        if (cell) { cell.outerHTML = html; htmx.process(document.body); }
+                    });
+                    closeMealEditor();
+                ">
+            Save meal
+        </button>
+    </div>
+</div>

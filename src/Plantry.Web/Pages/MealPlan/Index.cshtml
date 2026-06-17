@@ -6,78 +6,117 @@
 }
 
 <div class="plan-main">
-    @* Command bar: week nav, This week, budget chip, auto-fill split button, Shop for this week *@
+    @* Command bar: week nav, This week, budget chip *@
     <div class="plan-bar">
-        @* Week nav — htmx partial-swap wiring added in P3-3 (plantry-b17) once the
-           _PlanWeek partial is extracted; until then buttons are present but disabled
-           to avoid shipping broken full-page swap behaviour. *@
         <nav class="wknav" aria-label="Week navigation">
             <button type="button" class="wknav-btn" aria-label="Previous week"
-                    disabled title="Week navigation arrives in P3-3">
+                    hx-get="/MealPlan?handler=Grid&amp;week=@Model.PrevWeekStart.ToString("yyyy-MM-dd")"
+                    hx-target="#plan-main-content"
+                    hx-swap="innerHTML">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
             </button>
             <span class="wk-label">@Model.WeekLabel</span>
             <button type="button" class="wknav-btn" aria-label="Next week"
-                    disabled title="Week navigation arrives in P3-3">
+                    hx-get="/MealPlan?handler=Grid&amp;week=@Model.NextWeekStart.ToString("yyyy-MM-dd")"
+                    hx-target="#plan-main-content"
+                    hx-swap="innerHTML">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
             </button>
-            <button type="button" class="wk-today"
-                    disabled title="Week navigation arrives in P3-3">This week</button>
+            @if (Model.WeekStart != Model.ThisWeekStart)
+            {
+                <button type="button" class="wk-today"
+                        hx-get="/MealPlan?handler=Grid&amp;week=@Model.ThisWeekStart.ToString("yyyy-MM-dd")"
+                        hx-target="#plan-main-content"
+                        hx-swap="innerHTML">This week</button>
+            }
         </nav>
         <div class="plan-bar-spacer"></div>
-        @* Budget chip — placeholder until P3-4 adds cost roll-up *@
-        <span class="budget-chip"><b>—</b> / wk</span>
-        @* Auto-fill split button — wired in P3-6 *@
-        <div class="af-split" aria-label="Auto-fill">
-            <button type="button" class="btn btn--soft" disabled title="AI auto-fill arrives in a later slice">Auto-fill week</button>
-            <button type="button" class="af-caret" disabled aria-label="Auto-fill options">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+        @* Manage planning gear — dropdown linking to slot config + preferences *@
+        <div class="manage-plan-gear" x-data="{ open: false }" style="position:relative">
+            <button type="button" class="btn btn--icon" aria-label="Manage planning" title="Manage planning"
+                    @@click="open = !open" :aria-expanded="open">
+                <svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg>
             </button>
+            <div x-show="open" @@click.outside="open = false" x-cloak
+                 class="manage-plan-menu" role="menu">
+                <a href="/Settings/MealSlots" class="manage-plan-menu__item" role="menuitem" @@click="open = false">Meal slots</a>
+                <a href="/Settings/Preferences" class="manage-plan-menu__item" role="menuitem" @@click="open = false">Dietary preferences</a>
+            </div>
         </div>
-        @* Shop for this week — wired in P3-4 *@
-        <button type="button" class="btn btn--soft" disabled title="Shopping hand-off arrives in a later slice">Shop for this week</button>
+        @* Budget chip — placeholder until P3-4 *@
+        <span class="budget-chip"><b>—</b> / wk</span>
+        @* Auto-fill — wired in P3-6 *@
+        <button type="button" class="btn btn--soft" disabled title="AI auto-fill arrives in a later slice">Auto-fill week</button>
     </div>
 
-    @* Body: grid + insights rail (rail wired in P3-5) *@
+    @* Body: grid *@
     <div class="plan-body" id="plan-main-content">
-        <div class="grid-scroll">
-            @if (!Model.HasSlots)
-            {
-                @* Empty-state: no slots configured yet *@
-                <div class="planner-empty">
-                    <p class="planner-empty__message">No meal slots are configured yet.</p>
-                    <a href="/Settings/MealSlots" class="btn btn--primary">Configure meal slots</a>
-                </div>
-            }
-            else
-            {
-                @* Day-column header row *@
-                <div class="plan-grid" style="--plan-cols: @Model.WeekDays.Count">
-                    <div class="plan-grid__slot-header"></div>
-                    @foreach (var day in Model.WeekDays)
-                    {
-                        <div class="plan-grid__day-header @(day.IsToday ? "plan-grid__day-header--today" : "")">
-                            <span class="plan-grid__day-name">@day.DayName</span>
-                            <span class="plan-grid__day-date">@day.DateLabel</span>
-                        </div>
-                    }
-
-                    @* Slot bands *@
-                    @foreach (var slot in Model.Slots)
-                    {
-                        <div class="plan-grid__slot-label">@slot.Label</div>
-                        @foreach (var day in Model.WeekDays)
-                        {
-                            <div class="plan-grid__cell plan-grid__cell--empty">
-                                <button type="button" class="plan-grid__add-btn" aria-label="Add meal for @slot.Label on @day.DayName"
-                                        title="Manual assign arrives in P3-3">
-                                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-                                </button>
-                            </div>
-                        }
-                    }
-                </div>
-            }
-        </div>
+        @await Html.PartialAsync("_WeekGrid", Model)
     </div>
 </div>
+
+@* Meal editor modal — loaded via htmx into this container *@
+<div id="meal-editor-modal" class="modal-veil" style="display:none"
+     x-data="{ open: false }"
+     x-show="open" x-cloak
+     @@keydown.escape.window="open = false">
+    <div class="editor" role="dialog" aria-modal="true" id="meal-editor-dialog">
+        @* Content injected by htmx *@
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Open the editor modal when htmx loads the editor fragment
+        document.addEventListener('htmx:afterSwap', function (e) {
+            if (e.detail.target && e.detail.target.id === 'meal-editor-dialog') {
+                const veil = document.getElementById('meal-editor-modal');
+                if (veil) {
+                    veil.style.display = 'grid';
+                    veil._x_dataStack && (veil._x_dataStack[0].open = true);
+                }
+            }
+        });
+
+        function closeMealEditor() {
+            const veil = document.getElementById('meal-editor-modal');
+            if (veil) {
+                veil.style.display = 'none';
+                document.getElementById('meal-editor-dialog').innerHTML = '';
+            }
+        }
+
+        // Drag-drop: HTML5 + htmx
+        function onDragStart(e, date, slotId) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ date, slotId }));
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function onDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            e.currentTarget.classList.add('drag-over');
+        }
+
+        function onDragLeave(e) {
+            e.currentTarget.classList.remove('drag-over');
+        }
+
+        function onDrop(e, toDate, toSlotId) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+            if (data.date === toDate && data.slotId === toSlotId) return;
+
+            // POST via htmx programmatic trigger
+            htmx.ajax('POST',
+                `/MealPlan?handler=Move&fromDate=${encodeURIComponent(data.date)}&fromSlotId=${encodeURIComponent(data.slotId)}&toDate=${encodeURIComponent(toDate)}&toSlotId=${encodeURIComponent(toSlotId)}`,
+                {
+                    target: '#plan-main-content',
+                    swap: 'innerHTML',
+                    headers: { 'RequestVerificationToken': document.querySelector('[name=__RequestVerificationToken]')?.value ?? '' }
+                });
+        }
+    </script>
+    @Html.AntiForgeryToken()
+}

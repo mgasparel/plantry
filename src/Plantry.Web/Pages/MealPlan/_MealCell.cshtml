@@ -1,0 +1,96 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.CellFragmentVm
+@{
+    var cellId = $"cell-{Model.SlotId.Value:N}-{Model.Date:yyyy-MM-dd}";
+    var dateIso = Model.Date.ToString("yyyy-MM-dd");
+    var slotId = Model.SlotId.Value;
+}
+
+<div id="@cellId"
+     class="mcell @(Model.Meals.Count > 0 ? "filled" : "empty")"
+     ondragover="onDragOver(event)"
+     ondragleave="onDragLeave(event)"
+     ondrop="onDrop(event, '@dateIso', '@slotId')">
+
+    @* Hard-stance dietary conflict warning (C9 — advisory only, does not block) *@
+    @if (Model.HardStanceWarning is not null)
+    {
+        <div class="ed-warn" x-data="{ open: true }" x-show="open" role="alert">
+            <span class="ew-text">@Model.HardStanceWarning</span>
+            <button class="ew-dismiss" type="button" @@click="open = false" aria-label="Dismiss warning">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
+        </div>
+    }
+
+    @if (Model.Meals.Count > 0)
+    {
+        @* One card per meal. Schema: UNIQUE(meal_plan_id, date, meal_slot_id) — one meal per cell.
+           "Add meal" button is intentionally absent: AssignMeal would silently replace the existing meal.
+           The edit pencil on each card covers editing. *@
+        @foreach (var meal in Model.Meals)
+        {
+            <div class="meal-card @(meal.Note is not null ? "note" : "")"
+                 draggable="true"
+                 ondragstart="onDragStart(event, '@dateIso', '@slotId')">
+                <button class="mc-edit"
+                        hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId&mealId=@meal.MealId"
+                        hx-target="#meal-editor-dialog"
+                        hx-swap="innerHTML"
+                        aria-label="Edit meal">
+                    <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                </button>
+
+                @if (meal.Note is not null)
+                {
+                    <div class="note-ico">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+                    </div>
+                    <div class="note-txt">@meal.Note</div>
+                    <div class="note-sub">Free note · no dishes</div>
+                }
+                else
+                {
+                    <div class="mc-photo">
+                        <div class="mc-photo-img placeholder" style="background:linear-gradient(152deg,oklch(0.72 0.09 150),oklch(0.5 0.12 150))">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h12a1 1 0 0 1 1 1v14H7a2 2 0 0 0-2 2V3Z" /></svg>
+                        </div>
+                        <div class="mc-photo-scrim"></div>
+                    </div>
+                    <div class="mc-body">
+                        <div class="mc-dishes">
+                            @for (int i = 0; i < meal.DishNames.Count; i++)
+                            {
+                                <div class="mc-dish">
+                                    @if (i > 0) { <span class="md-plus">+</span> }
+                                    <span class="md-name">@meal.DishNames[i]</span>
+                                </div>
+                            }
+                        </div>
+                        <div class="mc-spacer"></div>
+                        <div class="mc-bodyfoot">
+                            <span class="mc-fulf"><span class="fdot" style="background:var(--ink-faint)"></span><span>—%</span></span>
+                            <span class="mc-sep"></span>
+                            <span class="mc-cost">—</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+    else
+    {
+        <div class="empty-acts">
+            <button class="empty-add"
+                    hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId"
+                    hx-target="#meal-editor-dialog"
+                    hx-swap="innerHTML"
+                    aria-label="Add meal">
+                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+            </button>
+            <button class="empty-auto" disabled title="Auto-fill arrives in P3-6" tabindex="-1">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                Auto-fill
+            </button>
+        </div>
+    }
+</div>

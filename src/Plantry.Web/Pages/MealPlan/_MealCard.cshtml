@@ -1,0 +1,79 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm
+@{
+    var meal = Model.Meal;
+    var isNote = meal.Note is not null;
+}
+
+<div class="meal-card @(isNote ? "note" : "")"
+     draggable="true"
+     ondragstart="onDragStart(event, '@Model.DateIso', '@Model.SlotId.Value')">
+
+    @* Edit pencil *@
+    <button class="mc-edit"
+            hx-get="/MealPlan?handler=Editor&date=@Model.DateIso&slotId=@Model.SlotId.Value&mealId=@meal.MealId"
+            hx-target="#meal-editor-dialog"
+            hx-swap="innerHTML"
+            aria-label="Edit meal">
+        <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+    </button>
+
+    @if (isNote)
+    {
+        @* Note card variant *@
+        <div class="note-ico">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+        </div>
+        <div class="note-txt">@meal.Note</div>
+        <div class="note-sub">Free note · no dishes</div>
+    }
+    else
+    {
+        @* Photo placeholder *@
+        <div class="mc-photo">
+            <div class="mc-photo-img placeholder" style="background:linear-gradient(152deg,oklch(0.72 0.09 150),oklch(0.5 0.12 150))">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h12a1 1 0 0 1 1 1v14H7a2 2 0 0 0-2 2V3Z" /><path d="M18 18v3H7a2 2 0 0 1-2-2" /><path d="M9 7h5M9 10h5" /></svg>
+            </div>
+            <div class="mc-photo-scrim"></div>
+        </div>
+        <div class="mc-body">
+            <div class="mc-dishes">
+                @for (int i = 0; i < meal.DishNames.Count; i++)
+                {
+                    <div class="mc-dish">
+                        @if (i > 0) { <span class="md-plus">+</span> }
+                        <span class="md-name">@meal.DishNames[i]</span>
+                    </div>
+                }
+            </div>
+            <div class="mc-spacer"></div>
+            <div class="mc-bodyfoot">
+                @* Fulfillment/cost placeholder until P3-4 *@
+                <span class="mc-fulf">
+                    <span class="fdot" style="background:var(--ink-faint)"></span>
+                    <span>—%</span>
+                </span>
+                <span class="mc-sep"></span>
+                <span class="mc-cost">—</span>
+            </div>
+            @if (meal.EffectiveAttendees.Count > 0)
+            {
+                <div class="mc-att-row">
+                    <span class="mc-att">
+                        @foreach (var uid in meal.EffectiveAttendees.Take(3))
+                        {
+                            var member = Model.Members.FirstOrDefault(m => m.UserId == uid);
+                            if (member is not null)
+                            {
+                                <span class="pl-av" style="width:18px;height:18px;border-radius:50%;background:var(--surface-3);display:inline-grid;place-items:center;font-size:7px;font-weight:700;" title="@member.DisplayName">@member.Initials</span>
+                            }
+                        }
+                        @if (meal.EffectiveAttendees.Count > 3)
+                        {
+                            <span class="pl-av" style="width:18px;height:18px;border-radius:50%;background:var(--surface-3);font-size:7px;font-weight:700;display:inline-grid;place-items:center;">+@(meal.EffectiveAttendees.Count - 3)</span>
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+    }
+</div>
