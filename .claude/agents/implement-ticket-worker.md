@@ -116,20 +116,35 @@ Run from `../worktrees/<issue-id>/`.
 dotnet test Plantry.sln
 ```
 
-Run from `../worktrees/<issue-id>/`.
+Run from `../worktrees/<issue-id>/`. Run the **whole solution** — do not narrow to a
+subset of projects or apply a category filter. The E2E suite (`Plantry.Tests.E2E`)
+boots a live Aspire stack (Docker + web app) and is part of the gate, not optional.
 
-Capture per-project counts and any failing test names + messages.
+Capture per-category **executed/passed/skipped** counts (Unit, Integration, E2E,
+Architecture) and any failing test names + messages.
 
 - **FAILED**: apply targeted fixes and loop back to 4a.
 - Still broken after 3 consecutive test-fix attempts: **Park** (`test-loop-exhausted`).
-- **PASS**: continue to 4c.
+- **A test suite that an acceptance criterion depends on did not execute** (zero tests
+  run for that category, the project was skipped, or its fixture failed to start) is a
+  **hard stop, not a footnote** — a written-but-unexecuted test verifies nothing. Treat
+  it exactly like a test failure: try to make it run (e.g. start Docker for the E2E
+  fixture) and loop back to 4a. If it still cannot be made to execute green after 3
+  attempts, **Park** (`test-loop-exhausted` if it runs-but-fails; `unrecoverable-error:<detail>`
+  if the suite genuinely cannot run in this environment). Never PASS a slice whose
+  acceptance criteria require a suite that did not run green.
+- **PASS**: continue to 4c. Carry the per-category executed/skipped counts forward —
+  they are reported in the verdict (Step 6) and must show every acceptance-criterion-bearing
+  suite as executed green.
 
 ### 4c. Opus critic review
 
 Increment `pass_count`.
 
-Spawn a **fresh Opus sub-agent** (`model: opus`) with this prompt (substitute `<issue-id>`
-and `<worktree-path>`):
+Spawn a **fresh Opus sub-agent** (`model: opus`) with this prompt (substitute `<issue-id>`,
+`<worktree-path>`, and `<test-results>` — the per-category executed/passed/skipped counts
+captured in step 4b, e.g. `Unit 600/600, Integration 114/114, E2E 2/2, Architecture 26/26`,
+naming any suite that was skipped or did not run):
 
 ---
 
@@ -139,6 +154,7 @@ and `<worktree-path>`):
 >
 > **Your issue:** `<issue-id>`
 > **Worktree:** `<worktree-path>`
+> **Test execution this pass:** `<test-results>`
 >
 > ## Step A — Build context (do this before reading the diff)
 >
@@ -183,6 +199,15 @@ and `<worktree-path>`):
 > responsible for must be present in the diff. A gap is a **FIX** regardless of what any
 > interpretation comment says. Cite the specific acceptance criterion or description clause
 > that is unmet.
+>
+> **The existence of a test is NOT evidence that the behaviour works.** When an acceptance
+> criterion calls for a behavioural proof (an E2E smoke, an HTTP-level read, an integration
+> assertion), it is satisfied only if that test is reported in the pre-flight test stage as
+> **executed and green** — not merely present in the diff. A test that was written but
+> skipped, filtered out, or never run (look for a suite missing from the per-category
+> executed counts) leaves its criterion **unmet** — raise it as a **FIX**, citing the
+> criterion and the absent execution. "Covered by a test added in this PR" is not a waiver
+> if that test did not run.
 >
 > **LOAD-BEARING REQUIREMENT for FIX findings:** Every FIX finding MUST include explicit,
 > self-contained fix instructions — what is wrong, exactly where (file:line), and the
@@ -304,8 +329,13 @@ ISSUE: <issue-id>
 BRANCH: issue/<issue-id>
 WORKTREE: ../worktrees/<issue-id>
 CRITIC_PASSES: <pass_count>
+TESTS_RUN: <per-category executed/passed counts, e.g. Unit 600/600, Integration 114/114, E2E 2/2, Architecture 26/26; name any skipped suite>
 PREFLIGHT: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md
 ```
+
+`TESTS_RUN` must show every acceptance-criterion-bearing suite as executed green. A PASS
+verdict that lists a required suite as skipped/not-run is self-contradictory — resolve it
+in 4b (make the suite run) before returning PASS, or Park.
 
 ---
 

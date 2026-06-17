@@ -46,13 +46,22 @@ same report; a failing stage is the last thing written to it. This mirrors
 3. **Stage 2 — Test.** Run `dotnet test Plantry.sln` from `code/` (this covers
    `Plantry.Tests.Unit`, `Plantry.Tests.Integration`, `Plantry.Tests.E2E`, and
    `Plantry.Tests.Architecture`).
-   - Capture per-project pass/fail counts and the names of any failing tests
-     with their failure messages/stack traces.
+   - Capture per-project **executed/passed/skipped** counts and the names of any
+     failing tests with their failure messages/stack traces. `Plantry.Tests.E2E`
+     boots a live Aspire stack (Docker + web app); it is part of the gate, not
+     optional — do not narrow the run to a subset of projects or apply a category
+     filter to skip it.
    - If any test fails or a test project fails to run: write the report now
      with status **FAILED — tests**, including Stage 1's warning list (build
      passed) and the full test failure detail, and **stop — do not run the
      code review.**
-   - If everything passes, record the summary and continue.
+   - A required suite that **executed zero tests** (skipped, filtered out, or its
+     fixture failed to start — e.g. Docker not running for the E2E fixture) is a
+     **FAILED — tests**, not a pass: a written-but-unexecuted test verifies nothing.
+     Record it as such with the reason, and stop. Start Docker / fix the fixture and
+     re-run rather than reporting a green gate over a skipped suite.
+   - If everything passes (every suite executed, zero failures), record the summary
+     and continue.
 
 4. **Stage 3 — Code review.** Invoke the `plantry-code-review` skill. It writes
    its own report — note that path, and
