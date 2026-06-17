@@ -11,6 +11,8 @@ using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
 using Plantry.MealPlanning.Domain;
 using Plantry.MealPlanning.Infrastructure;
+using Plantry.Pricing.Domain;
+using Plantry.Pricing.Infrastructure;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel;
@@ -34,6 +36,7 @@ public sealed class FakeDataSeeder(
     InventoryDbContext inventoryDb,
     RecipesDbContext recipesDb,
     MealPlanningDbContext mealPlanningDb,
+    PricingDbContext pricingDb,
     IClock clock)
 {
     public const string DemoEmail = "demo@plantry.dev";
@@ -117,6 +120,9 @@ public sealed class FakeDataSeeder(
             await userManager.AddClaimAsync(member, new Claim(HouseholdIdClaims.ClaimType, householdId.Value.ToString()));
         }
 
+        // Whether this is the demo household (fixed email → fixed rich seeding).
+        var isDemo = email == DemoEmail;
+
         // Arm both the Postgres GUC (via TenantContext → interceptor) and the EF query filter
         // (via SetHouseholdId), mirroring what RlsMiddleware does for authenticated requests.
         ArmTenant(householdId.Value);
@@ -128,10 +134,15 @@ public sealed class FakeDataSeeder(
             await SeedRecipesAsync(householdId, ct);
             // Inventory must seed after products (needs product ids + default units/locations).
             await SeedInventoryAsync(householdId, userId, ct);
-            // Meal plan must seed after recipes (references their ids) and after the slot config that
-            // RegisterHouseholdCommand created (Breakfast/Lunch/Dinner) — gives the planner a populated
-            // current week on first load instead of an empty grid.
-            await SeedMealPlanAsync(householdId, userId, ct);
+            // Price observations must seed after products (needs product ids + unit ids).
+            // Only the demo household gets rich pricing data; random households skip this.
+            if (isDemo)
+                await SeedPriceObservationsAsync(householdId, userId, ct);
+            // Meal plan must seed after recipes (references their ids), after the slot config that
+            // RegisterHouseholdCommand created (Breakfast/Lunch/Dinner), and after price observations
+            // are in place so cost roll-ups produce real figures on first load.
+            // For the demo household, also seeds slot default attendees and per-meal overrides.
+            await SeedMealPlanAsync(householdId, userId, isDemo, ct);
         }
         finally
         {
@@ -343,7 +354,7 @@ public sealed class FakeDataSeeder(
         await inventoryDb.SaveChangesAsync(ct);
     }
 
-    private async Task SeedMealPlanAsync(HouseholdId householdId, Guid userId, CancellationToken ct)
+    private async Task SeedMealPlanAsync(HouseholdId householdId, Guid userId, bool seedAttendees, CancellationToken ct)
     {
         // The slot config (Breakfast/Lunch/Dinner) was created by MealPlanningReferenceDataSeeder
         // during RegisterHouseholdCommand. Load it to resolve slot ids by label.
@@ -355,6 +366,33 @@ public sealed class FakeDataSeeder(
         MealSlot? Slot(string label) =>
             config.Slots.FirstOrDefault(s => s.Label == label && s.IsActive);
 
+        // For the demo household, assign default attendees to each slot so slot bands render
+        // with avatar stacks. Load all household member IDs from the identity store.
+        List<Guid> allMemberIds = [];
+        if (seedAttendees)
+        {
+            var memberUsers = await identityDb.Users
+                .Where(u => u.HouseholdId == householdId.Value)
+                .Select(u => u.Id)
+                .ToListAsync(ct);
+
+            allMemberIds = memberUsers.Select(Guid.Parse).ToList();
+
+            // Dinner: everyone eats together — all members.
+            if (Slot("Dinner") is { } dinnerSlot)
+                config.SetDefaultAttendees(dinnerSlot.Id, allMemberIds, clock);
+
+            // Breakfast: only the first two members (e.g. adults who eat breakfast).
+            // Lunch: first two members.
+            var morningCrew = allMemberIds.Count >= 2 ? allMemberIds.Take(2).ToList() : allMemberIds;
+            if (Slot("Breakfast") is { } breakfastSlot)
+                config.SetDefaultAttendees(breakfastSlot.Id, morningCrew, clock);
+            if (Slot("Lunch") is { } lunchSlot)
+                config.SetDefaultAttendees(lunchSlot.Id, morningCrew, clock);
+
+            await mealPlanningDb.SaveChangesAsync(ct);
+        }
+
         // Recipes seeded above, resolved by name.
         var recipes = await recipesDb.Recipes.ToDictionaryAsync(r => r.Name, ct);
 
@@ -362,19 +400,27 @@ public sealed class FakeDataSeeder(
         var monday = MealPlan.NormalizeToMonday(today);
         var plan = MealPlan.Start(householdId, monday, clock);
 
-        void AssignRecipe(int dayOffset, string slotLabel, string recipeName, int servings)
+        void AssignRecipe(int dayOffset, string slotLabel, string recipeName, int servings,
+            List<Guid>? attendeesOverride = null)
         {
             if (!recipes.TryGetValue(recipeName, out var recipe)) return;
             if (Slot(slotLabel) is not { } slot) return;
             plan.AssignMeal(
                 monday.AddDays(dayOffset), slot.Id,
                 [new DishSpec(DishKind.Recipe, recipe.Id.Value, servings)],
-                attendeesOverride: null, source: "manual", createdBy: userId, clock);
+                attendeesOverride: attendeesOverride, source: "manual", createdBy: userId, clock);
         }
+
+        // Build a "kids-only" override for the demo (first member only, to differ from the slot default).
+        // This exercises the "overrides slot default" badge and distinct avatar stack in the editor/card.
+        List<Guid>? kidsOnlyOverride = seedAttendees && allMemberIds.Count >= 3
+            ? [allMemberIds[^1]]        // last member (e.g. Jordan) only — differs from Dinner default
+            : null;
 
         // A representative half-full week: a mix of dinners, a lunch, a breakfast, and one free-text
         // note — enough to exercise fulfillment/cost roll-ups, the use-soon badge, and insights.
-        AssignRecipe(0, "Breakfast", "Greek Yogurt Overnight Oats", 2);
+        // Day 0 breakfast: only the last member eats (override differs from the breakfast slot default).
+        AssignRecipe(0, "Breakfast", "Greek Yogurt Overnight Oats", 2, attendeesOverride: kidsOnlyOverride);
         AssignRecipe(0, "Dinner", "Chicken & Chickpea Curry", 4);
         AssignRecipe(1, "Dinner", "Beef Chilli con Carne", 4);
         AssignRecipe(2, "Dinner", "Salmon & Vegetable Traybake", 2);
@@ -384,8 +430,102 @@ public sealed class FakeDataSeeder(
         if (Slot("Dinner") is { } fri)
             plan.AssignNote(monday.AddDays(5), fri.Id, "Takeout", attendeesOverride: null, source: "manual", createdBy: userId, clock);
 
+        // Days 6 (Sunday) has no meals — leaves at least one open slot for the "N slots open" insight.
+        // The current seed fills 7 of the 21 weekly cells (3 slots × 7 days), so emptyCells > 0 always.
+
         await mealPlanningDb.MealPlans.AddAsync(plan, ct);
         await mealPlanningDb.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Seeds <see cref="PriceObservation"/> rows for the products used by the demo recipes so
+    /// <see cref="PlanCostingService"/> can compute real cost figures. Prices are plausible UK
+    /// supermarket values chosen so the seeded week totals roughly £60–80, which sits above a
+    /// typical £50/week budget — useful once an over-budget insight is added.
+    ///
+    /// All prices are recorded in each product's default unit (matching <c>ProductTemplates</c>)
+    /// so the costing unit conversion is always a trivial same-unit identity.
+    /// </summary>
+    private async Task SeedPriceObservationsAsync(HouseholdId householdId, Guid userId, CancellationToken ct)
+    {
+        // Load only leaf products (variants/parents are excluded from costing).
+        var products = await catalogDb.Products
+            .Where(p => !p.HasVariants)
+            .ToDictionaryAsync(p => p.Name, ct);
+
+        var now = clock.UtcNow;
+        // Single synthetic sourceRef groups all observations as one "demo purchase" event.
+        var sourceRef = Guid.CreateVersion7();
+
+        // (product name, price-per-default-unit £)
+        // Unit is the product's DefaultUnitId — prices are per one unit of the default measurement,
+        // so the costing calculation is always a trivial same-unit identity (no conversion needed).
+        //
+        // Dairy & Eggs default unit is "l"; Condiments default unit is "ml"; everything else is "g".
+        var pricePerUnit = new Dictionary<string, decimal>
+        {
+            // Dairy & Eggs (default unit = l)
+            ["Whole milk"]       = 0.99m,    // £0.99 / l
+            ["Greek yogurt"]     = 2.50m,    // £2.50 / l  (≈ £1.25 per 500 g tub, dense)
+            // Meat & Fish (default unit = g)
+            ["Chicken breast"]   = 0.0075m,  // £4.50 / 600 g = £0.0075/g
+            ["Beef mince"]       = 0.008m,   // £4.00 / 500 g = £0.008/g
+            ["Salmon fillet"]    = 0.0196m,  // £5.50 / 280 g ≈ £0.0196/g
+            // Fruits & Veg (default unit = g)
+            ["Onions"]           = 0.00138m, // £0.69 / 500 g
+            ["Garlic"]           = 0.00865m, // £0.45 / 52 g
+            ["Spinach"]          = 0.0055m,  // £1.10 / 200 g
+            ["Broccoli"]         = 0.00198m, // £0.79 / 400 g
+            ["Potatoes"]         = 0.00149m, // £1.49 / 1000 g
+            ["Bell peppers"]     = 0.0043m,  // £1.29 / 300 g
+            ["Lemons"]           = 0.0059m,  // £0.59 / 100 g
+            // Frozen (default unit = g)
+            ["Frozen berries"]   = 0.005m,   // £2.50 / 500 g
+            // Pantry Staples (default unit = g)
+            ["Rolled oats"]      = 0.0016m,  // £1.60 / 1000 g
+            // Canned & Jarred (default unit = g)
+            ["Chopped tomatoes"] = 0.001375m,// £0.55 / 400 g
+            ["Coconut milk"]     = 0.002475m,// £0.99 / 400 g
+            ["Chickpeas"]        = 0.001725m,// £0.69 / 400 g
+            ["Red kidney beans"] = 0.001625m,// £0.65 / 400 g
+            // Condiments (default unit = ml)
+            ["Olive oil"]        = 0.00798m, // £3.99 / 500 ml
+            // Herbs & Spices (default unit = g)
+            ["Cumin — ground"]   = 0.03947m, // £1.50 / 38 g
+            ["Paprika — smoked"] = 0.04571m, // £1.60 / 35 g
+            ["Cayenne pepper"]   = 0.03947m, // £1.50 / 38 g
+            ["Sea salt"]         = 0.00119m, // £0.89 / 750 g
+            ["Black pepper"]     = 0.04286m, // £1.20 / 28 g
+        };
+
+        var observations = new List<PriceObservation>(pricePerUnit.Count);
+
+        foreach (var (name, unitPrice) in pricePerUnit)
+        {
+            if (!products.TryGetValue(name, out var product)) continue;
+            var unitId = product.DefaultUnitId.Value;
+
+            // quantity = 1 default-unit of this product; price = unit price.
+            // UnitPrice is supplied directly (already the per-base-unit price for g, ml, ea;
+            // for l the UnitPriceCalculator would compute price / (qty × 1000) but we store
+            // the pre-computed figure for clarity and unit-test reproducibility).
+            observations.Add(PriceObservation.Record(
+                householdId,
+                product.Id.Value,
+                skuId: null,
+                price: unitPrice,          // total price for quantity = 1 default-unit
+                quantity: 1m,              // 1 unit of product.DefaultUnitId
+                unitId,
+                unitPrice,                 // pre-computed (trivially price/1 = price)
+                PriceSource.Purchase,
+                merchantText: "Demo supermarket",
+                sourceRef,
+                observedAt: now.AddDays(-3),   // observed 3 days ago — recent but not today
+                userId));
+        }
+
+        await pricingDb.PriceObservations.AddRangeAsync(observations, ct);
+        await pricingDb.SaveChangesAsync(ct);
     }
 
     private async Task DeleteAllAsync(CancellationToken ct)
@@ -422,6 +562,10 @@ public sealed class FakeDataSeeder(
                 await recipesDb.Recipes.ExecuteDeleteAsync(ct);
                 await recipesDb.Tags.ExecuteDeleteAsync(ct);
 
+                // Price observations are append-only (no children) — delete before catalog so
+                // there is no dangling product_id soft-ref concern.
+                await pricingDb.PriceObservations.ExecuteDeleteAsync(ct);
+
                 // Product cascade FK handles product_skus and product_conversions.
                 await catalogDb.Products.ExecuteDeleteAsync(ct);
                 await catalogDb.Locations.ExecuteDeleteAsync(ct);
@@ -449,6 +593,7 @@ public sealed class FakeDataSeeder(
         inventoryDb.SetHouseholdId(id);
         recipesDb.SetHouseholdId(id);
         mealPlanningDb.SetHouseholdId(id);
+        pricingDb.SetHouseholdId(id);
     }
 
     private void DisarmTenant()
@@ -459,6 +604,7 @@ public sealed class FakeDataSeeder(
         inventoryDb.SetHouseholdId(Guid.Empty);
         recipesDb.SetHouseholdId(Guid.Empty);
         mealPlanningDb.SetHouseholdId(Guid.Empty);
+        pricingDb.SetHouseholdId(Guid.Empty);
     }
 
     // ── Static seed data ──────────────────────────────────────────────────────────

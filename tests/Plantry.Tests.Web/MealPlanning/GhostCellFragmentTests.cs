@@ -72,7 +72,8 @@ public sealed class GhostCellFragmentTests(GhostCellFactory factory)
         Assert.Contains("handler=AcceptCell", html);
         Assert.Contains("handler=RejectCell", html);
         Assert.Contains("Accept", html);
-        Assert.Contains("gh-reject", html);
+        // Reject button class (was gh-reject; renamed to "gh-btn icon reject" in plantry-v0r)
+        Assert.Contains("class=\"gh-btn icon reject\"", html);
     }
 
     // ── Pending bar renders with correct count ────────────────────────────────
