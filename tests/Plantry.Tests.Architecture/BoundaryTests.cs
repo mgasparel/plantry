@@ -444,6 +444,34 @@ public sealed class BoundaryTests
     }
 
     [Fact]
+    public void MealPlanning_Application_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.MealPlanning.Application")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "MealPlanning application references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void MealPlanning_Application_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.MealPlanning.Application")
+            .Should().NotHaveDependencyOnAny(MealPlanningSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "MealPlanning application references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
     public void DbContexts_Should_Reside_In_Infrastructure_Namespaces()
     {
         var result = Types.InCurrentDomain()

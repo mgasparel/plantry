@@ -15,8 +15,10 @@ using Plantry.Intake.Infrastructure;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
+using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.MealPlanning.Infrastructure;
+using Plantry.Web.MealPlanning;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -173,6 +175,8 @@ builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
             npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
+builder.Services.AddScoped<IHouseholdMemberReader, HouseholdMemberReaderAdapter>();
+builder.Services.AddScoped<ManageSlotsService>();
 builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();
 
 // Shopping → Catalog ACL adapter (P2-Sc). ShoppingCatalogReaderAdapter implements the Shopping

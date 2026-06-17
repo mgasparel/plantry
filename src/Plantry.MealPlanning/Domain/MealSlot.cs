@@ -50,4 +50,13 @@ public sealed class MealSlot : Entity<MealSlotId>
         string label,
         int ordinal) =>
         new(id, householdId, configId, label, ordinal);
+
+    internal void SetLabel(string label) => Label = label;
+
+    internal void SetOrdinal(int ordinal) => Ordinal = ordinal;
+
+    internal void SetDefaultAttendees(IReadOnlyList<Guid> memberIds) =>
+        DefaultAttendees = [..memberIds];
+
+    internal void Archive(DateTimeOffset now) => ArchivedAt = now;
 }

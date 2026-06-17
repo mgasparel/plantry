@@ -1,0 +1,28 @@
+@page
+@model Plantry.Web.Pages.Settings.MealSlotsModel
+@{
+    ViewData["Title"] = "Meal Slots";
+}
+
+<div class="cfg-wrap" data-screen-label="Meal slots">
+    <div class="cfg-head">
+        <div class="eyebrow">Household setup</div>
+        <h1>Meal slots</h1>
+        <p>The meals your household plans each day. Each slot becomes a row of your weekly
+           meal plan, and records who normally eats it — so the planner only constrains a meal
+           to the people actually at it.</p>
+    </div>
+
+    <div id="slots-region"
+         hx-get="/Settings/MealSlots?handler=Slots"
+         hx-trigger="none"
+         hx-swap="innerHTML">
+        @await Html.PartialAsync("_SlotsList", Model)
+    </div>
+
+    <div class="cfg-foot-note">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>
+        <span>Order runs top to bottom through the day. Drag the handle to reorder, or use the up/down
+              arrows. Renaming and attendee changes save automatically.</span>
+    </div>
+</div>

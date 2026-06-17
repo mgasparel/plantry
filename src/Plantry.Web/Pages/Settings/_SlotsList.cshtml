@@ -1,0 +1,245 @@
+@model Plantry.Web.Pages.Settings.MealSlotsModel
+
+<div class="card card--overflow-visible">
+    <div class="card__head">
+        <h3 class="card__head-title">Daily meals</h3>
+        <span class="ch-sub">&middot; @Model.Slots.Count slot@(Model.Slots.Count == 1 ? "" : "s")</span>
+    </div>
+    <div class="card__body">
+        @if (Model.Slots.Count == 0)
+        {
+            <div class="slots-empty">
+                <div class="se-mark">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div class="se-t">No meal slots yet</div>
+                <div class="se-s">Add a meal below to start planning — e.g. Breakfast, Lunch or Dinner.</div>
+            </div>
+        }
+        else
+        {
+            <div class="slots-list"
+                 x-data="sortableList('/Settings/MealSlots?handler=Reorder')"
+                 x-on:dragover.prevent="onDragOver($event)">
+                @for (int i = 0; i < Model.Slots.Count; i++)
+                {
+                    var slot = Model.Slots[i];
+                    var isFirst = i == 0;
+                    var isLast = i == Model.Slots.Count - 1;
+                    var memberSummary = AttendeeLabel(slot.DefaultAttendees, Model.Members);
+                    <div class="slot-card"
+                         draggable="true"
+                         data-id="@slot.Id.Value"
+                         data-sort-order="@(slot.Ordinal * 10)"
+                         x-on:dragstart="onDragStart($el)"
+                         x-on:dragend="onDragEnd()"
+                         x-bind:class="{ 'dragging': dragging === $el.dataset.id }">
+
+                        @* Drag grip *@
+                        <div class="slot-grip" title="Drag to reorder">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+                        </div>
+
+                        @* Identity: ordinal + label + attendees *@
+                        <div class="slot-id">
+                            <div class="slot-id-top">
+                                <span class="slot-ord">@slot.Ordinal</span>
+                                <input class="slot-name-input"
+                                       name="label"
+                                       value="@slot.Label"
+                                       placeholder="Untitled meal"
+                                       aria-label="Meal slot name"
+                                       hx-trigger="change"
+                                       hx-post="/Settings/MealSlots?handler=Rename&id=@slot.Id.Value"
+                                       hx-include="this"
+                                       hx-target="#slots-region"
+                                       hx-swap="innerHTML" />
+                            </div>
+
+                            @* Attendee trigger + popover *@
+                            @{
+                                var slotAttIds = System.Text.Json.JsonSerializer.Serialize(slot.DefaultAttendees);
+                            }
+                            <div class="slot-att"
+                                 x-data="{
+                                   open: false,
+                                   sel: @slotAttIds,
+                                   orig: @slotAttIds,
+                                   isOn(id) { return this.sel.some(s => s === id); },
+                                   toggle(id) {
+                                     const i = this.sel.findIndex(s => s === id);
+                                     if (i >= 0) this.sel.splice(i, 1); else this.sel.push(id);
+                                   },
+                                   close() {
+                                     if (!this.open) return;
+                                     this.open = false;
+                                     const changed = JSON.stringify([...this.sel].sort()) !== JSON.stringify([...this.orig].sort());
+                                     if (changed) this.$nextTick(() => this.$refs.frm.dispatchEvent(new SubmitEvent('submit', {bubbles:true,cancelable:true})));
+                                   }
+                                 }"
+                                 x-on:click.outside="close()">
+                                <div class="att-pop-wrap">
+                                    <button type="button"
+                                            class="att-trigger @(slot.DefaultAttendees.Count == 0 ? "empty" : "")"
+                                            x-on:click="open ? close() : (open = true)"
+                                            aria-haspopup="dialog"
+                                            x-bind:aria-expanded="open">
+                                        @if (slot.DefaultAttendees.Count > 0)
+                                        {
+                                            <span class="att-stack">
+                                                @foreach (var mid in slot.DefaultAttendees.Take(3))
+                                                {
+                                                    var stackMember = Model.Members.FirstOrDefault(m => m.UserId == mid);
+                                                    if (stackMember is not null)
+                                                    {
+                                                        <span class="pl-av" data-av-color="@(Model.Members.IndexOf(stackMember) % 8)" style="width:22px;height:22px;font-size:10px">@(stackMember.DisplayName.Length > 0 ? stackMember.DisplayName[0] : '?')</span>
+                                                    }
+                                                }
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                        }
+                                        <span class="att-label">@memberSummary</span>
+                                    </button>
+
+                                    @* Hidden form — submitted by close() via htmx.trigger when selection changed *@
+                                    <form x-ref="frm" style="display:none"
+                                          hx-post="/Settings/MealSlots?handler=Attendees&id=@slot.Id.Value"
+                                          hx-target="#slots-region"
+                                          hx-swap="innerHTML">
+                                        <template x-for="id in sel" :key="id">
+                                            <input type="hidden" name="memberIds" x-bind:value="id" />
+                                        </template>
+                                    </form>
+
+                                    @* Attendee popover *@
+                                    <div class="att-pop" role="dialog" aria-label="Attendees for @slot.Label"
+                                         x-show="open" x-cloak
+                                         x-transition:enter="fade-in"
+                                         x-on:click.stop="">
+                                        <div class="att-pop-head">Who eats this meal?</div>
+                                        @foreach (var member in Model.Members)
+                                        {
+                                            <button type="button"
+                                                    class="att-opt"
+                                                    x-bind:data-on="isOn('@member.UserId') ? '1' : '0'"
+                                                    x-on:click="toggle('@member.UserId')">
+                                                <span class="pl-av" data-av-color="@(Model.Members.IndexOf(member) % 8)" style="width:26px;height:26px;font-size:11px">@(member.DisplayName.Length > 0 ? member.DisplayName[0] : '?')</span>
+                                                <span class="ao-name">@member.DisplayName</span>
+                                                <span class="att-check">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                                </span>
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* Actions: up/down + archive *@
+                        <div class="slot-acts">
+                            <div class="slot-reorder">
+                                <form method="post"
+                                      action="/Settings/MealSlots?handler=Reorder"
+                                      hx-post="/Settings/MealSlots?handler=Reorder"
+                                      hx-target="#slots-region"
+                                      hx-swap="innerHTML"
+                                      style="display:contents">
+                                    @foreach (var orderedSlot in GetMoveUpOrder(i, Model.Slots))
+                                    {
+                                        <input type="hidden" name="ids" value="@orderedSlot.Id.Value" />
+                                    }
+                                    <button type="submit" class="slot-mini" title="Move up"
+                                            @(isFirst ? "disabled" : "")>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+                                    </button>
+                                </form>
+                                <form method="post"
+                                      action="/Settings/MealSlots?handler=Reorder"
+                                      hx-post="/Settings/MealSlots?handler=Reorder"
+                                      hx-target="#slots-region"
+                                      hx-swap="innerHTML"
+                                      style="display:contents">
+                                    @foreach (var orderedSlot in GetMoveDownOrder(i, Model.Slots))
+                                    {
+                                        <input type="hidden" name="ids" value="@orderedSlot.Id.Value" />
+                                    }
+                                    <button type="submit" class="slot-mini" title="Move down"
+                                            @(isLast ? "disabled" : "")>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                                    </button>
+                                </form>
+                            </div>
+                            <button type="button" class="slot-del" title="Remove slot"
+                                    hx-post="/Settings/MealSlots?handler=Archive&id=@slot.Id.Value"
+                                    hx-target="#slots-region"
+                                    hx-swap="innerHTML">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @* Add new slot *@
+        <div class="slot-add"
+             x-data="{ draft: '' }">
+            <span class="sa-mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+            <input name="label"
+                   x-model="draft"
+                   placeholder="Add a meal slot — e.g. Mid-day snack"
+                   aria-label="New meal slot label"
+                   x-on:keydown.enter.prevent="if (draft.trim()) $el.closest('.slot-add').querySelector('.slot-add-btn').click()" />
+            <button type="button"
+                    class="btn btn--soft slot-add-btn"
+                    x-bind:disabled="!draft.trim()"
+                    hx-post="/Settings/MealSlots?handler=Add"
+                    hx-target="#slots-region"
+                    hx-swap="innerHTML"
+                    hx-include="closest .slot-add"
+                    hx-on::after-request="draft = ''; $el.closest('.slot-add').querySelector('input').value = ''">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                Add
+            </button>
+        </div>
+    </div>
+</div>
+
+@functions {
+    string AttendeeLabel(List<Guid> ids, List<Plantry.MealPlanning.Application.HouseholdMember> roster)
+    {
+        var n = ids.Count;
+        if (n == 0) return "No one yet";
+        if (n == roster.Count && roster.Count > 0) return "Everyone";
+        var names = ids
+            .Select(id => roster.FirstOrDefault(m => m.UserId == id)?.DisplayName)
+            .Where(name => name is not null)
+            .ToList();
+        if (n == 1) return "Just " + names[0];
+        if (n == 2) return string.Join(" & ", names);
+        return n + " people";
+    }
+
+    IEnumerable<Plantry.Web.Pages.Settings.MealSlotsModel.SlotViewModel> GetMoveUpOrder(
+        int index,
+        List<Plantry.Web.Pages.Settings.MealSlotsModel.SlotViewModel> slots)
+    {
+        var result = slots.ToList();
+        if (index > 0) (result[index], result[index - 1]) = (result[index - 1], result[index]);
+        return result;
+    }
+
+    IEnumerable<Plantry.Web.Pages.Settings.MealSlotsModel.SlotViewModel> GetMoveDownOrder(
+        int index,
+        List<Plantry.Web.Pages.Settings.MealSlotsModel.SlotViewModel> slots)
+    {
+        var result = slots.ToList();
+        if (index < slots.Count - 1) (result[index], result[index + 1]) = (result[index + 1], result[index]);
+        return result;
+    }
+}

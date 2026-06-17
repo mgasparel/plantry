@@ -44,7 +44,7 @@ public sealed class RecipesReferenceDataTests(PostgresFixture db) : IAsyncLifeti
         Assert.All(tags, t => Assert.Equal(_household, t.HouseholdId));
 
         var byCategory = tags
-            .GroupBy(t => t.Category)
+            .GroupBy(t => t.Category!.Value)
             .ToDictionary(g => g.Key, g => g.Select(t => t.Name).OrderBy(n => n).ToList());
 
         Assert.Equal(

@@ -2006,3 +2006,75 @@
     </div>
     <pre class="code-sample"><code>@("<!-- Rendered above category groups in _ShoppingList.cshtml when Model.Suggestions.Count > 0 -->\n<div class=\"sl-suggest\" aria-label=\"Running low in your pantry\">\n  <div class=\"sl-suggest-label\">Running low in your pantry</div>\n  <div class=\"sl-sug-chips\">\n    @foreach (var sug in Model.Suggestions)\n    {\n      <div class=\"sl-sug\">\n        <partial name=\"Shared/_CatChip\" model=\"new CatChipViewModel(sug.CategoryName, sug.CategoryHue)\" />\n        <span class=\"sl-sug-name\">@sug.Name</span>\n        <span class=\"sl-sug-stock @(sug.OnHand <= 0 ? \\\"out\\\" : \\\"\\\")\">@sug.StockLabel</span>\n        <form method=\"post\" hx-post=\"/Shopping?handler=AddItem\"\n              hx-target=\"#shopping-list\" hx-swap=\"outerHTML\">\n          @AntiForgeryToken\n          <input type=\"hidden\" name=\"Input.ProductId\" value=\"@sug.ProductId\" />\n          <button type=\"submit\" class=\"sadd\" aria-label=\"Add @sug.Name to list\">\n            <svg class=\"icon\"><use href=\"#i-plus\"/></svg>\n          </button>\n        </form>\n      </div>\n    }\n  </div>\n</div>")</code></pre>
 </section>
+
+@* ── P3-1: Avatar stack (attendee display) ──────────────────────────────────── *@
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Avatar stack — <code>.pl-av</code> + <code>.att-stack</code></h2>
+    </div>
+    <p>
+        Used in the attendee trigger button to show up to 3 member initials stacked with a −7px overlap.
+        Each <code>.pl-av</code> is a <code>display:inline-grid</code> tile. Stack wraps them in <code>.att-stack</code>
+        which uses negative margin to create the overlapping effect.
+    </p>
+    <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;padding:16px 0">
+        @* Single avatar *@
+        <span class="pl-av" style="width:32px;height:32px;font-size:13px;background:var(--color-surface-2);color:var(--color-text-muted)">A</span>
+
+        @* Stack of 3 *@
+        <span class="att-stack">
+            <span class="pl-av" style="width:26px;height:26px;font-size:11px;background:var(--color-surface-2);color:var(--color-text-muted)">A</span>
+            <span class="pl-av" style="width:26px;height:26px;font-size:11px;background:var(--color-accent-subtle);color:var(--color-accent)">B</span>
+            <span class="pl-av" style="width:26px;height:26px;font-size:11px;background:var(--color-surface-2);color:var(--color-text-muted)">C</span>
+        </span>
+
+        @* Inside att-trigger button *@
+        <button type="button" class="att-trigger">
+            <span class="att-stack">
+                <span class="pl-av" style="width:22px;height:22px;font-size:10px;background:var(--color-surface-2);color:var(--color-text-muted)">A</span>
+                <span class="pl-av" style="width:22px;height:22px;font-size:10px;background:var(--color-accent-subtle);color:var(--color-accent)">B</span>
+            </span>
+            <span class="att-label">Alice &amp; Bob</span>
+        </button>
+
+        @* Empty trigger *@
+        <button type="button" class="att-trigger empty">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span class="att-label">No one yet</span>
+        </button>
+    </div>
+    <pre class="code-sample"><code>@("<!-- Single avatar -->\n<span class=\"pl-av\" style=\"width:32px;height:32px;font-size:13px;background:var(--color-surface-2);color:var(--color-text-muted)\">A</span>\n\n<!-- Stack of 3 in a trigger button -->\n<button type=\"button\" class=\"att-trigger\">\n  <span class=\"att-stack\">\n    <span class=\"pl-av\" style=\"width:22px;height:22px;font-size:10px;...\">A</span>\n    <span class=\"pl-av\" style=\"width:22px;height:22px;font-size:10px;...\">B</span>\n  </span>\n  <span class=\"att-label\">Alice &amp; Bob</span>\n</button>")</code></pre>
+</section>
+
+@* ── P3-1: Attendee popover ───────────────────────────────────────────────────── *@
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Attendee popover — <code>.att-pop</code></h2>
+    </div>
+    <p>
+        Alpine-controlled popover anchored to the <code>.att-trigger</code> button. Each row is an <code>.att-opt</code>
+        button that submits the updated attendee list via htmx. The <code>.att-check</code> box shows a tick when
+        <code>data-on="1"</code>.
+    </p>
+    <div style="position:relative;padding:16px 0;">
+        <div class="att-pop" style="position:static;animation:none;">
+            <div class="att-pop-head">Who eats this meal?</div>
+            <button type="button" class="att-opt" data-on="1">
+                <span class="pl-av" style="width:26px;height:26px;font-size:11px;background:var(--color-surface-2);color:var(--color-text-muted)">A</span>
+                <span class="ao-name">Alice</span>
+                <span class="att-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
+            </button>
+            <button type="button" class="att-opt" data-on="0">
+                <span class="pl-av" style="width:26px;height:26px;font-size:11px;background:var(--color-surface-2);color:var(--color-text-muted)">B</span>
+                <span class="ao-name">Bob</span>
+                <span class="att-check"></span>
+            </button>
+            <button type="button" class="att-opt" data-on="0">
+                <span class="pl-av" style="width:26px;height:26px;font-size:11px;background:var(--color-surface-2);color:var(--color-text-muted)">C</span>
+                <span class="ao-name">Charlie</span>
+                <span class="att-check"></span>
+            </button>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"att-pop-wrap\" x-data=\"{ open: false }\" x-on:click.outside=\"open = false\">\n  <button type=\"button\" class=\"att-trigger\" x-on:click=\"open = !open\">\n    <!-- att-stack or empty icon -->\n    <span class=\"att-label\">Alice</span>\n  </button>\n  <div class=\"att-pop\" x-show=\"open\" x-cloak>\n    <div class=\"att-pop-head\">Who eats this meal?</div>\n    <button type=\"submit\" class=\"att-opt\" data-on=\"1\">\n      <span class=\"pl-av\" style=\"...\">A</span>\n      <span class=\"ao-name\">Alice</span>\n      <span class=\"att-check\"><svg><!-- checkmark --></svg></span>\n    </button>\n  </div>\n</div>")</code></pre>
+</section>
