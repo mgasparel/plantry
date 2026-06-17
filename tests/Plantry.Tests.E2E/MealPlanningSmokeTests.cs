@@ -67,15 +67,16 @@ public sealed class MealPlanningSmokeTests(AppHostFixture appHost) : IAsyncLifet
             await page.WaitForURLAsync("**/MealPlan**");
 
             // ── Week grid renders with seeded slot labels ─────────────────────────
-            // The plan-grid is present and contains the Breakfast/Lunch/Dinner slot
-            // labels seeded by MealPlanningReferenceDataSeeder at registration.
+            // The wkgrid (P3-3+) is present and contains the Breakfast/Lunch/Dinner
+            // slot labels seeded by MealPlanningReferenceDataSeeder at registration.
             // If RlsMiddleware does NOT call mealPlanningDb.SetHouseholdId, the EF
             // query filter returns zero slots and the planner-empty state renders
             // instead — these assertions would fail, catching the gotcha.
-            await Assertions.Expect(page.Locator(".plan-grid")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
             await Assertions.Expect(page.Locator(".plan-grid__slot-label")).ToHaveCountAsync(3);
 
-            var slotLabels = await page.Locator(".plan-grid__slot-label").AllTextContentsAsync();
+            // Use .sb-name to get just the label text (the slot band has other child spans)
+            var slotLabels = await page.Locator(".plan-grid__slot-label .sb-name").AllTextContentsAsync();
             Assert.Contains("Breakfast", slotLabels);
             Assert.Contains("Lunch", slotLabels);
             Assert.Contains("Dinner", slotLabels);

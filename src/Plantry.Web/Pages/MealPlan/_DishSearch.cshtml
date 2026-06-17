@@ -1,0 +1,53 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.DishSearchVm
+@{
+    var q = Model.Query ?? "";
+}
+
+@if (Model.Recipes.Count > 0)
+{
+    <div class="dm-group">Recipes</div>
+    @foreach (var r in Model.Recipes)
+    {
+        var rId = r.RecipeId.ToString("D");
+        var rName = r.Name.Replace("'", "\\'").Replace("`", "\\`");
+        var rInitial = r.Name.Length > 0 ? r.Name[0].ToString() : "?";
+        <div class="dish-opt"
+             data-kind="recipe"
+             data-item-id="@r.RecipeId"
+             data-name="@r.Name"
+             data-servings="@r.DefaultServings"
+             onmousedown="addDishFromResult(this)">
+            <div class="do-thumb" style="width:32px;height:32px;border-radius:7px;flex:none;background:var(--surface-3);display:grid;place-items:center;font-weight:700;font-size:13px;">@rInitial</div>
+            <div class="do-main">
+                <div class="do-name">@r.Name</div>
+                <div class="do-sub"><span>@r.DefaultServings srv · —% in pantry</span></div>
+            </div>
+        </div>
+    }
+}
+
+@if (Model.Products.Count > 0)
+{
+    <div class="dm-group">Pantry items</div>
+    @foreach (var p in Model.Products)
+    {
+        var pInitial = p.Name.Length > 0 ? p.Name[0].ToString() : "?";
+        <div class="dish-opt"
+             data-kind="product"
+             data-item-id="@p.ProductId"
+             data-name="@p.Name"
+             data-servings="1"
+             onmousedown="addDishFromResult(this)">
+            <div class="do-thumb" style="width:32px;height:32px;border-radius:7px;flex:none;background:var(--surface-3);display:grid;place-items:center;font-weight:700;font-size:13px;">@pInitial</div>
+            <div class="do-main">
+                <div class="do-name">@p.Name</div>
+                <div class="do-sub">Pantry item</div>
+            </div>
+        </div>
+    }
+}
+
+@if (Model.Recipes.Count == 0 && Model.Products.Count == 0 && !string.IsNullOrWhiteSpace(q))
+{
+    <div style="padding:12px 8px;color:var(--ink-faint);font-size:13px;">No results for "@q"</div>
+}

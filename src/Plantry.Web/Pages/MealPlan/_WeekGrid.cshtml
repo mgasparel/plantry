@@ -1,0 +1,101 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel
+
+<div class="grid-scroll">
+    @if (!Model.HasSlots)
+    {
+        <div class="planner-empty">
+            <p class="planner-empty__message">No meal slots are configured yet.</p>
+            <a href="/Settings/MealSlots" class="btn btn--primary">Configure meal slots</a>
+        </div>
+    }
+    else
+    {
+        <div class="wkgrid">
+            @* Day-column headers *@
+            @foreach (var day in Model.WeekDays)
+            {
+                <div class="day-col day-head @(day.IsToday ? "is-today" : "")">
+                    <span class="dh-dow">@day.DayName</span>
+                    <span class="dh-date">@day.DateLabel</span>
+                    <span class="spacer"></span>
+                    @* Auto-fill per-day button — disabled until P3-6 *@
+                    <button class="dh-auto" title="Auto-fill @day.DayName (arrives in P3-6)" disabled aria-label="Auto-fill @day.DayName" tabindex="-1">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                    </button>
+                </div>
+            }
+
+            @* Slot bands + cells *@
+            @foreach (var slot in Model.Slots)
+            {
+                @* Slot band (full-width) *@
+                <div class="slot-band plan-grid__slot-label">
+                    <span class="sb-name">@slot.Label</span>
+                    <span class="sb-att">
+                        @foreach (var m in slot.DefaultAttendees.Take(3))
+                        {
+                            var member = Model.Members.FirstOrDefault(x => x.UserId == m);
+                            if (member is not null)
+                            {
+                                <span class="pl-av" style="width:20px;height:20px;border-radius:50%;background:var(--surface-3);display:inline-grid;place-items:center;font-size:8px;font-weight:700;" title="@member.DisplayName">@member.Initials</span>
+                            }
+                        }
+                    </span>
+                    <span class="sb-rule"></span>
+                    @* Manage settings shortcuts (rendered once per slot band — both slot config and preferences) *@
+                    <a href="/Settings/MealSlots" class="sb-manage" title="Manage meal slots" aria-label="Manage meal slots" tabindex="-1">
+                        <svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg>
+                    </a>
+                    <a href="/Settings/Preferences" class="sb-manage sb-manage--prefs" title="Dietary preferences" aria-label="Dietary preferences" tabindex="-1">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                    </a>
+                </div>
+
+                @* Day cells for this slot *@
+                @foreach (var day in Model.WeekDays)
+                {
+                    var key = Plantry.Web.Pages.MealPlan.IndexModel.CellKey(DateOnly.Parse(day.DateIso), slot.Id);
+                    var meals = Model.MealsByCell.GetValueOrDefault(key) ?? [];
+                    var cellId = $"cell-{slot.Id.Value:N}-{day.DateIso}";
+
+                    <div id="@cellId"
+                         class="mcell @(meals.Count > 0 ? "filled" : "empty")"
+                         ondragover="onDragOver(event)"
+                         ondragleave="onDragLeave(event)"
+                         ondrop="onDrop(event, '@day.DateIso', '@slot.Id.Value')">
+
+                        @if (meals.Count > 0)
+                        {
+                            @* CellStack: one card per meal (schema: UNIQUE(meal_plan_id, date, meal_slot_id) — one meal per cell).
+                               "Add meal" is intentionally absent: AssignMeal would silently replace the existing meal,
+                               which is data loss from a mislabelled affordance. The edit pencil on the meal card covers editing. *@
+                            @foreach (var meal in meals)
+                            {
+                                @await Html.PartialAsync("_MealCard", new Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm(
+                                    meal, day.DateIso, slot.Id, Model.Members))
+                            }
+                        }
+                        else
+                        {
+                            @* Empty cell *@
+                            <div class="empty-acts">
+                                <button class="empty-add"
+                                        hx-get="/MealPlan?handler=Editor&date=@day.DateIso&slotId=@slot.Id.Value"
+                                        hx-target="#meal-editor-dialog"
+                                        hx-swap="innerHTML"
+                                        aria-label="Add meal for @slot.Label on @day.DayName">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                </button>
+                                @* Auto-fill — disabled until P3-6 *@
+                                <button class="empty-auto" disabled title="Auto-fill arrives in P3-6" tabindex="-1">
+                                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                                    Auto-fill
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    }
+</div>

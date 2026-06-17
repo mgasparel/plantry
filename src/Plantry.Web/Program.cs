@@ -187,6 +187,19 @@ builder.Services.AddScoped<ITagReader, TagReaderAdapter>();
 builder.Services.AddScoped<IHouseholdMemberReader, HouseholdMemberReaderAdapter>();
 builder.Services.AddScoped<SetPreferences>();
 
+// Meal Planning — P3-3 week grid services (plantry-7oy).
+// IMealPlanRepository manages the MealPlan aggregate lifetime (find-or-create by week).
+// IRecipeReadModel / IMealPlanCatalogProductReader are ACL ports over the Recipes and Catalog
+// bounded contexts — MealPlanning.Application never takes a direct EF dependency on either context.
+// MealConstraintResolver is a stateless domain service; AssignMealService / MoveMealService
+// are the application-layer orchestrators for the two write paths.
+builder.Services.AddScoped<IMealPlanRepository, MealPlanRepository>();
+builder.Services.AddScoped<IRecipeReadModel, RecipeReadModelAdapter>();
+builder.Services.AddScoped<IMealPlanCatalogProductReader, MealPlanCatalogProductReaderAdapter>();
+builder.Services.AddScoped<MealConstraintResolver>();
+builder.Services.AddScoped<AssignMealService>();
+builder.Services.AddScoped<MoveMealService>();
+
 // Shopping → Catalog ACL adapter (P2-Sc). ShoppingCatalogReaderAdapter implements the Shopping
 // anti-corruption port over Catalog repositories so Shopping.Application never takes a direct
 // dependency on the Catalog EF context (Gate 2). ShoppingListQueryService assembles the read model.

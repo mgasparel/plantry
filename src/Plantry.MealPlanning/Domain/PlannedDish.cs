@@ -27,4 +27,50 @@ public sealed class PlannedDish : Entity<PlannedDishId>
 
     /// <summary>Position within the meal; UNIQUE (planned_meal_id, ordinal).</summary>
     public int Ordinal { get; private set; }
+
+    internal static PlannedDish CreateForRecipe(
+        HouseholdId householdId,
+        PlannedMealId mealId,
+        Guid recipeId,
+        int servings,
+        int ordinal)
+    {
+        if (servings < 1) throw new ArgumentOutOfRangeException(nameof(servings), "Servings must be >= 1 (M3).");
+        return new PlannedDish
+        {
+            Id = PlannedDishId.New(),
+            HouseholdId = householdId,
+            PlannedMealId = mealId,
+            RecipeId = recipeId,
+            ProductId = null,
+            Servings = servings,
+            Ordinal = ordinal,
+        };
+    }
+
+    internal static PlannedDish CreateForProduct(
+        HouseholdId householdId,
+        PlannedMealId mealId,
+        Guid productId,
+        int servings,
+        int ordinal)
+    {
+        if (servings < 1) throw new ArgumentOutOfRangeException(nameof(servings), "Servings must be >= 1 (M3).");
+        return new PlannedDish
+        {
+            Id = PlannedDishId.New(),
+            HouseholdId = householdId,
+            PlannedMealId = mealId,
+            RecipeId = null,
+            ProductId = productId,
+            Servings = servings,
+            Ordinal = ordinal,
+        };
+    }
+
+    internal void SetServings(int servings)
+    {
+        if (servings < 1) throw new ArgumentOutOfRangeException(nameof(servings), "Servings must be >= 1 (M3).");
+        Servings = servings;
+    }
 }
