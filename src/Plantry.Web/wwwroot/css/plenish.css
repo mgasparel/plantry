@@ -679,6 +679,7 @@ button { font-family: inherit; cursor: pointer; }
 .btn--full { width: 100%; }
 
 .btn--sm { padding: var(--space-1) var(--space-3); font-size: var(--font-size-xs); }
+.btn--xs { padding: 3px 8px; font-size: 11px; line-height: 1.4; border-radius: var(--radius-sm); }
 
 /* ── Alerts / banners ──────────────────────────────────────────────────────── */
 .alert {
@@ -4477,3 +4478,143 @@ button.sadd svg { width: 13px; height: 13px; }
 @media (max-width: 1180px) {
   .editor { width: calc(100vw - 56px); }
 }
+
+/* ── P3-6a: AI generate plan — ghost cells + pending bar ───────────────────── */
+
+/* Ghost cell: AI-suggested meal awaiting user acceptance */
+.mcell.ghost {
+  border: 2px dashed var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 6%, var(--surface-1));
+  position: relative;
+}
+
+.gh-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-radius: var(--radius-pill);
+  margin-bottom: 6px;
+}
+
+.gh-tag .sparkle-icon {
+  width: 10px;
+  height: 10px;
+}
+
+.gh-dishes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.gh-dish {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gh-dish .md-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gh-dish .md-plus {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-weight: 700;
+  flex: none;
+  margin-top: 1px;
+}
+
+.gh-reason {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 6px;
+}
+
+.gh-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+}
+
+.gh-reject {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--ink-faint);
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+}
+
+.gh-reject:hover { background: var(--surface-2); color: var(--color-danger); }
+.gh-reject .icon { width: 14px; height: 14px; }
+
+/* Auto-fill spinner in the command bar */
+.autofill-spinner {
+  display: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-accent-subtle);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.autofill-spinner.htmx-request { display: inline-block; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Sparkle icon in auto-fill button */
+.btn .sparkle-icon { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* Pending bar — sticky bar at bottom of grid when proposals are staged */
+.pending-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--surface-1);
+  border-top: 1px solid var(--border-subtle);
+  box-shadow: 0 -2px 12px color-mix(in srgb, black 8%, transparent);
+  z-index: 10;
+}
+
+.pending-bar__ico .sparkle-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-accent);
+}
+
+.pending-bar__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.pending-bar__spacer { flex: 1; }

@@ -1,0 +1,39 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.GhostCellVm
+@{
+    var dateIso = Model.Date.ToString("yyyy-MM-dd");
+    var slotId = Model.SlotId.Value;
+    var reason = Model.Proposal.Reasoning;
+}
+<div class="gh-tag">
+    <svg class="icon sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/></svg>
+    Suggested
+</div>
+<div class="gh-dishes">
+    @for (int i = 0; i < Model.DishNames.Count; i++)
+    {
+        <div class="gh-dish">
+            @if (i > 0) { <span class="md-plus">+</span> }
+            <span class="md-name">@Model.DishNames[i]</span>
+        </div>
+    }
+</div>
+@if (!string.IsNullOrWhiteSpace(reason))
+{
+    <div class="gh-reason" title="@reason">@reason</div>
+}
+<div class="gh-acts">
+    <button type="button" class="btn btn--primary btn--xs"
+            hx-post="/MealPlan?handler=AcceptCell&amp;date=@dateIso&amp;slotId=@slotId&amp;week=@Model.Date.ToString("yyyy-MM-dd")"
+            hx-target="#plan-main-content"
+            hx-swap="innerHTML"
+            aria-label="Accept suggestion for @Model.SlotLabel on @Model.Date">
+        Accept
+    </button>
+    <button type="button" class="btn--icon gh-reject"
+            hx-post="/MealPlan?handler=RejectCell&amp;date=@dateIso&amp;slotId=@slotId&amp;week=@Model.Date.ToString("yyyy-MM-dd")"
+            hx-target="#plan-main-content"
+            hx-swap="innerHTML"
+            aria-label="Reject suggestion">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+    </button>
+</div>

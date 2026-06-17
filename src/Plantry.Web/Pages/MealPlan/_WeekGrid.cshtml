@@ -18,8 +18,8 @@
                     <span class="dh-dow">@day.DayName</span>
                     <span class="dh-date">@day.DateLabel</span>
                     <span class="spacer"></span>
-                    @* Auto-fill per-day button — disabled until P3-6 *@
-                    <button class="dh-auto" title="Auto-fill @day.DayName (arrives in P3-6)" disabled aria-label="Auto-fill @day.DayName" tabindex="-1">
+                    @* Per-day auto-fill button — disabled until per-day generation is wired *@
+                    <button class="dh-auto" title="Auto-fill @day.DayName (use Auto-fill week)" disabled aria-label="Auto-fill @day.DayName" tabindex="-1">
                         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                     </button>
                 </div>
@@ -54,26 +54,38 @@
                 @* Day cells for this slot *@
                 @foreach (var day in Model.WeekDays)
                 {
-                    var key = Plantry.Web.Pages.MealPlan.IndexModel.CellKey(DateOnly.Parse(day.DateIso), slot.Id);
+                    var cellDate = DateOnly.Parse(day.DateIso);
+                    var key = Plantry.Web.Pages.MealPlan.IndexModel.CellKey(cellDate, slot.Id);
                     var meals = Model.MealsByCell.GetValueOrDefault(key) ?? [];
+                    var pending = Model.PendingProposals.GetValueOrDefault(key);
                     var cellId = $"cell-{slot.Id.Value:N}-{day.DateIso}";
 
                     <div id="@cellId"
-                         class="mcell @(meals.Count > 0 ? "filled" : "empty")"
+                         class="mcell @(meals.Count > 0 ? "filled" : pending is not null ? "ghost" : "empty")"
                          ondragover="onDragOver(event)"
                          ondragleave="onDragLeave(event)"
                          ondrop="onDrop(event, '@day.DateIso', '@slot.Id.Value')">
 
                         @if (meals.Count > 0)
                         {
-                            @* CellStack: one card per meal (schema: UNIQUE(meal_plan_id, date, meal_slot_id) — one meal per cell).
-                               "Add meal" is intentionally absent: AssignMeal would silently replace the existing meal,
-                               which is data loss from a mislabelled affordance. The edit pencil on the meal card covers editing. *@
+                            @* CellStack: one card per meal *@
                             @foreach (var meal in meals)
                             {
                                 @await Html.PartialAsync("_MealCard", new Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm(
                                     meal, day.DateIso, slot.Id, Model.Members))
                             }
+                        }
+                        else if (pending is not null)
+                        {
+                            @* Ghost cell: AI-suggested, awaiting user acceptance *@
+                            var ghostDishNames = new List<string>();
+                            foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
+                            {
+                                var r = await Plantry.Web.Pages.MealPlan.IndexModel.ResolveRecipeName(d.RecipeId, Model);
+                                ghostDishNames.Add(r);
+                            }
+                            @await Html.PartialAsync("_GhostCell", new Plantry.Web.Pages.MealPlan.IndexModel.GhostCellVm(
+                                cellDate, slot.Id, slot.Label, pending, ghostDishNames))
                         }
                         else
                         {
@@ -86,8 +98,7 @@
                                         aria-label="Add meal for @slot.Label on @day.DayName">
                                     <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
                                 </button>
-                                @* Auto-fill — disabled until P3-6 *@
-                                <button class="empty-auto" disabled title="Auto-fill arrives in P3-6" tabindex="-1">
+                                <button class="empty-auto" disabled title="Use Auto-fill week to fill this cell" tabindex="-1">
                                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                                     Auto-fill
                                 </button>
@@ -97,5 +108,11 @@
                 }
             }
         </div>
+
+        @* Pending bar — visible when there are staged AI suggestions *@
+        @if (Model.PendingCount > 0)
+        {
+            @await Html.PartialAsync("_PendingBar", Model)
+        }
     }
 </div>

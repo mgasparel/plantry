@@ -30,4 +30,12 @@ public sealed class AiOptions
     /// Takes precedence over <see cref="UseFakeParser"/> and the real Gemini parser when set.
     /// </summary>
     public bool UseSampleParser { get; set; } = false;
+
+    /// <summary>
+    /// Test-only seam: when true, the Web host registers a deterministic, no-network fake
+    /// <c>IMealPlanner</c> instead of the real AI planner, so the meal-planning generate flow runs
+    /// without any AI call or API key. Defaults to false — production always uses the real planner.
+    /// Set only by the E2E AppHost; never enable it outside a test run.
+    /// </summary>
+    public bool UseFakePlanner { get; set; } = false;
 }

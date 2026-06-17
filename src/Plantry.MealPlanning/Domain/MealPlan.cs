@@ -187,6 +187,49 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
         UpdatedAt = now;
     }
 
+    // ── AI proposal acceptance ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Atomically accepts all validated proposals from <paramref name="proposals"/>.
+    /// Skips any proposal whose cell is already occupied (occupied cells are never overwritten by AI).
+    /// Calls <see cref="AssignMeal"/> with source="ai" for each accepted cell.
+    /// </summary>
+    /// <returns>The number of cells actually written.</returns>
+    public int ApplyProposal(
+        IReadOnlyList<ProposedMeal> proposals,
+        Guid acceptedBy,
+        IClock clock)
+    {
+        var accepted = 0;
+        foreach (var proposal in proposals)
+        {
+            // Never overwrite an occupied cell with AI suggestions
+            if (FindMeal(proposal.Date, proposal.MealSlotId) is not null)
+                continue;
+
+            if (proposal.Dishes.Count == 0)
+                continue;
+
+            var dishes = proposal.Dishes
+                .OrderBy(d => d.Ordinal)
+                .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
+                .ToList();
+
+            AssignMeal(
+                proposal.Date,
+                proposal.MealSlotId,
+                dishes,
+                attendeesOverride: null,
+                source: "ai",
+                createdBy: acceptedBy,
+                clock: clock,
+                hardStanceWarning: null);
+
+            accepted++;
+        }
+        return accepted;
+    }
+
     // ── public lookup (used by MoveMealService for swap pre-check) ───────────────
 
     /// <summary>

@@ -9,6 +9,7 @@ using DomainMealPlan = Plantry.MealPlanning.Domain.MealPlan;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Microsoft.AspNetCore.Http;
 
 namespace Plantry.Web.Pages.MealPlan;
 
@@ -19,6 +20,9 @@ public sealed class IndexModel(
     AssignMealService assignService,
     MoveMealService moveService,
     ShopForWeekService shopForWeekService,
+    GeneratePlanService generatePlanService,
+    AcceptProposalService acceptProposalService,
+    IPendingProposalStore pendingProposalStore,
     PlanFulfillmentService fulfillmentService,
     PlanCostingService costingService,
     IRecipeReadModel recipeReader,
@@ -35,6 +39,9 @@ public sealed class IndexModel(
     public string WeekLabel { get; private set; } = "";
     public bool HasSlots { get; private set; }
 
+    /// <summary>True when there are empty cells in the current week (enables the Auto-fill button).</summary>
+    public bool HasEmptyCells { get; private set; }
+
     public List<DayColumn> WeekDays { get; private set; } = [];
     public List<SlotRow> Slots { get; private set; } = [];
     public List<HouseholdMember> Members { get; private set; } = [];
@@ -42,11 +49,21 @@ public sealed class IndexModel(
     /// <summary>All planned meals for this week, keyed by "date_slotId".</summary>
     public Dictionary<string, List<MealCellVm>> MealsByCell { get; private set; } = [];
 
+    /// <summary>Pending AI proposals for this week, keyed by "date_slotId".</summary>
+    public Dictionary<string, ProposedMeal> PendingProposals { get; private set; } = [];
+
+    /// <summary>Number of pending AI proposals awaiting user action.</summary>
+    public int PendingCount => PendingProposals.Count;
+
     /// <summary>Rolled-up week cost for the budget chip. Null when no pricing data available.</summary>
     public decimal? WeekTotalCost { get; private set; }
 
     /// <summary>True when any week cost was computed with partial pricing data.</summary>
     public bool WeekCostIsPartial { get; private set; }
+
+    /// <summary>Builds the store key for the pending proposal store: {householdId}_{weekStart:yyyyMMdd}_{sessionId}.</summary>
+    private string BuildStoreKey(HouseholdId householdId) =>
+        $"{householdId.Value:N}_{WeekStart:yyyyMMdd}_{HttpContext.Session.Id}";
 
     // ── GET ───────────────────────────────────────────────────────────────────
 
@@ -201,6 +218,102 @@ public sealed class IndexModel(
         return Partial("_WeekGrid", this);
     }
 
+    // ── AI generate plan POST ────────────────────────────────────────────────
+
+    public async Task<IActionResult> OnPostGenerateAsync(string? week = null, CancellationToken ct = default)
+    {
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var weekStart = week is not null && DateOnly.TryParse(week, out var parsed)
+            ? DomainMealPlan.NormalizeToMonday(parsed)
+            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(DateTime.Today));
+
+        // Ensure session is started so Session.Id is stable
+        await HttpContext.Session.LoadAsync(ct);
+
+        // Rebuild WeekStart so BuildStoreKey is correct
+        await LoadWeekAsync(week, ct);
+
+        var storeKey = BuildStoreKey(householdId);
+        await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, null, ct);
+
+        // Reload to pick up pending proposals
+        await LoadWeekAsync(week, ct);
+        return Partial("_WeekGrid", this);
+    }
+
+    // ── Accept all proposals POST ────────────────────────────────────────────
+
+    public async Task<IActionResult> OnPostAcceptAllAsync(string? week = null, CancellationToken ct = default)
+    {
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        await HttpContext.Session.LoadAsync(ct);
+        await LoadWeekAsync(week, ct);
+
+        var storeKey = BuildStoreKey(householdId);
+        var userId = await GetCurrentUserIdAsync(ct);
+        await acceptProposalService.AcceptAllAsync(householdId, WeekStart, storeKey, userId, ct);
+
+        await LoadWeekAsync(week, ct);
+        return Partial("_WeekGrid", this);
+    }
+
+    // ── Discard all proposals POST ───────────────────────────────────────────
+
+    public async Task<IActionResult> OnPostDiscardAsync(string? week = null, CancellationToken ct = default)
+    {
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        await HttpContext.Session.LoadAsync(ct);
+        await LoadWeekAsync(week, ct);
+
+        var storeKey = BuildStoreKey(householdId);
+        await acceptProposalService.DiscardAsync(storeKey, ct);
+
+        await LoadWeekAsync(week, ct);
+        return Partial("_WeekGrid", this);
+    }
+
+    // ── Accept single cell POST ──────────────────────────────────────────────
+
+    public async Task<IActionResult> OnPostAcceptCellAsync(
+        string date, Guid slotId, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(slotId);
+        await HttpContext.Session.LoadAsync(ct);
+
+        var storeKey = BuildStoreKey(householdId);
+        var userId = await GetCurrentUserIdAsync(ct);
+        await acceptProposalService.AcceptCellAsync(householdId, parsedDate, sid, storeKey, userId, ct);
+
+        // Return the full week grid so the pending bar count is always fresh (pending bar lives
+        // inside _WeekGrid, so a cell-only swap would leave it stale after per-cell operations).
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+        return Partial("_WeekGrid", this);
+    }
+
+    // ── Reject single cell POST ──────────────────────────────────────────────
+
+    public async Task<IActionResult> OnPostRejectCellAsync(
+        string date, Guid slotId, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(slotId);
+        await HttpContext.Session.LoadAsync(ct);
+
+        var storeKey = BuildStoreKey(householdId);
+        await acceptProposalService.RejectCellAsync(storeKey, parsedDate, sid, ct);
+
+        // Return the full week grid so the pending bar count is always fresh.
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+        return Partial("_WeekGrid", this);
+    }
+
     // ── Shop for this week POST ──────────────────────────────────────────────
 
     public async Task<IActionResult> OnPostShopAsync(CancellationToken ct = default)
@@ -327,6 +440,39 @@ public sealed class IndexModel(
         }
 
         Members = (await memberReader.ListMembersAsync(ct)).ToList();
+
+        // Compute HasEmptyCells (used to enable/disable Auto-fill button)
+        if (HasSlots)
+        {
+            HasEmptyCells = WeekDays.Any(d =>
+                Slots.Any(s =>
+                {
+                    var key = CellKey(DateOnly.Parse(d.DateIso), s.Id);
+                    return !MealsByCell.ContainsKey(key);
+                }));
+        }
+
+        // Load pending AI proposals for this week from the store
+        await LoadPendingProposalsAsync(householdId, ct);
+    }
+
+    private async Task LoadPendingProposalsAsync(HouseholdId householdId, CancellationToken ct)
+    {
+        try
+        {
+            // Only load pending proposals if a session exists (session may not be started yet on GET)
+            await HttpContext.Session.LoadAsync(ct);
+            var storeKey = BuildStoreKey(householdId);
+            var pending = await pendingProposalStore.GetAsync(storeKey, ct);
+            PendingProposals = pending.ToDictionary(
+                p => CellKey(p.Date, p.MealSlotId),
+                p => p);
+        }
+        catch
+        {
+            // Session may not be available in all contexts (e.g. non-session requests); degrade gracefully
+            PendingProposals = [];
+        }
     }
 
     private async Task<IActionResult> CellFragmentAsync(HouseholdId householdId, DateOnly date, MealSlotId slotId, CancellationToken ct)
@@ -334,12 +480,27 @@ public sealed class IndexModel(
 
     private async Task<IActionResult> CellFragmentAsync(HouseholdId householdId, DateOnly date, MealSlotId slotId, string? hardStanceWarning, CancellationToken ct)
     {
-        await LoadWeekAsync(null, ct);
+        await LoadWeekAsync(DomainMealPlan.NormalizeToMonday(date).ToString("yyyy-MM-dd"), ct);
         var key = CellKey(date, slotId);
         var meals = MealsByCell.GetValueOrDefault(key) ?? [];
         var slot = Slots.FirstOrDefault(s => s.Id == slotId);
+        var pending = PendingProposals.GetValueOrDefault(key);
 
-        return Partial("_MealCell", new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, hardStanceWarning));
+        // Resolve ghost cell recipe names for the cell fragment (fix: was using literal "Recipe").
+        // _WeekGrid resolves these inline via ResolveRecipeName; the cell fragment must do the same.
+        IReadOnlyList<string>? ghostDishNames = null;
+        if (pending is not null)
+        {
+            var names = new List<string>(pending.Dishes.Count);
+            foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
+            {
+                var r = await recipeReader.GetByIdAsync(d.RecipeId, ct);
+                names.Add(r?.Name ?? "Unknown recipe");
+            }
+            ghostDishNames = names;
+        }
+
+        return Partial("_MealCell", new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, hardStanceWarning, pending, ghostDishNames));
     }
 
     private async Task<MealSlot?> GetSlotAsync(HouseholdId householdId, MealSlotId slotId, CancellationToken ct)
@@ -378,6 +539,20 @@ public sealed class IndexModel(
 
     public static string CellKey(DateOnly date, MealSlotId slotId) => $"{date:yyyy-MM-dd}_{slotId.Value:N}";
 
+    /// <summary>
+    /// Used by _WeekGrid.cshtml to resolve a recipe name for ghost cell display.
+    /// Delegates to the IndexModel's recipeReader (held as a field via DI).
+    /// </summary>
+    public async Task<string> ResolveRecipeNameAsync(Guid recipeId)
+    {
+        var r = await recipeReader.GetByIdAsync(recipeId);
+        return r?.Name ?? "Unknown recipe";
+    }
+
+    /// <summary>Static shim for Razor partial call syntax used in _WeekGrid.cshtml.</summary>
+    public static Task<string> ResolveRecipeName(Guid recipeId, IndexModel model) =>
+        model.ResolveRecipeNameAsync(recipeId);
+
     // ── View models ───────────────────────────────────────────────────────────
 
     public sealed record DayColumn(string DayName, string DateLabel, string DateIso, bool IsToday);
@@ -410,7 +585,8 @@ public sealed class IndexModel(
     public sealed record EditorDishVm(DishKind Kind, Guid ItemId, string Name, int Servings, int Ordinal);
 
     public sealed record EditorPageModel(MealEditorVm Vm, List<HouseholdMember> Members, MealSlot Slot);
-    public sealed record CellFragmentVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, List<MealCellVm> Meals, DateOnly WeekStart, string? HardStanceWarning = null);
+    public sealed record CellFragmentVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, List<MealCellVm> Meals, DateOnly WeekStart, string? HardStanceWarning = null, ProposedMeal? PendingProposal = null, IReadOnlyList<string>? GhostDishNames = null);
     public sealed record DishSearchVm(string Query, IReadOnlyList<RecipeReadModel> Recipes, IReadOnlyList<MealPlanProductReadModel> Products);
     public sealed record MealCardVm(MealCellVm Meal, string DateIso, MealSlotId SlotId, List<HouseholdMember> Members);
+    public sealed record GhostCellVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, ProposedMeal Proposal, IReadOnlyList<string> DishNames);
 }
