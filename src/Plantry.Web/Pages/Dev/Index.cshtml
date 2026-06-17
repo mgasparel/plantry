@@ -2020,47 +2020,47 @@
     </div>
     <p>
         <code>.stance</code> is the 5-segment dietary-preference control for the
-        <code>/Settings/Preferences</code> page (P3-2, plantry-e78). Five mutually-exclusive
-        stance segments are rendered as <code>role="radio"</code> buttons: <strong>Required</strong>
-        (binding, good tone) &rarr; <strong>Preferred</strong> (soft, good-soft tone) &rarr;
-        <strong>Neutral</strong> (default, no row stored) &rarr; <strong>Disliked</strong>
-        (soft, warn tone) &rarr; <strong>Restricted</strong> (binding, bad tone). The selected
-        segment carries <code>.stance-seg--on</code> plus the tone modifier
-        (<code>.stance-seg--good</code>, <code>--good-soft</code>, <code>--neutral</code>,
-        <code>--warn</code>, <code>--bad</code>). Hard stances (Required / Restricted) also carry
-        <code>.stance-seg--hard</code>. Each button fires an htmx POST to
-        <code>/Settings/Preferences?handler=Stance</code>; the response swaps the enclosing
-        <code>.tag-row</code> (<code>hx-target="#tag-row-{tagId}"</code>).
+        <code>/Settings/Preferences</code> page (P3-2, plantry-e78 / plantry-tvx). The container is a
+        single pill shape (<code>background:surface-2; border; border-radius:999px; padding:3px</code>).
+        Five mutually-exclusive stance segments are rendered as <code>role="radio"</code> buttons:
+        <strong>Required</strong> (binding, good tone) &rarr; <strong>Preferred</strong> (soft, good-soft tone)
+        &rarr; <strong>Neutral</strong> (default, no row stored) &rarr; <strong>Disliked</strong>
+        (soft, warn tone) &rarr; <strong>Restricted</strong> (binding, bad tone).
+        The selected segment carries <code>.on</code>; hard stances also carry <code>.hard</code>.
+        Tone is passed via the <code>data-tone</code> attribute
+        (<code>good</code>, <code>good-soft</code>, <code>neutral</code>, <code>warn</code>, <code>bad</code>).
+        Selected = solid tone fill + white text; hard selected = binding ring (<code>box-shadow</code>).
+        Each button fires an htmx POST to <code>/Settings/Preferences?handler=Stance</code>;
+        the response swaps the enclosing <code>.tag-row</code> (<code>hx-target="#tag-row-{tagId}"</code>).
     </p>
 
     @{
-        var demoStances = new[] { "Required", "Preferred", "Neutral", "Disliked", "Restricted" };
         var demoCurrentStance = "Preferred";
     }
-    <div style="display: flex; flex-direction: column; gap: var(--space-4); max-width: 480px">
+    <div style="display: flex; flex-direction: column; gap: var(--space-4); max-width: 560px">
         <div>
             <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0 0 var(--space-2)">Preferred selected</p>
             <div class="stance" role="radiogroup" aria-label="Demo stance">
-                @foreach (var sv in new[] { ("Required","stance-seg--good",true), ("Preferred","stance-seg--good-soft",false), ("Neutral","stance-seg--neutral",false), ("Disliked","stance-seg--warn",false), ("Restricted","stance-seg--bad",true) })
+                @foreach (var sv in new[] { ("Required","good",true), ("Preferred","good-soft",false), ("Neutral","neutral",false), ("Disliked","warn",false), ("Restricted","bad",true) })
                 {
                     var isOn = sv.Item1 == demoCurrentStance;
                     <button type="button" role="radio" aria-checked="@isOn.ToString().ToLower()"
-                            title="@sv.Item1"
-                            class="stance-seg @sv.Item2 @(isOn ? "stance-seg--on" : "") @(sv.Item3 ? "stance-seg--hard" : "")">
+                            title="@sv.Item1" data-tone="@sv.Item2"
+                            class="stance-seg @(isOn ? "on" : "") @(sv.Item3 ? "hard" : "")">
                         @sv.Item1
                     </button>
                 }
             </div>
         </div>
         <div>
-            <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0 0 var(--space-2)">Restricted selected (hard binding)</p>
+            <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0 0 var(--space-2)">Restricted selected (hard binding ring)</p>
             <div class="stance" role="radiogroup" aria-label="Demo stance restricted">
-                @foreach (var sv in new[] { ("Required","stance-seg--good",true), ("Preferred","stance-seg--good-soft",false), ("Neutral","stance-seg--neutral",false), ("Disliked","stance-seg--warn",false), ("Restricted","stance-seg--bad",true) })
+                @foreach (var sv in new[] { ("Required","good",true), ("Preferred","good-soft",false), ("Neutral","neutral",false), ("Disliked","warn",false), ("Restricted","bad",true) })
                 {
                     var isOn = sv.Item1 == "Restricted";
                     <button type="button" role="radio" aria-checked="@isOn.ToString().ToLower()"
-                            title="@sv.Item1"
-                            class="stance-seg @sv.Item2 @(isOn ? "stance-seg--on" : "") @(sv.Item3 ? "stance-seg--hard" : "")">
+                            title="@sv.Item1" data-tone="@sv.Item2"
+                            class="stance-seg @(isOn ? "on" : "") @(sv.Item3 ? "hard" : "")">
                         @sv.Item1
                     </button>
                 }
@@ -2068,7 +2068,7 @@
         </div>
     </div>
 
-    <pre class="code-sample"><code>@("<div class=\"stance\" role=\"radiogroup\" aria-label=\"Stance for {tagName}\">\n  <!-- For each stance in (Required/good/hard, Preferred/good-soft, Neutral/neutral, Disliked/warn, Restricted/bad/hard): -->\n  <button type=\"button\" role=\"radio\"\n          aria-checked=\"{isOn}\"\n          title=\"{label}\"\n          class=\"stance-seg {toneModifier} {isOn ? 'stance-seg--on' : ''} {hard ? 'stance-seg--hard' : ''}\"\n          hx-post=\"/Settings/Preferences?handler=Stance&tagId={tagId}&stance={value}&tagName={tagName}\"\n          hx-target=\"#tag-row-{tagId}\"\n          hx-swap=\"outerHTML\"\n          hx-include=\"[name='__RequestVerificationToken']\">\n    {label}\n  </button>\n</div>")</code></pre>
+    <pre class="code-sample"><code>@("<div class=\"stance\" role=\"radiogroup\" aria-label=\"Stance for {tagName}\">\n  <!-- For each stance in (Required/good/hard, Preferred/good-soft, Neutral/neutral, Disliked/warn, Restricted/bad/hard): -->\n  <button type=\"button\" role=\"radio\"\n          aria-checked=\"{isOn}\"\n          title=\"{label}\"\n          data-tone=\"{tone}\"\n          class=\"stance-seg {isOn ? 'on' : ''} {hard ? 'hard' : ''}\"\n          hx-post=\"/Settings/Preferences?handler=Stance&tagId={tagId}&stance={value}&tagName={tagName}\"\n          hx-target=\"#tag-row-{tagId}\"\n          hx-swap=\"outerHTML\"\n          hx-include=\"[name='__RequestVerificationToken']\">\n    {label}\n  </button>\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -2076,68 +2076,73 @@
         <h2 class="catalog-section__heading">Tag row (<code>.tag-row</code>)</h2>
     </div>
     <p>
-        <code>.tag-row</code> wraps a tag name (<code>.tag-row__name</code> + <code>.tag-row__dot</code>
-        colour dot + <code>.tag-row__label</code>) and an inline <code>.stance</code> control. The
-        <code>.tag-row--touched</code> modifier applies a faint accent tint when the stance is
-        non-Neutral. The <code>.tag-saved</code> flash appears briefly (Alpine-driven, auto-fades after
-        1400&nbsp;ms) when an htmx swap confirms a save. The row is the htmx swap target:
+        <code>.tag-row</code> is a 2-column grid (<code>1fr auto</code>, gap 18px) that wraps a tag
+        name (<code>.tag-name</code> + <code>.tdot</code> colour dot + <code>.tn</code> label text +
+        optional <code>.tag-saved.show</code> flash) and an inline <code>.stance</code> control.
+        Top borders between rows; first row has no top border. The <code>.touched</code> modifier
+        applies a faint surface-2 tint when the stance is non-Neutral. The <code>.tag-saved</code>
+        flash appears briefly (Alpine-driven via <code>x-bind:class</code>, auto-fades after 1400&nbsp;ms)
+        when an htmx swap confirms a save. The row is the htmx swap target:
         <code>id="tag-row-{tagId}"</code>. Rendered via
         <code>partial name="Settings/_TagStanceRow"</code> — see
         <code>src/Plantry.Web/Pages/Settings/_TagStanceRow.cshtml</code>.
     </p>
 
-    <div style="max-width: 520px; border: 1px solid var(--color-border); border-radius: 10px; overflow: hidden">
+    <div style="max-width: 620px; border: 1px solid var(--color-border); border-radius: 10px; overflow: hidden">
         @* Neutral row (default, no tint) *@
         <div class="tag-row" id="dev-tag-row-demo1">
-            <div class="tag-row__name">
-                <span class="tag-row__dot" aria-hidden="true"></span>
-                <span class="tag-row__label">Gluten-Free</span>
+            <div class="tag-name">
+                <span class="tdot" aria-hidden="true" style="background:oklch(0.62 0.13 160)"></span>
+                <span class="tn">Gluten-Free</span>
             </div>
             <div class="stance" role="radiogroup" aria-label="Stance for Gluten-Free">
-                @foreach (var sv in new[] { ("Required","stance-seg--good",true), ("Preferred","stance-seg--good-soft",false), ("Neutral","stance-seg--neutral",false), ("Disliked","stance-seg--warn",false), ("Restricted","stance-seg--bad",true) })
+                @foreach (var sv in new[] { ("Required","good",true), ("Preferred","good-soft",false), ("Neutral","neutral",false), ("Disliked","warn",false), ("Restricted","bad",true) })
                 {
                     var isOn = sv.Item1 == "Neutral";
-                    <button type="button" role="radio" aria-checked="@isOn.ToString().ToLower()" title="@sv.Item1"
-                            class="stance-seg @sv.Item2 @(isOn ? "stance-seg--on" : "") @(sv.Item3 ? "stance-seg--hard" : "")">
+                    <button type="button" role="radio" aria-checked="@isOn.ToString().ToLower()"
+                            title="@sv.Item1" data-tone="@sv.Item2"
+                            class="stance-seg @(isOn ? "on" : "") @(sv.Item3 ? "hard" : "")">
                         @sv.Item1
                     </button>
                 }
             </div>
         </div>
-        @* Touched row (Preferred selected, faint accent tint) with Saved flash *@
-        <div class="tag-row tag-row--touched" id="dev-tag-row-demo2"
+        @* Touched row (Preferred selected, faint tint) with Saved flash *@
+        <div class="tag-row touched" id="dev-tag-row-demo2"
              x-data="{ saved: true }" x-init="setTimeout(() => saved = false, 2500)">
-            <div class="tag-row__name">
-                <span class="tag-row__dot" aria-hidden="true"></span>
-                <span class="tag-row__label">Vegetarian</span>
-                <span class="tag-saved" x-show="saved" x-cloak aria-live="polite">
+            <div class="tag-name">
+                <span class="tdot" aria-hidden="true" style="background:oklch(0.62 0.13 80)"></span>
+                <span class="tn">Vegetarian</span>
+                <span class="tag-saved show" x-bind:class="saved ? 'show' : ''" x-cloak aria-live="polite">
                     <svg class="icon" aria-hidden="true" style="width:13px;height:13px"><use href="#i-check" /></svg>
                     Saved
                 </span>
             </div>
             <div class="stance" role="radiogroup" aria-label="Stance for Vegetarian">
-                @foreach (var sv in new[] { ("Required","stance-seg--good",true), ("Preferred","stance-seg--good-soft",false), ("Neutral","stance-seg--neutral",false), ("Disliked","stance-seg--warn",false), ("Restricted","stance-seg--bad",true) })
+                @foreach (var sv in new[] { ("Required","good",true), ("Preferred","good-soft",false), ("Neutral","neutral",false), ("Disliked","warn",false), ("Restricted","bad",true) })
                 {
                     var isOn = sv.Item1 == "Preferred";
-                    <button type="button" role="radio" aria-checked="@isOn.ToString().ToLower()" title="@sv.Item1"
-                            class="stance-seg @sv.Item2 @(isOn ? "stance-seg--on" : "") @(sv.Item3 ? "stance-seg--hard" : "")">
+                    <button type="button" role="radio" aria-checked="@isOn.ToString().ToLower()"
+                            title="@sv.Item1" data-tone="@sv.Item2"
+                            class="stance-seg @(isOn ? "on" : "") @(sv.Item3 ? "hard" : "")">
                         @sv.Item1
                     </button>
                 }
             </div>
         </div>
-        @* Restricted row (hard binding, danger tint) *@
-        <div class="tag-row tag-row--touched" id="dev-tag-row-demo3">
-            <div class="tag-row__name">
-                <span class="tag-row__dot" aria-hidden="true"></span>
-                <span class="tag-row__label">Shellfish</span>
+        @* Restricted row (hard binding) *@
+        <div class="tag-row touched" id="dev-tag-row-demo3">
+            <div class="tag-name">
+                <span class="tdot" aria-hidden="true" style="background:oklch(0.62 0.13 30)"></span>
+                <span class="tn">Shellfish</span>
             </div>
             <div class="stance" role="radiogroup" aria-label="Stance for Shellfish">
-                @foreach (var sv in new[] { ("Required","stance-seg--good",true), ("Preferred","stance-seg--good-soft",false), ("Neutral","stance-seg--neutral",false), ("Disliked","stance-seg--warn",false), ("Restricted","stance-seg--bad",true) })
+                @foreach (var sv in new[] { ("Required","good",true), ("Preferred","good-soft",false), ("Neutral","neutral",false), ("Disliked","warn",false), ("Restricted","bad",true) })
                 {
                     var isOn = sv.Item1 == "Restricted";
-                    <button type="button" role="radio" aria-checked="@isOn.ToString().ToLower()" title="@sv.Item1"
-                            class="stance-seg @sv.Item2 @(isOn ? "stance-seg--on" : "") @(sv.Item3 ? "stance-seg--hard" : "")">
+                    <button type="button" role="radio" aria-checked="@isOn.ToString().ToLower()"
+                            title="@sv.Item1" data-tone="@sv.Item2"
+                            class="stance-seg @(isOn ? "on" : "") @(sv.Item3 ? "hard" : "")">
                         @sv.Item1
                     </button>
                 }
@@ -2145,7 +2150,7 @@
         </div>
     </div>
 
-    <pre class="code-sample"><code>@("<partial name=\"Settings/_TagStanceRow\"\n         model=\"new TagStanceRowViewModel(tag.TagId, tag.Name, tag.Stance, Saved: false)\" />\n\n<!-- The partial renders:\n  <div class=\"tag-row [tag-row--touched]\" id=\"tag-row-{tagId}\"\n       x-data=\"{ saved: false }\" x-init=\"...\"> -->")</code></pre>
+    <pre class="code-sample"><code>@("<partial name=\"Settings/_TagStanceRow\"\n         model=\"new TagStanceRowViewModel(tag.TagId, tag.Name, tag.Stance, Saved: false)\" />\n\n<!-- The partial renders:\n  <div class=\"tag-row [touched]\" id=\"tag-row-{tagId}\"\n       x-data=\"{ saved: false }\" x-init=\"...\">\n    <div class=\"tag-name\">\n      <span class=\"tdot\" style=\"background:{dotColor}\" />\n      <span class=\"tn\">{tagName}</span>\n      <span class=\"tag-saved\" x-bind:class=\"saved ? 'show' : ''\">✓ Saved</span>\n    </div>\n    <div class=\"stance\" role=\"radiogroup\">...</div>\n  </div> -->")</code></pre>
 </section>
 
 @* ── P3-1: Avatar stack (attendee display) ──────────────────────────────────── *@
