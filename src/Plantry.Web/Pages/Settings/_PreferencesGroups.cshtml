@@ -9,11 +9,11 @@
             : "background: var(--color-text-faint)";
 
         <div class="tag-cat card">
-            <div class="tag-cat__head">
-                <span class="tag-cat__dot" style="@dotStyle" aria-hidden="true"></span>
-                <h3 class="tag-cat__name">@group.Category</h3>
-                <span class="spacer"></span>
-                <span class="tag-cat__count">
+            <div class="card-head">
+                <span class="cat-mark" style="@dotStyle" aria-hidden="true"></span>
+                <h3>@group.Category</h3>
+                <div class="spacer"></div>
+                <span class="cat-count">
                     @if (group.SetCount > 0)
                     {
                         @($"{group.SetCount} set")

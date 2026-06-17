@@ -7,41 +7,42 @@
 *@
 @{
     var rowId = $"tag-row-{Model.TagId}";
-    // (value, label, modifier, isHard) — ordered Required→Restricted (hard-positive→hard-negative)
+    // (value, label, data-tone, isHard) — ordered Required→Restricted (hard-positive→hard-negative)
     var stanceOptions = new[]
     {
-        ("Required",   "Required",   "stance-seg--good",      true),
-        ("Preferred",  "Preferred",  "stance-seg--good-soft", false),
-        ("Neutral",    "Neutral",    "stance-seg--neutral",   false),
-        ("Disliked",   "Disliked",   "stance-seg--warn",      false),
-        ("Restricted", "Restricted", "stance-seg--bad",       true),
+        ("Required",   "Required",   "good",      true),
+        ("Preferred",  "Preferred",  "good-soft", false),
+        ("Neutral",    "Neutral",    "neutral",   false),
+        ("Disliked",   "Disliked",   "warn",      false),
+        ("Restricted", "Restricted", "bad",       true),
     };
     var touched = Model.Stance != "Neutral";
     var encodedName = Uri.EscapeDataString(Model.TagName ?? "");
 }
 
-<div class="tag-row @(touched ? "tag-row--touched" : "")"
+<div class="tag-row @(touched ? "touched" : "")"
      id="@rowId"
      x-data="{ saved: @Model.Saved.ToString().ToLower() }"
      x-init="if (saved) { setTimeout(() => saved = false, 1400) }">
-    <div class="tag-row__name">
-        <span class="tag-row__dot" aria-hidden="true"></span>
-        <span class="tag-row__label">@Model.TagName</span>
-        <span class="tag-saved" x-show="saved" x-cloak aria-live="polite">
+    <div class="tag-name">
+        <span class="tdot" aria-hidden="true"></span>
+        <span class="tn">@Model.TagName</span>
+        <span class="tag-saved @(Model.Saved ? "show" : "")" x-bind:class="saved ? 'show' : ''" aria-live="polite">
             <svg class="icon" aria-hidden="true" style="width:13px;height:13px"><use href="#i-check" /></svg>
             Saved
         </span>
     </div>
     @* 5-segment StanceScale — canonical component (see Dev component library) *@
     <div class="stance" role="radiogroup" aria-label="Stance for @Model.TagName">
-        @foreach (var (value, label, modClass, isHard) in stanceOptions)
+        @foreach (var (value, label, tone, isHard) in stanceOptions)
         {
             var isOn = Model.Stance == value;
             <button type="button"
                     role="radio"
                     aria-checked="@isOn.ToString().ToLower()"
                     title="@label"
-                    class="stance-seg @modClass @(isOn ? "stance-seg--on" : "") @(isHard ? "stance-seg--hard" : "")"
+                    data-tone="@tone"
+                    class="stance-seg @(isOn ? "on" : "") @(isHard ? "hard" : "")"
                     hx-post="/Settings/Preferences?handler=Stance&tagId=@Model.TagId&stance=@value&tagName=@encodedName"
                     hx-target="#@rowId"
                     hx-swap="outerHTML"

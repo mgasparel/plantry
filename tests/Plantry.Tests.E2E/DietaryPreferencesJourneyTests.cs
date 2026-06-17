@@ -132,9 +132,9 @@ public sealed class DietaryPreferencesJourneyTests(AppHostFixture appHost) : IAs
                 async () => await preferredSeg.ClickAsync(),
                 r => r.Url.Contains("Settings/Preferences") && r.Status == 200);
 
-            // The row should now exist and show a non-neutral state (.tag-row--touched)
+            // The row should now exist and show a non-neutral state (.tag-row.touched)
             // after the htmx swap replaces the row content.
-            await Assertions.Expect(page.Locator(".tag-row--touched").First).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(".tag-row.touched").First).ToBeVisibleAsync();
 
             // ── Step 2: Change stance to "Required" on the same row ───────────────
             // After the htmx swap the row element was replaced; re-locate it.
@@ -144,7 +144,7 @@ public sealed class DietaryPreferencesJourneyTests(AppHostFixture appHost) : IAs
                 async () => await requiredSeg.ClickAsync(),
                 r => r.Url.Contains("Settings/Preferences") && r.Status == 200);
 
-            await Assertions.Expect(page.Locator(".tag-row--touched").First).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(".tag-row.touched").First).ToBeVisibleAsync();
 
             // ── Step 3: Clear stance → Neutral ────────────────────────────────────
             firstRow = page.Locator(".tag-row").First;
@@ -153,9 +153,9 @@ public sealed class DietaryPreferencesJourneyTests(AppHostFixture appHost) : IAs
                 async () => await neutralSeg.ClickAsync(),
                 r => r.Url.Contains("Settings/Preferences") && r.Status == 200);
 
-            // After clearing to Neutral the row must NOT have the --touched modifier.
+            // After clearing to Neutral the row must NOT have the touched modifier.
             // Wait for the swap to complete first using retrying assertion.
-            await Assertions.Expect(page.Locator(".tag-row--touched")).ToHaveCountAsync(0);
+            await Assertions.Expect(page.Locator(".tag-row.touched")).ToHaveCountAsync(0);
 
             // ── Step 4: Verify DB side-effect via Settings/Preferences re-render ──
             // Navigate away and back to force a fresh GET which reads from the DB.
@@ -164,9 +164,9 @@ public sealed class DietaryPreferencesJourneyTests(AppHostFixture appHost) : IAs
             await page.WaitForURLAsync("**/Settings/Preferences**");
             await Assertions.Expect(page.Locator(".tag-row").First).ToBeVisibleAsync();
 
-            // No tag-row should carry the --touched class because all stances are Neutral
+            // No tag-row should carry the touched class because all stances are Neutral
             // (the DB row was deleted by the SetStance("Neutral") call).
-            var touchedCount = await page.Locator(".tag-row--touched").CountAsync();
+            var touchedCount = await page.Locator(".tag-row.touched").CountAsync();
             Assert.Equal(0, touchedCount);
         }
         finally

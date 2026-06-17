@@ -5,11 +5,11 @@
 }
 
 @* ── Config page chrome (matches ClaudeDesignProto/prefs.jsx cfg-wrap + cfg-head) ─────────── *@
-<div class="cfg-wrap">
+<div class="cfg-wrap" data-screen-label="Dietary preferences">
     <div class="cfg-head">
-        <div class="cfg-head__eyebrow">Personal profile</div>
-        <h1 class="cfg-head__title">Dietary preferences</h1>
-        <p class="cfg-head__desc">
+        <div class="eyebrow">Personal profile</div>
+        <h1>Dietary preferences</h1>
+        <p>
             Set your stance on each food tag. The planner reads these to keep meals within
             everyone&rsquo;s needs &mdash; allergies and hard rules are binding, soft preferences just
             nudge the suggestions.
@@ -30,13 +30,14 @@
             {
                 var isYou = member.UserId == Model.CurrentUserId;
                 <div role="tab" aria-selected="@isYou.ToString().ToLower()"
-                     class="mem-tab @(isYou ? "mem-tab--on" : "")">
-                    <span class="mem-tab__avatar" aria-hidden="true">@member.Initials</span>
-                    <span class="mem-tab__name">
+                     class="mem-tab @(isYou ? "on" : "")">
+                    <span class="pl-av" aria-hidden="true"
+                          style="width:26px;height:26px;font-size:11px;background:var(--color-accent-subtle);color:var(--color-accent)">@member.Initials</span>
+                    <span class="mt-name">
                         @member.DisplayName
                         @if (isYou)
                         {
-                            <span class="mem-tab__you">You</span>
+                            <span class="mt-you">You</span>
                         }
                     </span>
                 </div>
@@ -45,27 +46,27 @@
 
         @* ── Scale legend (matches ClaudeDesignProto/prefs.jsx scale-legend) ─── *@
         <div class="scale-legend" aria-label="The stance scale">
-            <span class="scale-legend__title">The scale</span>
+            <span class="sl-title">The scale</span>
             <span class="legend-chip legend-chip--good">
-                <span class="legend-chip__dot"></span>Required
-                <span class="legend-chip__binding">· binding</span>
+                <span class="lc-dot"></span>Required
+                <span class="lc-hard">· binding</span>
             </span>
-            <span class="scale-legend__arrow" aria-hidden="true"></span>
+            <span class="sl-arrow" aria-hidden="true"></span>
             <span class="legend-chip legend-chip--good-soft">
-                <span class="legend-chip__dot"></span>Preferred
+                <span class="lc-dot"></span>Preferred
             </span>
-            <span class="scale-legend__arrow" aria-hidden="true"></span>
+            <span class="sl-arrow" aria-hidden="true"></span>
             <span class="legend-chip legend-chip--neutral">
-                <span class="legend-chip__dot"></span>Neutral
+                <span class="lc-dot"></span>Neutral
             </span>
-            <span class="scale-legend__arrow" aria-hidden="true"></span>
+            <span class="sl-arrow" aria-hidden="true"></span>
             <span class="legend-chip legend-chip--warn">
-                <span class="legend-chip__dot"></span>Disliked
+                <span class="lc-dot"></span>Disliked
             </span>
-            <span class="scale-legend__arrow" aria-hidden="true"></span>
+            <span class="sl-arrow" aria-hidden="true"></span>
             <span class="legend-chip legend-chip--bad">
-                <span class="legend-chip__dot"></span>Restricted
-                <span class="legend-chip__binding">· binding</span>
+                <span class="lc-dot"></span>Restricted
+                <span class="lc-hard">· binding</span>
             </span>
         </div>
 
@@ -74,12 +75,11 @@
             @{
                 var currentMember = Model.ViewModel.Members.FirstOrDefault(m => m.UserId == Model.CurrentUserId);
             }
-            <span class="prefs-meta__name">@(currentMember?.DisplayName ?? "You") (You)</span>
-            <span class="prefs-meta__dot" aria-hidden="true"></span>
-            <span>
-                <strong>@Model.ViewModel.SetCount</strong> of @Model.ViewModel.TotalTags tags set
-                &middot; @Model.ViewModel.NeutralCount neutral
-            </span>
+            <span class="pl-av" aria-hidden="true"
+                  style="width:20px;height:20px;font-size:10px;background:var(--color-accent-subtle);color:var(--color-accent)">@(currentMember?.Initials ?? "Y")</span>
+            <span><b>@(currentMember?.DisplayName ?? "You")</b> (You)</span>
+            <span class="pm-dot" aria-hidden="true"></span>
+            <span><b>@Model.ViewModel.SetCount</b> of @Model.ViewModel.TotalTags tags set &middot; @Model.ViewModel.NeutralCount neutral</span>
             <form method="post" asp-page-handler="Reset"
                   hx-post="/Settings/Preferences?handler=Reset"
                   hx-target="#prefs-groups"

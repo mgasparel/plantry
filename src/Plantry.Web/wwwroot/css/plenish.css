@@ -1014,6 +1014,16 @@ button { font-family: inherit; cursor: pointer; }
   margin-bottom: 15px;
 }
 .card--overflow-visible { overflow: visible; }
+/* Proto-vocabulary header used inside .card — display row, align-items center, gap 12px.
+   Also used by .tag-cat (tag category card header). */
+.card-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-subtle);
+}
+/* Generic flex spacer */
+.spacer { flex: 1; }
 
 .card__head {
   display: flex;
@@ -3829,313 +3839,143 @@ button.sadd svg { width: 13px; height: 13px; }
 /* Ensure plan-main fills the page content area */
 .page-content--full { padding: 0 !important; overflow: hidden; }
 
-/* ── P3-2 Dietary Preferences — cfg-wrap, cfg-head ────────────────────────── */
-/* Config-page chrome (matches ClaudeDesignProto/prefs.jsx .cfg-wrap + .cfg-head). */
+/* ── P3-2 Dietary Preferences / P3-1 Meal Slots — cfg-wrap, cfg-head ─────── */
+/* Config-page chrome (matches ClaudeDesignProto/prefs.jsx + slots.jsx .cfg-wrap + .cfg-head). */
 .cfg-wrap {
-  max-width: 680px;
-  padding: var(--space-6) var(--space-4);
+  max-width: 880px;
+  padding: 38px 32px 80px;
   margin: 0 auto;
 }
+[data-screen-label] { scroll-margin-top: 80px; }
 
-.cfg-head { margin-bottom: var(--space-6); }
-.cfg-head__eyebrow {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-2);
+.cfg-head { margin-bottom: 24px; }
+.cfg-head .eyebrow {
+  font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  font-weight: 700; color: var(--color-accent); margin-bottom: 9px;
 }
-.cfg-head__title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: var(--color-text);
-  margin: 0 0 var(--space-3);
-  line-height: 1.15;
-}
-.cfg-head__desc {
-  font-size: var(--font-size-base);
-  color: var(--color-text-muted);
-  margin: 0;
-  line-height: 1.55;
-}
+.cfg-head h1 { font-size: 30px; letter-spacing: -0.03em; margin: 0 0 7px; font-weight: 700; line-height: 1.1; }
+.cfg-head p { margin: 0; color: var(--color-text-muted); font-size: 15px; line-height: 1.5; max-width: 60ch; }
 
 /* ── Member tab strip ─────────────────────────────────────────────────────── */
-.mem-tabs {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-5);
-}
+.mem-tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
 .mem-tab {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-radius: 999px;
-  border: 1.5px solid var(--color-border);
-  background: var(--color-bg-subtle);
-  cursor: default;
-  user-select: none;
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 9px; white-space: nowrap;
+  border: 1px solid var(--color-border); background: var(--color-surface); border-radius: 999px;
+  color: var(--color-text-muted); font-weight: 600; font-size: 14px; transition: all .13s;
+  cursor: default; user-select: none;
 }
-.mem-tab--on {
-  border-color: var(--color-accent);
-  background: var(--color-accent-subtle);
+.mem-tab:hover { border-color: var(--color-border); background: var(--color-surface-2); }
+.mem-tab.on { border-color: transparent; background: var(--color-text); color: var(--color-surface); box-shadow: var(--shadow-md); }
+.mem-tab.on .pl-av { box-shadow: 0 0 0 2px var(--color-text); }
+.mem-tab .mt-name { display: flex; align-items: center; gap: 7px; }
+.mem-tab .mt-you {
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 5px; background: var(--color-accent-subtle); color: var(--color-accent);
 }
-.mem-tab__avatar {
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  color: var(--color-text-on-accent);
-  font-size: 11px; font-weight: 700;
-  display: grid; place-items: center;
-  flex-shrink: 0;
-}
-.mem-tab__name {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--color-text);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.mem-tab__you {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .05em;
-  background: var(--color-accent);
-  color: var(--color-text-on-accent);
-  padding: 1px 5px;
-  border-radius: 999px;
-}
+.mem-tab.on .mt-you { background: rgba(255,255,255,.18); color: var(--color-surface); }
 
 /* ── Scale legend ─────────────────────────────────────────────────────────── */
 .scale-legend {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-bg-subtle);
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  margin-bottom: var(--space-4);
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 13px 16px; margin-bottom: 20px;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
 }
-.scale-legend__title {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--color-text-muted);
-  flex-shrink: 0;
+.scale-legend .sl-title {
+  font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 700;
+  color: var(--color-text-faint); margin-right: 10px; white-space: nowrap;
 }
-.scale-legend__arrow {
-  width: 0; height: 0;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 6px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-/* Legend chips mirror the stance segment tones */
+.scale-legend .sl-arrow { flex: 1; min-width: 14px; height: 2px; border-radius: 2px; background: var(--color-border); }
 .legend-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  padding: 3px 10px 3px 6px;
-  border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; white-space: nowrap;
+  border-radius: 999px; font-size: 12px; font-weight: 600;
 }
-.legend-chip__dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.legend-chip__binding {
-  font-size: 10px;
-  font-weight: 600;
-  opacity: .75;
-}
+.legend-chip .lc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.legend-chip .lc-hard { font-size: 9.5px; opacity: .7; font-weight: 700; }
 .legend-chip--good       { background: var(--color-success-bg); color: var(--color-success); }
-.legend-chip--good       .legend-chip__dot { background: var(--color-success); }
+.legend-chip--good       .lc-dot { background: var(--color-success); }
 .legend-chip--good-soft  { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: color-mix(in srgb, var(--color-success) 78%, var(--color-text-muted)); }
-.legend-chip--good-soft  .legend-chip__dot { background: color-mix(in srgb, var(--color-success) 60%, var(--color-bg)); }
-.legend-chip--neutral    { background: var(--color-bg-subtle); color: var(--color-text-muted); }
-.legend-chip--neutral    .legend-chip__dot { background: var(--color-text-faint); }
+.legend-chip--good-soft  .lc-dot { background: color-mix(in srgb, var(--color-success) 60%, var(--color-bg)); }
+.legend-chip--neutral    { background: var(--color-surface-2); color: var(--color-text-muted); }
+.legend-chip--neutral    .lc-dot { background: var(--color-text-faint); }
 .legend-chip--warn       { background: var(--color-warning-bg); color: var(--color-warning); }
-.legend-chip--warn       .legend-chip__dot { background: var(--color-warning); }
+.legend-chip--warn       .lc-dot { background: var(--color-warning); }
 .legend-chip--bad        { background: var(--color-danger-bg); color: var(--color-danger); }
-.legend-chip--bad        .legend-chip__dot { background: var(--color-danger); }
+.legend-chip--bad        .lc-dot { background: var(--color-danger); }
 
 /* ── Progress meta line ───────────────────────────────────────────────────── */
 .prefs-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-4);
+  display: flex; align-items: center; gap: 9px; margin-bottom: 16px; padding: 0 2px;
+  font-size: 13px; color: var(--color-text-muted); font-weight: 500;
 }
-.prefs-meta__name { font-weight: 600; color: var(--color-text); }
-.prefs-meta__dot {
-  width: 3px; height: 3px;
-  border-radius: 50%;
-  background: var(--color-text-faint);
-  flex-shrink: 0;
-}
-.reset-link {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--color-accent);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  margin-left: auto;
-}
-.reset-link:hover { color: var(--color-accent-hover); }
-.reset-link:disabled { color: var(--color-text-faint); text-decoration: none; cursor: default; }
+.prefs-meta b { color: var(--color-text); font-weight: 700; }
+.prefs-meta .pm-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-faint); }
+.reset-link { margin-left: auto; background: none; border: none; color: var(--color-text-faint); font-weight: 600; font-size: 12.5px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; }
+.reset-link:hover { color: var(--color-danger); background: var(--color-danger-bg); }
+.reset-link:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ── Tag category card ────────────────────────────────────────────────────── */
-.tag-cat {
-  margin-bottom: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--color-surface, var(--color-bg));
-}
-.tag-cat__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-subtle);
-}
-.tag-cat__dot {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.tag-cat__name {
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--color-text);
-  margin: 0;
-}
-.tag-cat__count {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-.tag-rows { display: flex; flex-direction: column; }
+.tag-cat { margin-bottom: 18px; }
+.tag-cat .card-head { padding: 15px 18px 13px; align-items: center; }
+.tag-cat .cat-mark { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.tag-cat .cat-count { font-size: 12px; font-weight: 600; color: var(--color-text-faint); }
+.tag-rows { border-top: 1px solid var(--color-border); }
 
 /* ── Tag row — canonical component (StanceScale + tag-row) ───────────────── */
 /* Documented in Dev component library (src/Plantry.Web/Pages/Dev/Index.cshtml). */
 .tag-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border-subtle);
-  flex-wrap: wrap;
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 18px;
+  padding: 11px 18px; border-top: 1px solid var(--color-border);
 }
-.tag-row:last-child { border-bottom: none; }
-.tag-row--touched { background: color-mix(in srgb, var(--color-accent) 3%, transparent); }
-
-.tag-row__name {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: 1;
-  min-width: 120px;
+.tag-row:first-child { border-top: none; }
+.tag-row.touched { background: color-mix(in srgb, var(--color-surface-2) 55%, transparent); }
+.tag-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tag-name .tdot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--color-text-faint); }
+.tag-name .tn { font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
+.tag-name .tag-saved {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; color: var(--color-success);
+  opacity: 0; transform: translateX(-4px); transition: opacity .2s, transform .2s;
 }
-.tag-row__dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--color-text-faint);
-  flex-shrink: 0;
-}
-.tag-row__label {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--color-text);
-}
-.tag-saved {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-success);
-  padding: 2px 7px;
-  background: var(--color-success-bg);
-  border-radius: 999px;
-  animation: fade-in .1s ease;
-}
+.tag-name .tag-saved.show { opacity: 1; transform: none; }
+.tag-name .tag-saved svg { width: 13px; height: 13px; }
 
 /* ── StanceScale segmented control — canonical component ─────────────────── */
 /* 5 mutually-exclusive stance segments. Documented in Dev component library.  */
+/* Proto shape: one pill container with surface-2 bg + border; segments are seamless pills. */
 .stance {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-  flex-shrink: 0;
+  display: inline-flex; align-items: stretch; padding: 3px; gap: 2px;
+  background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 999px;
 }
 .stance-seg {
-  padding: 4px 9px;
-  border-radius: 6px;
-  border: 1.5px solid transparent;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  background: var(--color-bg-subtle);
-  color: var(--color-text-muted);
-  transition: all .1s;
-  white-space: nowrap;
+  position: relative; border: none; background: none; cursor: pointer;
+  padding: 6px 13px; border-radius: 999px; min-width: 44px;
+  font-size: 12.5px; font-weight: 600; color: var(--color-text-faint); white-space: nowrap;
+  transition: color .12s, background .12s, box-shadow .12s; line-height: 1.1;
 }
-.stance-seg:hover { border-color: var(--color-border); color: var(--color-text); }
+.stance-seg:hover { color: var(--color-text-muted); }
+.stance-seg.on { color: var(--color-surface); }
+/* selected tones — solid fills with white text */
+.stance-seg.on[data-tone="good"]      { background: var(--color-success); }
+.stance-seg.on[data-tone="good-soft"] { background: color-mix(in srgb, var(--color-success) 58%, var(--color-surface)); color: #fff; }
+.stance-seg.on[data-tone="neutral"]   { background: var(--color-surface); color: var(--color-text-muted); box-shadow: var(--shadow-md); }
+.stance-seg.on[data-tone="warn"]      { background: color-mix(in srgb, var(--color-warning) 80%, var(--color-surface)); }
+.stance-seg.on[data-tone="bad"]       { background: var(--color-danger); }
+/* hard ends (Required / Restricted) get a binding ring when selected */
+.stance-seg.on.hard { box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 3.5px currentColor; }
+.stance-seg.on.hard[data-tone="good"] { box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 3.5px var(--color-success); }
+.stance-seg.on.hard[data-tone="bad"]  { box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 3.5px var(--color-danger); }
 
-/* Tonal selected states */
-.stance-seg--good.stance-seg--on     { background: var(--color-success-bg); color: var(--color-success); border-color: var(--color-success); }
-.stance-seg--good-soft.stance-seg--on { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: color-mix(in srgb, var(--color-success) 78%, var(--color-text-muted)); border-color: color-mix(in srgb, var(--color-success) 40%, transparent); }
-.stance-seg--neutral.stance-seg--on  { background: var(--color-bg-subtle); color: var(--color-text); border-color: var(--color-border); }
-.stance-seg--warn.stance-seg--on     { background: var(--color-warning-bg); color: var(--color-warning); border-color: var(--color-warning); }
-.stance-seg--bad.stance-seg--on      { background: var(--color-danger-bg); color: var(--color-danger); border-color: var(--color-danger); }
-
-/* Hard stances (Required / Restricted) get a bolder indicator when selected */
-.stance-seg--hard.stance-seg--on { font-weight: 700; }
-
-/* Responsive: collapse labels on narrow screens */
+/* Responsive */
+@media (max-width: 720px) {
+  .tag-row { grid-template-columns: 1fr; gap: 10px; }
+  .stance { overflow-x: auto; }
+}
 @media (max-width: 520px) {
-  .stance-seg { padding: 4px 6px; font-size: 11px; }
   .cfg-wrap { padding: var(--space-4) var(--space-3); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    P3-1 — Settings / Meal Slots config screen
    ═══════════════════════════════════════════════════════════════════════════ */
-
-/* ── config page wrapper ───────────────────────────────────────────────────── */
-/* Scoped to the slots wrapper's data-screen-label so this wider chrome does not
-   override the P3-2 Dietary Preferences page, which shares .cfg-wrap/.cfg-head
-   (its own narrower rules live above; the two pages were built independently). */
-.cfg-wrap[data-screen-label] { max-width: 880px; padding: 38px 32px 80px; }
-[data-screen-label] { scroll-margin-top: 80px; }
-
-/* ── page header ───────────────────────────────────────────────────────────── */
-.cfg-wrap[data-screen-label] .cfg-head { margin-bottom: 24px; }
-.cfg-wrap[data-screen-label] .cfg-head .eyebrow {
-  font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase;
-  font-weight: 700; color: var(--color-text-muted); margin-bottom: 9px;
-}
-.cfg-wrap[data-screen-label] .cfg-head h1 {
-  font-size: 30px; letter-spacing: -0.03em; margin: 0 0 7px; font-weight: 700; line-height: 1.1;
-}
-.cfg-wrap[data-screen-label] .cfg-head p {
-  margin: 0; color: var(--color-text-muted); font-size: 15px; line-height: 1.5; max-width: 60ch;
-}
 
 /* ── card header sub-title chip ─────────────────────────────────────────────── */
 .ch-sub {
