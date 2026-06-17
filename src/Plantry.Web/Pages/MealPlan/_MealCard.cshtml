@@ -2,6 +2,10 @@
 @{
     var meal = Model.Meal;
     var isNote = meal.Note is not null;
+    var enr = meal.Enrichment;
+
+    // Fulfillment level class — mirrors PL.lvl() from prototype: >=80 hi, >=50 mid, else lo
+    string FulfLevel(int pct) => pct >= 80 ? "hi" : pct >= 50 ? "mid" : "lo";
 }
 
 <div class="meal-card @(isNote ? "note" : "")"
@@ -34,6 +38,14 @@
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h12a1 1 0 0 1 1 1v14H7a2 2 0 0 0-2 2V3Z" /><path d="M18 18v3H7a2 2 0 0 1-2-2" /><path d="M9 7h5M9 10h5" /></svg>
             </div>
             <div class="mc-photo-scrim"></div>
+            @* Use-soon badge — shown when any ingredient expires within ExpiringSoonDays (P3-4) *@
+            @if (enr is not null && enr.HasExpiringIngredients)
+            {
+                <span class="mc-soon" title="Ingredients expiring soon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+                    Use soon
+                </span>
+            }
         </div>
         <div class="mc-body">
             <div class="mc-dishes">
@@ -47,13 +59,35 @@
             </div>
             <div class="mc-spacer"></div>
             <div class="mc-bodyfoot">
-                @* Fulfillment/cost placeholder until P3-4 *@
-                <span class="mc-fulf">
-                    <span class="fdot" style="background:var(--ink-faint)"></span>
-                    <span>—%</span>
-                </span>
-                <span class="mc-sep"></span>
-                <span class="mc-cost">—</span>
+                @if (enr is not null)
+                {
+                    var lvl = FulfLevel(enr.FulfillmentPercent);
+                    @* Live fulfillment % with colour-coded dot (P3-4) *@
+                    <span class="mc-fulf lvl-@lvl">
+                        <span class="fdot lvl-@(lvl)-bg"></span>
+                        <span>@enr.FulfillmentPercent%</span>
+                    </span>
+                    <span class="mc-sep"></span>
+                    @* Estimated cost (P3-4) *@
+                    @if (enr.TotalCost.HasValue)
+                    {
+                        <span class="mc-cost">@(enr.CostIsPartial ? "~" : "")$@enr.TotalCost.Value.ToString("F2")</span>
+                    }
+                    else
+                    {
+                        <span class="mc-cost" style="color:var(--color-text-faint)">—</span>
+                    }
+                }
+                else
+                {
+                    @* Note meals and empty dishes: no enrichment *@
+                    <span class="mc-fulf">
+                        <span class="fdot" style="background:var(--color-text-faint)"></span>
+                        <span>—%</span>
+                    </span>
+                    <span class="mc-sep"></span>
+                    <span class="mc-cost">—</span>
+                }
             </div>
             @if (meal.EffectiveAttendees.Count > 0)
             {

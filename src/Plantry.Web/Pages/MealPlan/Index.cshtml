@@ -43,8 +43,35 @@
                 <a href="/Settings/Preferences" class="manage-plan-menu__item" role="menuitem" @@click="open = false">Dietary preferences</a>
             </div>
         </div>
-        @* Budget chip — placeholder until P3-4 *@
-        <span class="budget-chip"><b>—</b> / wk</span>
+        @* Budget chip — live weekly cost (P3-4) *@
+        @{
+            var budgetClass = "budget-chip";
+            string weekCostDisplay;
+            if (Model.WeekTotalCost.HasValue)
+            {
+                weekCostDisplay = (Model.WeekCostIsPartial ? "~$" : "$") + Model.WeekTotalCost.Value.ToString("F2");
+            }
+            else
+            {
+                weekCostDisplay = "—";
+            }
+        }
+        <span class="@budgetClass" title="Estimated weekly grocery cost based on planned meals">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+            <b>@weekCostDisplay</b> / wk
+        </span>
+        @* Shop for this week — calls ShopForWeek application service (P3-4) *@
+        <div x-data="shopWeek()" x-init="init(@System.Text.Json.JsonSerializer.Serialize(Model.WeekStart.ToString("yyyy-MM-dd")))">
+            <button type="button" class="btn btn--primary"
+                    :disabled="loading || done"
+                    @@click="shop()"
+                    :title="done ? 'Items added to shopping list' : 'Add all missing planned meal ingredients to the shopping list'">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+                <span x-show="!loading && !done">Shop for this week</span>
+                <span x-show="loading" x-cloak>Adding…</span>
+                <span x-show="done" x-cloak x-text="addedLabel"></span>
+            </button>
+        </div>
         @* Auto-fill — wired in P3-6 *@
         <button type="button" class="btn btn--soft" disabled title="AI auto-fill arrives in a later slice">Auto-fill week</button>
     </div>
@@ -116,6 +143,38 @@
                     swap: 'innerHTML',
                     headers: { 'RequestVerificationToken': document.querySelector('[name=__RequestVerificationToken]')?.value ?? '' }
                 });
+        }
+
+        // Alpine component: "Shop for this week" button (P3-4)
+        function shopWeek() {
+            return {
+                loading: false,
+                done: false,
+                addedLabel: '',
+                weekDate: '',
+                init(week) { this.weekDate = week; },
+                async shop() {
+                    if (this.loading || this.done) return;
+                    this.loading = true;
+                    try {
+                        const token = document.querySelector('[name=__RequestVerificationToken]')?.value ?? '';
+                        const body = new URLSearchParams({ week: this.weekDate, __RequestVerificationToken: token });
+                        const resp = await fetch('/MealPlan?handler=Shop', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'RequestVerificationToken': token },
+                            body: body.toString()
+                        });
+                        if (!resp.ok) throw new Error('Request failed');
+                        const data = await resp.json();
+                        const n = data.itemsAdded ?? 0;
+                        this.addedLabel = n === 0 ? 'Nothing missing' : n === 1 ? '1 item added' : `${n} items added`;
+                        this.done = true;
+                    } catch {
+                        this.loading = false;
+                        alert('Could not add items — please try again.');
+                    }
+                }
+            };
         }
     </script>
     @Html.AntiForgeryToken()

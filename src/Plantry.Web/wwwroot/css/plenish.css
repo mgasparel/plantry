@@ -4281,6 +4281,24 @@ button.sadd svg { width: 13px; height: 13px; }
 .mc-cost { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
 .mc-fulf { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .mc-fulf .fdot { width: 7px; height: 7px; border-radius: 50%; }
+.mc-fulf.lvl-hi { color: var(--color-success); }
+.mc-fulf.lvl-mid { color: var(--color-warning); }
+.mc-fulf.lvl-lo { color: var(--color-danger); }
+.mc-fulf .fdot.lvl-hi-bg { background: var(--color-success); }
+.mc-fulf .fdot.lvl-mid-bg { background: var(--color-warning); }
+.mc-fulf .fdot.lvl-lo-bg { background: var(--color-danger); }
+/* Use-soon badge overlaid on the meal photo */
+.mc-photo { position: relative; }
+.mc-soon {
+  position: absolute; left: 8px; bottom: 7px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 6px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; color: var(--color-warning);
+  background: rgba(255,255,255,.93);
+}
+.mc-soon svg { width: 12px; height: 12px; }
+/* Budget chip — over-budget state */
+.budget-chip.over b { color: var(--color-danger); }
 .mc-bodyfoot .mc-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-faint); flex: none; }
 
 /* note meal card */

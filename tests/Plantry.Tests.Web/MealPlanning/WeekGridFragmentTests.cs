@@ -288,6 +288,22 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
             services.AddScoped<AssignMealService>();
             services.RemoveAll<MoveMealService>();
             services.AddScoped<MoveMealService>();
+
+            // Stub the P3-4 port interfaces so PlanFulfillmentService / PlanCostingService
+            // / ShopForWeekService resolve without real Inventory/Pricing/Shopping infrastructure.
+            services.RemoveAll<IMealPlanStockReader>();
+            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
+            services.RemoveAll<IMealPlanPriceReader>();
+            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
+            services.RemoveAll<IMealPlanShoppingWriter>();
+            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+
+            services.RemoveAll<PlanFulfillmentService>();
+            services.AddScoped<PlanFulfillmentService>();
+            services.RemoveAll<PlanCostingService>();
+            services.AddScoped<PlanCostingService>();
+            services.RemoveAll<ShopForWeekService>();
+            services.AddScoped<ShopForWeekService>();
         });
     }
 }
@@ -396,6 +412,22 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
             services.AddScoped<AssignMealService>();
             services.RemoveAll<MoveMealService>();
             services.AddScoped<MoveMealService>();
+
+            // Stub the P3-4 port interfaces so PlanFulfillmentService / PlanCostingService
+            // / ShopForWeekService resolve without real Inventory/Pricing/Shopping infrastructure.
+            services.RemoveAll<IMealPlanStockReader>();
+            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
+            services.RemoveAll<IMealPlanPriceReader>();
+            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
+            services.RemoveAll<IMealPlanShoppingWriter>();
+            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+
+            services.RemoveAll<PlanFulfillmentService>();
+            services.AddScoped<PlanFulfillmentService>();
+            services.RemoveAll<PlanCostingService>();
+            services.AddScoped<PlanCostingService>();
+            services.RemoveAll<ShopForWeekService>();
+            services.AddScoped<ShopForWeekService>();
         });
     }
 }
@@ -453,6 +485,12 @@ internal sealed class FakeRecipeReader(IReadOnlyList<RecipeReadModel> recipes) :
             .ToList();
         return Task.FromResult<IReadOnlyList<RecipeReadModel>>(results);
     }
+
+    public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid recipeId, int servings, DateOnly today, CancellationToken ct = default)
+        => Task.FromResult<RecipeDishEnrichment?>(null);
+
+    public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
 }
 
 internal sealed class FakeProductReader(IReadOnlyList<MealPlanProductReadModel> products) : IMealPlanCatalogProductReader
@@ -587,6 +625,22 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
             services.AddScoped<AssignMealService>();
             services.RemoveAll<MoveMealService>();
             services.AddScoped<MoveMealService>();
+
+            // Stub the P3-4 port interfaces so PlanFulfillmentService / PlanCostingService
+            // / ShopForWeekService resolve without real Inventory/Pricing/Shopping infrastructure.
+            services.RemoveAll<IMealPlanStockReader>();
+            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
+            services.RemoveAll<IMealPlanPriceReader>();
+            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
+            services.RemoveAll<IMealPlanShoppingWriter>();
+            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+
+            services.RemoveAll<PlanFulfillmentService>();
+            services.AddScoped<PlanFulfillmentService>();
+            services.RemoveAll<PlanCostingService>();
+            services.AddScoped<PlanCostingService>();
+            services.RemoveAll<ShopForWeekService>();
+            services.AddScoped<ShopForWeekService>();
         });
     }
 }
@@ -628,4 +682,24 @@ internal static class HardStanceWarningFixture
         public Task AddAsync(UserPreference preference, CancellationToken ct = default) => Task.CompletedTask;
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
+}
+
+// ── P3-4 null stubs (no-op implementations for WAF factories that don't test enrichment) ────
+
+internal sealed class NullStockReader : IMealPlanStockReader
+{
+    public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult<MealPlanProductStock?>(null);
+}
+
+internal sealed class NullPriceReader : IMealPlanPriceReader
+{
+    public Task<MealPlanPricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult<MealPlanPricePoint?>(null);
+}
+
+internal sealed class NullShoppingWriter : IMealPlanShoppingWriter
+{
+    public Task AddItemsAsync(IEnumerable<MealPlanShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
+        => Task.CompletedTask;
 }
