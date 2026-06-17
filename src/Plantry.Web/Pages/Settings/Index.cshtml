@@ -9,11 +9,14 @@
     <p>Household and meal planning preferences.</p>
 </section>
 
-@* Meal Planning group (catalog-list pattern — mirrors Catalog/Index.cshtml, per the IA decision).
-   P3-1 (plantry-a55) will add the Meal Slots entry here when that slice merges. *@
+@* Meal Planning group (catalog-list pattern — mirrors Catalog/Index.cshtml, per the IA decision). *@
 <section class="catalog-section">
     <h2 class="catalog-section__heading">Meal Planning</h2>
     <ul class="catalog-list" role="list">
+        <li class="catalog-list__item">
+            <a class="catalog-list__primary" href="/Settings/MealSlots">Meal slots</a>
+            <span class="catalog-list__secondary">Configure the daily meals your household plans</span>
+        </li>
         <li class="catalog-list__item">
             <a class="catalog-list__primary" href="/Settings/Preferences">Dietary preferences</a>
             <span class="catalog-list__secondary">Set your stance on food tags — the AI planner reads these to keep meals within everyone&rsquo;s needs</span>

@@ -176,6 +176,7 @@ builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
+builder.Services.AddScoped<ManageSlotsService>();
 builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();
 
 // Meal Planning → Recipes / Identity anti-corruption adapters (P3-2, plantry-e78).

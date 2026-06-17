@@ -43,7 +43,10 @@ public sealed class FakeDataSeeder(
 
         await CreateHouseholdWithUserAsync(
             "The Demo Household", DemoEmail, DemoPassword,
-            new Faker("en") { Random = new Randomizer(42) }, ct);
+            new Faker("en") { Random = new Randomizer(42) }, ct,
+            // Extra members give the demo household a real roster for the meal-slot attendee
+            // picker (J2) and other per-member features. Fixed names keep the seed reproducible.
+            extraMemberNames: ["Sam", "Alex", "Jordan"]);
 
         for (int i = 0; i < 2; i++)
         {
@@ -63,7 +66,8 @@ public sealed class FakeDataSeeder(
     }
 
     private async Task CreateHouseholdWithUserAsync(
-        string householdName, string email, string password, Faker faker, CancellationToken ct)
+        string householdName, string email, string password, Faker faker, CancellationToken ct,
+        string[]? extraMemberNames = null)
     {
         // RegisterHouseholdCommand creates the household and seeds reference data (units,
         // categories, locations). It arms/clears tenant internally for the reference-data inserts.
@@ -89,6 +93,26 @@ public sealed class FakeDataSeeder(
         await userManager.AddClaimAsync(user, new Claim(HouseholdIdClaims.ClaimType, householdId.Value.ToString()));
 
         var userId = Guid.Parse(user.Id);
+
+        // Additional household members. They share the household so they appear in the roster
+        // (IHouseholdMemberReader) used by the meal-slot attendee picker; each can sign in too.
+        var emailDomain = email.Split('@')[^1];
+        foreach (var memberName in extraMemberNames ?? [])
+        {
+            var memberEmail = $"{memberName.ToLowerInvariant()}@{emailDomain}";
+            var member = new AppUser
+            {
+                UserName = memberEmail,
+                Email = memberEmail,
+                DisplayName = memberName,
+                HouseholdId = householdId.Value,
+            };
+            var memberResult = await userManager.CreateAsync(member, password);
+            if (!memberResult.Succeeded)
+                throw new InvalidOperationException(string.Join(", ", memberResult.Errors.Select(e => e.Description)));
+
+            await userManager.AddClaimAsync(member, new Claim(HouseholdIdClaims.ClaimType, householdId.Value.ToString()));
+        }
 
         // Arm both the Postgres GUC (via TenantContext → interceptor) and the EF query filter
         // (via SetHouseholdId), mirroring what RlsMiddleware does for authenticated requests.

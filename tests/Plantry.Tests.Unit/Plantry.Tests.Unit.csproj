@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Plantry.Identity\Plantry.Identity.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Catalog\Plantry.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Inventory\Plantry.Inventory.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.MealPlanning\Plantry.MealPlanning.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Pricing\Plantry.Pricing.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Shopping\Plantry.Shopping.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Intake\Plantry.Intake.csproj" />

@@ -1013,6 +1013,7 @@ button { font-family: inherit; cursor: pointer; }
   overflow: hidden;
   margin-bottom: 15px;
 }
+.card--overflow-visible { overflow: visible; }
 
 .card__head {
   display: flex;
@@ -4112,3 +4113,218 @@ button.sadd svg { width: 13px; height: 13px; }
   .cfg-wrap { padding: var(--space-4) var(--space-3); }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   P3-1 — Settings / Meal Slots config screen
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── config page wrapper ───────────────────────────────────────────────────── */
+/* Scoped to the slots wrapper's data-screen-label so this wider chrome does not
+   override the P3-2 Dietary Preferences page, which shares .cfg-wrap/.cfg-head
+   (its own narrower rules live above; the two pages were built independently). */
+.cfg-wrap[data-screen-label] { max-width: 880px; padding: 38px 32px 80px; }
+[data-screen-label] { scroll-margin-top: 80px; }
+
+/* ── page header ───────────────────────────────────────────────────────────── */
+.cfg-wrap[data-screen-label] .cfg-head { margin-bottom: 24px; }
+.cfg-wrap[data-screen-label] .cfg-head .eyebrow {
+  font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  font-weight: 700; color: var(--color-text-muted); margin-bottom: 9px;
+}
+.cfg-wrap[data-screen-label] .cfg-head h1 {
+  font-size: 30px; letter-spacing: -0.03em; margin: 0 0 7px; font-weight: 700; line-height: 1.1;
+}
+.cfg-wrap[data-screen-label] .cfg-head p {
+  margin: 0; color: var(--color-text-muted); font-size: 15px; line-height: 1.5; max-width: 60ch;
+}
+
+/* ── card header sub-title chip ─────────────────────────────────────────────── */
+.ch-sub {
+  font-size: var(--font-size-sm); color: var(--color-text-muted); margin-left: var(--space-2);
+  font-weight: 500;
+}
+
+/* ── avatar ──────────────────────────────────────────────────────────────────── */
+.pl-av {
+  display: inline-grid; place-items: center; border-radius: 7px; flex: none;
+  font-weight: 700; letter-spacing: -0.01em; line-height: 1;
+  background: var(--color-surface-2); color: var(--color-text-muted);
+}
+/* Per-member colour palette — assigned by member index mod 8 */
+.pl-av[data-av-color="0"] { background: #d5e4d8; color: #2d5433; }
+.pl-av[data-av-color="1"] { background: #dde3ed; color: #2e4570; }
+.pl-av[data-av-color="2"] { background: #f0e2d0; color: #7a4718; }
+.pl-av[data-av-color="3"] { background: #e8d8d6; color: #7a2e25; }
+.pl-av[data-av-color="4"] { background: #dce0ea; color: #3e4a6e; }
+.pl-av[data-av-color="5"] { background: #e4dff0; color: #4e3878; }
+.pl-av[data-av-color="6"] { background: #f0e8d2; color: #6b5420; }
+.pl-av[data-av-color="7"] { background: #d8e8e0; color: #245040; }
+
+/* ── slots list ─────────────────────────────────────────────────────────────── */
+.slots-list { display: flex; flex-direction: column; gap: 0; }
+
+.slot-card {
+  display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 14px;
+  padding: 14px 16px 14px 8px; background: var(--color-surface);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  transition: border-color .14s, box-shadow .14s, transform .12s, opacity .12s;
+}
+.slot-card:hover { border-color: var(--color-border-subtle); }
+.slot-card.dragging { opacity: .45; }
+.slot-card.drop-target {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+.slot-card.flash {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+/* ── drag handle ─────────────────────────────────────────────────────────────── */
+.slot-grip {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  color: var(--color-text-faint); cursor: grab; align-self: stretch; justify-content: center;
+  border-radius: var(--radius-sm); transition: color .12s, background .12s;
+}
+.slot-grip:hover { color: var(--color-text-muted); background: var(--color-surface-2); }
+.slot-grip:active { cursor: grabbing; }
+.slot-grip svg { width: 18px; height: 18px; }
+
+/* ── slot identity: ordinal + label + attendees ──────────────────────────────── */
+.slot-id { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.slot-id-top { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.slot-ord {
+  width: 22px; height: 22px; border-radius: 6px; flex: none; display: grid; place-items: center;
+  font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--color-surface-2); color: var(--color-text-faint);
+}
+.slot-name-input {
+  font-family: inherit; font-size: 17px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--color-text); background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius-sm); padding: 3px 8px; margin: -3px 0; min-width: 0; width: 100%;
+  max-width: 320px; transition: background .12s, border-color .12s;
+}
+.slot-name-input:hover { background: var(--color-surface-2); }
+.slot-name-input:focus {
+  outline: none; background: var(--color-surface);
+  border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+/* ── attendees row ──────────────────────────────────────────────────────────── */
+.slot-att {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-left: 33px;
+}
+.att-trigger {
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 5px; white-space: nowrap;
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text-muted); border-radius: 999px;
+  font-size: 12.5px; font-weight: 600; transition: all .12s; cursor: pointer;
+}
+.att-trigger:hover {
+  border-color: var(--color-accent); background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+.att-stack { display: inline-flex; align-items: center; }
+.att-stack .pl-av { box-shadow: 0 0 0 2px var(--color-surface); }
+.att-stack .pl-av + .pl-av { margin-left: -7px; }
+.att-trigger .att-label { display: inline-flex; align-items: center; gap: 6px; }
+.att-trigger.empty { color: var(--color-text-faint); border-style: dashed; }
+.att-trigger svg { width: 14px; height: 14px; opacity: .8; }
+
+/* ── attendee popover ──────────────────────────────────────────────────────── */
+.att-pop-wrap { position: relative; }
+.att-pop {
+  position: absolute; top: calc(100% + 7px); left: 0; z-index: 30; width: 248px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+  padding: 7px; animation: popin .14s cubic-bezier(.4,0,.2,1);
+}
+@keyframes popin {
+  from { opacity: 0; transform: translateY(-5px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+.att-pop-head {
+  font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 700;
+  color: var(--color-text-faint); padding: 6px 9px 7px;
+}
+.att-opt {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  padding: 8px 9px; border-radius: var(--radius-sm); border: none; background: none;
+  font-size: 14px; font-weight: 600; color: var(--color-text); transition: background .1s;
+  cursor: pointer;
+}
+.att-opt:hover { background: var(--color-surface-2); }
+.att-opt .ao-name { flex: 1; min-width: 0; }
+.att-check {
+  width: 20px; height: 20px; border-radius: 6px; flex: none; display: grid; place-items: center;
+  border: 1.5px solid var(--color-border); color: transparent; transition: all .12s;
+}
+.att-opt[data-on="1"] .att-check {
+  background: var(--color-accent); border-color: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+.att-check svg { width: 13px; height: 13px; }
+
+/* ── row actions ────────────────────────────────────────────────────────────── */
+.slot-acts { display: flex; align-items: center; gap: 4px; flex: none; align-self: start; }
+.slot-reorder { display: flex; flex-direction: column; gap: 1px; }
+.slot-mini {
+  width: 30px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center;
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text-muted); transition: all .12s; cursor: pointer;
+}
+.slot-mini:first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-bottom: none; }
+.slot-mini:last-child { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.slot-mini:hover:not(:disabled) { background: var(--color-surface-2); color: var(--color-text); }
+.slot-mini:disabled { color: var(--color-border); cursor: not-allowed; }
+.slot-mini svg { width: 14px; height: 14px; }
+.slot-del {
+  width: 34px; height: 34px; border-radius: var(--radius-sm); display: grid; place-items: center;
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text-faint); transition: all .12s; margin-left: 2px; cursor: pointer;
+}
+.slot-del:hover {
+  background: var(--color-danger-bg);
+  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+  color: var(--color-danger);
+}
+.slot-del svg { width: 16px; height: 16px; }
+
+/* ── add-slot affordance ─────────────────────────────────────────────────────── */
+.slot-add {
+  display: flex; align-items: center; gap: 10px; margin-top: 4px;
+  padding: 6px; border: 1px dashed var(--color-border); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
+  transition: border-color .14s, background .14s;
+}
+.slot-add:focus-within {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+.slot-add .sa-mark {
+  width: 30px; height: 30px; border-radius: var(--radius-sm); display: grid; place-items: center;
+  background: var(--color-surface-2); color: var(--color-text-faint); flex: none; margin-left: 4px;
+}
+.slot-add .sa-mark svg { width: 17px; height: 17px; }
+.slot-add input {
+  flex: 1; min-width: 0; font-family: inherit; font-size: 15px; font-weight: 600;
+  color: var(--color-text); background: transparent; border: none; outline: none; padding: 8px 4px;
+}
+.slot-add input::placeholder { color: var(--color-text-faint); font-weight: 500; }
+
+/* ── empty state (no active slots) ──────────────────────────────────────────── */
+.slots-empty { text-align: center; padding: 40px 20px 36px; }
+.slots-empty .se-mark {
+  width: 50px; height: 50px; border-radius: 50%; margin: 0 auto 13px; display: grid; place-items: center;
+  background: var(--color-accent-subtle); color: var(--color-accent);
+}
+.slots-empty .se-mark svg { width: 25px; height: 25px; }
+.slots-empty .se-t { font-size: 15px; font-weight: 700; }
+.slots-empty .se-s { font-size: 13px; color: var(--color-text-faint); margin-top: 4px; }
+
+/* ── foot caption ──────────────────────────────────────────────────────────── */
+.cfg-foot-note {
+  display: flex; align-items: flex-start; gap: 9px; margin-top: 16px; padding: 0 4px;
+  font-size: 13px; color: var(--color-text-faint); line-height: 1.5;
+}
+.cfg-foot-note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
