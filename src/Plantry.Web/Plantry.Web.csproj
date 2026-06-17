@@ -35,6 +35,8 @@
     <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Recipes\Plantry.Recipes.csproj" />
     <ProjectReference Include="..\Plantry.Recipes.Infrastructure\Plantry.Recipes.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.MealPlanning\Plantry.MealPlanning.csproj" />
+    <ProjectReference Include="..\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.ServiceDefaults\Plantry.ServiceDefaults.csproj" />
   </ItemGroup>
 
