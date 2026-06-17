@@ -39,6 +39,17 @@ using Plantry.Web.Tenancy;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+
+// Session support — required for IPendingProposalStore store keys (P3-6a).
+// Uses in-process distributed memory cache (single-server; no Redis needed for Phase 3).
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(opts =>
+{
+    opts.IdleTimeout = TimeSpan.FromHours(2);
+    opts.Cookie.HttpOnly = true;
+    opts.Cookie.IsEssential = true;
+});
+
 builder.Services.AddRazorPages(options =>
 {
     // Explicit create-recipe route: the page-level route "/Recipes/{id:guid?}/Edit" only matches when
@@ -213,6 +224,22 @@ builder.Services.AddScoped<PlanFulfillmentService>();
 builder.Services.AddScoped<PlanCostingService>();
 builder.Services.AddScoped<ShopForWeekService>();
 
+// Meal Planning — P3-6a AI generate plan (plantry-o0z).
+// GeneratePlanService orchestrates slot discovery, constraint resolution, candidate loading,
+// IMealPlanner call (untrusted), ProposalAcl validation, and IPendingProposalStore staging.
+// AcceptProposalService handles user acceptance/rejection of staged proposals.
+// IPendingProposalStore is keyed by {householdId}_{weekStart}_{sessionId} (session must be wired above).
+builder.Services.AddScoped<GeneratePlanService>();
+builder.Services.AddScoped<AcceptProposalService>();
+builder.Services.AddScoped<IPendingProposalStore, DistributedCachePendingProposalStore>();
+
+// IMealPlanner: FakeMealPlanner for test/no-key, real AI otherwise.
+if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseFakePlanner")
+    || string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IMealPlanner, FakeMealPlanner>();
+else
+    builder.Services.AddScoped<IMealPlanner, MealPlannerAiService>();
+
 // Shopping → Catalog ACL adapter (P2-Sc). ShoppingCatalogReaderAdapter implements the Shopping
 // anti-corruption port over Catalog repositories so Shopping.Application never takes a direct
 // dependency on the Catalog EF context (Gate 2). ShoppingListQueryService assembles the read model.
@@ -371,6 +398,7 @@ app.UseDevPagesGate();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRls();

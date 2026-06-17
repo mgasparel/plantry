@@ -3,10 +3,11 @@
     var cellId = $"cell-{Model.SlotId.Value:N}-{Model.Date:yyyy-MM-dd}";
     var dateIso = Model.Date.ToString("yyyy-MM-dd");
     var slotId = Model.SlotId.Value;
+    var hasGhost = Model.Meals.Count == 0 && Model.PendingProposal is not null;
 }
 
 <div id="@cellId"
-     class="mcell @(Model.Meals.Count > 0 ? "filled" : "empty")"
+     class="mcell @(Model.Meals.Count > 0 ? "filled" : hasGhost ? "ghost" : "empty")"
      ondragover="onDragOver(event)"
      ondragleave="onDragLeave(event)"
      ondrop="onDrop(event, '@dateIso', '@slotId')">
@@ -77,6 +78,13 @@
             </div>
         }
     }
+    else if (hasGhost)
+    {
+        @* Ghost cell: AI-suggested proposal awaiting user acceptance *@
+        @await Html.PartialAsync("_GhostCell", new Plantry.Web.Pages.MealPlan.IndexModel.GhostCellVm(
+            Model.Date, Model.SlotId, Model.SlotLabel, Model.PendingProposal!,
+            Model.GhostDishNames ?? Model.PendingProposal!.Dishes.Select(_ => "Recipe").ToList()))
+    }
     else
     {
         <div class="empty-acts">
@@ -87,7 +95,7 @@
                     aria-label="Add meal">
                 <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
             </button>
-            <button class="empty-auto" disabled title="Auto-fill arrives in P3-6" tabindex="-1">
+            <button class="empty-auto" disabled title="Use Auto-fill week to fill this cell" tabindex="-1">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 Auto-fill
             </button>

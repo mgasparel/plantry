@@ -70,6 +70,73 @@ public sealed class MealConstraintResolver
             EffectiveAttendees: [..effectiveAttendees],
             HardStanceWarning: warning);
     }
+
+    /// <summary>
+    /// Resolves the generation constraints for an empty meal slot cell.
+    /// Returns the effective attendees, hard-stance unions (Required/Restricted), and soft-bias averages.
+    /// Used by the AI generation path — see <see cref="GenerationConstraints"/>.
+    /// </summary>
+    /// <param name="slotId">The meal slot ID being filled.</param>
+    /// <param name="slotConfig">The slot (supplies DefaultAttendees).</param>
+    /// <param name="preferences">All UserPreference records for the household.</param>
+    /// <returns>The resolved constraints for AI generation.</returns>
+    public GenerationConstraints ResolveForGeneration(
+        MealSlotId slotId,
+        MealSlot slotConfig,
+        IReadOnlyList<UserPreference> preferences)
+    {
+        var defaultAttendees = slotConfig.DefaultAttendees;
+        if (defaultAttendees.Count == 0)
+            return GenerationConstraints.Empty;
+
+        var attendeePrefs = preferences
+            .Where(p => defaultAttendees.Contains(p.UserId))
+            .ToList();
+
+        // Hard stance unions across all attendees
+        var requiredTagIds = new HashSet<Guid>();
+        var restrictedTagIds = new HashSet<Guid>();
+
+        foreach (var pref in attendeePrefs)
+        {
+            foreach (var ts in pref.TagStances)
+            {
+                if (ts.Stance == "Required")   requiredTagIds.Add(ts.TagId);
+                if (ts.Stance == "Restricted") restrictedTagIds.Add(ts.TagId);
+            }
+        }
+
+        // Soft bias: average weight per tag across all attendees
+        // Preferred = +1, Disliked = -1 (absent = 0, normalised by attendee count)
+        var attendeeCount = defaultAttendees.Count;
+        var tagWeightSums = new Dictionary<Guid, float>();
+
+        foreach (var pref in attendeePrefs)
+        {
+            foreach (var ts in pref.TagStances)
+            {
+                if (ts.Stance is not ("Preferred" or "Disliked"))
+                    continue;
+
+                var delta = ts.Stance == "Preferred" ? 1f : -1f;
+                tagWeightSums[ts.TagId] = tagWeightSums.GetValueOrDefault(ts.TagId) + delta;
+            }
+        }
+
+        var preferredTagWeights = new Dictionary<Guid, float>();
+        foreach (var (tagId, sum) in tagWeightSums)
+        {
+            var avg = sum / attendeeCount;
+            if (avg != 0f)
+                preferredTagWeights[tagId] = avg;
+        }
+
+        return new GenerationConstraints(
+            EffectiveAttendees: [..defaultAttendees],
+            RequiredTagIds: requiredTagIds,
+            RestrictedTagIds: restrictedTagIds,
+            PreferredTagWeights: preferredTagWeights);
+    }
 }
 
 /// <summary>The resolved constraint set for a meal assignment.</summary>

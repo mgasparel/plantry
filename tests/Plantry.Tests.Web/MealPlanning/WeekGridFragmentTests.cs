@@ -304,6 +304,16 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
             services.AddScoped<PlanCostingService>();
             services.RemoveAll<ShopForWeekService>();
             services.AddScoped<ShopForWeekService>();
+
+            // P3-6a: stub AI planner + proposal store
+            services.RemoveAll<IMealPlanner>();
+            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
+            services.RemoveAll<IPendingProposalStore>();
+            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
+            services.RemoveAll<GeneratePlanService>();
+            services.AddScoped<GeneratePlanService>();
+            services.RemoveAll<AcceptProposalService>();
+            services.AddScoped<AcceptProposalService>();
         });
     }
 }
@@ -428,6 +438,20 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
             services.AddScoped<PlanCostingService>();
             services.RemoveAll<ShopForWeekService>();
             services.AddScoped<ShopForWeekService>();
+
+            // P3-6a: stub AI planner, proposal store, and application services
+            services.RemoveAll<IMealPlanner>();
+            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
+            services.RemoveAll<IPendingProposalStore>();
+            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
+            services.RemoveAll<GeneratePlanService>();
+            services.AddScoped<GeneratePlanService>();
+            services.RemoveAll<AcceptProposalService>();
+            services.AddScoped<AcceptProposalService>();
+
+            // Stub UserPreferences (needed by AcceptProposalService / GeneratePlanService)
+            services.RemoveAll<IUserPreferenceRepository>();
+            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
         });
     }
 }
@@ -641,6 +665,16 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
             services.AddScoped<PlanCostingService>();
             services.RemoveAll<ShopForWeekService>();
             services.AddScoped<ShopForWeekService>();
+
+            // P3-6a: stub AI planner + proposal store
+            services.RemoveAll<IMealPlanner>();
+            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
+            services.RemoveAll<IPendingProposalStore>();
+            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
+            services.RemoveAll<GeneratePlanService>();
+            services.AddScoped<GeneratePlanService>();
+            services.RemoveAll<AcceptProposalService>();
+            services.AddScoped<AcceptProposalService>();
         });
     }
 }
@@ -682,6 +716,37 @@ internal static class HardStanceWarningFixture
         public Task AddAsync(UserPreference preference, CancellationToken ct = default) => Task.CompletedTask;
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
+}
+
+// ── P3-6a null stubs (no-op implementations for WAF factories that don't test AI generation) ────
+
+internal sealed class NullMealPlanner : IMealPlanner
+{
+    public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
+        IReadOnlyList<PlannerMealSlotContext> slotsContext,
+        PlanningWeights weights,
+        CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
+}
+
+internal sealed class NullPendingProposalStore : IPendingProposalStore
+{
+    public Task<IReadOnlyList<ProposedMeal>> GetAsync(string storeKey, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
+    public Task SetAsync(string storeKey, IReadOnlyList<ProposedMeal> proposals, CancellationToken ct = default)
+        => Task.CompletedTask;
+    public Task RemoveAsync(string storeKey, DateOnly date, MealSlotId slotId, CancellationToken ct = default)
+        => Task.CompletedTask;
+    public Task ClearAsync(string storeKey, CancellationToken ct = default)
+        => Task.CompletedTask;
+}
+
+internal sealed class NullPrefsRepo : IUserPreferenceRepository
+{
+    public Task<UserPreference?> FindByUserIdAsync(Guid userId, CancellationToken ct = default)
+        => Task.FromResult<UserPreference?>(null);
+    public Task AddAsync(UserPreference preference, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 // ── P3-4 null stubs (no-op implementations for WAF factories that don't test enrichment) ────

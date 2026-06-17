@@ -8,12 +8,22 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageReference Include="OpenAI" Version="2.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" Version="10.*" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.MealPlanning\Plantry.MealPlanning.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
     <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />
+    <!-- AiOptions lives in Plantry.Intake.Infrastructure (shared AI config) -->
+    <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exposes MealPlannerAiService.MapResponse for L1 fixture-based tests (no live API). -->
+    <InternalsVisibleTo Include="Plantry.Tests.Unit" />
   </ItemGroup>
 
 </Project>
