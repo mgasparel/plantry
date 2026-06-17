@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Plantry.MealPlanning.Application;
+using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
 
@@ -8,9 +9,15 @@ namespace Plantry.Web.MealPlanning;
 /// <summary>
 /// Web-side adapter for <see cref="IRecipeReadModel"/> — supplies the MealPlanning context with
 /// recipe display facts from the Recipes context, over <see cref="RecipesDbContext"/>.
+/// Also computes live fulfillment/cost enrichment by invoking Recipes' domain services
+/// (<see cref="FulfillmentService"/> / <see cref="CostingService"/>) — MealPlanning borrows
+/// these computations and rolls them up, never reimplements them (domain-model §1).
 /// Lives in Plantry.Web (the composition root) to keep MealPlanning free of Recipes dependencies.
 /// </summary>
-public sealed class RecipeReadModelAdapter(RecipesDbContext db) : IRecipeReadModel
+public sealed class RecipeReadModelAdapter(
+    RecipesDbContext db,
+    FulfillmentService fulfillmentService,
+    CostingService costingService) : IRecipeReadModel
 {
     public async Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
     {
@@ -49,5 +56,93 @@ public sealed class RecipeReadModelAdapter(RecipesDbContext db) : IRecipeReadMod
             r.Name,
             r.Tags.Select(t => t.TagId.Value).ToList(),
             r.DefaultServings)).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<RecipeDishEnrichment?> GetEnrichmentAsync(
+        Guid recipeId,
+        int servings,
+        DateOnly today,
+        CancellationToken ct = default)
+    {
+        var rid = RecipeId.From(recipeId);
+        var recipe = await db.Recipes
+            .Include(r => r.Ingredients)
+            .FirstOrDefaultAsync(r => r.Id == rid && r.ArchivedAt == null, ct);
+
+        if (recipe is null) return null;
+
+        // Borrow Recipes' domain services — MealPlanning rolls up, never recomputes.
+        var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
+        var cost = await costingService.ComputeAsync(recipe, servings, ct);
+
+        // Compute fulfillment % from the ingredient-level results.
+        // Untracked staples are excluded (always satisfied, C12). Only tracked lines contribute.
+        var trackedLines = fulfillment.Lines
+            .Where(l => l.Status != IngredientStatus.Untracked)
+            .ToList();
+
+        int pct;
+        if (trackedLines.Count == 0)
+        {
+            // No tracked ingredients → treat as 100% (untracked-only recipe is always cookable).
+            pct = 100;
+        }
+        else
+        {
+            var inStockCount = trackedLines.Count(l => l.Status == IngredientStatus.InStock);
+            pct = (int)Math.Round(100.0 * inStockCount / trackedLines.Count);
+        }
+
+        var hasExpiring = fulfillment.Lines
+            .Any(l => l.ExpiresWithinDays.HasValue);
+
+        // TotalCost = CostPerServing.Amount × servings (Amount is per-serving; we want the total).
+        decimal? totalCost = cost.Amount.HasValue ? cost.Amount.Value * servings : null;
+
+        return new RecipeDishEnrichment(
+            pct,
+            totalCost,
+            cost.Completeness == CostCompleteness.Partial,
+            hasExpiring);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(
+        Guid recipeId,
+        int servings,
+        CancellationToken ct = default)
+    {
+        var rid = RecipeId.From(recipeId);
+        var recipe = await db.Recipes
+            .Include(r => r.Ingredients)
+            .FirstOrDefaultAsync(r => r.Id == rid && r.ArchivedAt == null, ct);
+
+        if (recipe is null) return [];
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
+        var scale = (decimal)servings / recipe.DefaultServings;
+
+        var missing = new List<RecipeMissingIngredient>();
+        foreach (var line in fulfillment.Lines)
+        {
+            if (line.Status is not (IngredientStatus.Missing or IngredientStatus.Low))
+                continue;
+
+            // Find the corresponding ingredient to get product/unit/quantity.
+            var ingredient = recipe.Ingredients.FirstOrDefault(i => i.Id == line.IngredientId);
+            if (ingredient?.Quantity is null || ingredient.UnitId is null)
+                continue; // untracked staple or malformed — skip
+
+            // Compute the required quantity at planned servings, minus what's already available.
+            var required = ingredient.Quantity.Value * scale;
+            var available = line.AvailableQuantity ?? 0m;
+            var needed = Math.Max(0m, required - available);
+            if (needed > 0m)
+                missing.Add(new RecipeMissingIngredient(ingredient.ProductId, needed, ingredient.UnitId.Value));
+        }
+
+        return missing;
     }
 }

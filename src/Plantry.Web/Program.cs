@@ -200,6 +200,19 @@ builder.Services.AddScoped<MealConstraintResolver>();
 builder.Services.AddScoped<AssignMealService>();
 builder.Services.AddScoped<MoveMealService>();
 
+// Meal Planning — P3-4 roll-up + Shop for the week (plantry-ux2).
+// IMealPlanStockReader / IMealPlanPriceReader are MealPlanning-owned ACL ports onto the same
+// Inventory / Pricing stack used by Recipes — separate interface copies per context (DM-3).
+// IMealPlanShoppingWriter wraps Shopping's AddItemCommand with source="meal_plan" (DM-18).
+// PlanFulfillmentService / PlanCostingService are stateless domain services that roll up
+// Recipes' enrichment across a meal's dishes — MealPlanning never recomputes these (domain-model §1).
+builder.Services.AddScoped<IMealPlanStockReader, MealPlanStockReaderAdapter>();
+builder.Services.AddScoped<IMealPlanPriceReader, MealPlanPriceReaderAdapter>();
+builder.Services.AddScoped<IMealPlanShoppingWriter, MealPlanShoppingWriterAdapter>();
+builder.Services.AddScoped<PlanFulfillmentService>();
+builder.Services.AddScoped<PlanCostingService>();
+builder.Services.AddScoped<ShopForWeekService>();
+
 // Shopping → Catalog ACL adapter (P2-Sc). ShoppingCatalogReaderAdapter implements the Shopping
 // anti-corruption port over Catalog repositories so Shopping.Application never takes a direct
 // dependency on the Catalog EF context (Gate 2). ShoppingListQueryService assembles the read model.

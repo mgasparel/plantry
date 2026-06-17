@@ -18,6 +18,9 @@ public sealed class IndexModel(
     IMealSlotConfigRepository slotConfigRepo,
     AssignMealService assignService,
     MoveMealService moveService,
+    ShopForWeekService shopForWeekService,
+    PlanFulfillmentService fulfillmentService,
+    PlanCostingService costingService,
     IRecipeReadModel recipeReader,
     IMealPlanCatalogProductReader catalogReader,
     IHouseholdMemberReader memberReader,
@@ -38,6 +41,12 @@ public sealed class IndexModel(
 
     /// <summary>All planned meals for this week, keyed by "date_slotId".</summary>
     public Dictionary<string, List<MealCellVm>> MealsByCell { get; private set; } = [];
+
+    /// <summary>Rolled-up week cost for the budget chip. Null when no pricing data available.</summary>
+    public decimal? WeekTotalCost { get; private set; }
+
+    /// <summary>True when any week cost was computed with partial pricing data.</summary>
+    public bool WeekCostIsPartial { get; private set; }
 
     // ── GET ───────────────────────────────────────────────────────────────────
 
@@ -192,6 +201,26 @@ public sealed class IndexModel(
         return Partial("_WeekGrid", this);
     }
 
+    // ── Shop for this week POST ──────────────────────────────────────────────
+
+    public async Task<IActionResult> OnPostShopAsync(CancellationToken ct = default)
+    {
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var weekStart = DomainMealPlan.NormalizeToMonday(today);
+
+        // Allow the week query param to be forwarded so "shop for another week" works too.
+        // The week comes from the form's hidden field emitted by the grid.
+        if (Request.Form.TryGetValue("week", out var weekStr) &&
+            DateOnly.TryParse(weekStr, out var parsed))
+        {
+            weekStart = DomainMealPlan.NormalizeToMonday(parsed);
+        }
+
+        var result = await shopForWeekService.ExecuteAsync(householdId, weekStart, ct);
+        return new JsonResult(new { itemsAdded = result.ItemsAdded });
+    }
+
     // ── Search fragments ─────────────────────────────────────────────────────
 
     public async Task<IActionResult> OnGetSearchAsync(string q, CancellationToken ct = default)
@@ -242,13 +271,18 @@ public sealed class IndexModel(
 
         HasSlots = Slots.Count > 0;
 
-        // Load planned meals for this week
+        // Load planned meals for this week, enriched with live fulfillment and cost.
         if (HasSlots)
         {
             var plan = await mealPlanRepo.FindByWeekAsync(householdId, WeekStart, ct);
 
             if (plan is not null)
             {
+                // Compute week-level cost roll-up for the budget chip.
+                var weekCost = await costingService.RollUpWeekAsync(plan, ct);
+                WeekTotalCost = weekCost.Amount;
+                WeekCostIsPartial = weekCost.Completeness == CostCompleteness.Partial;
+
                 foreach (var meal in plan.PlannedMeals)
                 {
                     var key = CellKey(meal.Date, meal.MealSlotId);
@@ -274,7 +308,20 @@ public sealed class IndexModel(
                         }
                     }
 
-                    list.Add(new MealCellVm(meal.Id.Value, meal.Note, dishNames, meal.AttendeesOverride ?? []));
+                    // Compute per-meal fulfillment and cost enrichment.
+                    MealFulfillmentVm? enrichment = null;
+                    if (meal.Note is null && meal.PlannedDishes.Count > 0)
+                    {
+                        var fulfillment = await fulfillmentService.RollUpMealAsync(meal, today, ct);
+                        var mealCost = await costingService.RollUpMealAsync(meal, ct);
+                        enrichment = new MealFulfillmentVm(
+                            fulfillment.FulfillmentPercent,
+                            fulfillment.HasExpiringIngredients,
+                            mealCost.Amount,
+                            mealCost.Completeness == CostCompleteness.Partial);
+                    }
+
+                    list.Add(new MealCellVm(meal.Id.Value, meal.Note, dishNames, meal.AttendeesOverride ?? [], enrichment));
                 }
             }
         }
@@ -335,7 +382,20 @@ public sealed class IndexModel(
 
     public sealed record DayColumn(string DayName, string DateLabel, string DateIso, bool IsToday);
     public sealed record SlotRow(MealSlotId Id, string Label, List<Guid> DefaultAttendees);
-    public sealed record MealCellVm(Guid MealId, string? Note, List<string> DishNames, List<Guid> EffectiveAttendees);
+
+    /// <summary>Per-meal fulfillment/cost enrichment for the grid cell (P3-4).</summary>
+    public sealed record MealFulfillmentVm(
+        int FulfillmentPercent,
+        bool HasExpiringIngredients,
+        decimal? TotalCost,
+        bool CostIsPartial);
+
+    public sealed record MealCellVm(
+        Guid MealId,
+        string? Note,
+        List<string> DishNames,
+        List<Guid> EffectiveAttendees,
+        MealFulfillmentVm? Enrichment = null);
 
     public sealed record MealEditorVm(
         Guid? MealId,
