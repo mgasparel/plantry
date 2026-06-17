@@ -3827,3 +3827,288 @@ button.sadd svg { width: 13px; height: 13px; }
 
 /* Ensure plan-main fills the page content area */
 .page-content--full { padding: 0 !important; overflow: hidden; }
+
+/* ── P3-2 Dietary Preferences — cfg-wrap, cfg-head ────────────────────────── */
+/* Config-page chrome (matches ClaudeDesignProto/prefs.jsx .cfg-wrap + .cfg-head). */
+.cfg-wrap {
+  max-width: 680px;
+  padding: var(--space-6) var(--space-4);
+  margin: 0 auto;
+}
+
+.cfg-head { margin-bottom: var(--space-6); }
+.cfg-head__eyebrow {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+.cfg-head__title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 var(--space-3);
+  line-height: 1.15;
+}
+.cfg-head__desc {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* ── Member tab strip ─────────────────────────────────────────────────────── */
+.mem-tabs {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+.mem-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: 999px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg-subtle);
+  cursor: default;
+  user-select: none;
+}
+.mem-tab--on {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+.mem-tab__avatar {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  font-size: 11px; font-weight: 700;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.mem-tab__name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.mem-tab__you {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  padding: 1px 5px;
+  border-radius: 999px;
+}
+
+/* ── Scale legend ─────────────────────────────────────────────────────────── */
+.scale-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-subtle);
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  margin-bottom: var(--space-4);
+}
+.scale-legend__title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.scale-legend__arrow {
+  width: 0; height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+/* Legend chips mirror the stance segment tones */
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  padding: 3px 10px 3px 6px;
+  border-radius: 999px;
+}
+.legend-chip__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.legend-chip__binding {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: .75;
+}
+.legend-chip--good       { background: var(--color-success-bg); color: var(--color-success); }
+.legend-chip--good       .legend-chip__dot { background: var(--color-success); }
+.legend-chip--good-soft  { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: color-mix(in srgb, var(--color-success) 78%, var(--color-text-muted)); }
+.legend-chip--good-soft  .legend-chip__dot { background: color-mix(in srgb, var(--color-success) 60%, var(--color-bg)); }
+.legend-chip--neutral    { background: var(--color-bg-subtle); color: var(--color-text-muted); }
+.legend-chip--neutral    .legend-chip__dot { background: var(--color-text-faint); }
+.legend-chip--warn       { background: var(--color-warning-bg); color: var(--color-warning); }
+.legend-chip--warn       .legend-chip__dot { background: var(--color-warning); }
+.legend-chip--bad        { background: var(--color-danger-bg); color: var(--color-danger); }
+.legend-chip--bad        .legend-chip__dot { background: var(--color-danger); }
+
+/* ── Progress meta line ───────────────────────────────────────────────────── */
+.prefs-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+}
+.prefs-meta__name { font-weight: 600; color: var(--color-text); }
+.prefs-meta__dot {
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--color-text-faint);
+  flex-shrink: 0;
+}
+.reset-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  margin-left: auto;
+}
+.reset-link:hover { color: var(--color-accent-hover); }
+.reset-link:disabled { color: var(--color-text-faint); text-decoration: none; cursor: default; }
+
+/* ── Tag category card ────────────────────────────────────────────────────── */
+.tag-cat {
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-surface, var(--color-bg));
+}
+.tag-cat__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-subtle);
+}
+.tag-cat__dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.tag-cat__name {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+.tag-cat__count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.tag-rows { display: flex; flex-direction: column; }
+
+/* ── Tag row — canonical component (StanceScale + tag-row) ───────────────── */
+/* Documented in Dev component library (src/Plantry.Web/Pages/Dev/Index.cshtml). */
+.tag-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+  flex-wrap: wrap;
+}
+.tag-row:last-child { border-bottom: none; }
+.tag-row--touched { background: color-mix(in srgb, var(--color-accent) 3%, transparent); }
+
+.tag-row__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 120px;
+}
+.tag-row__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-faint);
+  flex-shrink: 0;
+}
+.tag-row__label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+.tag-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-success);
+  padding: 2px 7px;
+  background: var(--color-success-bg);
+  border-radius: 999px;
+  animation: fade-in .1s ease;
+}
+
+/* ── StanceScale segmented control — canonical component ─────────────────── */
+/* 5 mutually-exclusive stance segments. Documented in Dev component library.  */
+.stance {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.stance-seg {
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1.5px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  transition: all .1s;
+  white-space: nowrap;
+}
+.stance-seg:hover { border-color: var(--color-border); color: var(--color-text); }
+
+/* Tonal selected states */
+.stance-seg--good.stance-seg--on     { background: var(--color-success-bg); color: var(--color-success); border-color: var(--color-success); }
+.stance-seg--good-soft.stance-seg--on { background: color-mix(in srgb, var(--color-success) 12%, transparent); color: color-mix(in srgb, var(--color-success) 78%, var(--color-text-muted)); border-color: color-mix(in srgb, var(--color-success) 40%, transparent); }
+.stance-seg--neutral.stance-seg--on  { background: var(--color-bg-subtle); color: var(--color-text); border-color: var(--color-border); }
+.stance-seg--warn.stance-seg--on     { background: var(--color-warning-bg); color: var(--color-warning); border-color: var(--color-warning); }
+.stance-seg--bad.stance-seg--on      { background: var(--color-danger-bg); color: var(--color-danger); border-color: var(--color-danger); }
+
+/* Hard stances (Required / Restricted) get a bolder indicator when selected */
+.stance-seg--hard.stance-seg--on { font-weight: 700; }
+
+/* Responsive: collapse labels on narrow screens */
+@media (max-width: 520px) {
+  .stance-seg { padding: 4px 6px; font-size: 11px; }
+  .cfg-wrap { padding: var(--space-4) var(--space-3); }
+}
+

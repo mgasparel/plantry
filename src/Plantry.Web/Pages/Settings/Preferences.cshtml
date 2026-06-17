@@ -1,0 +1,98 @@
+@page
+@model Plantry.Web.Pages.Settings.PreferencesModel
+@{
+    ViewData["Title"] = "Dietary preferences";
+}
+
+@* ── Config page chrome (matches ClaudeDesignProto/prefs.jsx cfg-wrap + cfg-head) ─────────── *@
+<div class="cfg-wrap">
+    <div class="cfg-head">
+        <div class="cfg-head__eyebrow">Personal profile</div>
+        <h1 class="cfg-head__title">Dietary preferences</h1>
+        <p class="cfg-head__desc">
+            Set your stance on each food tag. The planner reads these to keep meals within
+            everyone&rsquo;s needs &mdash; allergies and hard rules are binding, soft preferences just
+            nudge the suggestions.
+        </p>
+    </div>
+
+    @if (Model.ViewModel is null || Model.ViewModel.Groups.Count == 0)
+    {
+        <div class="catalog-section">
+            <p class="catalog-section__empty">No food tags are defined yet. Add tags when authoring recipes.</p>
+        </div>
+    }
+    else
+    {
+        @* ── Member tab strip (visual; edits scoped to signed-in user only) ─── *@
+        <div class="mem-tabs" role="tablist" aria-label="Household member">
+            @foreach (var member in Model.ViewModel.Members)
+            {
+                var isYou = member.UserId == Model.CurrentUserId;
+                <div role="tab" aria-selected="@isYou.ToString().ToLower()"
+                     class="mem-tab @(isYou ? "mem-tab--on" : "")">
+                    <span class="mem-tab__avatar" aria-hidden="true">@member.Initials</span>
+                    <span class="mem-tab__name">
+                        @member.DisplayName
+                        @if (isYou)
+                        {
+                            <span class="mem-tab__you">You</span>
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+
+        @* ── Scale legend (matches ClaudeDesignProto/prefs.jsx scale-legend) ─── *@
+        <div class="scale-legend" aria-label="The stance scale">
+            <span class="scale-legend__title">The scale</span>
+            <span class="legend-chip legend-chip--good">
+                <span class="legend-chip__dot"></span>Required
+                <span class="legend-chip__binding">· binding</span>
+            </span>
+            <span class="scale-legend__arrow" aria-hidden="true"></span>
+            <span class="legend-chip legend-chip--good-soft">
+                <span class="legend-chip__dot"></span>Preferred
+            </span>
+            <span class="scale-legend__arrow" aria-hidden="true"></span>
+            <span class="legend-chip legend-chip--neutral">
+                <span class="legend-chip__dot"></span>Neutral
+            </span>
+            <span class="scale-legend__arrow" aria-hidden="true"></span>
+            <span class="legend-chip legend-chip--warn">
+                <span class="legend-chip__dot"></span>Disliked
+            </span>
+            <span class="scale-legend__arrow" aria-hidden="true"></span>
+            <span class="legend-chip legend-chip--bad">
+                <span class="legend-chip__dot"></span>Restricted
+                <span class="legend-chip__binding">· binding</span>
+            </span>
+        </div>
+
+        @* ── Progress meta line ─────────────────────────────────────────────── *@
+        <div class="prefs-meta">
+            @{
+                var currentMember = Model.ViewModel.Members.FirstOrDefault(m => m.UserId == Model.CurrentUserId);
+            }
+            <span class="prefs-meta__name">@(currentMember?.DisplayName ?? "You") (You)</span>
+            <span class="prefs-meta__dot" aria-hidden="true"></span>
+            <span>
+                <strong>@Model.ViewModel.SetCount</strong> of @Model.ViewModel.TotalTags tags set
+                &middot; @Model.ViewModel.NeutralCount neutral
+            </span>
+            <form method="post" asp-page-handler="Reset"
+                  hx-post="/Settings/Preferences?handler=Reset"
+                  hx-target="#prefs-groups"
+                  hx-swap="outerHTML">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="reset-link"
+                        @(Model.ViewModel.SetCount == 0 ? "disabled" : "")>
+                    Reset to neutral
+                </button>
+            </form>
+        </div>
+
+        @* ── Tag groups ────────────────────────────────────────────────────── *@
+        <partial name="Settings/_PreferencesGroups" model="Model.ViewModel" />
+    }
+</div>

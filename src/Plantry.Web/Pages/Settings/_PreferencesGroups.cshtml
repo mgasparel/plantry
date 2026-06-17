@@ -1,0 +1,36 @@
+@model Plantry.MealPlanning.Application.PreferencesViewModel
+
+<div id="prefs-groups">
+    @foreach (var group in Model.Groups)
+    {
+        @* dot color: oklch(0.62 0.13 HUE) matches plan-data.js tagDot() *@
+        var dotStyle = group.CategoryHue.HasValue
+            ? $"background: oklch(0.62 0.13 {group.CategoryHue})"
+            : "background: var(--color-text-faint)";
+
+        <div class="tag-cat card">
+            <div class="tag-cat__head">
+                <span class="tag-cat__dot" style="@dotStyle" aria-hidden="true"></span>
+                <h3 class="tag-cat__name">@group.Category</h3>
+                <span class="spacer"></span>
+                <span class="tag-cat__count">
+                    @if (group.SetCount > 0)
+                    {
+                        @($"{group.SetCount} set")
+                    }
+                    else
+                    {
+                        <span>All neutral</span>
+                    }
+                </span>
+            </div>
+            <div class="tag-rows">
+                @foreach (var tag in group.Tags)
+                {
+                    <partial name="Settings/_TagStanceRow"
+                             model="@(new Plantry.Web.Pages.Settings.TagStanceRowViewModel(tag.TagId, tag.Name, tag.Stance, Saved: false))" />
+                }
+            </div>
+        </div>
+    }
+</div>
