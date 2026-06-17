@@ -71,26 +71,11 @@
         </div>
 
         @* ── Progress meta line ─────────────────────────────────────────────── *@
-        <div class="prefs-meta">
-            @{
-                var currentMember = Model.ViewModel.Members.FirstOrDefault(m => m.UserId == Model.CurrentUserId);
-            }
-            <span class="pl-av" aria-hidden="true"
-                  style="width:20px;height:20px;font-size:10px;background:var(--color-accent-subtle);color:var(--color-accent)">@(currentMember?.Initials ?? "Y")</span>
-            <span><b>@(currentMember?.DisplayName ?? "You")</b> (You)</span>
-            <span class="pm-dot" aria-hidden="true"></span>
-            <span><b>@Model.ViewModel.SetCount</b> of @Model.ViewModel.TotalTags tags set &middot; @Model.ViewModel.NeutralCount neutral</span>
-            <form method="post" asp-page-handler="Reset"
-                  hx-post="/Settings/Preferences?handler=Reset"
-                  hx-target="#prefs-groups"
-                  hx-swap="outerHTML">
-                @Html.AntiForgeryToken()
-                <button type="submit" class="reset-link"
-                        @(Model.ViewModel.SetCount == 0 ? "disabled" : "")>
-                    Reset to neutral
-                </button>
-            </form>
-        </div>
+        @Html.Partial("Settings/_PrefsMeta", new Plantry.Web.Pages.Settings.PrefsMetaViewModel(
+            (Model.ViewModel!.Members.FirstOrDefault(m => m.UserId == Model.CurrentUserId)?.Initials) ?? "Y",
+            (Model.ViewModel.Members.FirstOrDefault(m => m.UserId == Model.CurrentUserId)?.DisplayName) ?? "You",
+            Model.ViewModel.SetCount,
+            Model.ViewModel.TotalTags))
 
         @* ── Tag groups ────────────────────────────────────────────────────── *@
         <partial name="Settings/_PreferencesGroups" model="Model.ViewModel" />
