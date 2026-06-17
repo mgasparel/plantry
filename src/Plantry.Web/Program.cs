@@ -15,6 +15,8 @@ using Plantry.Intake.Infrastructure;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
+using Plantry.MealPlanning.Domain;
+using Plantry.MealPlanning.Infrastructure;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -163,6 +165,16 @@ builder.Services.AddDbContext<ShoppingDbContext>((sp, opts) =>
 builder.Services.AddScoped<IShoppingListRepository, ShoppingListRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, ShoppingReferenceDataSeeder>();
 
+// Meal Planning context (Phase 3 / P3-0). MealPlanningReferenceDataSeeder seeds Breakfast/Lunch/Dinner
+// default slots at household creation (DM-9). MealPlanningDbContext MUST be wired into RlsMiddleware
+// (see Tenancy/RlsMiddleware.cs) — the known P3-0 gotcha (see also bd memory rls-middleware-...).
+builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
+builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();
+
 // Shopping → Catalog ACL adapter (P2-Sc). ShoppingCatalogReaderAdapter implements the Shopping
 // anti-corruption port over Catalog repositories so Shopping.Application never takes a direct
 // dependency on the Catalog EF context (Gate 2). ShoppingListQueryService assembles the read model.
@@ -299,6 +311,12 @@ if (app.Environment.IsDevelopment())
         .Options;
     await using (var shoppingDb = new ShoppingDbContext(shoppingMigrateOpts))
         await shoppingDb.Database.MigrateAsync();
+
+    var mealPlanningMigrateOpts = new DbContextOptionsBuilder<MealPlanningDbContext>()
+        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
+        .Options;
+    await using (var mealPlanningDb = new MealPlanningDbContext(mealPlanningMigrateOpts))
+        await mealPlanningDb.Database.MigrateAsync();
 
     // Auto-seed on first startup: no-ops if the demo user already exists.
     await using var seedScope = app.Services.CreateAsyncScope();

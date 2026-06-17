@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Plantry.MealPlanning.Infrastructure;
 using Respawn;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -44,7 +45,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(conn, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = ["identity", "catalog", "inventory", "pricing", "intake", "recipes", "shopping"],
+            SchemasToInclude = ["identity", "catalog", "inventory", "pricing", "intake", "recipes", "shopping", "meal_planning"],
         });
     }
 
@@ -101,6 +102,12 @@ public sealed class PostgresFixture : IAsyncLifetime
             .Options;
         await using var shoppingDb = new Plantry.Shopping.Infrastructure.ShoppingDbContext(shoppingOpts);
         await shoppingDb.Database.MigrateAsync();
+
+        var mealPlanningOpts = new DbContextOptionsBuilder<Plantry.MealPlanning.Infrastructure.MealPlanningDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+        await using var mealPlanningDb = new Plantry.MealPlanning.Infrastructure.MealPlanningDbContext(mealPlanningOpts);
+        await mealPlanningDb.Database.MigrateAsync();
     }
 }
 

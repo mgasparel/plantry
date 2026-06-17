@@ -3736,3 +3736,94 @@ button.sadd svg { width: 13px; height: 13px; }
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ===========================================================================
+   Meal Planner — P3-0 foundation shell (planner chrome from planner.css prototype)
+   =========================================================================== */
+
+.plan-main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; height: calc(100vh - 3.5rem); }
+
+/* Command bar */
+.plan-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 24px; border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  backdrop-filter: blur(8px); flex-wrap: wrap; flex-shrink: 0;
+}
+.wknav { display: flex; align-items: center; gap: 4px; }
+.wknav-btn {
+  width: 32px; height: 32px; border-radius: var(--radius-sm); display: grid; place-items: center;
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-muted); transition: all .12s;
+  cursor: pointer;
+}
+.wknav-btn:hover { background: var(--color-surface-2); color: var(--color-text); }
+.wk-label { font-size: 15.5px; font-weight: 700; letter-spacing: -0.02em; padding: 0 8px; white-space: nowrap; }
+.wk-today {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--color-cook); background: var(--color-accent-subtle); border-radius: 999px; padding: 3px 9px;
+  border: none; cursor: pointer;
+}
+.wk-today:hover { background: color-mix(in srgb, var(--color-cook) 14%, transparent); }
+.plan-bar-spacer { flex: 1; }
+.budget-chip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; white-space: nowrap;
+  border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600; color: var(--color-text-muted);
+}
+.budget-chip b { color: var(--color-text); font-variant-numeric: tabular-nums; }
+/* split auto-fill button */
+.af-split { display: inline-flex; align-items: stretch; position: relative; }
+.af-split .btn--soft { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.af-caret {
+  display: grid; place-items: center; width: 32px; padding: 0;
+  background: var(--color-accent-subtle); color: var(--color-accent); border: none;
+  border-left: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0; cursor: pointer;
+}
+.af-caret:hover { background: color-mix(in srgb, var(--color-accent-subtle) 85%, var(--color-accent)); }
+
+/* Body */
+.plan-body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.grid-scroll { flex: 1; overflow: auto; padding: 18px 22px 96px; }
+
+/* Week grid */
+.plan-grid {
+  display: grid;
+  grid-template-columns: 96px repeat(var(--plan-cols, 7), minmax(120px, 1fr));
+  gap: 1px;
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  min-width: max-content;
+}
+.plan-grid__slot-header { background: var(--color-surface-2); }
+.plan-grid__day-header {
+  background: var(--color-surface-2); padding: 10px 12px; text-align: center;
+}
+.plan-grid__day-header--today { background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface-2)); }
+.plan-grid__day-name { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-faint); }
+.plan-grid__day-date { display: block; font-size: 13px; font-weight: 600; color: var(--color-text); }
+.plan-grid__slot-label {
+  background: var(--color-surface-2); padding: 16px 12px;
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-faint);
+  display: flex; align-items: center;
+}
+.plan-grid__cell { background: var(--color-surface); min-height: 96px; position: relative; }
+.plan-grid__cell--empty { display: flex; align-items: center; justify-content: center; }
+.plan-grid__add-btn {
+  width: 32px; height: 32px; border-radius: 50%; border: 1.5px dashed var(--color-border);
+  background: none; color: var(--color-text-faint); cursor: pointer; display: grid; place-items: center;
+  transition: all .12s;
+}
+.plan-grid__add-btn:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-subtle); }
+.plan-grid__add-btn .icon { width: 16px; height: 16px; }
+
+/* Empty state */
+.planner-empty {
+  text-align: center; padding: 64px 24px;
+}
+.planner-empty__message { color: var(--color-text-faint); margin-bottom: 20px; font-size: 15px; }
+
+/* Ensure plan-main fills the page content area */
+.page-content--full { padding: 0 !important; overflow: hidden; }

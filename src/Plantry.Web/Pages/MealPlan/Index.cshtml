@@ -1,0 +1,84 @@
+@page
+@model Plantry.Web.Pages.MealPlan.IndexModel
+@{
+    ViewData["Title"] = "Meal Plan";
+    ViewData["ContentClass"] = "page-content--full";
+}
+
+<div class="plan-main">
+    @* Command bar: week nav, This week, budget chip, auto-fill split button, Shop for this week *@
+    <div class="plan-bar">
+        @* Week nav — htmx partial-swap wiring added in P3-3 (plantry-b17) once the
+           _PlanWeek partial is extracted; until then buttons are present but disabled
+           to avoid shipping broken full-page swap behaviour. *@
+        <nav class="wknav" aria-label="Week navigation">
+            <button type="button" class="wknav-btn" aria-label="Previous week"
+                    disabled title="Week navigation arrives in P3-3">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+            </button>
+            <span class="wk-label">@Model.WeekLabel</span>
+            <button type="button" class="wknav-btn" aria-label="Next week"
+                    disabled title="Week navigation arrives in P3-3">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
+            </button>
+            <button type="button" class="wk-today"
+                    disabled title="Week navigation arrives in P3-3">This week</button>
+        </nav>
+        <div class="plan-bar-spacer"></div>
+        @* Budget chip — placeholder until P3-4 adds cost roll-up *@
+        <span class="budget-chip"><b>—</b> / wk</span>
+        @* Auto-fill split button — wired in P3-6 *@
+        <div class="af-split" aria-label="Auto-fill">
+            <button type="button" class="btn btn--soft" disabled title="AI auto-fill arrives in a later slice">Auto-fill week</button>
+            <button type="button" class="af-caret" disabled aria-label="Auto-fill options">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+        </div>
+        @* Shop for this week — wired in P3-4 *@
+        <button type="button" class="btn btn--soft" disabled title="Shopping hand-off arrives in a later slice">Shop for this week</button>
+    </div>
+
+    @* Body: grid + insights rail (rail wired in P3-5) *@
+    <div class="plan-body" id="plan-main-content">
+        <div class="grid-scroll">
+            @if (!Model.HasSlots)
+            {
+                @* Empty-state: no slots configured yet *@
+                <div class="planner-empty">
+                    <p class="planner-empty__message">No meal slots are configured yet.</p>
+                    @* Deep-link to /Settings/MealSlots added by P3-1 (plantry-a55) when that page ships *@
+                    <a href="/Settings" class="btn btn--primary">Go to Settings</a>
+                </div>
+            }
+            else
+            {
+                @* Day-column header row *@
+                <div class="plan-grid" style="--plan-cols: @Model.WeekDays.Count">
+                    <div class="plan-grid__slot-header"></div>
+                    @foreach (var day in Model.WeekDays)
+                    {
+                        <div class="plan-grid__day-header @(day.IsToday ? "plan-grid__day-header--today" : "")">
+                            <span class="plan-grid__day-name">@day.DayName</span>
+                            <span class="plan-grid__day-date">@day.DateLabel</span>
+                        </div>
+                    }
+
+                    @* Slot bands *@
+                    @foreach (var slot in Model.Slots)
+                    {
+                        <div class="plan-grid__slot-label">@slot.Label</div>
+                        @foreach (var day in Model.WeekDays)
+                        {
+                            <div class="plan-grid__cell plan-grid__cell--empty">
+                                <button type="button" class="plan-grid__add-btn" aria-label="Add meal for @slot.Label on @day.DayName"
+                                        title="Manual assign arrives in P3-3">
+                                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                                </button>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
