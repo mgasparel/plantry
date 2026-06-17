@@ -21,6 +21,13 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
     public MealSlotId MealSlotId { get; private set; }
 
     /// <summary>
+    /// Position within the cell's stack; 1-based, contiguous per (MealPlanId, Date, MealSlotId).
+    /// New meals append at NextOrdinal (max+1, or 1 if empty). RenumberCell keeps it contiguous
+    /// after removal.
+    /// </summary>
+    public int Ordinal { get; private set; }
+
+    /// <summary>
     /// NULL = inherit slot's default_attendees; empty list = explicitly nobody;
     /// non-empty = these members (M4).
     /// </summary>
@@ -55,7 +62,8 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
         List<Guid>? attendeesOverride,
         string source,
         Guid createdBy,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        int ordinal = 1)
     {
         if (dishes.Count == 0)
             throw new InvalidOperationException("At least one dish is required when creating a dish-based meal (M13).");
@@ -70,6 +78,7 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
             AttendeesOverride = attendeesOverride,
             Note = null,
             Source = source,
+            Ordinal = ordinal,
             CreatedBy = createdBy,
             UpdatedBy = createdBy,
             CreatedAt = now,
@@ -99,7 +108,8 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
         List<Guid>? attendeesOverride,
         string source,
         Guid createdBy,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        int ordinal = 1)
     {
         if (string.IsNullOrWhiteSpace(note))
             throw new InvalidOperationException("Note must not be blank when creating a note-based meal (M13).");
@@ -114,6 +124,7 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
             AttendeesOverride = attendeesOverride,
             Note = note.Trim(),
             Source = source,
+            Ordinal = ordinal,
             CreatedBy = createdBy,
             UpdatedBy = createdBy,
             CreatedAt = now,
@@ -164,6 +175,12 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
         UpdatedBy = updatedBy;
         UpdatedAt = now;
     }
+
+    /// <summary>
+    /// Updates the ordinal of this meal within its cell's stack.
+    /// Called by MealPlan.RenumberCell to keep ordinals contiguous after a removal.
+    /// </summary>
+    internal void SetOrdinal(int ordinal) => Ordinal = ordinal;
 
     /// <summary>
     /// Moves this meal to a different cell within the same plan (M4: override travels).

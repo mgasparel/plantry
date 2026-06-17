@@ -7,6 +7,11 @@ namespace Plantry.MealPlanning.Domain;
 /// Aggregate root — one week's meal plan for a household (mealplanning.md §meal_plan, C2).
 /// One plan per (household, week_start); week_start is always a Monday (M8), normalized app-side.
 /// Past weeks are retained as the analytics substrate — no archive/delete behaviour (C2).
+/// <para>
+/// MP-O8: A cell (date × slot) holds an ordered stack of 0..n meals. Each meal has its own
+/// Ordinal (1-based, contiguous per cell). New meals append at NextOrdinal. After removal,
+/// RenumberCell restores contiguity.
+/// </para>
 /// </summary>
 public sealed class MealPlan : AggregateRoot<MealPlanId>
 {
@@ -48,8 +53,33 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
         return date.AddDays(-offset);
     }
 
+    // ── Cell stack queries ────────────────────────────────────────────────────
+
     /// <summary>
-    /// Assigns a dish-based meal to a cell. Creates a new PlannedMeal or replaces the existing one.
+    /// Returns all meals in the cell, ordered by Ordinal (MP-O8).
+    /// Returns an empty list when the cell is empty.
+    /// </summary>
+    public IReadOnlyList<PlannedMeal> MealsInCell(DateOnly date, MealSlotId slotId) =>
+        _plannedMeals
+            .Where(m => m.Date == date && m.MealSlotId == slotId)
+            .OrderBy(m => m.Ordinal)
+            .ToList();
+
+    /// <summary>
+    /// Finds a planned meal by its ID within this plan.
+    /// Returns null when no meal with that ID exists.
+    /// </summary>
+    public PlannedMeal? FindById(PlannedMealId mealId) =>
+        _plannedMeals.FirstOrDefault(m => m.Id == mealId);
+
+    // ── Assign ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Assigns a dish-based meal to a cell.
+    /// <list type="bullet">
+    ///   <item>When <paramref name="mealId"/> is null: appends a new meal at NextOrdinal (MP-O8 append).</item>
+    ///   <item>When <paramref name="mealId"/> is set: updates the identified meal's dishes (edit path).</item>
+    /// </list>
     /// Validates M2 (date in week), M3 (servings >= 1), M13 (dishes XOR note).
     /// Returns a warning string if any hard stance is violated (C9 — warn, do not block).
     /// </summary>
@@ -61,25 +91,31 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
         string source,
         Guid createdBy,
         IClock clock,
-        string? hardStanceWarning = null)
+        string? hardStanceWarning = null,
+        PlannedMealId? mealId = null)
     {
         ValidateDateInWeek(date);
         if (dishes.Count == 0)
             throw new InvalidOperationException("At least one dish is required (M13).");
 
         var now = clock.UtcNow;
-        var existing = FindMeal(date, slotId);
-        if (existing is null)
+
+        if (mealId is not null)
         {
-            var meal = PlannedMeal.CreateWithDishes(HouseholdId, Id, date, slotId, dishes, attendeesOverride, source, createdBy, now);
-            _plannedMeals.Add(meal);
-            RaiseDomainEvent(new MealPlanned(Id, meal.Id, date, slotId));
-        }
-        else
-        {
+            // Edit existing meal by ID
+            var existing = FindById(mealId.Value)
+                ?? throw new InvalidOperationException($"No meal with id {mealId} found in plan.");
             existing.UpdateDishes(dishes, createdBy, now);
             existing.SetAttendeesOverride(attendeesOverride, createdBy, now);
             RaiseDomainEvent(new MealPlanned(Id, existing.Id, date, slotId));
+        }
+        else
+        {
+            // Append a new meal at the next ordinal in this cell
+            var ordinal = NextOrdinal(date, slotId);
+            var meal = PlannedMeal.CreateWithDishes(HouseholdId, Id, date, slotId, dishes, attendeesOverride, source, createdBy, now, ordinal);
+            _plannedMeals.Add(meal);
+            RaiseDomainEvent(new MealPlanned(Id, meal.Id, date, slotId));
         }
 
         UpdatedAt = now;
@@ -87,7 +123,11 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
     }
 
     /// <summary>
-    /// Assigns a note-based meal to a cell. Creates a new PlannedMeal or replaces the existing one.
+    /// Assigns a note-based meal to a cell.
+    /// <list type="bullet">
+    ///   <item>When <paramref name="mealId"/> is null: appends a new note meal at NextOrdinal.</item>
+    ///   <item>When <paramref name="mealId"/> is set: updates the identified meal's note (edit path).</item>
+    /// </list>
     /// Validates M2 (date in week), M13 (dishes XOR note).
     /// </summary>
     public AssignMealResult AssignNote(
@@ -97,101 +137,116 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
         List<Guid>? attendeesOverride,
         string source,
         Guid createdBy,
-        IClock clock)
+        IClock clock,
+        PlannedMealId? mealId = null)
     {
         ValidateDateInWeek(date);
         if (string.IsNullOrWhiteSpace(note))
             throw new InvalidOperationException("Note must not be blank (M13).");
 
         var now = clock.UtcNow;
-        var existing = FindMeal(date, slotId);
-        if (existing is null)
+
+        if (mealId is not null)
         {
-            var meal = PlannedMeal.CreateWithNote(HouseholdId, Id, date, slotId, note, attendeesOverride, source, createdBy, now);
-            _plannedMeals.Add(meal);
-            RaiseDomainEvent(new MealPlanned(Id, meal.Id, date, slotId));
-        }
-        else
-        {
+            // Edit existing meal by ID
+            var existing = FindById(mealId.Value)
+                ?? throw new InvalidOperationException($"No meal with id {mealId} found in plan.");
             existing.UpdateNote(note, createdBy, now);
             existing.SetAttendeesOverride(attendeesOverride, createdBy, now);
             RaiseDomainEvent(new MealPlanned(Id, existing.Id, date, slotId));
+        }
+        else
+        {
+            // Append a new note meal at the next ordinal in this cell
+            var ordinal = NextOrdinal(date, slotId);
+            var meal = PlannedMeal.CreateWithNote(HouseholdId, Id, date, slotId, note, attendeesOverride, source, createdBy, now, ordinal);
+            _plannedMeals.Add(meal);
+            RaiseDomainEvent(new MealPlanned(Id, meal.Id, date, slotId));
         }
 
         UpdatedAt = now;
         return new AssignMealResult(null);
     }
 
+    // ── Clear ─────────────────────────────────────────────────────────────────
+
     /// <summary>
-    /// Removes the planned meal at the given cell. No-op if the cell is empty.
+    /// Removes the planned meal identified by <paramref name="mealId"/>. No-op if not found.
+    /// After removal, RenumberCell restores contiguous ordinals for the remaining meals in the cell.
     /// </summary>
-    public void ClearMeal(DateOnly date, MealSlotId slotId, IClock clock)
+    public void ClearMeal(PlannedMealId mealId, IClock clock)
     {
-        ValidateDateInWeek(date);
-        var existing = FindMeal(date, slotId);
+        var existing = FindById(mealId);
         if (existing is null) return;
 
+        var date = existing.Date;
+        var slotId = existing.MealSlotId;
+
         _plannedMeals.Remove(existing);
+        RenumberCell(date, slotId);
         UpdatedAt = clock.UtcNow;
     }
 
+    // ── Move (relocate, no swap) ──────────────────────────────────────────────
+
     /// <summary>
-    /// Relocates a planned meal from one cell to another within the same week (C11).
-    /// If the target is occupied, the two meals are swapped.
-    /// The per-instance AttendeesOverride TRAVELS with each meal (M4).
+    /// Relocates a planned meal from its current cell to the target cell within the same week (MP-O8 / C11).
+    /// The meal is appended at the end of the target cell's stack (NextOrdinal).
+    /// The source cell is renumbered to keep ordinals contiguous.
+    /// The per-instance AttendeesOverride TRAVELS with the meal (M4).
     /// Does NOT re-validate constraints (C12).
+    /// There is no swap: if the target is occupied, the mover joins the stack.
     /// </summary>
     public void MoveMeal(
-        DateOnly fromDate, MealSlotId fromSlotId,
-        DateOnly toDate, MealSlotId toSlotId,
+        PlannedMealId mealId,
+        DateOnly toDate,
+        MealSlotId toSlotId,
         IClock clock)
     {
-        ValidateDateInWeek(fromDate);
         ValidateDateInWeek(toDate);
 
-        var mover = FindMeal(fromDate, fromSlotId)
-            ?? throw new InvalidOperationException($"No meal at ({fromDate}, {fromSlotId}) to move.");
+        var mover = FindById(mealId)
+            ?? throw new InvalidOperationException($"No meal with id {mealId} to move.");
 
-        var target = FindMeal(toDate, toSlotId);
+        var fromDate = mover.Date;
+        var fromSlotId = mover.MealSlotId;
+
         var now = clock.UtcNow;
         var updatedBy = mover.UpdatedBy;
 
-        if (target is null)
-        {
-            // Relocate onto empty cell
-            mover.MoveTo(toDate, toSlotId, updatedBy, now);
-            RaiseDomainEvent(new MealMoved(Id, mover.Id, fromDate, fromSlotId, toDate, toSlotId));
-        }
-        else
-        {
-            // Swap with occupied cell (override travels with each meal — M4)
-            mover.MoveTo(toDate, toSlotId, updatedBy, now);
-            target.MoveTo(fromDate, fromSlotId, target.UpdatedBy, now);
-            RaiseDomainEvent(new MealMoved(Id, mover.Id, fromDate, fromSlotId, toDate, toSlotId, target.Id));
-        }
+        // Compute destination ordinal before moving so the source cell count is still accurate
+        var destOrdinal = NextOrdinal(toDate, toSlotId);
 
+        mover.MoveTo(toDate, toSlotId, updatedBy, now);
+        mover.SetOrdinal(destOrdinal);
+
+        // Renumber the source cell (mover has already left it in memory)
+        RenumberCell(fromDate, fromSlotId);
+
+        RaiseDomainEvent(new MealMoved(Id, mover.Id, fromDate, fromSlotId, toDate, toSlotId));
         UpdatedAt = now;
     }
+
+    // ── Set attendees ─────────────────────────────────────────────────────────
 
     /// <summary>
     /// Sets or clears the per-instance attendees override for a planned meal (M4).
     /// </summary>
-    public void SetMealAttendees(DateOnly date, MealSlotId slotId, List<Guid>? attendeesOverride, IClock clock)
+    public void SetMealAttendees(PlannedMealId mealId, List<Guid>? attendeesOverride, IClock clock)
     {
-        ValidateDateInWeek(date);
-        var meal = FindMeal(date, slotId)
-            ?? throw new InvalidOperationException($"No meal at ({date}, {slotId}).");
+        var meal = FindById(mealId)
+            ?? throw new InvalidOperationException($"No meal with id {mealId}.");
 
         var now = clock.UtcNow;
         meal.SetAttendeesOverride(attendeesOverride, meal.UpdatedBy, now);
         UpdatedAt = now;
     }
 
-    // ── AI proposal acceptance ────────────────────────────────────────────────────
+    // ── AI proposal acceptance ────────────────────────────────────────────────
 
     /// <summary>
     /// Atomically accepts all validated proposals from <paramref name="proposals"/>.
-    /// Skips any proposal whose cell is already occupied (occupied cells are never overwritten by AI).
+    /// Skips any proposal whose cell already has meals (occupied cells are never touched by AI — MP-O8).
     /// Calls <see cref="AssignMeal"/> with source="ai" for each accepted cell.
     /// </summary>
     /// <returns>The number of cells actually written.</returns>
@@ -203,8 +258,8 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
         var accepted = 0;
         foreach (var proposal in proposals)
         {
-            // Never overwrite an occupied cell with AI suggestions
-            if (FindMeal(proposal.Date, proposal.MealSlotId) is not null)
+            // Never write to a cell that already has meals (MP-O8)
+            if (MealsInCell(proposal.Date, proposal.MealSlotId).Count > 0)
                 continue;
 
             if (proposal.Dishes.Count == 0)
@@ -223,38 +278,37 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
                 source: "ai",
                 createdBy: acceptedBy,
                 clock: clock,
-                hardStanceWarning: null);
+                hardStanceWarning: null,
+                mealId: null);
 
             accepted++;
         }
         return accepted;
     }
 
-    // ── public lookup (used by MoveMealService for swap pre-check) ───────────────
+    // ── helpers ──────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns the planned meal at the given cell, or null if the cell is empty.
-    /// Used by <see cref="Plantry.MealPlanning.Application.MoveMealService"/> to decide
-    /// between a simple relocate and a swap before issuing raw SQL for the swap case.
-    /// </summary>
-    public PlannedMeal? FindMealPublic(DateOnly date, MealSlotId slotId) =>
-        FindMeal(date, slotId);
-
-    /// <summary>
-    /// Records the domain event for a swap that was executed via raw SQL (bypassing EF change
-    /// tracking). Does NOT mutate any entity state — the SQL already committed both UPDATEs.
-    /// </summary>
-    public void RecordSwap(
-        PlannedMealId moverId, DateOnly fromDate, MealSlotId fromSlotId,
-        PlannedMealId targetId, DateOnly toDate, MealSlotId toSlotId)
+    /// <summary>Returns the next ordinal for appending a meal to the given cell (max+1, or 1 if empty).</summary>
+    private int NextOrdinal(DateOnly date, MealSlotId slotId)
     {
-        RaiseDomainEvent(new MealMoved(Id, moverId, fromDate, fromSlotId, toDate, toSlotId, targetId));
+        var cellMeals = _plannedMeals.Where(m => m.Date == date && m.MealSlotId == slotId).ToList();
+        return cellMeals.Count == 0 ? 1 : cellMeals.Max(m => m.Ordinal) + 1;
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────────
+    /// <summary>
+    /// Renumbers the remaining meals in a cell to 1..n (in Ordinal order) after a removal.
+    /// Ensures ordinals are always contiguous.
+    /// </summary>
+    private void RenumberCell(DateOnly date, MealSlotId slotId)
+    {
+        var cellMeals = _plannedMeals
+            .Where(m => m.Date == date && m.MealSlotId == slotId)
+            .OrderBy(m => m.Ordinal)
+            .ToList();
 
-    private PlannedMeal? FindMeal(DateOnly date, MealSlotId slotId) =>
-        _plannedMeals.FirstOrDefault(m => m.Date == date && m.MealSlotId == slotId);
+        for (int i = 0; i < cellMeals.Count; i++)
+            cellMeals[i].SetOrdinal(i + 1);
+    }
 
     private void ValidateDateInWeek(DateOnly date)
     {

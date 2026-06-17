@@ -10,8 +10,9 @@ namespace Plantry.Tests.Unit.MealPlanning.Domain;
 /// Covers: M2 (date in week), M3 (servings >= 1), M4 (override travels on MoveMeal),
 ///         M8 (Monday normalization), M13 (dishes XOR note),
 ///         C9 (hard-stance warns, never blocks),
-///         C11 (MoveMeal relocates or swaps within week),
-///         C12 (MoveMeal does NOT re-validate constraints).
+///         C11 (MoveMeal relocates into target stack, no swap — MP-O8),
+///         C12 (MoveMeal does NOT re-validate constraints),
+///         MP-O8 (stack: append, edit-by-id, clear-by-id+renumber, ordinal contiguity).
 /// </summary>
 public sealed class MealPlanTests
 {
@@ -164,6 +165,82 @@ public sealed class MealPlanTests
         Assert.Single(plan.PlannedMeals);
     }
 
+    // ── MP-O8 — cell stack: append second meal ────────────────────────────────
+
+    [Fact]
+    public void AssignMeal_AppendsTwoMealsToSameCell_WhenCalledTwiceWithoutMealId()
+    {
+        var plan = CreatePlan();
+
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+
+        Assert.Equal(2, plan.PlannedMeals.Count);
+        var cellMeals = plan.MealsInCell(Monday, SlotA);
+        Assert.Equal(2, cellMeals.Count);
+        // Ordinals must be contiguous 1..n
+        Assert.Equal(1, cellMeals[0].Ordinal);
+        Assert.Equal(2, cellMeals[1].Ordinal);
+    }
+
+    // ── MP-O8 — edit by mealId ────────────────────────────────────────────────
+
+    [Fact]
+    public void AssignMeal_UpdatesOnlyTargetMeal_WhenMealIdSupplied()
+    {
+        var plan = CreatePlan();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+
+        var firstId = plan.MealsInCell(Monday, SlotA)[0].Id;
+        var secondId = plan.MealsInCell(Monday, SlotA)[1].Id;
+
+        // Edit only the first meal
+        var newDishes = new[] { RecipeDish(), RecipeDish() };
+        plan.AssignMeal(Monday, SlotA, newDishes, null, "test", UserId, Clock, mealId: firstId);
+
+        // Two meals still in cell
+        var after = plan.MealsInCell(Monday, SlotA);
+        Assert.Equal(2, after.Count);
+        Assert.Equal(firstId, after[0].Id);
+        Assert.Equal(2, after[0].PlannedDishes.Count);
+        // Second meal unchanged
+        Assert.Equal(secondId, after[1].Id);
+    }
+
+    // ── MP-O8 — clear by mealId + renumber ───────────────────────────────────
+
+    [Fact]
+    public void ClearMeal_RemovesOnlyTargetMeal_AndRenumbersCell()
+    {
+        var plan = CreatePlan();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock); // ordinal 1
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock); // ordinal 2
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock); // ordinal 3
+
+        var firstId = plan.MealsInCell(Monday, SlotA)[0].Id;
+
+        // Remove the first meal (ordinal 1)
+        plan.ClearMeal(firstId, Clock);
+
+        var remaining = plan.MealsInCell(Monday, SlotA);
+        Assert.Equal(2, remaining.Count);
+        // Ordinals must be renumbered to 1, 2
+        Assert.Equal(1, remaining[0].Ordinal);
+        Assert.Equal(2, remaining[1].Ordinal);
+    }
+
+    [Fact]
+    public void ClearMeal_IsNoOp_WhenMealIdNotFound()
+    {
+        var plan = CreatePlan();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+
+        // Should not throw
+        plan.ClearMeal(PlannedMealId.New(), Clock);
+        Assert.Single(plan.PlannedMeals);
+    }
+
     // ── C11 — MoveMeal: relocate onto empty cell ──────────────────────────────
 
     [Fact]
@@ -171,13 +248,13 @@ public sealed class MealPlanTests
     {
         var plan = CreatePlan();
         plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
-        var originalMealId = plan.PlannedMeals[0].Id;
+        var mealId = plan.PlannedMeals[0].Id;
 
         var tuesday = Monday.AddDays(1);
-        plan.MoveMeal(Monday, SlotA, tuesday, SlotB, Clock);
+        plan.MoveMeal(mealId, tuesday, SlotB, Clock);
 
         var moved = plan.PlannedMeals.Single();
-        Assert.Equal(originalMealId, moved.Id);
+        Assert.Equal(mealId, moved.Id);
         Assert.Equal(tuesday, moved.Date);
         Assert.Equal(SlotB, moved.MealSlotId);
     }
@@ -187,17 +264,18 @@ public sealed class MealPlanTests
     {
         var plan = CreatePlan();
         plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
 
         var tuesday = Monday.AddDays(1);
-        plan.MoveMeal(Monday, SlotA, tuesday, SlotB, Clock);
+        plan.MoveMeal(mealId, tuesday, SlotB, Clock);
 
         Assert.Empty(plan.PlannedMeals.Where(m => m.Date == Monday && m.MealSlotId == SlotA));
     }
 
-    // ── C11 — MoveMeal: swap with occupied cell ───────────────────────────────
+    // ── C11 — MoveMeal: relocate-into-occupied (append, no swap) ─────────────
 
     [Fact]
-    public void MoveMeal_SwapsBothMeals_WhenTargetOccupied()
+    public void MoveMeal_AppendsToOccupiedCell_NoSwap()
     {
         var plan = CreatePlan();
         var tuesday = Monday.AddDays(1);
@@ -205,18 +283,24 @@ public sealed class MealPlanTests
         plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
         plan.AssignMeal(tuesday, SlotB, [RecipeDish()], null, "test", UserId, Clock);
 
-        var originalMoverMealId = plan.PlannedMeals.Single(m => m.Date == Monday && m.MealSlotId == SlotA).Id;
-        var originalTargetMealId = plan.PlannedMeals.Single(m => m.Date == tuesday && m.MealSlotId == SlotB).Id;
+        var moverId = plan.PlannedMeals.Single(m => m.Date == Monday && m.MealSlotId == SlotA).Id;
+        var targetId = plan.PlannedMeals.Single(m => m.Date == tuesday && m.MealSlotId == SlotB).Id;
 
-        plan.MoveMeal(Monday, SlotA, tuesday, SlotB, Clock);
+        // Move Monday/SlotA into tuesday/SlotB — should join stack, not swap
+        plan.MoveMeal(moverId, tuesday, SlotB, Clock);
 
-        var afterMover = plan.PlannedMeals.Single(m => m.Id == originalMoverMealId);
-        var afterTarget = plan.PlannedMeals.Single(m => m.Id == originalTargetMealId);
+        // Both meals should now be in tuesday/SlotB
+        var cell = plan.MealsInCell(tuesday, SlotB);
+        Assert.Equal(2, cell.Count);
+        Assert.Contains(cell, m => m.Id == targetId);
+        Assert.Contains(cell, m => m.Id == moverId);
 
-        Assert.Equal(tuesday, afterMover.Date);
-        Assert.Equal(SlotB, afterMover.MealSlotId);
-        Assert.Equal(Monday, afterTarget.Date);
-        Assert.Equal(SlotA, afterTarget.MealSlotId);
+        // Source cell must be empty
+        Assert.Empty(plan.MealsInCell(Monday, SlotA));
+
+        // Ordinals must be contiguous
+        Assert.Equal(1, cell.Min(m => m.Ordinal));
+        Assert.Equal(2, cell.Max(m => m.Ordinal));
     }
 
     // ── M4 — override travels on MoveMeal ────────────────────────────────────
@@ -227,34 +311,13 @@ public sealed class MealPlanTests
         var plan = CreatePlan();
         var overrideList = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() };
         plan.AssignMeal(Monday, SlotA, [RecipeDish()], overrideList, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals.Single().Id;
 
         var tuesday = Monday.AddDays(1);
-        plan.MoveMeal(Monday, SlotA, tuesday, SlotA, Clock);
+        plan.MoveMeal(mealId, tuesday, SlotA, Clock);
 
         var moved = plan.PlannedMeals.Single();
         Assert.Equal(overrideList, moved.AttendeesOverride);
-    }
-
-    [Fact]
-    public void MoveMeal_SwapPreservesEachMealsOwnOverride()
-    {
-        var plan = CreatePlan();
-        var tuesday = Monday.AddDays(1);
-        var overrideA = new List<Guid> { Guid.NewGuid() };
-        var overrideB = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() };
-
-        plan.AssignMeal(Monday, SlotA, [RecipeDish()], overrideA, "test", UserId, Clock);
-        plan.AssignMeal(tuesday, SlotB, [RecipeDish()], overrideB, "test", UserId, Clock);
-
-        plan.MoveMeal(Monday, SlotA, tuesday, SlotB, Clock);
-
-        // Mover (originally at Monday/SlotA) now at tuesday/SlotB — still has overrideA
-        var movedToTuesday = plan.PlannedMeals.Single(m => m.Date == tuesday && m.MealSlotId == SlotB);
-        Assert.Equal(overrideA, movedToTuesday.AttendeesOverride);
-
-        // Target (originally at tuesday/SlotB) now at Monday/SlotA — still has overrideB
-        var movedToMonday = plan.PlannedMeals.Single(m => m.Date == Monday && m.MealSlotId == SlotA);
-        Assert.Equal(overrideB, movedToMonday.AttendeesOverride);
     }
 
     // ── MoveMeal raises domain event ──────────────────────────────────────────
@@ -264,10 +327,11 @@ public sealed class MealPlanTests
     {
         var plan = CreatePlan();
         plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
         plan.ClearDomainEvents(); // clear MealPlanned event
 
         var tuesday = Monday.AddDays(1);
-        plan.MoveMeal(Monday, SlotA, tuesday, SlotB, Clock);
+        plan.MoveMeal(mealId, tuesday, SlotB, Clock);
 
         var evt = Assert.IsType<MealMoved>(Assert.Single(plan.DomainEvents));
         Assert.Equal(Monday, evt.FromDate);
@@ -277,61 +341,45 @@ public sealed class MealPlanTests
         Assert.Null(evt.SwappedMealId);
     }
 
-    [Fact]
-    public void MoveMeal_SwapSetsSwappedMealId_InEvent()
-    {
-        var plan = CreatePlan();
-        var tuesday = Monday.AddDays(1);
-        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
-        plan.AssignMeal(tuesday, SlotB, [RecipeDish()], null, "test", UserId, Clock);
-        var targetId = plan.PlannedMeals.Single(m => m.Date == tuesday).Id;
-        plan.ClearDomainEvents();
-
-        plan.MoveMeal(Monday, SlotA, tuesday, SlotB, Clock);
-
-        var evt = Assert.IsType<MealMoved>(Assert.Single(plan.DomainEvents));
-        Assert.Equal(targetId, evt.SwappedMealId);
-    }
-
-    // ── ClearMeal ─────────────────────────────────────────────────────────────
+    // ── ApplyProposal — skips occupied cells (MP-O8) ─────────────────────────
 
     [Fact]
-    public void ClearMeal_RemovesMeal_WhenPresent()
+    public void ApplyProposal_SkipsCell_WhenItAlreadyHasMeals()
     {
         var plan = CreatePlan();
-        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+        var recipeId = Guid.NewGuid();
 
-        plan.ClearMeal(Monday, SlotA, Clock);
+        // Pre-fill Monday/SlotA
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "manual", UserId, Clock);
 
-        Assert.Empty(plan.PlannedMeals);
-    }
+        var proposals = new List<ProposedMeal>
+        {
+            new(Monday, SlotA, [], [new ProposedDish(recipeId, 2, 1)], "AI reasoning")
+        };
 
-    [Fact]
-    public void ClearMeal_IsNoOp_WhenCellEmpty()
-    {
-        var plan = CreatePlan();
+        var accepted = plan.ApplyProposal(proposals, UserId, Clock);
 
-        // Should not throw
-        plan.ClearMeal(Monday, SlotA, Clock);
-        Assert.Empty(plan.PlannedMeals);
-    }
-
-    // ── AssignMeal replaces existing ──────────────────────────────────────────
-
-    [Fact]
-    public void AssignMeal_ReplacesExistingMeal_InSameCell()
-    {
-        var plan = CreatePlan();
-        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+        // Should be 0 — the occupied cell was skipped
+        Assert.Equal(0, accepted);
+        // Still exactly 1 meal (the original)
         Assert.Single(plan.PlannedMeals);
-        var originalId = plan.PlannedMeals[0].Id;
+    }
 
-        // Re-assign to the same cell with different dishes
-        plan.AssignMeal(Monday, SlotA, [RecipeDish(), RecipeDish()], null, "test", UserId, Clock);
+    [Fact]
+    public void ApplyProposal_FillsEmptyCell()
+    {
+        var plan = CreatePlan();
+        var recipeId = Guid.NewGuid();
 
-        // Should still be one meal in that cell (updated, not duplicated)
-        Assert.Single(plan.PlannedMeals);
-        Assert.Equal(originalId, plan.PlannedMeals[0].Id);
-        Assert.Equal(2, plan.PlannedMeals[0].PlannedDishes.Count);
+        var proposals = new List<ProposedMeal>
+        {
+            new(Monday, SlotA, [], [new ProposedDish(recipeId, 2, 1)], "AI reasoning")
+        };
+
+        var accepted = plan.ApplyProposal(proposals, UserId, Clock);
+
+        Assert.Equal(1, accepted);
+        var meal = Assert.Single(plan.PlannedMeals);
+        Assert.Equal("ai", meal.Source);
     }
 }

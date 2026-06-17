@@ -243,11 +243,12 @@
         </div>
         <span class="spacer"></span>
 
-        @if (vm.IsEditing)
+        @if (vm.IsEditing && vm.MealId.HasValue)
         {
+            var clearMealIdStr = vm.MealId.Value.ToString("D");
             <button type="button" class="txt-btn danger"
                     @@click="
-                        fetch('/MealPlan?handler=Clear&date=@dateStr&slotId=@slotIdStr', {
+                        fetch('/MealPlan?handler=Clear&date=@dateStr&slotId=@slotIdStr&mealId=@clearMealIdStr', {
                             method: 'POST',
                             headers: {
                                 'RequestVerificationToken': document.querySelector('[name=__RequestVerificationToken]')?.value ?? '',
@@ -287,6 +288,10 @@
                     }
                     att.forEach(function(uid) { params.append('attendeesOverride', uid); });
                     if (attOverridden) params.append('attendeesOverridden', 'true');
+                    @if (vm.MealId.HasValue)
+                    {
+                        @:params.append('mealId', '@vm.MealId.Value.ToString("D")');
+                    }
                     params.append('__RequestVerificationToken', document.querySelector('[name=__RequestVerificationToken]')?.value ?? '');
 
                     // POST via fetch with params.toString() to preserve repeated keys.

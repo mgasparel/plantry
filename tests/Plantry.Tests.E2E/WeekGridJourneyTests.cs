@@ -117,9 +117,16 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             // Assign to Monday
             Assert.Equal(200, await PostAssignNoteAsync(page, fromDate, fromSlotId, "Takeout", token));
 
-            // Move from Monday to Tuesday
+            // Reload to pick up the assigned meal card and extract its mealId from ondragstart
+            await page.GotoAsync($"{BaseUrl}/MealPlan");
+            await page.WaitForURLAsync("**/MealPlan**");
+            await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
+            var mealId = await ExtractMealIdFromCardAsync(page);
+            Assert.False(string.IsNullOrEmpty(mealId), "Expected a meal card with a mealId after assign.");
+
+            // Move from Monday to Tuesday (MP-O8: relocate by mealId — no swap)
             token = await GetAntiforgeryTokenAsync(page);
-            var moveUrl = $"{BaseUrl}/MealPlan?handler=Move&fromDate={fromDate}&fromSlotId={fromSlotId}&toDate={toDate}&toSlotId={toSlotId}";
+            var moveUrl = $"{BaseUrl}/MealPlan?handler=Move&mealId={mealId}&toDate={toDate}&toSlotId={toSlotId}";
             var moveStatus = await page.EvaluateAsync<int>(@"
                 async (args) => {
                     const r = await fetch(args.url, {
@@ -150,12 +157,14 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
         }
     }
 
-    // ── Journey 3: Assign two meals → Move (swap) ────────────────────────────
+    // ── Journey 3: Assign two meals → Move into occupied cell → both stack ───
+    // MP-O8: moving into an occupied cell appends to the stack (no swap).
+    // Before: swap expected Leftovers→A and Takeout→B. Now: A is empty, B has both.
 
-    [Fact(DisplayName = "Assign Takeout Monday + Leftovers Tuesday → Swap → Leftovers Monday, Takeout Tuesday")]
-    public async Task AssignTwo_ThenSwap_MealsSwapPositions()
+    [Fact(DisplayName = "Assign Takeout Monday + Leftovers Tuesday → Move Takeout to Tuesday → Tuesday has both, Monday is empty")]
+    public async Task AssignTwo_ThenMoveIntoOccupied_BothStackInCell()
     {
-        var uniqueEmail = $"e2e-swap-{Guid.NewGuid():N}@test.local";
+        var uniqueEmail = $"e2e-stack-{Guid.NewGuid():N}@test.local";
         const string password = "testpass1";
 
         await using var context = await _browser.NewContextAsync(
@@ -186,9 +195,23 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             token = await GetAntiforgeryTokenAsync(page);
             Assert.Equal(200, await PostAssignNoteAsync(page, dateB, slotB, "Leftovers", token));
 
-            // Swap A → B (B is occupied → triggers swap)
+            // Reload to extract the mealId of the Takeout meal on Monday (first card in cell A)
+            await page.GotoAsync($"{BaseUrl}/MealPlan");
+            await page.WaitForURLAsync("**/MealPlan**");
+            await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
+
+            var cellASelector = $"#cell-{slotA.Replace("-", "")}-{dateA}";
+            var takeoutMealId = await page.Locator(cellASelector + " .meal-card").First
+                .EvaluateAsync<string?>(@"el => {
+                    const ds = el.getAttribute('ondragstart') || '';
+                    const m = ds.match(/onDragStart\(event,\s*'([^']+)'/);
+                    return m ? m[1] : null;
+                }");
+            Assert.False(string.IsNullOrEmpty(takeoutMealId), "Expected Takeout card mealId in cell A.");
+
+            // Move Takeout from Monday into Tuesday (B is occupied → joins the stack, no swap)
             token = await GetAntiforgeryTokenAsync(page);
-            var moveUrl = $"{BaseUrl}/MealPlan?handler=Move&fromDate={dateA}&fromSlotId={slotA}&toDate={dateB}&toSlotId={slotB}";
+            var moveUrl = $"{BaseUrl}/MealPlan?handler=Move&mealId={takeoutMealId}&toDate={dateB}&toSlotId={slotB}";
             var moveStatus = await page.EvaluateAsync<int>(@"
                 async (args) => {
                     const r = await fetch(args.url, {
@@ -199,20 +222,24 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
                 }", new { url = moveUrl, token });
             Assert.Equal(200, moveStatus);
 
-            // Reload → cell A has Leftovers, cell B has Takeout
+            // Reload → cell A is empty, cell B has both notes stacked
             await page.GotoAsync($"{BaseUrl}/MealPlan");
             await page.WaitForURLAsync("**/MealPlan**");
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
 
-            var cellAId = $"#cell-{slotA.Replace("-", "")}-{dateA}";
             var cellBId = $"#cell-{slotB.Replace("-", "")}-{dateB}";
 
-            await Assertions.Expect(page.Locator(cellAId + " .note-txt")).ToContainTextAsync("Leftovers");
-            await Assertions.Expect(page.Locator(cellBId + " .note-txt")).ToContainTextAsync("Takeout");
+            // Both notes appear in cell B
+            await Assertions.Expect(page.Locator(cellBId + " .note-txt").Nth(0)).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(cellBId + " .note-txt").Nth(1)).ToBeVisibleAsync();
+
+            // Cell A is now empty
+            await Assertions.Expect(page.Locator(cellASelector)).ToHaveClassAsync(
+                new System.Text.RegularExpressions.Regex("\\bempty\\b"));
         }
         finally
         {
-            await context.Tracing.StopAsync(new() { Path = "trace-wkgrid-swap.zip" });
+            await context.Tracing.StopAsync(new() { Path = "trace-wkgrid-stack.zip" });
         }
     }
 
@@ -241,9 +268,16 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             // Assign
             Assert.Equal(200, await PostAssignNoteAsync(page, date, slotId, "Takeout", token));
 
-            // Clear
+            // Reload to extract the mealId from the rendered card's ondragstart attribute
+            await page.GotoAsync($"{BaseUrl}/MealPlan");
+            await page.WaitForURLAsync("**/MealPlan**");
+            await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
+            var mealId = await ExtractMealIdFromCardAsync(page);
+            Assert.False(string.IsNullOrEmpty(mealId), "Expected a meal card with a mealId after assign.");
+
+            // Clear by mealId (MP-O8: clear targets a specific meal, not a whole cell)
             token = await GetAntiforgeryTokenAsync(page);
-            var clearUrl = $"{BaseUrl}/MealPlan?handler=Clear&date={date}&slotId={slotId}";
+            var clearUrl = $"{BaseUrl}/MealPlan?handler=Clear&date={date}&slotId={slotId}&mealId={mealId}";
             var clearStatus = await page.EvaluateAsync<int>(@"
                 async (args) => {
                     const r = await fetch(args.url, {
@@ -454,6 +488,20 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
     {
         return await page.Locator("input[name=__RequestVerificationToken]").First
                    .GetAttributeAsync("value") ?? "";
+    }
+
+    /// <summary>
+    /// Extracts the mealId guid from the first .meal-card's ondragstart attribute.
+    /// The card emits: onDragStart(event, 'mealId', 'date', 'slotId')
+    /// Returns null if no card is found.
+    /// </summary>
+    private static async Task<string?> ExtractMealIdFromCardAsync(IPage page)
+    {
+        return await page.Locator(".meal-card").First.EvaluateAsync<string?>(@"el => {
+            const ds = el.getAttribute('ondragstart') || '';
+            const m = ds.match(/onDragStart\(event,\s*'([^']+)'/);
+            return m ? m[1] : null;
+        }");
     }
 
     private async Task<int> PostAssignNoteAsync(IPage page, string date, string slotId, string note, string token)

@@ -228,4 +228,66 @@ public sealed class MealPlanPersistenceTests(PostgresFixture db) : IAsyncLifetim
 
         await Assert.ThrowsAsync<DbUpdateException>(() => writeDb2.SaveChangesAsync());
     }
+
+    // ── MP-O8: cell stack ─────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "MP-O8: two meals persist in one cell with ordinals 1 and 2")]
+    public async Task TwoMealsInCell_Persist_WithContiguousOrdinals()
+    {
+        MealPlanId planId;
+
+        await using (var writeDb = NewDb(_household))
+        {
+            var plan = MealPlan.Start(_household, Monday, Clock);
+            planId = plan.Id;
+            plan.AssignNote(Monday, _slotId, "Breakfast A", null, "manual", UserId, Clock);
+            plan.AssignNote(Monday, _slotId, "Breakfast B", null, "manual", UserId, Clock);
+            writeDb.MealPlans.Add(plan);
+            await writeDb.SaveChangesAsync();
+        }
+
+        await using var readDb = NewDb(_household);
+        var loaded = await readDb.MealPlans
+            .Include(mp => mp.PlannedMeals)
+            .SingleAsync(mp => mp.Id == planId);
+
+        var cell = loaded.MealsInCell(Monday, _slotId);
+        Assert.Equal(2, cell.Count);
+        Assert.Equal(1, cell[0].Ordinal);
+        Assert.Equal(2, cell[1].Ordinal);
+        Assert.Equal("Breakfast A", cell[0].Note);
+        Assert.Equal("Breakfast B", cell[1].Note);
+    }
+
+    [Fact(DisplayName = "MP-O8: duplicate (plan, date, slot, ordinal) is rejected by the unique index")]
+    public async Task DuplicateOrdinal_InSameCell_IsRejectedByDb()
+    {
+        MealPlanId planId;
+
+        // Write a plan with one note meal (ordinal 1) first
+        await using (var writeDb = NewDb(_household))
+        {
+            var plan = MealPlan.Start(_household, Monday, Clock);
+            planId = plan.Id;
+            plan.AssignNote(Monday, _slotId, "First", null, "manual", UserId, Clock);
+            writeDb.MealPlans.Add(plan);
+            await writeDb.SaveChangesAsync();
+        }
+
+        // Attempt to insert a second row with the same (meal_plan_id, date, meal_slot_id, ordinal=1)
+        // directly via raw SQL to prove the DB-level unique index ux_planned_meal_plan_date_slot_ordinal
+        // enforces uniqueness at the persistence layer.
+        await using var rawDb = new MealPlanningDbContext(MealPlanningOptions());
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            rawDb.Database.ExecuteSqlRawAsync(@"
+                INSERT INTO meal_planning.planned_meal
+                    (planned_meal_id, household_id, meal_plan_id, date, meal_slot_id,
+                     note, dishes, source, created_by, created_at, updated_by, updated_at,
+                     attendees_override, ordinal)
+                VALUES
+                    (gen_random_uuid(), {0}, {1}, {2}, {3},
+                     'Duplicate', '[]'::jsonb, 'test', {4}, NOW(), {4}, NOW(),
+                     NULL, 1)",
+                _household.Value, planId.Value, Monday, _slotId.Value, UserId));
+    }
 }
