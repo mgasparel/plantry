@@ -23,4 +23,19 @@ public sealed class TagStance : Entity<TagStanceId>
     /// 'Required' | 'Preferred' | 'Disliked' | 'Restricted' — no 'Neutral' row (M6).
     /// </summary>
     public string Stance { get; private set; } = default!;
+
+    internal static TagStance Create(HouseholdId householdId, UserPreferenceId preferenceId, Guid tagId, string stance) =>
+        new()
+        {
+            Id = TagStanceId.New(),
+            HouseholdId = householdId,
+            UserPreferenceId = preferenceId,
+            TagId = tagId,
+            Stance = stance,
+        };
+
+    internal void UpdateStance(string stance, IClock _)
+    {
+        Stance = stance;
+    }
 }

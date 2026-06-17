@@ -15,8 +15,10 @@ using Plantry.Intake.Infrastructure;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
+using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.MealPlanning.Infrastructure;
+using Plantry.Web.MealPlanning;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -173,7 +175,16 @@ builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
             npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
+builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();
+
+// Meal Planning → Recipes / Identity anti-corruption adapters (P3-2, plantry-e78).
+// TagReaderAdapter supplies grouped tag vocabulary from Recipes; HouseholdMemberReaderAdapter
+// supplies household member display facts from Identity. SetPreferences orchestrates the
+// lazy-create aggregate and stance mutations.
+builder.Services.AddScoped<ITagReader, TagReaderAdapter>();
+builder.Services.AddScoped<IHouseholdMemberReader, HouseholdMemberReaderAdapter>();
+builder.Services.AddScoped<SetPreferences>();
 
 // Shopping → Catalog ACL adapter (P2-Sc). ShoppingCatalogReaderAdapter implements the Shopping
 // anti-corruption port over Catalog repositories so Shopping.Application never takes a direct
