@@ -6,22 +6,23 @@
     <span class="pending-bar__ico">
         <svg class="icon sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/></svg>
     </span>
-    <span class="pending-bar__label">
-        <b>@Model.PendingCount suggestion@(Model.PendingCount == 1 ? "" : "s")</b> pending review &middot; Accept individually or apply the whole batch.
-    </span>
+    <div class="pending-bar__label">
+        <div><b>@Model.PendingCount suggestion@(Model.PendingCount == 1 ? "" : "s")</b> pending review</div>
+        <div class="pending-bar__sub">Accept individually, or apply the whole batch.</div>
+    </div>
     <div class="pending-bar__spacer"></div>
-    <button type="button" class="btn btn--primary"
-            hx-post="/MealPlan?handler=AcceptAll&amp;week=@week"
-            hx-target="#plan-main-content"
-            hx-swap="innerHTML"
-            hx-disabled-elt="this">
-        Accept all
-    </button>
     <button type="button" class="btn btn--ghost"
             hx-post="/MealPlan?handler=Discard&amp;week=@week"
             hx-target="#plan-main-content"
             hx-swap="innerHTML"
             hx-disabled-elt="this">
         Discard
+    </button>
+    <button type="button" class="btn btn--primary"
+            hx-post="/MealPlan?handler=AcceptAll&amp;week=@week"
+            hx-target="#plan-main-content"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this">
+        Accept all
     </button>
 </div>

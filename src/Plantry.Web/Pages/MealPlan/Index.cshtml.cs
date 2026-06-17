@@ -55,6 +55,9 @@ public sealed class IndexModel(
     /// <summary>Number of pending AI proposals awaiting user action.</summary>
     public int PendingCount => PendingProposals.Count;
 
+    /// <summary>Advisory insight callouts for the rail, derived from the loaded week (presentation only).</summary>
+    public List<InsightCallout> Insights { get; private set; } = [];
+
     /// <summary>Rolled-up week cost for the budget chip. Null when no pricing data available.</summary>
     public decimal? WeekTotalCost { get; private set; }
 
@@ -104,14 +107,22 @@ public sealed class IndexModel(
             var meal = plan?.PlannedMeals.FirstOrDefault(m => m.Id.Value == mealId.Value);
             if (meal is not null)
             {
-                // Resolve dish names
+                // Resolve dish names + live fulfillment/cost so an existing meal opens in the editor
+                // with the same per-dish "% in pantry · $cost" the prototype shows.
+                var today = DateOnly.FromDateTime(DateTime.Today);
                 var dishes = new List<EditorDishVm>();
                 foreach (var d in meal.PlannedDishes.OrderBy(d => d.Ordinal))
                 {
                     if (d.RecipeId.HasValue)
                     {
                         var r = await recipeReader.GetByIdAsync(d.RecipeId.Value, ct);
-                        dishes.Add(new EditorDishVm(DishKind.Recipe, d.RecipeId.Value, r?.Name ?? "Unknown recipe", d.Servings, d.Ordinal));
+                        var enr = await recipeReader.GetEnrichmentAsync(d.RecipeId.Value, d.Servings, today, ct);
+                        decimal? costPerServing = enr?.TotalCost is { } total && d.Servings > 0
+                            ? total / d.Servings
+                            : null;
+                        dishes.Add(new EditorDishVm(
+                            DishKind.Recipe, d.RecipeId.Value, r?.Name ?? "Unknown recipe", d.Servings, d.Ordinal,
+                            enr?.FulfillmentPercent, costPerServing, r?.HasPhoto ?? false));
                     }
                     else if (d.ProductId.HasValue)
                     {
@@ -338,9 +349,26 @@ public sealed class IndexModel(
 
     public async Task<IActionResult> OnGetSearchAsync(string q, CancellationToken ct = default)
     {
-        var recipes = await recipeReader.SearchAsync(q, 8, ct);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var recipes = await recipeReader.SearchAsync(q, 6, ct);
+
+        // Enrich each recipe hit with live fulfillment + per-serving cost so the picker can show
+        // "{pct}% in pantry · $cost" exactly like the prototype (PL.recipeStock). MealPlanning
+        // borrows Recipes' computations — it never recomputes them (domain-model §1).
+        var hits = new List<RecipeHitVm>(recipes.Count);
+        foreach (var r in recipes)
+        {
+            var enr = await recipeReader.GetEnrichmentAsync(r.RecipeId, r.DefaultServings, today, ct);
+            decimal? costPerServing = enr?.TotalCost is { } total && r.DefaultServings > 0
+                ? total / r.DefaultServings
+                : null;
+            hits.Add(new RecipeHitVm(
+                r.RecipeId, r.Name, r.DefaultServings,
+                enr?.FulfillmentPercent, costPerServing, r.HasPhoto));
+        }
+
         var products = await catalogReader.SearchAsync(q, 5, ct);
-        return Partial("_DishSearch", new DishSearchVm(q, recipes, products));
+        return Partial("_DishSearch", new DishSearchVm(q, hits, products));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -359,7 +387,7 @@ public sealed class IndexModel(
 
         var end = WeekStart.AddDays(6);
         WeekLabel = WeekStart.Month == end.Month
-            ? $"{WeekStart:MMM d} – {end:d}, {WeekStart:yyyy}"
+            ? $"{WeekStart:MMM d} – {end.Day}, {WeekStart:yyyy}"
             : $"{WeekStart:MMM d} – {end:MMM d}, {WeekStart:yyyy}";
 
         WeekDays = Enumerable.Range(0, 7)
@@ -441,19 +469,64 @@ public sealed class IndexModel(
 
         Members = (await memberReader.ListMembersAsync(ct)).ToList();
 
-        // Compute HasEmptyCells (used to enable/disable Auto-fill button)
+        // Compute HasEmptyCells (used to enable/disable Auto-fill button) and the open-cell count.
+        int emptyCells = 0;
         if (HasSlots)
         {
-            HasEmptyCells = WeekDays.Any(d =>
-                Slots.Any(s =>
+            foreach (var d in WeekDays)
+            {
+                foreach (var s in Slots)
                 {
                     var key = CellKey(DateOnly.Parse(d.DateIso), s.Id);
-                    return !MealsByCell.ContainsKey(key);
-                }));
+                    if (!MealsByCell.ContainsKey(key)) emptyCells++;
+                }
+            }
+            HasEmptyCells = emptyCells > 0;
         }
 
         // Load pending AI proposals for this week from the store
         await LoadPendingProposalsAsync(householdId, ct);
+
+        BuildInsights(emptyCells);
+    }
+
+    /// <summary>
+    /// Builds advisory rail callouts from the already-loaded week. Presentation only — no
+    /// new domain services; derives repeats and open-slot counts from MealsByCell.
+    /// </summary>
+    private void BuildInsights(int emptyCells)
+    {
+        Insights = [];
+        if (!HasSlots) return;
+
+        // Repeated recipes/dishes across the planned week.
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var meals in MealsByCell.Values)
+        {
+            foreach (var meal in meals)
+            {
+                if (meal.Note is not null) continue;
+                foreach (var name in meal.DishNames)
+                    counts[name] = counts.GetValueOrDefault(name) + 1;
+            }
+        }
+        foreach (var (name, n) in counts.Where(kv => kv.Value >= 2).OrderByDescending(kv => kv.Value))
+        {
+            var times = n == 2 ? "twice" : $"{n} times";
+            Insights.Add(new InsightCallout(
+                "info", "swap",
+                $"{name} planned {times} this week",
+                "Variety's up to you — repeats are fine if you're batch-cooking."));
+        }
+
+        // Open slots still to fill.
+        if (emptyCells > 0)
+        {
+            Insights.Add(new InsightCallout(
+                "info", "calendar",
+                $"{emptyCells} slot{(emptyCells == 1 ? "" : "s")} still open this week",
+                "Auto-fill the gaps with AI suggestions, or add meals by hand."));
+        }
     }
 
     private async Task LoadPendingProposalsAsync(HouseholdId householdId, CancellationToken ct)
@@ -500,7 +573,7 @@ public sealed class IndexModel(
             ghostDishNames = names;
         }
 
-        return Partial("_MealCell", new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, hardStanceWarning, pending, ghostDishNames));
+        return Partial("_MealCell", new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames));
     }
 
     private async Task<MealSlot?> GetSlotAsync(HouseholdId householdId, MealSlotId slotId, CancellationToken ct)
@@ -558,6 +631,9 @@ public sealed class IndexModel(
     public sealed record DayColumn(string DayName, string DateLabel, string DateIso, bool IsToday);
     public sealed record SlotRow(MealSlotId Id, string Label, List<Guid> DefaultAttendees);
 
+    /// <summary>An advisory insight rendered in the planner rail. Tone: warn|info|good. Icon: sprite suffix.</summary>
+    public sealed record InsightCallout(string Tone, string Icon, string Title, string Body);
+
     /// <summary>Per-meal fulfillment/cost enrichment for the grid cell (P3-4).</summary>
     public sealed record MealFulfillmentVm(
         int FulfillmentPercent,
@@ -582,11 +658,18 @@ public sealed class IndexModel(
         List<EditorDishVm> Dishes,
         bool IsEditing);
 
-    public sealed record EditorDishVm(DishKind Kind, Guid ItemId, string Name, int Servings, int Ordinal);
+    public sealed record EditorDishVm(
+        DishKind Kind, Guid ItemId, string Name, int Servings, int Ordinal,
+        int? FulfillmentPercent = null, decimal? CostPerServing = null, bool HasPhoto = false);
+
+    /// <summary>A recipe row in the dish-search dropdown, enriched with live fulfillment/cost + photo flag.</summary>
+    public sealed record RecipeHitVm(
+        Guid RecipeId, string Name, int DefaultServings,
+        int? FulfillmentPercent, decimal? CostPerServing, bool HasPhoto);
 
     public sealed record EditorPageModel(MealEditorVm Vm, List<HouseholdMember> Members, MealSlot Slot);
-    public sealed record CellFragmentVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, List<MealCellVm> Meals, DateOnly WeekStart, string? HardStanceWarning = null, ProposedMeal? PendingProposal = null, IReadOnlyList<string>? GhostDishNames = null);
-    public sealed record DishSearchVm(string Query, IReadOnlyList<RecipeReadModel> Recipes, IReadOnlyList<MealPlanProductReadModel> Products);
+    public sealed record CellFragmentVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, List<MealCellVm> Meals, DateOnly WeekStart, List<HouseholdMember> Members, string? HardStanceWarning = null, ProposedMeal? PendingProposal = null, IReadOnlyList<string>? GhostDishNames = null);
+    public sealed record DishSearchVm(string Query, IReadOnlyList<RecipeHitVm> Recipes, IReadOnlyList<MealPlanProductReadModel> Products);
     public sealed record MealCardVm(MealCellVm Meal, string DateIso, MealSlotId SlotId, List<HouseholdMember> Members);
     public sealed record GhostCellVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, ProposedMeal Proposal, IReadOnlyList<string> DishNames);
 }

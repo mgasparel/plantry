@@ -25,17 +25,23 @@ public sealed class RecipeReadModelAdapter(
         // Accessing .Value directly on a converted type in a LINQ predicate causes a translation
         // failure when combined with a HasQueryFilter that also uses a converted type.
         var rid = RecipeId.From(recipeId);
-        var recipe = await db.Recipes
-            .Include(r => r.Tags)
-            .FirstOrDefaultAsync(r => r.Id == rid && r.ArchivedAt == null, ct);
+        // Project rather than load the entity: `r.Photo != null` becomes an EXISTS/JOIN, so the
+        // (potentially large) photo bytes are never hydrated just to report presence.
+        var row = await db.Recipes
+            .Where(r => r.Id == rid && r.ArchivedAt == null)
+            .Select(r => new
+            {
+                r.Id,
+                r.Name,
+                TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                r.DefaultServings,
+                HasPhoto = r.Photo != null,
+            })
+            .FirstOrDefaultAsync(ct);
 
-        if (recipe is null) return null;
+        if (row is null) return null;
 
-        return new RecipeReadModel(
-            recipe.Id.Value,
-            recipe.Name,
-            recipe.Tags.Select(t => t.TagId.Value).ToList(),
-            recipe.DefaultServings);
+        return new RecipeReadModel(row.Id.Value, row.Name, row.TagIds, row.DefaultServings, row.HasPhoto);
     }
 
     public async Task<IReadOnlyList<RecipeReadModel>> SearchAsync(
@@ -43,19 +49,23 @@ public sealed class RecipeReadModelAdapter(
     {
         var q = string.IsNullOrWhiteSpace(nameQuery) ? "" : nameQuery.Trim();
 
-        var recipes = await db.Recipes
-            .Include(r => r.Tags)
+        var rows = await db.Recipes
             .Where(r => r.ArchivedAt == null &&
                         (q == "" || EF.Functions.ILike(r.Name, $"%{q}%")))
             .OrderBy(r => r.Name)
             .Take(maxResults)
+            .Select(r => new
+            {
+                r.Id,
+                r.Name,
+                TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                r.DefaultServings,
+                HasPhoto = r.Photo != null,
+            })
             .ToListAsync(ct);
 
-        return recipes.Select(r => new RecipeReadModel(
-            r.Id.Value,
-            r.Name,
-            r.Tags.Select(t => t.TagId.Value).ToList(),
-            r.DefaultServings)).ToList();
+        return rows.Select(r => new RecipeReadModel(
+            r.Id.Value, r.Name, r.TagIds, r.DefaultServings, r.HasPhoto)).ToList();
     }
 
     /// <inheritdoc />

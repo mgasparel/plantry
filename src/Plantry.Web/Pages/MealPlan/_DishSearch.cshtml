@@ -1,6 +1,7 @@
 @model Plantry.Web.Pages.MealPlan.IndexModel.DishSearchVm
 @{
     var q = Model.Query ?? "";
+    string Lvl(int pct) => pct >= 80 ? "hi" : pct >= 50 ? "mid" : "lo";
 }
 
 @if (Model.Recipes.Count > 0)
@@ -8,19 +9,40 @@
     <div class="dm-group">Recipes</div>
     @foreach (var r in Model.Recipes)
     {
-        var rId = r.RecipeId.ToString("D");
-        var rName = r.Name.Replace("'", "\\'").Replace("`", "\\`");
         var rInitial = r.Name.Length > 0 ? r.Name[0].ToString() : "?";
+        var photoUrl = $"/Recipes/Details?id={r.RecipeId}&handler=Photo";
+        var costAttr = r.CostPerServing?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
         <div class="dish-opt"
              data-kind="recipe"
              data-item-id="@r.RecipeId"
              data-name="@r.Name"
              data-servings="@r.DefaultServings"
+             data-fulfillment="@(r.FulfillmentPercent?.ToString() ?? "")"
+             data-cost-per-serving="@costAttr"
+             data-has-photo="@(r.HasPhoto ? "1" : "")"
              onmousedown="addDishFromResult(this)">
-            <div class="do-thumb" style="width:32px;height:32px;border-radius:7px;flex:none;background:var(--surface-3);display:grid;place-items:center;font-weight:700;font-size:13px;">@rInitial</div>
+            @if (r.HasPhoto)
+            {
+                <img class="do-thumb" src="@photoUrl" alt="@r.Name"
+                     onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'do-thumb do-thumb--chip',textContent:'@rInitial'}))" />
+            }
+            else
+            {
+                <div class="do-thumb do-thumb--chip">@rInitial</div>
+            }
             <div class="do-main">
                 <div class="do-name">@r.Name</div>
-                <div class="do-sub"><span>@r.DefaultServings srv · —% in pantry</span></div>
+                <div class="do-sub">
+                    @if (r.FulfillmentPercent is int pct)
+                    {
+                        <span class="fdot lvl-@(Lvl(pct))-bg"></span>
+                        <span>@pct% in pantry · @r.DefaultServings srv@(r.CostPerServing is { } cps ? $" · ${(cps * r.DefaultServings):F2}" : "")</span>
+                    }
+                    else
+                    {
+                        <span>@r.DefaultServings srv</span>
+                    }
+                </div>
             </div>
         </div>
     }
@@ -37,8 +59,11 @@
              data-item-id="@p.ProductId"
              data-name="@p.Name"
              data-servings="1"
+             data-fulfillment=""
+             data-cost-per-serving=""
+             data-has-photo=""
              onmousedown="addDishFromResult(this)">
-            <div class="do-thumb" style="width:32px;height:32px;border-radius:7px;flex:none;background:var(--surface-3);display:grid;place-items:center;font-weight:700;font-size:13px;">@pInitial</div>
+            <div class="do-thumb do-thumb--chip">@pInitial</div>
             <div class="do-main">
                 <div class="do-name">@p.Name</div>
                 <div class="do-sub">Pantry item</div>
@@ -49,5 +74,5 @@
 
 @if (Model.Recipes.Count == 0 && Model.Products.Count == 0 && !string.IsNullOrWhiteSpace(q))
 {
-    <div style="padding:12px 8px;color:var(--ink-faint);font-size:13px;">No results for "@q"</div>
+    <div style="padding:12px 8px;color:var(--color-text-faint);font-size:13px;">No results for "@q"</div>
 }

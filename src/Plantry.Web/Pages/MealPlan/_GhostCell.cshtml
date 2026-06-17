@@ -22,18 +22,32 @@
     <div class="gh-reason" title="@reason">@reason</div>
 }
 <div class="gh-acts">
-    <button type="button" class="btn btn--primary btn--xs"
+    <button type="button" class="gh-btn accept"
             hx-post="/MealPlan?handler=AcceptCell&amp;date=@dateIso&amp;slotId=@slotId&amp;week=@Model.Date.ToString("yyyy-MM-dd")"
             hx-target="#plan-main-content"
             hx-swap="innerHTML"
             aria-label="Accept suggestion for @Model.SlotLabel on @Model.Date">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
         Accept
     </button>
-    <button type="button" class="btn--icon gh-reject"
+</div>
+<div class="gh-acts gh-acts-icons">
+    @* Regenerate — visual parity with the prototype; not yet wired *@
+    <button type="button" class="gh-btn icon regen" title="Regenerate (coming soon)" aria-label="Regenerate suggestion" disabled>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+    </button>
+    <button type="button" class="gh-btn icon"
+            hx-get="/MealPlan?handler=Editor&amp;date=@dateIso&amp;slotId=@slotId"
+            hx-target="#meal-editor-dialog"
+            hx-swap="innerHTML"
+            title="Edit" aria-label="Edit suggestion before adding">
+        <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+    </button>
+    <button type="button" class="gh-btn icon reject"
             hx-post="/MealPlan?handler=RejectCell&amp;date=@dateIso&amp;slotId=@slotId&amp;week=@Model.Date.ToString("yyyy-MM-dd")"
             hx-target="#plan-main-content"
             hx-swap="innerHTML"
-            aria-label="Reject suggestion">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            title="Reject" aria-label="Reject suggestion">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
     </button>
 </div>
