@@ -22,7 +22,7 @@ Plantry NOT-NULL / invariant constraint is satisfiable from the source data (ver
 4. **Product barcodes, calories, min-stock, tare-weight, "produces product" links, recipe ingredient notes** have no Plantry catalog/recipe home.
 5. **Shopping locations** (stores) belong to the not-yet-built Pricing context.
 
-The work is a **staged migration pipeline modeled on the existing Intake flow** (extract → stage → reconcile → commit), not a raw SQL load. Recipe import is **gated on the Recipes context being implemented** (currently design-only in `DomainDesign/Domains/Recipes/`).
+The work is a **staged migration pipeline modeled on the existing Intake flow** (extract → stage → reconcile → commit), not a raw SQL load. Recipe import is **unblocked** — the Recipes context is fully implemented (aggregate, app services, EF mappings, migrations all present as of 2026-06-18).
 
 ---
 
@@ -180,9 +180,9 @@ Costco / Superstore / Metro. **No Catalog home** — stores live in the **Pricin
 
 ---
 
-## 5. Recipes mapping  *(gated on Recipes context implementation)*
+## 5. Recipes mapping
 
-> Recipes is **design-only** today (`DomainDesign/Domains/Recipes/`, `DataModels/recipes.md`). This section maps against the *designed* schema; the recipe import phase **cannot start until the Recipes context (aggregate, app services, EF mappings, migrations) exists**. Until then, recipes are extracted to the manifest only.
+> The Recipes context is **fully implemented** as of 2026-06-18 (aggregate, app services, EF mappings, migrations, `AuthorRecipe` application service all present). Recipe import is unblocked and proceeds in parallel with catalog import once the manifest is extracted.
 
 ### 5.1 Recipe (root) — 65 normal recipes
 
@@ -198,7 +198,16 @@ Costco / Superstore / Metro. **No Catalog home** — stores live in the **Pricin
 | `not_check_shoppinglist`, `type` | — | dropped (meal-plan/shopping concern) |
 | `row_created_timestamp` | `created_at` | ✅ |
 
-**Directions HTML→text (decided):** Grocy stores `<p>…</p>` paragraphs (verified). Plantry `directions` is a single text field where **paragraphs = derived steps** and a leading `#` line = a section reset (`recipes.md` Resolved-call 4). Convert: each `<p>` → one paragraph (blank-line separated); strip remaining tags; decode entities; lists (`<li>`) → lines. This lands natively in Plantry's step-derivation model. Inline formatting (bold/links inside directions) is flattened to text (§8-T13).
+**Directions HTML→text (decided):** Grocy stores `<p>…</p>` paragraphs (verified). Plantry `directions` is a single text field where **paragraphs = derived steps** and a leading `#` line = a section reset (`recipes.md` Resolved-call 4). Conversion rules:
+- Each `<p>` block → one step, followed by **a blank line** (the blank line is required — it is what Plantry's step-derivation splits on).
+- `<li>` items → individual lines, each also followed by a blank line so they render as separate steps rather than a run-on list.
+- `<br>` within a block → preserved as a line break within the same step (no blank line).
+- Strip all remaining tags; decode HTML entities.
+- Collapse any run of 3+ newlines down to 2 (one blank line) to prevent gaps from double-wrapped content.
+
+The blank-line-between-steps invariant must be enforced as a post-conversion normalisation pass, not assumed from the source HTML structure. Inline formatting (bold/links) is flattened to text (§8-T13).
+
+**Post-import enhancement (deferred):** Grocy directions are often unstructured prose — a basic HTML strip produces valid Plantry directions but may not produce well-structured steps or `#` section headers. An LLM pass to restructure imported directions into proper steps is a candidate enhancement *after* the import is confirmed working, once the quality of the raw conversion can be assessed against real recipes.
 
 **Photos (decided):** fetch the 16 images via `GET /api/files/recipepictures/{name}` during Extract, store bytes + content-type into `recipe_photo`. Full fidelity. (If the Recipes photo endpoint/table isn't built when the recipe phase runs, photos defer to a follow-up — recipe text is independent of them.)
 
@@ -213,10 +222,10 @@ Grocy lets a recipe declare it *produces* a product (batch cooking → stock). P
 Grocy lets a recipe **include another recipe** as a component. Plantry's `recipe_ingredient` references **products only** (`product_id NOT NULL`) — there is **no recipe-as-ingredient**. This is the one genuinely structural recipe gap. Options weighed:
 
 - **(A) Drop** the nesting → lose the composition.
-- **(B) Flatten** → inline the sub-recipe's ingredients into the parent (multiply by `servings`). Distorts authoring intent and can double-count.
-- **(C) Reference as text** → add a `group_heading` + a note-style line naming the included recipe.
+- **(B) Flatten** → inline the sub-recipe's ingredients into the parent, scaled by the nesting amount. Produces a complete, self-contained recipe but denormalizes the shared base.
+- **(C) Reference as text** → add a `group_heading` + a note-style line naming the included recipe. *(Previously chosen; reversed — see below.)*
 
-**Decision: (C) — preserve as a labelled section.** For each nesting, emit a `group_heading` like *"Includes: <sub-recipe name>"* on the parent recipe and, if the sub-recipe is itself imported, leave the human a clear pointer in `directions`. Rationale: keeps the parent recipe coherent and honest (no fabricated/double-counted quantities), survives as meaningful text, and is reversible if Plantry ever adds sub-recipes. 16 edges → low volume, easy to review. Logged §8-T14.
+**Decision: (B) — flatten, with a labelled section.** For each nesting edge, scale the sub-recipe's ingredients by `(nesting.amount / sub_recipe.base_servings)` and insert them into the parent recipe under a `group_heading` named after the sub-recipe (e.g., *"Caesar Dressing"*). This produces a complete, usable recipe in Plantry without requiring native sub-recipe support. Rationale: option (C) was initially chosen to avoid denormalization, but leaves recipes incomplete — the heading says "Includes: Caesar Dressing" but the dressing ingredients aren't there, forcing a cross-reference to use the recipe. Flatten trades denormalization for usability; 16 edges is low volume, so duplication is manageable. Native sub-recipe composition is deferred as a future Plantry feature. Logged §8-T14.
 
 ### 5.4 Recipe ingredients — 399 rows on normal recipes
 
@@ -285,7 +294,7 @@ Units → Categories → Locations → Products (parents before variants) → Pr
 | **T11** | Shopping locations / stores (3) | **Parked in manifest, not committed** — they belong to the unbuilt Pricing context. | Med (deferred) |
 | **T12** | Recipe "produces product" link (21) | Link dropped; fact appended to recipe `source` as text. Inventory-producing semantics lost (inventory out of scope). | Med |
 | **T13** | Inline rich formatting inside recipe directions | Flattened to text (paragraphs preserved as steps; bold/links lost). | Low |
-| **T14** | Recipe nestings (16) | Preserved as a labelled `group_heading` ("Includes: X") — no flatten/double-count, reversible. | Med |
+| **T14** | Recipe nestings (16) | **Flattened** — sub-recipe ingredients scaled and inserted into parent under a named `group_heading`. Produces complete, usable recipes; denormalizes shared bases (e.g. a caesar dressing appears in full in every recipe that includes it). Native sub-recipe composition deferred as a future feature. | Low |
 | **T15** | Recipe ingredient notes (8) | Dropped — no per-ingredient note field; surfaced in Recipe Review for manual folding into directions. | Low |
 
 No tradeoff is **High** severity: the structural core imports at full fidelity; every loss is either an unused Grocy feature (zero real data), a cosmetic field, or a deliberate Plantry simplification with a text-preserving fallback.
@@ -296,10 +305,10 @@ No tradeoff is **High** severity: the structural core imports at full fidelity; 
 
 1. **Phase 0 — Extract + manifest** (no Plantry deps): `GrocyClient`, manifest schema, dry-run dump. Validates the §3 numbers against a frozen snapshot.
 2. **Phase 1 — Catalog import** (units → conversions → locations → categories → products → SKUs) with the three mapping grids + Product Review. Fully buildable **now** against the existing Catalog context.
-3. **Phase 2 — Recipes import** — **blocked on** the Recipes bounded context being implemented (aggregate + app services + EF + migrations, per `DomainDesign/Domains/Recipes/`). Recipe extraction can ship in Phase 0; the commit half waits.
+3. **Phase 2 — Recipes import** — **unblocked** as of 2026-06-18. Recipes context is fully implemented. Recipe extraction ships in Phase 0 alongside catalog extraction; commit follows product commit (recipe ingredients reference product IDs that must exist first).
 4. **Phase 3 (optional, future)** — Pricing import consuming the parked stores + barcode last-prices; derived recipe tags.
 
-**Suggested beads epic:** one epic with child issues per phase/entity (Extractor, Unit-mapping grid, Category/Location grids, Product commit, Product review, Recipe extractor, Recipe commit [blocked], crosswalk/idempotency, dry-run/summary). Per project convention, track this in `bd`, not here.
+**Beads epic:** tracked as `plantry-zcw` with 8 child issues (Foundation/GrocyClient, Unit mapping, Category+Location mapping, Product staging+review, Product commit+conversions+SKUs, Recipe staging+review, Recipe commit, Pre-commit summary+dry-run).
 
 ---
 
