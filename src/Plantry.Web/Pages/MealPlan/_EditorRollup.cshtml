@@ -1,0 +1,70 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.EditorRollupVm
+@*
+    Server-computed rollup footer for the meal editor — ADR-013 §4/§5.
+
+    This partial is returned by OnPostRollupAsync and swapped into #ed-rollup-{slotIdStr}
+    by the mealEditor Alpine component whenever the draft dish list changes.
+
+    The rollup (fulfillment %, estimated cost) is a DERIVED PROJECTION that must be
+    server-computed via PlanFulfillmentService / PlanCostingService. There is no client-side
+    rollup formula — the former Alpine 'roll' getter that mirrored PL.rollup has been deleted.
+*@
+@{
+    string Lvl(int p) => p >= 80 ? "hi" : p >= 50 ? "mid" : "lo";
+    string Money(decimal n) => "$" + n.ToString("F2");
+}
+
+@if (Model.HasDishes && Model.FulfillmentPercent.HasValue)
+{
+    <div class="ed-rollup-live">
+        <div class="err">
+            <div class="err-n">
+                <span class="fdot lvl-@(Lvl(Model.FulfillmentPercent.Value))-bg"></span>
+                <span class="lvl-@(Lvl(Model.FulfillmentPercent.Value))">@Model.FulfillmentPercent.Value%</span>
+            </div>
+            <div class="err-l">in your pantry</div>
+        </div>
+        <div class="ed-div"></div>
+        <div class="err">
+            <div class="err-n mono">
+                @if (Model.TotalCost.HasValue)
+                {
+                    @(Model.CostIsPartial ? "~" : "")@Money(Model.TotalCost.Value)
+                }
+                else
+                {
+                    <text>—</text>
+                }
+            </div>
+            <div class="err-l">est. cost</div>
+        </div>
+    </div>
+}
+else if (Model.HasDishes)
+{
+    <div class="err">
+        <div class="err-n mono">
+            @if (Model.TotalCost.HasValue)
+            {
+                @(Model.CostIsPartial ? "~" : "")@Money(Model.TotalCost.Value)
+            }
+            else
+            {
+                <text>—</text>
+            }
+        </div>
+        <div class="err-l">est. cost</div>
+    </div>
+}
+else if (Model.IsNote)
+{
+    <div class="err">
+        <div class="err-l">A note keeps the slot — no dishes, no cost.</div>
+    </div>
+}
+else
+{
+    <div class="err">
+        <div class="err-l">Add a dish to see fulfillment &amp; cost.</div>
+    </div>
+}

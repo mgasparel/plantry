@@ -1,4 +1,18 @@
 @model Plantry.Web.Pages.MealPlan.IndexModel.EditorPageModel
+@*
+    Meal editor panel — ADR-013 §4/§5 compliant.
+
+    Client state (ADR-005 blesses Alpine for draft collections):
+      - Draft dish list (dishes[], mode, note, att, attOverridden)
+
+    Server projections (no client formula):
+      - Rollup footer (fulfillment %, est. cost) → OnPostRollupAsync → _EditorRollup fragment
+        swapped into #ed-rollup-{slotIdStr}.
+
+    The mealEditor Alpine.data() component lives in wwwroot/js/meal-editor.js.
+    Its x-data attribute receives a JSON config object with the Razor-rendered initial state.
+    This eliminates the @click attribute-string bug class (see bd memories).
+*@
 @{
     var vm = Model.Vm;
     var slot = Model.Slot;
@@ -11,6 +25,15 @@
     var currentAtt = vm.AttendeesOverride ?? defaultAtt;
     var isOverridden = vm.AttendeesOverride != null;
     var isNote = vm.Note != null;
+    var slotIdStr = slot.Id.Value.ToString("D");
+    // cellKey mirrors the format used by CellFragmentAsync: "{slotGuid:N}-{dateStr}"
+    var cellKey = slot.Id.Value.ToString("N") + "-" + dateStr;
+    var searchUrl = $"/MealPlan?handler=Search";
+    var rollupUrl = $"/MealPlan?handler=Rollup&date={dateStr}&slotId={slotIdStr}";
+
+    // Serialize only the initial dish shape needed by the Alpine component.
+    // Per-dish fulfillment/cost remain on the dish for the per-dish subtitle
+    // (dishMeta helper in meal-editor.js) but are NOT aggregated client-side.
     var dishesJson = System.Text.Json.JsonSerializer.Serialize(vm.Dishes.Select(d => new
     {
         kind = d.Kind.ToString().ToLower(),
@@ -24,66 +47,45 @@
     var attJson = System.Text.Json.JsonSerializer.Serialize(currentAtt);
     var defaultAttJson = System.Text.Json.JsonSerializer.Serialize(defaultAtt);
     var noteJson = System.Text.Json.JsonSerializer.Serialize(vm.Note ?? "");
-    var slotIdStr = slot.Id.Value.ToString("D");
-    var searchUrl = $"/MealPlan?handler=Search";
+
+    // Config object threaded into Alpine.data('mealEditor') via x-data.
+    // Using Html.Raw + a <script> data approach (see Razor + Alpine x-data attribute gotcha in bd
+    // memories: NEVER inject JSON into a double-quoted attribute with @Html.Raw — use a <script>
+    // data block and read it from JS, or a single-quoted attribute via JSON.parse).
+    var mealIdJson = vm.MealId.HasValue
+        ? System.Text.Json.JsonSerializer.Serialize(vm.MealId.Value.ToString("D"))
+        : "null";
 }
 
-<div x-data="{
-    mode: '@(isNote ? "note" : "dishes")',
-    note: @noteJson,
-    dishes: @dishesJson,
-    att: @attJson,
-    defaultAtt: @defaultAttJson,
-    attOverridden: @(isOverridden ? "true" : "false"),
-    get canSave() { return this.mode === 'note' ? this.note.trim().length > 0 : this.dishes.length > 0; },
-    lvl(p) { return p >= 80 ? 'hi' : p >= 50 ? 'mid' : 'lo'; },
-    money(n) { return '$' + Number(n).toFixed(2); },
-    dishMeta(d) {
-        if (d.fulfillment == null) return 'pantry item';
-        let s = d.fulfillment + '% in pantry';
-        if (d.costPerServing != null) s += ' · ' + this.money(d.costPerServing * (d.servings || 1));
-        return s;
-    },
-    photoUrl(d) { return '/Recipes/Details?id=' + d.itemId + '&handler=Photo'; },
-    // Live meal roll-up — averages fulfillment over recipe dishes and sums cost (mirrors PL.rollup).
-    get roll() {
-        if (this.mode === 'note' || !this.dishes.length) return null;
-        let cost = 0, pctSum = 0, recipeCount = 0, anyCost = false, allCost = true;
-        this.dishes.forEach(d => {
-            if (d.fulfillment != null) { pctSum += d.fulfillment; recipeCount++; }
-            if (d.costPerServing != null) { cost += d.costPerServing * (d.servings || 1); anyCost = true; }
-            else { allCost = false; }
-        });
-        return {
-            pct: recipeCount ? Math.round(pctSum / recipeCount) : null,
-            cost: anyCost ? cost : null,
-            costPartial: anyCost && !allCost
+@* Razor + Alpine x-data attribute gotcha mitigation (bd memories):
+   JSON must NOT be embedded in a double-quoted attribute. Pass a JS variable name instead,
+   where the variable is set in a <script> block immediately above the root element.
+   The script block sets window.__mealEditorCfg_<slotId> to avoid conflicts when
+   multiple editors could exist in the same page lifecycle. *@
+<script>
+    (function () {
+        'use strict';
+        window['__mealEditorCfg_@(slot.Id.Value.ToString("N"))'] = {
+            mode: @(isNote ? "'note'" : "'dishes'"),
+            note: @Html.Raw(noteJson),
+            dishes: @Html.Raw(dishesJson),
+            att: @Html.Raw(attJson),
+            defaultAtt: @Html.Raw(defaultAttJson),
+            attOverridden: @(isOverridden ? "true" : "false"),
+            dateStr: '@dateStr',
+            slotIdStr: '@slotIdStr',
+            cellKey: '@cellKey',
+            mealId: @Html.Raw(mealIdJson),
+            isEditing: @(vm.IsEditing ? "true" : "false"),
+            clearMealId: @Html.Raw(vm.IsEditing && vm.MealId.HasValue
+                ? System.Text.Json.JsonSerializer.Serialize(vm.MealId.Value.ToString("D"))
+                : "null")
         };
-    }
-}" id="meal-editor-inner">
+    })();
+</script>
 
-    @* Register Alpine component so addDishFromResult can call into it.
-       Alpine v3 exposes the reactive data object on el._x_dataStack[0].
-       (Alpine v2 used el.__x.$data — do not regress to v2 accessor.) *@
-    <script>
-        function addDishFromResult(el) {
-            const editorEl = document.getElementById('meal-editor-inner');
-            const d = editorEl && editorEl._x_dataStack && editorEl._x_dataStack[0];
-            if (!d) return;
-            d.dishes.push({
-                kind: el.dataset.kind,
-                itemId: el.dataset.itemId,
-                name: el.dataset.name,
-                servings: parseInt(el.dataset.servings, 10) || 1,
-                fulfillment: el.dataset.fulfillment === '' ? null : parseInt(el.dataset.fulfillment, 10),
-                costPerServing: el.dataset.costPerServing === '' ? null : parseFloat(el.dataset.costPerServing),
-                hasPhoto: el.dataset.hasPhoto === '1'
-            });
-            // clear the search input
-            const input = document.getElementById('dish-search-input-@slotIdStr');
-            if (input) { input.value = ''; }
-        }
-    </script>
+<div x-data="mealEditor(window['__mealEditorCfg_@(slot.Id.Value.ToString("N"))'])"
+     id="meal-editor-inner">
 
     @* Header *@
     <div class="ed-head">
@@ -117,15 +119,8 @@
                     var avColor = members.IndexOf(member) % 8;
                     <button type="button"
                             class="ed-att-chip"
-                            :class="att.includes('@uid') ? '' : 'off'"
-                            @@click="
-                                if (att.includes('@uid')) {
-                                    att = att.filter(function(x) { return x !== '@uid'; });
-                                } else {
-                                    att = [...att, '@uid'];
-                                }
-                                attOverridden = JSON.stringify([...att].sort()) !== JSON.stringify([...defaultAtt].sort());
-                            "
+                            :class="att.indexOf('@uid') >= 0 ? '' : 'off'"
+                            @@click="toggleAtt('@uid')"
                             aria-label="Toggle @member.DisplayName">
                         <span class="pl-av" data-av-color="@avColor" style="width:22px;height:22px;font-size:9px;">@member.Initials</span>
                         @member.DisplayName
@@ -139,7 +134,7 @@
             <div class="ed-sect-head">
                 <span class="es-label">Dishes</span>
                 <span class="spacer"></span>
-                <div class="ed-note-toggle">or <button type="button" @@click="mode = 'note'; dishes = []">add a note instead</button></div>
+                <div class="ed-note-toggle">or <button type="button" @@click="switchToNote()">add a note instead</button></div>
             </div>
 
             <div class="ed-dishes" x-show="dishes.length > 0">
@@ -160,11 +155,11 @@
                             </div>
                         </div>
                         <div class="serv-step">
-                            <button type="button" @@click="d.servings = Math.max(1, d.servings - 1)" aria-label="Fewer">−</button>
+                            <button type="button" @@click="decServings(d)" aria-label="Fewer">−</button>
                             <span class="sv"><span x-text="d.servings"></span><small>serv</small></span>
-                            <button type="button" @@click="d.servings++" aria-label="More">+</button>
+                            <button type="button" @@click="incServings(d)" aria-label="More">+</button>
                         </div>
-                        <button type="button" class="edd-del" @@click="dishes.splice(idx, 1)" aria-label="Remove dish">
+                        <button type="button" class="edd-del" @@click="removeDish(idx)" aria-label="Remove dish">
                             <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
                         </button>
                     </div>
@@ -201,7 +196,7 @@
             <div class="ed-sect-head">
                 <span class="es-label">Note</span>
                 <span class="spacer"></span>
-                <div class="ed-note-toggle">or <button type="button" @@click="mode = 'dishes'; note = ''">plan dishes instead</button></div>
+                <div class="ed-note-toggle">or <button type="button" @@click="switchToDishes()">plan dishes instead</button></div>
             </div>
             <div class="ed-note-field">
                 <input type="text" x-model="note" placeholder="e.g. Takeout, Out of town…" />
@@ -218,50 +213,24 @@
 
     @* Footer *@
     <div class="ed-foot">
-        <div class="ed-rollup">
-            <template x-if="roll">
-                <div class="ed-rollup-live">
-                    <div class="err">
-                        <div class="err-n">
-                            <span class="fdot" :class="'lvl-' + lvl(roll.pct) + '-bg'" x-show="roll.pct != null"></span>
-                            <span :class="roll.pct != null ? 'lvl-' + lvl(roll.pct) : ''" x-text="roll.pct != null ? roll.pct + '%' : '—'"></span>
-                        </div>
-                        <div class="err-l">in your pantry</div>
-                    </div>
-                    <div class="ed-div"></div>
-                    <div class="err">
-                        <div class="err-n mono" x-text="roll.cost != null ? (roll.costPartial ? '~' : '') + money(roll.cost) : '—'"></div>
-                        <div class="err-l">est. cost</div>
-                    </div>
-                </div>
-            </template>
-            <template x-if="!roll">
-                <div class="err">
-                    <div class="err-l" x-text="mode === 'note' ? 'A note keeps the slot — no dishes, no cost.' : 'Add a dish to see fulfillment & cost.'"></div>
-                </div>
-            </template>
+        @* Rollup container — swapped by OnPostRollupAsync via the Alpine _postRollup() helper.
+           Rendered server-side on initial open so the footer is immediately meaningful for
+           existing meals with dishes (server computes via fulfillmentService/costingService
+           in OnGetEditorAsync). After open, the Alpine component posts on every dish-list
+           change so the rollup stays current without any client formula (ADR-013 §4/§5). *@
+        <div class="ed-rollup" id="ed-rollup-@slotIdStr">
+            @await Html.PartialAsync("_EditorRollup", new Plantry.Web.Pages.MealPlan.IndexModel.EditorRollupVm(
+                IsNote: vm.Note != null,
+                HasDishes: vm.Dishes.Count > 0,
+                FulfillmentPercent: vm.InitialFulfillmentPercent,
+                TotalCost: vm.InitialTotalCost,
+                CostIsPartial: vm.InitialCostIsPartial))
         </div>
         <span class="spacer"></span>
 
         @if (vm.IsEditing && vm.MealId.HasValue)
         {
-            var clearMealIdStr = vm.MealId.Value.ToString("D");
-            <button type="button" class="txt-btn danger"
-                    @@click="
-                        fetch('/MealPlan?handler=Clear&date=@dateStr&slotId=@slotIdStr&mealId=@clearMealIdStr', {
-                            method: 'POST',
-                            headers: {
-                                'RequestVerificationToken': document.querySelector('[name=__RequestVerificationToken]')?.value ?? '',
-                                'HX-Request': 'true'
-                            }
-                        }).then(r => r.text()).then(html => {
-                            // htmx.swap applies the cell swap AND processes the out-of-band rail
-                            // refresh in the response, so the insights rail recomputes on clear.
-                            const el = document.getElementById('cell-@(slot.Id.Value.ToString("N"))-@dateStr');
-                            if (el) htmx.swap(el, html, { swapStyle: 'outerHTML' });
-                        });
-                        closeMealEditor();
-                    ">
+            <button type="button" class="txt-btn danger" @@click="clearMeal()">
                 Remove meal
             </button>
         }
@@ -271,46 +240,7 @@
         <button type="button"
                 class="btn btn--primary"
                 :disabled="!canSave"
-                @@click="
-                    let params = new URLSearchParams();
-                    params.append('mode', mode);
-                    if (mode === 'note') {
-                        params.append('note', note);
-                    } else {
-                        // Emit three index-aligned arrays so BuildDishSpecs can preserve
-                        // per-dish servings regardless of kind order. Use URLSearchParams
-                        // and POST as body string — Object.fromEntries would collapse
-                        // repeated keys (e.g. dishKinds for a 2-dish meal), losing all
-                        // but the last dish.
-                        dishes.forEach(function(d) {
-                            params.append('dishKinds', d.kind);
-                            params.append('dishItemIds', d.itemId);
-                            params.append('dishServings', String(d.servings));
-                        });
-                    }
-                    att.forEach(function(uid) { params.append('attendeesOverride', uid); });
-                    if (attOverridden) params.append('attendeesOverridden', 'true');
-                    @if (vm.MealId.HasValue)
-                    {
-                        @:params.append('mealId', '@vm.MealId.Value.ToString("D")');
-                    }
-                    params.append('__RequestVerificationToken', document.querySelector('[name=__RequestVerificationToken]')?.value ?? '');
-
-                    // POST via fetch with params.toString() to preserve repeated keys.
-                    // htmx.ajax with Object.fromEntries(params) collapses duplicate keys
-                    // and would lose all but the last dish / attendee.
-                    fetch('/MealPlan?handler=Assign&date=@dateStr&slotId=@slotIdStr', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: params.toString()
-                    }).then(function(r) { return r.text(); }).then(function(html) {
-                        // htmx.swap applies the cell outerHTML swap AND processes the out-of-band
-                        // rail refresh emitted by _CellWithRail, keeping the insights in sync.
-                        let cell = document.getElementById('cell-@(slot.Id.Value.ToString("N"))-@dateStr');
-                        if (cell) htmx.swap(cell, html, { swapStyle: 'outerHTML' });
-                    });
-                    closeMealEditor();
-                ">
+                @@click="save()">
             Save meal
         </button>
     </div>

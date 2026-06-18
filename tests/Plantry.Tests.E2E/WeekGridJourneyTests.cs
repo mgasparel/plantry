@@ -372,9 +372,11 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
     //   (a) The Save button POSTs via fetch+params.toString() (not Object.fromEntries)
     //       so repeated keys (dishKinds × N dishes, attendeesOverride × M members)
     //       are preserved and BuildDishSpecs receives the full multi-dish payload.
-    //   (b) Verifies the addDishFromResult function in the editor HTML uses the Alpine v3
-    //       _x_dataStack[0] accessor (not the v2 __x accessor) by asserting the rendered
-    //       editor fragment HTML contains '_x_dataStack' and does not contain '.__x'.
+    //   (b) Verifies the editor fragment uses the Alpine.data() component registration
+    //       (mealEditor) and carries the ed-rollup server-swap container — confirming
+    //       the ADR-013 §5 refactor: JS logic extracted to meal-editor.js, no inline
+    //       attribute-string handlers. The old inline _x_dataStack reference has moved
+    //       to the external meal-editor.js bridge; it is no longer in the fragment HTML.
 
     [Fact(DisplayName = "Assign two-dish meal via POST → reload → meal card appears (fetch preserves repeated keys)")]
     public async Task TwoDishAssign_ViaFetch_MealCardAppearsOnReload()
@@ -396,16 +398,21 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             // ── Extract first empty cell info ─────────────────────────────────────
             var (date, slotId) = await GetFirstCellInfoAsync(page);
 
-            // ── (b) Verify editor HTML uses Alpine v3 accessor ────────────────────
-            // Fetch the editor fragment and assert it uses _x_dataStack[0], not __x.
+            // ── (b) Verify editor HTML uses Alpine.data() component, no inline attribute-string handlers ──
+            // plantry-cyj: JS logic extracted to meal-editor.js (Alpine.data('mealEditor', ...)).
+            // The editor fragment carries the mealEditor() init and the ed-rollup server-swap
+            // container (ADR-013 §4/§5 rollup projection). The old inline _x_dataStack reference
+            // has moved to the external bridge in meal-editor.js; the fragment itself is clean.
             var editorUrl = $"{BaseUrl}/MealPlan?handler=Editor&date={date}&slotId={slotId}";
             var editorHtml = await page.EvaluateAsync<string>(@"
                 async (url) => {
                     const r = await fetch(url, { headers: { 'HX-Request': 'true' } });
                     return r.ok ? await r.text() : '';
                 }", editorUrl);
-            Assert.Contains("_x_dataStack", editorHtml);
-            Assert.DoesNotContain(".__x", editorHtml); // Alpine v2 accessor — must not be present
+            Assert.Contains("mealEditor(", editorHtml);      // Alpine.data() component registration
+            Assert.Contains("ed-rollup-", editorHtml);       // server-swap rollup container (ADR-013 §4)
+            Assert.DoesNotContain("get roll()", editorHtml); // old client-side rollup formula must be gone
+            Assert.DoesNotContain(".__x", editorHtml);       // Alpine v2 accessor — must not be present
 
             // ── (a) POST two recipe dishes via fetch+params.toString() ────────────
             // This mimics the Save button's inline fetch (FIX 2). Repeated keys are
