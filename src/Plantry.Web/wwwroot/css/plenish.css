@@ -4681,7 +4681,29 @@ button.sadd svg { width: 13px; height: 13px; }
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
 }
-.gh-btn.regen.spin svg { animation: spin .7s linear infinite; }
+.gh-btn.regen.htmx-request svg { animation: spin .7s linear infinite; }
+
+/* Ghost cell enrichment meta line (P3-6b: rolled-up fulfillment % + cost, server projection) */
+.gh-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 1px 4px 0;
+  min-height: 16px;
+}
+.gh-meta-sep { color: var(--color-text-faint); }
+.gh-meta .fdot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.gh-meta .fdot.lvl-hi-bg  { background: var(--color-success); }
+.gh-meta .fdot.lvl-mid-bg { background: var(--color-warning); }
+.gh-meta .fdot.lvl-lo-bg  { background: var(--color-danger); }
 
 /* Auto-fill spinner in the command bar */
 .autofill-spinner {

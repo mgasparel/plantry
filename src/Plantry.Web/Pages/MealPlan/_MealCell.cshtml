@@ -47,7 +47,8 @@
         @* Ghost cell: AI-suggested proposal awaiting user acceptance *@
         @await Html.PartialAsync("_GhostCell", new Plantry.Web.Pages.MealPlan.IndexModel.GhostCellVm(
             Model.Date, Model.SlotId, Model.SlotLabel, Model.PendingProposal!,
-            Model.GhostDishNames ?? Model.PendingProposal!.Dishes.Select(_ => "Recipe").ToList()))
+            Model.GhostDishNames ?? Model.PendingProposal!.Dishes.Select(_ => "Recipe").ToList(),
+            Model.GhostEnrichment))
     }
     else
     {

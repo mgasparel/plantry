@@ -3,6 +3,9 @@
     var dateIso = Model.Date.ToString("yyyy-MM-dd");
     var slotId = Model.SlotId.Value;
     var reason = Model.Proposal.Reasoning;
+    var enr = Model.GhostEnrichment;
+    // cellId mirrors _MealCell.cshtml so htmx.swap targets the right element after regenerate
+    var cellId = $"cell-{Model.SlotId.Value:N}-{Model.Date:yyyy-MM-dd}";
 }
 <div class="gh-tag">
     <svg class="icon sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/></svg>
@@ -17,6 +20,22 @@
         </div>
     }
 </div>
+@* Rolled-up fulfillment % and cost (server projection — P3-4 reuse, ADR-013 §4/§5) *@
+@if (enr != null)
+{
+    <div class="gh-meta">
+        @if (enr.FulfillmentPercent > 0)
+        {
+            <span class="fdot @(enr.FulfillmentPercent >= 80 ? "lvl-hi-bg" : enr.FulfillmentPercent >= 50 ? "lvl-mid-bg" : "lvl-lo-bg")"></span>
+            <span>@enr.FulfillmentPercent% in pantry</span>
+        }
+        @if (enr.TotalCost.HasValue)
+        {
+            <span class="gh-meta-sep">·</span>
+            <span>@((enr.CostIsPartial ? "~$" : "$") + enr.TotalCost.Value.ToString("F2"))</span>
+        }
+    </div>
+}
 @if (!string.IsNullOrWhiteSpace(reason))
 {
     <div class="gh-reason" title="@reason">@reason</div>
@@ -32,9 +51,15 @@
     </button>
 </div>
 <div class="gh-acts gh-acts-icons">
-    @* Regenerate — visual parity with the prototype; not yet wired *@
-    <button type="button" class="gh-btn icon regen" title="Regenerate (coming soon)" aria-label="Regenerate suggestion" disabled>
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+    @* Regenerate — re-proposes this one cell (P3-6b, J8).
+       hx-target is the cell element itself so htmx processes the CellWithRail response,
+       which carries the new cell fragment + OOB plan-rail refresh (ADR-013). *@
+    <button type="button" class="gh-btn icon regen"
+            hx-post="/MealPlan?handler=RegenerateCell&amp;date=@dateIso&amp;slotId=@slotId"
+            hx-target="#@cellId"
+            hx-swap="outerHTML"
+            title="Regenerate suggestion" aria-label="Regenerate suggestion for @Model.SlotLabel on @Model.Date">
+        <svg class="icon regen-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
     </button>
     <button type="button" class="gh-btn icon"
             hx-get="/MealPlan?handler=Editor&amp;date=@dateIso&amp;slotId=@slotId"
