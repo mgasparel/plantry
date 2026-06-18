@@ -95,6 +95,7 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.Property(pm => pm.Reasoning).HasColumnName("reasoning");
             b.Property(pm => pm.Note).HasColumnName("note");
             b.Property(pm => pm.Source).HasColumnName("source").IsRequired();
+            b.Property(pm => pm.Ordinal).HasColumnName("ordinal").IsRequired();
             b.Property(pm => pm.CreatedBy).HasColumnName("created_by").IsRequired();
             b.Property(pm => pm.UpdatedBy).HasColumnName("updated_by").IsRequired();
             b.Property(pm => pm.CreatedAt).HasColumnName("created_at");
@@ -105,10 +106,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
                 .IsUnique()
                 .HasDatabaseName("ux_planned_meal_household_id");
 
-            // UNIQUE (meal_plan_id, date, meal_slot_id) — at most one meal per cell (M2)
-            b.HasIndex(pm => new { pm.MealPlanId, pm.Date, pm.MealSlotId })
+            // UNIQUE (meal_plan_id, date, meal_slot_id, ordinal) — one meal per position per cell (MP-O8)
+            b.HasIndex(pm => new { pm.MealPlanId, pm.Date, pm.MealSlotId, pm.Ordinal })
                 .IsUnique()
-                .HasDatabaseName("ux_planned_meal_plan_date_slot");
+                .HasDatabaseName("ux_planned_meal_plan_date_slot_ordinal");
 
             b.HasMany(pm => pm.PlannedDishes)
                 .WithOne()

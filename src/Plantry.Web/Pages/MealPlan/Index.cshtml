@@ -168,9 +168,9 @@
             }
         }
 
-        // Drag-drop: HTML5 + htmx
-        function onDragStart(e, date, slotId) {
-            e.dataTransfer.setData('text/plain', JSON.stringify({ date, slotId }));
+        // Drag-drop: HTML5 + htmx (MP-O8: identified by mealId, not cell coordinates)
+        function onDragStart(e, mealId, date, slotId) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ mealId, date, slotId }));
             e.dataTransfer.effectAllowed = 'move';
         }
 
@@ -190,9 +190,9 @@
             const data = JSON.parse(e.dataTransfer.getData('text/plain'));
             if (data.date === toDate && data.slotId === toSlotId) return;
 
-            // POST via htmx programmatic trigger
+            // POST via htmx programmatic trigger — relocate by mealId (MP-O8, no swap)
             htmx.ajax('POST',
-                `/MealPlan?handler=Move&fromDate=${encodeURIComponent(data.date)}&fromSlotId=${encodeURIComponent(data.slotId)}&toDate=${encodeURIComponent(toDate)}&toSlotId=${encodeURIComponent(toSlotId)}`,
+                `/MealPlan?handler=Move&mealId=${encodeURIComponent(data.mealId)}&toDate=${encodeURIComponent(toDate)}&toSlotId=${encodeURIComponent(toSlotId)}`,
                 {
                     target: '#plan-main-content',
                     swap: 'innerHTML',

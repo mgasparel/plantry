@@ -10,7 +10,7 @@
 
 <div class="meal-card @(isNote ? "note" : "")"
      draggable="true"
-     ondragstart="onDragStart(event, '@Model.DateIso', '@Model.SlotId.Value')">
+     ondragstart="onDragStart(event, '@meal.MealId.ToString("D")', '@Model.DateIso', '@Model.SlotId.Value')">
 
     @* Edit pencil *@
     <button class="mc-edit"

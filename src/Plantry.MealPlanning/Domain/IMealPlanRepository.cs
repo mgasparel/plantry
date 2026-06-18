@@ -19,15 +19,4 @@ public interface IMealPlanRepository
     Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default);
 
     Task SaveChangesAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// Atomically swaps the (date, meal_slot_id) positions of two planned meals within the same meal plan.
-    /// Uses raw SQL to bypass EF Core's circular-dependency detection on the unique index
-    /// (meal_plan_id, date, meal_slot_id). Both rows are updated in a single transaction.
-    /// </summary>
-    Task SwapMealPositionsAsync(
-        PlannedMealId mealAId, DateOnly newDateA, MealSlotId newSlotA,
-        PlannedMealId mealBId, DateOnly newDateB, MealSlotId newSlotB,
-        Guid updatedBy, DateTimeOffset now,
-        CancellationToken ct = default);
 }

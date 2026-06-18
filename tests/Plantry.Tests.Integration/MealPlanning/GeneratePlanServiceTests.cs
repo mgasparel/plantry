@@ -243,11 +243,6 @@ public sealed class GeneratePlanServiceTests
         }
 
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-        public Task SwapMealPositionsAsync(
-            PlannedMealId a, DateOnly da, MealSlotId sa,
-            PlannedMealId b, DateOnly db, MealSlotId sb,
-            Guid updatedBy, DateTimeOffset now, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     /// <summary>A planner that always proposes the given recipe for every slot, ignoring constraints.</summary>

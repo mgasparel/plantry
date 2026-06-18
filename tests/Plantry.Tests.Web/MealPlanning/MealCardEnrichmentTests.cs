@@ -215,12 +215,6 @@ internal sealed class EnrichmentMealPlanRepo(Guid recipeId) : IMealPlanRepositor
         => Task.FromResult(_plan);
 
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-    public Task SwapMealPositionsAsync(
-        PlannedMealId mealAId, DateOnly newDateA, MealSlotId newSlotA,
-        PlannedMealId mealBId, DateOnly newDateB, MealSlotId newSlotB,
-        Guid updatedBy, DateTimeOffset now, CancellationToken ct = default)
-        => Task.CompletedTask;
 }
 
 /// <summary>

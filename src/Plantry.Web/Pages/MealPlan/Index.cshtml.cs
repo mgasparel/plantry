@@ -162,6 +162,7 @@ public sealed class IndexModel(
         [FromForm] List<int>? dishServings,
         [FromForm] List<Guid>? attendeesOverride,
         [FromForm] bool attendeesOverridden = false,
+        [FromForm] Guid? mealId = null,
         CancellationToken ct = default)
     {
         if (!DateOnly.TryParse(date, out var parsedDate))
@@ -170,6 +171,7 @@ public sealed class IndexModel(
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var userId = await GetCurrentUserIdAsync(ct);
         var sid = MealSlotId.From(slotId);
+        var mid = mealId.HasValue ? PlannedMealId.From(mealId.Value) : (PlannedMealId?)null;
 
         List<Guid>? overrideList = attendeesOverridden ? attendeesOverride ?? [] : null;
 
@@ -177,7 +179,7 @@ public sealed class IndexModel(
         if (mode == "note")
         {
             if (string.IsNullOrWhiteSpace(note)) return BadRequest("Note is required.");
-            var noteResult = await assignService.AssignNoteAsync(householdId, parsedDate, sid, note!, overrideList, userId, ct);
+            var noteResult = await assignService.AssignNoteAsync(householdId, parsedDate, sid, note!, overrideList, userId, mid, ct);
             hardStanceWarning = noteResult.HardStanceWarning;
         }
         else
@@ -186,7 +188,7 @@ public sealed class IndexModel(
             // servings are never mis-mapped when a meal mixes recipe and product dishes.
             var specs = BuildDishSpecs(dishKinds, dishItemIds, dishServings);
             if (specs.Count == 0) return BadRequest("At least one dish is required.");
-            var dishResult = await assignService.AssignDishesAsync(householdId, parsedDate, sid, specs, overrideList, userId, ct);
+            var dishResult = await assignService.AssignDishesAsync(householdId, parsedDate, sid, specs, overrideList, userId, mid, ct);
             hardStanceWarning = dishResult.HardStanceWarning;
         }
 
@@ -197,14 +199,14 @@ public sealed class IndexModel(
     // ── Clear meal POST ──────────────────────────────────────────────────────
 
     public async Task<IActionResult> OnPostClearAsync(
-        string date, Guid slotId, CancellationToken ct = default)
+        string date, Guid slotId, Guid mealId, CancellationToken ct = default)
     {
         if (!DateOnly.TryParse(date, out var parsedDate))
             return BadRequest();
 
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var sid = MealSlotId.From(slotId);
-        await assignService.ClearMealAsync(householdId, parsedDate, sid, ct);
+        await assignService.ClearMealAsync(householdId, parsedDate, PlannedMealId.From(mealId), ct);
 
         return await CellFragmentAsync(householdId, parsedDate, sid, ct);
     }
@@ -212,19 +214,18 @@ public sealed class IndexModel(
     // ── Move meal POST ───────────────────────────────────────────────────────
 
     public async Task<IActionResult> OnPostMoveAsync(
-        string fromDate, Guid fromSlotId,
+        Guid mealId,
         string toDate, Guid toSlotId,
         CancellationToken ct = default)
     {
-        if (!DateOnly.TryParse(fromDate, out var from) ||
-            !DateOnly.TryParse(toDate, out var to))
+        if (!DateOnly.TryParse(toDate, out var to))
             return BadRequest();
 
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        await moveService.MoveAsync(householdId, from, MealSlotId.From(fromSlotId), to, MealSlotId.From(toSlotId), ct);
+        await moveService.MoveAsync(householdId, PlannedMealId.From(mealId), to, MealSlotId.From(toSlotId), ct);
 
-        // Return the whole grid for the source week
-        var weekStr = DomainMealPlan.NormalizeToMonday(from).ToString("yyyy-MM-dd");
+        // Return the whole grid for the destination week
+        var weekStr = DomainMealPlan.NormalizeToMonday(to).ToString("yyyy-MM-dd");
         await LoadWeekAsync(weekStr, ct);
         return Partial("_WeekGrid", this);
     }
@@ -424,7 +425,7 @@ public sealed class IndexModel(
                 WeekTotalCost = weekCost.Amount;
                 WeekCostIsPartial = weekCost.Completeness == CostCompleteness.Partial;
 
-                foreach (var meal in plan.PlannedMeals)
+                foreach (var meal in plan.PlannedMeals.OrderBy(m => m.Ordinal))
                 {
                     var key = CellKey(meal.Date, meal.MealSlotId);
                     if (!MealsByCell.TryGetValue(key, out var list))

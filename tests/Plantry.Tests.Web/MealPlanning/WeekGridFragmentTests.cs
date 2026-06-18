@@ -161,6 +161,78 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
         Assert.Contains("Pasta Bolognese", html);
     }
 
+    // ── MP-O8: multi-meal cell rendering ─────────────────────────────────────
+
+    [Fact(DisplayName = "MP-O8: cell with two stacked meals renders two meal-cards and an add-meal button")]
+    public async Task MultiMealCell_Renders_TwoCards_And_AddMealButton()
+    {
+        // Use a factory variant that returns a plan pre-seeded with 2 meals in one cell
+        await using var factory = new MultiMealCellFragmentFactory();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, WeekGridFixture.HouseholdId.ToString());
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        // Two meal cards must be present (MP-O8 cell stack)
+        var cardCount = CountOccurrences(html, "meal-card");
+        Assert.True(cardCount >= 2, $"Expected at least 2 meal-card elements, found {cardCount}.");
+
+        // The add-meal button must be present for the filled cell (proto parity)
+        Assert.Contains("add-meal", html);
+
+        // Both notes must appear
+        Assert.Contains("StackNoteOne", html);
+        Assert.Contains("StackNoteTwo", html);
+    }
+
+    [Fact(DisplayName = "MP-O8 regression: cell fragment returned after an assign still carries the add-meal button")]
+    public async Task AssignToFilledCell_Fragment_Still_Has_AddMealButton()
+    {
+        // The bug: _WeekGrid rendered an "Add meal" button on a filled cell, but the
+        // _MealCell *fragment* (what htmx swaps back after an assign) did not — so the
+        // button vanished after the first add. This drives the fragment path directly.
+        await using var factory = new MultiMealCellFragmentFactory();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, WeekGridFixture.HouseholdId.ToString());
+
+        // GET the page to obtain the antiforgery token + the seeded cell's date/slot
+        // (the seeded cell already renders an add-meal button in the full grid).
+        var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+
+        var cell = System.Text.RegularExpressions.Regex.Match(
+            pageHtml,
+            "class=\"add-meal\"[^>]*hx-get=\"/MealPlan\\?handler=Editor&date=([^&]+)&slotId=([^\"]+)\"");
+        Assert.True(cell.Success, "Expected an add-meal button with an Editor hx-get on the seeded cell.");
+        var date = cell.Groups[1].Value;
+        var slotId = cell.Groups[2].Value;
+
+        var form = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("__RequestVerificationToken", token),
+            new KeyValuePair<string, string>("mode", "note"),
+            new KeyValuePair<string, string>("note", "RegressionStackNote"),
+        });
+
+        var response = await client.PostAsync($"/MealPlan?handler=Assign&date={date}&slotId={slotId}", form);
+        response.EnsureSuccessStatusCode();
+        var fragment = await response.Content.ReadAsStringAsync();
+
+        // The returned cell fragment is filled, so it must still offer the add-meal affordance.
+        Assert.Contains("meal-card", fragment);
+        Assert.Contains("add-meal", fragment);
+    }
+
+    private static string ExtractAntiforgeryToken(string html)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"");
+        Assert.True(match.Success, "No antiforgery token found on the page.");
+        return match.Groups[1].Value;
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private static int CountOccurrences(string text, string pattern)
@@ -333,12 +405,6 @@ public sealed class CapturingMealPlanRepo : IMealPlanRepository
     }
 
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-    public Task SwapMealPositionsAsync(
-        PlannedMealId mealAId, DateOnly newDateA, MealSlotId newSlotA,
-        PlannedMealId mealBId, DateOnly newDateB, MealSlotId newSlotB,
-        Guid updatedBy, DateTimeOffset now,
-        CancellationToken ct = default) => Task.CompletedTask;
 }
 
 // Renamed to avoid collision with FakeCatalogProductReader in AssignMealServiceTests.cs
@@ -462,6 +528,65 @@ public sealed class WeekGridNoSlotsFragmentFactory : WeekGridFragmentFactory
     protected override bool NoSlots => true;
 }
 
+/// <summary>
+/// MP-O8: variant that seeds a plan with two stacked meals in the first cell
+/// (Monday of the current ISO week, first active slot). Used to verify that
+/// the week grid renders two meal-card elements and an add-meal button.
+/// </summary>
+public sealed class MultiMealCellFragmentFactory : WeekGridFragmentFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+
+        builder.ConfigureTestServices(services =>
+        {
+            // Swap out the empty FakeMealPlanRepo with a pre-seeded two-meal variant
+            services.RemoveAll<IMealPlanRepository>();
+            services.AddScoped<IMealPlanRepository>(_ => new TwoMealCellRepo());
+
+            // Stub UserManager so the POST Assign handler's GetCurrentUserIdAsync
+            // doesn't reach the real Identity DbContext (Postgres) under test.
+            services.RemoveAll<UserManager<AppUser>>();
+            services.AddSingleton<UserManager<AppUser>>(
+                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000aa" }));
+        });
+    }
+}
+
+/// <summary>
+/// Returns a plan with two note meals in the first active slot on the current Monday.
+/// Used by MultiMealCellFragmentFactory to exercise the cell-stack rendering path.
+/// </summary>
+internal sealed class TwoMealCellRepo : IMealPlanRepository
+{
+    private static readonly IClock _clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+    public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
+    {
+        var plan = BuildPlan(householdId, weekStart);
+        return Task.FromResult<MealPlan?>(plan);
+    }
+
+    public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
+    {
+        var plan = BuildPlan(householdId, weekStart);
+        return Task.FromResult(plan);
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    private static MealPlan BuildPlan(HouseholdId householdId, DateOnly weekStart)
+    {
+        var monday = MealPlan.NormalizeToMonday(weekStart);
+        var slotId = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First().Id;
+        var plan = MealPlan.Start(householdId, monday, _clock);
+        plan.AssignNote(monday, slotId, "StackNoteOne", null, "manual", Guid.Empty, _clock);
+        plan.AssignNote(monday, slotId, "StackNoteTwo", null, "manual", Guid.Empty, _clock);
+        return plan;
+    }
+}
+
 // ── WAF test doubles ──────────────────────────────────────────────────────────
 
 internal sealed class FakeMealPlanRepo : IMealPlanRepository
@@ -473,12 +598,6 @@ internal sealed class FakeMealPlanRepo : IMealPlanRepository
         => Task.FromResult(MealPlan.Start(householdId, weekStart, clock));
 
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-    public Task SwapMealPositionsAsync(
-        PlannedMealId mealAId, DateOnly newDateA, MealSlotId newSlotA,
-        PlannedMealId mealBId, DateOnly newDateB, MealSlotId newSlotB,
-        Guid updatedBy, DateTimeOffset now,
-        CancellationToken ct = default) => Task.CompletedTask;
 }
 
 internal sealed class FakeSlotRepo(MealSlotConfig? config) : IMealSlotConfigRepository

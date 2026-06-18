@@ -9,6 +9,10 @@ namespace Plantry.MealPlanning.Application;
 /// Orchestrates: product-dish validation via ICatalogProductReader,
 /// dietary constraint warnings via MealConstraintResolver (C9 — warn not block),
 /// and MealPlan aggregate mutation.
+/// <para>
+/// MP-O8: When <c>mealId</c> is null the service appends a new meal at NextOrdinal.
+/// When <c>mealId</c> is supplied it updates the identified meal.
+/// </para>
 /// </summary>
 public sealed class AssignMealService(
     IMealPlanRepository mealPlanRepo,
@@ -20,7 +24,9 @@ public sealed class AssignMealService(
     IClock clock)
 {
     /// <summary>
-    /// Assigns a dish-based meal to a cell. Validates product references; warns on hard stances.
+    /// Assigns a dish-based meal to a cell.
+    /// When <paramref name="mealId"/> is null a new meal is appended; when set, the existing meal is updated.
+    /// Validates product references; warns on hard stances.
     /// </summary>
     public async Task<AssignMealResult> AssignDishesAsync(
         HouseholdId householdId,
@@ -29,6 +35,7 @@ public sealed class AssignMealService(
         IReadOnlyList<DishSpec> dishes,
         List<Guid>? attendeesOverride,
         Guid createdBy,
+        PlannedMealId? mealId = null,
         CancellationToken ct = default)
     {
         // Validate product dishes exist in catalog
@@ -72,13 +79,14 @@ public sealed class AssignMealService(
             warning = constraints.HardStanceWarning;
         }
 
-        var result = plan.AssignMeal(date, slotId, dishes, attendeesOverride, "manual", createdBy, clock, warning);
+        var result = plan.AssignMeal(date, slotId, dishes, attendeesOverride, "manual", createdBy, clock, warning, mealId);
         await mealPlanRepo.SaveChangesAsync(ct);
         return result;
     }
 
     /// <summary>
     /// Assigns a note-based meal to a cell.
+    /// When <paramref name="mealId"/> is null a new meal is appended; when set, the existing meal is updated.
     /// </summary>
     public async Task<AssignMealResult> AssignNoteAsync(
         HouseholdId householdId,
@@ -87,27 +95,29 @@ public sealed class AssignMealService(
         string note,
         List<Guid>? attendeesOverride,
         Guid createdBy,
+        PlannedMealId? mealId = null,
         CancellationToken ct = default)
     {
         var plan = await mealPlanRepo.FindOrCreateAsync(householdId, MealPlan.NormalizeToMonday(date), clock, ct);
-        var result = plan.AssignNote(date, slotId, note, attendeesOverride, "manual", createdBy, clock);
+        var result = plan.AssignNote(date, slotId, note, attendeesOverride, "manual", createdBy, clock, mealId);
         await mealPlanRepo.SaveChangesAsync(ct);
         return result;
     }
 
     /// <summary>
-    /// Clears a meal from a cell.
+    /// Clears the meal identified by <paramref name="mealId"/> from its cell.
+    /// No-op if no plan exists or the meal is not found.
     /// </summary>
     public async Task ClearMealAsync(
         HouseholdId householdId,
         DateOnly date,
-        MealSlotId slotId,
+        PlannedMealId mealId,
         CancellationToken ct = default)
     {
         var plan = await mealPlanRepo.FindByWeekAsync(householdId, MealPlan.NormalizeToMonday(date), ct);
         if (plan is null) return;
 
-        plan.ClearMeal(date, slotId, clock);
+        plan.ClearMeal(mealId, clock);
         await mealPlanRepo.SaveChangesAsync(ct);
     }
 

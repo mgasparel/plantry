@@ -113,8 +113,8 @@ public sealed class AssignMealServiceTests
         var repo = new FakeMealPlanRepository();
         var svc = BuildService(planRepo: repo);
 
-        // Should not throw
-        await svc.ClearMealAsync(HouseholdId, Monday, SlotA);
+        // Should not throw — no plan in repo
+        await svc.ClearMealAsync(HouseholdId, Monday, PlannedMealId.New());
     }
 
     [Fact]
@@ -125,8 +125,9 @@ public sealed class AssignMealServiceTests
 
         await svc.AssignDishesAsync(HouseholdId, Monday, SlotA, [RecipeDish()], null, UserId);
         Assert.Single(repo.Stored!.PlannedMeals);
+        var mealId = repo.Stored!.PlannedMeals[0].Id;
 
-        await svc.ClearMealAsync(HouseholdId, Monday, SlotA);
+        await svc.ClearMealAsync(HouseholdId, Monday, mealId);
 
         Assert.Empty(repo.Stored!.PlannedMeals);
     }
@@ -150,14 +151,14 @@ public sealed class MoveMealServiceTests
     public async Task MoveAsync_RelocatesMealToEmptyCell()
     {
         var repo = new FakeMealPlanRepository();
-        // Seed a plan with a meal
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "manual", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
         repo.Stored = plan;
 
         var tuesday = Monday.AddDays(1);
         var svc = BuildService(repo);
-        await svc.MoveAsync(HouseholdId, Monday, SlotA, tuesday, SlotB);
+        await svc.MoveAsync(HouseholdId, mealId, tuesday, SlotB);
 
         var moved = Assert.Single(plan.PlannedMeals);
         Assert.Equal(tuesday, moved.Date);
@@ -169,11 +170,15 @@ public sealed class MoveMealServiceTests
     public async Task MoveAsync_ThrowsForCrossWeekMove()
     {
         var repo = new FakeMealPlanRepository();
-        var nextMonday = Monday.AddDays(7);
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "manual", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+        repo.Stored = plan;
         var svc = BuildService(repo);
 
+        var nextMonday = Monday.AddDays(7);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            svc.MoveAsync(HouseholdId, Monday, SlotA, nextMonday, SlotB));
+            svc.MoveAsync(HouseholdId, mealId, nextMonday, SlotB));
     }
 
     [Fact]
@@ -183,26 +188,27 @@ public sealed class MoveMealServiceTests
         var svc = BuildService(repo);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            svc.MoveAsync(HouseholdId, Monday, SlotA, Monday.AddDays(1), SlotB));
+            svc.MoveAsync(HouseholdId, PlannedMealId.New(), Monday.AddDays(1), SlotB));
     }
 
     [Fact]
-    public async Task MoveAsync_SwapsViaSqlBypass_WhenTargetCellOccupied()
+    public async Task MoveAsync_AppendsToOccupiedCell_NoSwap()
     {
-        // Swap: both cells occupied → SwapMealPositionsAsync is called instead of SaveChangesAsync.
+        // MP-O8: move into occupied cell joins the stack, no swap path.
         var repo = new FakeMealPlanRepository();
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "manual", UserId, Clock);
         var tuesday = Monday.AddDays(1);
         plan.AssignMeal(tuesday, SlotB, [RecipeDish()], null, "manual", UserId, Clock);
+        var moverId = plan.PlannedMeals.Single(m => m.Date == Monday).Id;
         repo.Stored = plan;
 
         var svc = BuildService(repo);
-        await svc.MoveAsync(HouseholdId, Monday, SlotA, tuesday, SlotB);
+        await svc.MoveAsync(HouseholdId, moverId, tuesday, SlotB);
 
-        // Swap route was used (not SaveChangesAsync)
-        Assert.NotNull(repo.LastSwap);
-        Assert.Equal(0, repo.SavedCount);
+        // Both meals now in tuesday/SlotB; saved via SaveChangesAsync
+        Assert.Equal(2, plan.MealsInCell(tuesday, SlotB).Count);
+        Assert.Equal(1, repo.SavedCount);
     }
 }
 
@@ -212,7 +218,6 @@ public sealed class FakeMealPlanRepository : IMealPlanRepository
 {
     public MealPlan? Stored { get; set; }
     public int SavedCount { get; private set; }
-    public (PlannedMealId MealAId, DateOnly NewDateA, MealSlotId NewSlotA, PlannedMealId MealBId, DateOnly NewDateB, MealSlotId NewSlotB)? LastSwap { get; private set; }
 
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
         => Task.FromResult(Stored);
@@ -229,16 +234,6 @@ public sealed class FakeMealPlanRepository : IMealPlanRepository
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
         SavedCount++;
-        return Task.CompletedTask;
-    }
-
-    public Task SwapMealPositionsAsync(
-        PlannedMealId mealAId, DateOnly newDateA, MealSlotId newSlotA,
-        PlannedMealId mealBId, DateOnly newDateB, MealSlotId newSlotB,
-        Guid updatedBy, DateTimeOffset now,
-        CancellationToken ct = default)
-    {
-        LastSwap = (mealAId, newDateA, newSlotA, mealBId, newDateB, newSlotB);
         return Task.CompletedTask;
     }
 }
