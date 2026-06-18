@@ -1,0 +1,24 @@
+name: plantry
+
+services:
+  postgres:
+    environment:
+      APP_USER_PASSWORD: "${DATABASE_APP_USER_PASSWORD}"
+    volumes:
+      - type: bind
+        source: ./init
+        target: /docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  plantry-web:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${HOST_PORT:-8080}:${PLANTRY_WEB_PORT}"
+    environment:
+      Database__AppUserPassword: "${DATABASE_APP_USER_PASSWORD}"
+      AI__ApiKey: "${AI_API_KEY}"

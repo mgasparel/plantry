@@ -48,3 +48,6 @@ Thumbs.db
 
 # Local-only beads backup script (contains machine-specific NAS path)
 scripts/backup-beads.ps1
+
+# Docker deployment secrets
+aspire-output/.env

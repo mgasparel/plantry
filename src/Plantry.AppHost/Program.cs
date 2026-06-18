@@ -2,7 +2,10 @@ using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-var postgres = builder.AddPostgres("postgres");
+builder.AddDockerComposeEnvironment("docker-compose");
+
+var postgres = builder.AddPostgres("postgres")
+    .WithDataVolume("plantrydb-data");
 
 if (builder.Environment.IsDevelopment())
 {

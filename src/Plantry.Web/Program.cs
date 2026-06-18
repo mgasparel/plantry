@@ -66,10 +66,15 @@ builder.Services.AddRazorPages(options =>
 var ownerConnStr = builder.Configuration.GetConnectionString("plantrydb")
     ?? "Host=localhost;Database=plantrydb;Username=postgres;Password=postgres";
 
+var appUserPassword = builder.Configuration["Database:AppUserPassword"]
+    ?? (builder.Environment.IsDevelopment()
+        ? "app_user_password"
+        : throw new InvalidOperationException("Database:AppUserPassword must be configured in production."));
+
 var appUserConnStr = new NpgsqlConnectionStringBuilder(ownerConnStr)
 {
     Username = "app_user",
-    Password = "app_user_password",
+    Password = appUserPassword,
 }.ConnectionString;
 
 // Ambient, request-scoped tenant + the interceptor that arms RLS (SET app.household_id) on the
@@ -336,59 +341,59 @@ if (builder.Environment.IsDevelopment())
 
 var app = builder.Build();
 
+// Migrations run as the database owner (creating the app_user role, schemas, and RLS
+// policies), NOT as the runtime app_user role — so build throwaway owner-connection
+// contexts here rather than resolving the app_user-scoped DI contexts.
+var identityMigrateOpts = new DbContextOptionsBuilder<PlantryIdentityDbContext>()
+    .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Identity.Infrastructure"))
+    .Options;
+await using (var identityDb = new PlantryIdentityDbContext(identityMigrateOpts))
+    await identityDb.Database.MigrateAsync();
+
+var catalogMigrateOpts = new DbContextOptionsBuilder<CatalogDbContext>()
+    .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Catalog.Infrastructure"))
+    .Options;
+await using (var catalogDb = new CatalogDbContext(catalogMigrateOpts))
+    await catalogDb.Database.MigrateAsync();
+
+var inventoryMigrateOpts = new DbContextOptionsBuilder<InventoryDbContext>()
+    .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Inventory.Infrastructure"))
+    .Options;
+await using (var inventoryDb = new InventoryDbContext(inventoryMigrateOpts))
+    await inventoryDb.Database.MigrateAsync();
+
+var pricingMigrateOpts = new DbContextOptionsBuilder<PricingDbContext>()
+    .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Pricing.Infrastructure"))
+    .Options;
+await using (var pricingDb = new PricingDbContext(pricingMigrateOpts))
+    await pricingDb.Database.MigrateAsync();
+
+var intakeMigrateOpts = new DbContextOptionsBuilder<IntakeDbContext>()
+    .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
+    .Options;
+await using (var intakeDb = new IntakeDbContext(intakeMigrateOpts))
+    await intakeDb.Database.MigrateAsync();
+
+var recipesMigrateOpts = new DbContextOptionsBuilder<RecipesDbContext>()
+    .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
+    .Options;
+await using (var recipesDb = new RecipesDbContext(recipesMigrateOpts))
+    await recipesDb.Database.MigrateAsync();
+
+var shoppingMigrateOpts = new DbContextOptionsBuilder<ShoppingDbContext>()
+    .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Shopping.Infrastructure"))
+    .Options;
+await using (var shoppingDb = new ShoppingDbContext(shoppingMigrateOpts))
+    await shoppingDb.Database.MigrateAsync();
+
+var mealPlanningMigrateOpts = new DbContextOptionsBuilder<MealPlanningDbContext>()
+    .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
+    .Options;
+await using (var mealPlanningDb = new MealPlanningDbContext(mealPlanningMigrateOpts))
+    await mealPlanningDb.Database.MigrateAsync();
+
 if (app.Environment.IsDevelopment())
 {
-    // Migrations run as the database owner (creating the app_user role, schemas, and RLS
-    // policies), NOT as the runtime app_user role — so build throwaway owner-connection
-    // contexts here rather than resolving the app_user-scoped DI contexts.
-    var identityMigrateOpts = new DbContextOptionsBuilder<PlantryIdentityDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Identity.Infrastructure"))
-        .Options;
-    await using (var identityDb = new PlantryIdentityDbContext(identityMigrateOpts))
-        await identityDb.Database.MigrateAsync();
-
-    var catalogMigrateOpts = new DbContextOptionsBuilder<CatalogDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Catalog.Infrastructure"))
-        .Options;
-    await using (var catalogDb = new CatalogDbContext(catalogMigrateOpts))
-        await catalogDb.Database.MigrateAsync();
-
-    var inventoryMigrateOpts = new DbContextOptionsBuilder<InventoryDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Inventory.Infrastructure"))
-        .Options;
-    await using (var inventoryDb = new InventoryDbContext(inventoryMigrateOpts))
-        await inventoryDb.Database.MigrateAsync();
-
-    var pricingMigrateOpts = new DbContextOptionsBuilder<PricingDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Pricing.Infrastructure"))
-        .Options;
-    await using (var pricingDb = new PricingDbContext(pricingMigrateOpts))
-        await pricingDb.Database.MigrateAsync();
-
-    var intakeMigrateOpts = new DbContextOptionsBuilder<IntakeDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
-        .Options;
-    await using (var intakeDb = new IntakeDbContext(intakeMigrateOpts))
-        await intakeDb.Database.MigrateAsync();
-
-    var recipesMigrateOpts = new DbContextOptionsBuilder<RecipesDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
-        .Options;
-    await using (var recipesDb = new RecipesDbContext(recipesMigrateOpts))
-        await recipesDb.Database.MigrateAsync();
-
-    var shoppingMigrateOpts = new DbContextOptionsBuilder<ShoppingDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Shopping.Infrastructure"))
-        .Options;
-    await using (var shoppingDb = new ShoppingDbContext(shoppingMigrateOpts))
-        await shoppingDb.Database.MigrateAsync();
-
-    var mealPlanningMigrateOpts = new DbContextOptionsBuilder<MealPlanningDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
-        .Options;
-    await using (var mealPlanningDb = new MealPlanningDbContext(mealPlanningMigrateOpts))
-        await mealPlanningDb.Database.MigrateAsync();
-
     // Auto-seed on first startup: no-ops if the demo user already exists.
     await using var seedScope = app.Services.CreateAsyncScope();
     await seedScope.ServiceProvider.GetRequiredService<FakeDataSeeder>().SeedAsync();
@@ -401,7 +406,8 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseDevPagesGate();
-app.UseHttpsRedirection();
+if (app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseSession();
