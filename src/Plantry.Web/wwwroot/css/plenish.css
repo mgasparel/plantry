@@ -3771,6 +3771,10 @@ button.sadd svg { width: 13px; height: 13px; }
   padding: 13px 24px; border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-surface) 72%, transparent);
   backdrop-filter: blur(8px); flex-wrap: wrap; flex-shrink: 0;
+  /* backdrop-filter makes this bar a stacking context; left static it paints BELOW the
+     positioned .plan-body, trapping its dropdowns (the tune popover, manage-plan menu)
+     under the grid. Make it a positioned context above the body (z<60 modal-veil). */
+  position: relative; z-index: 30;
 }
 .wknav { display: flex; align-items: center; gap: 4px; }
 .wknav-btn {
