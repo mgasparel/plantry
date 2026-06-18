@@ -80,8 +80,12 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/Today**");
 
             // ── Step 3: Today home is shown ───────────────────────────────────────
-            var heading = await page.Locator(".catalog-section__heading").TextContentAsync();
-            Assert.Contains("Today", heading, StringComparison.OrdinalIgnoreCase);
+            // The new Today page renders a greeting header (.today-head__greeting) rather than
+            // a catalog-section__heading stub. Verify the page loaded by checking the topbar
+            // crumb title and the today-wrap container.
+            await page.Locator(".today-wrap").WaitForAsync();
+            var crumbTitle = await page.Locator(".crumb b").TextContentAsync();
+            Assert.Contains("Today", crumbTitle, StringComparison.OrdinalIgnoreCase);
 
             // ── Step 4: Sign out, then sign back in ───────────────────────────────
 
@@ -98,8 +102,9 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             await page.WaitForURLAsync("**/Today**");
 
-            var headingAfterLogin = await page.Locator(".catalog-section__heading").TextContentAsync();
-            Assert.Contains("Today", headingAfterLogin, StringComparison.OrdinalIgnoreCase);
+            await page.Locator(".today-wrap").WaitForAsync();
+            var crumbTitleAfterLogin = await page.Locator(".crumb b").TextContentAsync();
+            Assert.Contains("Today", crumbTitleAfterLogin, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
