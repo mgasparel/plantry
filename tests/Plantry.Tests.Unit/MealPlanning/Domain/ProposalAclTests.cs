@@ -7,7 +7,7 @@ namespace Plantry.Tests.Unit.MealPlanning.Domain;
 /// <summary>
 /// L1 unit tests for <see cref="ProposalAcl"/>.
 /// Covers: nonexistent recipe ID rejection; Restricted-tag auto-drop (simplified C6);
-/// all dishes restricted → unfilled; valid proposal passes through.
+/// all dishes restricted → unfilled; Required-tag collective coverage (M5); valid proposal passes through.
 /// </summary>
 public sealed class ProposalAclTests
 {
@@ -93,6 +93,52 @@ public sealed class ProposalAclTests
 
         Assert.False(result.IsValid);
         Assert.Null(result.ValidatedProposal);
+    }
+
+    // ── required tag not met → unfilled (M5 / MP-O4) ──────────────────────────────
+
+    [Fact(DisplayName = "Validate_RequiredTagNotMet_ReturnsUnfilled")]
+    public void Validate_RequiredTagNotMet_ReturnsUnfilled()
+    {
+        var requiredTag = Guid.NewGuid();
+        var otherTag = Guid.NewGuid();
+        var recipeId = Guid.NewGuid();
+
+        // Recipe exists and is not restricted, but does not carry the Required tag.
+        var candidates = new List<CandidateRecipe> { MakeCandidate(recipeId, otherTag) };
+        var constraints = MakeConstraints(required: new HashSet<Guid> { requiredTag });
+        var proposal = MakeProposal((recipeId, 4));
+
+        var result = ProposalAcl.Validate(proposal, candidates, constraints);
+
+        Assert.False(result.IsValid);
+        Assert.Null(result.ValidatedProposal);
+    }
+
+    // ── required tag collectively covered across dishes → passes (M5 / MP-O4) ──────
+
+    [Fact(DisplayName = "Validate_RequiredTagCoveredAcrossDishes_PassesThrough")]
+    public void Validate_RequiredTagCoveredAcrossDishes_PassesThrough()
+    {
+        var veganTag = Guid.NewGuid();
+        var halalTag = Guid.NewGuid();
+        var veganRecipeId = Guid.NewGuid();
+        var halalRecipeId = Guid.NewGuid();
+
+        // Two Required tags (resolver union across attendees), each covered by a different dish.
+        var candidates = new List<CandidateRecipe>
+        {
+            MakeCandidate(veganRecipeId, veganTag),
+            MakeCandidate(halalRecipeId, halalTag),
+        };
+        var constraints = MakeConstraints(required: new HashSet<Guid> { veganTag, halalTag });
+        var proposal = MakeProposal((veganRecipeId, 4), (halalRecipeId, 4));
+
+        var result = ProposalAcl.Validate(proposal, candidates, constraints);
+
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.ValidatedProposal);
+        Assert.Equal(2, result.ValidatedProposal!.Dishes.Count);
     }
 
     // ── valid proposal passes through ─────────────────────────────────────────────
