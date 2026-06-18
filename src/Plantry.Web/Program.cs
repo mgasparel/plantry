@@ -12,6 +12,7 @@ using Plantry.Inventory.Infrastructure;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Intake.Infrastructure;
+using Plantry.Migration.Grocy;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
@@ -316,6 +317,10 @@ builder.Services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
 builder.Services.AddScoped<AddMissingToShoppingList>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
+
+// Grocy import pipeline (plantry-zcw.1). GrocyClient (typed HttpClient) + ExtractCommand
+// for the Extract stage. Config from "Grocy" section (user secrets in dev, env vars in prod).
+builder.Services.AddGrocyImport(builder.Configuration);
 
 // The real Gemini parser is the production default. Three deterministic alternatives replace it:
 //  • AI:UseSampleParser=true → SampleReceiptParser, a real scanned receipt for local UI iteration (dev only);

@@ -1,0 +1,79 @@
+@page
+@model Plantry.Web.Pages.Import.IndexModel
+@{
+    ViewData["Title"] = "Import from Grocy";
+}
+
+@*
+    Grocy import pipeline — Extract entry point (plantry-zcw.1).
+    Shows the 'Extract from Grocy' action and collection counts from the most recent manifest.
+    Subsequent pipeline stages (Stage → Reconcile → Commit) live in sibling pages.
+*@
+
+<div class="catalog-section">
+    <h1>Import from Grocy</h1>
+    <p>Extract a snapshot of your Grocy data — products, units, recipes, and more — then work
+       through the mapping grids to reconcile them with your Plantry catalog.</p>
+</div>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert--danger" role="alert">
+        <strong>Extraction failed.</strong> @Model.ErrorMessage
+    </div>
+}
+
+<div class="card" style="max-width: 48rem">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">Step 1 — Extract</h3>
+            <p class="card__head-sub">Fetch a live snapshot from Grocy and save it as a manifest file.</p>
+        </div>
+    </div>
+    <div class="card__body">
+        @if (!Model.GrocyConfigured)
+        {
+            <div class="empty-state">
+                <svg class="empty-state__icon" aria-hidden="true"><use href="#i-lock" /></svg>
+                <div class="empty-state__title">Grocy isn't configured</div>
+                <p class="empty-state__body">
+                    Set your Grocy URL and API key with user secrets before extracting:
+                    <code>dotnet user-secrets set "Grocy:Url" "https://grocy.example.com"</code><br />
+                    <code>dotnet user-secrets set "Grocy:ApiKey" "&lt;your-key&gt;"</code>
+                </p>
+            </div>
+        }
+        else
+        {
+            <form method="post" asp-page-handler="Extract">
+                @Html.AntiForgeryToken()
+                <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap">
+                    <button type="submit" class="btn btn--primary">
+                        Extract from Grocy
+                    </button>
+                    @if (Model.ManifestExists)
+                    {
+                        <span style="font-size: 13px; color: var(--color-text-faint)">
+                            Last extracted: @Model.ManifestExtractedAt?.ToString("yyyy-MM-dd HH:mm") UTC
+                        </span>
+                    }
+                </div>
+            </form>
+        }
+    </div>
+</div>
+
+@if (Model.ManifestExists && Model.CollectionGrid is not null)
+{
+    <div class="card" style="max-width: 48rem; margin-top: 1.5rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Manifest contents</h3>
+                <p class="card__head-sub">@Model.ManifestPath</p>
+            </div>
+        </div>
+        <div class="card__body">
+            <partial name="Shared/_DataGrid" model="Model.CollectionGrid" />
+        </div>
+    </div>
+}
