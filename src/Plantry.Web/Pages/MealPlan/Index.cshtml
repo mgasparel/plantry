@@ -7,51 +7,19 @@
 }
 
 <div class="plan-main">
-    @* Command bar: week nav, This week, budget chip *@
+    @* Command bar: week nav, This week, budget chip, auto-fill *@
+    @* All dynamic pieces are in _PlanBarNav so they can be re-emitted OOB after htmx grid
+       swaps and cell mutations. On first load (Oob=false) the partial renders inline here.
+       After any htmx swap the response carries _PlanBarNav(Oob=true) so the nav URLs,
+       week label, This-week button, budget chip, and Auto-fill state update without a full
+       page reload — fixing the plan-bar staleness bug (plantry-khw). *@
     <div class="plan-bar">
-        <nav class="wknav" aria-label="Week navigation">
-            <button type="button" class="wknav-btn" aria-label="Previous week"
-                    hx-get="/MealPlan?handler=Grid&amp;week=@Model.PrevWeekStart.ToString("yyyy-MM-dd")"
-                    hx-target="#plan-main-content"
-                    hx-swap="innerHTML">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
-            </button>
-            <span class="wk-label">@Model.WeekLabel</span>
-            <button type="button" class="wknav-btn" aria-label="Next week"
-                    hx-get="/MealPlan?handler=Grid&amp;week=@Model.NextWeekStart.ToString("yyyy-MM-dd")"
-                    hx-target="#plan-main-content"
-                    hx-swap="innerHTML">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
-            </button>
-            @if (Model.WeekStart != Model.ThisWeekStart)
-            {
-                <button type="button" class="wk-today"
-                        hx-get="/MealPlan?handler=Grid&amp;week=@Model.ThisWeekStart.ToString("yyyy-MM-dd")"
-                        hx-target="#plan-main-content"
-                        hx-swap="innerHTML">This week</button>
-            }
-        </nav>
+        @await Html.PartialAsync("_PlanBarNav", new Plantry.Web.Pages.MealPlan.IndexModel.PlanBarNavVm(
+            Model.WeekStart, Model.PrevWeekStart, Model.NextWeekStart, Model.ThisWeekStart,
+            Model.WeekLabel, Model.HasEmptyCells, Model.WeekTotalCost, Model.WeekCostIsPartial, Oob: false))
         <div class="plan-bar-spacer"></div>
-        @* Budget chip — live weekly cost (P3-4) *@
-        @{
-            var budgetClass = "budget-chip";
-            string weekCostDisplay;
-            if (Model.WeekTotalCost.HasValue)
-            {
-                weekCostDisplay = (Model.WeekCostIsPartial ? "~$" : "$") + Model.WeekTotalCost.Value.ToString("F2");
-            }
-            else
-            {
-                weekCostDisplay = "—";
-            }
-        }
-        <span class="@budgetClass" title="Estimated weekly grocery cost based on planned meals">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
-            <b>@weekCostDisplay</b> / wk
-        </span>
-        @* Auto-fill split button with tuning popover (P3-6b).
-           planTune Alpine.data component lives in wwwroot/js/plan-tune.js.
-           Config injected via window.__planTuneCfg to avoid Razor HTML-encoding gotcha (bd memories). *@
+        @* planTune Alpine config: injected before _PlanBarNav uses it (the partial renders af-split
+           which calls planTune(window.__planTuneCfg) on Alpine init). *@
         <script>
             window.__planTuneCfg = {
                 wasteDefault: @(PlanningWeights.Default.Waste),
@@ -60,86 +28,9 @@
             };
         </script>
         <span class="autofill-spinner htmx-indicator" aria-hidden="true"></span>
-        <div class="af-split" x-data="planTune(window.__planTuneCfg)">
-            @* Hidden inputs carrying tuning params into the Generate POST (scope + weights + budget).
-               The main Auto-fill week button uses the top-of-week shortcut (scope=week, default weights).
-               The popover "Generate suggestions" button uses whatever the user has tuned. *@
-            <button type="button" class="btn btn--soft"
-                    hx-post="/MealPlan?handler=Generate&amp;week=@Model.WeekStart.ToString("yyyy-MM-dd")"
-                    hx-target="#plan-main-content"
-                    hx-swap="innerHTML"
-                    hx-disabled-elt="this"
-                    hx-indicator=".autofill-spinner"
-                    hx-include="[name='wasteWeight'],[name='costWeight'],[name='varietyWeight'],[name='budget'],[name='scope']"
-                    @(!Model.HasEmptyCells ? "disabled" : "")
-                    title="@(!Model.HasEmptyCells ? "All cells already filled" : "Auto-fill empty cells with AI-suggested meals")">
-                <svg class="icon sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/></svg>
-                Auto-fill week
-            </button>
-            <button type="button" class="af-caret" :class="{ open: tuneOpen }" @@click="tuneOpen = !tuneOpen" aria-label="Tune auto-fill" :aria-expanded="tuneOpen">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-            </button>
-
-            @* Hidden inputs synced to Alpine state — included by hx-include on both buttons *@
-            <input type="hidden" name="wasteWeight" :value="weights.waste" />
-            <input type="hidden" name="costWeight" :value="weights.cost" />
-            <input type="hidden" name="varietyWeight" :value="weights.variety" />
-            <input type="hidden" name="budget" :value="budget" />
-            <input type="hidden" name="scope" :value="scope" />
-
-            <div x-show="tuneOpen" x-cloak @@click.outside="tuneOpen = false" class="tune-pop" role="dialog" aria-label="Tune auto-fill">
-                <div class="tune-head"><h4>Tune the auto-fill</h4></div>
-                <p class="tune-sub">Optional. Plantry leans on using up expiring stock by default.</p>
-
-                <div class="tune-sect-label">
-                    Planning priorities
-                    <span class="spacer"></span>
-                    <button type="button" class="reset" @@click="reset()">Reset</button>
-                </div>
-                <template x-for="m in meta" :key="m.key">
-                    <div class="wt-row">
-                        <span class="wt-name"><span class="wt-dot" :style="'background:' + m.color"></span> <span x-text="m.label"></span></span>
-                        <input type="range" min="0" max="100" :value="weights[m.key]"
-                               :style="'background:linear-gradient(90deg, ' + m.color + ' ' + weights[m.key] + '%, var(--color-surface-2) ' + weights[m.key] + '%)'"
-                               @@input="rebalance(m.key, $event.target.value)" />
-                        <span class="wt-val" x-text="weights[m.key]"></span>
-                    </div>
-                </template>
-                <div class="wt-stack">
-                    <template x-for="m in meta" :key="m.key">
-                        <i :style="'width:' + weights[m.key] + '%;background:' + m.color"></i>
-                    </template>
-                </div>
-
-                <div class="tune-sect-label">Budget target</div>
-                <div class="tune-budget">
-                    <label>Weekly budget</label>
-                    <div class="money-input">
-                        <span>$</span>
-                        <input type="number" min="0" step="5" x-model.number="budget" />
-                    </div>
-                </div>
-
-                <div class="tune-sect-label">Scope</div>
-                <div class="scope-seg">
-                    <button type="button" :class="{ on: scope === 'week' }" @@click="scope = 'week'">Whole week</button>
-                    <button type="button" :class="{ on: scope === 'today' }" @@click="scope = 'today'">Just today</button>
-                </div>
-
-                <button type="button" class="btn btn--primary" style="width:100%"
-                        hx-post="/MealPlan?handler=Generate&amp;week=@Model.WeekStart.ToString("yyyy-MM-dd")"
-                        hx-target="#plan-main-content"
-                        hx-swap="innerHTML"
-                        hx-disabled-elt="this"
-                        hx-indicator=".autofill-spinner"
-                        hx-include="[name='wasteWeight'],[name='costWeight'],[name='varietyWeight'],[name='budget'],[name='scope']"
-                        @@click="tuneOpen = false">
-                    <svg class="icon sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/></svg>
-                    Generate suggestions
-                </button>
-            </div>
-        </div>
-        @* Shop for this week — calls ShopForWeek application service (P3-4) *@
+        @* Shop for this week — calls ShopForWeek application service (P3-4).
+           This button is NOT in _PlanBarNav because it uses Alpine fetch state (loading/done)
+           and its week context is stable for the lifetime of the page session. *@
         <div x-data="shopWeek()" x-init="init(@System.Text.Json.JsonSerializer.Serialize(Model.WeekStart.ToString("yyyy-MM-dd")))">
             <button type="button" class="btn btn--primary"
                     :disabled="loading || done"

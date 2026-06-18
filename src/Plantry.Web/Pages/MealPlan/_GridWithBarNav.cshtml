@@ -1,0 +1,8 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.GridWithBarNavVm
+@* Response for any full-grid swap (Grid nav, Generate, AcceptAll, Discard, AcceptCell, RejectCell, Move).
+   Emits the week grid as the primary swap target followed by an OOB plan-bar nav refresh so the
+   command bar stays coherent with the loaded week after every htmx grid swap.
+   Without the OOB fragment the nav URLs, week label, This-week button visibility, Auto-fill state,
+   and budget chip all drift from the displayed grid — exactly the staleness bug plantry-khw fixes. *@
+@await Html.PartialAsync("_WeekGrid", Model.Grid)
+@await Html.PartialAsync("_PlanBarNav", Model.BarNav)
