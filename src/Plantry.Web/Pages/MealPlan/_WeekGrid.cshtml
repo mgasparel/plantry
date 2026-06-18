@@ -122,70 +122,10 @@ else
         </div>
     </div>
 
-    @* Insights rail — advisory callouts derived from the planned week *@
-    <aside class="plan-rail" :class="{ collapsed: !railOpen }">
-        <div class="rail-head">
-            <span class="ri-mark">
-                <svg class="icon sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z" /></svg>
-            </span>
-            <h3>Plan insights</h3>
-            <span class="spacer"></span>
-            @if (Model.Insights.Count > 0)
-            {
-                <span class="ri-count">@Model.Insights.Count</span>
-            }
-            <button type="button" class="rail-collapse" @@click="railOpen = false" title="Hide insights" aria-label="Hide insights">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
-            </button>
-        </div>
-        @if (Model.Insights.Count == 0)
-        {
-            <div class="rail-scroll">
-                <div class="rail-clean">
-                    <div class="rc-mark">
-                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
-                    </div>
-                    <div class="rc-t">No issues</div>
-                    <div class="rc-s">This plan looks healthy. Nothing needs your attention right now.</div>
-                </div>
-            </div>
-        }
-        else
-        {
-            <div class="rail-scroll">
-                @foreach (var c in Model.Insights)
-                {
-                    <div class="callout" data-tone="@c.Tone">
-                        <span class="co-ico">
-                            @if (c.Icon == "calendar")
-                            {
-                                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-                            }
-                            else
-                            {
-                                @* swap / repeat *@
-                                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>
-                            }
-                        </span>
-                        <div>
-                            <div class="co-title">@c.Title</div>
-                            <div class="co-body">@c.Body</div>
-                        </div>
-                    </div>
-                }
-            </div>
-        }
-    </aside>
-
-    @* Floating tab to re-open the rail once collapsed *@
-    <button type="button" class="rail-reopen" x-show="!railOpen" x-cloak @@click="railOpen = true">
-        <svg class="icon sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z" /></svg>
-        Insights
-        @if (Model.Insights.Count > 0)
-        {
-            <span class="rr-badge">@Model.Insights.Count</span>
-        }
-    </button>
+    @* Insights rail (+ floating reopen tab) — extracted to _PlanRail so the identical markup
+       can be re-emitted out-of-band after a cell-targeted mutation. Inline here it carries no
+       hx-swap-oob (Oob defaults false). *@
+    @await Html.PartialAsync("_PlanRail", new Plantry.Web.Pages.MealPlan.IndexModel.PlanRailVm(Model.Insights, Model.PendingCount))
 
     @* Pending bar — visible when there are staged AI suggestions *@
     @if (Model.PendingCount > 0)

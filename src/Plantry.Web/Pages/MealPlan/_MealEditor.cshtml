@@ -255,8 +255,10 @@
                                 'HX-Request': 'true'
                             }
                         }).then(r => r.text()).then(html => {
+                            // htmx.swap applies the cell swap AND processes the out-of-band rail
+                            // refresh in the response, so the insights rail recomputes on clear.
                             const el = document.getElementById('cell-@(slot.Id.Value.ToString("N"))-@dateStr');
-                            if (el) el.outerHTML = html;
+                            if (el) htmx.swap(el, html, { swapStyle: 'outerHTML' });
                         });
                         closeMealEditor();
                     ">
@@ -302,8 +304,10 @@
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: params.toString()
                     }).then(function(r) { return r.text(); }).then(function(html) {
+                        // htmx.swap applies the cell outerHTML swap AND processes the out-of-band
+                        // rail refresh emitted by _CellWithRail, keeping the insights in sync.
                         let cell = document.getElementById('cell-@(slot.Id.Value.ToString("N"))-@dateStr');
-                        if (cell) { cell.outerHTML = html; htmx.process(document.body); }
+                        if (cell) htmx.swap(cell, html, { swapStyle: 'outerHTML' });
                     });
                     closeMealEditor();
                 ">

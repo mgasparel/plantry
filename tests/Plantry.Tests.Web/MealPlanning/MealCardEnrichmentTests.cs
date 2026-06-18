@@ -182,6 +182,25 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
             services.AddScoped<AssignMealService>();
             services.RemoveAll<MoveMealService>();
             services.AddScoped<MoveMealService>();
+
+            // P3-6a: stub AI planner + proposal store
+            services.RemoveAll<IMealPlanner>();
+            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
+            services.RemoveAll<IPendingProposalStore>();
+            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
+            services.RemoveAll<GeneratePlanService>();
+            services.AddScoped<GeneratePlanService>();
+            services.RemoveAll<AcceptProposalService>();
+            services.AddScoped<AcceptProposalService>();
+
+            services.RemoveAll<IUserPreferenceRepository>();
+            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
+
+            // P3-5: stub expiring-stock reader; re-register insights service
+            services.RemoveAll<IMealPlanExpiringStockReader>();
+            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
+            services.RemoveAll<PlanInsightsService>();
+            services.AddScoped<PlanInsightsService>();
         });
     }
 }
