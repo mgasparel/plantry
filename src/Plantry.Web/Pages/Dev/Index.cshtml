@@ -299,6 +299,161 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Today — greeting header</h2>
+    </div>
+    <p>
+        <code>.today-wrap</code> is the max-width wrapper for the home dashboard board (max 1140px).
+        <code>.today-head</code> contains the greeting (<code>.today-head__greeting</code>), the date
+        line (<code>.today-head__date</code> with an optional <code>.today-head__ddot</code> separator),
+        and right-aligned link buttons (<code>.today-head__actions</code>).
+        <code>.today-linkbtn</code> is the ghost-bordered link button; add <code>today-linkbtn--accent</code>
+        for the primary-coloured variant.
+    </p>
+
+    <div class="today-wrap" style="padding: 24px 0">
+        <div class="today-head">
+            <div class="today-head__greet">
+                <h1 class="today-head__greeting">Good morning, Rivera household.</h1>
+                <div class="today-head__date">
+                    <span>Thursday, June 18</span>
+                    <span class="today-head__ddot"></span>
+                    <span>Rivera household</span>
+                </div>
+            </div>
+            <div class="today-head__spacer"></div>
+            <div class="today-head__actions">
+                <a class="today-linkbtn" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg> Pantry
+                </a>
+                <a class="today-linkbtn today-linkbtn--accent" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Weekly plan
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"today-wrap\">\n  <div class=\"today-head\">\n    <div class=\"today-head__greet\">\n      <h1 class=\"today-head__greeting\">Good morning, Rivera household.</h1>\n      <div class=\"today-head__date\">\n        <span>Thursday, June 18</span>\n        <span class=\"today-head__ddot\"></span>   <!-- omit if no household name -->\n        <span>Rivera household</span>\n      </div>\n    </div>\n    <div class=\"today-head__spacer\"></div>\n    <div class=\"today-head__actions\">           <!-- omit on cold-start -->\n      <a class=\"today-linkbtn\" href=\"/Pantry\"> ... </a>\n      <a class=\"today-linkbtn today-linkbtn--accent\" href=\"/MealPlan\"> ... </a>\n    </div>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Today — two-column board grid</h2>
+    </div>
+    <p>
+        <code>.today-grid</code> is a two-column CSS grid (1fr + 348px) that collapses to a single column
+        below 1000px. The left column holds the meals band; the right column is <code>.today-rail</code>,
+        a flex column of widget cards.
+        <code>.today-section-head</code> is the section heading row used inside the main column.
+    </p>
+
+    <div style="max-width: 860px">
+        <div class="today-section-head">
+            <h2>Today's meals</h2>
+            <div class="today-section-head__spacer"></div>
+            <a class="today-linkbtn today-linkbtn--accent" href="#">
+                <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Open weekly plan
+            </a>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"today-grid\">\n  <div class=\"today-meals\">\n    <div class=\"today-section-head\">\n      <h2>Today's meals</h2>\n      <div class=\"today-section-head__spacer\"></div>\n      <a class=\"today-linkbtn today-linkbtn--accent\" href=\"/MealPlan\"> ... </a>\n    </div>\n    <!-- meal content -->\n  </div>\n  <div class=\"today-rail\">\n    <!-- widget cards -->\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Today — rail widget card</h2>
+    </div>
+    <p>
+        <code>.today-widget</code> is a bordered surface card for the right rail (expiring-soon, etc.).
+        The header uses <code>.today-widget__head</code> with an h3, optional <code>.today-widget__spacer</code>,
+        and a <code>.today-count-badge</code> (add <code>today-count-badge--calm</code> for zero/ok state).
+        Empty states live in <code>.today-widget__empty</code> with a <code>.today-we-mark</code> icon,
+        <code>.today-we-title</code>, and <code>.today-we-sub</code>.
+        The footer link lives in <code>.today-widget__foot</code>.
+    </p>
+
+    <div style="max-width: 380px">
+        <div class="today-widget">
+            <div class="today-widget__head">
+                <h3>Expiring soon</h3>
+                <div class="today-widget__spacer"></div>
+                <span class="today-count-badge today-count-badge--calm">0</span>
+            </div>
+            <div class="today-widget__empty">
+                <div class="today-we-mark">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                </div>
+                <div class="today-we-title">Nothing expiring this week</div>
+                <div class="today-we-sub">Your pantry's in good shape. We'll flag anything within 7 days of turning.</div>
+            </div>
+            <div class="today-widget__foot">
+                <a href="#">
+                    Open pantry
+                    <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"today-widget\">\n  <div class=\"today-widget__head\">\n    <h3>Section title</h3>\n    <div class=\"today-widget__spacer\"></div>\n    <span class=\"today-count-badge\">3</span>           <!-- add today-count-badge--calm for 0/ok -->\n  </div>\n  <!-- populated content OR empty state: -->\n  <div class=\"today-widget__empty\">\n    <div class=\"today-we-mark\"><svg class=\"icon\"><use href=\"#i-check\"/></svg></div>\n    <div class=\"today-we-title\">Nothing expiring this week</div>\n    <div class=\"today-we-sub\">Subtitle text.</div>\n  </div>\n  <div class=\"today-widget__foot\">\n    <a href=\"/Pantry\">Open pantry <svg class=\"icon\"><use href=\"#i-chevron-right\"/></svg></a>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Today — cold-start welcome hero</h2>
+    </div>
+    <p>
+        <code>.today-welcome</code> is the full-width two-column hero shown when a household has no stock,
+        no recipes, and no pending intake (cold-start state). The left column (<code>.today-welcome__art</code>)
+        holds a logo/illustration; the right column (<code>.today-welcome__body</code>) holds an eyebrow,
+        heading, supporting copy, and a <code>.today-welcome__steps</code> list of numbered
+        <code>.today-welcome__step</code> anchor buttons. Collapses to single-column below 1000px.
+    </p>
+
+    <div style="max-width: 860px">
+        <div class="today-welcome">
+            <div class="today-welcome__art">
+                <img src="~/images/logo.png" alt="Plantry" class="today-welcome__logo" />
+            </div>
+            <div class="today-welcome__body">
+                <div class="eyebrow today-welcome__eyebrow">Let's set up your kitchen</div>
+                <h2 class="today-welcome__heading">Welcome to Plantry.</h2>
+                <p class="today-welcome__sub">Plantry keeps an eye on what's in your pantry, what's about to expire, and what's for dinner. Three quick steps to get going.</p>
+                <div class="today-welcome__steps">
+                    <a class="today-welcome__step" href="#">
+                        <span class="today-welcome__step-num">1</span>
+                        <span class="today-welcome__step-txt">
+                            <span class="today-welcome__step-t">Add your groceries</span>
+                            <span class="today-welcome__step-s">Snap or forward a receipt to stock your pantry</span>
+                        </span>
+                        <svg class="icon today-welcome__step-chev" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                    </a>
+                    <a class="today-welcome__step" href="#">
+                        <span class="today-welcome__step-num">2</span>
+                        <span class="today-welcome__step-txt">
+                            <span class="today-welcome__step-t">Browse recipes</span>
+                            <span class="today-welcome__step-s">See what you can cook with what you have</span>
+                        </span>
+                        <svg class="icon today-welcome__step-chev" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                    </a>
+                    <a class="today-welcome__step" href="#">
+                        <span class="today-welcome__step-num">3</span>
+                        <span class="today-welcome__step-txt">
+                            <span class="today-welcome__step-t">Plan your week</span>
+                            <span class="today-welcome__step-s">Drop meals onto the days ahead</span>
+                        </span>
+                        <svg class="icon today-welcome__step-chev" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"today-welcome\">\n  <div class=\"today-welcome__art\"><!-- logo/illustration --></div>\n  <div class=\"today-welcome__body\">\n    <div class=\"today-welcome__eyebrow\">Let's set up your kitchen</div>\n    <h2 class=\"today-welcome__heading\">Welcome home, ...</h2>\n    <p class=\"today-welcome__sub\">...</p>\n    <div class=\"today-welcome__steps\">\n      <a class=\"today-welcome__step\" href=\"...\">\n        <span class=\"today-welcome__step-num\">1</span>\n        <span class=\"today-welcome__step-txt\">\n          <span class=\"today-welcome__step-t\">Step title</span>\n          <span class=\"today-welcome__step-s\">Step subtitle</span>\n        </span>\n        <svg class=\"icon today-welcome__step-chev\"><use href=\"#i-chevron-right\"/></svg>\n      </a>\n    </div>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Sortable list</h2>
     </div>
     <p>
