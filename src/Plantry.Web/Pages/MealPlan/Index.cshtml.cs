@@ -470,6 +470,60 @@ public sealed class IndexModel(
         return await CellFragmentAsync(householdId, parsedDate, sid, ct);
     }
 
+    // ── Generate single (empty) cell POST (P3-6b, scope: single meal) ────────
+    // Per-cell "Auto-fill" on an EMPTY cell. Mirrors OnPostRegenerateCellAsync, but the cell has
+    // no existing proposal to remove. Generation is scoped to this cell's date (ExecuteAsync fills
+    // ALL empty cells on scopeDate), so we keep only the newly-staged proposal for THIS cell and
+    // merge it back with every pre-existing proposal — generating one cell never disturbs the rest.
+    // Routes through CellFragmentAsync so #plan-rail is re-emitted OOB (ADR-013 / OobContract).
+
+    public async Task<IActionResult> OnPostGenerateCellAsync(
+        string date, Guid slotId, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(slotId);
+        await HttpContext.Session.LoadAsync(ct);
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        var storeKey = BuildStoreKey(householdId);
+
+        // 1. Snapshot every pending proposal that is NOT this cell, so they survive the
+        //    SetAsync replacement. The cell is empty, so normally nothing matches this cell —
+        //    the filter is defensive (idempotent if the cell already had a proposal).
+        var allBefore = await pendingProposalStore.GetAsync(storeKey, ct);
+        var cellKey = CellKey(parsedDate, sid);
+        var otherPending = allBefore
+            .Where(p => CellKey(p.Date, p.MealSlotId) != cellKey)
+            .ToList();
+
+        // 2. Generate scoped to this cell's date (default weights — in-grid action, not popover-driven).
+        await generatePlanService.ExecuteAsync(
+            householdId,
+            DomainMealPlan.NormalizeToMonday(parsedDate),
+            storeKey,
+            weights: null,
+            scopeDate: parsedDate,
+            ct);
+
+        // 3. ExecuteAsync fills ALL empty cells on the date; keep ONLY the new proposal for THIS
+        //    cell, then merge with the surviving snapshot so other cells are untouched.
+        var generated = await pendingProposalStore.GetAsync(storeKey, ct);
+        var thisCellProposal = generated
+            .Where(p => CellKey(p.Date, p.MealSlotId) == cellKey)
+            .ToList();
+        var merged = otherPending.Concat(thisCellProposal).ToList();
+        await pendingProposalStore.SetAsync(storeKey, merged, ct);
+
+        // 4. Reload so CellFragmentAsync picks up the updated proposals.
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        // Return the cell + OOB rail (ADR-013 — same path as Assign/Clear/Accept/Regenerate).
+        return await CellFragmentAsync(householdId, parsedDate, sid, ct);
+    }
+
     // ── Shop for this week POST ──────────────────────────────────────────────
 
     public async Task<IActionResult> OnPostShopAsync(CancellationToken ct = default)

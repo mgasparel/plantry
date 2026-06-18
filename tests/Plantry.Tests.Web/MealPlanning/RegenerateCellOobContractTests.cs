@@ -70,6 +70,71 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         OobContract.AssertCarriesProjections(fragment, "plan-rail");
     }
 
+    // ── 1b. OobContract: GenerateCell (per-cell empty auto-fill) carries plan-rail ──
+
+    [Fact(DisplayName = "POST GenerateCell re-emits #plan-rail out-of-band (OobContract — ADR-013)")]
+    public async Task PostGenerateCell_CarriesPlanRailProjection()
+    {
+        var client = CreateClient();
+        var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
+
+        var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+
+        var form = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("__RequestVerificationToken", token),
+        });
+
+        // Target an EMPTY cell (no seeded proposal) — per-cell "Auto-fill" on an empty slot.
+        var response = await client.PostAsync(
+            $"/MealPlan?handler=GenerateCell&date=2026-06-17&slotId={slot.Id.Value:D}", form);
+
+        response.EnsureSuccessStatusCode();
+        var fragment = await response.Content.ReadAsStringAsync();
+
+        // ADR-013 OOB-contract: mutation response must carry the plan-rail projection.
+        OobContract.AssertCarriesProjections(fragment, "plan-rail");
+    }
+
+    // ── 1c. Merge safety: GenerateCell on an empty cell preserves other proposals ──
+
+    [Fact(DisplayName = "POST GenerateCell preserves other pending proposals (does not wipe them)")]
+    public async Task PostGenerateCell_OtherProposalsSurvive()
+    {
+        // Two proposals are seeded (Day0 Monday, Day1 Tuesday). Auto-filling a DIFFERENT,
+        // empty cell (Day2 Wednesday, same slot) must not wipe either existing proposal —
+        // the same merge guard that RegenerateCell relies on (passes 1 & 2 fixed exactly
+        // this "generate wipes other pending" failure mode for the sibling handlers).
+        await using var twoProposalFactory = new TwoProposalRegenerateFactory();
+        var client = twoProposalFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, WeekGridFixture.HouseholdId.ToString());
+
+        var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+
+        Assert.Contains(TwoProposalFixture.RecipeDay0Name, pageHtml);
+        Assert.Contains(TwoProposalFixture.RecipeDay1Name, pageHtml);
+
+        var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
+
+        var form = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("__RequestVerificationToken", token),
+        });
+
+        // Auto-fill the empty Wednesday cell (2026-06-17) — neither seeded proposal lives here.
+        var response = await client.PostAsync(
+            $"/MealPlan?handler=GenerateCell&date=2026-06-17&slotId={slot.Id.Value:D}", form);
+
+        response.EnsureSuccessStatusCode();
+
+        // Both pre-existing proposals must still render after generating an unrelated empty cell.
+        var afterPageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        Assert.Contains(TwoProposalFixture.RecipeDay0Name, afterPageHtml);
+        Assert.Contains(TwoProposalFixture.RecipeDay1Name, afterPageHtml);
+    }
+
     // ── 2. Cell fragment, not full-region repaint ─────────────────────────────
 
     [Fact(DisplayName = "POST RegenerateCell returns a cell fragment, not a full wkgrid repaint")]
