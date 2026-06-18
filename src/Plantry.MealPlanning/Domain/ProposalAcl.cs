@@ -7,6 +7,8 @@ namespace Plantry.MealPlanning.Domain;
 ///   - Recipe must exist in the candidate list (no hallucinated IDs)
 ///   - If a dish's recipe carries a Restricted tag: try to drop that dish; if no valid dishes remain,
 ///     return unfilled (simplified C6 for P3-6a — no per-attendee sub-split yet)
+///   - Every Required tag (M5) must be collectively covered by the surviving dishes; if any
+///     Required tag is uncovered, return unfilled (no valid recipe set satisfies the hard stance)
 /// Raw AI output is NEVER persisted — only the validated ProposedMeal reaches the store.
 /// </summary>
 public static class ProposalAcl
@@ -21,6 +23,7 @@ public static class ProposalAcl
     {
         var candidateMap = candidates.ToDictionary(c => c.RecipeId);
         var validDishes = new List<ProposedDish>();
+        var coveredTagIds = new HashSet<Guid>();
         var wasSplit = false;
 
         foreach (var dish in proposed.Dishes)
@@ -38,9 +41,18 @@ public static class ProposalAcl
             }
 
             validDishes.Add(dish);
+            coveredTagIds.UnionWith(recipe.TagIds);
         }
 
         if (validDishes.Count == 0)
+        {
+            return AclValidationResult.Unfilled;
+        }
+
+        // M5 (hard stance): every Required tag must be collectively covered by the surviving
+        // dishes. RequiredTagIds is the resolver's union across attendees (mirrors Restricted);
+        // if any Required tag is uncovered, no valid recipe set satisfies the constraint → unfilled.
+        if (!constraints.RequiredTagIds.All(coveredTagIds.Contains))
         {
             return AclValidationResult.Unfilled;
         }
