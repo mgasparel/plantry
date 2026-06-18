@@ -82,6 +82,24 @@ public sealed class IndexModel(
     private string BuildStoreKey(HouseholdId householdId) =>
         $"{householdId.Value:N}_{WeekStart:yyyyMMdd}_{HttpContext.Session.Id}";
 
+    /// <summary>
+    /// Ensures the ASP.NET Core session is started and the .AspNetCore.Session cookie is issued.
+    /// ASP.NET Core only emits the session cookie when the session has been WRITTEN — calling
+    /// LoadAsync alone does not write to the session, so Session.Id regenerates each request and
+    /// the store key differs between the Generate response and the Accept request.
+    /// Writing a sentinel byte forces cookie issuance, stabilising Session.Id for the lifetime
+    /// of the browser session. Must be called before BuildStoreKey on every planner interaction.
+    /// </summary>
+    private async Task EnsureSessionStartedAsync(CancellationToken ct = default)
+    {
+        await HttpContext.Session.LoadAsync(ct);
+        // Write a sentinel so the session cookie is issued. The key is intentionally minimal;
+        // the value (1 byte = 0x01) is never read by application code — its sole purpose is to
+        // cause ASP.NET Core to emit the .AspNetCore.Session cookie on the response.
+        if (!HttpContext.Session.TryGetValue("_ps", out _))
+            HttpContext.Session.Set("_ps", [0x01]);
+    }
+
     // ── GET ───────────────────────────────────────────────────────────────────
 
     public async Task<IActionResult> OnGetAsync(string? week = null, CancellationToken ct = default)
@@ -278,8 +296,8 @@ public sealed class IndexModel(
             ? DomainMealPlan.NormalizeToMonday(parsed)
             : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(DateTime.Today));
 
-        // Ensure session is started so Session.Id is stable
-        await HttpContext.Session.LoadAsync(ct);
+        // Ensure session is started and cookie issued so Session.Id is stable across requests.
+        await EnsureSessionStartedAsync(ct);
 
         // Rebuild WeekStart so BuildStoreKey is correct
         await LoadWeekAsync(week, ct);
@@ -346,7 +364,7 @@ public sealed class IndexModel(
     public async Task<IActionResult> OnPostAcceptAllAsync(string? week = null, CancellationToken ct = default)
     {
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        await HttpContext.Session.LoadAsync(ct);
+        await EnsureSessionStartedAsync(ct);
         await LoadWeekAsync(week, ct);
 
         var storeKey = BuildStoreKey(householdId);
@@ -362,7 +380,7 @@ public sealed class IndexModel(
     public async Task<IActionResult> OnPostDiscardAsync(string? week = null, CancellationToken ct = default)
     {
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        await HttpContext.Session.LoadAsync(ct);
+        await EnsureSessionStartedAsync(ct);
         await LoadWeekAsync(week, ct);
 
         var storeKey = BuildStoreKey(householdId);
@@ -382,7 +400,9 @@ public sealed class IndexModel(
 
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var sid = MealSlotId.From(slotId);
-        await HttpContext.Session.LoadAsync(ct);
+        await EnsureSessionStartedAsync(ct);
+        // LoadWeekAsync must be called before BuildStoreKey so WeekStart is set correctly.
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
 
         var storeKey = BuildStoreKey(householdId);
         var userId = await GetCurrentUserIdAsync(ct);
@@ -404,7 +424,9 @@ public sealed class IndexModel(
 
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var sid = MealSlotId.From(slotId);
-        await HttpContext.Session.LoadAsync(ct);
+        await EnsureSessionStartedAsync(ct);
+        // LoadWeekAsync must be called before BuildStoreKey so WeekStart is set correctly.
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
 
         var storeKey = BuildStoreKey(householdId);
         await acceptProposalService.RejectCellAsync(storeKey, parsedDate, sid, ct);
@@ -430,7 +452,7 @@ public sealed class IndexModel(
 
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var sid = MealSlotId.From(slotId);
-        await HttpContext.Session.LoadAsync(ct);
+        await EnsureSessionStartedAsync(ct);
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
 
         var storeKey = BuildStoreKey(householdId);
@@ -485,7 +507,7 @@ public sealed class IndexModel(
 
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var sid = MealSlotId.From(slotId);
-        await HttpContext.Session.LoadAsync(ct);
+        await EnsureSessionStartedAsync(ct);
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
 
         var storeKey = BuildStoreKey(householdId);
