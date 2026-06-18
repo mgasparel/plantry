@@ -75,9 +75,23 @@ public sealed partial class PreferencesModel(
         CurrentUserId = await GetCurrentUserIdAsync();
         await service.ResetToNeutralAsync(CurrentUserId);
 
-        // Return the full preferences fragment with cleared stances.
+        // Fetch the updated view model (all stances back to Neutral → SetCount == 0).
         ViewModel = await service.GetViewModelAsync(CurrentUserId);
-        return Partial("_PreferencesGroups", ViewModel);
+
+        // Primary swap: full preferences groups (clears all stance chips).
+        var groupsResult = Partial("_PreferencesGroups", ViewModel);
+
+        // OOB swap: prefs-meta line — counter resets to "0 of N tags set" and
+        // the Reset button becomes disabled, mirroring the OnPostStanceAsync pattern.
+        var currentMember = ViewModel.Members.FirstOrDefault(m => m.UserId == CurrentUserId);
+        var metaResult = Partial("Settings/_PrefsMeta",
+            new PrefsMetaViewModel(
+                currentMember?.Initials ?? "Y",
+                currentMember?.DisplayName ?? "You",
+                SetCount: 0,
+                ViewModel.TotalTags));
+
+        return new MultiFragmentResult(groupsResult, metaResult);
     }
 
     /// <summary>Converts a category name to a slug suitable for use in a DOM id attribute.</summary>

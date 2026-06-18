@@ -96,6 +96,70 @@ public sealed class PreferencesOobFragmentTests : IClassFixture<PreferencesFragm
         Assert.Matches(@"<b>1</b> of \d+ tags set", html);
     }
 
+    [Fact(DisplayName = "POST Reset returns prefs-groups primary swap plus prefs-meta OOB fragment (ADR-013)")]
+    public async Task PostReset_CarriesPrefsMeta_OobFragment()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add(
+            TestAuthHandler.HouseholdHeader,
+            PreferencesFragmentFixture.HouseholdId.ToString());
+
+        // Set a stance first so there is something to reset.
+        var pageHtml = await (await client.GetAsync("/Settings/Preferences")).Content.ReadAsStringAsync();
+        var stanceToken = ExtractAntiforgeryToken(pageHtml);
+        var stanceContent = new FormUrlEncodedContent([
+            new("__RequestVerificationToken", stanceToken),
+            new("tagId", PreferencesFragmentFixture.TagId.ToString()),
+            new("stance", "Preferred"),
+            new("tagName", "Shellfish"),
+        ]);
+        await client.PostAsync("/Settings/Preferences?handler=Stance", stanceContent);
+
+        // Now reset — re-fetch token from a fresh GET.
+        var page2Html = await (await client.GetAsync("/Settings/Preferences")).Content.ReadAsStringAsync();
+        var resetToken = ExtractAntiforgeryToken(page2Html);
+        var resetContent = new FormUrlEncodedContent([
+            new("__RequestVerificationToken", resetToken),
+        ]);
+
+        var response = await client.PostAsync("/Settings/Preferences?handler=Reset", resetContent);
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        // ADR-013 contract: the Reset response must carry the prefs-meta projection so the counter
+        // and Reset button disabled state update live without a full page reload.
+        OobContract.AssertCarriesProjections(html, "prefs-meta");
+
+        // The prefs-meta counter must show "0 of N tags set" after a reset.
+        Assert.Matches(@"<b>0</b> of \d+ tags set", html);
+
+        // The Reset button must be rendered disabled (SetCount==0).
+        Assert.Contains("disabled", html);
+    }
+
+    [Fact(DisplayName = "POST Reset response does not repaint the whole prefs-groups region as OOB (ADR-013)")]
+    public async Task PostReset_PrimarySwap_IsPrefsGroups_NotOobRepaint()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add(
+            TestAuthHandler.HouseholdHeader,
+            PreferencesFragmentFixture.HouseholdId.ToString());
+
+        var pageHtml = await (await client.GetAsync("/Settings/Preferences")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+        var resetContent = new FormUrlEncodedContent([
+            new("__RequestVerificationToken", token),
+        ]);
+
+        var response = await client.PostAsync("/Settings/Preferences?handler=Reset", resetContent);
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        // prefs-groups must appear exactly once as the primary swap target — not duplicated as OOB.
+        var count = System.Text.RegularExpressions.Regex.Matches(html, "id=\"prefs-groups\"").Count;
+        Assert.Equal(1, count);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static string ExtractAntiforgeryToken(string html)
