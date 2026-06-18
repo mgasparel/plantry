@@ -1,0 +1,7 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.CellWithRailVm
+@* Response for a cell-targeted plan mutation (assign / clear): the swapped cell fragment
+   followed by an out-of-band refresh of the insights rail. htmx.swap (used by the editor)
+   applies the main cell swap AND processes the OOB rail, so the rail recomputes on every
+   change without each handler having to remember to refresh it. *@
+@await Html.PartialAsync("_MealCell", Model.Cell)
+@await Html.PartialAsync("_PlanRail", Model.Rail)

@@ -25,6 +25,7 @@ public sealed class IndexModel(
     IPendingProposalStore pendingProposalStore,
     PlanFulfillmentService fulfillmentService,
     PlanCostingService costingService,
+    PlanInsightsService planInsightsService,
     IRecipeReadModel recipeReader,
     IMealPlanCatalogProductReader catalogReader,
     IHouseholdMemberReader memberReader,
@@ -414,9 +415,11 @@ public sealed class IndexModel(
         HasSlots = Slots.Count > 0;
 
         // Load planned meals for this week, enriched with live fulfillment and cost.
+        DomainMealPlan? loadedPlan = null;
         if (HasSlots)
         {
             var plan = await mealPlanRepo.FindByWeekAsync(householdId, WeekStart, ct);
+            loadedPlan = plan;
 
             if (plan is not null)
             {
@@ -488,46 +491,49 @@ public sealed class IndexModel(
         // Load pending AI proposals for this week from the store
         await LoadPendingProposalsAsync(householdId, ct);
 
-        BuildInsights(emptyCells);
+        await BuildInsightsAsync(loadedPlan, emptyCells, ct);
     }
 
     /// <summary>
-    /// Builds advisory rail callouts from the already-loaded week. Presentation only — no
-    /// new domain services; derives repeats and open-slot counts from MealsByCell.
+    /// Builds advisory rail callouts from the already-loaded week using
+    /// <see cref="PlanInsightsService"/> (P3-5).
     /// </summary>
-    private void BuildInsights(int emptyCells)
+    private async Task BuildInsightsAsync(
+        DomainMealPlan? plan,
+        int emptyCells,
+        CancellationToken ct)
     {
         Insights = [];
         if (!HasSlots) return;
 
-        // Repeated recipes/dishes across the planned week.
-        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var meals in MealsByCell.Values)
+        // Build the full cell key list (date × slot) for the unfilled-slot rule.
+        var allCells = new List<string>();
+        foreach (var d in WeekDays)
         {
-            foreach (var meal in meals)
-            {
-                if (meal.Note is not null) continue;
-                foreach (var name in meal.DishNames)
-                    counts[name] = counts.GetValueOrDefault(name) + 1;
-            }
-        }
-        foreach (var (name, n) in counts.Where(kv => kv.Value >= 2).OrderByDescending(kv => kv.Value))
-        {
-            var times = n == 2 ? "twice" : $"{n} times";
-            Insights.Add(new InsightCallout(
-                "info", "swap",
-                $"{name} planned {times} this week",
-                "Variety's up to you — repeats are fine if you're batch-cooking."));
+            foreach (var s in Slots)
+                allCells.Add(CellKey(DateOnly.Parse(d.DateIso), s.Id));
         }
 
-        // Open slots still to fill.
-        if (emptyCells > 0)
-        {
-            Insights.Add(new InsightCallout(
-                "info", "calendar",
-                $"{emptyCells} slot{(emptyCells == 1 ? "" : "s")} still open this week",
-                "Auto-fill the gaps with AI suggestions, or add meals by hand."));
-        }
+        // When the plan aggregate hasn't been created yet (new week, no meals), use an
+        // empty plan so the unfilled-slot and expiring-stock rules still fire correctly.
+        var effectivePlan = plan ?? DomainMealPlan.Start(
+            HouseholdId.From(tenant.HouseholdId ?? Guid.Empty),
+            WeekStart,
+            clock);
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var insights = await planInsightsService.InspectAsync(
+            effectivePlan,
+            allCells,
+            weekTotalCost: WeekTotalCost,
+            budgetTarget: null, // no persisted budget target yet — suppresses over-budget rule
+            priorPlans: null,   // prior plan history not loaded — suppresses vs-history repetition rule
+            today,
+            ct);
+
+        Insights = insights.Insights
+            .Select(i => new InsightCallout(i.Tone, i.Icon, i.Title, i.Body, i.ActionUrl))
+            .ToList();
     }
 
     private async Task LoadPendingProposalsAsync(HouseholdId householdId, CancellationToken ct)
@@ -574,7 +580,13 @@ public sealed class IndexModel(
             ghostDishNames = names;
         }
 
-        return Partial("_MealCell", new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames));
+        // Return the cell fragment plus an out-of-band rail refresh. LoadWeekAsync (called above)
+        // has already recomputed Model.Insights for the mutated plan, so the rail here is fresh.
+        // Routing every cell-targeted mutation through this single helper is what guarantees the
+        // ticket's "recompute on EVERY change" — no per-handler wiring to forget.
+        var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames);
+        var railVm = new PlanRailVm(Insights, PendingCount, Oob: true);
+        return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm));
     }
 
     private async Task<MealSlot?> GetSlotAsync(HouseholdId householdId, MealSlotId slotId, CancellationToken ct)
@@ -632,8 +644,11 @@ public sealed class IndexModel(
     public sealed record DayColumn(string DayName, string DateLabel, string DateIso, bool IsToday);
     public sealed record SlotRow(MealSlotId Id, string Label, List<Guid> DefaultAttendees);
 
-    /// <summary>An advisory insight rendered in the planner rail. Tone: warn|info|good. Icon: sprite suffix.</summary>
-    public sealed record InsightCallout(string Tone, string Icon, string Title, string Body);
+    /// <summary>
+    /// An advisory insight rendered in the planner rail. Tone: warn|info|good. Icon: sprite suffix.
+    /// ActionUrl: optional href for the callout's action link (e.g. "/Recipes?filter=use-soon").
+    /// </summary>
+    public sealed record InsightCallout(string Tone, string Icon, string Title, string Body, string? ActionUrl = null);
 
     /// <summary>Per-meal fulfillment/cost enrichment for the grid cell (P3-4).</summary>
     public sealed record MealFulfillmentVm(
@@ -670,6 +685,20 @@ public sealed class IndexModel(
 
     public sealed record EditorPageModel(MealEditorVm Vm, List<HouseholdMember> Members, MealSlot Slot);
     public sealed record CellFragmentVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, List<MealCellVm> Meals, DateOnly WeekStart, List<HouseholdMember> Members, string? HardStanceWarning = null, ProposedMeal? PendingProposal = null, IReadOnlyList<string>? GhostDishNames = null);
+
+    /// <summary>
+    /// View model for the advisory insights rail (P3-5). Rendered inline inside <c>_WeekGrid</c>
+    /// on a full grid swap, and out-of-band (<paramref name="Oob"/> = true) alongside a cell
+    /// fragment so the rail recomputes on EVERY plan change — see <c>_PlanRail.cshtml</c>.
+    /// </summary>
+    public sealed record PlanRailVm(IReadOnlyList<InsightCallout> Insights, int PendingCount, bool Oob = false);
+
+    /// <summary>
+    /// Combines a single cell fragment with an out-of-band rail refresh. Every cell-targeted
+    /// plan mutation returns through this (via <c>CellFragmentAsync</c>) so the "recompute the
+    /// rail on every change" invariant lives in exactly one place rather than per-handler.
+    /// </summary>
+    public sealed record CellWithRailVm(CellFragmentVm Cell, PlanRailVm Rail);
     public sealed record DishSearchVm(string Query, IReadOnlyList<RecipeHitVm> Recipes, IReadOnlyList<MealPlanProductReadModel> Products);
     public sealed record MealCardVm(MealCellVm Meal, string DateIso, MealSlotId SlotId, List<HouseholdMember> Members);
     public sealed record GhostCellVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, ProposedMeal Proposal, IReadOnlyList<string> DishNames);

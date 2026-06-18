@@ -386,6 +386,12 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
             services.AddScoped<GeneratePlanService>();
             services.RemoveAll<AcceptProposalService>();
             services.AddScoped<AcceptProposalService>();
+
+            // P3-5: stub expiring-stock reader; re-register insights service
+            services.RemoveAll<IMealPlanExpiringStockReader>();
+            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
+            services.RemoveAll<PlanInsightsService>();
+            services.AddScoped<PlanInsightsService>();
         });
     }
 }
@@ -518,6 +524,12 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
             // Stub UserPreferences (needed by AcceptProposalService / GeneratePlanService)
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
+
+            // P3-5: stub expiring-stock reader; re-register insights service
+            services.RemoveAll<IMealPlanExpiringStockReader>();
+            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
+            services.RemoveAll<PlanInsightsService>();
+            services.AddScoped<PlanInsightsService>();
         });
     }
 }
@@ -794,6 +806,12 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
             services.AddScoped<GeneratePlanService>();
             services.RemoveAll<AcceptProposalService>();
             services.AddScoped<AcceptProposalService>();
+
+            // P3-5: stub expiring-stock reader; re-register insights service
+            services.RemoveAll<IMealPlanExpiringStockReader>();
+            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
+            services.RemoveAll<PlanInsightsService>();
+            services.AddScoped<PlanInsightsService>();
         });
     }
 }
@@ -866,6 +884,15 @@ internal sealed class NullPrefsRepo : IUserPreferenceRepository
         => Task.FromResult<UserPreference?>(null);
     public Task AddAsync(UserPreference preference, CancellationToken ct = default) => Task.CompletedTask;
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+// ── P3-5 null stubs (no-op implementations for WAF factories that don't test insights) ────
+
+internal sealed class NullExpiringStockReader : IMealPlanExpiringStockReader
+{
+    public Task<IReadOnlyList<Guid>> GetExpiringProductIdsAsync(
+        DateOnly today, int withinDays, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<Guid>>([]);
 }
 
 // ── P3-4 null stubs (no-op implementations for WAF factories that don't test enrichment) ────

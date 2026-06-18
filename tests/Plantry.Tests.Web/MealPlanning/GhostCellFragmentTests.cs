@@ -231,6 +231,12 @@ public sealed class GhostCellFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
+
+            // P3-5: stub expiring-stock reader; re-register insights service
+            services.RemoveAll<IMealPlanExpiringStockReader>();
+            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
+            services.RemoveAll<PlanInsightsService>();
+            services.AddScoped<PlanInsightsService>();
         });
     }
 }

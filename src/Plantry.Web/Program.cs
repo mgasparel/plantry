@@ -224,6 +224,12 @@ builder.Services.AddScoped<PlanFulfillmentService>();
 builder.Services.AddScoped<PlanCostingService>();
 builder.Services.AddScoped<ShopForWeekService>();
 
+// Meal Planning — P3-5 Plan insights (plantry-6si).
+// IMealPlanExpiringStockReader is the insights-specific ACL port onto Inventory; adapter is in Web.
+// PlanInsightsService is a stateless read-side domain service recomputed on every page load.
+builder.Services.AddScoped<IMealPlanExpiringStockReader, MealPlanExpiringStockReaderAdapter>();
+builder.Services.AddScoped<PlanInsightsService>();
+
 // Meal Planning — P3-6a AI generate plan (plantry-o0z).
 // GeneratePlanService orchestrates slot discovery, constraint resolution, candidate loading,
 // IMealPlanner call (untrusted), ProposalAcl validation, and IPendingProposalStore staging.
