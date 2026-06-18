@@ -119,10 +119,11 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
         var fragment = await response.Content.ReadAsStringAsync();
 
         // ADR-013 OOB-contract: mutation response must carry the plan-rail projection.
-        OobContract.AssertCarriesProjections(fragment, "plan-rail");
+        // plantry-khw: also carries plan-bar-nav, plan-bar-cost, plan-bar-autofill projections.
+        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-bar-cost", "plan-bar-autofill");
     }
 
-    [Fact(DisplayName = "POST Clear re-emits #plan-rail out-of-band (OobContract — editor path)")]
+    [Fact(DisplayName = "POST Clear re-emits #plan-rail and plan-bar projections out-of-band (OobContract — editor path)")]
     public async Task PostClear_CarriesPlanRailProjection()
     {
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -143,7 +144,9 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
         response.EnsureSuccessStatusCode();
         var fragment = await response.Content.ReadAsStringAsync();
 
-        OobContract.AssertCarriesProjections(fragment, "plan-rail");
+        // ADR-013 OOB-contract: mutation response must carry rail and plan-bar projections.
+        // plantry-khw: plan-bar-nav/cost/autofill are now re-emitted alongside every cell mutation.
+        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-bar-cost", "plan-bar-autofill");
     }
 
     // ── 3. Editor partial scaffold ───────────────────────────────────────────

@@ -307,9 +307,13 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
         }
     }
 
-    // ── Journey 5: Assign note → navigate to next week → note still on this week ──
+    // ── Journey 5: Assign note → navigate to next week via htmx → note still on this week ──
+    // plantry-khw: this test previously used full page loads to avoid the stale plan-bar issue.
+    // Now that OnGetGridAsync re-emits the plan-bar projections OOB, real htmx nav works:
+    // the next/prev buttons' hx-get URLs, the week label, This-week button, and Auto-fill state
+    // all update atomically with the grid swap. The test now exercises the htmx nav path.
 
-    [Fact(DisplayName = "Assign note → navigate next week → note persists on return")]
+    [Fact(DisplayName = "Assign note → navigate next week via htmx nav → week label updates, note persists on return")]
     public async Task AssignNote_WeekNavigation_NotePersistedAcrossWeeks()
     {
         var uniqueEmail = $"e2e-weknav-{Guid.NewGuid():N}@test.local";
@@ -330,17 +334,27 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             var (date, slotId) = await GetFirstCellInfoAsync(page);
             var thisMondayDate = DateOnly.Parse(date);
 
+            // Capture the initial week label from the plan-bar (plantry-khw: OOB-refreshed after nav)
+            var initialWeekLabel = await page.Locator(".wk-label").InnerTextAsync();
+
             // Assign a note to this week
             var token = await GetAntiforgeryTokenAsync(page);
             Assert.Equal(200, await PostAssignNoteAsync(page, date, slotId, "Takeout", token));
 
-            // Navigate to next week via full page load (avoids plan-bar stale hx-get issue)
-            var nextWeek = thisMondayDate.AddDays(7);
-            await page.GotoAsync($"{BaseUrl}/MealPlan?week={nextWeek:yyyy-MM-dd}");
-            await page.WaitForURLAsync("**/MealPlan**");
-            await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
+            // Navigate to next week via htmx nav (clicking the next-week button).
+            // plantry-khw fix: the plan-bar OOB response updates the nav URLs, week label,
+            // and This-week button so subsequent navigation works correctly without a page reload.
+            await page.Locator(".wknav-btn[aria-label='Next week']").ClickAsync();
+            await page.WaitForFunctionAsync("document.querySelector('.wkgrid') !== null");
+            // Wait for htmx to complete the swap — the week label must differ from before.
+            await page.WaitForFunctionAsync(
+                $"document.querySelector('.wk-label')?.innerText !== {System.Text.Json.JsonSerializer.Serialize(initialWeekLabel)}");
 
-            // Confirm we are on next week: first empty-add button date should be +7
+            // Confirm the week label changed (plan-bar OOB worked)
+            var nextWeekLabel = await page.Locator(".wk-label").InnerTextAsync();
+            Assert.NotEqual(initialWeekLabel, nextWeekLabel);
+
+            // Confirm the grid reflects next week: first empty-add date should be +7
             var nextHxGet = await page.Locator(".empty-add").First.GetAttributeAsync("hx-get");
             if (nextHxGet != null)
             {
@@ -352,9 +366,12 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             // No note on next week
             await Assertions.Expect(page.Locator(".meal-card.note")).Not.ToBeVisibleAsync();
 
-            // Navigate back to this week via full page load
-            await page.GotoAsync($"{BaseUrl}/MealPlan?week={thisMondayDate:yyyy-MM-dd}");
-            await page.WaitForURLAsync("**/MealPlan**");
+            // Navigate back to this week via the "This week" button (now visible since we navigated away).
+            // plantry-khw: the OOB plan-bar-nav also re-emits the This-week button correctly.
+            await page.Locator(".wk-today").ClickAsync();
+            await page.WaitForFunctionAsync(
+                $"document.querySelector('.wk-label')?.innerText === {System.Text.Json.JsonSerializer.Serialize(initialWeekLabel)}");
+
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
 
             // Note card is still there on this week

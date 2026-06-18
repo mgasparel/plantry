@@ -108,11 +108,13 @@ public sealed class IndexModel(
         return Page();
     }
 
-    // htmx fragment — returns the week grid partial only
+    // htmx fragment — returns the week grid partial + OOB plan-bar nav so the command
+    // bar reflects the newly-loaded week (nav URLs, label, This-week button, budget chip,
+    // Auto-fill disabled state all depend on WeekStart which changes on every nav swap).
     public async Task<IActionResult> OnGetGridAsync(string? week = null, CancellationToken ct = default)
     {
         await LoadWeekAsync(week, ct);
-        return Partial("_WeekGrid", this);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
 
     // ── Editor fragment — GET ─────────────────────────────────────────────────
@@ -277,7 +279,7 @@ public sealed class IndexModel(
         // Return the whole grid for the destination week
         var weekStr = DomainMealPlan.NormalizeToMonday(to).ToString("yyyy-MM-dd");
         await LoadWeekAsync(weekStr, ct);
-        return Partial("_WeekGrid", this);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
 
     // ── AI generate plan POST ────────────────────────────────────────────────
@@ -356,7 +358,7 @@ public sealed class IndexModel(
         // Reload to pick up pending proposals; pass budget target so the over-budget insight fires.
         WeekBudgetTarget = resolvedBudget;
         await LoadWeekAsync(week, ct);
-        return Partial("_WeekGrid", this);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
 
     // ── Accept all proposals POST ────────────────────────────────────────────
@@ -372,7 +374,7 @@ public sealed class IndexModel(
         await acceptProposalService.AcceptAllAsync(householdId, WeekStart, storeKey, userId, ct);
 
         await LoadWeekAsync(week, ct);
-        return Partial("_WeekGrid", this);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
 
     // ── Discard all proposals POST ───────────────────────────────────────────
@@ -387,7 +389,7 @@ public sealed class IndexModel(
         await acceptProposalService.DiscardAsync(storeKey, ct);
 
         await LoadWeekAsync(week, ct);
-        return Partial("_WeekGrid", this);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
 
     // ── Accept single cell POST ──────────────────────────────────────────────
@@ -411,7 +413,7 @@ public sealed class IndexModel(
         // Return the full week grid so the pending bar count is always fresh (pending bar lives
         // inside _WeekGrid, so a cell-only swap would leave it stale after per-cell operations).
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
-        return Partial("_WeekGrid", this);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
 
     // ── Reject single cell POST ──────────────────────────────────────────────
@@ -433,7 +435,7 @@ public sealed class IndexModel(
 
         // Return the full week grid so the pending bar count is always fresh.
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
-        return Partial("_WeekGrid", this);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
 
     // ── Regenerate single cell POST (P3-6b, J8) ─────────────────────────────
@@ -936,14 +938,24 @@ public sealed class IndexModel(
             }
         }
 
-        // Return the cell fragment plus an out-of-band rail refresh. LoadWeekAsync (called above)
-        // has already recomputed Model.Insights for the mutated plan, so the rail here is fresh.
-        // Routing every cell-targeted mutation through this single helper is what guarantees the
-        // ticket's "recompute on EVERY change" — no per-handler wiring to forget.
+        // Return the cell fragment plus out-of-band refreshes for both the insights rail and
+        // the plan-bar nav projections. LoadWeekAsync (called above) has already recomputed
+        // Model.Insights and Model.HasEmptyCells for the mutated plan, so both OOB fragments
+        // are fresh. Routing every cell-targeted mutation through this single helper guarantees
+        // the "recompute on EVERY change" invariant — no per-handler wiring to forget.
         var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment);
         var railVm = new PlanRailVm(Insights, PendingCount, Oob: true);
-        return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm));
+        var barNavVm = BuildPlanBarNavVm(Oob: true);
+        return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm, barNavVm));
     }
+
+    /// <summary>
+    /// Builds the plan-bar nav view model from the currently-loaded week state.
+    /// Must be called after LoadWeekAsync so WeekStart, HasEmptyCells, etc. are set.
+    /// </summary>
+    private PlanBarNavVm BuildPlanBarNavVm(bool Oob) => new(
+        WeekStart, PrevWeekStart, NextWeekStart, ThisWeekStart,
+        WeekLabel, HasEmptyCells, WeekTotalCost, WeekCostIsPartial, Oob);
 
     private async Task<MealSlot?> GetSlotAsync(HouseholdId householdId, MealSlotId slotId, CancellationToken ct)
     {
@@ -1069,11 +1081,39 @@ public sealed class IndexModel(
     public sealed record PlanRailVm(IReadOnlyList<InsightCallout> Insights, int PendingCount, bool Oob = false);
 
     /// <summary>
-    /// Combines a single cell fragment with an out-of-band rail refresh. Every cell-targeted
-    /// plan mutation returns through this (via <c>CellFragmentAsync</c>) so the "recompute the
-    /// rail on every change" invariant lives in exactly one place rather than per-handler.
+    /// Combines a single cell fragment with an out-of-band rail refresh and an out-of-band
+    /// plan-bar nav refresh. Every cell-targeted plan mutation returns through this (via
+    /// <c>CellFragmentAsync</c>) so both the rail and the plan-bar (HasEmptyCells, budget chip)
+    /// recompute on EVERY change — no per-handler wiring to forget.
     /// </summary>
-    public sealed record CellWithRailVm(CellFragmentVm Cell, PlanRailVm Rail);
+    public sealed record CellWithRailVm(CellFragmentVm Cell, PlanRailVm Rail, PlanBarNavVm BarNav);
+
+    /// <summary>
+    /// Combines the week grid with an out-of-band plan-bar nav refresh. Returned by any handler
+    /// that swaps the full grid (Grid, Generate, AcceptAll, Discard, AcceptCell, RejectCell, Move)
+    /// so the command bar (nav URLs, week label, This-week visibility, Auto-fill state, budget chip)
+    /// updates atomically with the grid swap — eliminating the plan-bar staleness bug this ticket
+    /// was filed to fix.
+    /// </summary>
+    public sealed record GridWithBarNavVm(IndexModel Grid, PlanBarNavVm BarNav);
+
+    /// <summary>
+    /// View model for the plan-bar nav partial (<c>_PlanBarNav.cshtml</c>). Carries the week-level
+    /// derived projections that go stale after htmx grid swaps: nav button URLs, week label,
+    /// This-week button visibility, Auto-fill disabled state, and the budget chip value.
+    /// When <paramref name="Oob"/> is true the partial renders with hx-swap-oob so htmx replaces
+    /// the live bar elements in place; when false it renders inline on first page load.
+    /// </summary>
+    public sealed record PlanBarNavVm(
+        DateOnly WeekStart,
+        DateOnly PrevWeekStart,
+        DateOnly NextWeekStart,
+        DateOnly ThisWeekStart,
+        string WeekLabel,
+        bool HasEmptyCells,
+        decimal? WeekTotalCost,
+        bool WeekCostIsPartial,
+        bool Oob = false);
     public sealed record DishSearchVm(string Query, IReadOnlyList<RecipeHitVm> Recipes, IReadOnlyList<MealPlanProductReadModel> Products);
 
     /// <summary>

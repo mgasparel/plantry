@@ -3809,7 +3809,9 @@ button.sadd svg { width: 13px; height: 13px; }
   font-size: 13px; font-weight: 600; color: var(--color-text-muted);
 }
 .budget-chip b { color: var(--color-text); font-variant-numeric: tabular-nums; }
-/* split auto-fill button */
+/* split auto-fill button — host is a display:contents wrapper that carries the OOB id
+   (plan-bar-autofill) so htmx can replace the whole af-split without disrupting layout */
+.af-split-host { display: contents; }
 .af-split { display: inline-flex; align-items: stretch; position: relative; }
 .af-split .btn--soft { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 .af-caret {

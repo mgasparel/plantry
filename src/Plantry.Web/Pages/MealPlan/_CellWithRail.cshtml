@@ -1,7 +1,12 @@
 @model Plantry.Web.Pages.MealPlan.IndexModel.CellWithRailVm
-@* Response for a cell-targeted plan mutation (assign / clear): the swapped cell fragment
-   followed by an out-of-band refresh of the insights rail. htmx.swap (used by the editor)
-   applies the main cell swap AND processes the OOB rail, so the rail recomputes on every
-   change without each handler having to remember to refresh it. *@
+@* Response for a cell-targeted plan mutation (assign / clear / regenerate / generate-cell):
+   the swapped cell fragment followed by OOB refreshes for both the insights rail and the
+   plan-bar nav. htmx.swap (used by the editor) applies the main cell swap AND processes the
+   OOB fragments, so the rail and the plan-bar (HasEmptyCells, budget chip, nav) recompute
+   on every change without each handler having to remember to refresh them.
+   Replaces two staleness bugs at once: plan-rail (original ADR-013) and plan-bar
+   (plantry-khw: week label, nav URLs, This-week button, Auto-fill state go stale
+   after cell-swap path mutations). *@
 @await Html.PartialAsync("_MealCell", Model.Cell)
 @await Html.PartialAsync("_PlanRail", Model.Rail)
+@await Html.PartialAsync("_PlanBarNav", Model.BarNav)
