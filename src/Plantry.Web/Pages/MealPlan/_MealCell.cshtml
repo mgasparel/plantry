@@ -47,7 +47,8 @@
         @* Ghost cell: AI-suggested proposal awaiting user acceptance *@
         @await Html.PartialAsync("_GhostCell", new Plantry.Web.Pages.MealPlan.IndexModel.GhostCellVm(
             Model.Date, Model.SlotId, Model.SlotLabel, Model.PendingProposal!,
-            Model.GhostDishNames ?? Model.PendingProposal!.Dishes.Select(_ => "Recipe").ToList()))
+            Model.GhostDishNames ?? Model.PendingProposal!.Dishes.Select(_ => "Recipe").ToList(),
+            Model.GhostEnrichment))
     }
     else
     {
@@ -59,7 +60,13 @@
                     aria-label="Add meal">
                 <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
             </button>
-            <button class="empty-auto" disabled title="Use Auto-fill week to fill this cell" tabindex="-1">
+            <button class="empty-auto"
+                    hx-post="/MealPlan?handler=GenerateCell&amp;date=@dateIso&amp;slotId=@slotId"
+                    hx-target="#@cellId"
+                    hx-swap="outerHTML"
+                    hx-indicator=".autofill-spinner"
+                    title="Auto-fill this cell with an AI suggestion"
+                    aria-label="Auto-fill this cell">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 Auto-fill
             </button>

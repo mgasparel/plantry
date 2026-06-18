@@ -21,9 +21,15 @@ else
                     <span class="dh-dow">@day.DayName</span>
                     <span class="dh-date">@day.DateLabel</span>
                     <span class="spacer"></span>
-                    @* Per-day auto-fill button — disabled until per-day generation is wired *@
-                    <button class="dh-auto" title="Auto-fill @day.DayName (use Auto-fill week)" disabled aria-label="Auto-fill @day.DayName" tabindex="-1">
-                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                    @* Per-day auto-fill button — generates suggestions for just this day (P3-6b scope=today) *@
+                    <button class="dh-auto"
+                            hx-post="/MealPlan?handler=Generate&week=@day.DateIso&scope=today"
+                            hx-target="#plan-main-content"
+                            hx-swap="innerHTML"
+                            hx-indicator=".autofill-spinner"
+                            title="Auto-fill @day.DayName with AI suggestions"
+                            aria-label="Auto-fill @day.DayName">
+                        <svg class="icon sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/></svg>
                     </button>
                 </div>
             }
@@ -54,69 +60,35 @@ else
                     </a>
                 </div>
 
-                @* Day cells for this slot *@
+                @* Day cells for this slot.
+                   The cell body (filled / ghost / empty) is delegated to _MealCell — the SAME
+                   partial the per-cell htmx fragment swap returns — so the markup lives in exactly
+                   ONE place. (Previously this block duplicated the empty-cell markup, which is why
+                   the per-cell "Auto-fill" button stayed disabled here after _MealCell was wired.) *@
                 @foreach (var day in Model.WeekDays)
                 {
                     var cellDate = DateOnly.Parse(day.DateIso);
                     var key = Plantry.Web.Pages.MealPlan.IndexModel.CellKey(cellDate, slot.Id);
                     var meals = Model.MealsByCell.GetValueOrDefault(key) ?? [];
                     var pending = Model.PendingProposals.GetValueOrDefault(key);
-                    var cellId = $"cell-{slot.Id.Value:N}-{day.DateIso}";
 
-                    <div id="@cellId"
-                         class="mcell @(meals.Count > 0 ? "filled" : pending is not null ? "ghost" : "empty")"
-                         ondragover="onDragOver(event)"
-                         ondragleave="onDragLeave(event)"
-                         ondrop="onDrop(event, '@day.DateIso', '@slot.Id.Value')">
+                    // Resolve ghost dish names + rolled-up enrichment for the full-grid render so the
+                    // delegated _MealCell shows the same "% in pantry · $cost" the fragment swap does.
+                    List<string>? ghostDishNames = null;
+                    Plantry.Web.Pages.MealPlan.IndexModel.MealFulfillmentVm? ghostEnr = null;
+                    if (pending is not null)
+                    {
+                        ghostDishNames = new List<string>();
+                        foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
+                        {
+                            ghostDishNames.Add(await Plantry.Web.Pages.MealPlan.IndexModel.ResolveRecipeName(d.RecipeId, Model));
+                        }
+                        ghostEnr = Model.GhostEnrichments.GetValueOrDefault(key);
+                    }
 
-                        @if (meals.Count > 0)
-                        {
-                            @* CellStack: one card per meal, plus an "Add meal" affordance (proto parity) *@
-                            @foreach (var meal in meals)
-                            {
-                                @await Html.PartialAsync("_MealCard", new Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm(
-                                    meal, day.DateIso, slot.Id, Model.Members))
-                            }
-                            <button class="add-meal"
-                                    hx-get="/MealPlan?handler=Editor&date=@day.DateIso&slotId=@slot.Id.Value"
-                                    hx-target="#meal-editor-dialog"
-                                    hx-swap="innerHTML"
-                                    title="Add another meal to this slot"
-                                    aria-label="Add another meal for @slot.Label on @day.DayName">
-                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                Add meal
-                            </button>
-                        }
-                        else if (pending is not null)
-                        {
-                            @* Ghost cell: AI-suggested, awaiting user acceptance *@
-                            var ghostDishNames = new List<string>();
-                            foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
-                            {
-                                var r = await Plantry.Web.Pages.MealPlan.IndexModel.ResolveRecipeName(d.RecipeId, Model);
-                                ghostDishNames.Add(r);
-                            }
-                            @await Html.PartialAsync("_GhostCell", new Plantry.Web.Pages.MealPlan.IndexModel.GhostCellVm(
-                                cellDate, slot.Id, slot.Label, pending, ghostDishNames))
-                        }
-                        else
-                        {
-                            @* Empty cell *@
-                            <div class="empty-acts">
-                                <button class="empty-add"
-                                        hx-get="/MealPlan?handler=Editor&date=@day.DateIso&slotId=@slot.Id.Value"
-                                        hx-target="#meal-editor-dialog"
-                                        hx-swap="innerHTML"
-                                        aria-label="Add meal for @slot.Label on @day.DayName">
-                                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                </button>
-                                <button class="empty-auto" disabled title="Use Auto-fill week to fill this cell" tabindex="-1">
-                                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-                                    Auto-fill
-                                </button>
-                            </div>
-                        }
-                    </div>
+                    @await Html.PartialAsync("_MealCell", new Plantry.Web.Pages.MealPlan.IndexModel.CellFragmentVm(
+                        cellDate, slot.Id, slot.Label, meals, Model.WeekStart, Model.Members,
+                        null, pending, ghostDishNames, ghostEnr))
                 }
             }
         </div>

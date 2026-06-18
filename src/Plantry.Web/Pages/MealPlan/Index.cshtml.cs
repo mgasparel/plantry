@@ -56,6 +56,12 @@ public sealed class IndexModel(
     /// <summary>Number of pending AI proposals awaiting user action.</summary>
     public int PendingCount => PendingProposals.Count;
 
+    /// <summary>
+    /// Server-computed rolled-up fulfillment/cost for each ghost cell, keyed by "date_slotId".
+    /// Populated during LoadWeekAsync so the full-grid swap shows enriched ghost cells (P3-6b).
+    /// </summary>
+    public Dictionary<string, MealFulfillmentVm> GhostEnrichments { get; private set; } = [];
+
     /// <summary>Advisory insight callouts for the rail, derived from the loaded week (presentation only).</summary>
     public List<InsightCallout> Insights { get; private set; } = [];
 
@@ -64,6 +70,13 @@ public sealed class IndexModel(
 
     /// <summary>True when any week cost was computed with partial pricing data.</summary>
     public bool WeekCostIsPartial { get; private set; }
+
+    /// <summary>
+    /// User-entered weekly budget target from the tune popover (P3-6b, C14).
+    /// Non-null when the user supplied a positive budget via the Generate POST. Passed to
+    /// PlanInsightsService so the over-budget insight fires. Null when not provided.
+    /// </summary>
+    public decimal? WeekBudgetTarget { get; private set; }
 
     /// <summary>Builds the store key for the pending proposal store: {householdId}_{weekStart:yyyyMMdd}_{sessionId}.</summary>
     private string BuildStoreKey(HouseholdId householdId) =>
@@ -251,7 +264,14 @@ public sealed class IndexModel(
 
     // ── AI generate plan POST ────────────────────────────────────────────────
 
-    public async Task<IActionResult> OnPostGenerateAsync(string? week = null, CancellationToken ct = default)
+    public async Task<IActionResult> OnPostGenerateAsync(
+        string? week = null,
+        [FromForm] int? wasteWeight = null,
+        [FromForm] int? costWeight = null,
+        [FromForm] int? varietyWeight = null,
+        [FromForm] decimal? budget = null,
+        string? scope = null,
+        CancellationToken ct = default)
     {
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var weekStart = week is not null && DateOnly.TryParse(week, out var parsed)
@@ -264,10 +284,59 @@ public sealed class IndexModel(
         // Rebuild WeekStart so BuildStoreKey is correct
         await LoadWeekAsync(week, ct);
 
-        var storeKey = BuildStoreKey(householdId);
-        await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, null, ct);
+        // Resolve PlanningWeights from tuning popover inputs (C14).
+        // PlanningWeights only bias SOFT choices — they never relax a hard dietary stance (M5/M11).
+        // The constraint resolver from P3-6a stays authoritative.
+        PlanningWeights? weights = null;
+        if (wasteWeight.HasValue && costWeight.HasValue && varietyWeight.HasValue)
+        {
+            try { weights = new PlanningWeights(wasteWeight.Value, costWeight.Value, varietyWeight.Value); }
+            catch (ArgumentException) { /* Invalid weights (don't sum to 100) — fall back to default */ }
+        }
 
-        // Reload to pick up pending proposals
+        // Resolve scope date (L2 per-day scope targeting, P3-6b):
+        //   • Per-day header buttons post scope=today&week=<that day's ISO date> — derive from week
+        //     so clicking "Auto-fill Thursday" fills Thursday, not the live current date.
+        //   • Popover "Just today" posts scope=today with no explicit week — fall back to DateTime.Today.
+        //   • Whole-week (default): scopeDate stays null (all empty cells in the week).
+        DateOnly? scopeDate = null;
+        if (scope == "today")
+        {
+            scopeDate = (week is not null && DateOnly.TryParse(week, out var sd)) ? sd : DateOnly.FromDateTime(DateTime.Today);
+        }
+
+        // Stash user-entered budget target so BuildInsightsAsync can pass it to the over-budget rule.
+        decimal? resolvedBudget = budget is > 0 ? budget : null;
+
+        var storeKey = BuildStoreKey(householdId);
+
+        // Merge guard for scoped (per-day) generation:
+        //   GeneratePlanService.SetAsync replaces the ENTIRE proposal store. For whole-week generation
+        //   that is correct (we want a fresh slate). But for per-day scope (scopeDate non-null) we must
+        //   preserve pending proposals on OTHER days, exactly as OnPostRegenerateCellAsync does.
+        //   Snapshot the surviving proposals first, then merge after generation.
+        IReadOnlyList<ProposedMeal>? otherDayProposals = null;
+        if (scopeDate.HasValue)
+        {
+            var allBefore = await pendingProposalStore.GetAsync(storeKey, ct);
+            var scopeKey = scopeDate.Value.ToString("yyyy-MM-dd");
+            otherDayProposals = allBefore
+                .Where(p => p.Date.ToString("yyyy-MM-dd") != scopeKey)
+                .ToList();
+        }
+
+        await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, ct);
+
+        // Re-merge surviving proposals when a per-day scope was used.
+        if (scopeDate.HasValue && otherDayProposals is { Count: > 0 })
+        {
+            var newDayProposals = await pendingProposalStore.GetAsync(storeKey, ct);
+            var merged = otherDayProposals.Concat(newDayProposals).ToList();
+            await pendingProposalStore.SetAsync(storeKey, merged, ct);
+        }
+
+        // Reload to pick up pending proposals; pass budget target so the over-budget insight fires.
+        WeekBudgetTarget = resolvedBudget;
         await LoadWeekAsync(week, ct);
         return Partial("_WeekGrid", this);
     }
@@ -343,6 +412,116 @@ public sealed class IndexModel(
         // Return the full week grid so the pending bar count is always fresh.
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
         return Partial("_WeekGrid", this);
+    }
+
+    // ── Regenerate single cell POST (P3-6b, J8) ─────────────────────────────
+    // Re-proposes ONE pending cell. Removes the existing proposal for this cell from the store,
+    // generates a fresh proposal for just this cell, merges it back with the surviving proposals
+    // for other cells (GeneratePlanService.SetAsync replaces the entire store key — to preserve
+    // other pending cells we snapshot before, then upsert after), then routes the response
+    // through CellFragmentAsync so #plan-rail is re-emitted OOB (ADR-013 / OobContract).
+    // Only the one pending cell changes — all other confirmed meals and pending ghosts are untouched.
+
+    public async Task<IActionResult> OnPostRegenerateCellAsync(
+        string date, Guid slotId, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(slotId);
+        await HttpContext.Session.LoadAsync(ct);
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        var storeKey = BuildStoreKey(householdId);
+
+        // 1. Snapshot the OTHER pending proposals before any mutation, so they can be merged back
+        //    after regeneration. GeneratePlanService.SetAsync replaces the whole store — without
+        //    this merge step every other pending ghost in the week would be silently destroyed.
+        var allBefore = await pendingProposalStore.GetAsync(storeKey, ct);
+        var cellKey = CellKey(parsedDate, sid);
+        var otherPending = allBefore
+            .Where(p => CellKey(p.Date, p.MealSlotId) != cellKey)
+            .ToList();
+
+        // 2. Remove the old proposal for this cell so the planner proposes a fresh one.
+        await pendingProposalStore.RemoveAsync(storeKey, parsedDate, sid, ct);
+
+        // 3. Re-run generation scoped to just this one cell (scopeDate + single-slot).
+        //    Uses default weights — regeneration is an in-grid action, not popover-driven.
+        await generatePlanService.ExecuteAsync(
+            householdId,
+            DomainMealPlan.NormalizeToMonday(parsedDate),
+            storeKey,
+            weights: null,
+            scopeDate: parsedDate,
+            ct);
+
+        // 4. Merge: read the newly-staged proposal(s) for this cell, then SetAsync
+        //    the union of other-cell proposals + new cell proposal(s).
+        var newCellProposals = await pendingProposalStore.GetAsync(storeKey, ct);
+        var merged = otherPending.Concat(newCellProposals).ToList();
+        await pendingProposalStore.SetAsync(storeKey, merged, ct);
+
+        // 5. Reload so CellFragmentAsync picks up the updated proposals.
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        // Return the cell + OOB rail (ADR-013 — same path as Assign/Clear/Accept).
+        return await CellFragmentAsync(householdId, parsedDate, sid, ct);
+    }
+
+    // ── Generate single (empty) cell POST (P3-6b, scope: single meal) ────────
+    // Per-cell "Auto-fill" on an EMPTY cell. Mirrors OnPostRegenerateCellAsync, but the cell has
+    // no existing proposal to remove. Generation is scoped to this cell's date (ExecuteAsync fills
+    // ALL empty cells on scopeDate), so we keep only the newly-staged proposal for THIS cell and
+    // merge it back with every pre-existing proposal — generating one cell never disturbs the rest.
+    // Routes through CellFragmentAsync so #plan-rail is re-emitted OOB (ADR-013 / OobContract).
+
+    public async Task<IActionResult> OnPostGenerateCellAsync(
+        string date, Guid slotId, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(slotId);
+        await HttpContext.Session.LoadAsync(ct);
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        var storeKey = BuildStoreKey(householdId);
+
+        // 1. Snapshot every pending proposal that is NOT this cell, so they survive the
+        //    SetAsync replacement. The cell is empty, so normally nothing matches this cell —
+        //    the filter is defensive (idempotent if the cell already had a proposal).
+        var allBefore = await pendingProposalStore.GetAsync(storeKey, ct);
+        var cellKey = CellKey(parsedDate, sid);
+        var otherPending = allBefore
+            .Where(p => CellKey(p.Date, p.MealSlotId) != cellKey)
+            .ToList();
+
+        // 2. Generate scoped to this cell's date (default weights — in-grid action, not popover-driven).
+        await generatePlanService.ExecuteAsync(
+            householdId,
+            DomainMealPlan.NormalizeToMonday(parsedDate),
+            storeKey,
+            weights: null,
+            scopeDate: parsedDate,
+            ct);
+
+        // 3. ExecuteAsync fills ALL empty cells on the date; keep ONLY the new proposal for THIS
+        //    cell, then merge with the surviving snapshot so other cells are untouched.
+        var generated = await pendingProposalStore.GetAsync(storeKey, ct);
+        var thisCellProposal = generated
+            .Where(p => CellKey(p.Date, p.MealSlotId) == cellKey)
+            .ToList();
+        var merged = otherPending.Concat(thisCellProposal).ToList();
+        await pendingProposalStore.SetAsync(storeKey, merged, ct);
+
+        // 4. Reload so CellFragmentAsync picks up the updated proposals.
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        // Return the cell + OOB rail (ADR-013 — same path as Assign/Clear/Accept/Regenerate).
+        return await CellFragmentAsync(householdId, parsedDate, sid, ct);
     }
 
     // ── Shop for this week POST ──────────────────────────────────────────────
@@ -567,6 +746,10 @@ public sealed class IndexModel(
         // Load pending AI proposals for this week from the store
         await LoadPendingProposalsAsync(householdId, ct);
 
+        // Compute rolled-up fulfillment/cost for all ghost cells (P3-6b enriched ghost cells).
+        // Uses P3-4 roll-up services; builds transient meals from proposals — no DB write.
+        await LoadGhostEnrichmentsAsync(ct);
+
         await BuildInsightsAsync(loadedPlan, emptyCells, ct);
     }
 
@@ -602,8 +785,8 @@ public sealed class IndexModel(
             effectivePlan,
             allCells,
             weekTotalCost: WeekTotalCost,
-            budgetTarget: null, // no persisted budget target yet — suppresses over-budget rule
-            priorPlans: null,   // prior plan history not loaded — suppresses vs-history repetition rule
+            budgetTarget: WeekBudgetTarget, // user-entered from tune popover (null when not provided)
+            priorPlans: null,               // prior plan history not loaded — suppresses vs-history repetition rule
             today,
             ct);
 
@@ -631,6 +814,48 @@ public sealed class IndexModel(
         }
     }
 
+    /// <summary>
+    /// Computes rolled-up fulfillment/cost for all pending ghost cells (P3-6b, ADR-013 §4/§5).
+    /// Builds transient PlannedMeal objects from proposal dishes and runs through the P3-4 services.
+    /// Best-effort: failures are silently swallowed so a broken enrichment never hides the ghost cell.
+    /// </summary>
+    private async Task LoadGhostEnrichmentsAsync(CancellationToken ct)
+    {
+        GhostEnrichments = [];
+        if (PendingProposals.Count == 0) return;
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+
+        foreach (var (key, proposal) in PendingProposals)
+        {
+            if (proposal.Dishes.Count == 0) continue;
+            try
+            {
+                var sid = proposal.MealSlotId;
+                var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(proposal.Date), clock);
+                var dishSpecs = proposal.Dishes.OrderBy(x => x.Ordinal)
+                    .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
+                    .ToList();
+                tempPlan.AssignMeal(proposal.Date, sid, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
+                var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == proposal.Date && m.MealSlotId == sid);
+                if (tempMeal is null) continue;
+
+                var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
+                var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
+                GhostEnrichments[key] = new MealFulfillmentVm(
+                    fulfillment.FulfillmentPercent,
+                    fulfillment.HasExpiringIngredients,
+                    mealCost.Amount,
+                    mealCost.Completeness == CostCompleteness.Partial);
+            }
+            catch
+            {
+                // Enrichment is best-effort — degrade gracefully
+            }
+        }
+    }
+
     private async Task<IActionResult> CellFragmentAsync(HouseholdId householdId, DateOnly date, MealSlotId slotId, CancellationToken ct)
         => await CellFragmentAsync(householdId, date, slotId, null, ct);
 
@@ -645,6 +870,7 @@ public sealed class IndexModel(
         // Resolve ghost cell recipe names for the cell fragment (fix: was using literal "Recipe").
         // _WeekGrid resolves these inline via ResolveRecipeName; the cell fragment must do the same.
         IReadOnlyList<string>? ghostDishNames = null;
+        MealFulfillmentVm? ghostEnrichment = null;
         if (pending is not null)
         {
             var names = new List<string>(pending.Dishes.Count);
@@ -654,13 +880,45 @@ public sealed class IndexModel(
                 names.Add(r?.Name ?? "Unknown recipe");
             }
             ghostDishNames = names;
+
+            // Compute rolled-up fulfillment % and cost for the ghost cell (P3-6b, ADR-013 §4/§5).
+            // Reuses P3-4 roll-ups: build a transient meal from the proposal's dishes, run through
+            // fulfillmentService + costingService. No DB write — same pattern as OnPostRollupAsync.
+            if (pending.Dishes.Count > 0)
+            {
+                try
+                {
+                    var sid = slotId;
+                    var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(date), clock);
+                    var dishSpecs = pending.Dishes.OrderBy(x => x.Ordinal)
+                        .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
+                        .ToList();
+                    tempPlan.AssignMeal(date, sid, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
+                    var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == date && m.MealSlotId == sid);
+                    if (tempMeal is not null)
+                    {
+                        var today = DateOnly.FromDateTime(DateTime.Today);
+                        var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
+                        var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
+                        ghostEnrichment = new MealFulfillmentVm(
+                            fulfillment.FulfillmentPercent,
+                            fulfillment.HasExpiringIngredients,
+                            mealCost.Amount,
+                            mealCost.Completeness == CostCompleteness.Partial);
+                    }
+                }
+                catch
+                {
+                    // Ghost enrichment is best-effort — degrade gracefully if roll-up fails
+                }
+            }
         }
 
         // Return the cell fragment plus an out-of-band rail refresh. LoadWeekAsync (called above)
         // has already recomputed Model.Insights for the mutated plan, so the rail here is fresh.
         // Routing every cell-targeted mutation through this single helper is what guarantees the
         // ticket's "recompute on EVERY change" — no per-handler wiring to forget.
-        var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames);
+        var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment);
         var railVm = new PlanRailVm(Insights, PendingCount, Oob: true);
         return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm));
     }
@@ -769,7 +1027,17 @@ public sealed class IndexModel(
         int? FulfillmentPercent, decimal? CostPerServing, bool HasPhoto);
 
     public sealed record EditorPageModel(MealEditorVm Vm, List<HouseholdMember> Members, MealSlot Slot);
-    public sealed record CellFragmentVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, List<MealCellVm> Meals, DateOnly WeekStart, List<HouseholdMember> Members, string? HardStanceWarning = null, ProposedMeal? PendingProposal = null, IReadOnlyList<string>? GhostDishNames = null);
+    public sealed record CellFragmentVm(
+        DateOnly Date,
+        MealSlotId SlotId,
+        string SlotLabel,
+        List<MealCellVm> Meals,
+        DateOnly WeekStart,
+        List<HouseholdMember> Members,
+        string? HardStanceWarning = null,
+        ProposedMeal? PendingProposal = null,
+        IReadOnlyList<string>? GhostDishNames = null,
+        MealFulfillmentVm? GhostEnrichment = null);
 
     /// <summary>
     /// View model for the advisory insights rail (P3-5). Rendered inline inside <c>_WeekGrid</c>
@@ -798,5 +1066,16 @@ public sealed class IndexModel(
         decimal? TotalCost = null,
         bool CostIsPartial = false);
     public sealed record MealCardVm(MealCellVm Meal, string DateIso, MealSlotId SlotId, List<HouseholdMember> Members);
-    public sealed record GhostCellVm(DateOnly Date, MealSlotId SlotId, string SlotLabel, ProposedMeal Proposal, IReadOnlyList<string> DishNames);
+    /// <summary>
+    /// Ghost cell (pending AI proposal). GhostEnrichment carries the server-computed
+    /// rolled-up fulfillment % and estimated cost for display on the ghost cell (P3-6b, ADR-013 §4/§5).
+    /// Like the editor rollup, this is a server projection — no client formula.
+    /// </summary>
+    public sealed record GhostCellVm(
+        DateOnly Date,
+        MealSlotId SlotId,
+        string SlotLabel,
+        ProposedMeal Proposal,
+        IReadOnlyList<string> DishNames,
+        MealFulfillmentVm? GhostEnrichment = null);
 }

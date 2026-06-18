@@ -3771,6 +3771,10 @@ button.sadd svg { width: 13px; height: 13px; }
   padding: 13px 24px; border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-surface) 72%, transparent);
   backdrop-filter: blur(8px); flex-wrap: wrap; flex-shrink: 0;
+  /* backdrop-filter makes this bar a stacking context; left static it paints BELOW the
+     positioned .plan-body, trapping its dropdowns (the tune popover, manage-plan menu)
+     under the grid. Make it a positioned context above the body (z<60 modal-veil). */
+  position: relative; z-index: 30;
 }
 .wknav { display: flex; align-items: center; gap: 4px; }
 .wknav-btn {
@@ -4681,7 +4685,29 @@ button.sadd svg { width: 13px; height: 13px; }
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
 }
-.gh-btn.regen.spin svg { animation: spin .7s linear infinite; }
+.gh-btn.regen.htmx-request svg { animation: spin .7s linear infinite; }
+
+/* Ghost cell enrichment meta line (P3-6b: rolled-up fulfillment % + cost, server projection) */
+.gh-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 1px 4px 0;
+  min-height: 16px;
+}
+.gh-meta-sep { color: var(--color-text-faint); }
+.gh-meta .fdot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.gh-meta .fdot.lvl-hi-bg  { background: var(--color-success); }
+.gh-meta .fdot.lvl-mid-bg { background: var(--color-warning); }
+.gh-meta .fdot.lvl-lo-bg  { background: var(--color-danger); }
 
 /* Auto-fill spinner in the command bar */
 .autofill-spinner {

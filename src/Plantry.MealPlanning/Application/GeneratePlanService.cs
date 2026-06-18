@@ -20,14 +20,19 @@ public sealed class GeneratePlanService(
     MealConstraintResolver constraintResolver)
 {
     /// <summary>
-    /// Finds all empty cells in the given week, requests AI proposals, validates them, and stages
-    /// the validated proposals in the pending store.
+    /// Finds all empty cells in the given week (or just <paramref name="scopeDate"/> if provided),
+    /// requests AI proposals, validates them, and stages the validated proposals in the pending store.
     /// </summary>
+    /// <param name="scopeDate">
+    /// When non-null, only fills empty cells on this specific date (C13 "just today" scope).
+    /// When null, fills all empty cells across the whole week (default).
+    /// </param>
     public async Task<GeneratePlanResult> ExecuteAsync(
         HouseholdId householdId,
         DateOnly weekStart,
         string storeKey,
         PlanningWeights? weights,
+        DateOnly? scopeDate = null,
         CancellationToken ct = default)
     {
         var monday = Domain.MealPlan.NormalizeToMonday(weekStart);
@@ -63,7 +68,9 @@ public sealed class GeneratePlanService(
             if (pref is not null) allPrefs.Add(pref);
         }
 
-        // 4. Find empty cells
+        // 4. Find empty cells, honouring PlanningScope (C13).
+        // scopeDate != null → "just today" scope: only fill cells on that specific date.
+        // scopeDate == null → "whole week" scope: fill all empty cells across 7 days.
         var occupiedKeys = plan?.PlannedMeals
             .Select(m => CellKey(m.Date, m.MealSlotId))
             .ToHashSet() ?? new HashSet<string>();
@@ -72,6 +79,8 @@ public sealed class GeneratePlanService(
         for (var i = 0; i < 7; i++)
         {
             var date = monday.AddDays(i);
+            if (scopeDate.HasValue && date != scopeDate.Value)
+                continue; // skip days outside the requested scope
             foreach (var slot in activeSlots)
             {
                 var key = CellKey(date, slot.Id);
