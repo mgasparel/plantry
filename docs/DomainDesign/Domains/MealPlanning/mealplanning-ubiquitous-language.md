@@ -24,7 +24,7 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 
 | # | Choice | Decision | Rationale |
 |---|--------|----------|-----------|
-| N1 | A filled cell in the week grid (one day × one slot) | **`PlannedMeal`** | "Meal" is the household's word for it; distinct from the recurring **`MealSlot`** *definition*. **Amends ADR-010**'s overloaded "Slot" (which conflated the template and the instance). |
+| N1 | One meal occupying a cell in the week grid (one day × one slot) — **a cell may hold several, stacked** | **`PlannedMeal`** | "Meal" is the household's word for it; distinct from the recurring **`MealSlot`** *definition*. A slot can hold more than one meal (e.g. one for a member on a different diet). **Amends ADR-010**'s overloaded "Slot" (which conflated the template and the instance). |
 | N2 | One recipe within a meal | **`PlannedDish`** | A meal is composed of *dishes* (main + side); names the multi-recipe shape (C3) without overloading "recipe". |
 | N3 | A recurring slot definition in the household config | **`MealSlot`** | The template ("Dinner, attended by both"); held by **`MealSlotConfig`**. Free-text label (C4 / §7h). |
 | N4 | The per-member force toward/against a tag | **`Stance`** | FUTURE.md's term; the scale **Required · Preferred · Neutral · Disliked · Restricted** (N5 in Recipes). The owning per-member profile is **`UserPreference`**. |
@@ -41,7 +41,7 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | Term | Kind | Definition |
 |------|------|------------|
 | **MealPlan** | Aggregate root | The household's plan for one ISO week, keyed `(HouseholdId, WeekStart)` — `WeekStart` is the week's Monday (C2). Owns an ordered collection of **PlannedMeal**s. Mutable; **past weeks retained** as the planning-history substrate. |
-| **PlannedMeal** | Entity (child of MealPlan) | One meal in the week: a `Date`, the `MealSlot` it fills (by ID), an optional per-instance **AttendeeSet override**, an optional **reasoning** snippet (when AI-proposed), and **either 0..n PlannedDishes XOR a free-text `Note`** (C16). At most one PlannedMeal per `(Date, MealSlot)` (N1); a persisted one is **occupied** (has dishes or a note). |
+| **PlannedMeal** | Entity (child of MealPlan) | One meal in the week: a `Date`, the `MealSlot` it fills (by ID), an **Ordinal** (its position in the cell's stack), an optional per-instance **AttendeeSet override**, an optional **reasoning** snippet (when AI-proposed), and **either 0..n PlannedDishes XOR a free-text `Note`** (C16). A `(Date, MealSlot)` cell holds an **ordered stack of 0..n PlannedMeals** (N1); a persisted one is **occupied** (has dishes or a note). |
 | **PlannedDish** | Entity (child of PlannedMeal) | One dish planned within a meal: a **`RecipeId` XOR a `ProductId`** (N8/C16), **Servings** (seeded from attendee count, C8), and an **ordinal**. Multiple dishes per meal (main + side, a per-member split from C6, or a recipe + a product). |
 | **Note** | Field on PlannedMeal | A free-text reason a slot is occupied without a meal — "Takeout", "Out of town", "Leftovers" (N9). Mutually exclusive with dishes; contributes nothing to fulfillment/cost/shopping. Manual-only (the planner never emits one). |
 | **MealSlotConfig** | Aggregate root (one per household) | The household's ordered set of **MealSlot** definitions (§7h). Mutable: add / rename / reorder / archive slots; set per-slot default attendees. |
@@ -99,7 +99,7 @@ arrived — generated, auto-filled at any **PlanningScope**, or hand-assigned. P
 | Event | Payload | Emitted when |
 |-------|---------|--------------|
 | **MealPlanned** | `householdId, weekStart, date, slotId, source` (`manual` \| `ai`)`, by, at` | A meal is saved into the plan — manually assigned/edited (J5, `source: manual`) **or** an AI suggestion accepted (J4, `source: ai`). |
-| **MealMoved** | `householdId, weekStart, fromDate, fromSlotId, toDate, toSlotId, by, at` | A meal is rescheduled by drag-and-drop (J9); on a swap, two `MealMoved`s. |
+| **MealMoved** | `householdId, weekStart, fromDate, fromSlotId, toDate, toSlotId, by, at` | A meal is rescheduled by drag-and-drop (J9) — relocated into the target cell's stack (one `MealMoved` per move; no swap). |
 
 > Kept deliberately light (as Recipes did). No Phase-3 cross-context reaction depends on these —
 > Shopping is called directly via a port (J6) — so they exist for audit/attribution and future

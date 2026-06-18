@@ -1,6 +1,6 @@
 # Plantry — Data Model Index
 
-> Phase 1 contexts, plus Recipes (Phase 2 — schema confirmed, build sequenced in [PHASE-2-PLAN.md](../../PHASE-2-PLAN.md)). Meal Planning and Deals (Phase 2/3) are out of scope.
+> Phase 1 contexts, plus Recipes (Phase 2 — schema confirmed, build sequenced in [PHASE-2-PLAN.md](../../PHASE-2-PLAN.md)) and Meal Planning (Phase 3 — schema confirmed, build sequenced in [PHASE-3-PLAN.md](../../PHASE-3-PLAN.md)). Deals (Phase 4) is out of scope.
 > Authority: ADRs hold decision *rationale*; these files hold the *shape*.
 
 ## Status legend
@@ -24,6 +24,7 @@
 | [pricing.md](pricing.md) | Pricing (`pricing` schema) | ✅ |
 | [shopping.md](shopping.md) | Shopping (`shopping` schema) | ✅ |
 | [recipes.md](recipes.md) | Recipes (`recipes` schema, Phase 2) | ✅ |
+| [mealplanning.md](mealplanning.md) | Meal Planning (`meal_planning` schema, Phase 3) | ✅ |
 
 ## Decision log
 
@@ -49,3 +50,4 @@
 | DM-18 | Shopping: `shopping_list` root + `shopping_list_item` children; **mutable working state** (edit-in-place, hard-delete on clear — not append-only, not soft-delete); one list/household in v1 (extensible); item is exactly one of `product_id`\|`free_text` (`num_nonnulls = 1`); `checked_at` timestamp (not boolean) + `checked_by`; `source`/`source_ref` provenance; duplicate-product merge in app layer, no DB constraint; category grouping + deal badge are read-time joins; check-off does **not** write stock | ✅ |
 | DM-19 | Product groups: `product.parent_product_id` nullable self-ref FK. A product with no parent and at least one variant child is abstract (no stock). Variants carry their own `default_unit_id`. Max depth = 1 enforced in app layer. `StockEntry` and `StockJournalEntry` always reference a non-parent product. Fulfillment rollup sums across all variants of a parent; cook-time disambiguation presents **all** variants, with unit-incompatible ones shown but disabled (labelled, not selectable) rather than hidden (amended by recipes C11 — supersedes the original "excluded, not substituted" stance). | ✅ |
 | DM-20 | Recipes (Phase 2): `recipe` root + ordered `recipe_ingredient` child + 1:1 `recipe_photo` (bytea off the hot row, ADR-009) + append-only `cook_event` (`recipe_id`, `servings_cooked`, `cooked_by`, `cooked_at`) + `tag` root + `recipe_tag` membership join. Recipe **soft-deleted** (`archived_at`) so append-only cook history stays FK-valid; ingredients **wholesale-replaced** with re-minted IDs on save (CASCADE); `directions` single `text` column (steps derived at render, no `recipe_step` table); `tag` kind-less, `category` `text`+`CHECK` (no Stance — future Meal-Planning `UserPreference`). `FulfillmentResult`/`CostPerServing` are **computed read-side, no tables**. Browse Fulfillment/Cost sorts are cross-context computed (no local index); Name/Cook-time/Recently-added sort on local indexes. | ✅ |
+| DM-21 | Meal Planning (Phase 3): three aggregates — `meal_plan` root + `planned_meal` child + `planned_dish` child; `meal_slot_config` root + `meal_slot` child; `user_preference` root + `tag_stance` child. AI suggestions are a **transient, session-keyed pending store** (no table, never read by a domain query — diverges from intake's persisted `import_session`, DM-15). Attendee sets are **`uuid[]` arrays** (`planned_meal.attendees_override` NULL=inherit vs `'{}'`=nobody; `meal_slot.default_attendees`) — the schema's first array columns. Two-level XOR: a dish is **recipe XOR product** (`CHECK num_nonnulls=1`), a meal is **dishes XOR free-text `note`** (app-layer, spans child rows). Slots **soft-archived** (`archived_at`) so historical `planned_meal`s stay resolvable; `planned_meal.meal_slot_id` is the one enforced cross-aggregate FK (within-context, RESTRICT). `planned_meal` carries `source` (`manual`\|`ai`) + `created_by`/`updated_by`. `MealFulfillment`/`MealCost`/`MealConstraints`/`PlanInsights` are **computed read-side, no tables**; planner is deal-blind in P3 (Deals = Phase 4). | ✅ |

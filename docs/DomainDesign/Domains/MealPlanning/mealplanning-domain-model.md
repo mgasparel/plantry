@@ -1,6 +1,8 @@
 # Meal Planning — Domain Model
 
-> **Status:** Modeling calls MP-O1–MP-O4 resolved — Phase 3. Ready for the Data Schema pass.
+> **Status:** Modeling calls MP-O1–MP-O8 resolved — Phase 3. **Rendered into tables in
+> [DataModels/mealplanning.md](../../DataModels/mealplanning.md) (DM-21); build sequenced in
+> [PHASE-3-PLAN.md](../../../PHASE-3-PLAN.md).**
 >
 > **Purpose:** Translate the confirmed [ubiquitous language](mealplanning-ubiquitous-language.md)
 > into aggregate boundaries, invariants, behaviours, value objects, and the cross-context ports the
@@ -78,7 +80,7 @@ the relationship Recipes' `Tag` has to `Recipe`. `MealPlan`'s `PlannedMeal`s ref
 | `Id` | `MealPlanId` | |
 | `HouseholdId` | `HouseholdId` | tenancy |
 | `WeekStart` | `DateOnly` | the ISO-week Monday; **unique per household** (M1) — normalized on create (M8) |
-| `Meals` | `IReadOnlyList<PlannedMeal>` | at most one per `(Date, MealSlotId)` (M2) |
+| `Meals` | `IReadOnlyList<PlannedMeal>` | an ordered stack per `(Date, MealSlotId)` — 0..n meals, each with its own dishes/attendees/`Ordinal` (M2) |
 | `CreatedAt` / `UpdatedAt` | `DateTimeOffset` | |
 
 **Behaviours**
@@ -86,11 +88,11 @@ the relationship Recipes' `Tag` has to `Recipe`. `MealPlan`'s `PlannedMeal`s ref
 | Method | Effect |
 |---|---|
 | `MealPlan.Start(householdId, weekStart, clock)` | Factory. Normalizes `weekStart` to its Monday (M8); starts empty. |
-| `AssignMeal(date, slotId, content, attendeesOverride?, reasoning?, source, clock)` | Upserts the `PlannedMeal` for `(date, slotId)` (M2), where `content` is **either** dishes (each a recipe XOR product) **or** a `Note` (M12/M13). `source` is `manual` (J5) or `ai` (accepting a suggestion, J4 — `reasoning` carried through). Validates the date falls in `[WeekStart, WeekStart+6]`, dish servings ≥ 1 (M3), and the dishes-XOR-note rule. Emits **MealPlanned**(`source`). |
-| `ClearMeal(date, slotId, clock)` | Removes the `PlannedMeal` (back to empty cell). |
-| `MoveMeal(fromDate, fromSlotId, toDate, toSlotId, clock)` | Reschedules within the week (C11 / J9): **relocate** onto an empty target, **swap** onto an occupied one. The per-instance `AttendeesOverride` **travels with** each meal; an unset override inherits the destination slot's default (M4). Dishes/servings unchanged. Hard constraints are **not** re-validated (C12 — manual moves are authoritative). Emits **MealMoved** (twice on a swap). Preserves M2. |
-| `SetMealAttendees(date, slotId, attendeesOverride?, clock)` | Sets/clears the per-instance override; `null` reverts to slot default (M4). |
-| `ApplyProposal(acceptedMeals, clock)` | **Accept-all** convenience: bulk-upserts the supplied validated suggestions (from the pending store) as `PlannedMeal`s in one transaction (J4), each via the same path/validation as `AssignMeal`. Single-cell accept and accept-with-edit go through `AssignMeal` directly. Emits **MealPlanned**(`source: ai`) per meal. |
+| `AssignMeal(date, slotId, content, attendeesOverride?, reasoning?, source, mealId?, clock)` | **Adds** a `PlannedMeal` to the `(date, slotId)` cell when `mealId` is null (allocating the next `Ordinal` in that cell's stack), or **updates** the identified meal when `mealId` is set (M2). `content` is **either** dishes (each a recipe XOR product) **or** a `Note` (M12/M13). `source` is `manual` (J5) or `ai` (accepting a suggestion, J4 — `reasoning` carried through). Validates the date falls in `[WeekStart, WeekStart+6]`, dish servings ≥ 1 (M3), and the dishes-XOR-note rule. Emits **MealPlanned**(`source`). |
+| `ClearMeal(mealId, clock)` | Removes the identified `PlannedMeal`; renumbers the remaining meals in that cell to stay contiguous (M2). |
+| `MoveMeal(mealId, toDate, toSlotId, clock)` | Reschedules within the week (C11 / J9): **relocates** the meal into the target cell's stack (appended at the next `Ordinal`) and renumbers the source cell — **no swap** (a cell is a stack, so the destination simply gains a meal). The per-instance `AttendeesOverride` **travels with** the meal; an unset override inherits the destination slot's default (M4). Dishes/servings unchanged. Hard constraints are **not** re-validated (C12 — manual moves are authoritative). Emits **MealMoved**. Preserves M2. |
+| `SetMealAttendees(mealId, attendeesOverride?, clock)` | Sets/clears the per-instance override; `null` reverts to slot default (M4). |
+| `ApplyProposal(acceptedMeals, clock)` | **Accept-all** convenience: bulk-adds the supplied validated suggestions (from the pending store) as `PlannedMeal`s in one transaction (J4), each via the same path/validation as `AssignMeal`. **Skips any cell that already holds a meal** — the AI never appends a second meal to an occupied cell. Single-cell accept and accept-with-edit go through `AssignMeal` directly. Emits **MealPlanned**(`source: ai`) per meal. |
 
 > `MealPlan` knows nothing of Recipes/Inventory/Pricing. Fulfillment, cost, hard-constraint
 > validation, and "shop for the week" are **services** (§7) over ports (§8), not root methods.
@@ -102,6 +104,7 @@ the relationship Recipes' `Tag` has to `Recipe`. `MealPlan`'s `PlannedMeal`s ref
 | `Id` | `PlannedMealId` | local to the aggregate (MP-O1) |
 | `Date` | `DateOnly` | within the plan's week (M2) |
 | `MealSlotId` | `MealSlotId` | soft-ref to a `MealSlot` (the slot may be archived but still resolvable, MP-O2) |
+| `Ordinal` | `int` | position within the `(Date, MealSlotId)` cell's stack, 1..n contiguous (M2); lets one member's meal sit alongside another's in the same slot |
 | `AttendeesOverride` | `IReadOnlyList<UserId>?` | null ⇒ inherit the slot's default attendees (C5 / M4) |
 | `Reasoning` | `string?` | the AI snippet when this meal came from a proposal; null when hand-assigned |
 | `Dishes` | `IReadOnlyList<PlannedDish>` | 0..n; ordered — **XOR** `Note` (M13) |
@@ -231,7 +234,7 @@ None lives *on* an aggregate — keeping the roots pure of Recipes/Inventory/Pri
 | **PlanInsightsService** (domain) | `Inspect(plan | proposal) → PlanInsights` (C15 / J10). Read-side, recomputed on every change: `UnusedExpiring` (expiring stock − products any planned dish consumes), `OverBudget` (`MealCost` week sum vs budget target), `Repetition` (recipe repeated this week or vs retained recent plans / `cook_event`), `UnfilledSlot`, `HardConflictResolved`. **No new ports.** | `IInventoryStockReader`, `IRecipeReadModel`, in-context plan history |
 | **GeneratePlan** (application) | J4. Takes a **`PlanningScope`** (week / day / slot-series / single meal, C13) + `PlanningConstraints` (incl. **`PlanningWeights`** Cost/Waste/Variety and the optional budget target, C14); targets only **empty** cells in scope unless `replace = true`. Gathers context (candidate recipes + tags + fulfillment + cost via `IRecipeReadModel`; expiring stock via `IInventoryStockReader`; recent cook/plan history for the Variety lever; per-meal `MealConstraints`), passes the **weighted soft objective** to `IMealPlanner` (untrusted, ADR-007), then **validates** the raw output in a transient ACL step against the hard constraints — auto-splitting into separate dishes on conflict (C6) or leaving a meal unfilled (J4 edge cases) — and writes the validated `ProposedMeal`s to the **session-keyed pending store** (§6). Weights tune the soft objective only; they never relax a hard stance (M5/M11). | `IRecipeReadModel`, `IInventoryStockReader`, `IMealPlanner`, in-context resolver |
 | **RegenerateMeal** (application) | J8. The `PlanningScope.SingleMeal` convenience over `GeneratePlan` (MP-O3): re-proposes one meal against the same constraints and rewrites that one entry in the pending store; leaves other pending suggestions and the committed plan untouched. | as above |
-| **MoveMeal** (application) | J9. Reschedules a `PlannedMeal` within the week via `MealPlan.MoveMeal` (relocate or swap, C11); emits **MealMoved**. No re-validation (C12). | in-context |
+| **MoveMeal** (application) | J9. Reschedules a `PlannedMeal` within the week via `MealPlan.MoveMeal` (relocate into the target cell's stack, C11); emits **MealMoved**. No re-validation (C12). | in-context |
 | **AcceptProposal** (application) | J4. Writes confirmed suggestions from the pending store into the week's `MealPlan` — **accept-all** via `ApplyProposal`, **per-cell** via `AssignMeal` (`source: ai`) — re-validating each (the accept POST is the trust boundary), and clears the accepted entries from the store. **Reject** simply drops an entry; **discard** clears the store. | in-context |
 | **AssignMeal** (application) | J5. Upserts a `PlannedMeal` with chosen dishes (recipe **or** product) **or** a `Note` (C16) + optional attendance override; **warns (does not block)** on a hard-stance violation (C9). Validates a product dish references a real Catalog product. | `IRecipeReadModel`, `ICatalogProductReader`, in-context resolver |
 | **ShopForWeek** (application) | J6. Across all `PlannedDish`es: **recipe** dishes contribute their `Missing` ingredients at planned servings; **product** dishes contribute the **product itself** if short on stock; note-meals are skipped. Sums per product (excluding untracked) and calls Shopping `AddItems(..., source="meal_plan", source_ref=mealPlanId)`. | `IRecipeReadModel`, `IInventoryStockReader`, `IShoppingListWriter` |
@@ -276,7 +279,7 @@ Meal Planning depends on these interfaces; the owning contexts implement them. A
 | Event | Payload | Emitted by |
 |---|---|---|
 | **MealPlanned** | `householdId, weekStart, date, slotId, source` (`manual` \| `ai`)`, by, at` | `MealPlan.AssignMeal` — manual assign (J5) **and** accepting an AI suggestion (J4); `source` distinguishes them |
-| **MealMoved** | `householdId, weekStart, fromDate, fromSlotId, toDate, toSlotId, by, at` | `MealPlan.MoveMeal` (J9); two on a swap |
+| **MealMoved** | `householdId, weekStart, fromDate, fromSlotId, toDate, toSlotId, by, at` | `MealPlan.MoveMeal` (J9); one per move (relocate into the target stack, no swap) |
 
 No Phase-3 cross-context reaction subscribes to these (Shopping is called directly via a port); they
 exist for attribution/audit and a future analytics consumer — kept light, as Recipes did.
@@ -288,7 +291,7 @@ exist for attribution/audit and a future analytics consumer — kept light, as R
 | # | Invariant | Source | Enforced |
 |---|---|---|---|
 | **M1** | `MealPlan` unique per `(household_id, WeekStart)` | C2 | App check + DB `UNIQUE` |
-| **M2** | At most one `PlannedMeal` per `(MealPlan, Date, MealSlotId)`; `Date` ∈ `[WeekStart, WeekStart+6]`. Preserved under `MoveMeal` (relocate or swap, C11). | J5, J9 | `AssignMeal`, `MoveMeal`, DB `UNIQUE(meal_plan_id, date, meal_slot_id)` |
+| **M2** | A `(MealPlan, Date, MealSlotId)` cell holds an **ordered stack** of 0..n `PlannedMeal`s; `Ordinal`s contiguous `1..n` within the cell; `Date` ∈ `[WeekStart, WeekStart+6]`. Preserved under `MoveMeal` (relocate into the target stack, C11). | J5, J9 | `AssignMeal`, `MoveMeal`, DB `UNIQUE(meal_plan_id, date, meal_slot_id, ordinal)` |
 | **M3** | `PlannedDish.Servings ≥ 1`; dish `Ordinal`s contiguous within a meal | C8 | Aggregate |
 | **M4** | Effective attendees = `PlannedMeal.AttendeesOverride ?? MealSlot.DefaultAttendees`, intersected with current household members | C5 | Resolver + read-time membership filter |
 | **M5** | An **AI-proposed** meal satisfies every effective attendee's hard stances: no dish carries a `Restricted` tag; every attendee's `Required` tag is met by ≥ 1 dish they'll eat (else split, C6). **Manual** assignment **warns, never blocks** (C9). | C6, C9 | `GeneratePlan` ACL validation (hard) / `AssignMeal` (warn) |
@@ -373,7 +376,24 @@ exist for attribution/audit and a future analytics consumer — kept light, as R
   if users want suggestions to survive a refresh, or shared in-progress review across household
   members, promote the store to a durable, household-keyed proposal aggregate — a TTL-and-table change,
   not a re-model. Events follow suit: there is **no week-grained `MealPlanProposalAccepted`**; accept
-  emits per-cell **`MealPlanned(source: ai)`**. See [the J4 inline sketch](mealplanning-j4-inline-sketch.md).
+  emits per-cell **`MealPlanned(source: ai)`**. See the [J4 inline generate/review flow](mealplanning-journeys.md#j4--generate-a-meal-plan-with-ai-the-hero--one-screen-inline).
+
+- **MP-O8 — A cell holds a *stack* of meals, not one ✅ (reverses the original M2).** A `(Date,
+  MealSlotId)` cell holds an **ordered stack of 0..n `PlannedMeal`s**, each with its own dishes,
+  attendees, fulfillment and cost, ordered by a new `PlannedMeal.Ordinal`. The DB key moves from
+  `UNIQUE (meal_plan_id, date, meal_slot_id)` to `UNIQUE (meal_plan_id, date, meal_slot_id, ordinal)`.
+  **Why the reversal:** the original model collapsed "two things at one slot" onto **dishes within one
+  meal** (C3/C6), but dishes share a single meal-level attendee set — so it cannot express *separate
+  meals for separate people in the same slot* (feed Mike one meal and Jane another, each with its own
+  attendees and its own fulfillment/cost rollup). The prototype's `CellStack` had always shown this
+  two-level shape; the schema is now realigned to it. **Consequences:** `AssignMeal` gains an optional
+  `mealId` (null = add at the next ordinal, set = update that meal) replacing the upsert-by-cell — this
+  also closes the silent-overwrite data-loss path the "Add meal" button had on a filled cell; `ClearMeal`
+  is by `mealId` and renumbers siblings; `MoveMeal` **relocates into the target cell's stack — no swap**
+  (a stack just gains a meal), which retires the raw-SQL swap path and the deferrable-constraint
+  workaround; AI `GeneratePlan`/`ApplyProposal` are unchanged in spirit — they still fill only cells
+  with **zero** meals and never append a second. (Filed as **plantry-5eh**, resolving the spec-vs-schema
+  tension the Opus critic flagged in plantry-7oy.)
 
 ---
 
@@ -387,7 +407,7 @@ exist for attribution/audit and a future analytics consumer — kept light, as R
   **multiple `PlannedDish`es** (C3), not one `recipe_id`; (c) `MealSlot` carries **default
   attendees** and `PlannedMeal` an optional **override** (C5) — new, not in ADR-010; (d)
   `UserPreference`/`Stance` is **owned here** (C1), graduating from FUTURE.md; (e) meals are
-  **reschedulable** (`MoveMeal`, relocate/swap, C11) and generation is **scoped** (`PlanningScope`,
+  **reschedulable** (`MoveMeal`, relocate into the target cell's stack, C11) and generation is **scoped** (`PlanningScope`,
   C13), with the planner's output **advisory** (C12) — QOL behaviours not contemplated in ADR-010;
   (f) generation is driven by **weighted levers** (`PlanningWeights`, C14) and a plan carries a
   computed **insights** read model (`PlanInsights`, C15) — neither in ADR-010; (g) a `PlannedDish` is

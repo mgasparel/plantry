@@ -1,6 +1,8 @@
 # Meal Planning — User Journey Map
 
-> **Status:** Design in progress — Phase 3
+> **Status:** Complete — Phase 3. Fed the [ubiquitous language](mealplanning-ubiquitous-language.md)
+> and [domain model](mealplanning-domain-model.md); all open decisions below are now resolved. Next
+> pipeline stage: the Data Schema pass.
 >
 > **Purpose:** Checkpoint of the user-journey-mapping session for the Meal Planning bounded
 > context (Phase 3 = the AI meal planner). Feeds the ubiquitous language, domain model, and data
@@ -27,12 +29,12 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 | C3 | Recipes per meal | **A meal holds 0..n dishes** as `PlannedDish` entries (main + side = two dishes). Not a single `recipe_id` — this **amends ADR-010**'s "Slot … referencing a recipe_id". *(Extended by C16: a dish is a recipe **or** a product.)* |
 | C4 | Meal slots | **User-configurable, free-text, ordered** per household (§7h): e.g. "Breakfast", "Light lunch", "Mid-day snack", "Dinner". A household that only plans dinners configures a single slot. Backed by `MealSlotConfig` (ADR-010). |
 | C5 | Meal attendance | **Per-slot attendance.** Each `MealSlot` carries **default attendees** (which members normally eat it); a specific `PlannedMeal` may **override** (nullable — inherits the slot default when unset) for guests / one-offs. The planner constrains each meal to its **effective attendees'** preferences only. |
-| C6 | Irreconcilable hard preferences at a shared meal | **Auto-plan separate dishes.** When attendees' hard stances conflict (one `Vegan`-`Required`, one meat-`Required`), the planner emits **multiple `PlannedDish`es** — one satisfying each — within the one meal, and explains the split in the reasoning snippet. This is FUTURE.md's stated resolution and the reason multi-dish meals exist. |
+| C6 | Irreconcilable hard preferences at a shared meal | **Auto-plan separate dishes (committed Phase-3 scope).** When attendees' hard stances conflict (one `Vegan`-`Required`, one meat-`Required`), the planner emits **multiple `PlannedDish`es** — one satisfying each — within the one meal, explains the split in the reasoning snippet, and surfaces it as a `HardConflictResolved` insight (C15). This is the reason multi-dish meals exist; it **graduates from FUTURE.md into committed Phase-3 work** (the current ACL is a simplified interim — no generative per-attendee split yet). |
 | C7 | Deal-awareness | **Deferred to Phase 4.** Deals moved to Phase 4, so the Phase-3 planner is **deal-blind**: cost comes from purchase-price history (Pricing, DM-17) only. The "active deals" inputs in SPEC §5b step 3 and the deal-aware bias are a Phase-4 enhancement; the seam is left open, not built. |
 | C8 | Servings | **Effective attendee count seeds default servings** for a planned/proposed dish; the user can override. Servings then flow through the existing Recipes `ServingsScale` for fulfillment, cost, and consume. |
 | C9 | Hard-preference enforcement | **AI proposals must satisfy** every effective attendee's hard stances (`Required` / `Restricted`) — the planner filters before proposing (C10 ACL validates the AI's output too). **Manual assignment warns but does not block** (minimum-friction principle, mirroring the Recipes cook flow): the user may knowingly plan a meal that violates a stance. |
 | C10 | AI as untrusted function | The planner is an **untrusted function** (ADR-007). Its raw output is validated in a **transient ACL step** and held as **pending suggestions** in a session-keyed store (quarantined — never in the schema, never read by a domain query); only **user-confirmed** meals cross into `MealPlan`. Same review-then-commit *intent* as Intake, but a transient store reviewed **inline** rather than a persisted staging aggregate (MP-O7, ADR-010 amendment). |
-| C11 | Rescheduling meals | **Drag-and-drop a `PlannedMeal` between cells** (J9). Dropping onto an **empty** cell relocates the meal; dropping onto an **occupied** cell **swaps** the two meals — the intuitive calendar gesture for "let's eat the pizza tonight instead of tomorrow." A meal's per-instance **attendance override travels with it**; a meal with no override **inherits the destination slot's default attendees**. Scoped to **within one week** (one `MealPlan`) in v1. |
+| C11 | Rescheduling meals | **Drag-and-drop a `PlannedMeal` between cells** (J9) — the intuitive calendar gesture for "let's eat the pizza tonight instead of tomorrow." A cell holds an **ordered stack** of meals, so a drop **relocates** the meal into the target cell (appended to its stack); it never swaps or displaces what's already there. A meal's per-instance **attendance override travels with it**; a meal with no override **inherits the destination slot's default attendees**. Scoped to **within one week** (one `MealPlan`) in v1. |
 | C12 | Suggestions are advisory, never binding | An AI plan is a set of **suggestions**. The **user is always authoritative** — they can override any proposed meal at review (swap / regenerate / hand-edit inline, J4 step 8) **and** after it is saved (edit / replace / clear / reschedule any meal). The planner never locks a decision; it proposes, the human disposes. This is the meal-planning expression of the minimum-friction principle. |
 | C13 | Planning granularity (manual ↔ automatic spectrum) | **Fully flexible and mixable.** The household can plan **every meal by hand** (J5), **auto-generate the whole week** (J4), or **auto-fill a chosen scope** — a single **day** (all its slots), a **slot across days** ("auto-fill all dinners"), or **one meal** (J8). Manual and AI-chosen meals coexist in the same plan; auto-fill only touches **empty** cells unless the user explicitly asks to replace existing ones. |
 | C14 | Generation weighting (sliders) | The single "prefer expiring" toggle becomes a set of **weighted levers** — **`PlanningWeights`** — that **always sum to 100**: pushing one up proportionally lowers the others. Phase-3 levers: **Cost** (favour cheaper), **Waste** (favour using soon-to-expire stock — the old toggle at max), **Variety** (avoid repeating recent recipes — reads retained plan history + Recipes `cook_event`, C2). **Deals** is a defined lever but **fixed at 0 / hidden** until Phase 4 (C7). Two rules: weights bias **soft optimization only** — they **never** relax a hard stance (an allergy is not a slider); and the optional **budget target** (SPEC §5b) is a **separate soft ceiling**, complementary to the Cost lever, surfaced via an over-budget insight (C15). Default distribution leans **Waste** (the VISION pillar), user-adjustable. |
@@ -41,15 +43,21 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 
 ---
 
-## Open Decisions (resolved in the domain-model pass)
+## Open Decisions — all resolved ✅
 
-| # | Decision | Context |
-|---|----------|---------|
-| MP-O1 | `UserPreference` aggregate granularity (per-user profile vs per-edge rows) | C1 |
-| MP-O2 | `MealSlot` identity stability across config edits; deleting a slot that has planned meals | C4 |
-| MP-O3 | Generation scope — whole-week vs day vs slot-series vs single-meal auto-fill | C10, C13, J4/J8 |
-| MP-O7 | AI staging shape — persisted proposal aggregate vs transient inline store (one screen, no separate review page) | C10, C12, J4/J8 |
-| MP-O4 | Where the hard/soft aggregation across attendees lives (domain service vs AI prompt only) | C5, C6, C9 |
+These were the questions left open by the journey-mapping session; **all were resolved in the
+[domain-model pass](mealplanning-domain-model.md)** (see its "Open decisions resolved" section for the
+rationale of each).
+
+| # | Decision | Context | Resolution |
+|---|----------|---------|------------|
+| MP-O1 | `UserPreference` aggregate granularity (per-user profile vs per-edge rows) | C1 | Per-`(household, user)` profile root owning `TagStance` children. |
+| MP-O2 | `MealSlot` identity stability across config edits; deleting a slot that has planned meals | C4 | Stable `MealSlotId`; slots **soft-archived**, never hard-deleted, so historical `PlannedMeal`s stay resolvable. |
+| MP-O3 | Generation scope — whole-week vs day vs slot-series vs single-meal auto-fill | C10, C13, J4/J8 | A `PlanningScope` parameter (`Week` / `Day` / `SingleMeal`); review is inline on the grid, no separate page. |
+| MP-O4 | Where the hard/soft aggregation across attendees lives (domain service vs AI prompt only) | C5, C6, C9 | A domain service (`MealConstraintResolver`) — the pure heart of the planner, not the prompt. |
+| MP-O5 | Weights, budget, and the hard/soft boundary | C14 | `PlanningWeights` (sum 100) bias soft optimization only; hard stances sit outside it; budget is a soft ceiling surfaced as an insight. |
+| MP-O6 | Slot content — recipe / product / note | C16 | Two-level XOR: a `PlannedDish` is a recipe **XOR** product; a `PlannedMeal` is dishes **XOR** a free-text `Note`. |
+| MP-O7 | AI staging shape — persisted proposal aggregate vs transient inline store | C10, C12, J4/J8 | A **transient, session-keyed pending store**, reviewed inline — not a persisted aggregate (deliberate divergence from Intake). |
 
 ---
 
@@ -73,7 +81,7 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 **Edge cases:**
 - No `MealSlotConfig` slots configured yet → empty grid with a prompt to configure slots (J2).
 - A planned dish references a recipe or product later archived in Recipes/Catalog → cell shows the dish as "(removed)"; cost/fulfillment for that dish omitted (the plan record is retained, like cook history).
-- Empty cell → "+" affordance to assign (J5) or "Generate" (J4).
+- Empty cell → "+" affordance to assign (J5) or "Generate" (J4). Filled cell → an **"Add meal"** affordance to stack another meal in the slot (J5).
 
 ---
 
@@ -122,7 +130,8 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 
 **Trigger:** User is on the Meal Plan week view (blank, partly filled, or full) and taps **Auto-fill
 week**, or a day column's **Auto-fill day**. There is **no separate proposal screen** — suggestions
-appear in place (MP-O7). *(Full flow + state model: [J4 inline sketch](mealplanning-j4-inline-sketch.md).)*
+appear in place (MP-O7). *(Full flow: the steps below; the pending-suggestion state model lives in the
+[domain model §6](mealplanning-domain-model.md#6-the-ai-acl--a-transient-pending-store-not-an-aggregate-mp-o7).)*
 
 | Step | Actor | Action / System response |
 |------|-------|--------------------------|
@@ -152,11 +161,11 @@ appear in place (MP-O7). *(Full flow + state model: [J4 inline sketch](mealplann
 
 ### J5 — Manually assign a meal
 
-**Trigger:** User taps an empty cell (or "edit") on the week view.
+**Trigger:** User taps an empty cell, **"Add meal"** on an already-filled cell (to stack another meal in the slot — e.g. a separate meal for a member on a different diet), or **"edit"** on an existing meal.
 
 | Step | Actor | Action / System response |
 |------|-------|--------------------------|
-| 1 | System | Opens the meal editor for that `(date, slot)`. Shows the slot's effective attendees (J2 default), with an option to **override** attendance for this instance (C5 — e.g. a guest at Saturday dinner). |
+| 1 | System | Opens the meal editor for that `(date, slot)`. **Add** starts a new meal in the cell's stack; **edit** loads the chosen meal. Shows the slot's effective attendees (J2 default), with an option to **override** attendance for this instance (C5 — e.g. a guest at Saturday dinner, or just the one member this meal is for). |
 | 2 | User | Adds dishes — searches **recipes** and/or **products** (frozen pizza, a prepared food) — and sets servings/quantity per dish (seeded from attendee count, C8); **or** instead enters a free-text **Note** ("Takeout", "Out of town") to mark the slot occupied without a meal (C16). |
 | 3 | System | Computes the meal's fulfillment + cost live as dishes are added: **recipe** dishes roll up Recipes read models; **product** dishes read stock + price directly (Inventory/Pricing). A note-meal contributes nothing (C16). |
 | 4 | System | If a chosen **recipe/product** dish **violates** an effective attendee's hard stance, **warns** (not blocks, C9) — "Contains poultry; Sara has Poultry = Restricted" — and lets the user proceed or pick another. (Note-meals carry no stance.) |
@@ -166,8 +175,8 @@ appear in place (MP-O7). *(Full flow + state model: [J4 inline sketch](mealplann
 **Domain events emitted:** `MealPlanned(householdId, weekStart, date, slotId, by, at)`.
 
 **Edge cases:**
-- Assigning to a `(date, slot)` that already has a meal → edits the existing `PlannedMeal` (one meal per date×slot, no duplicates).
-- Removing all dishes from a meal → the `PlannedMeal` is cleared (back to empty cell).
+- **Add meal** on a `(date, slot)` that already has a meal → creates a **new** `PlannedMeal` stacked in that cell (it does not overwrite the existing one); **edit** on a specific meal updates only that meal. This is how "one meal for Mike, another for Jane" in the same slot is expressed.
+- Removing all dishes from a meal → that `PlannedMeal` is cleared; sibling meals in the cell renumber to stay contiguous (the cell is empty only once its last meal is removed).
 - Per-instance attendance override later cleared → meal reverts to the slot's current default attendees.
 
 ---
@@ -236,7 +245,7 @@ pizza tonight, not tomorrow").
 | Step | Actor | Action / System response |
 |------|-------|--------------------------|
 | 1 | User | Drags the meal from its `(date, slot)` cell and drops it on another cell in the same week. |
-| 2 | System | If the target cell is **empty** → the meal **relocates** there. If the target cell is **occupied** → the two meals **swap** cells (C11). |
+| 2 | System | The meal **relocates** into the target cell, appended to the bottom of that cell's stack (a cell holds an ordered stack of meals, so the target simply gains a meal — no swap, C11). The source cell's remaining meals renumber to stay contiguous. |
 | 3 | System | Each moved meal's **per-instance attendance override travels with it**; a meal with no override now **inherits the destination slot's default attendees** (C5). Dish servings are unchanged. |
 | 4 | System | Persists the `MealPlan`; the meal's fulfillment/cost are unaffected by the move (same dishes, same servings) and re-render in their new cells. |
 
@@ -244,7 +253,8 @@ pizza tonight, not tomorrow").
 
 **Edge cases:**
 - Drag a meal onto itself / no movement → no-op.
-- Swap across **different slots** (Tue dinner ↔ Wed lunch) → each meal keeps its own override; meals without an override pick up their new slot's default attendees (the planner's hard constraints are **not** re-validated on a manual move — C12, the user is authoritative).
+- Relocate across **different slots** (Tue dinner → Wed lunch) → the meal keeps its own override; a meal without an override picks up its new slot's default attendees (the planner's hard constraints are **not** re-validated on a manual move — C12, the user is authoritative).
+- Drop onto an **occupied** cell → the meal joins that cell's stack (it does **not** displace what's there); to thin out a cell, edit or remove a meal directly.
 - Cross-**week** drag → out of scope for v1 (the grid shows one week; `MoveMeal` operates within one `MealPlan`). A future enhancement.
 
 ---

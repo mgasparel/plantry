@@ -6,17 +6,76 @@
 
 ## Navigation
 
-Bottom nav (mobile-first). Five primary destinations:
+The primary surface is **Home (Today)** — cooking is the daily heartbeat, so the app lands there first. Navigation is organised by **how often you reach for it**, not by domain.
 
-| Tab | Icon hint | Primary action |
-|-----|-----------|---------------|
-| Pantry | shelves | See what you have |
-| Add Stock | plus / camera | Log a purchase |
-| Shopping | cart | Manage what to buy |
-| Recipes | book | Browse and cook |
-| More | grid | Tasks, Meal Plan, Deals, Settings |
+**Desktop** — a banded sidebar:
 
-The **Add Stock** tab is a quick-action shortcut, not a full page — it opens the intake sheet directly from any tab.
+| Band | Destinations |
+|------|--------------|
+| Cook & Plan | **Today** (home), Recipes, Meal Plan¹ |
+| Shop | Shopping, Scan receipt |
+| Manage | Pantry, Catalog |
+
+Footer: Settings, Sign out.
+
+**Mobile** — a five-item bottom nav: **Today** · Recipes · **Add** · Shop · More.
+
+The **Add** item is a quick-action shortcut (opens the intake sheet from any tab), not a full page. **More** is the overflow grid (Pantry, Catalog, Meal Plan, Deals, Settings).
+
+¹ Meal Plan arrives in Phase 3; Deals in Phase 4.
+
+---
+
+## Page 0 — Home (Today)
+
+**Purpose.** The daily answer to "what needs me today?" — the default landing surface introduced by the nav redesign. Surfaces what's time-sensitive (meals to cook, stock about to expire, work waiting to be reviewed) on one screen, and **degrades gracefully** as later-phase data (Meal Plan, Deals) comes online.
+
+### User journeys
+
+#### 0a. Morning glance
+1. User opens the app; Home is the landing page.
+2. A greeting header shows the household name and today's date.
+3. Below it: any **review banners** (work waiting on the user), a **meals** section (what to cook), and an **expiring-soon** widget (stock about to turn).
+4. Each surface is an entry point — tap a meal to cook it, an expiring item to review it in Pantry, a banner to clear the pending work.
+
+#### 0b. Review pending work
+1. When intake items have been parsed and are awaiting review (e.g. a forwarded receipt, §2b), a banner reads "N items ready to review."
+2. User taps **Review** → the intake review form (§2e); or dismisses the banner for this session.
+3. Later phases add more banner kinds to the same stack — the **deal review queue** (§6b, Phase 4).
+
+#### 0c. Decide what to cook
+1. The meals section answers "what's for dinner?"
+2. **Phase 2:** it shows **cook-now recipe picks** — recipes the household can make from current stock (sorted by fulfillment; recipes using expiring ingredients favoured), each a **Cook** entry point (§4c).
+3. **Phase 3+:** it shows the day's **planned meals** from the weekly Meal Plan (§5) — typically one per meal slot, but a slot may hold more than one (e.g. a separate meal for a member on a different diet) — each a Cook entry point with a live "ready / N to pick up first" fulfillment hint and a link to the weekly grid. Empty slots invite planning.
+
+#### 0d. Head off waste
+1. The **expiring-soon** widget lists stock within the expiry window (default 7 days, §1d), soonest first, distinguishing **expired** from **expiring**.
+2. Each row shows the product, quantity·location, and a "Today / Tomorrow / N days" pill.
+3. User taps through to review in Pantry, or uses **"Use it up"** to find recipes that consume the expiring items (→ Phase 3 "Use it up").
+
+#### 0e. Cold start (new household)
+1. A household with no stock, recipes, or pending intake sees a **welcome hero** instead of empty widgets.
+2. Three guided steps: **Add groceries** (intake) → **Browse recipes** → **Plan your week**.
+3. Widgets adopt onboarding empty states ("Add groceries and Plantry watches the clock") rather than the "all clear" good state.
+
+### Features
+- Default post-login landing surface; both navs lead here first.
+- Greeting header: household name + current date.
+- **Review banner stack** — dismissible per session, one row per pending-work kind; intake (Phase 2), deals (Phase 4). Renders nothing when no work is pending.
+- **Meals section** — cook-now recipe picks (Phase 2) → today's planned meals (Phase 3+); each a Cook entry point.
+- **Expiring-soon widget** — top-N items in the expiry window, soonest-first, expired-vs-soon distinction, "Use it up" CTA.
+- Three states: **cold** (welcome hero + onboarding empties), **active** (pending work / expiring stock), **all-clear** (good-state empties — "nothing expiring this week").
+- Graceful degradation: every widget renders meaningfully on Phase-2 data; Meal Plan and Deals enrich in place when their phases land.
+
+### Phasing
+| Surface | Data source | Phase |
+|---------|-------------|-------|
+| Greeting + shell + cold-start welcome | Identity (household) | 2 |
+| Expiring-soon widget | Inventory (`ExpiryTone` within window) | 2 |
+| Review banner — intake | Intake sessions in `Ready` status | 2 |
+| Meals — cook-now picks | Recipes browse (fulfillment) | 2 |
+| Meals — today's planned meals | Meal Planning (P3-3 / P3-4) | 3 |
+| Review banner — deals | Deals review queue | 4 |
 
 ---
 
@@ -241,7 +300,7 @@ This is the central UI for AI-assisted intake. Every receipt parse ends here.
 #### 5a. View the current week's meal plan
 1. User opens Meal Plan (via More tab).
 2. Weekly calendar view — each day shows a row per **configured meal slot** (see §7h). Slots are user-defined free-text labels per household ("Breakfast", "Lunch", "Afternoon snack", "Dinner") in a fixed order; a household that only plans dinners configures a single "Dinner" slot.
-3. Each meal card shows: recipe name, fulfillment %, estimated cost.
+3. Each cell holds an **ordered stack of meals** — usually one, but a slot can carry several (e.g. one meal for Mike and another for Jane), each its own card. Each meal card shows: recipe name(s), fulfillment %, estimated cost.
 
 #### 5b. Generate a meal plan with AI
 1. Tap "Generate plan."
@@ -261,9 +320,9 @@ This is the central UI for AI-assisted intake. Every receipt parse ends here.
 6. Confirmed plan is written to the meal plan (the proposal only persists on confirmation).
 
 #### 5c. Manually assign a meal
-1. Tap any empty day/slot.
+1. Tap any empty day/slot — or **"Add meal"** on a filled slot to stack another meal alongside the existing one(s).
 2. Recipe picker — searchable, filterable.
-3. Select recipe → assigned to that slot.
+3. Select recipe → assigned to that slot. Editing an existing meal updates only that meal; adding leaves the others intact.
 
 #### 5d. Add missing ingredients to shopping list
 1. From the meal plan view, tap "Shop for this week."
