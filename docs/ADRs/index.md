@@ -16,6 +16,6 @@ Architecture Decision Records for Plantry.
 | [ADR-010](ADR-010.md) | Bounded contexts and aggregate boundaries (modular monolith) | Accepted · amended 2026-06-06 |
 | [ADR-011](ADR-011.md) | Single consumption primitive (Inventory `Consume`) | Accepted · amended 2026-06-06 |
 | [ADR-012](ADR-012.md) | Deployment & runtime topology (Docker homelab, Aspire app model) | Accepted |
-| [ADR-013](ADR-013.md) | Intake review form: targeted out-of-band swaps over full-region re-render | Accepted · validated by spike 2026-06-12 |
+| [ADR-013](ADR-013.md) | Intake review form: targeted out-of-band swaps over full-region re-render | Accepted · validated by spike 2026-06-12 · amended 2026-06-18 (cross-feature `OobContract` primitive) |
 | [ADR-014](ADR-014.md) | Cross-context writes are eventually consistent, never one shared transaction | Accepted |
 | [ADR-015](ADR-015.md) | Operational/maintenance endpoints may return JSON; UI handlers stay hypermedia | Accepted |

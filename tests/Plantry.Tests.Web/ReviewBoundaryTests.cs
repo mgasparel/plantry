@@ -141,10 +141,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             "Successful row action must HX-Reswap outerHTML.");
 
         // ADR-013 §1 — four OOB fragment ids must be in the body.
-        Assert.Contains("id=\"rev-chips\"", body);
-        Assert.Contains("id=\"rev-progress\"", body);
-        Assert.Contains("id=\"commit-bar\"", body);
-        Assert.Contains("id=\"rcpt-total\"", body);
+        OobContract.AssertCarriesProjections(body, "rev-chips", "rev-progress", "commit-bar", "rcpt-total");
 
         // The OOB chips fragment carries updated counts.
         Assert.Contains("Needs review 3", body);
@@ -155,7 +152,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
         Assert.Contains("import-row__confirmed-flag", body);
 
         // Guard: NO full #rev-body innerHTML repaint (the old approach, now retired).
-        Assert.DoesNotContain("id=\"rev-body\"", body);
+        OobContract.AssertNoFullRepaint(body, "rev-body");
 
         // ADR-013 amendment — the #import-line-{id} element must be the root of the primary body
         // (no outer x-show wrapper). If the outer wrapper were present, htmx would nest a fresh
@@ -262,10 +259,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             "Dismiss must HX-Retarget to the dismissed row.");
 
         // OOB fragments present.
-        Assert.Contains("id=\"rev-chips\"", body);
-        Assert.Contains("id=\"rev-progress\"", body);
-        Assert.Contains("id=\"commit-bar\"", body);
-        Assert.Contains("id=\"rcpt-total\"", body);
+        OobContract.AssertCarriesProjections(body, "rev-chips", "rev-progress", "commit-bar", "rcpt-total");
 
         // Row is now dismissed.
         Assert.Contains("import-row--dismissed", body);
@@ -303,10 +297,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             "Restore must HX-Retarget to the restored row.");
 
         // OOB fragments present.
-        Assert.Contains("id=\"rev-chips\"", body);
-        Assert.Contains("id=\"rev-progress\"", body);
-        Assert.Contains("id=\"commit-bar\"", body);
-        Assert.Contains("id=\"rcpt-total\"", body);
+        OobContract.AssertCarriesProjections(body, "rev-chips", "rev-progress", "commit-bar", "rcpt-total");
 
         // Restored row is no longer dismissed.
         Assert.DoesNotContain("import-row--dismissed", body);
@@ -347,10 +338,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             retarget.Single() == $"#import-line-{lineId}",
             "Drawer confirm (existing) must HX-Retarget to the changed row.");
 
-        Assert.Contains("id=\"rev-chips\"", body);
-        Assert.Contains("id=\"rev-progress\"", body);
-        Assert.Contains("id=\"commit-bar\"", body);
-        Assert.Contains("id=\"rcpt-total\"", body);
+        OobContract.AssertCarriesProjections(body, "rev-chips", "rev-progress", "commit-bar", "rcpt-total");
         Assert.Contains("import-row--confirmed", body);
     }
 
@@ -390,10 +378,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             retarget.Single() == $"#import-line-{lineId}",
             "Drawer confirm (create-new) must HX-Retarget to the changed row.");
 
-        Assert.Contains("id=\"rev-chips\"", body);
-        Assert.Contains("id=\"rev-progress\"", body);
-        Assert.Contains("id=\"commit-bar\"", body);
-        Assert.Contains("id=\"rcpt-total\"", body);
+        OobContract.AssertCarriesProjections(body, "rev-chips", "rev-progress", "commit-bar", "rcpt-total");
         Assert.Contains("import-row--confirmed", body);
         Assert.Contains("new product", body);
     }

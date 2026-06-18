@@ -89,11 +89,29 @@ public sealed class InsightsRailFragmentTests : IClassFixture<InsightsRailFragme
         // The mutated cell is the main swap target …
         Assert.Contains("mcell", fragment);
 
-        // … and the rail rides along as an out-of-band refresh so it can never go stale.
+        // … and the rail rides along — the ADR-013 contract, asserted through the SAME shared
+        // primitive Intake's ReviewBoundaryTests uses, so "a mutation carries its derived-view
+        // projection" is one enforced rule across features, not a per-feature reinvention.
+        OobContract.AssertCarriesProjections(fragment, "plan-rail");
+
+        // Cell-swap path specifics: the rail arrives out-of-band and carries fresh insight content.
         var rail = doc.QuerySelector("#plan-rail");
-        Assert.NotNull(rail);
         Assert.Equal("true", rail!.GetAttribute("hx-swap-oob"));
         Assert.NotNull(doc.QuerySelector("#plan-rail .callout[data-tone='warn']"));
+    }
+
+    [Fact(DisplayName = "Contract: the full-grid-swap path (Grid handler) also carries the rail projection")]
+    public async Task FullGridSwap_Carries_Rail_Projection()
+    {
+        // Move / Generate / Accept / Discard / Accept-cell / Reject-cell all return the whole
+        // _WeekGrid, which renders the rail inline (no hx-swap-oob). The contract is mechanism-
+        // agnostic: whichever swap a plan mutation uses, the response must carry #plan-rail. This
+        // pins the inline path so a future refactor can't quietly drop the rail from the grid.
+        var client = CreateClient();
+
+        var fragment = await (await client.GetAsync("/MealPlan?handler=Grid")).Content.ReadAsStringAsync();
+
+        OobContract.AssertCarriesProjections(fragment, "plan-rail");
     }
 
     private static string ExtractAntiforgeryToken(string html)
