@@ -66,7 +66,7 @@
     (function () {
         'use strict';
         window['__mealEditorCfg_@(slot.Id.Value.ToString("N"))'] = {
-            mode: @(isNote ? "'note'" : "'dishes'"),
+            mode: '@(isNote ? "note" : "dishes")',
             note: @Html.Raw(noteJson),
             dishes: @Html.Raw(dishesJson),
             att: @Html.Raw(attJson),

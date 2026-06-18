@@ -134,6 +134,175 @@ public sealed class PlanInsightsJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Journey L5-OOB: in-cell save → OOB swap updates rail without page reload ─
+    //
+    // Proves that htmx.swap(cell, html, {swapStyle:'outerHTML'}) in meal-editor.js
+    // processes the hx-swap-oob #plan-rail fragment client-side and the insights rail
+    // recomputes in place — no full navigation. This is the load-bearing assumption of
+    // the plantry-6si fix (see plantry-so5.1).
+    //
+    // Signal chosen: the UnfilledSlot callout title changes from "21 slots still open"
+    // to "20 slots still open" after one cell is filled — a DOM mutation that can only
+    // originate from the OOB swap, not from a reload.
+
+    [Fact(DisplayName = "Assign note via editor Save button → insights rail UnfilledSlot count drops in place (OOB swap verified)")]
+    public async Task AssignNoteViaEditor_InsightsRailUpdatesInPlace_OobSwapVerified()
+    {
+        var uniqueEmail = $"e2e-oob-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"OobMilk {Guid.NewGuid():N}".Substring(0, 20);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a household ──────────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "OOB Insights Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "OOB User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Create a catalog product + add expiring stock ─────────────────────
+            // Seeding expiring stock ensures the rail has ≥2 insights on first load
+            // (UnusedExpiring + UnfilledSlot), so the ri-count is rendered (only appears
+            // when Insights.Count > 0). The expiry is well within the 4-day window.
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
+            await page.WaitForURLAsync("**/Catalog/Products/Create");
+            await page.FillAsync("[name='Input.Name']", productName);
+            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "ml — millilitre" });
+            await page.ClickAsync("button:has-text('Add product')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+
+            var expiryDate = DateOnly.FromDateTime(DateTime.Today.AddDays(2));
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
+            await productSearch.FillAsync(productName);
+            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+
+            await page.FillAsync("[name='Input.Quantity']", "500");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "ml — millilitre" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Fridge" });
+            await page.FillAsync("[name='Input.ExpiryDate']", expiryDate.ToString("yyyy-MM-dd"));
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            var stockRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(stockRow).ToBeVisibleAsync();
+
+            // ── Navigate to Meal Plan — all cells empty ───────────────────────────
+            await page.GetByRole(AriaRole.Link, new() { Name = "Meal Plan" }).First.ClickAsync();
+            await page.WaitForURLAsync("**/MealPlan**");
+            await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(".plan-rail")).ToBeVisibleAsync();
+
+            // ── Capture initial unfilled-slot callout title ───────────────────────
+            // The UnfilledSlot callout has data-tone="info" and icon "calendar".
+            // With 3 default slots × 7 days = 21 unfilled cells, the title is
+            // "21 slots still open this week".
+            var unfilledCallout = page.Locator(".callout[data-tone='info']").Filter(
+                new() { HasText = "slots still open" });
+            await Assertions.Expect(unfilledCallout).ToBeVisibleAsync();
+
+            // The current URL (before save) — we assert it does NOT change after save.
+            var urlBeforeSave = page.Url;
+
+            // ── Open the editor via the first empty-add button (htmx GET) ─────────
+            // Use RunAndWaitForResponseAsync to ensure the htmx response has arrived
+            // and htmx has swapped the editor into #meal-editor-dialog before we
+            // proceed to interact with editor controls.
+            // The htmx:afterSwap handler in Index.cshtml then shows the modal veil
+            // (veil.style.display = 'grid' and sets Alpine open=true).
+            var firstEmptyAdd = page.Locator(".empty-add").First;
+            await page.RunAndWaitForResponseAsync(
+                async () => await firstEmptyAdd.ClickAsync(),
+                r => r.Url.Contains("handler=Editor") && r.Status == 200);
+
+            // ── Wait for htmx to complete the DOM swap AND execute scripts ──────────
+            // RunAndWaitForResponseAsync returns when the HTTP response is received, but
+            // htmx processes the swap (DOM mutation + script execution) asynchronously.
+            // The script in _MealEditor.cshtml sets window['__mealEditorCfg_<slotGuid>'].
+            // Polling for any __mealEditorCfg_ key confirms htmx has finished executing
+            // the inline script block (via insertBefore into the live DOM, async=false).
+            await page.WaitForFunctionAsync(@"() => {
+                return Object.keys(window).some(k => k.startsWith('__mealEditorCfg_'));
+            }");
+
+            // ── Wait for Alpine to initialize the mealEditor component ────────────
+            // After the script sets the cfg key, Alpine's MutationObserver fires and
+            // initializes the x-data component. Wait for the dishes section to be
+            // visible (x-show='mode === dishes' evaluates to true once mode is 'dishes').
+            await page.WaitForFunctionAsync(@"() => {
+                const inner = document.getElementById('meal-editor-inner');
+                if (!inner) return false;
+                const sects = inner.querySelectorAll('.ed-sect');
+                // The 2nd ed-sect (index 1) has x-show='mode === dishes'
+                // It should be visible (display != none) once Alpine initializes mode='dishes'
+                return sects.length >= 2 && getComputedStyle(sects[1]).display !== 'none';
+            }");
+
+            // ── Switch to note mode by clicking "add a note instead" ─────────────
+            // The editor opens in 'dishes' mode for an empty cell. Clicking this
+            // link calls switchToNote() in the Alpine component, setting mode='note'.
+            // This makes the note section (3rd .ed-sect) visible and the dishes
+            // section hidden.
+            var addNoteLink = page.Locator("#meal-editor-dialog .ed-note-toggle button:has-text('add a note instead')");
+            await Assertions.Expect(addNoteLink).ToBeVisibleAsync();
+            await addNoteLink.ClickAsync();
+
+            // ── Click the Takeout preset chip ─────────────────────────────────────
+            // Sets note = "Takeout" in Alpine state, enabling canSave = true.
+            var takeoutChip = page.Locator("#meal-editor-dialog .ed-note-chips button:has-text('Takeout')");
+            await Assertions.Expect(takeoutChip).ToBeVisibleAsync();
+            await takeoutChip.ClickAsync();
+
+            // ── Click Save meal and wait for the Assign response ──────────────────
+            // save() in meal-editor.js performs:
+            //   1. fetch POST /MealPlan?handler=Assign → response contains cell HTML
+            //      with the out-of-band #plan-rail fragment (hx-swap-oob="true")
+            //   2. htmx.swap(cell, html, {swapStyle:'outerHTML'})
+            //      → htmx processes hx-swap-oob: replaces live #plan-rail in place
+            // RunAndWaitForResponseAsync waits for the Assign POST to return 200,
+            // confirming save() ran and htmx.swap was called with the OOB response.
+            var saveButton = page.Locator("#meal-editor-dialog button.btn--primary:has-text('Save meal')");
+            await page.RunAndWaitForResponseAsync(
+                async () => await saveButton.ClickAsync(),
+                r => r.Url.Contains("handler=Assign") && r.Status == 200);
+
+            // ── Assert: still on the same URL — no page navigation occurred ───────
+            Assert.Equal(urlBeforeSave, page.Url);
+
+            // ── Assert: UnfilledSlot count dropped in place via OOB swap ─────────
+            // With 21 → 20 unfilled slots, the callout title changes to
+            // "20 slots still open this week". Playwright polls via web-first
+            // assertion until the DOM mutation is observed or timeout fires.
+            // This mutation can only come from the OOB swap — NOT from a reload.
+            await Assertions.Expect(unfilledCallout).ToContainTextAsync("20 slots still open this week");
+
+            // ── Corroborate: the saved cell now has class "filled" (not "empty") ─
+            // This confirms the primary cell swap also applied correctly.
+            var filledCell = page.Locator(".mcell.filled .meal-card.note");
+            await Assertions.Expect(filledCell).ToBeVisibleAsync();
+            await Assertions.Expect(filledCell.Locator(".note-txt")).ToContainTextAsync("Takeout");
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-insights-oob.zip" });
+        }
+    }
+
     // ── Journey: no expiring stock → clean state ──────────────────────────────
 
     [Fact(DisplayName = "No expiring stock + all cells filled → insights rail shows 'No issues' clean state")]
