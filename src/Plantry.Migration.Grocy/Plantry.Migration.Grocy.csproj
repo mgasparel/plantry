@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+    <ProjectReference Include="..\Plantry.Catalog\Plantry.Catalog.csproj" />
   </ItemGroup>
 
   <ItemGroup>

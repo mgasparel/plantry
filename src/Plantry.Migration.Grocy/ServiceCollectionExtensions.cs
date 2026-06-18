@@ -27,6 +27,7 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddScoped<ExtractCommand>();
+        services.AddScoped<UnitCommitService>();
 
         return services;
     }

@@ -1,0 +1,226 @@
+@page
+@model Plantry.Web.Pages.Import.UnitsModel
+@{
+    ViewData["Title"] = "Unit Mapping — Import from Grocy";
+}
+
+@*
+    Grocy import pipeline — Unit mapping grid (plantry-zcw.2).
+    One row per Grocy unit; inline dropdowns to confirm/re-point/create-new; editable factor field.
+    Anomalies (tsp/tbsp factor swap, Cup 237-vs-240 drift) are pre-flagged.
+    The Commit button POSTs all rows and writes the unit-crosswalk.json sidecar.
+*@
+
+<div class="catalog-section">
+    <h1>Step 2 — Unit Mapping</h1>
+    <p>
+        Review the dimension and Plantry target for each Grocy unit.
+        Anomalies are highlighted — confirm or adjust before committing.
+        <a href="/Import">← Back to Import</a>
+    </p>
+</div>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert--danger" role="alert">
+        <strong>Error.</strong> @Model.ErrorMessage
+    </div>
+}
+
+@if (Model.CommitSuccess)
+{
+    <div class="alert alert--success" role="alert">
+        <strong>Units committed.</strong>
+        @Model.CommitSummary
+        Crosswalk written to <code>@Model.CrosswalkPath</code>.
+        <a href="/Import">Continue to next step</a>
+    </div>
+}
+
+@if (!Model.ManifestExists)
+{
+    <div class="card" style="max-width: 40rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">No manifest found</h3>
+                <p class="card__head-sub">Extract a Grocy snapshot before mapping units.</p>
+            </div>
+        </div>
+        <div class="card__body">
+            <a href="/Import" class="btn btn--primary">Go to Step 1 — Extract</a>
+        </div>
+    </div>
+    return;
+}
+
+<form method="post" asp-page-handler="Commit" id="units-commit-form">
+    @Html.AntiForgeryToken()
+
+    <div class="card" style="margin-bottom: 1.5rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Grocy units — @Model.StagingRows.Count rows</h3>
+                <p class="card__head-sub">
+                    @Model.AutoCount auto-mapped ·
+                    @Model.NeedsReviewCount need review ·
+                    @Model.SkippedCount skipped
+                    @if (Model.AnomalyCount > 0)
+                    {
+                        <span style="color: var(--color-warning, #b45309); font-weight: 600">
+                            · @Model.AnomalyCount anomal@(Model.AnomalyCount == 1 ? "y" : "ies") flagged
+                        </span>
+                    }
+                </p>
+            </div>
+            <div class="card__head-actions">
+                <button type="submit" class="btn btn--primary">
+                    Commit units
+                </button>
+            </div>
+        </div>
+        <div class="card__body" style="padding: 0; overflow-x: auto">
+            <table class="data-grid__table" style="min-width: 60rem">
+                <caption class="data-grid__caption sr-only">Grocy unit mapping grid</caption>
+                <thead>
+                    <tr>
+                        <th scope="col" class="data-grid__header data-grid__cell--end" style="width: 6rem">Grocy ID</th>
+                        <th scope="col" class="data-grid__header">Grocy name</th>
+                        <th scope="col" class="data-grid__header" style="width: 9rem">Dimension</th>
+                        <th scope="col" class="data-grid__header" style="width: 16rem">Plantry target</th>
+                        <th scope="col" class="data-grid__header data-grid__cell--end" style="width: 10rem">factor_to_base</th>
+                        <th scope="col" class="data-grid__header" style="width: 7rem">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (var i = 0; i < Model.StagingRows.Count; i++)
+                    {
+                        var row = Model.StagingRows[i];
+                        var isSkipped = row.Status == Plantry.Migration.Grocy.UnitStagingStatus.Skipped;
+                        var hasAnomaly = row.AnomalyNote is not null && !isSkipped;
+                        var rowStyle = isSkipped ? "opacity: 0.55" : hasAnomaly ? "background: var(--color-warning-bg, #fffbeb)" : "";
+                        <tr style="@rowStyle">
+                            @* Hidden fields to bind the whole array back on commit *@
+                            <input type="hidden" name="StagingRows[@i].GrocyId" value="@row.GrocyId" />
+                            <input type="hidden" name="StagingRows[@i].GrocyName" value="@row.GrocyName" />
+                            <input type="hidden" name="StagingRows[@i].Status" value="@row.Status" />
+
+                            <td class="data-grid__cell data-grid__cell--end" style="color: var(--color-text-faint); font-variant-numeric: tabular-nums">
+                                @row.GrocyId
+                            </td>
+                            <td class="data-grid__cell">
+                                <span style="font-weight: 500">@row.GrocyName</span>
+                                @if (hasAnomaly)
+                                {
+                                    <br />
+                                    <span style="font-size: 0.75rem; color: var(--color-warning-text, #92400e)">
+                                        ⚠ @row.AnomalyNote
+                                    </span>
+                                }
+                                @if (isSkipped && row.AnomalyNote is not null)
+                                {
+                                    <br />
+                                    <span style="font-size: 0.75rem; color: var(--color-text-faint)">
+                                        @row.AnomalyNote
+                                    </span>
+                                }
+                            </td>
+                            <td class="data-grid__cell">
+                                @if (isSkipped)
+                                {
+                                    <input type="hidden" name="StagingRows[@i].Dimension" value="@row.Dimension" />
+                                    <span class="badge badge--neutral" style="font-size: 0.75rem">skipped</span>
+                                }
+                                else
+                                {
+                                    <select name="StagingRows[@i].Dimension" class="field__input" style="min-width: 7rem; font-size: 0.875rem">
+                                        <option value="mass"   selected="@(row.Dimension == "mass"   ? "selected" : null)">mass</option>
+                                        <option value="volume" selected="@(row.Dimension == "volume" ? "selected" : null)">volume</option>
+                                        <option value="count"  selected="@(row.Dimension == "count"  ? "selected" : null)">count</option>
+                                    </select>
+                                }
+                            </td>
+                            <td class="data-grid__cell">
+                                @if (isSkipped)
+                                {
+                                    <input type="hidden" name="StagingRows[@i].Action" value="@row.Action" />
+                                    <input type="hidden" name="StagingRows[@i].PlantryCode" value="" />
+                                    <input type="hidden" name="StagingRows[@i].PlantryName" value="" />
+                                    <span style="color: var(--color-text-faint); font-size: 0.875rem">—</span>
+                                }
+                                else
+                                {
+                                    <div style="display: flex; gap: 0.5rem; flex-direction: column">
+                                        <select name="StagingRows[@i].Action" class="field__input" style="font-size: 0.875rem">
+                                            <option value="@Plantry.Migration.Grocy.UnitMappingAction.MatchExisting"
+                                                    selected="@(row.Action == Plantry.Migration.Grocy.UnitMappingAction.MatchExisting ? "selected" : null)">
+                                                Match existing
+                                            </option>
+                                            <option value="@Plantry.Migration.Grocy.UnitMappingAction.CreateNew"
+                                                    selected="@(row.Action == Plantry.Migration.Grocy.UnitMappingAction.CreateNew ? "selected" : null)">
+                                                Create new
+                                            </option>
+                                        </select>
+                                        @* Code input (shown for both MatchExisting and CreateNew) *@
+                                        <input type="text" name="StagingRows[@i].PlantryCode"
+                                               value="@row.PlantryCode"
+                                               class="field__input"
+                                               style="font-size: 0.875rem; font-family: monospace"
+                                               placeholder="unit code"
+                                               maxlength="20" />
+                                        @* Name input (only visible for CreateNew) *@
+                                        <input type="text" name="StagingRows[@i].PlantryName"
+                                               value="@row.PlantryName"
+                                               class="field__input"
+                                               style="font-size: 0.875rem"
+                                               placeholder="display name (for create new)"
+                                               maxlength="100" />
+                                    </div>
+                                }
+                            </td>
+                            <td class="data-grid__cell">
+                                @if (isSkipped)
+                                {
+                                    <input type="hidden" name="StagingRows[@i].FactorToBase" value="@row.FactorToBase" />
+                                    <span style="color: var(--color-text-faint); font-size: 0.875rem">—</span>
+                                }
+                                else
+                                {
+                                    <input type="number" name="StagingRows[@i].FactorToBase"
+                                           value="@row.FactorToBase.ToString("G6")"
+                                           class="field__input"
+                                           style="font-size: 0.875rem; width: 8rem; font-variant-numeric: tabular-nums"
+                                           step="any" min="0.000001"
+                                           required />
+                                }
+                            </td>
+                            <td class="data-grid__cell">
+                                @switch (row.Status)
+                                {
+                                    case Plantry.Migration.Grocy.UnitStagingStatus.Auto:
+                                        <span class="badge badge--success" style="font-size: 0.75rem">auto</span>
+                                        break;
+                                    case Plantry.Migration.Grocy.UnitStagingStatus.NeedsReview:
+                                        <span class="badge badge--warning" style="font-size: 0.75rem">review</span>
+                                        break;
+                                    case Plantry.Migration.Grocy.UnitStagingStatus.Mapped:
+                                        <span class="badge badge--info" style="font-size: 0.75rem">mapped</span>
+                                        break;
+                                    case Plantry.Migration.Grocy.UnitStagingStatus.Skipped:
+                                        <span class="badge badge--neutral" style="font-size: 0.75rem">skip</span>
+                                        break;
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 1rem; align-items: center; padding: 1rem 0">
+        <button type="submit" class="btn btn--primary">
+            Commit @Model.StagingRows.Count(r => r.Status != Plantry.Migration.Grocy.UnitStagingStatus.Skipped) units
+        </button>
+        <a href="/Import" class="btn btn--ghost">← Cancel</a>
+    </div>
+</form>
