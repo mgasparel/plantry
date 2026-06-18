@@ -88,9 +88,10 @@
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm:  0 1px 2px rgba(0,0,0,0.06);
-  --shadow-md:  0 2px 8px rgba(0,0,0,0.10);
-  --shadow-lg:  0 4px 20px rgba(0,0,0,0.12);
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md:   0 2px 8px rgba(0,0,0,0.10);
+  --shadow-lg:   0 4px 20px rgba(0,0,0,0.12);
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 10px 28px -16px rgba(0,0,0,0.18);
 
   /* Layout */
   --sidebar-width: 220px;
@@ -163,6 +164,11 @@ a { color: var(--color-accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 button { font-family: inherit; cursor: pointer; }
+
+.eyebrow {
+  font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  font-weight: 700; color: var(--color-cook);
+}
 
 /* ── App shell layout ──────────────────────────────────────────────────────── */
 .app-body {
@@ -3924,10 +3930,7 @@ button.sadd svg { width: 13px; height: 13px; }
 [data-screen-label] { scroll-margin-top: 80px; }
 
 .cfg-head { margin-bottom: 24px; }
-.cfg-head .eyebrow {
-  font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase;
-  font-weight: 700; color: var(--color-accent); margin-bottom: 9px;
-}
+.cfg-head .eyebrow { margin-bottom: 9px; }
 .cfg-head h1 { font-size: 30px; letter-spacing: -0.03em; margin: 0 0 7px; font-weight: 700; line-height: 1.1; }
 .cfg-head p { margin: 0; color: var(--color-text-muted); font-size: 15px; line-height: 1.5; max-width: 60ch; }
 
@@ -4942,10 +4945,10 @@ button.sadd svg { width: 13px; height: 13px; }
   display: grid; grid-template-columns: 300px 1fr; gap: 8px; align-items: stretch;
   background: var(--color-surface); border: 1px solid var(--color-border);
   border-radius: var(--radius-lg); overflow: hidden;
-  box-shadow: var(--shadow-sm); margin-bottom: 24px;
+  box-shadow: var(--shadow-card); margin-bottom: 24px;
 }
 .today-welcome__art {
-  background: var(--color-bg-subtle); display: grid; place-items: center; padding: 22px;
+  background: var(--color-surface); display: grid; place-items: center; padding: 22px;
   border-right: 1px solid var(--color-border);
 }
 .today-welcome__logo { width: 100%; max-width: 215px; height: auto; display: block; }
@@ -4954,8 +4957,7 @@ button.sadd svg { width: 13px; height: 13px; }
   padding: 30px 32px 30px 28px; display: flex; flex-direction: column; justify-content: center;
 }
 .today-welcome__eyebrow {
-  font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase;
-  font-weight: 700; color: var(--color-accent); margin-bottom: 10px;
+  margin-bottom: 10px;
 }
 .today-welcome__heading {
   margin: 0 0 9px; font-size: 25px; letter-spacing: -0.025em; font-weight: 700;

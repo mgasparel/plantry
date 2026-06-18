@@ -36,17 +36,11 @@
     {
         <div class="today-welcome">
             <div class="today-welcome__art">
-                <svg viewBox="0 0 120 120" aria-hidden="true" class="today-welcome__logo">
-                    <circle cx="60" cy="60" r="50" fill="var(--color-accent-subtle)" />
-                    <path d="M40 70 Q60 35 80 70" stroke="var(--color-accent)" stroke-width="3" fill="none" stroke-linecap="round" />
-                    <circle cx="60" cy="55" r="8" fill="var(--color-accent)" />
-                </svg>
+                <img src="~/images/logo.png" alt="Plantry" class="today-welcome__logo" />
             </div>
             <div class="today-welcome__body">
-                <div class="today-welcome__eyebrow">Let's set up your kitchen</div>
-                <h2 class="today-welcome__heading">
-                    Welcome home@(string.IsNullOrEmpty(Model.HouseholdName) ? "." : $", {Model.HouseholdName}.")
-                </h2>
+                <div class="eyebrow today-welcome__eyebrow">Let's set up your kitchen</div>
+                <h2 class="today-welcome__heading">Welcome to Plantry.</h2>
                 <p class="today-welcome__sub">
                     Plantry keeps an eye on what's in your pantry, what's about to expire, and what's for dinner — so nothing goes to waste.
                     Three quick steps to get going.
