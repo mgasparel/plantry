@@ -119,8 +119,9 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
         var fragment = await response.Content.ReadAsStringAsync();
 
         // ADR-013 OOB-contract: mutation response must carry the plan-rail projection.
-        // plantry-khw: also carries plan-bar-nav, plan-bar-cost, plan-bar-autofill projections.
-        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-bar-cost", "plan-bar-autofill");
+        // plantry-khw: also carries plan-bar-nav, plan-cost-chip, plan-bar-autofill projections.
+        // plantry-pg6: plan-cost-chip (renamed from plan-bar-cost) is the stable id for the budget chip.
+        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
     }
 
     [Fact(DisplayName = "POST Clear re-emits #plan-rail and plan-bar projections out-of-band (OobContract — editor path)")]
@@ -145,8 +146,9 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
         var fragment = await response.Content.ReadAsStringAsync();
 
         // ADR-013 OOB-contract: mutation response must carry rail and plan-bar projections.
-        // plantry-khw: plan-bar-nav/cost/autofill are now re-emitted alongside every cell mutation.
-        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-bar-cost", "plan-bar-autofill");
+        // plantry-khw: plan-bar-nav/autofill are re-emitted alongside every cell mutation.
+        // plantry-pg6: plan-cost-chip (renamed from plan-bar-cost) carries the budget chip.
+        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
     }
 
     // ── 3. Editor partial scaffold ───────────────────────────────────────────

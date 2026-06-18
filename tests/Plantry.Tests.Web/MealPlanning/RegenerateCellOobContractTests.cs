@@ -67,13 +67,13 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         var fragment = await response.Content.ReadAsStringAsync();
 
         // ADR-013 OOB-contract: mutation response must carry the plan-rail projection.
-        // plantry-khw: also carries plan-bar-nav, plan-bar-cost, plan-bar-autofill projections.
-        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-bar-cost", "plan-bar-autofill");
+        // plantry-khw/plantry-pg6: also carries plan-bar-nav, plan-cost-chip, plan-bar-autofill projections.
+        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
     }
 
     // ── 1b. OobContract: GenerateCell (per-cell empty auto-fill) carries plan-bar projections ──
 
-    [Fact(DisplayName = "POST GenerateCell re-emits #plan-rail and plan-bar projections out-of-band (OobContract — ADR-013 / plantry-khw)")]
+    [Fact(DisplayName = "POST GenerateCell re-emits #plan-rail and plan-bar projections out-of-band (OobContract — ADR-013 / plantry-khw/plantry-pg6)")]
     public async Task PostGenerateCell_CarriesPlanRailProjection()
     {
         var client = CreateClient();
@@ -95,8 +95,8 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         var fragment = await response.Content.ReadAsStringAsync();
 
         // ADR-013 OOB-contract: mutation response must carry the plan-rail projection.
-        // plantry-khw: also carries plan-bar-nav, plan-bar-cost, plan-bar-autofill.
-        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-bar-cost", "plan-bar-autofill");
+        // plantry-khw/plantry-pg6: also carries plan-bar-nav, plan-cost-chip, plan-bar-autofill.
+        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
     }
 
     // ── 1c. Merge safety: GenerateCell on an empty cell preserves other proposals ──
