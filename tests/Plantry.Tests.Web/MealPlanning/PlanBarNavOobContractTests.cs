@@ -13,15 +13,16 @@ using Xunit;
 namespace Plantry.Tests.Web.MealPlanning;
 
 /// <summary>
-/// ADR-013 OOB-contract tests for the plan-bar nav projections (plantry-khw).
+/// ADR-013 OOB-contract tests for the plan-bar nav projections (plantry-khw / plantry-pg6).
 ///
 /// The .plan-bar lives OUTSIDE #plan-main-content, so htmx grid swaps left the week label,
 /// prev/next button URLs, This-week button visibility, Auto-fill state, and budget chip stale.
 /// plantry-khw fixes this by re-emitting the plan-bar projections OOB on every response that
 /// targets #plan-main-content.
+/// plantry-pg6: budget chip id renamed from plan-bar-cost to plan-cost-chip for a stable id.
 ///
 /// Acceptance criteria:
-///   1. GET Grid carries plan-bar-nav, plan-bar-cost, and plan-bar-autofill projections
+///   1. GET Grid carries plan-bar-nav, plan-cost-chip, and plan-bar-autofill projections
 ///      (OobContract — the three dynamic plan-bar elements that go stale after navigation).
 ///   2. GET Grid with a specific week reflects that week in the OOB nav (week label, nav URLs).
 ///   3. GET Grid for next week carries a plan-bar-nav that does NOT contain a "This week"
@@ -39,7 +40,7 @@ public sealed class PlanBarNavOobContractTests(PlanBarNavOobFactory factory)
 
     // ── 1. Grid handler carries all plan-bar projections ──────────────────────
 
-    [Fact(DisplayName = "GET Grid re-emits plan-bar-nav, plan-bar-cost, plan-bar-autofill OOB (OobContract — plantry-khw)")]
+    [Fact(DisplayName = "GET Grid re-emits plan-bar-nav, plan-cost-chip, plan-bar-autofill OOB (OobContract — plantry-khw/plantry-pg6)")]
     public async Task GetGrid_CarriesPlanBarNavProjections()
     {
         var client = CreateClient();
@@ -48,9 +49,10 @@ public sealed class PlanBarNavOobContractTests(PlanBarNavOobFactory factory)
         response.EnsureSuccessStatusCode();
         var html = await response.Content.ReadAsStringAsync();
 
-        // ADR-013 OOB-contract (plantry-khw): the grid response must carry all three
+        // ADR-013 OOB-contract (plantry-khw/plantry-pg6): the grid response must carry all three
         // plan-bar projections so the command bar stays coherent after htmx week navigation.
-        OobContract.AssertCarriesProjections(html, "plan-bar-nav", "plan-bar-cost", "plan-bar-autofill");
+        // plan-cost-chip is the stable id for the budget chip (renamed from plan-bar-cost in plantry-pg6).
+        OobContract.AssertCarriesProjections(html, "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
     }
 
     // ── 2. Grid handler for a specific week reflects that week ────────────────
@@ -71,7 +73,7 @@ public sealed class PlanBarNavOobContractTests(PlanBarNavOobFactory factory)
         Assert.Contains("Jun 22", html);
 
         // Must carry all three plan-bar projections.
-        OobContract.AssertCarriesProjections(html, "plan-bar-nav", "plan-bar-cost", "plan-bar-autofill");
+        OobContract.AssertCarriesProjections(html, "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
     }
 
     // ── 3. This-week button: present when off this week, absent when on this week ──
