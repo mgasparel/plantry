@@ -9,19 +9,22 @@ using Plantry.Migration.Grocy;
 namespace Plantry.Web.Pages.Import;
 
 /// <summary>
-/// Grocy import pipeline — Product staging review screen (plantry-zcw.4).
+/// Grocy import pipeline — Product staging review screen (plantry-zcw.4) and commit (plantry-zcw.5).
 ///
 /// GET  — loads the manifest and the three crosswalk sidecars, runs
 ///         <see cref="ProductStager.Stage"/> to build staging rows, and renders the review list.
 /// POST → UpdateName (htmx) — updates a single row's PlantryName to resolve a name collision
 ///         and returns the refreshed row fragment (OOB swap).
+/// POST → CommitProducts — commits all stageable products to the Catalog via
+///         <see cref="ProductCommitService"/>, writes the product crosswalk, and
+///         shows a commit summary on the same page.
 ///
 /// Access: any authenticated user ([Authorize]).
-/// No domain writes occur here — that is zcw.5 (Product commit).
 /// </summary>
 [Authorize]
 public sealed class ProductsModel(
     IProductRepository products,
+    ProductCommitService productCommitService,
     IOptions<GrocyOptions> options) : PageModel
 {
     private const int PageSize = 50;
@@ -53,6 +56,18 @@ public sealed class ProductsModel(
     public bool UnitCrosswalkFound { get; private set; }
     public bool CategoryCrosswalkFound { get; private set; }
     public bool LocationCrosswalkFound { get; private set; }
+
+    // ──────────── Commit result state ──────────────────────────────────────
+
+    /// <summary>True after a CommitProducts POST completes (success or partial).</summary>
+    public bool CommitCompleted { get; private set; }
+    public int CommittedCount { get; private set; }
+    public int SkippedCount { get; private set; }
+    public int FailedCount { get; private set; }
+    public string? CommitCrosswalkPath { get; private set; }
+
+    /// <summary>Per-row commit results, set after a CommitProducts POST.</summary>
+    public IReadOnlyList<ProductCommitService.ProductCommitResult> CommitResults { get; private set; } = [];
 
     // ──────────── Summary counts for the page header ───────────────────────
 
@@ -124,6 +139,70 @@ public sealed class ProductsModel(
         CurrentPage = Math.Max(1, page);
         ApplyPaging();
         return Partial("_ProductStagingRow", row);
+    }
+
+    /// <summary>
+    /// Commits all stageable products to the Catalog, writes the product crosswalk,
+    /// and re-renders the page with a commit summary.
+    ///
+    /// POST /Import/Products?handler=CommitProducts
+    /// </summary>
+    public async Task<IActionResult> OnPostCommitProductsAsync(CancellationToken ct = default)
+    {
+        if (!await TryLoadAndStageAsync(ct))
+            return Page();
+
+        var opts = options.Value;
+        var manifestPath = GrocyOptions.ResolveManifestPath(opts);
+
+        // Load manifest for conversions
+        GrocyManifest? manifest = null;
+        try
+        {
+            await using var fs = System.IO.File.OpenRead(manifestPath);
+            manifest = await JsonSerializer.DeserializeAsync<GrocyManifest>(fs, ReadJsonOptions, ct);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to read manifest for commit: {ex.Message}";
+            return Page();
+        }
+
+        if (manifest is null)
+        {
+            ErrorMessage = "Manifest could not be parsed. Try re-extracting.";
+            return Page();
+        }
+
+        // Load the unit crosswalk (needed for conversion classification)
+        var unitCrosswalkPath = UnitCrosswalk.ResolvePath(manifestPath);
+        var unitCw = await UnitCrosswalk.TryReadAsync(unitCrosswalkPath, ct);
+        var unitMap = unitCw?.Mappings.ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value);
+
+        try
+        {
+            var (commitResults, crosswalkPath) = await productCommitService.CommitAsync(
+                AllRows,
+                manifest,
+                unitMap,
+                manifestPath,
+                ct);
+
+            CommitCompleted     = true;
+            CommitResults       = commitResults;
+            CommitCrosswalkPath = crosswalkPath;
+            CommittedCount      = commitResults.Count(r => r.Success && !r.Skipped);
+            SkippedCount        = commitResults.Count(r => r.Skipped);
+            FailedCount         = commitResults.Count(r => !r.Success && !r.Skipped);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Commit failed: {ex.Message}";
+        }
+
+        CurrentPage = 1;
+        ApplyPaging();
+        return Page();
     }
 
     // ──────────── Helpers ──────────────────────────────────────────────────

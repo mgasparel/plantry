@@ -57,6 +57,33 @@
     </div>
 }
 
+@* Commit result summary *@
+@if (Model.CommitCompleted)
+{
+    <div class="alert @(Model.FailedCount > 0 ? "alert--warning" : "alert--success")" role="alert">
+        <strong>Commit complete.</strong>
+        @Model.CommittedCount committed,
+        @Model.SkippedCount skipped,
+        @Model.FailedCount failed.
+        @if (Model.CommitCrosswalkPath is not null)
+        {
+            <span style="font-size: 0.8rem; color: var(--color-text-faint)"> · Crosswalk: @Model.CommitCrosswalkPath</span>
+        }
+    </div>
+    @if (Model.FailedCount > 0)
+    {
+        <details style="margin-bottom: 1rem">
+            <summary style="cursor: pointer; font-size: 0.875rem">Show failed products (@Model.FailedCount)</summary>
+            <ul style="font-size: 0.85rem; margin-top: 0.5rem">
+                @foreach (var r in Model.CommitResults.Where(r => !r.Success && !r.Skipped))
+                {
+                    <li><strong>@r.GrocyName</strong> (Grocy #@r.GrocyId) — @r.ErrorMessage</li>
+                }
+            </ul>
+        </details>
+    }
+}
+
 <div class="card" style="margin-bottom: 1.5rem">
     <div class="card__head">
         <div>
@@ -92,7 +119,14 @@
                 }
             </p>
         </div>
-        <div class="card__head-actions">
+        <div class="card__head-actions" style="display: flex; gap: 0.5rem; align-items: center">
+            <form method="post" asp-page-handler="CommitProducts">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn--primary" style="font-size: 0.875rem"
+                        title="Commit all stageable products to the Plantry catalog">
+                    Commit Products
+                </button>
+            </form>
             <a href="/Import" class="btn btn--ghost" style="font-size: 0.875rem">Continue to Step 6 →</a>
         </div>
     </div>
