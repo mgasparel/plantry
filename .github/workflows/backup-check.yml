@@ -1,0 +1,113 @@
+# backup-check.yml — Verify the production backup cron is healthy
+#
+# Runs daily and checks that a fresh backup file exists in the off-host
+# remote (rclone).  Alerts via a failed workflow run if the backup is stale
+# (older than STALE_HOURS hours) or missing entirely.
+#
+# This workflow acts as a canary: if the backup sidecar or rclone sync
+# stops working, the next daily check will turn red before it goes unnoticed.
+#
+# Required GitHub Actions secrets:
+#   RCLONE_CONFIG_BASE64 — base64-encoded rclone.conf from the production host
+#                          (export with: rclone config show | base64)
+#   RCLONE_REMOTE        — rclone remote name and path, e.g. "backblaze:plantry-backups"
+#
+# Optional:
+#   STALE_HOURS          — alert if newest backup is older than this many hours
+#                          (default: 26 — gives a 2-hour grace window over the
+#                           daily 03:00 UTC schedule)
+
+name: Backup health check
+
+on:
+  # Run daily at 05:00 UTC — after the 03:00 UTC backup cron plus the 03:15
+  # rclone sync window, with generous margin for slow jobs.
+  schedule:
+    - cron: "0 5 * * *"
+
+  # Allow manual trigger (useful after changing the backup config).
+  workflow_dispatch:
+
+jobs:
+  check-backup:
+    name: Verify latest backup is fresh
+    runs-on: ubuntu-latest
+
+    env:
+      STALE_HOURS: ${{ vars.STALE_HOURS || '26' }}
+
+    steps:
+      - name: Install rclone
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          rclone version
+
+      - name: Configure rclone from secret
+        env:
+          RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "$RCLONE_CONFIG_BASE64" | base64 -d > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+          echo "rclone config file written"
+
+      - name: Check for recent backup file
+        env:
+          RCLONE_REMOTE: ${{ secrets.RCLONE_REMOTE }}
+        run: |
+          echo "==> Listing backup files on $RCLONE_REMOTE"
+          # List all .dump files with modification times, newest first.
+          # rclone lsl format: <size> <date> <time> <name>
+          LISTING=$(rclone lsl "$RCLONE_REMOTE" --include "plantrydb-*.dump" 2>&1)
+          if [ -z "$LISTING" ]; then
+            echo "ERROR: No backup files found on $RCLONE_REMOTE" >&2
+            echo "       Either the backup sidecar has never run, or the rclone sync" >&2
+            echo "       from deploy/backup.sh has not been configured on the host." >&2
+            exit 1
+          fi
+
+          echo "Files found:"
+          echo "$LISTING"
+
+          # Find the most recent file by modification date (field 2+3 = date+time).
+          # Sort lexicographically — the timestamp in the filename (YYYYMMDDTHHMMSSZ)
+          # sorts correctly, so we can sort by filename (field 4) descending.
+          NEWEST=$(echo "$LISTING" | sort -k4 -r | head -1)
+          NEWEST_NAME=$(echo "$NEWEST" | awk '{print $4}')
+          echo ""
+          echo "==> Most recent backup: $NEWEST_NAME"
+
+          # Extract the UTC timestamp from the filename: plantrydb-YYYYMMDDTHHMMSSZ.dump
+          # and compute its age in hours.
+          TIMESTAMP_STR=$(echo "$NEWEST_NAME" | grep -oP '\d{8}T\d{6}Z')
+          if [ -z "$TIMESTAMP_STR" ]; then
+            echo "ERROR: Could not parse timestamp from filename: $NEWEST_NAME" >&2
+            exit 1
+          fi
+
+          # Convert to epoch.  Format: 20260619T030000Z → 2026-06-19T03:00:00Z
+          FORMATTED=$(echo "$TIMESTAMP_STR" | sed -E 's/([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})Z/\1-\2-\3T\4:\5:\6Z/')
+          BACKUP_EPOCH=$(date -u -d "$FORMATTED" +%s)
+          if [ -z "$BACKUP_EPOCH" ]; then
+            echo "ERROR: could not parse backup timestamp '$TIMESTAMP_STR' (formatted: '$FORMATTED')" >&2
+            exit 1
+          fi
+          NOW_EPOCH=$(date -u +%s)
+          AGE_HOURS=$(( (NOW_EPOCH - BACKUP_EPOCH) / 3600 ))
+
+          echo "    Backup age : ${AGE_HOURS}h"
+          echo "    Stale after: ${STALE_HOURS}h"
+
+          if [ "$AGE_HOURS" -gt "$STALE_HOURS" ]; then
+            echo ""
+            echo "ERROR: Most recent backup is ${AGE_HOURS}h old — exceeds the ${STALE_HOURS}h threshold." >&2
+            echo "       Check that the backup sidecar is running:" >&2
+            echo "         docker compose -f ~/plantry/docker-compose.prod.yml ps backup" >&2
+            echo "         docker compose -f ~/plantry/docker-compose.prod.yml logs backup" >&2
+            echo "       And that the host rclone cron is configured:" >&2
+            echo "         crontab -l | grep backup.sh" >&2
+            exit 1
+          fi
+
+          echo ""
+          echo "==> Backup is current (${AGE_HOURS}h old, threshold ${STALE_HOURS}h). OK."
