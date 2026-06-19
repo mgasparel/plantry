@@ -1,0 +1,137 @@
+@page
+@model Plantry.Web.Pages.Import.RecipesModel
+@{
+    ViewData["Title"] = "Recipe Staging Review — Import from Grocy";
+}
+
+@*
+    Grocy import pipeline — Recipe staging review screen (plantry-zcw.6).
+    Lists all 65 staged Grocy normal recipes with flag badges:
+      HasFlattenedNesting, HasDroppedNotes, HasProducesProduct, CrosswalkMissing, NameCollision.
+    Flagged rows are highlighted. Name collisions can be resolved inline via htmx.
+*@
+
+<div class="catalog-section">
+    <h1>Step 6 — Recipe Review</h1>
+    <p>
+        Review staged Grocy recipes before committing them to Plantry.
+        Green rows are clean; highlighted rows need attention.
+        <a href="/Import">← Back to Import</a>
+    </p>
+</div>
+
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert--danger" role="alert">
+        <strong>Error.</strong> @Model.ErrorMessage
+    </div>
+}
+
+@if (!Model.ManifestExists)
+{
+    <div class="card" style="max-width: 40rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">No manifest found</h3>
+                <p class="card__head-sub">Extract a Grocy snapshot before reviewing recipes.</p>
+            </div>
+        </div>
+        <div class="card__body">
+            <a href="/Import" class="btn btn--primary">Go to Step 1 — Extract</a>
+        </div>
+    </div>
+    return;
+}
+
+@* Crosswalk status warnings *@
+@if (!Model.ProductCrosswalkFound || !Model.UnitCrosswalkFound)
+{
+    <div class="alert alert--warning" role="alert">
+        <strong>Crosswalks incomplete.</strong>
+        Some crosswalks have not been committed yet — affected ingredients will have
+        the <span class="badge badge--warning" style="font-size: 0.75rem">crosswalk?</span> flag.
+        @if (!Model.ProductCrosswalkFound) { <span>Product crosswalk missing — commit products first.</span> }
+        @if (!Model.UnitCrosswalkFound) { <span>Unit crosswalk missing — commit units first.</span> }
+    </div>
+}
+
+<div class="card" style="margin-bottom: 1.5rem">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">
+                @Model.TotalRows recipes staged
+                @if (Model.FlaggedCount > 0)
+                {
+                    <span style="margin-left: 0.75rem; font-weight: 400; font-size: 0.9rem; color: var(--color-warning-text, #92400e)">
+                        · @Model.FlaggedCount flagged
+                    </span>
+                }
+            </h3>
+            <p class="card__head-sub" style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.25rem">
+                @if (Model.NameCollisionCount > 0)
+                {
+                    <span><span class="badge badge--danger" style="font-size: 0.7rem">name collision</span> @Model.NameCollisionCount</span>
+                }
+                @if (Model.FlattenedNestingCount > 0)
+                {
+                    <span><span class="badge badge--info" style="font-size: 0.7rem">flattened</span> @Model.FlattenedNestingCount</span>
+                }
+                @if (Model.DroppedNotesCount > 0)
+                {
+                    <span><span class="badge badge--warning" style="font-size: 0.7rem">notes dropped</span> @Model.DroppedNotesCount</span>
+                }
+                @if (Model.ProducesProductCount > 0)
+                {
+                    <span><span class="badge badge--neutral" style="font-size: 0.7rem">produces</span> @Model.ProducesProductCount</span>
+                }
+                @if (Model.CrosswalkMissingCount > 0)
+                {
+                    <span><span class="badge badge--warning" style="font-size: 0.7rem">crosswalk?</span> @Model.CrosswalkMissingCount</span>
+                }
+            </p>
+        </div>
+        <div class="card__head-actions">
+            <a href="/Import" class="btn btn--ghost" style="font-size: 0.875rem">← Back to Import</a>
+        </div>
+    </div>
+
+    <div class="card__body" style="padding: 0; overflow-x: auto">
+        <table class="data-grid__table" style="min-width: 60rem" id="recipes-staging-table">
+            <caption class="data-grid__caption sr-only">Grocy recipe staging review</caption>
+            <thead>
+                <tr>
+                    <th scope="col" class="data-grid__header data-grid__cell--end" style="width: 5rem">ID</th>
+                    <th scope="col" class="data-grid__header" style="width: 24rem">Recipe name</th>
+                    <th scope="col" class="data-grid__header data-grid__cell--end" style="width: 6rem">Servings</th>
+                    <th scope="col" class="data-grid__header data-grid__cell--end" style="width: 8rem">Ingredients</th>
+                    <th scope="col" class="data-grid__header" style="width: 5rem">Photo</th>
+                    <th scope="col" class="data-grid__header" style="width: 16rem">Flags</th>
+                </tr>
+            </thead>
+            <tbody id="recipes-staging-body">
+                @foreach (var row in Model.PagedRows)
+                {
+                    <partial name="_RecipeStagingRow" model="row" />
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@* Pagination *@
+@if (Model.TotalPages > 1)
+{
+    <div style="display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0 1.5rem">
+        @if (Model.CurrentPage > 1)
+        {
+            <a href="/Import/Recipes?page=@(Model.CurrentPage - 1)" class="btn btn--ghost" style="font-size: 0.875rem">← Prev</a>
+        }
+        <span style="font-size: 0.875rem; color: var(--color-text-faint)">
+            Page @Model.CurrentPage of @Model.TotalPages (@Model.TotalRows recipes)
+        </span>
+        @if (Model.CurrentPage < Model.TotalPages)
+        {
+            <a href="/Import/Recipes?page=@(Model.CurrentPage + 1)" class="btn btn--ghost" style="font-size: 0.875rem">Next →</a>
+        }
+    </div>
+}

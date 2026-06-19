@@ -36,6 +36,18 @@ public sealed record GrocyManifest
 
     public IReadOnlyList<GrocyUserfield> Userfields { get; init; } = [];
     public IReadOnlyList<GrocyProductBarcode> ProductBarcodes { get; init; } = [];
+
+    /// <summary>
+    /// Per-recipe userfield values (recipe_id → original_recipe URL).
+    /// Only recipes where the userfield is set are included.
+    /// </summary>
+    public IReadOnlyList<GrocyRecipeUserfield> RecipeUserfields { get; init; } = [];
+
+    /// <summary>
+    /// Fetched recipe photo bytes, keyed by recipe id.
+    /// Only the 16 recipes with a <c>picture_file_name</c> are included.
+    /// </summary>
+    public IReadOnlyList<GrocyRecipePhoto> RecipePhotos { get; init; } = [];
 }
 
 /// <summary>
@@ -53,7 +65,9 @@ public sealed record ManifestCounts(
     int RecipePositions,
     int RecipeNestings,
     int Userfields,
-    int ProductBarcodes)
+    int ProductBarcodes,
+    int RecipeUserfields,
+    int RecipePhotos)
 {
     public static ManifestCounts From(GrocyManifest m) => new(
         m.Products.Count,
@@ -65,5 +79,7 @@ public sealed record ManifestCounts(
         m.RecipePositions.Count,
         m.RecipeNestings.Count,
         m.Userfields.Count,
-        m.ProductBarcodes.Count);
+        m.ProductBarcodes.Count,
+        m.RecipeUserfields.Count,
+        m.RecipePhotos.Count);
 }

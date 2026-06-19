@@ -64,6 +64,84 @@ public sealed class GrocyClient
     public Task<IReadOnlyList<GrocyProductBarcode>> GetProductBarcodesAsync(CancellationToken ct = default)
         => GetObjectsAsync<GrocyProductBarcode>("product_barcodes", ct);
 
+    /// <summary>
+    /// Fetches the photo bytes for a single recipe from <c>/api/files/recipepictures/{encodedName}</c>.
+    /// The file name is base64url-encoded per the Grocy Files API contract.
+    /// Returns null if the request fails (e.g. photo not found, network error) so callers
+    /// can skip failed photos rather than aborting the whole extract.
+    /// </summary>
+    public async Task<GrocyRecipePhoto?> GetRecipePhotoAsync(
+        int recipeId,
+        string pictureFileName,
+        CancellationToken ct = default)
+    {
+        // Grocy's Files API requires the filename to be base64url-encoded in the URL path.
+        var encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(pictureFileName))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+
+        try
+        {
+            var response = await _http.GetAsync($"api/files/recipepictures/{encoded}", ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+            return new GrocyRecipePhoto(recipeId, contentType, bytes);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Fetches all per-recipe userfield values from <c>/api/userfields/recipes/{id}</c>
+    /// for each recipe in <paramref name="recipeIds"/>. Only records where the
+    /// <c>original_recipe</c> userfield is set (non-empty) are returned.
+    /// Failed individual fetches are silently skipped.
+    /// </summary>
+    public async Task<IReadOnlyList<GrocyRecipeUserfield>> GetRecipeUserfieldsAsync(
+        IEnumerable<int> recipeIds,
+        CancellationToken ct = default)
+    {
+        var results = new List<GrocyRecipeUserfield>();
+
+        foreach (var id in recipeIds)
+        {
+            try
+            {
+                var response = await _http.GetAsync($"api/userfields/recipes/{id}", ct);
+                if (!response.IsSuccessStatusCode)
+                    continue;
+
+                var content = await response.Content.ReadAsStreamAsync(ct);
+                var dict = await JsonSerializer.DeserializeAsync<Dictionary<string, JsonElement>>(
+                    content, JsonOptions, ct);
+
+                if (dict is null)
+                    continue;
+
+                // Look for the "original_recipe" userfield value.
+                if (dict.TryGetValue("original_recipe", out var elem)
+                    && elem.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var val = elem.GetString();
+                    if (!string.IsNullOrWhiteSpace(val))
+                        results.Add(new GrocyRecipeUserfield(id, val));
+                }
+            }
+            catch
+            {
+                // Skip on error — a missing userfield is not a blocking failure.
+            }
+        }
+
+        return results;
+    }
+
     private async Task<IReadOnlyList<T>> GetObjectsAsync<T>(string objectName, CancellationToken ct)
     {
         var response = await _http.GetAsync($"api/objects/{objectName}", ct);

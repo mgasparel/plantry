@@ -1,0 +1,118 @@
+@model Plantry.Migration.Grocy.RecipeStagingRow
+
+@*
+    Partial: one row in the recipe staging review table.
+    Used both in the initial render (Recipes.cshtml) and as the htmx swap target
+    when the user resolves a name collision via inline edit.
+*@
+
+@{
+    var row = Model;
+    var hasCollision = row.HasNameCollision;
+    var isFlagged = row.IsFlagged;
+
+    var rowBg = hasCollision
+        ? "background: var(--color-danger-bg, #fff1f2)"
+        : isFlagged
+            ? "background: var(--color-warning-bg, #fffbeb)"
+            : "";
+}
+
+<tr id="recipe-row-@row.GrocyId" style="@rowBg">
+    <td class="data-grid__cell data-grid__cell--end"
+        style="color: var(--color-text-faint); font-variant-numeric: tabular-nums; font-size: 0.85rem">
+        @row.GrocyId
+    </td>
+
+    <td class="data-grid__cell">
+        @if (hasCollision)
+        {
+            @* Inline edit form for name collision — posts via htmx, swaps this row *@
+            <form hx-post="/Import/Recipes?handler=UpdateName"
+                  hx-target="#recipe-row-@row.GrocyId"
+                  hx-swap="outerHTML"
+                  style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="grocyId" value="@row.GrocyId" />
+                <input type="text"
+                       name="newName"
+                       value="@row.PlantryName"
+                       class="field__input"
+                       style="font-size: 0.875rem; min-width: 14rem"
+                       maxlength="200"
+                       required />
+                <button type="submit" class="btn btn--primary" style="font-size: 0.8rem; padding: 0.25rem 0.75rem">
+                    Save
+                </button>
+            </form>
+            <div style="font-size: 0.75rem; color: var(--color-danger-text, #991b1b); margin-top: 0.2rem">
+                Grocy name: <em>@row.GrocyName</em>
+            </div>
+        }
+        else
+        {
+            <span style="font-weight: 500">@row.PlantryName</span>
+        }
+    </td>
+
+    <td class="data-grid__cell data-grid__cell--end" style="font-size: 0.875rem; font-variant-numeric: tabular-nums">
+        @row.BaseServings
+    </td>
+
+    <td class="data-grid__cell data-grid__cell--end" style="font-size: 0.875rem; font-variant-numeric: tabular-nums">
+        @row.Ingredients.Count
+        @if (row.FlattenedSubRecipeNames.Count > 0)
+        {
+            <span style="font-size: 0.75rem; color: var(--color-text-faint)">
+                (+@(row.Ingredients.Count(i => i.IsFromNesting)) inlined)
+            </span>
+        }
+    </td>
+
+    <td class="data-grid__cell" style="font-size: 0.875rem">
+        @if (row.PhotoBytes is not null)
+        {
+            <span style="color: var(--color-success-text, #166534)">yes</span>
+        }
+        else
+        {
+            <span style="color: var(--color-text-faint)">—</span>
+        }
+    </td>
+
+    <td class="data-grid__cell">
+        <div style="display: flex; flex-wrap: wrap; gap: 0.25rem">
+            @if (hasCollision)
+            {
+                <span class="badge badge--danger" style="font-size: 0.7rem"
+                      title="A recipe with this name already exists">name collision</span>
+            }
+            @if (row.HasFlattenedNesting)
+            {
+                <span class="badge badge--info" style="font-size: 0.7rem"
+                      title="Sub-recipe ingredients were inlined: @string.Join(", ", row.FlattenedSubRecipeNames)">
+                    flattened
+                </span>
+            }
+            @if (row.HasDroppedNotes)
+            {
+                <span class="badge badge--warning" style="font-size: 0.7rem"
+                      title="Some ingredient notes were dropped (no per-ingredient note in Plantry)">notes dropped</span>
+            }
+            @if (row.HasProducesProduct)
+            {
+                <span class="badge badge--neutral" style="font-size: 0.7rem"
+                      title="This recipe has a produces-product link — the link is dropped; the product name is appended to source">produces</span>
+            }
+            @if (row.HasCrosswalkMissing)
+            {
+                <span class="badge badge--warning" style="font-size: 0.7rem"
+                      title="A product or unit crosswalk entry is missing for at least one ingredient">crosswalk?</span>
+            }
+            @if (!isFlagged)
+            {
+                <span class="badge badge--success" style="font-size: 0.7rem">ok</span>
+            }
+        </div>
+    </td>
+</tr>

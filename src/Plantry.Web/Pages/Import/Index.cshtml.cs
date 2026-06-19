@@ -119,6 +119,8 @@ public sealed class IndexModel(
                 Row("Recipe nestings",  c.RecipeNestings,         "Sub-recipe inclusions on normal recipes"),
                 Row("Userfields",       c.Userfields,             "Incl. recipes.original_recipe (source URL)"),
                 Row("Product barcodes", c.ProductBarcodes,        "Parked (no catalog barcode field)"),
+                Row("Recipe source URLs", c.RecipeUserfields,     "original_recipe userfield values"),
+                Row("Recipe photos",    c.RecipePhotos,           "Fetched during extract"),
             ],
             EmptyMessage: "No collections found.",
             Id: "grocy-manifest-grid");

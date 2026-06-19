@@ -70,6 +70,24 @@ public sealed class ExtractCommand
             .Where(n => normalRecipeIds.Contains(n.RecipeId))
             .ToList();
 
+        // Fetch per-recipe userfield values (original_recipe URL) for all normal recipes.
+        // These are not available as a bulk endpoint — one call per recipe.
+        var recipeUserfields = await _client.GetRecipeUserfieldsAsync(
+            normalRecipes.Select(r => r.Id), ct);
+
+        // Fetch photos for the 16 recipes that have a picture_file_name.
+        // Failed individual fetches (network, 404) are silently skipped — photos are
+        // non-blocking and the review screen shows a "no photo" placeholder for missing ones.
+        var photoTasks = normalRecipes
+            .Where(r => !string.IsNullOrWhiteSpace(r.PictureFileName))
+            .Select(r => _client.GetRecipePhotoAsync(r.Id, r.PictureFileName!, ct));
+
+        var photoResults = await Task.WhenAll(photoTasks);
+        var recipePhotos = photoResults
+            .Where(p => p is not null)
+            .Select(p => p!)
+            .ToList();
+
         var manifest = new GrocyManifest
         {
             ExtractedAt = DateTimeOffset.UtcNow,
@@ -83,6 +101,8 @@ public sealed class ExtractCommand
             RecipeNestings = normalNestings,
             Userfields = await userfieldsTask,
             ProductBarcodes = await barcodesTask,
+            RecipeUserfields = recipeUserfields,
+            RecipePhotos = recipePhotos,
         };
 
         var filePath = ResolveManifestPath();

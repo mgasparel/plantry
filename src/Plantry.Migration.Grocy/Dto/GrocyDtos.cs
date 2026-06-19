@@ -114,3 +114,34 @@ public sealed record GrocyProductBarcode(
     [property: JsonPropertyName("shopping_location_id")] int? ShoppingLocationId,
     [property: JsonPropertyName("row_created_timestamp")] string? RowCreatedTimestamp
 );
+
+/// <summary>
+/// Photo bytes fetched from the Grocy API (/api/files/recipepictures/{name}).
+/// Stored in the manifest so the extraction phase is the only stage that requires
+/// a live Grocy connection. Content is base64-encoded for JSON transport.
+/// </summary>
+public sealed record GrocyRecipePhoto(
+    /// <summary>Grocy recipe.id that owns this photo.</summary>
+    [property: JsonPropertyName("recipeId")] int RecipeId,
+    /// <summary>
+    /// MIME content-type from the Grocy response (e.g. "image/jpeg", "image/png").
+    /// Null if the Content-Type header was absent or could not be determined.
+    /// </summary>
+    [property: JsonPropertyName("contentType")] string? ContentType,
+    /// <summary>Raw photo bytes from the Grocy file API.</summary>
+    [property: JsonPropertyName("bytes")] byte[] Bytes
+);
+
+/// <summary>
+/// Per-recipe userfield values from the Grocy API (/api/userfields/recipes/{id}).
+/// Grocy's userfield system stores arbitrary key-value pairs per entity.
+/// For recipes, only one userfield is in scope: <c>original_recipe</c> (type link, URL).
+/// </summary>
+public sealed record GrocyRecipeUserfield(
+    /// <summary>Grocy recipe.id that these userfield values belong to.</summary>
+    [property: JsonPropertyName("recipeId")] int RecipeId,
+    /// <summary>
+    /// Value of the <c>original_recipe</c> userfield — the source URL, or null when not set.
+    /// </summary>
+    [property: JsonPropertyName("originalRecipe")] string? OriginalRecipe
+);
