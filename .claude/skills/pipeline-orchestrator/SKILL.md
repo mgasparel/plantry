@@ -19,7 +19,7 @@ The long-running loop that closes the circuit between `bd ready` and a merged
 commit on `main` with no human in the loop. It owns the three things that race
 across concurrent workers: **issue selection** (atomic claim before dispatch),
 **dispatch** (bounded parallel — up to `MAX_WORKERS=3` simultaneously), and
-**merge to main** (serial, rebase-then-fast-forward, one at a time).
+**merge to main** (serial, one PR at a time via `gh pr merge --auto`).
 
 ## Invocation
 
@@ -90,59 +90,50 @@ WORKTREE: ../worktrees/<issue-id>
 
 For each `RESULT: PASS`, in the order issues were dispatched (oldest first):
 
-1. **Fetch latest main:**
+Parse the `PR:` field from the verdict block to get the PR URL (e.g.
+`https://github.com/owner/repo/pull/123`). Extract the PR number from the URL.
+
+1. **Enable auto-merge:**
    ```bash
-   git fetch origin main
+   gh pr merge <pr-number> --auto --merge
    ```
 
-2. **Rebase the issue branch onto origin/main** (from inside the issue's
-   worktree so git operates on the checked-out branch without conflicting with
-   the main worktree):
+   `--auto` queues the merge for when all required status checks pass. `--merge`
+   creates a merge commit (preserves branch history; consistent with the local
+   merge commits the old flow produced). Once branch protection is active this
+   waits for CI + required reviewers; before it's active GitHub merges immediately.
+
+   If `gh pr merge` fails (PR already merged, closed, or auth error):
+   - If already merged: proceed to step 3 (poll will confirm quickly).
+   - Otherwise: park with reason `merge-failed:<gh-error>` and skip to the next PASS verdict.
+
+2. **Wait for the merge to complete** (poll every 30 s, timeout 30 min):
    ```bash
-   git -C ../worktrees/<issue-id> rebase origin/main
+   gh pr view <pr-number> --json state,mergedAt --jq '.state + " " + (.mergedAt // "null")'
    ```
 
-   If the rebase **produces conflicts**:
-   - Abort: `git -C ../worktrees/<issue-id> rebase --abort`
-   - Park post-PASS (the branch is good, but can't land cleanly right now):
-     ```bash
-     bd update <issue-id> --status blocked
-     bd update <issue-id> --add-label needs-human
-     bd update <issue-id> --notes "Auto-parked post-PASS: rebase conflict onto origin/main. Branch issue/<issue-id> preserved."
-     ```
-   - Skip to the next PASS verdict.
+   Loop until `state == "MERGED"`. On timeout: park with reason `merge-timeout`
+   (CI may still be running; the branch is preserved, auto-merge is armed).
 
-3. **Fast-forward main** to the rebased branch:
+   While waiting, if `state == "CLOSED"` (PR closed without merge): park with
+   reason `pr-closed-unmerged` and skip to next PASS verdict.
+
+3. **Comment results and close** (only after merge confirmed):
    ```bash
-   git merge --ff-only issue/<issue-id>
-   ```
-   (Run from `code/`, which is checked out on `main`.)
-
-   If `--ff-only` fails (main moved between fetch and merge): loop back to
-   step 1 of this sequence and retry up to 3 times. After 3 failed attempts:
-   park with reason `merge-race-exhausted` and skip to the next PASS verdict.
-
-4. **Push main:**
-   ```bash
-   git push origin main
-   ```
-
-   If push fails: `git pull --rebase origin main` then retry once. If still
-   fails: park with reason `push-failed` and skip to the next PASS verdict.
-
-5. **Comment results and close:**
-   ```bash
-   bd update <issue-id> --notes "Merged to main. Critic passes: <pass_count>. Preflight: <preflight-path>. DEFER follow-ups: <bead-ids or 'none'>. NOTE: <note-count> (see preflight report and issue comments)."
+   bd update <issue-id> --notes "Merged to main via PR #<pr-number>. Critic passes: <pass_count>. Preflight: <preflight-path>. DEFER follow-ups: <bead-ids or 'none'>. NOTE: <note-count> (see preflight report and issue comments)."
    bd close <issue-id>
    ```
 
-6. **Clean up:**
+4. **Clean up** (after `bd close` succeeds):
    ```bash
    git worktree remove ../worktrees/<issue-id> --force
    git branch -d issue/<issue-id>
    ```
 
-7. Log: "MERGED: <issue-id> — <issue title>. Branch issue/<issue-id> landed on main."
+   If the worktree directory is locked (Windows build artifacts): skip `--force`
+   removal and log the path — the branch is deleted; cosmetic cleanup only.
+
+5. Log: "MERGED: <issue-id> — <issue title>. PR #<pr-number> landed on main."
 
 ### Step 3b — On FAILED verdicts
 
@@ -160,19 +151,19 @@ After all verdicts are processed, immediately return to Step 1.
 ## Safety invariants
 
 - **Workers never touch main.** They commit only on `issue/<id>` inside their
-  worktree.
+  worktree, then push to `origin/issue/<id>` and open a PR.
 - **Claiming is atomic before dispatch.** An issue is always in `in_progress`
   before a worker starts; `bd ready` returns only `status=open` issues, so a
   claimed issue cannot be double-dispatched.
 - **Only green branches merge.** `RESULT: FAILED` issues are parked; their
-  branches are never merged.
-- **Merges are serial.** Even though workers run in parallel, merges execute
-  one at a time — fetch → rebase → ff → push → next. This keeps `--ff-only`
-  from racing against itself.
-- **Rebase conflicts post-PASS park, not bypass.** The pre-flight passed but
-  the branch can no longer land cleanly — park rather than force-merge or lose
-  the work.
+  PRs are left open for human review.
+- **Merges are serial.** Even though workers run in parallel, each `gh pr merge
+  --auto` call is made and awaited one at a time — enabling auto-merge → wait
+  for confirmed merge → close bead → next. This prevents race conditions in
+  `bd close` and worktree cleanup.
+- **`bd close` only fires post-merge.** A bead is never closed for a PR that
+  later fails CI. The poll loop confirms `state == "MERGED"` before closing.
 - **The loop's worst failure mode is idle**, not a broken main. If the
   orchestrator crashes mid-loop, in-progress issues stay `in_progress` (not
-  re-claimable until manually reset). Branches are either clean (PASS, not yet
-  merged) or quarantined (FAILED, parked).
+  re-claimable until manually reset). Branches are either armed for auto-merge
+  (PASS, awaiting CI) or quarantined (FAILED, parked).
