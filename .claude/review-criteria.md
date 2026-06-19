@@ -85,10 +85,29 @@ do not duplicate or diverge in either consumer.**
 - The server renders domain state as HTML directly — there is no client-side shadow
   model of domain data. JS that recomputes something the server already computed
   (fulfillment %, cost per serving, totals) is exactly the drift this rules out.
-- **Component library is the single source of truth.** `src/Plantry.Web/Pages/Dev/Index.cshtml`
-  is the definitive catalogue of every reusable Razor tag helper/partial and canonical
-  CSS pattern. Flag markup that re-implements a pattern already in the library, and any
-  new component added directly to a feature page that bypasses the library.
+- **The component library is the source of truth for *shared, reusable* UI — not an
+  inventory of every element.** `src/Plantry.Web/Pages/Dev/Index.cshtml` catalogues the
+  cross-cutting building blocks feature pages compose with: reusable Razor tag
+  helpers/partials (`<field>`, `_DataGrid`, `_CatChip`) and canonical CSS patterns reused
+  across pages (`.card`, `.seg-ctrl`, badges, pills, steppers, `searchable-select`). Its
+  purpose is to prevent **divergent re-implementations of the same primitive** — not to
+  register every screen.
+- **Reuse before you build; extract before you repeat.** When a page needs a UI element,
+  check the library for an existing primitive and compose from it — don't reinvent a
+  near-duplicate. Conversely, when the same markup is written more than once (or a clearly
+  reusable widget is built inline on a feature page), that is a finding: extract it into a
+  tag helper / partial / CSS pattern in the library and have the call sites consume it.
+  **Duplicated markup is the smell — not the absence of a registry entry.** Four divergent
+  steppers (`.qty-stepper`, `.recipe-servings-stepper`, `.rd-serv-stepper`,
+  `.sl-qty-stepper`) or several near-identical filter-chip / progress-bar implementations
+  are exactly what this rules out.
+- **Page-specific layout is not a library component.** A whole-page scaffold
+  (`.today-grid`, `.rd-grid`), a feature-screen region (the `.sl-*` shopping rows,
+  `.recipe-card`, the intake dropzone/scan states), or any section with a `feature-name-`
+  prefix and a single call site belongs on its feature page, *not* in the library.
+  **Inclusion test:** a thing earns a library entry only if it is reused across pages or is
+  a generic primitive any page could pick up. Do not flag — or require library registration
+  for — single-use markup that merely *composes* existing primitives.
 
 ## Gate 7 — Persistence conventions
 
