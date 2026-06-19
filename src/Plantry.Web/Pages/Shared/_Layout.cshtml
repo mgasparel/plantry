@@ -19,6 +19,7 @@
         ["MealPlan"] = "Meal Plan",
         ["More"] = "More",
         ["Dev"] = "Components",
+        ["Import"] = "Grocy Import",
     };
     var crumbIcons = new Dictionary<string, string>
     {
@@ -32,6 +33,7 @@
         ["Settings"] = "settings",
         ["More"] = "grid",
         ["Dev"] = "components",
+        ["Import"] = "import",
     };
     var parents = segments.Length > 0 && actionNames.Contains(segments[^1])
         ? segments[..^1]
@@ -151,6 +153,9 @@
         <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
         </symbol>
+        <symbol id="i-import" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12" /><path d="M7 11l5 5 5-5" /><path d="M3 19h18" />
+        </symbol>
     </svg>
 
     @* Desktop sidebar (hidden below md breakpoint via CSS) *@
@@ -214,6 +219,9 @@
             {
                 <a href="/Dev" class="sidebar__link@(NavActive("/Dev"))">
                     <svg class="icon" aria-hidden="true"><use href="#i-components" /></svg> Components
+                </a>
+                <a href="/Import" class="sidebar__link@(NavActive("/Import"))">
+                    <svg class="icon" aria-hidden="true"><use href="#i-import" /></svg> Grocy Import
                 </a>
             }
             <a href="/Settings" class="sidebar__link@(NavActive("/Settings"))">
