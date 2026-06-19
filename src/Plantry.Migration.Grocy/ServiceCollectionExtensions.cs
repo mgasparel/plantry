@@ -28,6 +28,8 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ExtractCommand>();
         services.AddScoped<UnitCommitService>();
+        services.AddScoped<CategoryCommitService>();
+        services.AddScoped<LocationCommitService>();
 
         return services;
     }
