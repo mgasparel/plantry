@@ -330,13 +330,42 @@ EOF
 - Body explains why, not what — the diff already shows what.
 - Interpretations belong on the issue (Step 1), not in the commit message.
 
-## Step 5.5 — Write completion comment
+## Step 5.5 — Push branch + open PR
+
+After the commit succeeds, push the branch and open a draft PR:
 
 ```bash
-bd comment <issue-id> "Implementation complete. Branch: issue/<issue-id>. Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups> Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>"
+git -C ../worktrees/<issue-id> push -u origin issue/<issue-id>
+gh pr create \
+  --title "<title from bd show output>" \
+  --body "$(cat <<'PRBODY'
+Implements beads issue <issue-id>.
+
+**Description:** <one paragraph from the bead description>
+
+**Acceptance criteria:**
+<verbatim acceptance criteria from bd show>
+
+Pre-flight: PASS — build, unit/arch/integration/E2E, Opus critic (<pass_count> pass(es))
+PRBODY
+)" \
+  --base main \
+  --head issue/<issue-id>
 ```
 
-Write this after the commit succeeds, before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.
+Capture the PR URL from `gh pr create` output. It is included in the verdict and completion comment.
+
+If `gh pr create` fails (e.g. no GitHub remote configured, auth not set up): log the error as a NOTE in the completion comment and continue to Step 5.6 — do not park solely on a PR creation failure. The branch is pushed; the PR can be opened manually.
+
+## Step 5.6 — Write completion comment
+
+```bash
+bd comment <issue-id> "Implementation complete. Branch: issue/<issue-id>. PR: <pr-url>. Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups> Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>"
+```
+
+Write this after the push and PR creation, before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.
+
+**Cleanup timing note:** Do NOT remove the worktree or delete the local branch here. Cleanup happens post-merge (the pipeline orchestrator or operator does this after the PR merges via `git worktree remove` + `git branch -d`). Premature cleanup breaks the CI gate that runs against the pushed branch.
 
 ## Step 6 — Return verdict
 
@@ -345,6 +374,7 @@ Write this after the commit succeeds, before returning the verdict. Keep it to o
 RESULT: PASS
 ISSUE: <issue-id>
 BRANCH: issue/<issue-id>
+PR: <pr-url>
 WORKTREE: ../worktrees/<issue-id>
 CRITIC_PASSES: <pass_count>
 TESTS_RUN: <per-category executed/passed counts, e.g. Unit 600/600, Integration 114/114, E2E 2/2, Architecture 26/26; name any skipped suite>
@@ -368,6 +398,7 @@ Triggered by any condition in the table below:
 | 3 Opus critic passes, still FAILED | `critic-loop-exhausted` |
 | Significantly underspecified — can't determine what to build | `underspecified-scope` |
 | Unmerged dependency blocking work | `blocked-on-dependency` |
+| Local pre-flight PASS but GitHub Actions CI failed on the pushed branch | `ci-failed` |
 | Unexpected unrecoverable error | `unrecoverable-error:<detail>` |
 
 1. Write `.preflight/<timestamp>-issue-<issue-id>.md` documenting the failure stage
@@ -391,6 +422,7 @@ Triggered by any condition in the table below:
    RESULT: FAILED
    ISSUE: <issue-id>
    BRANCH: issue/<issue-id>
+   PR: <pr-url if branch was pushed and PR opened, else "none">
    WORKTREE: ../worktrees/<issue-id>
    REASON: <reason-string>
    PREFLIGHT: .preflight/<timestamp>-issue-<issue-id>.md
