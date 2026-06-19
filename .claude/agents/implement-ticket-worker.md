@@ -112,27 +112,45 @@ Run from `../worktrees/<issue-id>/`.
 
 ### 4b. Test
 
+Run the full solution using `repowise distill` so errors appear first in the output. Use the
+Bash tool with `timeout: 600000` (10 minutes) — the E2E suite boots a live Aspire stack and
+takes ~90s on a clean run; the default 2-minute Bash timeout is too tight and will cause
+spurious failures that accumulate zombie shells.
+
 ```bash
-dotnet test Plantry.sln
+repowise distill dotnet test Plantry.sln --nologo
 ```
 
-Run from `../worktrees/<issue-id>/`. Run the **whole solution** — do not narrow to a
-subset of projects or apply a category filter. The E2E suite (`Plantry.Tests.E2E`)
-boots a live Aspire stack (Docker + web app) and is part of the gate, not optional.
+Run from `../worktrees/<issue-id>/`.
 
-Capture per-category **executed/passed/skipped** counts (Unit, Integration, E2E,
-Architecture) and any failing test names + messages.
+Capture per-category **executed/passed/skipped** counts (Unit, Integration, E2E, Architecture)
+and any failing test names + messages.
 
-- **FAILED**: apply targeted fixes and loop back to 4a.
-- Still broken after 3 consecutive test-fix attempts: **Park** (`test-loop-exhausted`).
-- **A test suite that an acceptance criterion depends on did not execute** (zero tests
-  run for that category, the project was skipped, or its fixture failed to start) is a
-  **hard stop, not a footnote** — a written-but-unexecuted test verifies nothing. Treat
-  it exactly like a test failure: try to make it run (e.g. start Docker for the E2E
-  fixture) and loop back to 4a. If it still cannot be made to execute green after 3
-  attempts, **Park** (`test-loop-exhausted` if it runs-but-fails; `unrecoverable-error:<detail>`
-  if the suite genuinely cannot run in this environment). Never PASS a slice whose
-  acceptance criteria require a suite that did not run green.
+**Before retrying on any E2E failure — distinguish infrastructure from code:**
+
+Check the output for these infrastructure failure signals:
+- `password authentication failed` / `28P01`
+- `Unable to connect` / `connection refused`
+- `Failed to start` / `failed to become healthy`
+- E2E executed **zero tests** (fixture threw before any test ran)
+
+If any of these are present, the Aspire stack itself failed — **no code fix can help**. Park
+immediately as `unrecoverable-error:e2e-infra:<first error line>`. Do not loop back to 4a.
+
+If E2E tests executed (count > 0) but some failed, that is a code failure — apply a targeted
+fix and loop back to 4a as normal.
+
+**Handling all outcomes:**
+
+| Outcome | Action |
+|---------|--------|
+| All suites green | PASS — continue to 4c |
+| E2E zero tests + infrastructure error in output | Park (`unrecoverable-error:e2e-infra:<detail>`) |
+| E2E tests ran but failed | Apply targeted fix, loop back to 4a |
+| Non-E2E test failed | Apply targeted fix, loop back to 4a |
+| Bash tool timed out (>10 min) | **Do not retry immediately.** Check whether `plantry-web Running` appears in output. If not, Park (`unrecoverable-error:e2e-stack-failed-to-start`). If it started but tests ran long, Park (`unrecoverable-error:e2e-timeout`). Never spawn a second test run while a previous one may still be running. |
+| Still failing after 3 consecutive fix attempts | Park (`test-loop-exhausted`) |
+
 - **PASS**: continue to 4c. Carry the per-category executed/skipped counts forward —
   they are reported in the verdict (Step 6) and must show every acceptance-criterion-bearing
   suite as executed green.

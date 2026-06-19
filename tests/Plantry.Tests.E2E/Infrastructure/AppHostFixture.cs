@@ -1,8 +1,8 @@
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
-using Aspire.Hosting.Testing;
 
 namespace Plantry.Tests.E2E.Infrastructure;
 
@@ -28,6 +28,13 @@ public sealed class AppHostFixture : IAsyncLifetime
         var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Plantry_AppHost>([
             "--environment=Testing"
         ]);
+
+        // Remove the named data volume from postgres so each E2E run gets a fresh ephemeral container.
+        // Without this, the volume persists the postgres data directory (including its password) across
+        // runs; when Aspire generates a new random password the next run, auth fails.
+        var postgresResource = appHost.Resources.OfType<PostgresServerResource>().Single();
+        foreach (var mount in postgresResource.Annotations.OfType<ContainerMountAnnotation>().ToList())
+            postgresResource.Annotations.Remove(mount);
 
         // Swap the real Gemini receipt parser for a deterministic, no-network, no-API-key fake on the
         // web process — so the intake E2E journey (ReceiptIntakeJourneyTests) never hits a live AI call
