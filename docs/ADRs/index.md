@@ -22,3 +22,4 @@ Architecture Decision Records for Plantry.
 | [ADR-016](ADR-016.md) | CI/CD pipeline and release process (build → GHCR → Compose; CI as a serial merge gate) — supersedes ADR-012 | Accepted |
 | [ADR-017](ADR-017.md) | Database migrations applied by an explicit one-shot migrator, not on app startup | Accepted |
 | [ADR-018](ADR-018.md) | Fully agentic engineering | Accepted |
+| [ADR-019](ADR-019.md) | Skills until they break: keep agentic tooling minimal, escalate on concrete triggers | Accepted |
