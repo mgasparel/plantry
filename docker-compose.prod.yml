@@ -1,0 +1,90 @@
+# Production Docker Compose for Plantry (ADR-016 Decision 2)
+# Hand-maintained — NOT the Aspire-generated aspire-output/docker-compose.yaml.
+# The Aspire-generated file bundles the dashboard and passes superuser creds to the web app.
+#
+# Usage:
+#   cp .env.example .env          # first-time setup
+#   $EDITOR .env                  # fill in real secrets (chmod 600 .env)
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Deploy procedure (what CD does — per ADR-016 and docs/Operations/deployment.md):
+#   export PLANTRY_WEB_IMAGE=ghcr.io/<org>/plantry-web:<sha>
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml run --rm migrator
+#   docker compose -f docker-compose.prod.yml up -d plantry-web
+#   curl -fsS https://${DOMAIN}/alive
+#
+# See docs/Operations/deployment.md for the full runbook.
+
+services:
+
+  # ── Postgres ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: plantrydb
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready is more reliable than a TCP check and works without the psql client.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d plantrydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Migrator (one-shot) ───────────────────────────────────────────────────
+  # Applies all EF migrations with owner credentials and reconciles the
+  # app_user password, then exits. Web will not start until this completes
+  # successfully (service_completed_successfully). See ADR-017.
+  migrator:
+    image: ${MIGRATOR_IMAGE:-ghcr.io/gastownhall/plantry/migrator:latest}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Database__AppUserPassword: ${APP_USER_PASSWORD}
+
+  # ── Plantry Web ───────────────────────────────────────────────────────────
+  # Connects as the least-privilege app_user only — never the owner.
+  # Row-level security enforces household data isolation at the database layer.
+  plantry-web:
+    image: ${PLANTRY_WEB_IMAGE:-ghcr.io/gastownhall/plantry/web:latest}
+    restart: unless-stopped
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD}"
+      Database__AppUserPassword: ${APP_USER_PASSWORD}
+      # Optional: omit to degrade AI features to a locked-feature UI (the app still runs).
+      AI__ApiKey: ${AI_API_KEY:-}
+    # Web is not exposed directly — Caddy handles TLS termination and reverse proxying.
+
+  # ── Caddy (TLS termination + reverse proxy) ───────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - plantry-web
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"    # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
