@@ -124,12 +124,13 @@ public sealed class ProductCommitService(
         var crosswalkPath = ProductCrosswalk.ResolvePath(manifestFilePath);
         var existingCrosswalk = await ProductCrosswalk.TryReadAsync(crosswalkPath, ct);
         var crosswalkMappings = existingCrosswalk?.Mappings is not null
-            ? new Dictionary<string, Guid>(existingCrosswalk.Mappings)
-            : new Dictionary<string, Guid>();
+            ? new Dictionary<string, Guid?>(existingCrosswalk.Mappings)
+            : new Dictionary<string, Guid?>();
 
         var results = new List<ProductCommitResult>(stagingRows.Count);
 
         // ── Step 1: Commit parents first ────────────────────────────────────
+        // Dropped rows are recorded in the crosswalk as null and excluded from commit.
         var parentRows  = stagingRows.Where(r => !r.IsVariant).OrderBy(r => r.GrocyId).ToList();
         var variantRows = stagingRows.Where(r => r.IsVariant).OrderBy(r => r.GrocyId).ToList();
 
@@ -150,10 +151,11 @@ public sealed class ProductCommitService(
         // ── Step 2: Commit variants (parent must already be committed) ───────
         foreach (var row in variantRows)
         {
-            // Resolve parent's Plantry id from crosswalk
+            // Resolve parent's Plantry id from crosswalk (null entries = dropped parent)
             Guid? parentPlantryId = null;
             if (row.GrocyParentProductId is { } parentGrocyId
-                && crosswalkMappings.TryGetValue(parentGrocyId.ToString(), out var parentId))
+                && crosswalkMappings.TryGetValue(parentGrocyId.ToString(), out var parentIdNullable)
+                && parentIdNullable is { } parentId)
             {
                 parentPlantryId = parentId;
             }
@@ -174,7 +176,7 @@ public sealed class ProductCommitService(
         var crosswalk = new ProductCrosswalk
         {
             CommittedAt = DateTimeOffset.UtcNow,
-            Mappings    = crosswalkMappings,
+            Mappings    = new Dictionary<string, Guid?>(crosswalkMappings),
         };
         await crosswalk.WriteAsync(crosswalkPath, ct);
 
@@ -186,13 +188,42 @@ public sealed class ProductCommitService(
     private async Task<ProductCommitResult> CommitProductRowAsync(
         ProductStagingRow row,
         Guid? parentPlantryId,
-        Dictionary<string, Guid> crosswalkMappings,
+        Dictionary<string, Guid?> crosswalkMappings,
         Dictionary<int, List<GrocyQuantityUnitConversion>> productConversionsByGrocyId,
         Dictionary<(int, int), decimal> globalConversionFactors,
         IReadOnlyDictionary<int, Guid>? unitCrosswalk,
         Dictionary<int, Dimension> unitDimensionByGrocyId,
         CancellationToken ct)
     {
+        // User-dropped: record a null sentinel in the crosswalk and skip commit.
+        if (row.IsDropped)
+        {
+            // Re-runs: if already recorded as null, leave it; otherwise write null.
+            if (!crosswalkMappings.ContainsKey(row.GrocyId.ToString()))
+                crosswalkMappings[row.GrocyId.ToString()] = null;
+
+            return new ProductCommitResult(
+                row.GrocyId, row.GrocyName,
+                Skipped: true, Success: true,
+                PlantryProductId: null,
+                ErrorMessage: "Dropped: user marked this product as dropped on the review screen.",
+                Conversions: [],
+                Sku: null);
+        }
+
+        // Re-run: if this grocy_id was previously dropped (null entry), skip again.
+        if (crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingDroppedCheck)
+            && existingDroppedCheck is null)
+        {
+            return new ProductCommitResult(
+                row.GrocyId, row.GrocyName,
+                Skipped: true, Success: true,
+                PlantryProductId: null,
+                ErrorMessage: "Dropped: previously marked as dropped (null in crosswalk).",
+                Conversions: [],
+                Sku: null);
+        }
+
         // Skip products where the unit crosswalk is missing — we cannot create them without a valid unit
         if (row.DefaultUnitId is null)
         {
@@ -212,7 +243,8 @@ public sealed class ProductCommitService(
             SkuCommitResult? skuResult = null;
 
             // ── Idempotency: already in crosswalk? ──────────────────────────
-            if (crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingId))
+            if (crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingIdNullable)
+                && existingIdNullable is { } existingId)
             {
                 plantryId = existingId;
                 // Still need to proceed to add any missing conversions/SKUs on re-run

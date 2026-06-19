@@ -193,7 +193,7 @@ public sealed class RecipeCommitServiceTests
         var crosswalk = new RecipeCrosswalk
         {
             CommittedAt = DateTimeOffset.UtcNow,
-            Mappings    = new Dictionary<string, Guid> { ["5"] = existingRecipe.Id.Value },
+            Mappings    = new Dictionary<string, Guid?> { ["5"] = existingRecipe.Id.Value },
         };
         await crosswalk.WriteAsync(crosswalkPath);
 
@@ -364,6 +364,77 @@ public sealed class RecipeCommitServiceTests
         // Photo already present (same length) → AlreadyPresent, no extra SaveChanges for photo
         Assert.Equal(RecipeCommitService.PhotoCommitDisposition.AlreadyPresent, secondResults[0].PhotoDisposition);
         Assert.Equal(savesBefore, h.Recipes.SaveChangesCalls); // no new saves
+    }
+
+    // ──────────── IsDropped: dropped recipe skipped, null written to crosswalk ─
+
+    [Fact]
+    public async Task CommitAsync_DroppedRecipe_SkippedAndNullWrittenToCrosswalk()
+    {
+        var h = BuildHarness();
+        var manifestPath = ManifestPath();
+        var crosswalkPath = RecipeCrosswalk.ResolvePath(manifestPath);
+
+        if (File.Exists(crosswalkPath)) File.Delete(crosswalkPath);
+
+        var row = MakeRow(55, "Unwanted Recipe",
+            ingredients: [MakeIngredient(1, ProductAId, UnitId, 100m)]);
+        row.IsDropped = true;
+
+        var (results, _) = await h.Service.CommitAsync([row], manifestPath, default);
+
+        var result = Assert.Single(results);
+        Assert.True(result.Skipped);
+        Assert.True(result.Success);
+        Assert.Null(result.PlantryRecipeId);
+
+        // Not committed to the recipe repo
+        Assert.Empty(h.Recipes.Items);
+
+        // Crosswalk written with null sentinel entry
+        Assert.True(File.Exists(crosswalkPath));
+        var loaded = await RecipeCrosswalk.TryReadAsync(crosswalkPath);
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.Mappings.ContainsKey("55"));
+        Assert.Null(loaded.Mappings["55"]);
+
+        if (File.Exists(crosswalkPath)) File.Delete(crosswalkPath);
+    }
+
+    [Fact]
+    public async Task CommitAsync_ReRun_DroppedRecipeInCrosswalk_StaysSkipped()
+    {
+        // On re-run, a recipe whose crosswalk entry is null stays skipped even
+        // if IsDropped is false (the drop decision persists in the crosswalk).
+        var h = BuildHarness();
+        var manifestPath = ManifestPath();
+        var crosswalkPath = RecipeCrosswalk.ResolvePath(manifestPath);
+
+        // Pre-seed a crosswalk with a null entry
+        var priorCrosswalk = new RecipeCrosswalk
+        {
+            CommittedAt = DateTimeOffset.UtcNow,
+            Mappings    = new Dictionary<string, Guid?> { ["77"] = null },
+        };
+        await priorCrosswalk.WriteAsync(crosswalkPath);
+
+        var row = MakeRow(77, "Was Dropped",
+            ingredients: [MakeIngredient(1, ProductAId, UnitId, 100m)]);
+        // IsDropped = false (user didn't re-check it, but it was dropped in prior run)
+
+        var (results, _) = await h.Service.CommitAsync([row], manifestPath, default);
+
+        var result = Assert.Single(results);
+        Assert.True(result.Skipped);
+        Assert.True(result.Success);
+        Assert.Empty(h.Recipes.Items);
+
+        // Null entry preserved
+        var reloaded = await RecipeCrosswalk.TryReadAsync(crosswalkPath);
+        Assert.NotNull(reloaded);
+        Assert.Null(reloaded!.Mappings["77"]);
+
+        if (File.Exists(crosswalkPath)) File.Delete(crosswalkPath);
     }
 
     // ──────────── Helpers ────────────────────────────────────────────────────

@@ -101,7 +101,8 @@
             <a href="/Import" class="btn btn--ghost" style="font-size: 0.875rem">← Back to Import</a>
             @if (Model.ManifestExists && Model.ProductCrosswalkFound && Model.UnitCrosswalkFound)
             {
-                <form method="post" asp-page-handler="CommitRecipes" style="display: inline">
+                @* The form id is referenced by hidden inputs in row partials (form="commit-recipes-form"). *@
+                <form method="post" asp-page-handler="CommitRecipes" style="display: inline" id="commit-recipes-form">
                     @Html.AntiForgeryToken()
                     <button type="submit" class="btn btn--primary" style="font-size: 0.875rem">
                         @if (Model.RecipeCrosswalkFound)
@@ -129,6 +130,7 @@
                     <th scope="col" class="data-grid__header data-grid__cell--end" style="width: 8rem">Ingredients</th>
                     <th scope="col" class="data-grid__header" style="width: 5rem">Photo</th>
                     <th scope="col" class="data-grid__header" style="width: 16rem">Flags</th>
+                    <th scope="col" class="data-grid__header" style="width: 4.5rem; text-align: center">Drop</th>
                 </tr>
             </thead>
             <tbody id="recipes-staging-body">

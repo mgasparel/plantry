@@ -139,6 +139,15 @@ public sealed class ProductStagingRow
     /// </summary>
     public int? ParentGrocyId => GrocyParentProductId;
 
+    // ──────────── User drop disposition ───────────────────────────────────────
+
+    /// <summary>
+    /// True when the user has explicitly marked this product as dropped on the review screen.
+    /// Dropped products are skipped by <see cref="ProductCommitService"/> and recorded as null
+    /// entries in the product-crosswalk.json so re-runs recognise them as intentionally skipped.
+    /// </summary>
+    public bool IsDropped { get; set; }
+
     // ──────────── Status flags ─────────────────────────────────────────────
 
     /// <summary>Combination of <see cref="ProductStagingFlags"/> describing any issues with this product.</summary>

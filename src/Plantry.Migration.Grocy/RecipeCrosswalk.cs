@@ -28,10 +28,14 @@ public sealed class RecipeCrosswalk
 
     /// <summary>
     /// Maps Grocy recipe.id (string key for JSON compatibility) to Plantry recipe GUID.
-    /// Recipes that were skipped are omitted.
+    /// <list type="bullet">
+    /// <item>Non-null GUID — recipe was committed to Plantry.</item>
+    /// <item>null — recipe was intentionally dropped by the user; re-runs skip it.</item>
+    /// </list>
+    /// Recipes skipped because all ingredients were crosswalk-missing are omitted entirely.
     /// </summary>
     [JsonPropertyName("mappings")]
-    public Dictionary<string, Guid> Mappings { get; init; } = [];
+    public Dictionary<string, Guid?> Mappings { get; init; } = [];
 
     // ──────────── Factory / persistence ────────────────────────────────────
 

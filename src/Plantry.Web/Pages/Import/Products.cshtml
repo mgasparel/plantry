@@ -120,7 +120,8 @@
             </p>
         </div>
         <div class="card__head-actions" style="display: flex; gap: 0.5rem; align-items: center">
-            <form method="post" asp-page-handler="CommitProducts">
+            @* The form id is referenced by hidden inputs in row partials (form="commit-products-form"). *@
+            <form method="post" asp-page-handler="CommitProducts" id="commit-products-form">
                 @Html.AntiForgeryToken()
                 <button type="submit" class="btn btn--primary" style="font-size: 0.875rem"
                         title="Commit all stageable products to the Plantry catalog">
@@ -142,6 +143,7 @@
                     <th scope="col" class="data-grid__header" style="width: 9rem">Default unit</th>
                     <th scope="col" class="data-grid__header" style="width: 9rem">Location</th>
                     <th scope="col" class="data-grid__header" style="width: 14rem">Flags</th>
+                    <th scope="col" class="data-grid__header" style="width: 4.5rem; text-align: center">Drop</th>
                 </tr>
             </thead>
             <tbody id="products-staging-body">

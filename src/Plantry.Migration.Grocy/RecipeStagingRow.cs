@@ -161,6 +161,15 @@ public sealed class RecipeStagingRow
     /// </summary>
     public IReadOnlyList<string> FlattenedSubRecipeNames { get; set; } = [];
 
+    // ── User drop disposition ──────────────────────────────────────────────
+
+    /// <summary>
+    /// True when the user has explicitly marked this recipe as dropped on the review screen.
+    /// Dropped recipes are skipped by <see cref="RecipeCommitService"/> and recorded as null
+    /// entries in the recipe-crosswalk.json so re-runs recognise them as intentionally skipped.
+    /// </summary>
+    public bool IsDropped { get; set; }
+
     // ── Status flags ───────────────────────────────────────────────────────
 
     /// <summary>Combination of <see cref="RecipeStagingFlags"/> describing any issues with this recipe.</summary>

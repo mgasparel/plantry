@@ -96,8 +96,8 @@ public sealed class RecipeCommitService(
         var crosswalkPath = RecipeCrosswalk.ResolvePath(manifestFilePath);
         var existingCrosswalk = await RecipeCrosswalk.TryReadAsync(crosswalkPath, ct);
         var crosswalkMappings = existingCrosswalk?.Mappings is not null
-            ? new Dictionary<string, Guid>(existingCrosswalk.Mappings)
-            : new Dictionary<string, Guid>();
+            ? new Dictionary<string, Guid?>(existingCrosswalk.Mappings)
+            : new Dictionary<string, Guid?>();
 
         var results = new List<RecipeCommitResult>(stagingRows.Count);
 
@@ -112,7 +112,7 @@ public sealed class RecipeCommitService(
         var crosswalk = new RecipeCrosswalk
         {
             CommittedAt = DateTimeOffset.UtcNow,
-            Mappings    = crosswalkMappings,
+            Mappings    = new Dictionary<string, Guid?>(crosswalkMappings),
         };
         await crosswalk.WriteAsync(crosswalkPath, ct);
 
@@ -123,11 +123,41 @@ public sealed class RecipeCommitService(
 
     private async Task<RecipeCommitResult> CommitRecipeRowAsync(
         RecipeStagingRow row,
-        Dictionary<string, Guid> crosswalkMappings,
+        Dictionary<string, Guid?> crosswalkMappings,
         CancellationToken ct)
     {
         try
         {
+            // User-dropped: record a null sentinel in the crosswalk and skip commit.
+            if (row.IsDropped)
+            {
+                if (!crosswalkMappings.ContainsKey(row.GrocyId.ToString()))
+                    crosswalkMappings[row.GrocyId.ToString()] = null;
+
+                return new RecipeCommitResult(
+                    row.GrocyId, row.GrocyName,
+                    Skipped: true, Success: true,
+                    PlantryRecipeId: null,
+                    ErrorMessage: "Dropped: user marked this recipe as dropped on the review screen.",
+                    Ingredients: [],
+                    PhotoDisposition: PhotoCommitDisposition.NoneStaged,
+                    PhotoNote: null);
+            }
+
+            // Re-run: if this grocy_id was previously dropped (null entry), skip again.
+            if (crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingDropCheck)
+                && existingDropCheck is null)
+            {
+                return new RecipeCommitResult(
+                    row.GrocyId, row.GrocyName,
+                    Skipped: true, Success: true,
+                    PlantryRecipeId: null,
+                    ErrorMessage: "Dropped: previously marked as dropped (null in crosswalk).",
+                    Ingredients: [],
+                    PhotoDisposition: PhotoCommitDisposition.NoneStaged,
+                    PhotoNote: null);
+            }
+
             // ── Build ingredient list (skip crosswalk-missing entries) ───────
             var (ingredientLines, ingredientResults, skippedCount) = BuildIngredientLines(row.Ingredients);
 
@@ -147,11 +177,12 @@ public sealed class RecipeCommitService(
 
             // ── Idempotency: already in crosswalk? ───────────────────────────
             Guid plantryId;
-            var alreadyInCrosswalk = crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingId);
+            var alreadyInCrosswalk = crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingIdNullable)
+                && existingIdNullable is not null;
 
             if (alreadyInCrosswalk)
             {
-                plantryId = existingId;
+                plantryId = existingIdNullable!.Value;
                 // Re-run: recipe body already committed — only need to check photo.
             }
             else

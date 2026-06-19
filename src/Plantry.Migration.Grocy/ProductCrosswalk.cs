@@ -28,10 +28,14 @@ public sealed class ProductCrosswalk
 
     /// <summary>
     /// Maps Grocy product.id (string key for JSON compatibility) to Plantry product GUID.
-    /// Products that were skipped (e.g. crosswalk-missing, no DefaultUnitId) are omitted.
+    /// <list type="bullet">
+    /// <item>Non-null GUID — product was committed to Plantry.</item>
+    /// <item>null — product was intentionally dropped by the user; re-runs skip it.</item>
+    /// </list>
+    /// Products that were skipped due to missing crosswalk data (no DefaultUnitId) are omitted entirely.
     /// </summary>
     [JsonPropertyName("mappings")]
-    public Dictionary<string, Guid> Mappings { get; init; } = [];
+    public Dictionary<string, Guid?> Mappings { get; init; } = [];
 
     // ──────────── Factory / persistence ────────────────────────────────────
 

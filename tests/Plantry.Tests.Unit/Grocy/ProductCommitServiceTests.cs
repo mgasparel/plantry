@@ -680,6 +680,136 @@ public sealed class ProductCommitServiceTests
         }
     }
 
+    [Fact]
+    public async Task CommitAsync_DroppedProduct_SkippedAndNullWrittenToCrosswalk()
+    {
+        var (service, productRepo, unitRepo) = BuildService();
+
+        var unit = MakeUnit(Dimension.Count, "ea");
+        unitRepo.Items.Add(unit);
+
+        var row = MakeStagingRow(1, "Unwanted Product", defaultUnitId: unit.Id.Value);
+        row.IsDropped = true;
+
+        var unitCrosswalk = new Dictionary<int, Guid>();
+
+        var tmpManifest = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-manifest.json");
+        try
+        {
+            var (results, crosswalkPath) = await service.CommitAsync(
+                [row], EmptyManifest(), unitCrosswalk, tmpManifest);
+
+            // Row is skipped
+            Assert.Single(results);
+            Assert.True(results[0].Skipped);
+            Assert.True(results[0].Success);
+            Assert.Null(results[0].PlantryProductId);
+
+            // Not committed to the product repo
+            Assert.Empty(productRepo.Items);
+
+            // Crosswalk written with null sentinel entry
+            Assert.True(File.Exists(crosswalkPath));
+            var loaded = await ProductCrosswalk.TryReadAsync(crosswalkPath);
+            Assert.NotNull(loaded);
+            Assert.True(loaded!.Mappings.ContainsKey("1"));
+            Assert.Null(loaded.Mappings["1"]);
+        }
+        finally
+        {
+            TryDeleteCrosswalk(tmpManifest);
+        }
+    }
+
+    [Fact]
+    public async Task CommitAsync_ReRun_DroppedProductInCrosswalk_StaysSkipped()
+    {
+        // On re-run, a product with a null entry in the crosswalk should remain skipped
+        // even if IsDropped is false (the drop decision is persisted in the crosswalk).
+        var (service, productRepo, unitRepo) = BuildService();
+
+        var unit = MakeUnit(Dimension.Count, "ea");
+        unitRepo.Items.Add(unit);
+
+        var row = MakeStagingRow(1, "Was Dropped", defaultUnitId: unit.Id.Value);
+        var unitCrosswalk = new Dictionary<int, Guid>();
+        var manifest = EmptyManifest();
+
+        var tmpManifest = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-manifest.json");
+        try
+        {
+            // Pre-seed a crosswalk with a null entry (simulates prior drop)
+            var priorCrosswalk = new ProductCrosswalk
+            {
+                CommittedAt = DateTimeOffset.UtcNow,
+                Mappings    = new Dictionary<string, Guid?> { ["1"] = null },
+            };
+            await priorCrosswalk.WriteAsync(ProductCrosswalk.ResolvePath(tmpManifest));
+
+            // Re-run with IsDropped = false (e.g. user did not check the box this time)
+            var (results, crosswalkPath) = await service.CommitAsync(
+                [row], manifest, unitCrosswalk, tmpManifest);
+
+            // Still skipped — crosswalk null entry takes precedence
+            Assert.Single(results);
+            Assert.True(results[0].Skipped);
+            Assert.True(results[0].Success);
+            Assert.Empty(productRepo.Items);
+
+            // Crosswalk retains null
+            var reloaded = await ProductCrosswalk.TryReadAsync(crosswalkPath);
+            Assert.NotNull(reloaded);
+            Assert.Null(reloaded!.Mappings["1"]);
+        }
+        finally
+        {
+            TryDeleteCrosswalk(tmpManifest);
+        }
+    }
+
+    [Fact]
+    public async Task CommitAsync_MixedDroppedAndNormal_OnlyNormalProductsCommitted()
+    {
+        var (service, productRepo, unitRepo) = BuildService();
+
+        var unit = MakeUnit(Dimension.Count, "ea");
+        unitRepo.Items.Add(unit);
+
+        var row1 = MakeStagingRow(1, "Keep Me",    defaultUnitId: unit.Id.Value);
+        var row2 = MakeStagingRow(2, "Drop Me",    defaultUnitId: unit.Id.Value);
+        var row3 = MakeStagingRow(3, "Keep Me Too", defaultUnitId: unit.Id.Value);
+        row2.IsDropped = true;
+
+        var unitCrosswalk = new Dictionary<int, Guid>();
+        var tmpManifest = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-manifest.json");
+        try
+        {
+            var (results, crosswalkPath) = await service.CommitAsync(
+                [row1, row2, row3], EmptyManifest(), unitCrosswalk, tmpManifest);
+
+            Assert.Equal(3, results.Count);
+
+            // rows 1 and 3 committed, row 2 skipped
+            Assert.True(results.Single(r => r.GrocyId == 1).Success);
+            Assert.False(results.Single(r => r.GrocyId == 1).Skipped);
+            Assert.True(results.Single(r => r.GrocyId == 2).Skipped);
+            Assert.True(results.Single(r => r.GrocyId == 3).Success);
+            Assert.False(results.Single(r => r.GrocyId == 3).Skipped);
+
+            Assert.Equal(2, productRepo.Items.Count);
+
+            // Crosswalk: ids 1 and 3 have GUIDs; id 2 has null
+            var loaded = await ProductCrosswalk.TryReadAsync(crosswalkPath);
+            Assert.NotNull(loaded!.Mappings["1"]);
+            Assert.Null(loaded.Mappings["2"]);
+            Assert.NotNull(loaded.Mappings["3"]);
+        }
+        finally
+        {
+            TryDeleteCrosswalk(tmpManifest);
+        }
+    }
+
     // ──────────── Helpers ─────────────────────────────────────────────────
 
     private static void TryDeleteCrosswalk(string manifestPath)

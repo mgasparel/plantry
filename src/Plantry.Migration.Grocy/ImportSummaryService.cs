@@ -122,7 +122,10 @@ public sealed class ImportSummaryService(
 
         // ── Recipe staging ────────────────────────────────────────────────────
 
-        var productMap = productCw?.Mappings.ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value);
+        // Filter out null entries (dropped products) — RecipeStager only needs committed mappings.
+        var productMap = productCw?.Mappings
+            .Where(kv => kv.Value is not null)
+            .ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value!.Value);
 
         var productIdToName = manifest.Products.ToDictionary(p => p.Id, p => p.Name);
         var unitIdToName    = manifest.QuantityUnits.ToDictionary(u => u.Id, u => u.Name);

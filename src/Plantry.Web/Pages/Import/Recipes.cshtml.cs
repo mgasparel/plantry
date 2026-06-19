@@ -57,7 +57,13 @@ public sealed class RecipesModel(
     public bool UnitCrosswalkFound { get; private set; }
     public bool RecipeCrosswalkFound { get; private set; }
 
-    // Commit result (populated after POST → CommitRecipes)
+    // ──────────── Drop disposition ─────────────────────────────────────────
+
+    /// <summary>Grocy IDs of recipes the user has explicitly dropped on the review screen.</summary>
+    [BindProperty]
+    public List<int> DroppedRecipeIds { get; set; } = [];
+
+    // ──────────── Commit result (populated after POST → CommitRecipes) ───────
     public string? CommitSuccessMessage { get; private set; }
     public IReadOnlyList<RecipeCommitService.RecipeCommitResult> CommitResults { get; private set; } = [];
 
@@ -69,6 +75,7 @@ public sealed class RecipesModel(
     public int DroppedNotesCount      => AllRows.Count(r => r.HasDroppedNotes);
     public int ProducesProductCount   => AllRows.Count(r => r.HasProducesProduct);
     public int CrosswalkMissingCount  => AllRows.Count(r => r.HasCrosswalkMissing);
+    public int DroppedCount           => AllRows.Count(r => r.IsDropped);
 
     // ──────────── Handlers ─────────────────────────────────────────────────
 
@@ -160,6 +167,9 @@ public sealed class RecipesModel(
             return Page();
         }
 
+        // Mark dropped rows — apply the user's drop selections from the form
+        ApplyDroppedIds();
+
         var (results, _) = await recipeCommitService.CommitAsync(AllRows, ManifestPath, ct);
         CommitResults = results;
 
@@ -189,6 +199,23 @@ public sealed class RecipesModel(
     }
 
     // ──────────── Helpers ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Applies <see cref="DroppedRecipeIds"/> from the form to the staged <see cref="AllRows"/>.
+    /// Must be called after <see cref="TryLoadAndStageAsync"/> and before commit.
+    /// </summary>
+    private void ApplyDroppedIds()
+    {
+        if (DroppedRecipeIds.Count == 0)
+            return;
+
+        var droppedSet = new HashSet<int>(DroppedRecipeIds);
+        foreach (var row in AllRows)
+        {
+            if (droppedSet.Contains(row.GrocyId))
+                row.IsDropped = true;
+        }
+    }
 
     private async Task<bool> TryLoadAndStageAsync(CancellationToken ct)
     {
@@ -235,8 +262,11 @@ public sealed class RecipesModel(
         UnitCrosswalkFound    = unitCw is not null;
         RecipeCrosswalkFound  = System.IO.File.Exists(recipeCrosswalkPath);
 
-        // Convert crosswalk dictionaries from string-keyed to int-keyed
-        var productMap = productCw?.Mappings.ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value);
+        // Convert crosswalk dictionaries from string-keyed to int-keyed.
+        // Filter out null entries (dropped products/units) — RecipeStager only uses committed mappings.
+        var productMap = productCw?.Mappings
+            .Where(kv => kv.Value is not null)
+            .ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value!.Value);
         var unitMap    = unitCw?.Mappings.ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value);
 
         // Build product name lookup from manifest

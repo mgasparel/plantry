@@ -57,6 +57,12 @@ public sealed class ProductsModel(
     public bool CategoryCrosswalkFound { get; private set; }
     public bool LocationCrosswalkFound { get; private set; }
 
+    // ──────────── Drop disposition ─────────────────────────────────────────
+
+    /// <summary>Grocy IDs of products the user has explicitly dropped on the review screen.</summary>
+    [BindProperty]
+    public List<int> DroppedProductIds { get; set; } = [];
+
     // ──────────── Commit result state ──────────────────────────────────────
 
     /// <summary>True after a CommitProducts POST completes (success or partial).</summary>
@@ -77,6 +83,7 @@ public sealed class ProductsModel(
     public int DroppedBarcodeCount   => AllRows.Count(r => r.HasDroppedBarcode);
     public int MultiUnitCount        => AllRows.Count(r => r.IsMultiUnit);
     public int CrosswalkMissingCount => AllRows.Count(r => r.HasCrosswalkMissing);
+    public int DroppedCount          => AllRows.Count(r => r.IsDropped);
 
     // ──────────── Handlers ─────────────────────────────────────────────────
 
@@ -179,6 +186,9 @@ public sealed class ProductsModel(
         var unitCw = await UnitCrosswalk.TryReadAsync(unitCrosswalkPath, ct);
         var unitMap = unitCw?.Mappings.ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value);
 
+        // Mark dropped rows — apply the user's drop selections from the form
+        ApplyDroppedIds();
+
         try
         {
             var (commitResults, crosswalkPath) = await productCommitService.CommitAsync(
@@ -206,6 +216,23 @@ public sealed class ProductsModel(
     }
 
     // ──────────── Helpers ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Applies <see cref="DroppedProductIds"/> from the form to the staged <see cref="AllRows"/>.
+    /// Must be called after <see cref="TryLoadAndStageAsync"/> and before commit.
+    /// </summary>
+    private void ApplyDroppedIds()
+    {
+        if (DroppedProductIds.Count == 0)
+            return;
+
+        var droppedSet = new HashSet<int>(DroppedProductIds);
+        foreach (var row in AllRows)
+        {
+            if (droppedSet.Contains(row.GrocyId))
+                row.IsDropped = true;
+        }
+    }
 
     private async Task<bool> TryLoadAndStageAsync(CancellationToken ct)
     {
