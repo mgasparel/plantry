@@ -187,7 +187,9 @@ PostgreSQL is the single system of record. Notable choices:
 
 ## Deployment
 
-Plantry runs as a **self-contained Docker stack** in a homelab: the .NET web app + PostgreSQL + any background workers (e.g., async email-intake processor). **.NET Aspire** is the app model — its `AppHost` describes all services and their wiring and drives both local `dotnet run` and the homelab deployment from the same definition.
+Plantry runs as a **self-contained Docker stack**: the .NET web app + PostgreSQL + a one-shot migrator (+ any background workers, e.g. the async email-intake processor) behind a reverse proxy. **.NET Aspire** is the app model for **local development** — its `AppHost` describes all services and their wiring and drives `dotnet run`.
+
+**Production** is a single Linux host (a VPS — a remote homelab) running `docker compose` from a **hand-maintained `docker-compose.prod.yml`** (not the Aspire-generated composition; the AppHost is not the production runtime). Images build in CI and push to GHCR; deploy is `pull → run migrator → up`. Migrations are applied by the explicit migrator with owner credentials, never on app startup — the web app connects as the least-privilege `app_user` role. See [ADR-016](ADRs/ADR-016.md) (deployment topology + pipeline; supersedes [ADR-012](ADRs/ADR-012.md)), [ADR-017](ADRs/ADR-017.md) (migrations), and the [Operations runbooks](Operations/deployment.md).
 
 ---
 
@@ -202,4 +204,6 @@ Plantry runs as a **self-contained Docker stack** in a homelab: the .NET web app
 - ~~**Domain-event dispatcher**~~ — *resolved:* wired in Phase 1 — an EF Core `DomainEventDispatchInterceptor` dispatches events after `SaveChanges`; Intake is the first emitter (`ImportSessionCommittedEvent`).
 - **Deals ACL specifics** — tied to Flipp access question.
 - ~~**Concrete PostgreSQL schema**~~ — *resolved:* all Phase-1 contexts decided — Pricing and Shopping schemas finalized in `DomainDesign/DataModels/pricing.md` and `DomainDesign/DataModels/shopping.md`. ADR-010 gives table groupings and FK discipline.
-- **Cloud deployment target** — homelab settled; hosted/cloud publish target deferred until a hosted offering is on the roadmap.
+- ~~**Cloud deployment target**~~ — *resolved for single-tenant:* production is a single host running Docker Compose, deployed from CI via GHCR (ADR-016); migrations run via an explicit migrator (ADR-017). A **hosted, multi-household** offering remains deferred until it is on the roadmap.
+- **Third-party self-hosting / OSS** — built for and pipeline-supported (ADR-016, [self-hosting.md](Operations/self-hosting.md)); the project proceeds as if OSS-bound, with the actual publish flip deferred (non-blocking).
+- **CI-gating open items** — local-preflight scope (full vs. pre-filter) and whether E2E runs in CI; see [cicd-rollout-plan.md](Operations/cicd-rollout-plan.md).
