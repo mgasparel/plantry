@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CategoryCommitService>();
         services.AddScoped<LocationCommitService>();
         services.AddScoped<ProductCommitService>();
+        services.AddScoped<RecipeCommitService>();
 
         return services;
     }

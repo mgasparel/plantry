@@ -9,20 +9,22 @@ using Plantry.Recipes.Domain;
 namespace Plantry.Web.Pages.Import;
 
 /// <summary>
-/// Grocy import pipeline — Recipe staging review screen (plantry-zcw.6).
+/// Grocy import pipeline — Recipe staging review screen (plantry-zcw.6) and commit (plantry-zcw.7).
 ///
 /// GET  — loads the manifest, the product and unit crosswalks, runs
 ///         <see cref="RecipeStager.Stage"/> to build staging rows, and renders the review list.
 /// POST → UpdateName (htmx) — updates a single row's PlantryName to resolve a name collision
 ///         and returns the refreshed row fragment (OOB swap).
-///
-/// No commit handler: recipe commit is plantry-zcw.7.
+/// POST → CommitRecipes — commits all staged recipes to the Recipes context via
+///         <see cref="RecipeCommitService"/>; writes recipe-crosswalk.json and redirects to the
+///         same page, which re-stages and shows committed counts.
 ///
 /// Access: any authenticated user ([Authorize]).
 /// </summary>
 [Authorize]
 public sealed class RecipesModel(
     IRecipeRepository recipes,
+    RecipeCommitService recipeCommitService,
     IOptions<GrocyOptions> options) : PageModel
 {
     private const int PageSize = 25;
@@ -53,6 +55,11 @@ public sealed class RecipesModel(
     // Crosswalk status
     public bool ProductCrosswalkFound { get; private set; }
     public bool UnitCrosswalkFound { get; private set; }
+    public bool RecipeCrosswalkFound { get; private set; }
+
+    // Commit result (populated after POST → CommitRecipes)
+    public string? CommitSuccessMessage { get; private set; }
+    public IReadOnlyList<RecipeCommitService.RecipeCommitResult> CommitResults { get; private set; } = [];
 
     // ──────────── Summary counts for the page header ───────────────────────
 
@@ -135,6 +142,52 @@ public sealed class RecipesModel(
         return Partial("_RecipeStagingRow", row);
     }
 
+    /// <summary>
+    /// Commits all staged recipes to the Recipes context via <see cref="RecipeCommitService"/>.
+    ///
+    /// POST /Import/Recipes?handler=CommitRecipes
+    /// On success: writes recipe-crosswalk.json and re-renders the page with commit counts.
+    /// On error: renders the page with an error message.
+    /// </summary>
+    public async Task<IActionResult> OnPostCommitRecipesAsync(CancellationToken ct = default)
+    {
+        if (!await TryLoadAndStageAsync(ct))
+            return Page();
+
+        if (!ManifestExists || ManifestPath is null)
+        {
+            ErrorMessage = "Manifest not found — extract Grocy data first.";
+            return Page();
+        }
+
+        var (results, _) = await recipeCommitService.CommitAsync(AllRows, ManifestPath, ct);
+        CommitResults = results;
+
+        var committed = results.Count(r => r.Success && !r.Skipped);
+        var failed    = results.Count(r => !r.Success && !r.Skipped);
+        var skipped   = results.Count(r => r.Skipped);
+
+        if (failed > 0)
+        {
+            ErrorMessage = $"Commit completed with {failed} failure(s). " +
+                           $"{committed} recipe(s) committed, {skipped} skipped. " +
+                           "See details below.";
+        }
+        else
+        {
+            CommitSuccessMessage = $"{committed} recipe(s) committed successfully. " +
+                                   $"{skipped} skipped (no committable ingredients).";
+        }
+
+        // Re-load crosswalk status for the UI
+        var recipeCrosswalkPath = RecipeCrosswalk.ResolvePath(ManifestPath);
+        RecipeCrosswalkFound = System.IO.File.Exists(recipeCrosswalkPath);
+
+        CurrentPage = 1;
+        ApplyPaging();
+        return Page();
+    }
+
     // ──────────── Helpers ──────────────────────────────────────────────────
 
     private async Task<bool> TryLoadAndStageAsync(CancellationToken ct)
@@ -173,12 +226,14 @@ public sealed class RecipesModel(
         // Load crosswalks
         var productCrosswalkPath = ProductCrosswalk.ResolvePath(ManifestPath);
         var unitCrosswalkPath    = UnitCrosswalk.ResolvePath(ManifestPath);
+        var recipeCrosswalkPath  = RecipeCrosswalk.ResolvePath(ManifestPath);
 
         var productCw = await ProductCrosswalk.TryReadAsync(productCrosswalkPath, ct);
         var unitCw    = await UnitCrosswalk.TryReadAsync(unitCrosswalkPath, ct);
 
         ProductCrosswalkFound = productCw is not null;
         UnitCrosswalkFound    = unitCw is not null;
+        RecipeCrosswalkFound  = System.IO.File.Exists(recipeCrosswalkPath);
 
         // Convert crosswalk dictionaries from string-keyed to int-keyed
         var productMap = productCw?.Mappings.ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value);

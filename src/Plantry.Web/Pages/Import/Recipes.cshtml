@@ -27,6 +27,13 @@
     </div>
 }
 
+@if (Model.CommitSuccessMessage is not null)
+{
+    <div class="alert alert--success" role="alert">
+        <strong>Done.</strong> @Model.CommitSuccessMessage
+    </div>
+}
+
 @if (!Model.ManifestExists)
 {
     <div class="card" style="max-width: 40rem">
@@ -90,8 +97,24 @@
                 }
             </p>
         </div>
-        <div class="card__head-actions">
+        <div class="card__head-actions" style="display: flex; gap: 0.5rem; align-items: center">
             <a href="/Import" class="btn btn--ghost" style="font-size: 0.875rem">← Back to Import</a>
+            @if (Model.ManifestExists && Model.ProductCrosswalkFound && Model.UnitCrosswalkFound)
+            {
+                <form method="post" asp-page-handler="CommitRecipes" style="display: inline">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn--primary" style="font-size: 0.875rem">
+                        @if (Model.RecipeCrosswalkFound)
+                        {
+                            <span>Re-commit Recipes</span>
+                        }
+                        else
+                        {
+                            <span>Commit Recipes</span>
+                        }
+                    </button>
+                </form>
+            }
         </div>
     </div>
 
