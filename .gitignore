@@ -51,3 +51,4 @@ scripts/backup-beads.ps1
 
 # Docker deployment secrets
 aspire-output/.env
+.env

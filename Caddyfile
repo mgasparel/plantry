@@ -1,0 +1,12 @@
+# Caddyfile — production reverse proxy for Plantry
+# Automatic HTTPS via Let's Encrypt (ACME).
+# Domain is injected via the DOMAIN environment variable in docker-compose.prod.yml.
+#
+# Prerequisites:
+#   - DNS A/AAAA record for {$DOMAIN} pointing at this host.
+#   - Port 80 and 443 open on the host firewall.
+#   - caddy_data volume persists across restarts (holds the TLS certificate).
+
+{$DOMAIN} {
+    reverse_proxy plantry-web:8080
+}
