@@ -40,6 +40,15 @@ public sealed class IndexModel(
         LoadState();
     }
 
+    /// <summary>
+    /// Redirects to /Import/Summary with dryRun=true so the user can preview staging counts
+    /// and tradeoffs without writing anything to the Plantry domain.
+    /// </summary>
+    public IActionResult OnPostDryRun()
+    {
+        return RedirectToPage("/Import/Summary", new { dryRun = true });
+    }
+
     public async Task<IActionResult> OnPostExtractAsync(CancellationToken ct)
     {
         LoadState();

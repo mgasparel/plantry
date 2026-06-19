@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<LocationCommitService>();
         services.AddScoped<ProductCommitService>();
         services.AddScoped<RecipeCommitService>();
+        services.AddScoped<ImportSummaryService>();
 
         return services;
     }

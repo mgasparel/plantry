@@ -1,0 +1,315 @@
+@page
+@model Plantry.Web.Pages.Import.SummaryModel
+@{
+    ViewData["Title"] = Model.IsDryRun
+        ? "Import Summary (Dry Run) — Import from Grocy"
+        : "Import Summary — Import from Grocy";
+}
+
+@*
+    Grocy import pipeline — Pre-commit summary page (plantry-zcw.8).
+    Shows entity counts (units, categories, locations, products, recipes) derived from
+    staging runs and renders the full §8 tradeoff log (T1–T15) inline so the user
+    explicitly acknowledges every fidelity loss before committing.
+
+    When IsDryRun is true, no commit buttons are shown and a dry-run banner is displayed.
+    The page is read-only relative to Plantry databases — staging is a pure computation.
+*@
+
+<div class="catalog-section">
+    <h1>
+        @if (Model.IsDryRun)
+        {
+            <span>Import Summary <span class="badge badge--info" style="font-size: 0.8rem; vertical-align: middle">dry run</span></span>
+        }
+        else
+        {
+            <span>Import Summary</span>
+        }
+    </h1>
+    <p>
+        Review the staging counts and tradeoff log before committing to Plantry.
+        <a href="/Import">← Back to Import</a>
+    </p>
+</div>
+
+@if (Model.Summary is null)
+{
+    <div class="card" style="max-width: 40rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">No manifest found</h3>
+                <p class="card__head-sub">Extract a Grocy snapshot before viewing the summary.</p>
+            </div>
+        </div>
+        <div class="card__body">
+            <a href="/Import" class="btn btn--primary">Go to Step 1 — Extract</a>
+        </div>
+    </div>
+    return;
+}
+
+@{
+    var s = Model.Summary;
+}
+
+@if (Model.IsDryRun)
+{
+    <div class="alert alert--info" role="alert">
+        <strong>Dry run mode.</strong>
+        This is a preview — no data has been written to Plantry.
+        When you're satisfied with the counts and tradeoffs, proceed through the
+        individual commit steps to apply the import.
+    </div>
+}
+
+@* ── Manifest metadata ─────────────────────────────────────────────────────── *@
+<div style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--color-text-faint)">
+    Manifest extracted: @s.ManifestExtractedAt.ToString("yyyy-MM-dd HH:mm") UTC
+</div>
+
+@* ── Entity count cards ────────────────────────────────────────────────────── *@
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 1rem; margin-bottom: 1.5rem">
+
+    @* Units *@
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Units</h3>
+                @if (s.UnitCrosswalkFound)
+                {
+                    <p class="card__head-sub"><span class="badge badge--success" style="font-size: 0.7rem">committed</span></p>
+                }
+                else
+                {
+                    <p class="card__head-sub"><span class="badge badge--neutral" style="font-size: 0.7rem">staged</span></p>
+                }
+            </div>
+        </div>
+        <div class="card__body">
+            <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse">
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Matched existing</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">@s.UnitsMatched</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">To be created</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">@s.UnitsCreated</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Skipped</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums">@s.UnitsSkipped</td>
+                </tr>
+                @if (s.UnitsAnomalyCount > 0)
+                {
+                    <tr>
+                        <td style="padding: 0.2rem 0; color: var(--color-warning-text, #92400e)">Anomalies flagged</td>
+                        <td style="text-align: right; font-variant-numeric: tabular-nums; color: var(--color-warning-text, #92400e)">@s.UnitsAnomalyCount</td>
+                    </tr>
+                }
+            </table>
+        </div>
+    </div>
+
+    @* Categories *@
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Categories</h3>
+                @if (s.CategoryCrosswalkFound)
+                {
+                    <p class="card__head-sub"><span class="badge badge--success" style="font-size: 0.7rem">committed</span></p>
+                }
+                else
+                {
+                    <p class="card__head-sub"><span class="badge badge--neutral" style="font-size: 0.7rem">staged</span></p>
+                }
+            </div>
+        </div>
+        <div class="card__body">
+            <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse">
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Matched existing</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">@s.CategoriesMatched</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">To be created</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">@s.CategoriesCreated</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Skipped</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums">@s.CategoriesSkipped</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    @* Locations *@
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Locations</h3>
+                @if (s.LocationCrosswalkFound)
+                {
+                    <p class="card__head-sub"><span class="badge badge--success" style="font-size: 0.7rem">committed</span></p>
+                }
+                else
+                {
+                    <p class="card__head-sub"><span class="badge badge--neutral" style="font-size: 0.7rem">staged</span></p>
+                }
+            </div>
+        </div>
+        <div class="card__body">
+            <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse">
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Matched existing</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">@s.LocationsMatched</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">To be created</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">@s.LocationsCreated</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Skipped</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums">@s.LocationsSkipped</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    @* Products *@
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Products</h3>
+                @if (s.ProductCrosswalkFound)
+                {
+                    <p class="card__head-sub"><span class="badge badge--success" style="font-size: 0.7rem">committed</span></p>
+                }
+                else
+                {
+                    <p class="card__head-sub"><span class="badge badge--neutral" style="font-size: 0.7rem">staged</span></p>
+                }
+            </div>
+        </div>
+        <div class="card__body">
+            <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse">
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Total</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">@s.ProductsTotal</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Variants</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums">@s.ProductsVariants</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-warning-text, #92400e)">Flagged</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; color: var(--color-warning-text, #92400e)">@s.ProductsFlagged</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    @* Recipes *@
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Recipes</h3>
+                <p class="card__head-sub"><span class="badge badge--neutral" style="font-size: 0.7rem">staged</span></p>
+            </div>
+        </div>
+        <div class="card__body">
+            <table style="width: 100%; font-size: 0.875rem; border-collapse: collapse">
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">Total</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">@s.RecipesTotal</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">With flattened nestings</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums">@s.RecipesWithFlattenedNestings</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.2rem 0; color: var(--color-text-faint)">With photos</td>
+                    <td style="text-align: right; font-variant-numeric: tabular-nums">@s.RecipesWithPhotos</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+@* ── §8 Tradeoff log ─────────────────────────────────────────────────────────── *@
+<div class="card" style="margin-bottom: 1.5rem">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">§8 Tradeoff log — fidelity losses (T1–T15)</h3>
+            <p class="card__head-sub">
+                These are the design decisions made during the Grocy → Plantry import.
+                Review each one and confirm you accept the tradeoffs before committing.
+            </p>
+        </div>
+    </div>
+    <div class="card__body">
+        <table style="width: 100%; border-collapse: collapse">
+            <thead>
+                <tr>
+                    <th style="text-align: left; padding: 0.5rem 0.75rem 0.5rem 0; font-size: 0.8rem; color: var(--color-text-faint); border-bottom: 1px solid var(--color-border); width: 4.5rem">ID</th>
+                    <th style="text-align: left; padding: 0.5rem 0.75rem; font-size: 0.8rem; color: var(--color-text-faint); border-bottom: 1px solid var(--color-border); width: 13rem">Tradeoff</th>
+                    <th style="text-align: left; padding: 0.5rem 0; font-size: 0.8rem; color: var(--color-text-faint); border-bottom: 1px solid var(--color-border)">Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in Plantry.Migration.Grocy.TradeoffLog.All)
+                {
+                    <tr>
+                        <td style="padding: 0.6rem 0.75rem 0.6rem 0; vertical-align: top; border-bottom: 1px solid var(--color-border-faint, #f0f0f0)">
+                            <span class="badge badge--neutral" style="font-size: 0.7rem; font-family: monospace">@entry.Id</span>
+                        </td>
+                        <td style="padding: 0.6rem 0.75rem; vertical-align: top; border-bottom: 1px solid var(--color-border-faint, #f0f0f0); font-weight: 500; font-size: 0.875rem">
+                            @entry.Title
+                        </td>
+                        <td style="padding: 0.6rem 0; vertical-align: top; border-bottom: 1px solid var(--color-border-faint, #f0f0f0); font-size: 0.875rem; color: var(--color-text-body, #374151)">
+                            @entry.Description
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@* ── Proceed / action buttons ─────────────────────────────────────────────────── *@
+@if (!Model.IsDryRun)
+{
+    <div class="card" style="max-width: 40rem; margin-bottom: 1.5rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Proceed with commit</h3>
+                <p class="card__head-sub">
+                    Return to the import steps to commit each entity type in sequence.
+                </p>
+            </div>
+        </div>
+        <div class="card__body" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center">
+            <a href="/Import/Units" class="btn btn--primary">Continue to Unit Mapping →</a>
+            <a href="/Import" class="btn btn--ghost">Back to Import hub</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card" style="max-width: 40rem; margin-bottom: 1.5rem">
+        <div class="card__head">
+            <div>
+                <h3 class="card__head-title">Dry run complete</h3>
+                <p class="card__head-sub">
+                    No data was written. When you're ready, proceed through the individual
+                    commit steps on the Import hub.
+                </p>
+            </div>
+        </div>
+        <div class="card__body">
+            <a href="/Import" class="btn btn--primary">Go to Import hub</a>
+        </div>
+    </div>
+}
