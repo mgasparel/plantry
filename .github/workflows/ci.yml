@@ -42,6 +42,8 @@ jobs:
           --no-build --configuration Release
           --collect:"XPlat Code Coverage"
           --results-directory coverage/unit
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
 
       # ── L1: Architecture boundary tests ────────────────────────────────────
       - name: Architecture tests
@@ -103,6 +105,8 @@ jobs:
           --no-build --configuration Release
           --collect:"XPlat Code Coverage"
           --results-directory coverage/integration
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
 
       # ── L5: E2E tests (Aspire boots full stack; Playwright drives browser) ──
       # AppHostFixture starts the Aspire AppHost which pulls/starts Postgres via
@@ -113,6 +117,8 @@ jobs:
           --no-build --configuration Release
           --collect:"XPlat Code Coverage"
           --results-directory coverage/e2e
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
 
       # Upload Playwright traces on failure so failures can be diagnosed.
       - name: Upload Playwright traces
