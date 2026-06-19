@@ -112,27 +112,45 @@ Run from `../worktrees/<issue-id>/`.
 
 ### 4b. Test
 
+Run the full solution using `repowise distill` so errors appear first in the output. Use the
+Bash tool with `timeout: 600000` (10 minutes) — the E2E suite boots a live Aspire stack and
+takes ~90s on a clean run; the default 2-minute Bash timeout is too tight and will cause
+spurious failures that accumulate zombie shells.
+
 ```bash
-dotnet test Plantry.sln
+repowise distill dotnet test Plantry.sln --nologo
 ```
 
-Run from `../worktrees/<issue-id>/`. Run the **whole solution** — do not narrow to a
-subset of projects or apply a category filter. The E2E suite (`Plantry.Tests.E2E`)
-boots a live Aspire stack (Docker + web app) and is part of the gate, not optional.
+Run from `../worktrees/<issue-id>/`.
 
-Capture per-category **executed/passed/skipped** counts (Unit, Integration, E2E,
-Architecture) and any failing test names + messages.
+Capture per-category **executed/passed/skipped** counts (Unit, Integration, E2E, Architecture)
+and any failing test names + messages.
 
-- **FAILED**: apply targeted fixes and loop back to 4a.
-- Still broken after 3 consecutive test-fix attempts: **Park** (`test-loop-exhausted`).
-- **A test suite that an acceptance criterion depends on did not execute** (zero tests
-  run for that category, the project was skipped, or its fixture failed to start) is a
-  **hard stop, not a footnote** — a written-but-unexecuted test verifies nothing. Treat
-  it exactly like a test failure: try to make it run (e.g. start Docker for the E2E
-  fixture) and loop back to 4a. If it still cannot be made to execute green after 3
-  attempts, **Park** (`test-loop-exhausted` if it runs-but-fails; `unrecoverable-error:<detail>`
-  if the suite genuinely cannot run in this environment). Never PASS a slice whose
-  acceptance criteria require a suite that did not run green.
+**Before retrying on any E2E failure — distinguish infrastructure from code:**
+
+Check the output for these infrastructure failure signals:
+- `password authentication failed` / `28P01`
+- `Unable to connect` / `connection refused`
+- `Failed to start` / `failed to become healthy`
+- E2E executed **zero tests** (fixture threw before any test ran)
+
+If any of these are present, the Aspire stack itself failed — **no code fix can help**. Park
+immediately as `unrecoverable-error:e2e-infra:<first error line>`. Do not loop back to 4a.
+
+If E2E tests executed (count > 0) but some failed, that is a code failure — apply a targeted
+fix and loop back to 4a as normal.
+
+**Handling all outcomes:**
+
+| Outcome | Action |
+|---------|--------|
+| All suites green | PASS — continue to 4c |
+| E2E zero tests + infrastructure error in output | Park (`unrecoverable-error:e2e-infra:<detail>`) |
+| E2E tests ran but failed | Apply targeted fix, loop back to 4a |
+| Non-E2E test failed | Apply targeted fix, loop back to 4a |
+| Bash tool timed out (>10 min) | **Do not retry immediately.** Check whether `plantry-web Running` appears in output. If not, Park (`unrecoverable-error:e2e-stack-failed-to-start`). If it started but tests ran long, Park (`unrecoverable-error:e2e-timeout`). Never spawn a second test run while a previous one may still be running. |
+| Still failing after 3 consecutive fix attempts | Park (`test-loop-exhausted`) |
+
 - **PASS**: continue to 4c. Carry the per-category executed/skipped counts forward —
   they are reported in the verdict (Step 6) and must show every acceptance-criterion-bearing
   suite as executed green.
@@ -312,13 +330,42 @@ EOF
 - Body explains why, not what — the diff already shows what.
 - Interpretations belong on the issue (Step 1), not in the commit message.
 
-## Step 5.5 — Write completion comment
+## Step 5.5 — Push branch + open PR
+
+After the commit succeeds, push the branch and open a draft PR:
 
 ```bash
-bd comment <issue-id> "Implementation complete. Branch: issue/<issue-id>. Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups> Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>"
+git -C ../worktrees/<issue-id> push -u origin issue/<issue-id>
+gh pr create \
+  --title "<title from bd show output>" \
+  --body "$(cat <<'PRBODY'
+Implements beads issue <issue-id>.
+
+**Description:** <one paragraph from the bead description>
+
+**Acceptance criteria:**
+<verbatim acceptance criteria from bd show>
+
+Pre-flight: PASS — build, unit/arch/integration/E2E, Opus critic (<pass_count> pass(es))
+PRBODY
+)" \
+  --base main \
+  --head issue/<issue-id>
 ```
 
-Write this after the commit succeeds, before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.
+Capture the PR URL from `gh pr create` output. It is included in the verdict and completion comment.
+
+If `gh pr create` fails (e.g. no GitHub remote configured, auth not set up): log the error as a NOTE in the completion comment and continue to Step 5.6 — do not park solely on a PR creation failure. The branch is pushed; the PR can be opened manually.
+
+## Step 5.6 — Write completion comment
+
+```bash
+bd comment <issue-id> "Implementation complete. Branch: issue/<issue-id>. PR: <pr-url>. Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups> Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>"
+```
+
+Write this after the push and PR creation, before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.
+
+**Cleanup timing note:** Do NOT remove the worktree or delete the local branch here. Cleanup happens post-merge (the pipeline orchestrator or operator does this after the PR merges via `git worktree remove` + `git branch -d`). Premature cleanup breaks the CI gate that runs against the pushed branch.
 
 ## Step 6 — Return verdict
 
@@ -327,6 +374,7 @@ Write this after the commit succeeds, before returning the verdict. Keep it to o
 RESULT: PASS
 ISSUE: <issue-id>
 BRANCH: issue/<issue-id>
+PR: <pr-url>
 WORKTREE: ../worktrees/<issue-id>
 CRITIC_PASSES: <pass_count>
 TESTS_RUN: <per-category executed/passed counts, e.g. Unit 600/600, Integration 114/114, E2E 2/2, Architecture 26/26; name any skipped suite>
@@ -350,6 +398,7 @@ Triggered by any condition in the table below:
 | 3 Opus critic passes, still FAILED | `critic-loop-exhausted` |
 | Significantly underspecified — can't determine what to build | `underspecified-scope` |
 | Unmerged dependency blocking work | `blocked-on-dependency` |
+| Local pre-flight PASS but GitHub Actions CI failed on the pushed branch | `ci-failed` |
 | Unexpected unrecoverable error | `unrecoverable-error:<detail>` |
 
 1. Write `.preflight/<timestamp>-issue-<issue-id>.md` documenting the failure stage
@@ -373,6 +422,7 @@ Triggered by any condition in the table below:
    RESULT: FAILED
    ISSUE: <issue-id>
    BRANCH: issue/<issue-id>
+   PR: <pr-url if branch was pushed and PR opened, else "none">
    WORKTREE: ../worktrees/<issue-id>
    REASON: <reason-string>
    PREFLIGHT: .preflight/<timestamp>-issue-<issue-id>.md

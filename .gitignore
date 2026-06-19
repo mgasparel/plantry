@@ -51,3 +51,7 @@ scripts/backup-beads.ps1
 
 # Docker deployment secrets
 aspire-output/.env
+.env
+
+# Production database backups (bind-mount directory; actual dumps are off-host)
+backups/

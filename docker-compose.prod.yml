@@ -1,0 +1,167 @@
+# Production Docker Compose for Plantry (ADR-016 Decision 2)
+# Hand-maintained — NOT the Aspire-generated aspire-output/docker-compose.yaml.
+# The Aspire-generated file bundles the dashboard and passes superuser creds to the web app.
+#
+# Usage:
+#   cp .env.example .env          # first-time setup
+#   $EDITOR .env                  # fill in real secrets (chmod 600 .env)
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Deploy procedure (what CD does — per ADR-016 and docs/Operations/deployment.md):
+#   export PLANTRY_WEB_IMAGE=ghcr.io/<org>/plantry-web:<sha>
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml run --rm migrator
+#   docker compose -f docker-compose.prod.yml up -d plantry-web
+#   curl -fsS https://${DOMAIN}/alive
+#
+# Backups: a `backup` service runs pg_dump on a cron schedule (via busybox crond)
+# and writes timestamped .dump files to ./backups/ on the host (bind-mount).
+# Set RCLONE_REMOTE (e.g. "backblaze:plantry-backups") in .env and install
+# rclone on the host to enable off-host sync.  See deploy/backup.sh and
+# docs/Operations/deployment.md for the full backup/restore procedure.
+#
+# See docs/Operations/deployment.md for the full runbook.
+
+services:
+
+  # ── Postgres ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: plantrydb
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready is more reliable than a TCP check and works without the psql client.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d plantrydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Migrator (one-shot) ───────────────────────────────────────────────────
+  # Applies all EF migrations with owner credentials and reconciles the
+  # app_user password, then exits. Web will not start until this completes
+  # successfully (service_completed_successfully). See ADR-017.
+  migrator:
+    image: ${MIGRATOR_IMAGE:-ghcr.io/gastownhall/plantry/migrator:latest}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Database__AppUserPassword: ${APP_USER_PASSWORD}
+
+  # ── Plantry Web ───────────────────────────────────────────────────────────
+  # Connects as the least-privilege app_user only — never the owner.
+  # Row-level security enforces household data isolation at the database layer.
+  plantry-web:
+    image: ${PLANTRY_WEB_IMAGE:-ghcr.io/gastownhall/plantry/web:latest}
+    restart: unless-stopped
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD}"
+      Database__AppUserPassword: ${APP_USER_PASSWORD}
+      # Optional: omit to degrade AI features to a locked-feature UI (the app still runs).
+      AI__ApiKey: ${AI_API_KEY:-}
+    # Web is not exposed directly — Caddy handles TLS termination and reverse proxying.
+
+  # ── Caddy (TLS termination + reverse proxy) ───────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - plantry-web
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"    # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+
+  # ── Backup (scheduled pg_dump) ────────────────────────────────────────────
+  # Runs pg_dump on a cron schedule inside a sidecar container that shares the
+  # postgres network.  Dumps are written to ./backups/ on the host via a
+  # bind-mount.  Uses busybox crond (included in the postgres:17-alpine image)
+  # which runs in the foreground, logs to stdout, and exits cleanly on SIGTERM.
+  #
+  # Schedule (default: 03:00 UTC daily) is set via BACKUP_CRON in .env.
+  # Off-host sync requires rclone to be installed on the host and
+  # RCLONE_REMOTE set in .env (e.g. "backblaze:plantry-backups").
+  # The backup service itself only writes locally; deploy/backup.sh handles
+  # the optional rclone sync when invoked from the host crontab.
+  #
+  # See docs/Operations/deployment.md — Backups section for full procedure.
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Owner credentials — the same role the migrator uses, so pg_dump can
+      # read all schemas.  Never use app_user here: it lacks dump privileges.
+      # PGUSER is the env var pg_dump/psql use to set the connection role;
+      # POSTGRES_USER is only used by the postgres entrypoint (not pg_dump).
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGUSER: ${POSTGRES_USER}
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: plantrydb
+      # cron schedule for pg_dump (default: 03:00 UTC daily).
+      # Expressed in standard cron format: min hour dom mon dow
+      BACKUP_CRON: ${BACKUP_CRON:-0 3 * * *}
+      # Retain at most this many days of local dump files (default: 14).
+      KEEP_DAYS: ${KEEP_DAYS:-14}
+    volumes:
+      # Bind-mount a host directory so dumps survive container restarts.
+      # The directory is created by docker compose on first up if absent.
+      - ${BACKUP_DIR:-./backups}:/backups
+    # The entrypoint uses crond (busybox) to run pg_dump on schedule.
+    # -f keeps crond in the foreground (required for a container).
+    # The crontab is written inline from BACKUP_CRON so no extra image is needed.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mkdir -p /backups
+        chmod 700 /backups
+        # Write crontab using the BACKUP_CRON env var.
+        CRON_FILE=/etc/crontabs/backup
+        echo "$${BACKUP_CRON} /usr/local/bin/run-backup.sh >> /proc/1/fd/1 2>&1" > "$$CRON_FILE"
+        # Write the backup helper script.
+        # pg_dump reads PGUSER, PGPASSWORD, PGHOST, PGPORT, PGDATABASE from env;
+        # busybox crond inherits the daemon's environment, so these are available.
+        cat > /usr/local/bin/run-backup.sh <<'SCRIPT'
+        #!/bin/sh
+        set -e
+        TIMESTAMP=$$(date -u +"%Y%m%dT%H%M%SZ")
+        DUMP_FILE="/backups/plantrydb-$${TIMESTAMP}.dump"
+        echo "==> pg_dump started $$(date -u)"
+        pg_dump -Fc --no-password -f "$${DUMP_FILE}"
+        echo "    OK — $$(du -sh $${DUMP_FILE} | cut -f1) written"
+        # Prune files older than KEEP_DAYS.
+        find /backups -name "plantrydb-*.dump" -mtime +"$${KEEP_DAYS}" -delete
+        echo "==> pg_dump done $$(date -u)"
+        SCRIPT
+        chmod +x /usr/local/bin/run-backup.sh
+        echo "==> Backup service ready; schedule: $${BACKUP_CRON}"
+        # Run crond in foreground (-f) at log level 0 (errors only: -l 0).
+        exec crond -f -l 0
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

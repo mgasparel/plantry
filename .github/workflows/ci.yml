@@ -7,32 +7,27 @@ on:
     branches: [main]
 
 jobs:
-  build-and-test:
+  # ── Fast gate: build + unit + architecture (< 2 min, runs first) ─────────────
+  fast:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: plantry_test
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 9
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: "10.0.x"
 
-      - name: Install Aspire workload
-        run: dotnet workload install aspire
+      # NuGet package cache — keyed on SDK version + all project files.
+      # Restore re-uses the cache on cache-hit; downloads and saves on miss.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
 
       - name: Restore
         run: dotnet restore
@@ -40,31 +35,108 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      # ── L1: Domain unit tests ─────────────────────────────────────────────
+      # ── L1: Domain unit tests ───────────────────────────────────────────────
       - name: Unit tests
         run: >
           dotnet test tests/Plantry.Tests.Unit
           --no-build --configuration Release
           --collect:"XPlat Code Coverage"
           --results-directory coverage/unit
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
 
-      # ── L1: Architecture boundary tests ──────────────────────────────────
+      # ── L1: Architecture boundary tests ────────────────────────────────────
       - name: Architecture tests
         run: >
           dotnet test tests/Plantry.Tests.Architecture
           --no-build --configuration Release
 
-      # ── L3: Integration tests (Testcontainers; real Postgres) ─────────────
+      # Upload unit coverage so the e2e job's coverage gate counts domain code.
+      # The two jobs run on separate runners, so artifacts are the bridge.
+      - name: Upload unit coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: coverage/unit
+          retention-days: 1
+
+  # ── Slow gate: integration + E2E (Docker) + coverage ─────────────────────────
+  # Runs after the fast gate; Docker is pre-installed on ubuntu-latest.
+  # Integration tests and the E2E AppHostFixture both manage their own Postgres
+  # containers via Testcontainers/Aspire — no services: block needed.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: fast
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # Reuse the same NuGet cache populated by the fast job.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # Install Playwright's Chromium browser + system deps before running E2E.
+      # The playwright CLI is published alongside the test binaries after build.
+      - name: Install Playwright browsers
+        run: >
+          pwsh tests/Plantry.Tests.E2E/bin/Release/net10.0/playwright.ps1
+          install chromium --with-deps
+
+      # ── L3: Integration tests (Testcontainers; self-managed Postgres) ───────
       - name: Integration tests
-        env:
-          PLANTRY_TEST_CONNECTION: "Host=localhost;Database=plantry_test;Username=test;Password=test"
         run: >
           dotnet test tests/Plantry.Tests.Integration
           --no-build --configuration Release
           --collect:"XPlat Code Coverage"
           --results-directory coverage/integration
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
 
-      # ── Coverage gate ─────────────────────────────────────────────────────
+      # ── L5: E2E tests (Aspire boots full stack; Playwright drives browser) ──
+      # AppHostFixture starts the Aspire AppHost which pulls/starts Postgres via
+      # Docker and boots the web app. Tests then drive it with Playwright/Chromium.
+      - name: E2E tests
+        run: >
+          dotnet test tests/Plantry.Tests.E2E
+          --no-build --configuration Release
+          --collect:"XPlat Code Coverage"
+          --results-directory coverage/e2e
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
+
+      # Upload Playwright traces on failure so failures can be diagnosed.
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: "**/trace.zip"
+          retention-days: 7
+
+      # Download unit coverage from the fast job so the gate sees domain + integration + E2E.
+      - name: Download unit coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-unit
+          path: coverage/unit
+
+      # ── Coverage gate (unit + integration + E2E combined) ───────────────────
       - name: Coverage report
         uses: danielpalme/ReportGenerator-GitHub-Action@5
         with:
@@ -79,6 +151,3 @@ jobs:
           badge: false
           thresholds: "70 85"   # warn at 70%, fail at 85% for domain projects
           fail_below_min: true
-
-      # ── E2E tests run separately (needs running app; skipped on PRs) ──────
-      # Triggered via workflow_dispatch or on main merges via a separate job.

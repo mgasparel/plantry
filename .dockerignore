@@ -1,0 +1,64 @@
+# .dockerignore — excludes files that must not enter the Docker build context
+# (speeds up builds and prevents accidental secret leakage)
+
+# Git internals
+.git
+.gitignore
+.gitattributes
+
+# Build outputs — .NET projects place these under src/ and tests/
+**/bin/
+**/obj/
+
+# Worktrees (sibling directory at repo root, not needed in image)
+worktrees/
+
+# IDE and tool artifacts
+.vs/
+.vscode/
+*.user
+*.suo
+*.DotSettings
+*.DotSettings.user
+
+# Stryker mutation-testing outputs
+StrykerOutput/
+stryker-config.json
+stryker-run.ps1
+
+# Documentation and planning (never needed at runtime)
+docs/
+*.md
+execution-plan-*.md
+
+# Aspire run outputs
+aspire-output/
+
+# Scripts (deployment helpers, not needed in the image)
+scripts/
+deploy.ps1
+
+# Secrets / local config — must never be baked in
+**/appsettings.Development.json
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*.env
+.env
+.env.*
+
+# Test projects — not copied into the image at any stage
+tests/
+
+# Beads issue tracker data
+.beads/
+tools/
+
+# Node / npm (not used by this project, but guard against accidental addition)
+node_modules/
+npm-debug.log
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+desktop.ini

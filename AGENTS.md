@@ -71,26 +71,38 @@ bd close <id>         # Complete work
 
 ## Session Completion
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT
+complete until the feature branch is pushed and a PR is open (or the PR has merged).
+
+> **Branch model:** nothing is pushed directly to `main`. All work lands via
+> `issue/<id>` branches and PRs. The `implement-ticket-worker` agent pushes the
+> branch and opens the PR as part of its normal flow; ad-hoc sessions follow the
+> same pattern.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+4. **PUSH FEATURE BRANCH + OPEN PR** - This is MANDATORY:
    ```bash
-   git pull --rebase
-   git push
-   git status  # MUST show "up to date with origin"
+   git push -u origin issue/<id>   # push the feature branch (never main directly)
+   gh pr create --title "<title>" --body "<description>" --base main
    ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+   Confirm with `gh pr view` that the PR is open. Work is not complete until
+   the PR is open and the branch is on the remote.
+5. **Enable auto-merge** (if branch protection is active):
+   ```bash
+   gh pr merge <pr-number> --auto --merge
+   ```
+6. **Clean up** - Clear stashes; do NOT delete the feature branch — it is pruned
+   automatically post-merge by the pipeline orchestrator.
+7. **Verify** - PR open on GitHub (`gh pr view`), beads data pushed (`bd dolt push`)
+8. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+- Work is NOT complete until the feature branch is pushed and the PR is open
+- NEVER push directly to `main` — branch protection will reject it once enabled
+- NEVER delete the feature branch before the PR merges — CI needs it
+- If `gh pr create` fails, resolve and retry; a local-only branch leaves work stranded
 <!-- END BEADS INTEGRATION -->
