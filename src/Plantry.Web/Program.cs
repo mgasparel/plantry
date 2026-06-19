@@ -352,10 +352,11 @@ var app = builder.Build();
 // Migrations run as the database owner (creating the app_user role, schemas, and RLS
 // policies), NOT as the runtime app_user role — so build throwaway owner-connection
 // contexts here rather than resolving the app_user-scoped DI contexts.
+// In non-Development environments (Staging, Production) migrations are handled by the
+// one-shot Plantry.Migrator console tool before the web process starts (ADR-017).
 // The L4 WebApplicationFactory suite boots under the "Testing" environment with
-// in-memory fakes and no Postgres, so it must skip startup migrations; Development
-// and Production (real deployments) both migrate.
-if (!app.Environment.IsEnvironment("Testing"))
+// in-memory fakes and no Postgres, so it must skip startup migrations too.
+if (app.Environment.IsDevelopment())
 {
     var identityMigrateOpts = new DbContextOptionsBuilder<PlantryIdentityDbContext>()
         .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Identity.Infrastructure"))

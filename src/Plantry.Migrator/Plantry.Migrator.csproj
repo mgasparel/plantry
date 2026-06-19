@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Identity.Infrastructure has a FrameworkReference on Microsoft.AspNetCore.App
+         (for IdentityDbContext). A plain console app must opt in to that shared framework. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- All 8 Infrastructure projects that own migrations -->
+    <ProjectReference Include="..\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Inventory.Infrastructure\Plantry.Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Pricing.Infrastructure\Plantry.Pricing.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Recipes.Infrastructure\Plantry.Recipes.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Shopping.Infrastructure\Plantry.Shopping.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
