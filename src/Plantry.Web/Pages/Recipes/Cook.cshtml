@@ -129,27 +129,22 @@
                                             }
                                         </div>
 
-                                        @* Quantity stepper (C9 modify) — only when ScaledQuantity known *@
+                                        @* Quantity stepper (C9 modify) — only when ScaledQuantity known.
+                                           Uses value-bind/:value + input-handler/@input (not x-model) because
+                                           quantities are tracked per ingredient id via _quantities object. *@
                                         @if (line.ScaledQuantity.HasValue)
                                         {
                                             <div class="cook-ing-row__qty-edit">
-                                                <div class="qty-stepper">
-                                                    <button type="button" class="qty-btn" aria-label="Decrease"
-                                                            @@click="adjustQty('@ingIdStr', -1)"
-                                                            :disabled="isSkipped('@ingIdStr')">
-                                                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                                                    </button>
-                                                    <input class="field__input" type="number" min="0" step="any"
-                                                           style="text-align:center"
-                                                           :value="quantity('@ingIdStr')"
-                                                           @@input="setQuantity('@ingIdStr', $event.target.value)"
-                                                           :disabled="isSkipped('@ingIdStr')" />
-                                                    <button type="button" class="qty-btn" aria-label="Increase"
-                                                            @@click="adjustQty('@ingIdStr', 1)"
-                                                            :disabled="isSkipped('@ingIdStr')">
-                                                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                                    </button>
-                                                </div>
+                                                <stepper name=""
+                                                         value-bind="quantity('@ingIdStr')"
+                                                         input-handler="setQuantity('@ingIdStr', $event.target.value)"
+                                                         input-disabled="isSkipped('@ingIdStr')"
+                                                         decrease-click="adjustQty('@ingIdStr', -1)"
+                                                         decrease-disabled="isSkipped('@ingIdStr')"
+                                                         increase-click="adjustQty('@ingIdStr', 1)"
+                                                         increase-disabled="isSkipped('@ingIdStr')"
+                                                         decrease-label="Decrease"
+                                                         increase-label="Increase" />
                                                 @if (!string.IsNullOrEmpty(line.UnitCode))
                                                 {
                                                     <span class="cook-ing-row__unit">@line.UnitCode</span>

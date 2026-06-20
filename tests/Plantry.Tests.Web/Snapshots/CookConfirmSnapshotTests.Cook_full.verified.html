@@ -49,14 +49,14 @@
 									Rigatoni
 								</div>
 								<div class="cook-ing-row__qty-edit">
-									<div class="qty-stepper">
-										<button type="button" class="qty-btn" aria-label="Decrease" @click="adjustQty('Guid_1', -1)" :disabled="isSkipped('Guid_1')">
+									<div class="stepper" role="group">
+										<button type="button" class="stepper__btn" aria-label="Decrease" @click="adjustQty('Guid_1', -1)" :disabled="isSkipped('Guid_1')">
 											<svg class="icon" aria-hidden="true">
 												<use href="#i-minus"></use>
 											</svg>
 										</button>
-										<input class="field__input" type="number" min="0" step="any" style="text-align:center" :value="quantity('Guid_1')" @input="setQuantity('Guid_1', $event.target.value)" :disabled="isSkipped('Guid_1')">
-										<button type="button" class="qty-btn" aria-label="Increase" @click="adjustQty('Guid_1', 1)" :disabled="isSkipped('Guid_1')">
+										<input class="stepper__val" type="number" name="" min="0" step="any" :value="quantity('Guid_1')" @input="setQuantity('Guid_1', $event.target.value)" :disabled="isSkipped('Guid_1')">
+										<button type="button" class="stepper__btn" aria-label="Increase" @click="adjustQty('Guid_1', 1)" :disabled="isSkipped('Guid_1')">
 											<svg class="icon" aria-hidden="true">
 												<use href="#i-plus"></use>
 											</svg>
@@ -87,14 +87,14 @@
 									</span>
 								</div>
 								<div class="cook-ing-row__qty-edit">
-									<div class="qty-stepper">
-										<button type="button" class="qty-btn" aria-label="Decrease" @click="adjustQty('Guid_2', -1)" :disabled="isSkipped('Guid_2')">
+									<div class="stepper" role="group">
+										<button type="button" class="stepper__btn" aria-label="Decrease" @click="adjustQty('Guid_2', -1)" :disabled="isSkipped('Guid_2')">
 											<svg class="icon" aria-hidden="true">
 												<use href="#i-minus"></use>
 											</svg>
 										</button>
-										<input class="field__input" type="number" min="0" step="any" style="text-align:center" :value="quantity('Guid_2')" @input="setQuantity('Guid_2', $event.target.value)" :disabled="isSkipped('Guid_2')">
-										<button type="button" class="qty-btn" aria-label="Increase" @click="adjustQty('Guid_2', 1)" :disabled="isSkipped('Guid_2')">
+										<input class="stepper__val" type="number" name="" min="0" step="any" :value="quantity('Guid_2')" @input="setQuantity('Guid_2', $event.target.value)" :disabled="isSkipped('Guid_2')">
+										<button type="button" class="stepper__btn" aria-label="Increase" @click="adjustQty('Guid_2', 1)" :disabled="isSkipped('Guid_2')">
 											<svg class="icon" aria-hidden="true">
 												<use href="#i-plus"></use>
 											</svg>
@@ -122,14 +122,14 @@
 									Garlic
 								</div>
 								<div class="cook-ing-row__qty-edit">
-									<div class="qty-stepper">
-										<button type="button" class="qty-btn" aria-label="Decrease" @click="adjustQty('Guid_3', -1)" :disabled="isSkipped('Guid_3')">
+									<div class="stepper" role="group">
+										<button type="button" class="stepper__btn" aria-label="Decrease" @click="adjustQty('Guid_3', -1)" :disabled="isSkipped('Guid_3')">
 											<svg class="icon" aria-hidden="true">
 												<use href="#i-minus"></use>
 											</svg>
 										</button>
-										<input class="field__input" type="number" min="0" step="any" style="text-align:center" :value="quantity('Guid_3')" @input="setQuantity('Guid_3', $event.target.value)" :disabled="isSkipped('Guid_3')">
-										<button type="button" class="qty-btn" aria-label="Increase" @click="adjustQty('Guid_3', 1)" :disabled="isSkipped('Guid_3')">
+										<input class="stepper__val" type="number" name="" min="0" step="any" :value="quantity('Guid_3')" @input="setQuantity('Guid_3', $event.target.value)" :disabled="isSkipped('Guid_3')">
+										<button type="button" class="stepper__btn" aria-label="Increase" @click="adjustQty('Guid_3', 1)" :disabled="isSkipped('Guid_3')">
 											<svg class="icon" aria-hidden="true">
 												<use href="#i-plus"></use>
 											</svg>

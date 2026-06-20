@@ -44,18 +44,14 @@
     <div class="sl-add-foot" x-data="{ qty: 1 }">
         <div class="sl-field">
             <label asp-for="Input.Quantity">Quantity</label>
-            <div class="sl-qty-stepper">
-                <button type="button" class="sl-qbtn" aria-label="Decrease"
-                        @@click="qty = Math.max(0, +(qty - 1).toFixed(2))">
-                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                </button>
-                <input asp-for="Input.Quantity" type="number" min="0" step="any"
-                       x-model.number="qty" />
-                <button type="button" class="sl-qbtn" aria-label="Increase"
-                        @@click="qty = +(qty + 1).toFixed(2)">
-                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                </button>
-            </div>
+            <stepper variant="lg"
+                     asp-for="Input.Quantity"
+                     x-model="qty"
+                     x-model-modifier="number"
+                     decrease-click="qty = Math.max(0, +(qty - 1).toFixed(2))"
+                     increase-click="qty = +(qty + 1).toFixed(2)"
+                     decrease-label="Decrease quantity"
+                     increase-label="Increase quantity" />
         </div>
         @* Unit select: populated from household catalog units (plantry-259). *@
         <div class="sl-field">

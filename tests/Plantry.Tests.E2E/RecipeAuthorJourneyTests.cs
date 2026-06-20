@@ -295,7 +295,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             // ── Assert: Detail reflects updated servings ──────────────────────────
             // The servings stepper val shows the current servings count in the ingredients card header.
-            var servingsText = await page.Locator(".rd-serv-stepper__val").InnerTextAsync();
+            // Uses .stepper__val (the <stepper variant="compact"> tag helper output).
+            var servingsText = await page.Locator(".stepper__val").InnerTextAsync();
             Assert.Contains("4", servingsText);
 
             // Recipe name still visible in hero
@@ -348,8 +349,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             Assert.Contains("200", defaultQty, StringComparison.Ordinal);
 
             // ── Step servings up: 2 → 4 ─────────────────────────────────────────
-            // Stepper is now .rd-serv-stepper__btn in the ingredients card header.
-            var moreBtn = page.Locator(".rd-serv-stepper__btn[aria-label='More servings']");
+            // Stepper is now <stepper variant="compact"> → emits .stepper__btn in the ingredients card header.
+            var moreBtn = page.Locator(".stepper__btn[aria-label='More servings']");
             await Assertions.Expect(moreBtn).ToBeVisibleAsync();
             // Click twice to go from 2 → 4 servings.
             await moreBtn.ClickAsync();
@@ -363,7 +364,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             Assert.Contains("400", scaledQty, StringComparison.Ordinal);
 
             // Servings stepper val updates too (shows current count, not "N servings").
-            var stepperVal = await page.Locator(".rd-serv-stepper__val").InnerTextAsync();
+            // Uses .stepper__val (the <stepper variant="compact"> tag helper output).
+            var stepperVal = await page.Locator(".stepper__val").InnerTextAsync();
             Assert.Contains("4", stepperVal, StringComparison.OrdinalIgnoreCase);
         }
         finally

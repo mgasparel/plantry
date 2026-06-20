@@ -122,14 +122,14 @@
 					<div class="form-grid__field" style="grid-column: span 2">
 						<label class="form-grid__field__label">Quantity</label>
 						<div class="form-grid__field__control">
-							<div class="qty-stepper">
-								<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+							<div class="stepper" role="group">
+								<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-minus"></use>
 									</svg>
 								</button>
-								<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
-								<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+								<input class="stepper__val" type="number" name="Edit.Quantity" min="0" step="any" x-model="v">
+								<button type="button" class="stepper__btn" aria-label="Increase quantity" @click="v = (parseFloat(v)||0) + 1">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-plus"></use>
 									</svg>
@@ -299,14 +299,14 @@
 					<div class="form-grid__field" style="grid-column: span 2">
 						<label class="form-grid__field__label">Quantity</label>
 						<div class="form-grid__field__control">
-							<div class="qty-stepper">
-								<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+							<div class="stepper" role="group">
+								<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-minus"></use>
 									</svg>
 								</button>
-								<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
-								<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+								<input class="stepper__val" type="number" name="Edit.Quantity" min="0" step="any" x-model="v">
+								<button type="button" class="stepper__btn" aria-label="Increase quantity" @click="v = (parseFloat(v)||0) + 1">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-plus"></use>
 									</svg>
@@ -481,14 +481,14 @@
 					<div class="form-grid__field" style="grid-column: span 2">
 						<label class="form-grid__field__label">Quantity</label>
 						<div class="form-grid__field__control">
-							<div class="qty-stepper">
-								<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+							<div class="stepper" role="group">
+								<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-minus"></use>
 									</svg>
 								</button>
-								<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
-								<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+								<input class="stepper__val" type="number" name="Edit.Quantity" min="0" step="any" x-model="v">
+								<button type="button" class="stepper__btn" aria-label="Increase quantity" @click="v = (parseFloat(v)||0) + 1">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-plus"></use>
 									</svg>
@@ -692,14 +692,14 @@
 					<div class="form-grid__field" style="grid-column: span 2">
 						<label class="form-grid__field__label">Quantity</label>
 						<div class="form-grid__field__control">
-							<div class="qty-stepper">
-								<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+							<div class="stepper" role="group">
+								<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-minus"></use>
 									</svg>
 								</button>
-								<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
-								<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+								<input class="stepper__val" type="number" name="Edit.Quantity" min="0" step="any" x-model="v">
+								<button type="button" class="stepper__btn" aria-label="Increase quantity" @click="v = (parseFloat(v)||0) + 1">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-plus"></use>
 									</svg>
@@ -879,14 +879,14 @@
 					<div class="form-grid__field" style="grid-column: span 2">
 						<label class="form-grid__field__label">Quantity</label>
 						<div class="form-grid__field__control">
-							<div class="qty-stepper">
-								<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+							<div class="stepper" role="group">
+								<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-minus"></use>
 									</svg>
 								</button>
-								<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
-								<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+								<input class="stepper__val" type="number" name="Edit.Quantity" min="0" step="any" x-model="v">
+								<button type="button" class="stepper__btn" aria-label="Increase quantity" @click="v = (parseFloat(v)||0) + 1">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-plus"></use>
 									</svg>
@@ -1063,14 +1063,14 @@
 					<div class="form-grid__field" style="grid-column: span 2">
 						<label class="form-grid__field__label">Quantity</label>
 						<div class="form-grid__field__control">
-							<div class="qty-stepper">
-								<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+							<div class="stepper" role="group">
+								<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-minus"></use>
 									</svg>
 								</button>
-								<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
-								<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+								<input class="stepper__val" type="number" name="Edit.Quantity" min="0" step="any" x-model="v">
+								<button type="button" class="stepper__btn" aria-label="Increase quantity" @click="v = (parseFloat(v)||0) + 1">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-plus"></use>
 									</svg>
@@ -1242,14 +1242,14 @@
 					<div class="form-grid__field" style="grid-column: span 2">
 						<label class="form-grid__field__label">Quantity</label>
 						<div class="form-grid__field__control">
-							<div class="qty-stepper">
-								<button type="button" class="qty-btn" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
+							<div class="stepper" role="group">
+								<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="v = Math.max(0.001, (parseFloat(v)||0) - 1)">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-minus"></use>
 									</svg>
 								</button>
-								<input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v">
-								<button type="button" class="qty-btn" @click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
+								<input class="stepper__val" type="number" name="Edit.Quantity" min="0" step="any" x-model="v">
+								<button type="button" class="stepper__btn" aria-label="Increase quantity" @click="v = (parseFloat(v)||0) + 1">
 									<svg class="icon" aria-hidden="true">
 										<use href="#i-plus"></use>
 									</svg>

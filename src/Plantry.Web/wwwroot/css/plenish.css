@@ -1239,9 +1239,10 @@ button { font-family: inherit; cursor: pointer; }
   margin-top: 1px;
 }
 
-/* ── Quantity / expiry stepper (− input +) ─────────────────────────────────── */
-.qty-stepper { display: flex; align-items: stretch; }
-.qty-stepper .field__input {
+/* ── Stepper (− [value] +) — unified primitive replacing .qty-stepper/.rd-serv-stepper/.sl-qty-stepper ── */
+/* Base (default): 36 px icon buttons — intake review qty, cook page qty.                                   */
+.stepper { display: flex; align-items: stretch; }
+.stepper__val {
   border-radius: 0;
   border-left: none;
   border-right: none;
@@ -1251,9 +1252,30 @@ button { font-family: inherit; cursor: pointer; }
   min-width: 0;
   flex: 1;
 }
-.qty-stepper .field__input::-webkit-outer-spin-button,
-.qty-stepper .field__input::-webkit-inner-spin-button { -webkit-appearance: none; }
-.qty-btn {
+/* When the value slot is an <input> */
+.stepper__val:is(input) {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--color-text);
+  width: 56px;
+}
+.stepper__val:is(input)::-webkit-outer-spin-button,
+.stepper__val:is(input)::-webkit-inner-spin-button { -webkit-appearance: none; }
+.stepper__val:is(input):focus { outline: none; border-color: var(--color-accent); }
+/* When the value slot is a <span> (display mode) */
+.stepper__val:is(span) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  padding: 0 4px;
+}
+.stepper__btn {
   width: 36px;
   flex-shrink: 0;
   border: 1px solid var(--color-border);
@@ -1263,10 +1285,74 @@ button { font-family: inherit; cursor: pointer; }
   place-items: center;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
-.qty-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-.qty-btn:last-child  { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-.qty-btn:hover { background: var(--color-bg-subtle); color: var(--color-text); }
-.qty-btn .icon { width: 0.875rem; height: 0.875rem; }
+.stepper__btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.stepper__btn:last-child  { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.stepper__btn:hover:not(:disabled) { background: var(--color-bg-subtle); color: var(--color-text); }
+.stepper__btn:disabled { opacity: .35; cursor: not-allowed; }
+.stepper__btn .icon { width: 0.875rem; height: 0.875rem; }
+
+/* -- lg: 40 px buttons — shopping add-form + inline qty editor ── */
+.stepper--lg { height: 40px; }
+.stepper--lg .stepper__btn { width: 38px; border-radius: 0; }
+.stepper--lg .stepper__btn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.stepper--lg .stepper__btn:last-child  { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.stepper--lg .stepper__btn:hover:not(:disabled) { background: var(--color-surface-2); }
+.stepper--lg .stepper__btn .icon { width: 15px; height: 15px; }
+
+/* -- compact: borderless square buttons inside a bordered container — recipe-detail ingredients header ── */
+.stepper--compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: 2px;
+}
+.stepper--compact .stepper__btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+}
+.stepper--compact .stepper__btn:hover:not(:disabled) { background: var(--color-surface-2); }
+.stepper--compact .stepper__btn .icon { width: 14px; height: 14px; }
+.stepper--compact .stepper__val:is(span) {
+  min-width: 22px;
+  font-size: 14px;
+  padding: 0 4px;
+}
+
+/* -- pill: 24 px circular text-glyph buttons, inline flow — recipe-meta strip servings ── */
+.stepper--pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+}
+.stepper--pill .stepper__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg);
+}
+.stepper--pill .stepper__btn:hover:not(:disabled) {
+  background: var(--color-bg-subtle);
+  border-color: var(--color-text-muted);
+}
+.stepper--pill .stepper__val:is(span) {
+  font-size: 14px;
+  min-width: 80px;
+  text-align: center;
+  font-weight: 500;
+}
 
 /* ── Edit drawer footer — "Goes to {location}" summary ─────────────────────── */
 .import-row__edit-foot-summary {
@@ -2468,43 +2554,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .recipes-browse-empty__body { font-size: 14px; }
 
-/* ── Recipe detail — servings stepper (J3 step 5) ───────────────────────────── */
-/* Inline +/− control that rescales ingredient quantities client-side via Alpine.  */
-.recipe-servings-stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  vertical-align: middle;
-}
-.recipe-servings-stepper__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 1.5px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-.recipe-servings-stepper__btn:hover:not(:disabled) {
-  background: var(--color-bg-subtle);
-  border-color: var(--color-text-muted);
-}
-.recipe-servings-stepper__btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.recipe-servings-stepper__val {
-  font-size: 14px;
-  min-width: 80px;
-  text-align: center;
-  font-weight: 500;
-}
+/* .recipe-servings-stepper removed — replaced by .stepper--compact (see unified stepper above) */
 
 /* ── Recipe detail — ingredient status pips (P2-2d) ─────────────────────────── */
 /* .ingr-pip: a small colored dot indicating per-ingredient availability status.   */
@@ -2980,51 +3030,13 @@ button { font-family: inherit; cursor: pointer; }
 
 .rd-ing-head__spacer { flex: 1; }
 
-/* servings stepper inside ingredients card header */
-.rd-serv-stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  padding: 2px;
-}
-
+/* .rd-serv-stepper / __btn / __val removed — replaced by .stepper--compact (see unified stepper above) */
+/* Sibling label style retained: */
 .rd-serv-stepper__lbl {
   font-size: 12px;
   color: var(--color-text-faint);
   font-weight: 600;
   margin-right: 7px;
-}
-
-.rd-serv-stepper__btn {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border: none;
-  background: none;
-  color: var(--color-text-muted);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.rd-serv-stepper__btn:hover:not(:disabled) {
-  background: var(--color-surface-2);
-  color: var(--color-text);
-}
-
-.rd-serv-stepper__btn:disabled { opacity: .35; cursor: not-allowed; }
-.rd-serv-stepper__btn .icon { width: 14px; height: 14px; }
-
-.rd-serv-stepper__val {
-  min-width: 22px;
-  text-align: center;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  font-size: 14px;
 }
 
 /* ingredient list */
@@ -3289,7 +3301,7 @@ button { font-family: inherit; cursor: pointer; }
   gap: 6px;
   margin-top: 4px;
 }
-.cook-ing-row__qty-edit .qty-stepper {
+.cook-ing-row__qty-edit .stepper {
   max-width: 160px;
   flex: 0 0 auto;
 }
@@ -3441,22 +3453,7 @@ button { font-family: inherit; cursor: pointer; }
   border: 1px solid var(--color-border); background: var(--color-surface-2); border-radius: var(--radius-md);
   padding: 0 9px; height: 40px; min-width: 60px; display: inline-flex; align-items: center;
 }
-.sl-qty-stepper { display: flex; align-items: stretch; height: 40px; }
-.sl-qty-stepper input {
-  width: 56px; text-align: center; border: 1px solid var(--color-border); border-left: none; border-right: none;
-  font-family: inherit; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--color-text);
-  background: var(--color-surface); -moz-appearance: textfield;
-}
-.sl-qty-stepper input::-webkit-outer-spin-button, .sl-qty-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.sl-qty-stepper input:focus { outline: none; border-color: var(--color-accent); }
-.sl-qbtn {
-  width: 38px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-muted);
-  display: grid; place-items: center;
-}
-.sl-qbtn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
-.sl-qbtn:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
-.sl-qbtn:hover { background: var(--color-surface-2); color: var(--color-text); }
-.sl-qbtn svg { width: 15px; height: 15px; }
+/* .sl-qty-stepper / .sl-qbtn removed — replaced by .stepper--lg (see unified stepper above) */
 
 /* ---- list groups -------------------------------------------------------- */
 .sl-group {
