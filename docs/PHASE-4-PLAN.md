@@ -52,10 +52,11 @@ sequencing aids, not commitments.
 
 | # | Slice | Journeys | Contexts | Size | Blocks | Status |
 |---|---|---|---|---|---|---|
-| P4-1 | Domain primitives — upward `Correction` + location-scoped consume | — | Inventory | S | P4-4, P4-5, P4-7, P4-8 | ⬜ Not started |
+| P4-1 | Domain primitives — upward `Correction` + location-scoped consume | — | Inventory | S | P4-4a, P4-5, P4-7, P4-8 | ⬜ Not started |
 | P4-2 | Catalog `SetDefaultLocationCommand` | — | Catalog | S | P4-7, P4-8 | ⬜ Not started |
-| P4-3 | Read side — `ITakeStockReader` + location index | J1/J2/J3 | Inventory ↔ Catalog | M | P4-4, P4-5, P4-7, P4-8 | ⬜ Not started |
-| P4-4 | Core walk + save (scalar) | J1/J2/J4 | Inventory | L | P4-5, P4-7, P4-8, P4-9 | ⬜ Not started |
+| P4-3 | Read side — `ITakeStockReader` + location index | J1/J2/J3/J7 | Inventory ↔ Catalog | M | P4-4b, P4-5, P4-7, P4-8 | ⬜ Not started |
+| P4-4a | Count commands (scalar) — `RecordCountCommand` + `SaveCountsCommand` | J2/J4 | Inventory | M | P4-4b, P4-5, P4-7, P4-8 | ⬜ Not started |
+| P4-4b | Walk pages + working-set client | J1/J2/J4 | Inventory | M | P4-9 | ⬜ Not started |
 | P4-5 | Lot escape hatch | J3 | Inventory | M | — | ⬜ Not started |
 | P4-6 | Extract shared product-search/create sheet | — | (Recipes UI) | M | P4-7 | ⬜ Not started |
 | P4-7 | Inline add (search-or-create during a walk) | J5 | Inventory ↔ Catalog | M | — | ⬜ Not started |
@@ -66,7 +67,8 @@ sequencing aids, not commitments.
 > lands; this is the single source of truth for "where are we" in Phase 4.
 
 P4-1, P4-2, P4-3, and P4-6 are independent and parallelizable. The critical path is
-**P4-1 → P4-4 → (P4-5 / P4-7 / P4-8)**, with P4-3 a co-requisite of P4-4 and P4-6 a prerequisite of P4-7.
+**P4-1 → P4-4a → P4-4b → (P4-5 / P4-7 / P4-8)**, with P4-3 a co-requisite of P4-4b (the page listing) and
+P4-6 a prerequisite of P4-7. P4-5/P4-7/P4-8 extend the P4-4a command seam *and* attach UI to the P4-4b page.
 
 ---
 
@@ -117,9 +119,11 @@ counts, lot detail, and product search — backed by a location index.
 - Migration **`ix_stock_entry_by_location`** on `stock_entry (household_id, location_id, product_id)`,
   partial `WHERE depleted_at IS NULL` (TS-S2).
 - `ITakeStockReader` (interface + DTOs) in `Inventory.Application`; **`TakeStockReader` adapter in
-  `Plantry.Web`** composing the Inventory lot query with Catalog repos directly (TS-10): `ListLocations`,
-  `ListLocationRows` (the C5 union: lots-here ∪ defaulted-here-with-none, recorded counts, supported
-  units), `ListLots` (escape hatch), `SearchProducts` (exact/contains; fuzzy = `plantry-hl4a`).
+  `Plantry.Web`** composing the Inventory lot query with Catalog repos directly (TS-10) — **all five
+  reader methods** so none is orphaned: `ListLocations`, `ListLocationRows` (the C5 union: lots-here ∪
+  defaulted-here-with-none, recorded counts, supported units), `ListNoLocationRows` (the J7 unassigned
+  set: tracked, non-parent, non-archived products with no default location and no active lots — consumed
+  by P4-8), `ListLots` (escape hatch), `SearchProducts` (exact/contains; fuzzy = `plantry-hl4a`).
 
 **Tests / done-when.** L3: index applies clean in CI; the union listing returns both branches with
 correct per-(product, Location) recorded sums; RLS isolation. L2: reader composition over faked
@@ -129,28 +133,49 @@ Catalog/Inventory reads.
 
 ---
 
-### P4-4 — Core walk + save (scalar)
+### P4-4a — Count commands (scalar)
 
-**Goal.** Pick a Location, see every belonging product with its recorded count, type actual counts in
-any supported unit, and Save — committing `Correction`/`Consumed`/`Discarded` rows. (J1/J2/J4)
+**Goal.** The application seam that turns a counted value into journal rows — **no UI**. (J2/J4)
 
 **Scope.**
-- `RecordCountCommand` (per-item set-to-N: load `FOR UPDATE`, delta vs current at Location, dispatch
-  `AddStock`(+)/`Consume`(−)/no-op) and `SaveCountsCommand` (batch; **N per-aggregate transactions**,
-  per-item result vector — TS-6). `source_type = Manual`.
+- `RecordCountCommand` (per-item set-to-N): load `ProductStock` `FOR UPDATE`; recompute the recorded
+  sum **at the Location** from the aggregate's active lots, each converted to the counted unit via the
+  product converter (TS-5); `delta = counted − recorded`; dispatch `AddStock`(+, `reason: Correction`) /
+  `Consume`(−, `locationId`) / no-op. Idempotent on re-drive (recompute against current ⇒ an applied
+  item yields delta 0 — TS-7). `source_type = Manual`.
+- `SaveCountsCommand` (batch): **N independent per-aggregate transactions** (not one global tx — TS-6),
+  returning a per-item result vector for partial success.
+- **Does not depend on P4-3** — `RecordCount` reads the recorded sum from the loaded aggregate, not the
+  reader. Depends only on the P4-1 domain primitives (+ the existing repo / `IProductConversionProvider`).
+
+**Tests / done-when.** L2: `RecordCount` up / down / no-op; per-lot-unit conversion into the counted
+unit; set-to-N idempotency on re-drive; `SaveCounts` partial-success vector (one failing item does not
+roll back the rest). No UI in this slice.
+
+**Refs.** app-services (`RecordCountCommand` / `SaveCountsCommand`); domain-model TS-5/TS-6/TS-7;
+StockCommands.cs (the `ExecuteInTransactionAsync` pattern). Depends on P4-1.
+
+---
+
+### P4-4b — Walk pages + working-set client
+
+**Goal.** Pick a Location, see every belonging product with its recorded count, type actual counts in
+any supported unit, and Save — the UI on top of the P4-4a commands. (J1/J2/J4)
+
+**Scope.**
 - Pages `/pantry/take-stock` (Location list, J1) and `/pantry/take-stock/{locationId}` (walk, J2):
   count rows with **stepper** input + **unit selector** (C10) + one-tap "none left", the row-level
   **reason selector** (default Correction; "Used it"/"Spoiled" → Consumed/Discarded — C9), a sticky
-  Save bar. **Working-set client model** in Alpine (page-only, dirty tracking) with the **"leave page?"
-  guard** on unsaved counts (C7). Reuse-first against the Dev library; no new shared component here.
+  Save bar wired to `SaveCountsCommand` (P4-4a). Row listing from `ITakeStockReader.ListLocationRows`
+  (P4-3).
+- **Working-set client model** in Alpine (page-only, dirty tracking) with the **"leave page?" guard**
+  on unsaved counts (C7). Reuse-first against the Dev library; no new shared component here.
 
-**Tests / done-when.** L2: `RecordCount` up/down/no-op + unit conversion + set-to-N idempotency on
-re-drive; `SaveCounts` partial-success vector. L4: walk + Save fragments. L5: open a Location → change
-a count → Save → journal reflects it; leave with unsaved counts → guard fires; re-Save no-ops applied
-items.
+**Tests / done-when.** L4: Location-list + walk + Save fragments. L5: open a Location → change a count →
+Save → journal reflects it; leave with unsaved counts → guard fires; re-Save no-ops applied items;
+partial-failure rows re-flag inline.
 
-**Refs.** app-services (`RecordCountCommand`/`SaveCountsCommand`); ui-slices (working set, C7);
-journeys J1/J2/J4; TS-5/TS-6/TS-7.
+**Refs.** ui-slices (working set, C7); journeys J1/J2/J4. Depends on P4-4a, P4-3.
 
 ---
 
@@ -182,9 +207,15 @@ Recipes and Take Stock consume (C12) — *not* cloned.
 **Scope.**
 - Extract the add/edit sheet (the `searchableSelect` picker + its "create new" mode) from
   `Pages/Recipes/Edit.cshtml` into a shared component registered in the Dev component library.
-  Parameterize the tracked-vs-staple create choice (`trackStock`) and allow a host-supplied extra-fields
-  slot (Recipes: qty/unit/group-heading; Take Stock: count/location). **Behaviour-preserving for the
-  recipe editor** — a churn hotspot; keep the recipe flow green.
+- **Pin the component API at plan time** (not discovered mid-implementation): the props —
+  `trackStock` (bool), the host extra-fields slot (Recipes: qty/unit/group-heading; Take Stock:
+  count/location), and the search → no-match → create state toggle + the create/select event contract.
+
+**Risk (call out in the ticket).** `Pages/Recipes/Edit.cshtml` is a **~536-line churn hotspot** and
+carries the known Alpine **`@click="var …"` gotcha** — a handler expression starting with `var` silently
+no-ops the whole handler (bd memory `alpine-event-handler-var-token-syntax-error`; use `let`/`const`).
+The extraction must be **strictly behaviour-preserving**: the existing recipe create/edit **and**
+inline-staple **L5s staying green is a hard gate** on this slice.
 
 **Tests / done-when.** L4: shared-sheet fragment in isolation. L5: the **existing** recipe
 create/edit + inline-staple flows still pass unchanged; the component renders in the Dev library.
@@ -230,7 +261,7 @@ are counted by assigning a location inline. (J7)
 set; 0-count + location → default location only, no lot; no-location → row leaves the list. L5: file an
 imported unplaced product → it leaves the section and appears under its Location.
 
-**Refs.** journeys J7; app-services; C5/TS-9; depends on P4-2, P4-4.
+**Refs.** journeys J7; app-services; C5/TS-9; depends on P4-2, P4-4a, P4-4b.
 
 ---
 
@@ -246,7 +277,7 @@ imported unplaced product → it leaves the section and appears under its Locati
 **Tests / done-when.** L4: the Today CTA fragment under the empty-stock condition. L5: a fresh household
 sees the CTA → lands in the additive walk; after adding stock the CTA is gone.
 
-**Refs.** journeys J6; Home (Today) cold-start; depends on P4-4 existing.
+**Refs.** journeys J6; Home (Today) cold-start; depends on P4-4b existing.
 
 ---
 
@@ -254,22 +285,24 @@ sees the CTA → lands in the additive walk; after adding stock the CTA is gone.
 
 ```mermaid
 graph LR
-    P1["P4-1 · Domain primitives"] --> P4["P4-4 · Core walk + save"]
+    P1["P4-1 · Domain primitives"] --> P4A["P4-4a · Count commands"]
+    P4A --> P4B["P4-4b · Walk pages + client"]
+    P3["P4-3 · Read side + index"] --> P4B
     P2["P4-2 · SetDefaultLocation"] --> P7["P4-7 · Inline add"]
     P2 --> P8["P4-8 · No location"]
-    P3["P4-3 · Read side + index"] --> P4
-    P4 --> P5["P4-5 · Escape hatch"]
-    P4 --> P7
-    P4 --> P8
-    P4 --> P9["P4-9 · Today onboarding"]
     P6["P4-6 · Shared sheet extract"] --> P7
-    P1 --> P5
-    P1 --> P7
-    P1 --> P8
+    P4A --> P5["P4-5 · Escape hatch"]
+    P4B --> P5
+    P4A --> P7
+    P4B --> P7
+    P4A --> P8
+    P4B --> P8
+    P4B --> P9["P4-9 · Today onboarding"]
 ```
 
-The critical path is **P4-1 → P4-4 → {P4-5, P4-7, P4-8}**. P4-3 is a co-requisite of P4-4; P4-2 and P4-6
-are independent and feed P4-7/P4-8; P4-9 hangs off a working P4-4.
+The critical path is **P4-1 → P4-4a → P4-4b → {P4-5, P4-7, P4-8}**. P4-3 is a co-requisite of P4-4b (the
+page listing); P4-4a (the command seam) is what P4-5/P4-7/P4-8 extend, while they attach UI to P4-4b.
+P4-2 and P4-6 are independent and feed P4-7/P4-8; P4-9 hangs off a working P4-4b.
 
 ---
 
@@ -291,7 +324,8 @@ are independent and feed P4-7/P4-8; P4-9 hangs off a working P4-4.
 ## Suggested first move
 
 Land **P4-1** (domain primitives) and **P4-3** (read side + index) in parallel — they unblock
-everything and carry the only schema change. Then **P4-4** to make a Location hand-countable end to end.
-From there, **P4-5** (escape hatch), **P4-7** (inline add, after the **P4-6** sheet extraction), and
-**P4-8** ("No location") fan out, with **P4-9** (Today onboarding) once the walk exists. Pull **P4-2**
-and **P4-6** in parallel whenever there's slack — both are independent prerequisites.
+everything and carry the only schema change. Then **P4-4a** (count commands) and **P4-4b** (the walk
+pages on top) to make a Location hand-countable end to end. From there, **P4-5** (escape hatch),
+**P4-7** (inline add, after the **P4-6** sheet extraction), and **P4-8** ("No location") fan out, with
+**P4-9** (Today onboarding) once the walk page exists. Pull **P4-2** and **P4-6** in parallel whenever
+there's slack — both are independent prerequisites.
