@@ -61,8 +61,14 @@ rather than branching on the current status.
 From the project root (`code/`):
 
 ```bash
-git worktree add ../worktrees/<issue-id> -b issue/<issue-id> main
+git fetch origin main
+git worktree add ../worktrees/<issue-id> -b issue/<issue-id> origin/main
 ```
+
+Branch off the freshly-fetched `origin/main`, **not** local `main`. Local `main` is
+never refreshed by the loop, so branching off it would cut every PR from a stale base
+— the branch is born behind `main` and drifts further each iteration. Branching off
+`origin/main` after an explicit fetch makes "born behind" structurally impossible.
 
 All subsequent work happens inside `../worktrees/<issue-id>/`. The main working tree
 is untouched until the orchestrator merges.
@@ -90,7 +96,6 @@ Working entirely within `../worktrees/<issue-id>/`:
 | Unexpected compilation error in untouched files | Fix if trivially unrelated; else park: `unrecoverable-error` |
 | Required file is missing | Implement it; follow existing patterns |
 | Unrelated test failing | Fix if trivial; else park: `unrecoverable-error` |
-| Merge/rebase conflict | Park: `rebase-conflict` |
 | Git operation fails unexpectedly | Park: `unrecoverable-error:<git-error>` |
 | Build tool not found | Park: `unrecoverable-error:build-tool-missing` |
 
@@ -196,8 +201,12 @@ naming any suite that was skipped or did not run):
 > ## Step B — Get the diff
 >
 > ```bash
-> git -C <worktree-path> diff main
+> git -C <worktree-path> diff origin/main
 > ```
+>
+> Diff against `origin/main` (the branch's actual base), not local `main` —
+> the branch was cut from `origin/main` and local `main` may lag behind it,
+> which would pollute the diff with unrelated commits.
 >
 > ## Step C — Review
 >

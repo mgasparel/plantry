@@ -22,8 +22,14 @@ The long-running serial loop that closes the circuit between `bd ready`
 and a merged commit on `main` with no human in the loop.
 
 **Serial model:** one issue at a time — claim → implement → PR green →
-merge → close → next. The GitHub merge queue (enabled by branch protection)
-enforces CI before the merge lands; this driver orchestrates the sequence and
+merge → close → next. When a GitHub merge queue is configured on `main`
+(`merge_group:` trigger in `ci.yml` + "Require merge queue" branch
+protection), `gh pr merge --auto` enqueues the PR and the queue rebases it
+onto the live tip of `main` and re-runs CI before the merge lands — so a PR
+is revalidated against the real merge result, not just its own branch. If no
+queue is configured, `--auto` is plain auto-merge (CI on the branch in
+isolation); the mergeability guard in Step 3 is what catches a PR that has
+fallen behind `main` in that case. This driver orchestrates the sequence and
 runs a CI reconcile loop to auto-fix red CI before giving up.
 
 ## Invocation
@@ -43,6 +49,26 @@ Or for a single pass (useful for testing):
 ---
 
 ## Per-iteration procedure
+
+### Step 0 — Housekeeping
+
+Prune stale worktree registrations and merged local branches before claiming
+new work. On Windows the post-merge cleanup in Step 3 skips worktree dirs that
+are locked by build artifacts, so they accumulate across iterations; this sweep
+self-heals that leak. It only touches already-merged/abandoned state — never an
+in-progress branch.
+
+```bash
+git worktree prune
+git fetch origin main --quiet
+git branch --merged origin/main | grep -E '^\s+issue/' | xargs -r git branch -d
+```
+
+`git worktree prune` drops registrations whose directory is already gone.
+Issue branches land on `origin/main` (via the merge queue), not local `main`,
+so the merged check is against the freshly-fetched `origin/main`; `git branch -d`
+(safe delete) only removes `issue/*` branches fully merged there, leaving any
+unmerged in-flight branch untouched. Log nothing unless something was reaped.
 
 ### Step 1 — Claim one ready issue
 
@@ -92,7 +118,25 @@ Initialise per-PR state:
 - `ci_fix_attempts = 0`
 - `flake_rerun_done = false`
 
-1. **Enable auto-merge:**
+1. **Guard mergeability, then enable auto-merge:**
+
+   First check the PR can actually merge — a PR cut from a base that `main` has
+   since advanced past may be behind or conflicting. Without a merge queue,
+   arming auto-merge on such a PR just burns the full 30-min poll into a
+   `merge-timeout`; catch it up front instead:
+   ```bash
+   gh pr view <pr-number> --json mergeStateStatus --jq '.mergeStateStatus'
+   ```
+   - `DIRTY` (merge conflict with `main`) → park with reason `merge-conflict`
+     and skip to the next PASS verdict. The branch and worktree are preserved
+     for a human to rebase.
+   - `BEHIND` **and no merge queue is configured** → the PR cannot fast-forward
+     and nothing will advance it; park with reason `merge-conflict:behind` and
+     skip to the next PASS verdict. (With a merge queue, `BEHIND` is fine — the
+     queue rebases it — so proceed.)
+   - `CLEAN`, `UNSTABLE`, `HAS_HOOKS`, `BLOCKED`, `BEHIND` (queue configured),
+     or `UNKNOWN` → proceed to arm auto-merge below.
+
    ```bash
    gh pr merge <pr-number> --auto --merge
    ```
