@@ -5,6 +5,10 @@ on:
     branches: [main, "slice/**"]
   pull_request:
     branches: [main]
+  # Run the same checks in the merge queue's ephemeral merge_group ref so a PR
+  # is revalidated against the live tip of main immediately before it lands.
+  # Required for branch protection's "Require merge queue" (see plantry-ctwa).
+  merge_group:
 
 jobs:
   # ── Fast gate: build + unit + architecture (< 2 min, runs first) ─────────────
