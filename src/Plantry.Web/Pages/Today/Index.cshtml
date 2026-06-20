@@ -8,7 +8,7 @@
 <div class="today-wrap">
     <div class="today-head">
         <div class="today-head__greet">
-            <h1 class="today-head__greeting">@Model.Greeting</h1>
+            <h1 class="today-head__greeting">@(Model.IsColdStart ? "Welcome to Plantry." : Model.Greeting)</h1>
             <div class="today-head__date">
                 <span>@Model.DateDisplay</span>
                 @if (!string.IsNullOrEmpty(Model.HouseholdName))
@@ -40,7 +40,6 @@
             </div>
             <div class="today-welcome__body">
                 <div class="eyebrow today-welcome__eyebrow">Let's set up your kitchen</div>
-                <h2 class="today-welcome__heading">Welcome to Plantry.</h2>
                 <p class="today-welcome__sub">
                     Plantry keeps an eye on what's in your pantry, what's about to expire, and what's for dinner — so nothing goes to waste.
                     Three quick steps to get going.
