@@ -1,0 +1,86 @@
+# docker-compose.yml — Plantry self-hosted stack
+#
+# This is the file self-hosters use.  It differs from the maintainer's own
+# docker-compose.prod.yml in two ways:
+#
+#   1. Caddy is NOT included here — most operators already have a reverse proxy
+#      (nginx, Traefik, Caddy on the host, etc.).  Port 8080 is exposed on the
+#      host so you can front it with your own proxy.  If you want the bundled
+#      Caddy TLS configuration, overlay docker-compose.caddy.yml:
+#
+#        docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#
+#   2. No backup sidecar — operators manage their own backup policy.
+#      See https://github.com/gastownhall/plantry/blob/main/deploy/backup.sh
+#      for a pg_dump helper you can run from a host crontab.
+#
+# Quick start:
+#   cp .env.example .env
+#   $EDITOR .env          # fill in your passwords; chmod 600 .env
+#   docker compose up -d
+#
+# Updates:
+#   docker compose pull
+#   docker compose up -d
+#
+# The migrator runs automatically before the web app starts and is idempotent —
+# multi-version jumps (e.g. 1.0 -> 1.7) are handled in one shot.
+# See https://github.com/gastownhall/plantry/blob/main/docs/Operations/self-hosting.md
+
+services:
+
+  # ── Postgres ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: plantrydb
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d plantrydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Migrator (one-shot) ───────────────────────────────────────────────────
+  # Applies all EF migrations and reconciles the app_user password from .env,
+  # then exits.  The web app will not start until this completes successfully.
+  # Re-running is safe — MigrateAsync is idempotent when already current.
+  migrator:
+    image: ${MIGRATOR_IMAGE:-ghcr.io/gastownhall/plantry/migrator:latest}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Database__AppUserPassword: ${APP_USER_PASSWORD}
+
+  # ── Plantry Web ───────────────────────────────────────────────────────────
+  # Connects as the least-privilege app_user only.
+  # Row-level security enforces household data isolation at the database layer.
+  plantry-web:
+    image: ${PLANTRY_WEB_IMAGE:-ghcr.io/gastownhall/plantry/web:latest}
+    restart: unless-stopped
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    ports:
+      # Exposed on the host so you can front it with your own reverse proxy.
+      # If you use the bundled Caddy overlay (docker-compose.caddy.yml), remove
+      # or comment this ports block so Caddy is the only ingress.
+      - "${HTTP_PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD}"
+      Database__AppUserPassword: ${APP_USER_PASSWORD}
+      # Optional: omit (or leave blank) to degrade AI features to a locked-feature
+      # UI.  The app still runs normally without an AI key.
+      AI__ApiKey: ${AI_API_KEY:-}
+
+volumes:
+  postgres_data:
