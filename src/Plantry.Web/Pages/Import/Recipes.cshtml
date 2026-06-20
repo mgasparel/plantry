@@ -164,15 +164,15 @@
     var paginationPageIds       = Model.PagedRows.Select(r => r.GrocyId).ToHashSet();
     var crossPageDroppedIds     = Model.AllDroppedIds.Where(id => !paginationPageIds.Contains(id));
     var crossPageDroppedQs      = string.Join("", crossPageDroppedIds.Select(id => $"&droppedIds={id}"));
-    // Serialise cross-page IDs for the JS handler (passed via data-attr to avoid inline JSON escaping issues).
+    // Serialise cross-page IDs into the Alpine x-data initialiser so navigateTo can access them as this.crossPageDroppedIds.
     var crossPageIdsJson = System.Text.Json.JsonSerializer.Serialize(crossPageDroppedIds.ToArray());
     <div style="display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0 1.5rem"
-         data-cross-page-dropped-ids="@crossPageIdsJson"
          x-data="{
+             crossPageDroppedIds: @crossPageIdsJson,
              navigateTo(baseUrl) {
                  const url = new URL(baseUrl, location.origin);
                  url.searchParams.delete('droppedIds');
-                 JSON.parse($el.dataset.crossPageDroppedIds).forEach(function(id) {
+                 this.crossPageDroppedIds.forEach(function(id) {
                      url.searchParams.append('droppedIds', id);
                  });
                  document.querySelectorAll('input[name=DroppedRecipeIds]').forEach(function(h) {
