@@ -1,0 +1,68 @@
+@model Plantry.Web.Pages.Shared.FilterChipViewModel
+
+@*
+    Renders the inner content of a filter/toggle chip button: an optional leading
+    dot or icon, the label, and an optional trailing count. Does NOT render the
+    <button> element itself — the caller writes the button with its own attributes
+    (class, hx-get, @@click, :class, data-*, type, etc.) and embeds this partial
+    as the button's child content.
+
+    CSS: The caller's button should use the .filter-chip base class plus one of
+    the tone modifiers when active:
+        .filter-chip                      — base (inactive / off state)
+        .filter-chip.is-active.filter-chip--accent    — accent fill (default for tag filters)
+        .filter-chip.is-active.filter-chip--warning   — amber fill (use-soon)
+        .filter-chip.is-active.filter-chip--success   — green fill (ready)
+        .filter-chip.is-active.filter-chip--neutral   — neutral fill
+
+    Wrap a set of chips in .filter-chip-bar (the container flex row).
+
+    Parameters (FilterChipViewModel):
+        Label     — chip text (required)
+        DotColor  — CSS colour for a leading dot (e.g. var(--color-warning));
+                    takes precedence over IconId when both are set
+        IconId    — SVG sprite id for a leading icon (e.g. i-timer)
+        Count     — optional trailing count shown after the label
+
+    Usage — server-driven active state (recipes tag chips):
+        <button type="button"
+                class="filter-chip @(isActive ? "is-active filter-chip--accent" : "")"
+                hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML"
+                hx-include="#recipes-filter-form"
+                hx-vals='{"tagId": "@(isActive ? "" : tag.Id.Value)"}'>
+            <partial name="Shared/_FilterChip"
+                     model='new FilterChipViewModel(tag.Name, DotColor: color)' />
+        </button>
+
+    Usage — Alpine-driven active state (intake review chips):
+        <button type="button"
+                class="filter-chip"
+                :class="filter === 'all' ? 'is-active filter-chip--success' : ''"
+                @@click="filter = 'all'"
+                data-count-total="@totalStock">
+            <partial name="Shared/_FilterChip"
+                     model='new FilterChipViewModel("All", Count: totalStock)' />
+        </button>
+
+    Usage — icon toggle (use-soon):
+        <button type="button"
+                class="filter-chip @(Model.Soon ? "is-active filter-chip--warning" : "")"
+                hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML"
+                hx-include="#recipes-filter-form"
+                hx-vals='{"soon": "@(!Model.Soon ? "true" : "false")"}'>
+            <partial name="Shared/_FilterChip"
+                     model='new FilterChipViewModel("Use soon", IconId: "i-timer")' />
+        </button>
+
+    Registered in the Dev component library (src/Plantry.Web/Pages/Dev/Index.cshtml).
+*@
+
+@if (Model.DotColor is { Length: > 0 })
+{
+    <span class="filter-chip__dot" style="background:@Model.DotColor" aria-hidden="true"></span>
+}
+else if (Model.IconId is { Length: > 0 })
+{
+    <svg class="icon filter-chip__icon" aria-hidden="true"><use href="#@Model.IconId" /></svg>
+}
+@Model.Label@(Model.Count.HasValue ? $" {Model.Count}" : "")

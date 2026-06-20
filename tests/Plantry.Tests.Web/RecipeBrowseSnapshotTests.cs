@@ -105,7 +105,7 @@ public sealed class RecipeBrowseSnapshotTests(RecipeBrowseFragmentFactory factor
     public async Task Browse_tag_filter_chips()
     {
         var html = await GetBrowsePageAsync();
-        await Verify(Extract(html, ".recipes-tag-filters"), "html");
+        await Verify(Extract(html, ".filter-chip-bar"), "html");
     }
 
     // ── htmx partial swap: HX-Request returns bare fragment, not full layout ───

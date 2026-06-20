@@ -1139,11 +1139,16 @@ button { font-family: inherit; cursor: pointer; }
 .rev-title h2 { font-size: var(--font-size-2xl); font-weight: 700; margin: 0 0 var(--space-1); }
 .rev-title p { color: var(--color-text-muted); margin: 0; font-size: var(--font-size-sm); }
 
-.chips { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.fchip {
+/* ── Filter chip — unified pill filter/toggle primitive ─────────────────── */
+/* Wraps a row of filter chips.                                               */
+.filter-chip-bar { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+/* Single chip — the caller writes <button type="button" class="filter-chip"> */
+/* and embeds <partial name="Shared/_FilterChip" model="..."> as its content. */
+.filter-chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   padding: 5px var(--space-3);
   border-radius: var(--radius-full);
   font-size: var(--font-size-sm);
@@ -1155,11 +1160,18 @@ button { font-family: inherit; cursor: pointer; }
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
-.fchip:hover { border-color: var(--color-text-muted); color: var(--color-text); }
-.fchip.on { border-color: transparent; }
-.fchip.on.f-review { background: var(--color-warning-bg); color: var(--color-warning); }
-.fchip.on.f-ready  { background: var(--color-success-bg); color: var(--color-success); }
-.fchip .dotc { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.filter-chip:hover { border-color: var(--color-text-muted); color: var(--color-text); }
+
+/* Active-state tone modifiers — combine .is-active with a tone class:        */
+.filter-chip.is-active { border-color: transparent; }
+.filter-chip.is-active.filter-chip--accent  { background: var(--color-accent); color: var(--color-text-on-accent); }
+.filter-chip.is-active.filter-chip--neutral { background: var(--color-surface-2); color: var(--color-text); }
+.filter-chip.is-active.filter-chip--warning { background: var(--color-warning-bg); color: var(--color-warning); }
+.filter-chip.is-active.filter-chip--success { background: var(--color-success-bg); color: var(--color-success); }
+
+/* Inner elements emitted by the _FilterChip partial:                         */
+.filter-chip__dot  { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.filter-chip__icon { width: 15px; height: 15px; }
 
 .rev-progress {
   display: flex;
@@ -2074,60 +2086,6 @@ button { font-family: inherit; cursor: pointer; }
   width: 100%;
 }
 .recipes-search__input::placeholder { color: var(--color-text-faint); }
-
-/* Tag filter chips */
-.recipes-tag-filters { display: flex; gap: 7px; flex-wrap: wrap; }
-.recipes-tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 13px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
-  white-space: nowrap;
-}
-.recipes-tag-chip:hover { background: var(--color-surface-2); color: var(--color-text); }
-.recipes-tag-chip.is-active {
-  background: var(--color-accent);
-  color: var(--color-text-on-accent);
-  border-color: transparent;
-}
-.recipes-tag-chip__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-/* Use-soon toggle */
-.recipes-soon-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  border-radius: var(--radius-full);
-  padding: 7px 13px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.recipes-soon-toggle:hover { background: var(--color-surface-2); color: var(--color-text); }
-.recipes-soon-toggle.is-active {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
-  border-color: transparent;
-}
-.recipes-soon-toggle .icon { width: 15px; height: 15px; }
 
 /* Sort select */
 .recipes-sort-select {
