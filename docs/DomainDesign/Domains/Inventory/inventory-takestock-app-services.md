@@ -1,6 +1,6 @@
 # Take Stock — Application Services
 
-> **Status:** Design in progress — Phase 2 (bd `plantry-5vxb`)
+> **Status:** Design in progress — Phase 4 (bd `plantry-5vxb`)
 >
 > **Purpose:** The concrete application surface — commands, read port, write port — that the UI calls, made specific enough to slice into tickets. Follows the existing Inventory conventions: constructor-injected commands returning `Result<T>` (see `StockCommands.cs`), persistence via `IProductStockRepository` (`FindForUpdateAsync` + `ExecuteInTransactionAsync`), and cross-context **ports defined in `*.Application`, implemented in `Plantry.Web`** (see `ICatalogReadFacade`, `IInventoryStockReader`, Recipes' `ICatalogWriter`). Builds on the [domain model](inventory-takestock-domain-model.md). Feeds the UI-slices pass.
 >

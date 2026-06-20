@@ -1,6 +1,6 @@
 # Take Stock — Ubiquitous Language
 
-> **Status:** Design in progress — Phase 2 (bd `plantry-5vxb`)
+> **Status:** Design in progress — Phase 4 (bd `plantry-5vxb`)
 >
 > **Purpose:** The shared vocabulary for the **Take Stock** feature within the Inventory context. Take Stock introduces almost no new domain mechanics — it is a batch UI over existing Inventory operations — so this doc mostly **maps friendly count language onto the existing journal taxonomy** and names the few genuinely new UI/flow concepts. Builds on [inventory-ubiquitous-language.md](inventory-ubiquitous-language.md); feeds the domain-model and data-schema passes.
 >

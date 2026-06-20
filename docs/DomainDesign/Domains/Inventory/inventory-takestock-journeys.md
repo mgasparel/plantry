@@ -1,6 +1,6 @@
 # Take Stock — User Journey Map
 
-> **Status:** Design in progress — Phase 2 (bd `plantry-5vxb`)
+> **Status:** Design in progress — Phase 4 (bd `plantry-5vxb`)
 >
 > **Purpose:** Checkpoint of the journey-mapping session for **Take Stock** — a low-friction flow to walk your storage Locations and reconcile recorded stock against what is physically on hand. Feeds the Inventory ubiquitous language, domain model, and data-schema passes (next steps).
 >

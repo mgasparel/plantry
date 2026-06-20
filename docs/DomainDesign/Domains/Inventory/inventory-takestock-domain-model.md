@@ -1,6 +1,6 @@
 # Take Stock — Domain Model
 
-> **Status:** Design in progress — Phase 2 (bd `plantry-5vxb`)
+> **Status:** Design in progress — Phase 4 (bd `plantry-5vxb`)
 >
 > **Purpose:** How Take Stock is built on the existing Inventory aggregate. It introduces **no new aggregate** — every count resolves to operations on `ProductStock` and its immutable journal. This pass pins down the few **aggregate changes** required, the **count → domain-operation mapping**, the application services, the read models, and the concurrency/idempotency story. Builds on [inventory-domain-model.md](inventory-domain-model.md), the [journeys](inventory-takestock-journeys.md), and the [ubiquitous language](inventory-takestock-ubiquitous-language.md). Feeds the data-schema and app-service passes.
 >

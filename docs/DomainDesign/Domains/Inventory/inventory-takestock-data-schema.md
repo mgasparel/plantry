@@ -1,6 +1,6 @@
 # Take Stock — Data Schema
 
-> **Status:** Design in progress — Phase 2 (bd `plantry-5vxb`)
+> **Status:** Design in progress — Phase 4 (bd `plantry-5vxb`)
 >
 > **Purpose:** What the database needs for Take Stock. The headline: **no migration is required for correctness** — the existing `inventory` schema already permits everything Take Stock writes. The **one decided change is a single index migration** (`ix_stock_entry_by_location`) for the location-walk read. Builds on [inventory.md](../DataModels/inventory.md), the [domain model](inventory-takestock-domain-model.md), and the [journeys](inventory-takestock-journeys.md). Verified against the live migrations, not the prose schema doc.
 >
