@@ -256,6 +256,33 @@ public sealed class DetachProductFromParentCommand(ProductId productId, IProduct
 }
 
 /// <summary>
+/// Sets a product's default storage location without touching any other field (name, unit, category,
+/// expiry defaults). Distinct from <see cref="UpdateProductCommand"/>, which field-clobs the whole
+/// product and is not suited to a focused "assign a location" call-site (Take Stock P4-2, TS-9).
+/// </summary>
+public sealed class SetDefaultLocationCommand(
+    ProductId productId,
+    Guid locationId,
+    IProductRepository products,
+    ILocationRepository locations,
+    IClock clock)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        var product = await products.FindAsync(productId, ct);
+        if (product is null) return Error.NotFound;
+
+        if (await locations.FindAsync(LocationId.From(locationId), ct) is null)
+            return Error.Custom("Catalog.UnknownLocation", "The selected default location does not exist.");
+
+        product.SetDefaultLocation(LocationId.From(locationId), clock);
+        await products.SaveChangesAsync(ct);
+
+        return Result.Success();
+    }
+}
+
+/// <summary>
 /// Attaches <paramref name="productId"/> as a variant of <paramref name="parentId"/>, enforcing
 /// the depth-1 invariant (catalog.md "max depth 1") — a check that needs both aggregates loaded,
 /// so it cannot live on <see cref="Product"/> alone.
