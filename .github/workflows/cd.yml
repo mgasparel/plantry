@@ -40,6 +40,7 @@ jobs:
   # ── Stage 1: Build images and push to GHCR ───────────────────────────────────
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     # Allow writing to GHCR using the built-in GITHUB_TOKEN.
@@ -114,6 +115,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-push
+    timeout-minutes: 15
     # Require explicit environment approval if configured; otherwise runs automatically.
     # Configure a "production" GitHub environment (with deployment protection rules)
     # to add a manual approval gate before any production deploy.

@@ -64,9 +64,12 @@ Demo/seed data is Development-only, so a self-hosted instance starts empty.
 
 ## When Plantry goes public
 
-These deliverables wait on the publish flip (the only OSS-gated work): a release-notes/changelog
-discipline tied to the semver tags, a documented support matrix (which versions get
-fixes), `CONTRIBUTING` + PR template + `CODEOWNERS`, and a runner policy — public
-PRs must run on **hosted** runners, never self-hosted ones (untrusted contributor
-code must not execute on your infrastructure). These are tracked in
-[cicd-rollout-plan.md](cicd-rollout-plan.md) Phase 5.
+The OSS publish surface is now in place:
+
+- **Changelog and support matrix** — [`CHANGELOG.md`](../../CHANGELOG.md) at the repo root defines the semver tag convention and the version support policy.
+- **Contributor docs** — [`CONTRIBUTING.md`](../../CONTRIBUTING.md) explains the current policy (outside contributions not accepted), the agentic workflow, and how to report issues.
+- **PR template** — [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) guides both agent and human PR authors.
+- **CODEOWNERS** — [`.github/CODEOWNERS`](../../.github/CODEOWNERS) requires explicit maintainer approval before any PR can merge.
+- **Public-PR runner policy** — [`docs/Operations/public-pr-runner-policy.md`](public-pr-runner-policy.md) documents how fork PRs are handled safely (no secrets in `pull_request` jobs, no self-hosted runners for fork-triggered jobs).
+
+The only remaining step at publish time is flipping repository and container-image visibility to public.

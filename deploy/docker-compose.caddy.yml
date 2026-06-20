@@ -1,0 +1,55 @@
+# docker-compose.caddy.yml — Optional Caddy TLS overlay for Plantry
+#
+# Use this overlay when you want Plantry to handle TLS itself via Caddy +
+# Let's Encrypt rather than routing through an existing proxy on the host.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#
+# Requirements:
+#   - DOMAIN is set in .env (e.g. DOMAIN=plantry.example.com)
+#   - DNS A/AAAA record for DOMAIN points at this host
+#   - Ports 80 and 443 are open on the host firewall
+#   - The host port HTTP_PORT (default 8080) is NOT already in use — with this
+#     overlay the plantry-web port binding is removed; Caddy is the only ingress
+#
+# When using this overlay Caddy obtains and auto-renews a TLS certificate via
+# ACME (Let's Encrypt by default).  The certificate is stored in the caddy_data
+# volume and survives container restarts.
+#
+# Add DOMAIN=your.domain to .env before running.
+
+services:
+
+  # Remove the direct port exposure from docker-compose.yml so Caddy is the
+  # only ingress.  The plantry-web container is reachable by Caddy via the
+  # internal Docker network only.
+  plantry-web:
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - plantry-web
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"    # HTTP/3
+    volumes:
+      - caddy_config:/etc/caddy
+      - caddy_data:/data
+      - caddy_runtime:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+    # Inline Caddyfile — automatic HTTPS, reverse-proxy to plantry-web.
+    # No external Caddyfile mount required; the domain is injected via env.
+    command: >
+      caddy reverse-proxy
+      --from "$${DOMAIN}"
+      --to plantry-web:8080
+
+volumes:
+  caddy_data:
+  caddy_config:
+  caddy_runtime:
