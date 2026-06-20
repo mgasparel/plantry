@@ -22,9 +22,15 @@
            which calls planTune(window.__planTuneCfg) on Alpine init). *@
         <script>
             window.__planTuneCfg = {
+                // Legacy flat keys kept for backward-compat; buckets drives the generalised component.
                 wasteDefault: @(PlanningWeights.Default.Waste),
                 costDefault: @(PlanningWeights.Default.Cost),
-                varietyDefault: @(PlanningWeights.Default.Variety)
+                varietyDefault: @(PlanningWeights.Default.Variety),
+                buckets: [
+                    { key: 'waste',   label: 'Waste',   color: 'oklch(0.62 0.13 150)', defaultWeight: @(PlanningWeights.Default.Waste)   },
+                    { key: 'cost',    label: 'Cost',     color: 'oklch(0.62 0.13 70)',  defaultWeight: @(PlanningWeights.Default.Cost)    },
+                    { key: 'variety', label: 'Variety',  color: 'oklch(0.62 0.13 255)', defaultWeight: @(PlanningWeights.Default.Variety) }
+                ]
             };
         </script>
         <span class="autofill-spinner htmx-indicator" aria-hidden="true"></span>

@@ -90,7 +90,7 @@
                 <span class="spacer"></span>
                 <button type="button" class="reset" @@click="reset()">Reset</button>
             </div>
-            <template x-for="m in meta" :key="m.key">
+            <template x-for="m in buckets" :key="m.key">
                 <div class="wt-row">
                     <span class="wt-name"><span class="wt-dot" :style="'background:' + m.color"></span> <span x-text="m.label"></span></span>
                     <input type="range" min="0" max="100" :value="weights[m.key]"
@@ -100,7 +100,7 @@
                 </div>
             </template>
             <div class="wt-stack">
-                <template x-for="m in meta" :key="m.key">
+                <template x-for="m in buckets" :key="m.key">
                     <i :style="'width:' + weights[m.key] + '%;background:' + m.color"></i>
                 </template>
             </div>
