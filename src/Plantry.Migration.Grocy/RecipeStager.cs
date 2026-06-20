@@ -424,4 +424,35 @@ public static class RecipeStager
 
         return null;
     }
+
+    /// <summary>
+    /// Marks <see cref="RecipeStagingRow.IsDropped"/> on every row whose
+    /// <see cref="RecipeStagingRow.GrocyId"/> appears in <paramref name="droppedIds"/>.
+    ///
+    /// <para>
+    /// Called by the /Import/Recipes page model to reconcile the two sources of drop state:
+    /// <list type="bullet">
+    ///   <item>Current-page selections (Alpine-driven hidden inputs, submitted on POST).</item>
+    ///   <item>Cross-page selections (carried as <c>droppedIds</c> query-string parameters on GET,
+    ///         or as extra hidden form inputs on POST).</item>
+    /// </list>
+    /// Merging is done at the call site; this method simply stamps the rows given a unified set.
+    /// </para>
+    ///
+    /// <para>Idempotent — calling it multiple times with the same set is safe.</para>
+    /// </summary>
+    /// <param name="rows">Staging rows produced by <see cref="Stage"/>.</param>
+    /// <param name="droppedIds">Unified set of Grocy recipe IDs to mark as dropped.</param>
+    public static void ApplyDrops(IReadOnlyList<RecipeStagingRow> rows, IEnumerable<int> droppedIds)
+    {
+        var droppedSet = new HashSet<int>(droppedIds);
+        if (droppedSet.Count == 0)
+            return;
+
+        foreach (var row in rows)
+        {
+            if (droppedSet.Contains(row.GrocyId))
+                row.IsDropped = true;
+        }
+    }
 }
