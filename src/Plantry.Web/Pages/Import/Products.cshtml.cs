@@ -63,6 +63,15 @@ public sealed class ProductsModel(
     [BindProperty]
     public List<int> DroppedProductIds { get; set; } = [];
 
+    /// <summary>
+    /// Drop IDs accumulated across pagination pages, carried as repeated <c>droppedIds</c>
+    /// query-string parameters. Bound on GET so prior-page drops survive page navigation.
+    /// On POST this carries the cross-page drops submitted as hidden form inputs (in addition
+    /// to <see cref="DroppedProductIds"/> which captures the current page's Alpine-driven inputs).
+    /// </summary>
+    [BindProperty(SupportsGet = true)]
+    public List<int> DroppedIds { get; set; } = [];
+
     // ──────────── Commit result state ──────────────────────────────────────
 
     /// <summary>True after a CommitProducts POST completes (success or partial).</summary>
@@ -74,6 +83,19 @@ public sealed class ProductsModel(
 
     /// <summary>Per-row commit results, set after a CommitProducts POST.</summary>
     public IReadOnlyList<ProductCommitService.ProductCommitResult> CommitResults { get; private set; } = [];
+
+    // ──────────── Drop ID helpers ──────────────────────────────────────────
+
+    /// <summary>
+    /// All Grocy product IDs that are currently dropped, across all pages.
+    /// Used by the view to embed <c>droppedIds</c> parameters in pagination links and in
+    /// the commit form (for cross-page rows not rendered on the current page).
+    /// This reflects the server-side known state after <see cref="ProductStager.ApplyDrops"/> runs
+    /// (via <see cref="MergedDroppedIds"/>) — it does not include drops the user makes on the
+    /// current page via Alpine after page load; those are collected live by <c>navigateTo</c>.
+    /// </summary>
+    public IReadOnlyCollection<int> AllDroppedIds
+        => AllRows.Where(r => r.IsDropped).Select(r => r.GrocyId).ToHashSet();
 
     // ──────────── Summary counts for the page header ───────────────────────
 
@@ -92,6 +114,8 @@ public sealed class ProductsModel(
         if (!await TryLoadAndStageAsync(ct))
             return;
 
+        // Re-apply any drops accumulated across prior pages before rendering.
+        ProductStager.ApplyDrops(AllRows, MergedDroppedIds());
         CurrentPage = Math.Max(1, page);
         ApplyPaging();
     }
@@ -186,8 +210,8 @@ public sealed class ProductsModel(
         var unitCw = await UnitCrosswalk.TryReadAsync(unitCrosswalkPath, ct);
         var unitMap = unitCw?.Mappings.ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value);
 
-        // Mark dropped rows — apply the user's drop selections from the form
-        ApplyDroppedIds();
+        // Mark dropped rows — merge current-page Alpine inputs with cross-page hidden inputs.
+        ProductStager.ApplyDrops(AllRows, MergedDroppedIds());
 
         try
         {
@@ -218,20 +242,20 @@ public sealed class ProductsModel(
     // ──────────── Helpers ──────────────────────────────────────────────────
 
     /// <summary>
-    /// Applies <see cref="DroppedProductIds"/> from the form to the staged <see cref="AllRows"/>.
-    /// Must be called after <see cref="TryLoadAndStageAsync"/> and before commit.
+    /// Returns the unified set of dropped product Grocy IDs by merging
+    /// <see cref="DroppedProductIds"/> (current-page Alpine-driven hidden inputs on POST,
+    /// or empty on GET) with <see cref="DroppedIds"/> (accumulated cross-page drops carried
+    /// as repeated <c>droppedIds</c> query-string parameters on GET, or as hidden form inputs
+    /// on POST). Safe to call on GET and POST alike.
+    ///
+    /// The actual row-stamping is delegated to <see cref="ProductStager.ApplyDrops"/> so
+    /// it can be tested independently without the full web stack.
     /// </summary>
-    private void ApplyDroppedIds()
+    private IEnumerable<int> MergedDroppedIds()
     {
-        if (DroppedProductIds.Count == 0)
-            return;
-
-        var droppedSet = new HashSet<int>(DroppedProductIds);
-        foreach (var row in AllRows)
-        {
-            if (droppedSet.Contains(row.GrocyId))
-                row.IsDropped = true;
-        }
+        var merged = new HashSet<int>(DroppedProductIds);
+        merged.UnionWith(DroppedIds);
+        return merged;
     }
 
     private async Task<bool> TryLoadAndStageAsync(CancellationToken ct)

@@ -120,9 +120,19 @@
             </p>
         </div>
         <div class="card__head-actions" style="display: flex; gap: 0.5rem; align-items: center">
+            @{
+                @* Hidden inputs for cross-page drops — rows not rendered on the current page but
+                   already dropped on a prior (or later) page. Current-page drops are captured by
+                   the Alpine x-if hidden inputs in each _ProductStagingRow partial. *@
+                var currentPageIds = Model.PagedRows.Select(r => r.GrocyId).ToHashSet();
+            }
             @* The form id is referenced by hidden inputs in row partials (form="commit-products-form"). *@
             <form method="post" asp-page-handler="CommitProducts" id="commit-products-form">
                 @Html.AntiForgeryToken()
+                @foreach (var droppedId in Model.AllDroppedIds.Where(id => !currentPageIds.Contains(id)))
+                {
+                    <input type="hidden" name="DroppedProductIds" value="@droppedId" />
+                }
                 <button type="submit" class="btn btn--primary" style="font-size: 0.875rem"
                         title="Commit all stageable products to the Plantry catalog">
                     Commit Products
@@ -156,20 +166,49 @@
     </div>
 </div>
 
-@* Pagination *@
+@* Pagination — drop selections are carried across pages via droppedIds query-string parameters.
+   Cross-page drops (rows not rendered on this page) are baked into the link hrefs by the server.
+   Current-page drops (Alpine hidden inputs) are merged in by navigateTo before navigation.
+   navigateTo rebuilds droppedIds from scratch — clearing what was in the href first — so that
+   un-checking a row that arrived as a carried drop is correctly un-done rather than silently
+   re-applied. *@
 @if (Model.TotalPages > 1)
 {
-    <div style="display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0 1.5rem">
+    // Cross-page drops only: IDs dropped on prior pages that are not rendered on this page.
+    // Current-page IDs are NOT baked in — they are supplied live by Alpine's hidden inputs.
+    var crossPageDroppedIds = Model.AllDroppedIds.Where(id => !currentPageIds.Contains(id));
+    var crossPageDroppedQs  = string.Join("", crossPageDroppedIds.Select(id => $"&droppedIds={id}"));
+    // Serialise cross-page IDs for the JS handler (passed via data-attr to avoid inline JSON escaping issues).
+    var crossPageIdsJson = System.Text.Json.JsonSerializer.Serialize(crossPageDroppedIds.ToArray());
+    <div style="display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0 1.5rem"
+         data-cross-page-dropped-ids="@crossPageIdsJson"
+         x-data="{
+             navigateTo(baseUrl) {
+                 const url = new URL(baseUrl, location.origin);
+                 url.searchParams.delete('droppedIds');
+                 JSON.parse($el.dataset.crossPageDroppedIds).forEach(function(id) {
+                     url.searchParams.append('droppedIds', id);
+                 });
+                 document.querySelectorAll('input[name=DroppedProductIds]').forEach(function(h) {
+                     url.searchParams.append('droppedIds', h.value);
+                 });
+                 location.href = url.toString();
+             }
+         }">
         @if (Model.CurrentPage > 1)
         {
-            <a href="/Import/Products?page=@(Model.CurrentPage - 1)" class="btn btn--ghost" style="font-size: 0.875rem">← Prev</a>
+            <a href="/Import/Products?page=@(Model.CurrentPage - 1)@crossPageDroppedQs"
+               class="btn btn--ghost" style="font-size: 0.875rem"
+               x-on:click.prevent="navigateTo($el.href)">← Prev</a>
         }
         <span style="font-size: 0.875rem; color: var(--color-text-faint)">
             Page @Model.CurrentPage of @Model.TotalPages (@Model.TotalRows products)
         </span>
         @if (Model.CurrentPage < Model.TotalPages)
         {
-            <a href="/Import/Products?page=@(Model.CurrentPage + 1)" class="btn btn--ghost" style="font-size: 0.875rem">Next →</a>
+            <a href="/Import/Products?page=@(Model.CurrentPage + 1)@crossPageDroppedQs"
+               class="btn btn--ghost" style="font-size: 0.875rem"
+               x-on:click.prevent="navigateTo($el.href)">Next →</a>
         }
     </div>
 }

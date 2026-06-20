@@ -63,9 +63,28 @@ public sealed class RecipesModel(
     [BindProperty]
     public List<int> DroppedRecipeIds { get; set; } = [];
 
+    /// <summary>
+    /// Drop IDs accumulated across pagination pages, carried as repeated <c>droppedIds</c>
+    /// query-string parameters. Bound on GET so prior-page drops survive page navigation.
+    /// On POST this carries the cross-page drops submitted as hidden form inputs (in addition
+    /// to <see cref="DroppedRecipeIds"/> which captures the current page's Alpine-driven inputs).
+    /// </summary>
+    [BindProperty(SupportsGet = true)]
+    public List<int> DroppedIds { get; set; } = [];
+
     // ──────────── Commit result (populated after POST → CommitRecipes) ───────
     public string? CommitSuccessMessage { get; private set; }
     public IReadOnlyList<RecipeCommitService.RecipeCommitResult> CommitResults { get; private set; } = [];
+
+    // ──────────── Drop ID helpers ──────────────────────────────────────────
+
+    /// <summary>
+    /// All Grocy recipe IDs that are currently dropped, across all pages.
+    /// Used by the view to embed <c>droppedIds</c> parameters in pagination links and in
+    /// the commit form (for cross-page rows not rendered on the current page).
+    /// </summary>
+    public IReadOnlyCollection<int> AllDroppedIds
+        => AllRows.Where(r => r.IsDropped).Select(r => r.GrocyId).ToHashSet();
 
     // ──────────── Summary counts for the page header ───────────────────────
 
@@ -84,6 +103,8 @@ public sealed class RecipesModel(
         if (!await TryLoadAndStageAsync(ct))
             return;
 
+        // Re-apply any drops accumulated across prior pages before rendering.
+        RecipeStager.ApplyDrops(AllRows, MergedDroppedIds());
         CurrentPage = Math.Max(1, page);
         ApplyPaging();
     }
@@ -167,8 +188,8 @@ public sealed class RecipesModel(
             return Page();
         }
 
-        // Mark dropped rows — apply the user's drop selections from the form
-        ApplyDroppedIds();
+        // Mark dropped rows — merge current-page Alpine inputs with cross-page hidden inputs.
+        RecipeStager.ApplyDrops(AllRows, MergedDroppedIds());
 
         var (results, _) = await recipeCommitService.CommitAsync(AllRows, ManifestPath, ct);
         CommitResults = results;
@@ -201,20 +222,20 @@ public sealed class RecipesModel(
     // ──────────── Helpers ──────────────────────────────────────────────────
 
     /// <summary>
-    /// Applies <see cref="DroppedRecipeIds"/> from the form to the staged <see cref="AllRows"/>.
-    /// Must be called after <see cref="TryLoadAndStageAsync"/> and before commit.
+    /// Returns the unified set of dropped recipe Grocy IDs by merging
+    /// <see cref="DroppedRecipeIds"/> (current-page Alpine-driven hidden inputs on POST,
+    /// or empty on GET) with <see cref="DroppedIds"/> (accumulated cross-page drops carried
+    /// as repeated <c>droppedIds</c> query-string parameters on GET, or as hidden form inputs
+    /// on POST). Safe to call on GET and POST alike.
+    ///
+    /// The actual row-stamping is delegated to <see cref="RecipeStager.ApplyDrops"/> so
+    /// it can be tested independently without the full web stack.
     /// </summary>
-    private void ApplyDroppedIds()
+    private IEnumerable<int> MergedDroppedIds()
     {
-        if (DroppedRecipeIds.Count == 0)
-            return;
-
-        var droppedSet = new HashSet<int>(DroppedRecipeIds);
-        foreach (var row in AllRows)
-        {
-            if (droppedSet.Contains(row.GrocyId))
-                row.IsDropped = true;
-        }
+        var merged = new HashSet<int>(DroppedRecipeIds);
+        merged.UnionWith(DroppedIds);
+        return merged;
     }
 
     private async Task<bool> TryLoadAndStageAsync(CancellationToken ct)
