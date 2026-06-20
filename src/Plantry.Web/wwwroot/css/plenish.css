@@ -991,7 +991,7 @@ button { font-family: inherit; cursor: pointer; }
 .pantry-detail__total { margin: var(--space-1) 0 0; color: var(--color-text-muted); }
 
 /* Sheet (htmx-loaded overlay panel) */
-.sheet { position: fixed; inset: 0; z-index: 50; }
+.sheet { position: fixed; inset: 0; z-index: 110; }
 .sheet__overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
 .sheet__panel {
   position: absolute; right: 0; top: 0; bottom: 0; width: min(440px, 100%);
