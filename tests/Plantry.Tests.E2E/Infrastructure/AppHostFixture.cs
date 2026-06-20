@@ -29,9 +29,15 @@ public sealed class AppHostFixture : IAsyncLifetime
             "--environment=Testing"
         ]);
 
-        // Remove the named data volume from postgres so each E2E run gets a fresh ephemeral container.
-        // Without this, the volume persists the postgres data directory (including its password) across
-        // runs; when Aspire generates a new random password the next run, auth fails.
+        // The AppHost declares a required `postgres-password` parameter (pinned so local-dev re-runs
+        // keep a stable password matching the persistent data volume). The E2E run uses an ephemeral
+        // container (volume stripped below), so the value is irrelevant — but the parameter must still
+        // resolve. Supply a fixed test value so neither CI nor a contributor running E2E locally needs
+        // a user-secret.
+        appHost.Configuration["Parameters:postgres-password"] = "e2e-test-password";
+
+        // Remove the named data volume from postgres so each E2E run gets a fresh ephemeral container
+        // with no data persisted between runs.
         var postgresResource = appHost.Resources.OfType<PostgresServerResource>().Single();
         foreach (var mount in postgresResource.Annotations.OfType<ContainerMountAnnotation>().ToList())
             postgresResource.Annotations.Remove(mount);
