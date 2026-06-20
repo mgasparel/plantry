@@ -58,23 +58,30 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
 
     /// <summary>
     /// Records intake of a new lot (DM-11/13): creates a <see cref="StockEntry"/> and appends a
-    /// positive <c>Purchase</c> journal row. <paramref name="expiryDate"/> is already materialized
-    /// by the caller (the expiry-default chain runs at the page/application boundary).
+    /// positive journal row. The <paramref name="reason"/> defaults to <c>Purchase</c> (normal
+    /// intake) but may be <c>Correction</c> when Take Stock discovers more stock than recorded
+    /// (Phase 4 / P4-1, TS-2/C8). Only reasons that pass <see cref="StockReasonExtensions.IsAddition"/>
+    /// are permitted; passing a removal reason throws <see cref="ArgumentException"/>.
+    /// <paramref name="expiryDate"/> is already materialized by the caller (the expiry-default
+    /// chain runs at the page/application boundary).
     /// </summary>
     public StockEntry AddStock(
         decimal quantity, Guid unitId, Guid locationId, Guid userId, IClock clock,
         Guid? skuId = null, DateOnly? expiryDate = null, DateOnly? purchasedAt = null,
-        StockSourceType sourceType = StockSourceType.Manual, Guid? sourceRef = null)
+        StockSourceType sourceType = StockSourceType.Manual, Guid? sourceRef = null,
+        StockReason reason = StockReason.Purchase)
     {
         if (quantity <= 0m)
             throw new ArgumentOutOfRangeException(nameof(quantity), "Intake quantity must be positive.");
+        if (!reason.IsAddition())
+            throw new ArgumentException($"AddStock cannot record a {reason} reason; only Purchase or Correction are addition reasons.", nameof(reason));
 
         var now = clock.UtcNow;
         var entry = StockEntry.Create(HouseholdId, ProductId, skuId, quantity, unitId, locationId, expiryDate, purchasedAt, now);
         _entries.Add(entry);
         _journal.Add(StockJournalEntry.Record(
             HouseholdId, ProductId, entry.Id, +quantity, unitId,
-            StockReason.Purchase, sourceType, sourceRef, sourceLineRef: null, now, userId));
+            reason, sourceType, sourceRef, sourceLineRef: null, now, userId));
         UpdatedAt = now;
         return entry;
     }
@@ -84,6 +91,10 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     /// <paramref name="unitId"/> into each lot's unit, deducts FEFO across lots (or only
     /// <paramref name="targetEntry"/> when set — "this carton is empty/spoiled"), writes one signed
     /// removal journal row per lot touched, and reports any <see cref="ConsumeOutcome.ShortfallAmount"/>.
+    ///
+    /// When <paramref name="locationId"/> is supplied, FEFO is scoped to lots in that Location only —
+    /// lots in other Locations are invisible to this consume (Phase 4 / P4-1, TS-3). When null,
+    /// FEFO runs across all active lots (existing behaviour).
     ///
     /// Conversion is resolved in a planning pass <b>before</b> any lot is mutated, so an unresolvable
     /// unit fails loudly with the <see cref="IQuantityConverter"/>'s <see cref="Error"/> and leaves
@@ -103,7 +114,7 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     public Result<ConsumeOutcome> Consume(
         decimal amount, Guid unitId, StockReason reason, IQuantityConverter converter,
         Guid userId, IClock clock, Guid? sourceRef = null, StockSourceType? sourceType = null,
-        StockEntryId? targetEntry = null, Guid? sourceLineRef = null)
+        StockEntryId? targetEntry = null, Guid? sourceLineRef = null, Guid? locationId = null)
     {
         if (amount <= 0m)
             return Error.Custom("Inventory.InvalidConsumeAmount", "Consume amount must be positive.");
@@ -146,9 +157,14 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
             }
         }
 
+        // Build the candidate set: named lot (targeted consume) → location-scoped FEFO → global FEFO.
+        IEnumerable<StockEntry> activeLots = _entries.Where(e => e.IsActive);
+        if (locationId is { } loc)
+            activeLots = activeLots.Where(e => e.LocationId == loc);
+
         var candidates = targetEntry is { } target
-            ? _entries.Where(e => e.Id == target && e.IsActive).ToList()
-            : OrderFefo(_entries.Where(e => e.IsActive)).ToList();
+            ? activeLots.Where(e => e.Id == target).ToList()
+            : OrderFefo(activeLots).ToList();
 
         if (targetEntry is { } missing && candidates.Count == 0)
             return Error.Custom("Inventory.LotNotFound", $"No active lot '{missing}' to consume from.");
