@@ -31,24 +31,24 @@
         </div>
         <span class="rev-title-row__spacer"></span>
         @* id="rev-chips" — OOB swap target for _ReviewChipsOob (ADR-013 §3). *@
-        <div id="rev-chips" class="chips">
-            <button type="button" class="fchip"
-                    :class="filter === 'all' ? 'on f-ready' : ''"
+        <div id="rev-chips" class="filter-chip-bar">
+            <button type="button" class="filter-chip"
+                    :class="filter === 'all' ? 'is-active filter-chip--success' : ''"
                     @@click="filter = 'all'"
-                    data-count-total="@totalStock">All @totalStock</button>
-            <button type="button" class="fchip"
-                    :class="filter === 'review' ? 'on f-review' : ''"
+                    data-count-total="@totalStock">
+                <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("All", Count: totalStock)' />
+            </button>
+            <button type="button" class="filter-chip"
+                    :class="filter === 'review' ? 'is-active filter-chip--warning' : ''"
                     @@click="filter = 'review'"
                     data-count-needs="@needsCount">
-                <span class="dotc" style="background: var(--color-warning)"></span>
-                Needs review @needsCount
+                <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Needs review", DotColor: "var(--color-warning)", Count: needsCount)' />
             </button>
-            <button type="button" class="fchip"
-                    :class="filter === 'ready' ? 'on f-ready' : ''"
+            <button type="button" class="filter-chip"
+                    :class="filter === 'ready' ? 'is-active filter-chip--success' : ''"
                     @@click="filter = 'ready'"
                     data-count-ready="@readyCount">
-                <span class="dotc" style="background: var(--color-success)"></span>
-                Ready @readyCount
+                <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Ready", DotColor: "var(--color-success)", Count: readyCount)' />
             </button>
         </div>
     </div>

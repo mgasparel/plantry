@@ -1,11 +1,13 @@
-﻿<div class="recipes-tag-filters">
-	<button type="button" class="recipes-tag-chip is-active" hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;&quot;}">All</button>
-	<button type="button" class="recipes-tag-chip " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;Guid_1&quot;}">
-		<span class="recipes-tag-chip__dot" style="background:#27ae60"></span>
+﻿<div class="filter-chip-bar">
+	<button type="button" class="filter-chip is-active filter-chip--accent" hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;&quot;}">
+		All
+	</button>
+	<button type="button" class="filter-chip " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;Guid_1&quot;}">
+		<span class="filter-chip__dot" style="background:#27ae60" aria-hidden="true"></span>
 		Vegetarian
 	</button>
-	<button type="button" class="recipes-tag-chip " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;Guid_2&quot;}">
-		<span class="recipes-tag-chip__dot" style="background:#e74c3c"></span>
+	<button type="button" class="filter-chip " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;tagId&quot;: &quot;Guid_2&quot;}">
+		<span class="filter-chip__dot" style="background:#e74c3c" aria-hidden="true"></span>
 		Spicy
 	</button>
 </div>

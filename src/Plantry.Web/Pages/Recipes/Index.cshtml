@@ -61,33 +61,31 @@
             @* Tag filter chips *@
             @if (Model.Result.AllTags.Count > 0)
             {
-                <div class="recipes-tag-filters">
+                <div class="filter-chip-bar">
                     @{
                         var allActive = Model.TagId is null;
                     }
                     <button type="button"
-                            class="recipes-tag-chip @(allActive ? "is-active" : "")"
+                            class="filter-chip @(allActive ? "is-active filter-chip--accent" : "")"
                             hx-get="/Recipes"
                             hx-target="#recipes-results"
                             hx-swap="innerHTML"
                             hx-include="#recipes-filter-form"
-                            hx-vals='{"tagId": ""}'>All</button>
+                            hx-vals='{"tagId": ""}'>
+                        <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("All")' />
+                    </button>
                     @foreach (var tag in Model.Result.AllTags)
                     {
                         var isActive = Model.TagId == tag.Id.Value;
                         var color = IndexModel.TagColor(tag.Name);
                         <button type="button"
-                                class="recipes-tag-chip @(isActive ? "is-active" : "")"
+                                class="filter-chip @(isActive ? "is-active filter-chip--accent" : "")"
                                 hx-get="/Recipes"
                                 hx-target="#recipes-results"
                                 hx-swap="innerHTML"
                                 hx-include="#recipes-filter-form"
                                 hx-vals='{"tagId": "@(isActive ? "" : tag.Id.Value)"}'>
-                            @if (!isActive)
-                            {
-                                <span class="recipes-tag-chip__dot" style="background:@color"></span>
-                            }
-                            @tag.Name
+                            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel(tag.Name, DotColor: isActive ? null : color)' />
                         </button>
                     }
                 </div>
@@ -97,13 +95,13 @@
 
             @* Use-soon toggle *@
             <button type="button"
-                    class="recipes-soon-toggle @(Model.Soon ? "is-active" : "")"
+                    class="filter-chip @(Model.Soon ? "is-active filter-chip--warning" : "")"
                     hx-get="/Recipes"
                     hx-target="#recipes-results"
                     hx-swap="innerHTML"
                     hx-include="#recipes-filter-form"
                     hx-vals='{"soon": "@(!Model.Soon ? "true" : "false")"}'>
-                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
+                <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Use soon", IconId: "i-timer")' />
             </button>
 
             @* Sort select *@

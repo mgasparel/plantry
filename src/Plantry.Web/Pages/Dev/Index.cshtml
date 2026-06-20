@@ -573,31 +573,78 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Review filter chips</h2>
+        <h2 class="catalog-section__heading">Filter chip</h2>
     </div>
     <p>
-        <code>.chips</code> + <code>.fchip</code> — pill filter chips for the intake review header.
-        <code>.on.f-review</code> = warning tint (needs review); <code>.on.f-ready</code> = success tint (all/ready).
-        Alpine drives the active state via <code>:class</code>; counts are server-rendered.
+        <code>_FilterChip</code> (partial) + <code>.filter-chip</code> (CSS) — the single reusable
+        pill filter/toggle primitive. The partial renders only the inner content (leading dot or icon,
+        label, optional trailing count); the caller writes the <code>&lt;button type="button"
+        class="filter-chip"&gt;</code> with its own htmx / Alpine attributes. The container row is
+        <code>.filter-chip-bar</code>.
     </p>
-    <div class="chips" style="margin-bottom: var(--space-4)">
-        <button type="button" class="fchip on f-ready">All 13</button>
-        <button type="button" class="fchip">
-            <span class="dotc" style="background: var(--color-warning)"></span> Needs review 3
+    <p>
+        Active-state tones — add <code>.is-active</code> plus one tone modifier to the button:
+        <code>.filter-chip--accent</code> (tag filters), <code>.filter-chip--warning</code> (use-soon
+        / needs-review), <code>.filter-chip--success</code> (all / ready), <code>.filter-chip--neutral</code>.
+        Alpine can drive the active state dynamically via <code>:class</code> — the base button renders
+        without active classes and Alpine adds them at runtime.
+    </p>
+
+    @* ── Dot variant (intake review chips — success tone for "All" + "Ready", warning for "Needs review") *@
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Dot variant — intake review (all active)</h3>
+    <div class="filter-chip-bar" style="margin-bottom: var(--space-4)">
+        <button type="button" class="filter-chip is-active filter-chip--success">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("All", Count: 13)' />
         </button>
-        <button type="button" class="fchip">
-            <span class="dotc" style="background: var(--color-success)"></span> Ready 10
+        <button type="button" class="filter-chip">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Needs review", DotColor: "var(--color-warning)", Count: 3)' />
+        </button>
+        <button type="button" class="filter-chip">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Ready", DotColor: "var(--color-success)", Count: 10)' />
         </button>
     </div>
-    <div class="chips">
-        <button type="button" class="fchip">All 13</button>
-        <button type="button" class="fchip on f-review">
-            <span class="dotc" style="background: var(--color-warning)"></span> Needs review 3
+    <div class="filter-chip-bar" style="margin-bottom: var(--space-4)">
+        <button type="button" class="filter-chip">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("All", Count: 13)' />
         </button>
-        <button type="button" class="fchip">
-            <span class="dotc" style="background: var(--color-success)"></span> Ready 10
+        <button type="button" class="filter-chip is-active filter-chip--warning">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Needs review", DotColor: "var(--color-warning)", Count: 3)' />
+        </button>
+        <button type="button" class="filter-chip">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Ready", DotColor: "var(--color-success)", Count: 10)' />
         </button>
     </div>
+
+    @* ── Tag filter variant (recipes browse — accent tone, dot hidden when active) *@
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin-top: var(--space-5)">Dot variant — tag filters (accent tone)</h3>
+    <div class="filter-chip-bar" style="margin-bottom: var(--space-4)">
+        <button type="button" class="filter-chip is-active filter-chip--accent">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("All")' />
+        </button>
+        <button type="button" class="filter-chip">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Fish", DotColor: "#4b9cd3")' />
+        </button>
+        <button type="button" class="filter-chip">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Vegetarian", DotColor: "#27ae60")' />
+        </button>
+        <button type="button" class="filter-chip">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Spicy", DotColor: "#e74c3c")' />
+        </button>
+    </div>
+
+    @* ── Icon toggle variant (use-soon — warning tone) *@
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin-top: var(--space-5)">Icon toggle variant — warning tone (use-soon)</h3>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom: var(--space-4)">
+        <button type="button" class="filter-chip">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Use soon", IconId: "i-timer")' />
+        </button>
+        <button type="button" class="filter-chip is-active filter-chip--warning">
+            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("Use soon", IconId: "i-timer")' />
+        </button>
+        <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">← off / on →</span>
+    </div>
+
+    <pre class="code-sample"><code>@("<!-- Container -->\n<div class=\"filter-chip-bar\">\n\n  <!-- Server-driven active (tag filter / use-soon) -->\n  <button type=\"button\"\n          class=\"filter-chip @(isActive ? \"is-active filter-chip--accent\" : \"\")\"\n          hx-get=\"/Recipes\" hx-target=\"#recipes-results\" hx-swap=\"innerHTML\"\n          hx-include=\"form\" hx-vals='{\"tagId\": \"@(isActive ? \"\" : tag.Id)\"}'>\n    <partial name=\"Shared/_FilterChip\"\n             model='new FilterChipViewModel(tag.Name, DotColor: isActive ? null : color)' />\n  </button>\n\n  <!-- Alpine-driven active (intake review) -->\n  <button type=\"button\"\n          class=\"filter-chip\"\n          :class=\"filter === 'all' ? 'is-active filter-chip--success' : ''\"\n          @@click=\"filter = 'all'\"\n          data-count-total=\"@total\">\n    <partial name=\"Shared/_FilterChip\"\n             model='new FilterChipViewModel(\"All\", Count: total)' />\n  </button>\n\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -1162,53 +1209,6 @@
         <input class="recipes-search__input" type="search" placeholder="Search recipes…" />
     </div>
     <pre class="code-sample"><code>@("<div class=\"recipes-search\">\n  <svg class=\"icon recipes-search__icon\" aria-hidden=\"true\"><use href=\"#i-search\" /></svg>\n  <input class=\"recipes-search__input\" type=\"search\" placeholder=\"Search recipes…\"\n         name=\"q\" hx-get=\"/Recipes\" hx-trigger=\"input changed delay:300ms\"\n         hx-target=\"#recipes-results\" hx-swap=\"innerHTML\" hx-include=\"form\" />\n</div>")</code></pre>
-</section>
-
-<section class="catalog-section">
-    <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Recipes browse — tag filter chips</h2>
-    </div>
-    <p>
-        <code>.recipes-tag-filters</code> wraps <code>.recipes-tag-chip</code> buttons.
-        The <b>All</b> chip has no dot. Tag chips show a colored dot whose color is set via the
-        <code>style="color: …"</code> on the <code>.recipes-tag-chip__dot</code> (background matches
-        the text color shorthand). The active chip gets <code>.is-active</code> (filled accent, no
-        dot shown). Single-selection: clicking an active chip returns to All.
-    </p>
-    <div class="recipes-tag-filters">
-        <button class="recipes-tag-chip is-active" type="button">All</button>
-        <button class="recipes-tag-chip" type="button">
-            <span class="recipes-tag-chip__dot" style="background:#4b9cd3"></span> Fish
-        </button>
-        <button class="recipes-tag-chip" type="button">
-            <span class="recipes-tag-chip__dot" style="background:#27ae60"></span> Vegetarian
-        </button>
-        <button class="recipes-tag-chip" type="button">
-            <span class="recipes-tag-chip__dot" style="background:#e74c3c"></span> Spicy
-        </button>
-    </div>
-    <pre class="code-sample"><code>@("<div class=\"recipes-tag-filters\">\n  <button class=\"recipes-tag-chip\" :class=\"{'is-active': tag===''}\" @@click=\"tag=''\">All</button>\n  @foreach tag in tags:\n  <button class=\"recipes-tag-chip\" :class=\"{'is-active': tag===t.id}\" @@click=\"tag=(tag===t.id?'':t.id)\">\n    <span x-show=\"tag!==t.id\" class=\"recipes-tag-chip__dot\" :style=\"'background:'+t.color\"></span>\n    @t.name\n  </button>\n</div>")</code></pre>
-</section>
-
-<section class="catalog-section">
-    <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Recipes browse — Use-soon toggle</h2>
-    </div>
-    <p>
-        <code>.recipes-soon-toggle</code> is a pill toggle. Off: neutral bordered surface; On:
-        <code>.is-active</code> fills with <code>--color-warning-bg</code> + amber text + no border.
-        Timer icon prefix.
-    </p>
-    <div style="display:flex;gap:12px;align-items:center">
-        <button class="recipes-soon-toggle" type="button">
-            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
-        </button>
-        <button class="recipes-soon-toggle is-active" type="button">
-            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Use soon
-        </button>
-        <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">← off / on →</span>
-    </div>
-    <pre class="code-sample"><code>@("<button class=\"recipes-soon-toggle\" :class=\"{'is-active': soon}\" @@click=\"soon=!soon\" type=\"button\">\n  <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-timer\" /></svg> Use soon\n</button>")</code></pre>
 </section>
 
 <section class="catalog-section">
