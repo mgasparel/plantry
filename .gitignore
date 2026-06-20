@@ -28,6 +28,7 @@ StrykerOutput/
 # Personal tooling config
 .claude/settings.local.json
 .playwright/
+.mcp.json
 
 # OS files
 .DS_Store
