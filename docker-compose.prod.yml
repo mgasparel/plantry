@@ -72,13 +72,31 @@ services:
       # Optional: omit to degrade AI features to a locked-feature UI (the app still runs).
       AI__ApiKey: ${AI_API_KEY:-}
     # Web is not exposed directly — Caddy handles TLS termination and reverse proxying.
+    healthcheck:
+      # The mcr.microsoft.com/dotnet/aspnet runtime image ships bash but not curl/wget.
+      # This probe sends a minimal HTTP/1.0 GET to /alive via bash's /dev/tcp pseudo-device
+      # and checks that the response contains "200". It validates that Kestrel is up and
+      # the liveness endpoint is responding before Caddy begins proxying traffic.
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - |
+          exec 3<>/dev/tcp/localhost/8080 &&
+          printf 'GET /alive HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          head -1 <&3 | grep -q '200'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # ── Caddy (TLS termination + reverse proxy) ───────────────────────────────
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      - plantry-web
+      plantry-web:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
