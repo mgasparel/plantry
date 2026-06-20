@@ -133,7 +133,7 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 
 **Edge cases:**
 - A counted value that equals **current** stock (someone already corrected it) → no-op for that item, no journal row.
-- Save interrupted (network) → pending counts remain in the page; the user retries. Per-product application is idempotent on re-drive (mirrors the cook adapter's `sourceLineRef` idempotency in `ConsumeStockCommand`).
+- Save interrupted (network) → pending counts remain in the page; the user retries. Re-drive is naturally idempotent: each item's delta is recomputed against **current** stock, so an already-applied item now computes a zero delta and no-ops (set-to-N recount semantics — see domain-model TS-7).
 - `xmin` optimistic-concurrency conflict on a root → re-read current stock and apply the user's count as set-to-N (recount wins; the conflict window is tiny because there is no long-lived session — C7).
 
 ---
