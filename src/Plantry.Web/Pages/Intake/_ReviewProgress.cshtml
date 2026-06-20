@@ -1,21 +1,19 @@
+@using Plantry.Web.Pages.Shared
 @model Plantry.Web.Pages.Intake.ReviewProgress
 @*
     The review header's progress bar. Rendered once inside _ReviewBody, which is itself the htmx swap
     target (#rev-body) for both the initial page load and every row action — so the counts and markup
     live in a single place and the two renders can't drift apart.
 *@
-<div class="rev-progress">
-    <div class="rev-progress__bar">
-        <div class="rev-progress__fill" style="width: @(Model.Percent)%"></div>
-    </div>
-    <div class="rev-progress__meta">
-        @if (Model.CanCommit)
-        {
-            <span><b>All set.</b> @Model.Total items ready to add.</span>
-        }
-        else
-        {
-            <span><b>@Model.NeedsCount</b> @(Model.NeedsCount == 1 ? "item needs" : "items need") a quick look · <b>@Model.ReadyCount</b> ready</span>
-        }
-    </div>
-</div>
+@{
+    var metaHtml = Model.CanCommit
+        ? $"<span><b>All set.</b> {Model.Total} items ready to add.</span>"
+        : $"<span><b>{Model.NeedsCount}</b> {(Model.NeedsCount == 1 ? "item needs" : "items need")} a quick look · <b>{Model.ReadyCount}</b> ready</span>";
+}
+<partial name="Shared/_Meter" model='new MeterViewModel {
+    Percent      = Model.Percent,
+    Tone         = MeterTone.Accent,
+    Layout       = MeterLayout.MetaLine,
+    MetaHtml     = metaHtml,
+    WrapperClass = "meter--intake-progress"
+}' />

@@ -715,20 +715,69 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Review progress bar</h2>
+        <h2 class="catalog-section__heading">Meter / progress bar (<code>Shared/_Meter</code>)</h2>
     </div>
     <p>
-        <code>.rev-progress</code> — header progress bar for the intake review screen.
-        Width is set server-side as an inline <code>style="width: N%"</code>.
+        One reusable bar primitive — <code>Shared/_Meter</code> partial — replaces three ad-hoc
+        implementations (<code>.rev-progress</code>, <code>.fulf-meter</code>, <code>.rd-fulf-bar-*</code>).
+        Width is always server-set via <code>style="width:N%"</code>; no client recompute.
     </p>
-    <div class="rev-progress" style="margin-bottom: var(--space-4)">
-        <div class="rev-progress__bar"><div class="rev-progress__fill" style="width: 77%"></div></div>
-        <div class="rev-progress__meta"><span><b>3</b> items need a quick look · <b>10</b> ready</span></div>
+    <p>
+        <strong>Tones:</strong> <code>Hi</code> (green, ≥80%), <code>Mid</code> (amber, ≥50%),
+        <code>Lo</code> (red, &lt;50%), <code>Accent</code> (theme accent), <code>Neutral</code>.
+        <br>
+        <strong>Layouts:</strong> <code>MetaLine</code> — bar + trailing inline text (intake review);
+        <code>PctStack</code> — bar + right-column pct/sub (recipes grid);
+        <code>BarOnly</code> — bar only, caller controls surrounding markup (recipe detail card).
+    </p>
+
+    <p><strong>MetaLine</strong> — intake review progress header (accent fill, surface card chrome):</p>
+    <div style="margin-bottom: var(--space-4)">
+        <div class="meter meter--meta-line meter--intake-progress">
+            <div class="meter__track"><span class="meter__fill meter__fill--accent" style="width:77%"></span></div>
+            <div class="meter__meta"><span><b>3</b> items need a quick look · <b>10</b> ready</span></div>
+        </div>
     </div>
-    <div class="rev-progress">
-        <div class="rev-progress__bar"><div class="rev-progress__fill" style="width: 100%"></div></div>
-        <div class="rev-progress__meta"><span><b>All set.</b> 13 items ready to add.</span></div>
+    <div>
+        <div class="meter meter--meta-line meter--intake-progress">
+            <div class="meter__track"><span class="meter__fill meter__fill--accent" style="width:100%"></span></div>
+            <div class="meter__meta"><span><b>All set.</b> 13 items ready to add.</span></div>
+        </div>
     </div>
+
+    <p style="margin-top:var(--space-4)"><strong>PctStack</strong> — recipes grid fulfillment meter:</p>
+    <div style="max-width:200px;display:flex;flex-direction:column;gap:18px">
+        <div class="meter meter--pct-stack">
+            <div class="meter__track"><span class="meter__fill fulf-hi-bg" style="width:90%"></span></div>
+            <div class="meter__labels">
+                <div class="meter__pct fulf-hi">90%</div>
+                <div class="meter__sub">9/10 in stock</div>
+            </div>
+        </div>
+        <div class="meter meter--pct-stack">
+            <div class="meter__track"><span class="meter__fill fulf-mid-bg" style="width:60%"></span></div>
+            <div class="meter__labels">
+                <div class="meter__pct fulf-mid">60%</div>
+                <div class="meter__sub">6/10 in stock</div>
+            </div>
+        </div>
+        <div class="meter meter--pct-stack">
+            <div class="meter__track"><span class="meter__fill fulf-lo-bg" style="width:20%"></span></div>
+            <div class="meter__labels">
+                <div class="meter__pct fulf-lo">20%</div>
+                <div class="meter__sub">2/10 in stock</div>
+            </div>
+        </div>
+    </div>
+
+    <p style="margin-top:var(--space-4)"><strong>BarOnly</strong> — recipe detail card progress bar (aria progressbar):</p>
+    <div style="max-width:280px">
+        <div class="meter__track rd-fulf-bar" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100">
+            <span class="meter__fill fulf-mid-bg" style="width:50%"></span>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_Meter\" model='new MeterViewModel {\n    Percent  = pct,\n    Tone     = MeterViewModel.FulfTone(pct),\n    Layout   = MeterLayout.PctStack,\n    Label    = $\"{pct}%\",\n    SubLabel = $\"{inStock}/{total} in stock\"\n}' />")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -1211,48 +1260,7 @@
     <pre class="code-sample"><code>@("<div class=\"recipes-search\">\n  <svg class=\"icon recipes-search__icon\" aria-hidden=\"true\"><use href=\"#i-search\" /></svg>\n  <input class=\"recipes-search__input\" type=\"search\" placeholder=\"Search recipes…\"\n         name=\"q\" hx-get=\"/Recipes\" hx-trigger=\"input changed delay:300ms\"\n         hx-target=\"#recipes-results\" hx-swap=\"innerHTML\" hx-include=\"form\" />\n</div>")</code></pre>
 </section>
 
-<section class="catalog-section">
-    <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Recipes browse — fulfillment meter (grid)</h2>
-    </div>
-    <p>
-        <code>.fulf-meter</code> is the fulfillment bar used in grid mode: a thin rounded bar
-        (filled to <code>pct%</code>, colored by level) + bold percentage text + faint
-        "{inStock}/{total} in stock" sub-label. Level color classes: <code>.fulf-hi</code> (≥80%),
-        <code>.fulf-mid</code> (≥50%), <code>.fulf-lo</code> (&lt;50%). Applied to both the
-        <code>.fulf-meter__bar</code> (via <code>-bg</code> variant) and <code>.fulf-meter__pct</code>.
-    </p>
-    <div style="max-width:200px;display:flex;flex-direction:column;gap:18px">
-        <div class="fulf-meter">
-            <div class="fulf-meter__bar-wrap">
-                <span class="fulf-meter__bar fulf-hi-bg" style="width:90%"></span>
-            </div>
-            <div class="fulf-meter__labels">
-                <div class="fulf-meter__pct fulf-hi">90%</div>
-                <div class="fulf-meter__sub">9/10 in stock</div>
-            </div>
-        </div>
-        <div class="fulf-meter">
-            <div class="fulf-meter__bar-wrap">
-                <span class="fulf-meter__bar fulf-mid-bg" style="width:60%"></span>
-            </div>
-            <div class="fulf-meter__labels">
-                <div class="fulf-meter__pct fulf-mid">60%</div>
-                <div class="fulf-meter__sub">6/10 in stock</div>
-            </div>
-        </div>
-        <div class="fulf-meter">
-            <div class="fulf-meter__bar-wrap">
-                <span class="fulf-meter__bar fulf-lo-bg" style="width:20%"></span>
-            </div>
-            <div class="fulf-meter__labels">
-                <div class="fulf-meter__pct fulf-lo">20%</div>
-                <div class="fulf-meter__sub">2/10 in stock</div>
-            </div>
-        </div>
-    </div>
-    <pre class="code-sample"><code>@("<div class=\"fulf-meter\">\n  <div class=\"fulf-meter__bar-wrap\">\n    <span class=\"fulf-meter__bar fulf-hi-bg\" style=\"width:90%\"></span>\n  </div>\n  <div class=\"fulf-meter__labels\">\n    <div class=\"fulf-meter__pct fulf-hi\">90%</div>\n    <div class=\"fulf-meter__sub\">9/10 in stock</div>\n  </div>\n</div>")</code></pre>
-</section>
+@* Fulfillment meter (grid) — collapsed into the unified Meter / progress bar section above. *@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
@@ -1328,7 +1336,7 @@
         | Cost 1fr | Time 0.95fr | Serves 0.85fr | Chevron 26px. Each row is an <code>&lt;a&gt;</code>
         (or block-level element) with grid layout. The recipe cell shows a 46px thumb, bold name with
         ellipsis, tag text row, and optional Use-soon badge. The fulfillment cell uses
-        <code>.fulf-meter</code>. Cost is omitted when <code>CostCompleteness=None</code>.
+        <code>Shared/_Meter</code> (<code>PctStack</code> layout). Cost is omitted when <code>CostCompleteness=None</code>.
     </p>
     <div class="recipes-grid" style="max-width:860px">
         <div class="recipes-grid__head">
@@ -1352,13 +1360,11 @@
                     </div>
                 </div>
             </div>
-            <div class="fulf-meter">
-                <div class="fulf-meter__bar-wrap">
-                    <span class="fulf-meter__bar fulf-hi-bg" style="width:90%"></span>
-                </div>
-                <div class="fulf-meter__labels">
-                    <div class="fulf-meter__pct fulf-hi">90%</div>
-                    <div class="fulf-meter__sub">9/10 in stock</div>
+            <div class="meter meter--pct-stack">
+                <div class="meter__track"><span class="meter__fill fulf-hi-bg" style="width:90%"></span></div>
+                <div class="meter__labels">
+                    <div class="meter__pct fulf-hi">90%</div>
+                    <div class="meter__sub">9/10 in stock</div>
                 </div>
             </div>
             <div class="recipes-grid__cell recipes-grid__cell--cost num">$3.40<span class="recipes-grid__cell-sub"> /serv</span></div>
@@ -1378,13 +1384,11 @@
                     </div>
                 </div>
             </div>
-            <div class="fulf-meter">
-                <div class="fulf-meter__bar-wrap">
-                    <span class="fulf-meter__bar fulf-lo-bg" style="width:30%"></span>
-                </div>
-                <div class="fulf-meter__labels">
-                    <div class="fulf-meter__pct fulf-lo">30%</div>
-                    <div class="fulf-meter__sub">3/10 in stock</div>
+            <div class="meter meter--pct-stack">
+                <div class="meter__track"><span class="meter__fill fulf-lo-bg" style="width:30%"></span></div>
+                <div class="meter__labels">
+                    <div class="meter__pct fulf-lo">30%</div>
+                    <div class="meter__sub">3/10 in stock</div>
                 </div>
             </div>
             <div class="recipes-grid__cell num" style="color:var(--color-text-faint);font-size:13px">—</div>
@@ -1393,7 +1397,7 @@
             <div><svg class="icon recipes-grid__chev" aria-hidden="true"><use href="#i-chevron-right" /></svg></div>
         </a>
     </div>
-    <pre class="code-sample"><code>@("<div class=\"recipes-grid\">\n  <div class=\"recipes-grid__head\"><!-- 6 col header buttons --></div>\n  <a class=\"recipes-grid__row\" href=\"/Recipes/{id}\">\n    <div class=\"recipes-grid__name-cell\"><!-- thumb + name + tags --></div>\n    <div class=\"fulf-meter\"><!-- bar + pct + sub --></div>\n    <div class=\"recipes-grid__cell recipes-grid__cell--cost num\">{cost}</div>\n    <div class=\"recipes-grid__cell\">{time}</div>\n    <div class=\"recipes-grid__cell\">{serves}</div>\n    <div><svg class=\"icon recipes-grid__chev\">…</svg></div>\n  </a>\n</div>")</code></pre>
+    <pre class="code-sample"><code>@("<div class=\"recipes-grid\">\n  <div class=\"recipes-grid__head\"><!-- 6 col header buttons --></div>\n  <a class=\"recipes-grid__row\" href=\"/Recipes/{id}\">\n    <div class=\"recipes-grid__name-cell\"><!-- thumb + name + tags --></div>\n    <partial name=\"Shared/_Meter\" model='new MeterViewModel { Percent=pct, Tone=MeterViewModel.FulfTone(pct), Layout=MeterLayout.PctStack, Label=$\"{pct}%\", SubLabel=$\"{inStock}/{total} in stock\" }' />\n    <div class=\"recipes-grid__cell recipes-grid__cell--cost num\">{cost}</div>\n    <div class=\"recipes-grid__cell\">{time}</div>\n    <div class=\"recipes-grid__cell\">{serves}</div>\n    <div><svg class=\"icon recipes-grid__chev\">…</svg></div>\n  </a>\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -1581,8 +1585,8 @@
     <p>
         The primary decision card in the rail. Contains: "X of Y ingredients" headline
         (<code>.rd-fulf-headline</code>, count colored by level), "in your pantry right now" sub,
-        progress bar (<code>.rd-fulf-bar-wrap</code> + <code>.rd-fulf-bar-fill</code>, filled and
-        colored by level class <code>.fulf-hi-bg</code> / <code>.fulf-mid-bg</code> / <code>.fulf-lo-bg</code>),
+        progress bar (<code>Shared/_Meter</code> with <code>BarOnly</code> layout, <code>WrapperClass="rd-fulf-bar"</code>,
+        fill colored by <code>fulf-hi-bg</code> / <code>fulf-mid-bg</code> / <code>fulf-lo-bg</code>),
         breakdown chips (<code>.rd-fulf-chips</code>), optional contextual note
         (<code>.rd-fulf-note--soon</code> or <code>.rd-fulf-note--ready</code>), and action
         buttons (<code>.rd-actions</code>). When fully cookable, add <code>.rd-fulf-card--cookable</code>
@@ -1602,8 +1606,8 @@
                     <span class="rd-fulf-of">ingredients</span>
                 </div>
                 <div class="rd-fulf-sub">in your pantry right now</div>
-                <div class="rd-fulf-bar-wrap" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100">
-                    <span class="rd-fulf-bar-fill fulf-mid-bg" style="width:50%"></span>
+                <div class="meter__track rd-fulf-bar" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100">
+                    <span class="meter__fill fulf-mid-bg" style="width:50%"></span>
                 </div>
                 <div class="rd-fulf-chips">
                     <span class="rd-fulf-chip rd-fulf-chip--have"><span class="rd-fulf-chip__dot fulf-hi-bg"></span> 2 in stock</span>
@@ -1628,7 +1632,7 @@
             </div>
         </div>
     </div>
-    <pre class="code-sample"><code>@("<div class=\"rd-fulf-card\"><!-- add .rd-fulf-card--cookable when all in stock -->\n  <div class=\"rd-fulf-top\">\n    <div class=\"rd-fulf-headline\">\n      <span class=\"rd-fulf-count fulf-mid\">{inStock} of {total}</span>\n      <span class=\"rd-fulf-of\">ingredients</span>\n    </div>\n    <div class=\"rd-fulf-sub\">in your pantry right now</div>\n    <div class=\"rd-fulf-bar-wrap\"><span class=\"rd-fulf-bar-fill fulf-mid-bg\" style=\"width:50%\"></span></div>\n    <div class=\"rd-fulf-chips\"><!-- .rd-fulf-chip--have / --low / --miss --></div>\n  </div>\n  <!-- optional note: .rd-fulf-note--soon or .rd-fulf-note--ready -->\n  <div class=\"rd-actions\">\n    <button class=\"btn btn--cook\">Cook this</button>\n    <button class=\"btn btn--soft\">Add N missing…</button>\n    <a class=\"btn btn--secondary\" href=\"/Recipes/{id}/Edit\">Edit recipe</a>\n  </div>\n</div>")</code></pre>
+    <pre class="code-sample"><code>@("<div class=\"rd-fulf-card\"><!-- add .rd-fulf-card--cookable when all in stock -->\n  <div class=\"rd-fulf-top\">\n    <div class=\"rd-fulf-headline\">\n      <span class=\"rd-fulf-count fulf-mid\">{inStock} of {total}</span>\n      <span class=\"rd-fulf-of\">ingredients</span>\n    </div>\n    <div class=\"rd-fulf-sub\">in your pantry right now</div>\n    <partial name=\"Shared/_Meter\" model='new MeterViewModel { Percent=pct, Tone=MeterViewModel.FulfTone(pct), Layout=MeterLayout.BarOnly, AriaValueNow=pct, WrapperClass=\"rd-fulf-bar\" }' />\n    <div class=\"rd-fulf-chips\"><!-- .rd-fulf-chip--have / --low / --miss --></div>\n  </div>\n  <!-- optional note: .rd-fulf-note--soon or .rd-fulf-note--ready -->\n  <div class=\"rd-actions\">\n    <button class=\"btn btn--cook\">Cook this</button>\n    <button class=\"btn btn--soft\">Add N missing…</button>\n    <a class=\"btn btn--secondary\" href=\"/Recipes/{id}/Edit\">Edit recipe</a>\n  </div>\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">

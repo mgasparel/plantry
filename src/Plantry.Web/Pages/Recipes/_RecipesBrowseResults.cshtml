@@ -1,6 +1,7 @@
 @model Plantry.Web.Pages.Recipes.IndexModel
 @using Plantry.Recipes.Application
 @using Plantry.Recipes.Domain
+@using Plantry.Web.Pages.Shared
 @{
     var rows = Model.Result.Rows;
     var allTags = Model.Result.AllTags;
@@ -218,14 +219,14 @@ else
                     </div>
 
                     @* Fulfillment meter *@
-                    <div class="fulf-meter" role="cell">
-                        <div class="fulf-meter__bar-wrap" aria-hidden="true">
-                            <span class="fulf-meter__bar fulf-@(level)-bg" style="width:@row.FulfillmentPct%"></span>
-                        </div>
-                        <div class="fulf-meter__labels">
-                            <div class="fulf-meter__pct fulf-@level">@row.FulfillmentPct%</div>
-                            <div class="fulf-meter__sub">@row.InStockCount/@row.TotalIngredientCount in stock</div>
-                        </div>
+                    <div class="meter-cell" role="cell">
+                        <partial name="Shared/_Meter" model='new MeterViewModel {
+                            Percent  = row.FulfillmentPct,
+                            Tone     = MeterViewModel.FulfTone(row.FulfillmentPct),
+                            Layout   = MeterLayout.PctStack,
+                            Label    = $"{row.FulfillmentPct}%",
+                            SubLabel = $"{row.InStockCount}/{row.TotalIngredientCount} in stock"
+                        }' />
                     </div>
 
                     @* Cost cell (omit when CostCompleteness=None) *@

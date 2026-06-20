@@ -1,0 +1,72 @@
+@using Plantry.Web.Pages.Shared
+@model MeterViewModel
+@*
+    Reusable meter/progress bar — a horizontal fill bar tinted by level with optional labels.
+
+    Three layout variants (MeterLayout enum):
+      PctStack  — bar + right column: bold percentage + faint sub-label (recipes grid).
+      MetaLine  — bar + trailing inline meta text (intake review header).
+      BarOnly   — bar only; caller renders surrounding context (recipe detail card).
+
+    Tone tokens: hi (green/success), mid (amber/warning), lo (red/danger), accent, neutral.
+    Width is always server-set via inline style="width:N%" — never recalculated on the client.
+
+    Accessibility: pass AriaValueNow to render role="progressbar" + aria-valuenow/min/max
+    on the bar track. Omit when the surrounding context already provides the accessible label.
+
+    Usage:
+        <partial name="Shared/_Meter" model='new MeterViewModel {
+            Percent  = row.FulfillmentPct,
+            Tone     = MeterTone.Hi,
+            Layout   = MeterLayout.PctStack,
+            Label    = $"{row.FulfillmentPct}%",
+            SubLabel = $"{row.InStockCount}/{row.TotalIngredientCount} in stock"
+        }' />
+*@
+@{
+    var ariaAttrs = Model.AriaValueNow.HasValue
+        ? $" role=\"progressbar\" aria-valuenow=\"{Model.AriaValueNow.Value}\" aria-valuemin=\"0\" aria-valuemax=\"100\""
+        : "";
+    var wrapperExtra = Model.WrapperClass is { Length: > 0 } wc ? $" {wc}" : "";
+}
+
+@if (Model.Layout == MeterLayout.PctStack)
+{
+    <div class="meter meter--pct-stack@(wrapperExtra)">
+        <div class="meter__track"@Html.Raw(ariaAttrs)>
+            <span class="meter__fill @Model.FillClass" style="width:@(Model.Percent)%"></span>
+        </div>
+        @if (Model.Label is not null || Model.SubLabel is not null)
+        {
+            <div class="meter__labels">
+                @if (Model.Label is not null)
+                {
+                    <div class="meter__pct @Model.TextClass">@Model.Label</div>
+                }
+                @if (Model.SubLabel is not null)
+                {
+                    <div class="meter__sub">@Model.SubLabel</div>
+                }
+            </div>
+        }
+    </div>
+}
+else if (Model.Layout == MeterLayout.MetaLine)
+{
+    <div class="meter meter--meta-line@(wrapperExtra)">
+        <div class="meter__track"@Html.Raw(ariaAttrs)>
+            <span class="meter__fill @Model.FillClass" style="width:@(Model.Percent)%"></span>
+        </div>
+        @if (Model.MetaHtml is not null)
+        {
+            <div class="meter__meta">@Html.Raw(Model.MetaHtml)</div>
+        }
+    </div>
+}
+else
+{
+    @* BarOnly — minimal markup; no label wrapper *@
+    <div class="meter__track@(wrapperExtra)"@Html.Raw(ariaAttrs)>
+        <span class="meter__fill @Model.FillClass" style="width:@(Model.Percent)%"></span>
+    </div>
+}
