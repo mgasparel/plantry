@@ -11,15 +11,42 @@ on:
   # "Require merge queue" so PRs are revalidated against live main before landing.
 
 jobs:
+  # ── Change filter: is there anything other than Markdown to build/test? ───────
+  # Docs-only (*.md) changes skip the expensive build/test steps below. The `fast`
+  # and `e2e` jobs still RUN (so they keep reporting as the required status checks
+  # auto-merge waits on — ADR-016), they just no-op their heavy steps. This avoids
+  # the `paths-ignore` trap where a skipped required check never reports and the
+  # docs-only PR hangs forever.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # `code` is true when any changed file is NOT Markdown. `'**'` matches
+          # everything; `'!**/*.md'` removes Markdown from the match set — so a
+          # change touching only *.md leaves nothing and `code` is false.
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+
   # ── Fast gate: build + unit + architecture (< 2 min, runs first) ─────────────
   fast:
     runs-on: ubuntu-latest
+    needs: changes
     timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
 
       - name: Setup .NET 10
+        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
@@ -27,6 +54,7 @@ jobs:
       # NuGet package cache — keyed on SDK version + all project files.
       # Restore re-uses the cache on cache-hit; downloads and saves on miss.
       - name: Cache NuGet packages
+        if: needs.changes.outputs.code == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
@@ -35,13 +63,16 @@ jobs:
             nuget-${{ runner.os }}-
 
       - name: Restore
+        if: needs.changes.outputs.code == 'true'
         run: dotnet restore
 
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: dotnet build --no-restore --configuration Release
 
       # ── L1: Domain unit tests ───────────────────────────────────────────────
       - name: Unit tests
+        if: needs.changes.outputs.code == 'true'
         run: >
           dotnet test tests/Plantry.Tests.Unit
           --no-build --configuration Release
@@ -52,6 +83,7 @@ jobs:
 
       # ── L1: Architecture boundary tests ────────────────────────────────────
       - name: Architecture tests
+        if: needs.changes.outputs.code == 'true'
         run: >
           dotnet test tests/Plantry.Tests.Architecture
           --no-build --configuration Release
@@ -59,6 +91,7 @@ jobs:
       # Upload unit coverage so the e2e job's coverage gate counts domain code.
       # The two jobs run on separate runners, so artifacts are the bridge.
       - name: Upload unit coverage
+        if: needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-unit
@@ -71,19 +104,22 @@ jobs:
   # containers via Testcontainers/Aspire — no services: block needed.
   e2e:
     runs-on: ubuntu-latest
-    needs: fast
+    needs: [changes, fast]
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
 
       - name: Setup .NET 10
+        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
 
       # Reuse the same NuGet cache populated by the fast job.
       - name: Cache NuGet packages
+        if: needs.changes.outputs.code == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
@@ -92,20 +128,24 @@ jobs:
             nuget-${{ runner.os }}-
 
       - name: Restore
+        if: needs.changes.outputs.code == 'true'
         run: dotnet restore
 
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: dotnet build --no-restore --configuration Release
 
       # Install Playwright's Chromium browser + system deps before running E2E.
       # The playwright CLI is published alongside the test binaries after build.
       - name: Install Playwright browsers
+        if: needs.changes.outputs.code == 'true'
         run: >
           pwsh tests/Plantry.Tests.E2E/bin/Release/net10.0/playwright.ps1
           install chromium --with-deps
 
       # ── L3: Integration tests (Testcontainers; self-managed Postgres) ───────
       - name: Integration tests
+        if: needs.changes.outputs.code == 'true'
         run: >
           dotnet test tests/Plantry.Tests.Integration
           --no-build --configuration Release
@@ -118,6 +158,7 @@ jobs:
       # AppHostFixture starts the Aspire AppHost which pulls/starts Postgres via
       # Docker and boots the web app. Tests then drive it with Playwright/Chromium.
       - name: E2E tests
+        if: needs.changes.outputs.code == 'true'
         run: >
           dotnet test tests/Plantry.Tests.E2E
           --no-build --configuration Release
@@ -128,7 +169,7 @@ jobs:
 
       # Upload Playwright traces on failure so failures can be diagnosed.
       - name: Upload Playwright traces
-        if: failure()
+        if: failure() && needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-traces
@@ -137,6 +178,7 @@ jobs:
 
       # Download unit coverage from the fast job so the gate sees domain + integration + E2E.
       - name: Download unit coverage
+        if: needs.changes.outputs.code == 'true'
         uses: actions/download-artifact@v4
         with:
           name: coverage-unit
@@ -144,6 +186,7 @@ jobs:
 
       # ── Coverage gate (unit + integration + E2E combined) ───────────────────
       - name: Coverage report
+        if: needs.changes.outputs.code == 'true'
         uses: danielpalme/ReportGenerator-GitHub-Action@5
         with:
           reports: "coverage/**/*.xml"
@@ -151,6 +194,7 @@ jobs:
           reporttypes: "HtmlInline;Cobertura"
 
       - name: Check coverage threshold
+        if: needs.changes.outputs.code == 'true'
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:
           filename: coverage/report/Cobertura.xml
