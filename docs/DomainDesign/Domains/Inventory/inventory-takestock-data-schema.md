@@ -2,7 +2,7 @@
 
 > **Status:** Design in progress — Phase 2 (bd `plantry-5vxb`)
 >
-> **Purpose:** What the database needs for Take Stock. The headline: **no migration is required for correctness** — the existing `inventory` schema already permits everything Take Stock writes. The only candidate change is **one optional performance index** for the location-walk read. Builds on [inventory.md](../DataModels/inventory.md), the [domain model](inventory-takestock-domain-model.md), and the [journeys](inventory-takestock-journeys.md). Verified against the live migrations, not the prose schema doc.
+> **Purpose:** What the database needs for Take Stock. The headline: **no migration is required for correctness** — the existing `inventory` schema already permits everything Take Stock writes. The **one decided change is a single index migration** (`ix_stock_entry_by_location`) for the location-walk read. Builds on [inventory.md](../DataModels/inventory.md), the [domain model](inventory-takestock-domain-model.md), and the [journeys](inventory-takestock-journeys.md). Verified against the live migrations, not the prose schema doc.
 >
 > **Bounded context:** Inventory (`inventory` schema); one read touches Catalog (`catalog.product`).
 
@@ -30,22 +30,20 @@ Checked against `20260609104359_InitialInventorySchema` and `20260609200500_AddS
 | **No count session / draft** (C7, TS-1) | Nothing to persist — pending counts are page-only; only journal rows land. | **None** (no new table) |
 | **Counted unit on the journal row** (TS-5) | `stock_journal_entry.unit_id` is per-row; already stores whatever unit the movement used. | **None** |
 
-**Conclusion:** Take Stock's writes require **zero schema migrations**. It rides entirely on the existing `product_stock` / `stock_entry` / `stock_journal_entry` shape, RLS policies, and CHECK constraints.
+**Conclusion:** Take Stock's *writes* require **zero schema migrations**. It rides entirely on the existing `product_stock` / `stock_entry` / `stock_journal_entry` shape, RLS policies, and CHECK constraints. The single migration it does ship is the read-side index below.
 
 ---
 
-## The one candidate change — a location index (optional)
+## The one schema change — a location index (decided)
 
 The **location-walk listing** (J2) reads differently from anything Inventory does today: *"all active lots **at location L**, grouped/summed by product."* Existing `stock_entry` indexes are:
 
 - `ix_stock_entry_fefo` — `(household_id, product_id, expiry_date, created_at)` — product-first; great for a single product's FEFO consume (TS-3 still uses this), useless for a location sweep.
 - `IX_stock_entry_household_id` — `(household_id)` — too coarse for a per-location scan.
 
-There is **no index on `location_id`**. The walk would scan all of a household's active lots and filter by location.
+There is **no index on `location_id`**. Without one the walk scans all of a household's active lots and filters by location.
 
-**Recommendation — `ix_stock_entry_by_location` on `(household_id, location_id, product_id)`** (optionally `WHERE depleted_at IS NULL` as a partial index, since the walk only sums active lots). Rationale: turns the per-location sweep into an index range scan and supports the per-(product, location) group/sum directly.
-
-**But treat it as defer-able.** Stock is RLS-scoped to one household, and a household's active-lot count is small (tens–low hundreds), so a filtered seq-scan is cheap at MVP volumes. **Recommendation: add the index with the feature** (it's a one-line, low-risk migration and the query is clearly location-shaped), but it is a performance, not a correctness, change — acceptable to defer until profiling warrants if we want to keep the first slice migration-free.
+**Decided: add `ix_stock_entry_by_location` on `(household_id, location_id, product_id)`, partial `WHERE depleted_at IS NULL`** (the walk only ever sums active lots). It turns the per-location sweep into an index range scan and supports the per-(product, Location) group/sum directly. It ships **with the feature** in the same slice as the location-walk read — a one-line, low-risk migration, not deferred. (It remains a performance change, so it carries no correctness risk if the read lands first.)
 
 ---
 
@@ -65,7 +63,7 @@ Unchanged. `product_stock`, `stock_entry`, `stock_journal_entry` already `ENABLE
 ## Decisions (summary)
 
 - **TS-S1** No migration is required for correctness — positive `Correction`, `Manual` source, and per-row units are all already schema-legal.
-- **TS-S2** Add `ix_stock_entry_by_location` on `(household_id, location_id, product_id)` (consider partial `WHERE depleted_at IS NULL`) to serve the location-walk listing — low-risk; ship with the feature, defer-able as a pure performance change.
+- **TS-S2** **Add `ix_stock_entry_by_location` on `(household_id, location_id, product_id)`, partial `WHERE depleted_at IS NULL`** to serve the location-walk listing. Decided; ships with the feature in the location-walk read slice.
 - **TS-S3** No Catalog migration — `SetDefaultLocationCommand` reuses `default_location_id`; listing filters need no new index at MVP volumes.
 
 ---
