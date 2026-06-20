@@ -1,6 +1,7 @@
 @model Plantry.Web.Pages.Recipes.DetailsFulfilmentCardModel
 @using System.Globalization
 @using Plantry.Recipes.Domain
+@using Plantry.Web.Pages.Shared
 @{
     var vm = Model;
     var oobAttr = vm.Oob ? " hx-swap-oob=\"true\"" : "";
@@ -26,9 +27,13 @@
             <span class="rd-fulf-of">ingredients</span>
         </div>
         <div class="rd-fulf-sub">in your pantry right now</div>
-        <div class="rd-fulf-bar-wrap" role="progressbar" aria-valuenow="@pct" aria-valuemin="0" aria-valuemax="100">
-            <span class="rd-fulf-bar-fill @(lvlClass)-bg" style="width:@(pct)%"></span>
-        </div>
+        <partial name="Shared/_Meter" model='new MeterViewModel {
+            Percent      = pct,
+            Tone         = MeterViewModel.FulfTone(pct),
+            Layout       = MeterLayout.BarOnly,
+            AriaValueNow = pct,
+            WrapperClass = "rd-fulf-bar"
+        }' />
         <div class="rd-fulf-chips">
             @if (inStockCount > 0)
             {

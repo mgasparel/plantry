@@ -1173,20 +1173,81 @@ button { font-family: inherit; cursor: pointer; }
 .filter-chip__dot  { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .filter-chip__icon { width: 15px; height: 15px; }
 
-.rev-progress {
+/* ── Reusable meter / progress bar (_Meter partial) ─────────────────────────
+   Replaces .rev-progress, .fulf-meter, and .rd-fulf-bar-* with a single block.
+   Three layout variants: .meter--pct-stack | .meter--meta-line | (BarOnly = .meter__track only)
+   Fill tone: .fulf-hi-bg | .fulf-mid-bg | .fulf-lo-bg | .meter__fill--accent | .meter__fill--neutral
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Shared track (bar background + fill container) */
+.meter__track {
+  flex: 1;
+  height: 8px;
+  background: var(--color-surface-2);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 400ms cubic-bezier(.4,0,.2,1);
+}
+.meter__fill--accent  { background: var(--color-accent); }
+.meter__fill--neutral { background: var(--color-text-faint); }
+
+/* PctStack layout: bar on left, stacked pct+sub-label on right */
+.meter--pct-stack {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.meter--pct-stack .meter__track { min-width: 36px; }
+.meter__labels { flex-shrink: 0; }
+.meter__pct {
+  font-size: 13.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.meter__sub {
+  font-size: 11.5px;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* MetaLine layout: bar on left (flex:1), trailing inline meta text on right.
+   .meter--intake-progress adds the surface card chrome (matches old .rev-progress). */
+.meter--meta-line {
   display: flex;
   align-items: center;
   gap: var(--space-4);
+}
+.meter--meta-line .meter__track { height: 8px; background: var(--color-bg-subtle); }
+.meter__meta { font-size: var(--font-size-sm); color: var(--color-text-muted); white-space: nowrap; }
+.meter__meta b { color: var(--color-text); }
+
+/* Intake review card chrome (applied as WrapperClass on the meter--meta-line element) */
+.meter--intake-progress {
   margin-top: var(--space-3);
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
-.rev-progress__bar { flex: 1; height: 8px; background: var(--color-bg-subtle); border-radius: var(--radius-full); overflow: hidden; }
-.rev-progress__fill { height: 100%; background: var(--color-accent); border-radius: var(--radius-full); transition: width var(--transition-base); }
-.rev-progress__meta { font-size: var(--font-size-sm); color: var(--color-text-muted); white-space: nowrap; }
-.rev-progress__meta b { color: var(--color-text); }
+
+/* BarOnly layout: .meter__track used directly — no wrapper class needed.
+   Callers may pass a WrapperClass for placement overrides (e.g. rd-fulf-bar). */
+.rd-fulf-bar {
+  height: 9px;
+  margin: 12px 0 10px;
+}
+.rd-fulf-bar .meter__track { height: 100%; margin: 0; }
+
+/* Recipes-grid meter cell wrapper (replaces the outer .fulf-meter role=cell div) */
+.meter-cell { display: flex; align-items: stretch; }
 
 /* ── Section labels (Needs your review / Matched & ready / Skipped) ────────── */
 .sec-label {
@@ -2440,40 +2501,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .recipes-grid__soon-badge .icon { width: 12px; height: 12px; }
 
-/* Fulfillment meter in grid */
-.fulf-meter {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-.fulf-meter__bar-wrap {
-  flex: 1;
-  min-width: 36px;
-  height: 7px;
-  border-radius: var(--radius-full);
-  background: var(--color-surface-2);
-  overflow: hidden;
-}
-.fulf-meter__bar {
-  display: block;
-  height: 100%;
-  border-radius: var(--radius-full);
-  transition: width 400ms cubic-bezier(.4,0,.2,1);
-}
-.fulf-meter__labels { flex-shrink: 0; }
-.fulf-meter__pct {
-  font-size: 13.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.fulf-meter__sub {
-  font-size: 11.5px;
-  color: var(--color-text-faint);
-  white-space: nowrap;
-  font-weight: 500;
-}
+/* Fulfillment meter in grid — retired; replaced by .meter--pct-stack in _Meter partial. */
 
 /* Grid cell (cost, time, serves) */
 .recipes-grid__cell {
@@ -2861,21 +2889,7 @@ button { font-family: inherit; cursor: pointer; }
   margin-top: 2px;
 }
 
-/* progress bar */
-.rd-fulf-bar-wrap {
-  height: 9px;
-  border-radius: var(--radius-full);
-  background: var(--color-surface-2);
-  overflow: hidden;
-  margin: 12px 0 10px;
-}
-
-.rd-fulf-bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: var(--radius-full);
-  transition: width 400ms cubic-bezier(.4,0,.2,1);
-}
+/* progress bar — retired; replaced by .meter__track / .rd-fulf-bar in _Meter partial. */
 
 /* breakdown chips: in stock / running low / to buy */
 .rd-fulf-chips {
