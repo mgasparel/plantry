@@ -4,7 +4,10 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 builder.AddDockerComposeEnvironment("docker-compose");
 
-var postgres = builder.AddPostgres("postgres")
+// Pinned so the password stays stable across runs and matches the data volume.
+var postgresPassword = builder.AddParameter("postgres-password", secret: true);
+
+var postgres = builder.AddPostgres("postgres", password: postgresPassword)
     .WithDataVolume("plantrydb-data");
 
 if (builder.Environment.IsDevelopment())

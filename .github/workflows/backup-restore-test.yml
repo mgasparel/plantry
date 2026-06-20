@@ -33,6 +33,7 @@ jobs:
   backup-restore:
     name: deploy/backup.sh → deploy/restore.sh round-trip
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     env:
       POSTGRES_USER: plantry_owner
