@@ -168,22 +168,14 @@
               hx-swap="outerHTML"
               x-on:submit="editingQty = false">
             @Html.AntiForgeryToken()
-            <div class="sl-qty-stepper">
-                <button type="button" class="sl-qbtn" aria-label="Decrease"
-                        x-on:click="qty = (+qty - 1) < 0 ? '0' : (+qty - 1).toFixed(3).replace(/\.?0+$/, '') || '0'">
-                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                </button>
-                <input type="number"
-                       name="quantity"
-                       min="0"
-                       step="any"
-                       x-model="qty"
-                       aria-label="Quantity" />
-                <button type="button" class="sl-qbtn" aria-label="Increase"
-                        x-on:click="qty = (+qty + 1).toFixed(3).replace(/\.?0+$/, '') || '1'">
-                    <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                </button>
-            </div>
+            <stepper variant="lg"
+                     name="quantity"
+                     x-model="qty"
+                     input-label="Quantity"
+                     decrease-click="qty = (+qty - 1) < 0 ? '0' : (+qty - 1).toFixed(3).replace(/\.?0+$/, '') || '0'"
+                     increase-click="qty = (+qty + 1).toFixed(3).replace(/\.?0+$/, '') || '1'"
+                     decrease-label="Decrease quantity"
+                     increase-label="Increase quantity" />
             @* Unit select: populated with the household's full unit list (plantry-259).
                The current item's unit is pre-selected; "no unit" is always available. *@
             <select name="unitId" class="sl-qsel" aria-label="Unit">

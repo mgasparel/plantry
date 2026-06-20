@@ -12,7 +12,7 @@
 
     ADR-013 step 6 — qty/expiry JS-literal cleanup: v (qty) and d (expiry) are part of the row's JSON
     x-data (via JsonSerializer) instead of @qtyInitJs / @expiryInitJs interpolated literals.
-    Qty still uses the .qty-stepper; expiry now uses the .expiry-field control (Date / Never).
+    Qty uses the <stepper> tag helper (default variant); expiry now uses the .expiry-field control (Date / Never).
 
     plantry-4ha — product-default prefill: loc (location id), unit (unit id), receiptUnitId (the
     parser-derived unit or null — "receipt unit wins"), productDefaults (productId→{unitId,locationId,dueDays})
@@ -451,15 +451,12 @@
                         <div class="form-grid__field" style="grid-column: span 2">
                             <label class="form-grid__field__label">Quantity</label>
                             <div class="form-grid__field__control">
-                                <div class="qty-stepper">
-                                    <button type="button" class="qty-btn" @@click="v = Math.max(0.001, (parseFloat(v)||0) - 1)" aria-label="Decrease">
-                                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                                    </button>
-                                    <input class="field__input" type="number" step="any" min="0" name="Edit.Quantity" x-model="v" />
-                                    <button type="button" class="qty-btn" @@click="v = (parseFloat(v)||0) + 1" aria-label="Increase">
-                                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                    </button>
-                                </div>
+                                <stepper name="Edit.Quantity"
+                                         x-model="v"
+                                         decrease-click="v = Math.max(0.001, (parseFloat(v)||0) - 1)"
+                                         increase-click="v = (parseFloat(v)||0) + 1"
+                                         decrease-label="Decrease quantity"
+                                         increase-label="Increase quantity" />
                             </div>
                         </div>
 

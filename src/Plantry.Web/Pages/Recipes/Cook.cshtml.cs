@@ -58,7 +58,7 @@ public sealed class CookModel(
     public List<PickerSelectionInput> PickerSelections { get; set; } = [];
 
     /// <summary>
-    /// Per-line quantity overrides from the Cook page qty-stepper (C9 modify).
+    /// Per-line quantity overrides from the Cook page quantity stepper (C9 modify).
     /// Key = IngredientId, Value = user-entered quantity. Only present when the user
     /// changed a quantity from its scaled default. Posted as
     /// <c>QuantityOverrides[{guid}]={value}</c> hidden inputs emitted by Alpine.

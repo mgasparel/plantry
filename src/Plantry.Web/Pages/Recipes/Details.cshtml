@@ -203,23 +203,16 @@
                         <h3>Ingredients</h3>
                         <div class="rd-ing-head__spacer"></div>
                         <span class="rd-serv-stepper__lbl">Servings</span>
-                        <div class="rd-serv-stepper" role="group" aria-label="Servings">
-                            <button type="button"
-                                    class="rd-serv-stepper__btn"
-                                    aria-label="Fewer servings"
-                                    @@click="servings = Math.max(1, servings - 1); missingAdded = false; refreshFulfilment()"
-                                    :disabled="servings <= 1">
-                                <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                            </button>
-                            <span class="rd-serv-stepper__val" x-text="servings">@recipe.DefaultServings</span>
-                            <button type="button"
-                                    class="rd-serv-stepper__btn"
-                                    aria-label="More servings"
-                                    @@click="servings = Math.min(24, servings + 1); missingAdded = false; refreshFulfilment()"
-                                    :disabled="servings >= 24">
-                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                            </button>
-                        </div>
+                        <stepper variant="compact"
+                                 group-label="Servings"
+                                 x-text="servings"
+                                 display-fallback="@recipe.DefaultServings"
+                                 decrease-click="servings = Math.max(1, servings - 1); missingAdded = false; refreshFulfilment()"
+                                 increase-click="servings = Math.min(24, servings + 1); missingAdded = false; refreshFulfilment()"
+                                 decrease-disabled="servings <= 1"
+                                 increase-disabled="servings >= 24"
+                                 decrease-label="Fewer servings"
+                                 increase-label="More servings" />
                     </div>
 
                     @* Ingredient rows are wrapped in #rd-ing-rows so the OOB swap from
