@@ -1,0 +1,167 @@
+# Release workflow — semver-tagged public images + self-host compose assets
+#
+# Triggered by pushing a version tag (e.g. git tag v1.4.0 && git push --tags).
+# Builds plantry-web and plantry-migrator, publishes them to GHCR with the
+# full semver tag family (:1.4.0, :1.4, :1, :latest), and attaches the
+# self-host compose files and .env.example as GitHub Release assets.
+#
+# Images are marked public so self-hosters can pull without a registry token.
+# The GHCR package visibility API requires the repository to already be public,
+# OR uses the `gh` CLI with an admin token.  This workflow sets visibility via
+# the GitHub Packages REST API using the built-in GITHUB_TOKEN — works when the
+# repository is already public (OSS-ready).  If the repo is private, the
+# visibility step is a no-op (the API returns 403 which is swallowed); images
+# remain accessible to repository collaborators only until the publish flip.
+#
+# Required secrets: none beyond the built-in GITHUB_TOKEN.
+#
+# Tag format: v<major>.<minor>.<patch>   (e.g. v1.4.0, v2.0.0)
+# The leading "v" is stripped before tagging images (images use 1.4.0, not v1.4.0).
+#
+# See docs/Operations/self-hosting.md for the operator upgrade contract.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # create GitHub Release and upload assets
+      packages: write      # push images to GHCR
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+
+      # ── Derive semver components ──────────────────────────────────────────
+      # github.ref_name is the tag name (e.g. v1.4.0) for tag pushes.
+      # Strip the leading "v" to get the bare version (1.4.0), then split
+      # into major (1) and minor (1.4) for the floating tag family.
+      - name: Derive version tags
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"                # v1.4.0
+          VERSION="${TAG#v}"                      # 1.4.0
+          MAJOR="${VERSION%%.*}"                  # 1
+          MINOR="${VERSION%.*}"                   # 1.4
+          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR"   >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR"   >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Build and push plantry-web ────────────────────────────────────────
+      # Tags: :1.4.0  :1.4  :1  :latest
+      - name: Build and push plantry-web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/plantry/web:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/plantry/web:${{ steps.version.outputs.minor }}
+            ghcr.io/${{ github.repository_owner }}/plantry/web:${{ steps.version.outputs.major }}
+            ghcr.io/${{ github.repository_owner }}/plantry/web:latest
+          # Warm cache from the latest image (avoid a full cold build on each release).
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/plantry/web:latest
+          cache-to: type=inline
+
+      # ── Build and push plantry-migrator ──────────────────────────────────
+      - name: Build and push plantry-migrator
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/Plantry.Migrator/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/plantry/migrator:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/plantry/migrator:${{ steps.version.outputs.minor }}
+            ghcr.io/${{ github.repository_owner }}/plantry/migrator:${{ steps.version.outputs.major }}
+            ghcr.io/${{ github.repository_owner }}/plantry/migrator:latest
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/plantry/migrator:latest
+          cache-to: type=inline
+
+      # ── Mark packages public ──────────────────────────────────────────────
+      # When the repository is already public, make the packages visible without
+      # a pull token so self-hosters can `docker compose pull` without logging in.
+      # If the repo is private (pre-publish-flip) the API returns 403 — tolerated.
+      #
+      # The Packages REST API uses the organisation name from the owner.  For
+      # a personal account, replace "orgs" with "users" in the URL — the endpoint
+      # differs.  We detect which to use based on github.repository_owner matching
+      # the actor (personal) vs. an org name.
+      - name: Make packages public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          PACKAGES=("plantry%2Fweb" "plantry%2Fmigrator")
+
+          # Determine if this is a user or org namespace.
+          # gh api /users/<owner> exists for both users and orgs, but type differs.
+          OWNER_TYPE=$(gh api "/users/${OWNER}" --jq '.type' 2>/dev/null || echo "User")
+          if [ "$OWNER_TYPE" = "Organization" ]; then
+            API_NS="orgs/${OWNER}"
+          else
+            API_NS="users/${OWNER}"
+          fi
+
+          for PKG in "${PACKAGES[@]}"; do
+            echo "==> Setting ${PKG} to public..."
+            # container type; url-encoded package name
+            gh api \
+              --method PATCH \
+              "/${API_NS}/packages/container/${PKG}" \
+              -f visibility=public \
+              --silent \
+              || echo "    NOTE: visibility update returned non-zero (may be a private repo — this is expected pre-publish-flip)"
+          done
+
+      # ── Package self-host release assets ─────────────────────────────────
+      # Bundle the three compose files and .env.example into a single archive
+      # that self-hosters download from the release page.
+      - name: Bundle self-host assets
+        run: |
+          mkdir -p /tmp/plantry-selfhost
+          cp deploy/docker-compose.yml       /tmp/plantry-selfhost/docker-compose.yml
+          cp deploy/docker-compose.caddy.yml /tmp/plantry-selfhost/docker-compose.caddy.yml
+          cp deploy/.env.example             /tmp/plantry-selfhost/.env.example
+          cd /tmp
+          zip -r "plantry-selfhost-${{ steps.version.outputs.version }}.zip" plantry-selfhost/
+          echo "ASSET_ZIP=/tmp/plantry-selfhost-${{ steps.version.outputs.version }}.zip" >> "$GITHUB_ENV"
+
+      # ── Create GitHub Release ─────────────────────────────────────────────
+      # Creates a draft release so the operator can add release notes before
+      # publishing.  The draft is auto-populated with the compose assets.
+      # Change `draft: true` to `draft: false` once changelog discipline is in
+      # place (tracked in plantry-wzz6.11 — OSS publish prep).
+      - name: Create GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Plantry ${{ steps.version.outputs.version }}"
+          draft: true
+          generate_release_notes: true
+          files: |
+            ${{ env.ASSET_ZIP }}
+            deploy/docker-compose.yml
+            deploy/docker-compose.caddy.yml
+            deploy/.env.example
