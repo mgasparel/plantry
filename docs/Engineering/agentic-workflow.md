@@ -5,9 +5,9 @@
 > The **agent-facing source of truth** for each step is its skill/agent definition under
 > `.claude/skills/` and `.claude/agents/`; this doc is the human-facing map over them.
 >
-> **Scope:** this describes the **target** PR-gated serial workflow. The migration from the
-> current local-merge workflow is tracked in epic `plantry-hifn`; "Rollout status" at the
-> end records what still differs today.
+> **Scope:** this describes the PR-gated serial workflow, which is **live** (epic
+> `plantry-hifn`, closed 2026-06-20). The one unrealized piece of the ADR-016 target is the
+> merge queue — unavailable on a personal-account repo, deferred until the repo is org-owned.
 
 ## Principle
 
@@ -26,7 +26,7 @@ shape the whole workflow:
 - **GitHub is driven from the local CLI** (`gh`) — opening PRs, enabling auto-merge — not
   from server-side automation that would need API credentials.
 
-## The loop (target)
+## The loop
 
 ```
 driver (serial, one in flight)
@@ -39,7 +39,7 @@ claim bead ──▶ implement-ticket-worker  (isolated worktree, branch issue/<
                  │      └─ can't pass (rounds exhausted / underspecified / blocked) → PARK
                  ▼
               PR ──▶ CI (build · test · E2E · coverage — NO AI)
-                       └─ green ──▶ merge queue ──▶ merge to main
+                       └─ green ──▶ auto-merge to main (no queue — see note)
                                        └─▶ bd close + worktree/branch cleanup
                                               └─▶ driver advances to next bead
 ```
@@ -62,31 +62,34 @@ process for agents and by judgment for humans, because it cannot run in CI.
 
 ## The driver
 
-A thin **serial** loop (the rewrite of the retired `pipeline-orchestrator`). It accepts
-flexible input and processes strictly one issue at a time through merge:
+A thin **serial** loop — the `pipeline-orchestrator` skill, rewritten from its earlier
+parallel form into a serial driver (ADR-016). It accepts flexible input and processes
+strictly one issue at a time through merge:
 
 - **Input:** a single bead ID, an epic ID (work its ready children), or an explicit set of
   bead IDs.
 - **Per issue:** claim → dispatch the worker → on `PASS`, enable auto-merge and wait. CI
   green → the PR merges → `bd close` + cleanup → next. CI red → run the **auto-fix reconcile**
   (below) before giving up. On a parked verdict, log and move on (human picks it up).
-- **One in flight.** No parallel dispatch, no merge-race logic — serialization is inherent,
-  and the merge queue (ADR-016) is the only concession to the rare concurrent-manual-push.
+- **One in flight.** No parallel dispatch, no merge-race logic — serialization is inherent.
+  A merge queue would be the textbook concession to the rare concurrent-manual-push case,
+  but it is unavailable on this personal-account repo (deferred until the repo is org-owned;
+  ADR-016). Until then the driver's pre-merge mergeability guard covers that case: it parks a
+  PR that has gone behind/conflicting rather than letting a stale-but-green branch land.
 
 ## The worker (`implement-ticket-worker`)
 
-Implements one claimed bead end-to-end in an isolated worktree, then gates locally. Target
-behavior (changes from today marked):
+Implements one claimed bead end-to-end in an isolated worktree, then gates locally:
 
 - Read the bead; interpret minor ambiguity (document via `bd comment`), park on significant
   underspecification.
 - Implement in `../worktrees/<id>/` on branch `issue/<id>`.
 - **Local pre-flight gate** (see below). All fix cycles fold into one commit.
-- On PASS: single commit → **`git push -u origin issue/<id>` → `gh pr create`** _(new)_ →
-  return a verdict including **`PR: <number>`** _(new)_.
+- On PASS: single commit → **`git push -u origin issue/<id>` → `gh pr create`** →
+  return a verdict including **`PR: <number>`**.
 - Park reasons: `build-loop-exhausted`, `test-loop-exhausted`, `critic-loop-exhausted`,
   `underspecified-scope`, `blocked-on-dependency`, `unrecoverable-error:<detail>`, and
-  **`ci-failed`** _(new — local pre-flight passed but CI went red on the PR)_.
+  **`ci-failed`** (local pre-flight passed but CI went red on the PR).
 
 ## The pre-flight / critic gate (local)
 
@@ -118,15 +121,15 @@ The gate doesn't care that a human authored the fix — CI still must be green t
 ## Beads as the work ledger
 
 Planned work lives as beads; the driver/worker claim, implement, and close issues; mechanics
-are in `AGENTS.md`. **Reconciliation needed** _(tracked in `plantry-hifn.4`)_: `AGENTS.md`'s
-session-completion rule currently mandates a direct `git push` to `main`, which is
-incompatible with branch protection — it must be rewritten for the PR flow (push a feature
-branch → PR → auto-merge; "not complete until pushed" becomes "until the PR is open/merged").
+are in `AGENTS.md`, whose session-completion rule follows the PR flow: nothing is pushed
+directly to `main`; a session is complete only once the feature branch is pushed and the PR
+is open (or merged).
 
 ## Merge & cleanup mechanics
 
-- Merge via `gh pr merge <pr> --auto` (squash); GitHub merges when CI + branch protection +
-  merge queue are satisfied.
+- Merge via `gh pr merge <pr> --auto` (squash); GitHub merges when CI + branch protection
+  are satisfied. There is no merge queue (unavailable on a user-owned repo); the driver's
+  mergeability guard handles the concurrent-manual-push case by parking behind/conflicting PRs.
 - **`bd close` and worktree/branch cleanup move to _after_ the PR merges** — never close a
   bead for a PR that later fails CI.
 - A PR whose CI fails after a local PASS triggers the **auto-fix reconcile** (below); only
@@ -159,14 +162,12 @@ responsibility; reusable for human-opened PRs) but reuses the same local pre-fli
 re-validate. Scope discipline applies: a CI fix stays within the PR's footprint — if the red
 reveals something deeper, it parks rather than ballooning the diff.
 
-## Rollout status (as of 2026-06-19)
+## Status
 
-Target described above; in-flight gap tracked in epic **`plantry-hifn`** (gated on the
-CI-green work in `plantry-wzz6`). What still differs **today**:
-
-- The worker commits locally and the loop **merges to `main` directly** (no push/PR yet).
-- **No branch protection / merge queue / auto-merge** is configured.
-- `pipeline-orchestrator` still describes the old parallel model.
-- `AGENTS.md` still instructs a direct push to `main`.
-
-When `plantry-hifn` lands, delete this section.
+The PR-gated serial workflow described above is **live** (epic `plantry-hifn`, closed
+2026-06-20): the worker pushes `issue/<id>` and opens a PR, branch protection on `main`
+(a repository ruleset requiring the `fast` + `e2e` CI checks and a PR) gates the merge, the
+driver enables auto-merge and runs the CI reconcile loop, and `bd close` + cleanup happen
+post-merge. The one deviation from the original ADR-016 target is the **merge queue**, which
+is unavailable on a personal-account repo and is deferred until the repo is org-owned; the
+driver's mergeability guard covers the concurrent-manual-push case in the meantime.
