@@ -2345,6 +2345,106 @@
     <pre class="code-sample"><code>@("<!-- Single avatar -->\n<span class=\"pl-av\" style=\"width:32px;height:32px;font-size:13px;background:var(--color-surface-2);color:var(--color-text-muted)\">A</span>\n\n<!-- Stack of 3 in a trigger button -->\n<button type=\"button\" class=\"att-trigger\">\n  <span class=\"att-stack\">\n    <span class=\"pl-av\" style=\"width:22px;height:22px;font-size:10px;...\">A</span>\n    <span class=\"pl-av\" style=\"width:22px;height:22px;font-size:10px;...\">B</span>\n  </span>\n  <span class=\"att-label\">Alice &amp; Bob</span>\n</button>")</code></pre>
 </section>
 
+@* ── plantry-izgn.4: Constant-sum sliders ────────────────────────────────────── *@
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Constant-sum sliders — <code>planTune(cfg)</code></h2>
+    </div>
+    <p>
+        <code>planTune(cfg)</code> (<code>wwwroot/js/plan-tune.js</code>) is a reusable Alpine
+        component for any "allocate 100% across N buckets" need. Dragging one slider proportionally
+        rescales the others so the group always sums to 100. Edge case: when all others are at 0
+        the remainder splits evenly across them.
+    </p>
+    <p>
+        Pass a <code>buckets</code> array — <code>{ key, label, color, defaultWeight }</code> — in
+        the config. The <code>weights</code> map (keyed by <code>bucket.key</code>) and
+        <code>rebalance(key, value)</code> are exposed on the component. The stacked fill bar below
+        the sliders uses the same <code>weights</code> map. Wrap in any popover, drawer, or inline
+        container — the component owns no chrome.
+    </p>
+    <p>
+        The meal-plan auto-fill tune popover (<code>_PlanBarNav.cshtml</code>) is the canonical
+        consumer: it passes waste/cost/variety as the bucket config and posts the weights as hidden
+        inputs (<code>wasteWeight</code>, <code>costWeight</code>, <code>varietyWeight</code>) via
+        <code>hx-include</code>.
+    </p>
+
+    @{
+        // Generic 3-bucket demo — not meal-plan specific.
+        var demoCfg = new
+        {
+            buckets = new[]
+            {
+                new { key = "speed",   label = "Speed",   color = "oklch(0.62 0.13 255)", defaultWeight = 50 },
+                new { key = "quality", label = "Quality", color = "oklch(0.62 0.13 150)", defaultWeight = 30 },
+                new { key = "cost",    label = "Cost",    color = "oklch(0.62 0.13 70)",  defaultWeight = 20 }
+            }
+        };
+        var demoCfgJson = System.Text.Json.JsonSerializer.Serialize(demoCfg);
+    }
+
+    <div style="max-width: 340px" x-data="planTune(@Html.Raw(demoCfgJson))">
+
+        <div class="tune-sect-label">
+            Allocate 100%
+            <span class="spacer"></span>
+            <button type="button" class="reset" @@click="reset()">Reset</button>
+        </div>
+
+        <template x-for="m in buckets" :key="m.key">
+            <div class="wt-row">
+                <span class="wt-name">
+                    <span class="wt-dot" :style="'background:' + m.color"></span>
+                    <span x-text="m.label"></span>
+                </span>
+                <input type="range" min="0" max="100" :value="weights[m.key]"
+                       :style="'background:linear-gradient(90deg, ' + m.color + ' ' + weights[m.key] + '%, var(--color-surface-2) ' + weights[m.key] + '%)'"
+                       @@input="let v = $event.target.value; rebalance(m.key, v)" />
+                <span class="wt-val" x-text="weights[m.key]"></span>
+            </div>
+        </template>
+
+        <div class="wt-stack">
+            <template x-for="m in buckets" :key="m.key">
+                <i :style="'width:' + weights[m.key] + '%;background:' + m.color"></i>
+            </template>
+        </div>
+
+        <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0">
+            Sum: <span x-text="buckets.reduce((s, b) => s + weights[b.key], 0)"></span> (always 100)
+        </p>
+    </div>
+
+    <pre class="code-sample"><code>@(@"// plan-tune.js — planTune(cfg) Alpine component
+// cfg = { buckets: [{ key, label, color, defaultWeight }, ...] }
+// Exposed: weights (map keyed by key), buckets, rebalance(key, value), reset()
+
+<div x-data=""planTune(cfg)"">
+  <template x-for=""m in buckets"" :key=""m.key"">
+    <div class=""wt-row"">
+      <span class=""wt-name"">
+        <span class=""wt-dot"" :style=""'background:' + m.color""></span>
+        <span x-text=""m.label""></span>
+      </span>
+      <input type=""range"" min=""0"" max=""100"" :value=""weights[m.key]""
+             :style=""'background:linear-gradient(90deg, ' + m.color + ' ' + weights[m.key] + '%, var(--color-surface-2) ' + weights[m.key] + '%)'""
+             @input=""let v = $event.target.value; rebalance(m.key, v)"" />
+      <span class=""wt-val"" x-text=""weights[m.key]""></span>
+    </div>
+  </template>
+  <div class=""wt-stack"">
+    <template x-for=""m in buckets"" :key=""m.key"">
+      <i :style=""'width:' + weights[m.key] + '%;background:' + m.color""></i>
+    </template>
+  </div>
+  <!-- Hidden inputs for form post (name each after bucket.key + 'Weight') -->
+  <template x-for=""m in buckets"" :key=""m.key"">
+    <input type=""hidden"" :name=""m.key + 'Weight'"" :value=""weights[m.key]"" />
+  </template>
+</div>")</code></pre>
+</section>
+
 @* ── P3-1: Attendee popover ───────────────────────────────────────────────────── *@
 <section class="catalog-section">
     <div class="catalog-section__header">
