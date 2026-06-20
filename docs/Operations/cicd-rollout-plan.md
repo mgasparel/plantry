@@ -68,3 +68,8 @@ deferred but non-blocking (Phase 5, runner policy).
 
 *Resolved 2026-06-19:* full suite incl. E2E runs both locally and in CI; merges go
 through a merge queue; local pre-flight stays full (not thinned); proceed as if OSS-bound.
+
+*Amended 2026-06-20:* the merge queue is **deferred until the repo is org-owned** (merge
+queues are unavailable on personal-account repos); strict branch protection + the
+orchestrator mergeability guard cover the concurrent-manual-push case meanwhile. See the
+ADR-016 amendment under Decision 3.

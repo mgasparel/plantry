@@ -22,15 +22,15 @@ The long-running serial loop that closes the circuit between `bd ready`
 and a merged commit on `main` with no human in the loop.
 
 **Serial model:** one issue at a time — claim → implement → PR green →
-merge → close → next. When a GitHub merge queue is configured on `main`
-(`merge_group:` trigger in `ci.yml` + "Require merge queue" branch
-protection), `gh pr merge --auto` enqueues the PR and the queue rebases it
-onto the live tip of `main` and re-runs CI before the merge lands — so a PR
-is revalidated against the real merge result, not just its own branch. If no
-queue is configured, `--auto` is plain auto-merge (CI on the branch in
-isolation); the mergeability guard in Step 3 is what catches a PR that has
-fallen behind `main` in that case. This driver orchestrates the sequence and
-runs a CI reconcile loop to auto-fix red CI before giving up.
+merge → close → next. There is **no merge queue** — GitHub merge queues are
+unavailable on this personal-account repo (deferred until the repo is
+org-owned; see ADR-016). Two things keep `main` safe without one: (1) workers
+branch off freshly-fetched `origin/main`, and because work is serial nothing
+else merges while a PR is in flight, so a PR's base stays current and `--auto`
+merges it cleanly; (2) for the rare case a human merges concurrently, the
+mergeability guard in Step 3 parks the now-behind/conflicting PR instead of
+letting a stale-but-green branch land. This driver orchestrates the sequence
+and runs a CI reconcile loop to auto-fix red CI before giving up.
 
 ## Invocation
 
@@ -65,7 +65,7 @@ git branch --merged origin/main | grep -E '^\s+issue/' | xargs -r git branch -d
 ```
 
 `git worktree prune` drops registrations whose directory is already gone.
-Issue branches land on `origin/main` (via the merge queue), not local `main`,
+Issue branches land on `origin/main` (via PR merge), not local `main`,
 so the merged check is against the freshly-fetched `origin/main`; `git branch -d`
 (safe delete) only removes `issue/*` branches fully merged there, leaving any
 unmerged in-flight branch untouched. Log nothing unless something was reaped.
@@ -120,22 +120,22 @@ Initialise per-PR state:
 
 1. **Guard mergeability, then enable auto-merge:**
 
-   First check the PR can actually merge — a PR cut from a base that `main` has
-   since advanced past may be behind or conflicting. Without a merge queue,
-   arming auto-merge on such a PR just burns the full 30-min poll into a
-   `merge-timeout`; catch it up front instead:
+   First check the PR can actually merge. In the serial loop a PR's base
+   normally stays current, but if a human merged something concurrently the PR
+   may now be behind or conflicting. With no merge queue to rebase it and strict
+   branch protection requiring an up-to-date branch, arming auto-merge on such a
+   PR just burns the full 30-min poll into a `merge-timeout`; catch it up front:
    ```bash
    gh pr view <pr-number> --json mergeStateStatus --jq '.mergeStateStatus'
    ```
    - `DIRTY` (merge conflict with `main`) → park with reason `merge-conflict`
      and skip to the next PASS verdict. The branch and worktree are preserved
      for a human to rebase.
-   - `BEHIND` **and no merge queue is configured** → the PR cannot fast-forward
-     and nothing will advance it; park with reason `merge-conflict:behind` and
-     skip to the next PASS verdict. (With a merge queue, `BEHIND` is fine — the
-     queue rebases it — so proceed.)
-   - `CLEAN`, `UNSTABLE`, `HAS_HOOKS`, `BLOCKED`, `BEHIND` (queue configured),
-     or `UNKNOWN` → proceed to arm auto-merge below.
+   - `BEHIND` (strict protection blocks an out-of-date branch and nothing will
+     advance it automatically) → park with reason `merge-conflict:behind` and
+     skip to the next PASS verdict.
+   - `CLEAN`, `UNSTABLE`, `HAS_HOOKS`, `BLOCKED`, or `UNKNOWN` → proceed to arm
+     auto-merge below.
 
    ```bash
    gh pr merge <pr-number> --auto --merge

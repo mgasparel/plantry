@@ -5,10 +5,10 @@ on:
     branches: [main, "slice/**"]
   pull_request:
     branches: [main]
-  # Run the same checks in the merge queue's ephemeral merge_group ref so a PR
-  # is revalidated against the live tip of main immediately before it lands.
-  # Required for branch protection's "Require merge queue" (see plantry-ctwa).
-  merge_group:
+  # NOTE: no `merge_group:` trigger — GitHub merge queues are unavailable on
+  # personal-account (user-owned) repos. If the repo moves to an organization
+  # (the OSS/Phase-5 path in ADR-016), re-add `merge_group:` here and enable
+  # "Require merge queue" so PRs are revalidated against live main before landing.
 
 jobs:
   # ── Fast gate: build + unit + architecture (< 2 min, runs first) ─────────────
