@@ -370,4 +370,69 @@ public sealed class ProductStockConsumeTests
         // Still only 1 removal journal row.
         Assert.Equal(1, stock.Journal.Count(j => j.Reason != StockReason.Purchase));
     }
+
+    // ── Location-scoped consume (P4-1 / TS-3) ────────────────────────────────
+
+    [Fact(DisplayName = "Consume(locationId) deducts only in-Location lots, FEFO preserved within the location")]
+    public void Consume_LocationScoped_Deducts_Only_InLocation_Lots_Fefo()
+    {
+        var stock = NewStock(out var clock);
+        var fridgeId = Guid.NewGuid();
+        var pantryId = Guid.NewGuid();
+
+        // Fridge: two lots, soonest expiry first.
+        var fridgeSoon = stock.AddStock(3m, Unit, fridgeId, User, clock.Advance(TimeSpan.FromMinutes(1)), expiryDate: Day(1));
+        var fridgeLate = stock.AddStock(4m, Unit, fridgeId, User, clock.Advance(TimeSpan.FromMinutes(1)), expiryDate: Day(5));
+        // Pantry: a lot with even sooner expiry — must NOT be touched when consume is fridge-scoped.
+        var pantrySoon = stock.AddStock(10m, Unit, pantryId, User, clock.Advance(TimeSpan.FromMinutes(1)), expiryDate: Day(0));
+
+        // Consume 5 from the fridge only.
+        var result = stock.Consume(5m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            locationId: fridgeId);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Value.HasShortfall);
+
+        // fridgeSoon depleted first (FEFO within location), then fridgeLate partially.
+        Assert.True(fridgeSoon.IsDepleted);
+        Assert.Equal(2m, fridgeLate.Quantity);   // 4 − 2 = 2
+        Assert.Equal(10m, pantrySoon.Quantity);  // untouched — different location
+        Assert.Equal(2, result.Value.Deductions.Count);
+    }
+
+    [Fact(DisplayName = "Consume(locationId) reports shortfall based only on in-Location stock")]
+    public void Consume_LocationScoped_ShortfallIsScoped_To_Location()
+    {
+        var stock = NewStock(out var clock);
+        var fridgeId = Guid.NewGuid();
+        var pantryId = Guid.NewGuid();
+
+        stock.AddStock(2m, Unit, fridgeId, User, clock, expiryDate: Day(1));
+        stock.AddStock(20m, Unit, pantryId, User, clock, expiryDate: Day(1)); // plenty in pantry, but wrong location
+
+        var result = stock.Consume(10m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock,
+            locationId: fridgeId);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.HasShortfall);
+        Assert.Equal(8m, result.Value.ShortfallAmount); // 10 − 2 = 8; pantry stock ignored
+    }
+
+    [Fact(DisplayName = "Consume without locationId deducts across all locations (existing behaviour preserved)")]
+    public void Consume_NoLocationId_DeductsAcrossAllLocations()
+    {
+        var stock = NewStock(out var clock);
+        var fridgeId = Guid.NewGuid();
+        var pantryId = Guid.NewGuid();
+
+        var fridgeLot = stock.AddStock(3m, Unit, fridgeId, User, clock, expiryDate: Day(1));
+        var pantryLot = stock.AddStock(3m, Unit, pantryId, User, clock, expiryDate: Day(2));
+
+        var result = stock.Consume(5m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Value.HasShortfall);
+        Assert.True(fridgeLot.IsDepleted);
+        Assert.Equal(1m, pantryLot.Quantity);
+    }
 }

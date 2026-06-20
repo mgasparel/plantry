@@ -87,4 +87,50 @@ public sealed class ProductStockAddStockTests
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
         Assert.NotEqual(a, other);
     }
+
+    // ── Correction addition (P4-1 / TS-2 / C8) ────────────────────────────────
+
+    [Fact(DisplayName = "AddStock(Correction) creates a lot and writes a positive Correction journal row")]
+    public void AddStock_Correction_Creates_Lot_And_Positive_Correction_Journal_Row()
+    {
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(Household, Product, clock);
+
+        var lot = stock.AddStock(
+            5m, Unit, Location, User, clock,
+            reason: StockReason.Correction,
+            sourceType: StockSourceType.Manual);
+
+        Assert.Equal(5m, lot.Quantity);
+        Assert.False(lot.IsDepleted);
+        Assert.Equal(lot, Assert.Single(stock.Entries));
+
+        var journal = Assert.Single(stock.Journal);
+        Assert.Equal(+5m, journal.Delta);
+        Assert.Equal(StockReason.Correction, journal.Reason);
+        Assert.Equal(lot.Id, journal.StockEntryId);
+        Assert.Equal(User, journal.UserId);
+    }
+
+    [Theory(DisplayName = "IsAddition returns true only for Purchase and Correction")]
+    [InlineData(StockReason.Purchase, true)]
+    [InlineData(StockReason.Correction, true)]
+    [InlineData(StockReason.Consumed, false)]
+    [InlineData(StockReason.Discarded, false)]
+    public void IsAddition_Returns_True_For_Purchase_And_Correction_Only(StockReason reason, bool expected)
+    {
+        Assert.Equal(expected, reason.IsAddition());
+    }
+
+    [Theory(DisplayName = "AddStock rejects removal reasons")]
+    [InlineData(StockReason.Consumed)]
+    [InlineData(StockReason.Discarded)]
+    public void AddStock_Rejects_Removal_Reasons(StockReason reason)
+    {
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(Household, Product, clock);
+
+        var ex = Assert.Throws<ArgumentException>(() => stock.AddStock(3m, Unit, Location, User, clock, reason: reason));
+        Assert.Equal("reason", ex.ParamName);
+    }
 }
