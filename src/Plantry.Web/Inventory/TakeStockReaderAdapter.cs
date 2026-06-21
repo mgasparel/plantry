@@ -43,16 +43,13 @@ public sealed class TakeStockReaderAdapter(
 
         var household = HouseholdId.From(householdId);
 
-        // Load Catalog reference data in parallel with Inventory stock.
-        var allProductsTask = products.ListActiveAsync(ct);
+        // Start the Inventory stock query (different DbContext — safe to run in parallel with Catalog).
+        // The two Catalog queries (products, units) share the scoped CatalogDbContext and must be
+        // sequential — EF Core DbContext is single-threaded (not safe for concurrent async queries).
         var allStockTask = stocks.ListForHouseholdAsync(household, ct);
-        var unitCodesTask = units.ListAsync(ct);
-
-        await Task.WhenAll(allProductsTask, allStockTask, unitCodesTask);
-
-        var allProducts = allProductsTask.Result;
-        var allStock = allStockTask.Result;
-        var unitCodesById = unitCodesTask.Result.ToDictionary(u => u.Id.Value, u => u.Code);
+        var allProducts = await products.ListActiveAsync(ct);
+        var unitCodesById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
+        var allStock = await allStockTask;
 
         // Indexed for fast lookup.
         var stockByProductId = allStock.ToDictionary(s => s.ProductId);
@@ -88,7 +85,8 @@ public sealed class TakeStockReaderAdapter(
                 product.Name,
                 displayUnitCode,
                 total,
-                HasActiveStock: true);
+                HasActiveStock: true,
+                DisplayUnitId: displayUnitId);
         }
 
         // Branch B: tracked products whose default_location_id matches but have no active stock here
@@ -108,7 +106,8 @@ public sealed class TakeStockReaderAdapter(
                 product.Name,
                 displayUnitCode,
                 RecordedQuantity: 0m,
-                HasActiveStock: false);
+                HasActiveStock: false,
+                DisplayUnitId: displayUnitId);
         }
 
         return rows.Values
@@ -123,15 +122,13 @@ public sealed class TakeStockReaderAdapter(
 
         var household = HouseholdId.From(householdId);
 
-        var allProductsTask = products.ListActiveAsync(ct);
+        // Inventory stock query runs in parallel (different DbContext).
+        // Catalog queries (products, units) are sequential — shared scoped CatalogDbContext is not
+        // safe for concurrent async operations (EF Core single-threaded constraint).
         var allStockTask = stocks.ListForHouseholdAsync(household, ct);
-        var unitCodesTask = units.ListAsync(ct);
-
-        await Task.WhenAll(allProductsTask, allStockTask, unitCodesTask);
-
-        var allProducts = allProductsTask.Result;
-        var allStock = allStockTask.Result;
-        var unitCodesById = unitCodesTask.Result.ToDictionary(u => u.Id.Value, u => u.Code);
+        var allProducts = await products.ListActiveAsync(ct);
+        var unitCodesById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
+        var allStock = await allStockTask;
 
         // Only products with no default_location_id assigned.
         var noLocationProductIds = allProducts
