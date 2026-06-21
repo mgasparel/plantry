@@ -4908,6 +4908,14 @@ button.sadd svg { width: 13px; height: 13px; }
 .today-widget__foot a:hover { background: var(--color-surface-2); color: var(--color-accent); text-decoration: none; }
 .today-widget__foot a .icon { width: 15px; height: 15px; }
 
+/* Take Stock CTA widget — shown when the pantry is empty (J6/P4-9) */
+.today-widget__body { padding: 16px 17px 20px; }
+.today-cta__sub {
+  margin: 0 0 14px; font-size: 13.5px; color: var(--color-text-muted); line-height: 1.55;
+}
+.today-cta__link { display: inline-flex; align-items: center; gap: 6px; }
+.today-cta__link .icon { width: 15px; height: 15px; }
+
 /* ===========================================================================
    Cold start — welcome hero
    =========================================================================== */

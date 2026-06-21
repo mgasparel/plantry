@@ -115,6 +115,32 @@ public sealed class TodayIndexModelTests
         Assert.False(model.IsColdStart);
     }
 
+    // ── ShowTakeStockCta (J6/P4-9) ──────────────────────────────────────────────
+
+    [Fact(DisplayName = "ShowTakeStockCta — true when household has no stock (cold start)")]
+    public async Task ShowTakeStockCta_NoStock_IsTrue()
+    {
+        var model = BuildModel(hasStock: false, hasRecipes: false, hasPendingIntake: false);
+        await model.OnGetAsync();
+        Assert.True(model.ShowTakeStockCta);
+    }
+
+    [Fact(DisplayName = "ShowTakeStockCta — true when household has recipes but no stock")]
+    public async Task ShowTakeStockCta_HasRecipesButNoStock_IsTrue()
+    {
+        var model = BuildModel(hasStock: false, hasRecipes: true, hasPendingIntake: false);
+        await model.OnGetAsync();
+        Assert.True(model.ShowTakeStockCta);
+    }
+
+    [Fact(DisplayName = "ShowTakeStockCta — false once household has stock")]
+    public async Task ShowTakeStockCta_HasStock_IsFalse()
+    {
+        var model = BuildModel(hasStock: true, hasRecipes: false, hasPendingIntake: false);
+        await model.OnGetAsync();
+        Assert.False(model.ShowTakeStockCta);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static readonly HouseholdId TestHousehold = HouseholdId.From(

@@ -34,6 +34,14 @@ public sealed class IndexModel(
     /// </summary>
     public bool IsColdStart { get; private set; }
 
+    /// <summary>
+    /// True when the household has no tracked stock — surfaces the Take Stock CTA so
+    /// the user is guided to /pantry/take-stock to populate the pantry (J6).
+    /// Recedes once any stock exists; independent of IsColdStart so the CTA is shown
+    /// even when the household has recipes but an empty pantry.
+    /// </summary>
+    public bool ShowTakeStockCta { get; private set; }
+
     public async Task OnGetAsync(CancellationToken ct = default)
     {
         var now = clock.UtcNow;
@@ -60,11 +68,13 @@ public sealed class IndexModel(
             var hasPendingIntake = pendingSessions.Count > 0;
 
             IsColdStart = !hasStock && !hasRecipes && !hasPendingIntake;
+            ShowTakeStockCta = !hasStock;
         }
         else
         {
             Greeting = BuildGreeting(now.LocalDateTime.Hour, string.Empty);
             IsColdStart = true;
+            ShowTakeStockCta = true;
         }
     }
 
