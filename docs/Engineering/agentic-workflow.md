@@ -29,20 +29,29 @@ shape the whole workflow:
 ## The loop
 
 ```
-driver (serial, one in flight)
+driver (serial, one epic in flight)
   │  input: a single bead | an epic | a set of beads
   ▼
-claim bead ──▶ implement-ticket-worker  (isolated worktree, branch issue/<id>)
-                 │  LOCAL pre-flight gate:
-                 │    build → test (incl. E2E) → Opus critic (≤3 passes)
-                 │      ├─ PASS  → single commit → push issue/<id> → gh pr create
-                 │      └─ can't pass (rounds exhausted / underspecified / blocked) → PARK
-                 ▼
-              PR ──▶ CI (build · test · E2E · coverage — NO AI)
-                       └─ green ──▶ auto-merge to main (no queue — see note)
-                                       └─▶ bd close + worktree/branch cleanup
-                                              └─▶ driver advances to next bead
+claim bead ──▶ route to an epic integration branch  epic/<epic-id>
+  │             (curated epic, or the rolling rollup for loose one-offs)
+  ▼
+implement-ticket-worker  (worktree, branch issue/<id> cut off epic/<epic-id>)
+  │  LOCAL pre-flight gate: build → test (incl. E2E) → Opus critic (≤3 passes)
+  │    ├─ PASS  → single commit → driver merges issue/<id> into epic/<epic-id> (no per-child PR/CI), labels it `staged`
+  │    └─ can't pass → PARK  (a parked child blocks its epic from shipping)
+  ▼
+epic 100% staged?  ── no ──▶ drain: claim next child of this epic
+  │ yes
+  ▼
+rebase epic onto origin/main ──▶ ONE epic→main PR ──▶ CI (fast gate — NO AI)
+                                   └─ green ──▶ auto-merge to main (no queue)
+                                                  └─▶ batch-close all children + epic, cleanup
+                                                         └─▶ driver advances
 ```
+
+> Full suite (integration + E2E + coverage) and deploy run at the **release tag**, not on
+> this PR — see [ADR-016](../ADRs/ADR-016.md) (amended) and `plantry-49hm`. Batching one PR
+> per epic instead of per child is `plantry-ekoo`.
 
 ## The two gates
 
@@ -68,14 +77,23 @@ strictly one issue at a time through merge:
 
 - **Input:** a single bead ID, an epic ID (work its ready children), or an explicit set of
   bead IDs.
-- **Per issue:** claim → dispatch the worker → on `PASS`, enable auto-merge and wait. CI
-  green → the PR merges → `bd close` + cleanup → next. CI red → run the **auto-fix reconcile**
-  (below) before giving up. On a parked verdict, log and move on (human picks it up).
-- **One in flight.** No parallel dispatch, no merge-race logic — serialization is inherent.
-  A merge queue would be the textbook concession to the rare concurrent-manual-push case,
-  but it is unavailable on this personal-account repo (deferred until the repo is org-owned;
-  ADR-016). Until then the driver's pre-merge mergeability guard covers that case: it parks a
-  PR that has gone behind/conflicting rather than letting a stale-but-green branch land.
+- **One PR per epic (v5, `plantry-ekoo`).** Every issue is routed to an **epic integration
+  branch** — its curated epic, or the rolling **rollup** epic the driver auto-attaches loose
+  one-offs to. The worker branches off `epic/<epic-id>`; on `PASS` the driver merges the
+  child into the epic branch (no per-child PR, no per-child CI) and labels it `staged`. When
+  the epic is **100% staged**, the driver rebases it onto fresh `origin/main`, opens **one**
+  `epic→main` PR, and on green CI batch-closes every child + the epic. A 10-child epic costs
+  one PR, not ten.
+- **Epics ship whole.** A flush happens only at 100%; a parked/failed child blocks its whole
+  epic (uniformly — curated or rollup) until a human clears it. Nothing partial reaches `main`.
+  Rollups accept one-offs until **sealed** (a `sealed` label, or `ROLLUP_MAX_CHILDREN`
+  children), then ship like any fixed-set epic.
+- **One epic in flight.** The driver drains the active epic (ships or parks) before starting
+  another, so the epic branch never falls behind `main` under serial work. A merge queue would
+  be the textbook concession to the concurrent-manual-push case, but it is unavailable on this
+  personal-account repo (deferred until org-owned; ADR-016). Until then the **rebase-before-PR**
+  step plus the pre-merge mergeability guard cover it: a behind/conflicting epic PR is parked
+  rather than landed stale.
 
 ## The worker (`implement-ticket-worker`)
 
@@ -83,13 +101,15 @@ Implements one claimed bead end-to-end in an isolated worktree, then gates local
 
 - Read the bead; interpret minor ambiguity (document via `bd comment`), park on significant
   underspecification.
-- Implement in `../worktrees/<id>/` on branch `issue/<id>`.
+- Implement in `../worktrees/<id>/` on branch `issue/<id>`, **cut off the epic branch**
+  `epic/<parent-id>` (not `main`) so it builds on already-staged siblings.
 - **Local pre-flight gate** (see below). All fix cycles fold into one commit.
-- On PASS: single commit → **`git push -u origin issue/<id>` → `gh pr create`** →
-  return a verdict including **`PR: <number>`**.
+- On PASS: single commit, then **hand the branch back** — no push, no PR. The driver merges
+  it into the epic branch and opens the single epic PR later. (A direct, no-epic invocation by
+  a human is the one exception: the worker pushes + opens its own PR to `main`.)
 - Park reasons: `build-loop-exhausted`, `test-loop-exhausted`, `critic-loop-exhausted`,
-  `underspecified-scope`, `blocked-on-dependency`, `unrecoverable-error:<detail>`, and
-  **`ci-failed`** (local pre-flight passed but CI went red on the PR).
+  `underspecified-scope`, `blocked-on-dependency`, `unrecoverable-error:<detail>`. (CI failures
+  now surface on the *epic* PR and are the driver's reconcile concern, not the worker's.)
 
 ## The pre-flight / critic gate (local)
 
@@ -127,13 +147,14 @@ is open (or merged).
 
 ## Merge & cleanup mechanics
 
-- Merge via `gh pr merge <pr> --auto` (squash); GitHub merges when CI + branch protection
-  are satisfied. There is no merge queue (unavailable on a user-owned repo); the driver's
-  mergeability guard handles the concurrent-manual-push case by parking behind/conflicting PRs.
-- **`bd close` and worktree/branch cleanup move to _after_ the PR merges** — never close a
-  bead for a PR that later fails CI.
-- A PR whose CI fails after a local PASS triggers the **auto-fix reconcile** (below); only
-  after it exhausts does the driver park the issue `ci-failed`.
+- Merge the **epic** PR via `gh pr merge <pr> --auto --merge`; GitHub merges when the `fast`
+  check + branch protection are satisfied. No merge queue (unavailable on a user-owned repo);
+  the driver rebases the epic onto fresh `origin/main` before opening the PR and parks a
+  behind/conflicting PR rather than landing it stale.
+- **`bd close` and cleanup move to _after_ the epic PR merges** — all children + the epic are
+  batch-closed at once; never close a bead for a PR that later fails CI.
+- An epic PR whose CI fails after every child's local PASS triggers the **auto-fix reconcile**
+  (below); only after it exhausts does the driver park the *epic* `ci-failed`.
 
 ## Auto-fix on red CI
 
@@ -164,10 +185,17 @@ reveals something deeper, it parks rather than ballooning the diff.
 
 ## Status
 
-The PR-gated serial workflow described above is **live** (epic `plantry-hifn`, closed
-2026-06-20): the worker pushes `issue/<id>` and opens a PR, branch protection on `main`
-(a repository ruleset requiring the `fast` + `e2e` CI checks and a PR) gates the merge, the
-driver enables auto-merge and runs the CI reconcile loop, and `bd close` + cleanup happen
-post-merge. The one deviation from the original ADR-016 target is the **merge queue**, which
-is unavailable on a personal-account repo and is deferred until the repo is org-owned; the
-driver's mergeability guard covers the concurrent-manual-push case in the meantime.
+The PR-gated serial workflow is **live** (epic `plantry-hifn`, closed 2026-06-20). Two
+later changes reshaped it:
+
+- **`plantry-49hm`** — the slow suite (integration + E2E + coverage) and deploy moved to the
+  **release tag**; per-PR CI is now a `fast` gate only (build + unit + architecture). The
+  `main` ruleset's required check is `fast` (the `e2e` requirement was dropped). Full detail:
+  [ADR-016](../ADRs/ADR-016.md) (amended).
+- **`plantry-ekoo`** — the driver batches **one PR per epic** rather than per issue: children
+  merge into an `epic/<id>` integration branch and ship together. Loose one-offs roll into a
+  `rollup` epic. See "The driver" above.
+
+The one deviation from the original ADR-016 target remains the **merge queue**, unavailable on
+a personal-account repo and deferred until org-owned; the rebase-before-PR step + the driver's
+mergeability guard cover the concurrent-manual-push case meanwhile.
