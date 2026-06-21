@@ -73,3 +73,12 @@ through a merge queue; local pre-flight stays full (not thinned); proceed as if 
 queues are unavailable on personal-account repos); strict branch protection + the
 orchestrator mergeability guard cover the concurrent-manual-push case meanwhile. See the
 ADR-016 amendment under Decision 3.
+
+*Amended 2026-06-20 (#2):* the **slow suite (E2E + integration + coverage) moves off
+per-PR CI to the release-tag `verify` gate**, and **production deploys only from a
+release tag** (gated by that suite). Phase 1's "split a fast check from the E2E check"
+is realised, but the E2E half runs on the `v*` tag in `release.yml`, not on every PR —
+at a high PR rate the per-PR E2E re-run was the dominant Actions-minute cost, and under
+strictly serial dev the local pre-flight already covers per-change E2E. Phase 3's CD
+deploy job is folded into `release.yml` and the per-merge `cd.yml` is retired. See the
+ADR-016 amendment under Decision 4 and `plantry-49hm`.

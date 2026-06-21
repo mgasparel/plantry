@@ -1,22 +1,27 @@
 name: CI
 
+# Fast pre-merge gate: build + unit + architecture only (~1.5 min).
+#
+# The slow suite (integration + E2E + coverage) and the production deploy moved
+# to the release-tag pipeline in release.yml — see ADR-016 (amended 2026-06-20).
+#
+# Rationale: under strictly serial development (ADR-016 Decision 3) every issue
+# already runs the FULL suite incl. E2E in the local pre-flight before it lands,
+# so a per-PR CI E2E run was a redundant environment re-run, not first-line
+# coverage. At a high PR rate that re-run (~7 min × every PR, doubled by the
+# push+PR overlap) was the dominant Actions-minute cost. E2E now gates the
+# release tag (and therefore prod), not every PR. CI here is the cheap tripwire
+# that keeps `main` building and green.
+
 on:
   push:
-    branches: [main, "slice/**"]
+    branches: [main]
   pull_request:
     branches: [main]
-  # NOTE: no `merge_group:` trigger — GitHub merge queues are unavailable on
-  # personal-account (user-owned) repos. If the repo moves to an organization
-  # (the OSS/Phase-5 path in ADR-016), re-add `merge_group:` here and enable
-  # "Require merge queue" so PRs are revalidated against live main before landing.
 
 jobs:
   # ── Change filter: is there anything other than Markdown to build/test? ───────
-  # Docs-only (*.md) changes skip the expensive build/test steps below. The `fast`
-  # and `e2e` jobs still RUN (so they keep reporting as the required status checks
-  # auto-merge waits on — ADR-016), they just no-op their heavy steps. This avoids
-  # the `paths-ignore` trap where a skipped required check never reports and the
-  # docs-only PR hangs forever.
+  # Docs-only (*.md) changes skip the build/test steps below.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -37,7 +42,7 @@ jobs:
             code:
               - '!**/*.md'
 
-  # ── Fast gate: build + unit + architecture (< 2 min, runs first) ─────────────
+  # ── Fast gate: build + unit + architecture (< 2 min) ─────────────────────────
   fast:
     runs-on: ubuntu-latest
     needs: changes
@@ -54,7 +59,6 @@ jobs:
           dotnet-version: "10.0.x"
 
       # NuGet package cache — keyed on SDK version + all project files.
-      # Restore re-uses the cache on cache-hit; downloads and saves on miss.
       - name: Cache NuGet packages
         if: needs.changes.outputs.code == 'true'
         uses: actions/cache@v4
@@ -78,128 +82,10 @@ jobs:
         run: >
           dotnet test tests/Plantry.Tests.Unit
           --no-build --configuration Release
-          --collect:"XPlat Code Coverage"
-          --results-directory coverage/unit
-          --
-          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
 
-      # ── L1: Architecture boundary tests ────────────────────────────────────
+      # ── L1: Architecture boundary tests ─────────────────────────────────────
       - name: Architecture tests
         if: needs.changes.outputs.code == 'true'
         run: >
           dotnet test tests/Plantry.Tests.Architecture
           --no-build --configuration Release
-
-      # Upload unit coverage so the e2e job's coverage gate counts domain code.
-      # The two jobs run on separate runners, so artifacts are the bridge.
-      - name: Upload unit coverage
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-unit
-          path: coverage/unit
-          retention-days: 1
-
-  # ── Slow gate: integration + E2E (Docker) + coverage ─────────────────────────
-  # Runs after the fast gate; Docker is pre-installed on ubuntu-latest.
-  # Integration tests and the E2E AppHostFixture both manage their own Postgres
-  # containers via Testcontainers/Aspire — no services: block needed.
-  e2e:
-    runs-on: ubuntu-latest
-    needs: [changes, fast]
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-        if: needs.changes.outputs.code == 'true'
-
-      - name: Setup .NET 10
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-
-      # Reuse the same NuGet cache populated by the fast job.
-      - name: Cache NuGet packages
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj') }}
-          restore-keys: |
-            nuget-${{ runner.os }}-
-
-      - name: Restore
-        if: needs.changes.outputs.code == 'true'
-        run: dotnet restore
-
-      - name: Build
-        if: needs.changes.outputs.code == 'true'
-        run: dotnet build --no-restore --configuration Release
-
-      # Install Playwright's Chromium browser + system deps before running E2E.
-      # The playwright CLI is published alongside the test binaries after build.
-      - name: Install Playwright browsers
-        if: needs.changes.outputs.code == 'true'
-        run: >
-          pwsh tests/Plantry.Tests.E2E/bin/Release/net10.0/playwright.ps1
-          install chromium --with-deps
-
-      # ── L3: Integration tests (Testcontainers; self-managed Postgres) ───────
-      - name: Integration tests
-        if: needs.changes.outputs.code == 'true'
-        run: >
-          dotnet test tests/Plantry.Tests.Integration
-          --no-build --configuration Release
-          --collect:"XPlat Code Coverage"
-          --results-directory coverage/integration
-          --
-          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
-
-      # ── L5: E2E tests (Aspire boots full stack; Playwright drives browser) ──
-      # AppHostFixture starts the Aspire AppHost which pulls/starts Postgres via
-      # Docker and boots the web app. Tests then drive it with Playwright/Chromium.
-      - name: E2E tests
-        if: needs.changes.outputs.code == 'true'
-        run: >
-          dotnet test tests/Plantry.Tests.E2E
-          --no-build --configuration Release
-          --collect:"XPlat Code Coverage"
-          --results-directory coverage/e2e
-          --
-          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
-
-      # Upload Playwright traces on failure so failures can be diagnosed.
-      - name: Upload Playwright traces
-        if: failure() && needs.changes.outputs.code == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-traces
-          path: "**/trace.zip"
-          retention-days: 7
-
-      # Download unit coverage from the fast job so the gate sees domain + integration + E2E.
-      - name: Download unit coverage
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-unit
-          path: coverage/unit
-
-      # ── Coverage gate (unit + integration + E2E combined) ───────────────────
-      - name: Coverage report
-        if: needs.changes.outputs.code == 'true'
-        uses: danielpalme/ReportGenerator-GitHub-Action@5
-        with:
-          reports: "coverage/**/*.xml"
-          targetdir: "coverage/report"
-          reporttypes: "HtmlInline;Cobertura"
-
-      - name: Check coverage threshold
-        if: needs.changes.outputs.code == 'true'
-        uses: irongut/CodeCoverageSummary@v1.3.0
-        with:
-          filename: coverage/report/Cobertura.xml
-          badge: false
-          thresholds: "70 85"   # warn at 70%, fail at 85% for domain projects
-          fail_below_min: true
