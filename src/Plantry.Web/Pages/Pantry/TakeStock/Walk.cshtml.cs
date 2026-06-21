@@ -75,7 +75,7 @@ public sealed class WalkModel(
         var hits = await reader.SearchProductsAsync(q.Trim(), ct);
         var enc = HtmlEncoder.Default;
         var html = string.Join("", hits.Select(p =>
-            $$"""<li role="option" data-value="{{p.ProductId}}" data-track="true" data-default-location="{{p.DefaultLocationId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: 'true'})">{{enc.Encode(p.Name)}}</li>"""));
+            $$"""<li role="option" data-value="{{p.ProductId}}" data-track="true" data-default-location="{{p.DefaultLocationId}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: 'true', defaultUnitId: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}</li>"""));
         return Content(html, "text/html");
     }
 
@@ -179,29 +179,63 @@ public sealed class WalkModel(
             return Unauthorized();
 
         var userId = CurrentUserId;
-        var items = payload.Items
-            .Select(i => new CountItem(
-                i.ProductId,
-                LocationId,
-                i.CountedValue,
-                i.CountedUnitId,
-                ParseReason(i.Reason)))
-            .ToList();
 
-        var cmd = new SaveCountsCommand(items, userId, stocks, conversions, clock, tenant);
-        var result = await cmd.ExecuteAsync(ct);
+        // Defense-in-depth: skip items where countedUnitId is missing, empty string, or Guid.Empty
+        // rather than letting System.Text.Json throw (non-parseable string) or the command fail the
+        // whole batch. SaveItem.CountedUnitId is typed as string? so that an empty-string payload
+        // ("countedUnitId": "") from stale Path A clients deserializes cleanly instead of throwing.
+        // The root cause (missing DefaultUnitId in Path A) is fixed in selectProduct() and the
+        // search result projection, but this guard defends against any remaining stale clients.
+        var invalidItems = new List<SaveItem>();
+        var validItems = new List<CountItem>();
 
-        if (result.IsFailure)
-            return StatusCode(500, new { error = result.Error.Description });
-
-        var responseItems = result.Value.Select(r => new
+        foreach (var i in payload.Items)
         {
-            r.ProductId,
-            r.IsSuccess,
-            error = r.IsSuccess ? null : r.FailureReason?.Description,
-        });
+            if (!Guid.TryParse(i.CountedUnitId, out var unitId) || unitId == Guid.Empty)
+            {
+                invalidItems.Add(i);
+            }
+            else
+            {
+                validItems.Add(new CountItem(
+                    i.ProductId,
+                    LocationId,
+                    i.CountedValue,
+                    unitId,
+                    ParseReason(i.Reason)));
+            }
+        }
 
-        return new JsonResult(new { results = responseItems });
+        // Build per-row results — invalid items get an inline error, valid items go through the command.
+        var perRowResults = new List<object>();
+
+        foreach (var invalid in invalidItems)
+        {
+            perRowResults.Add(new
+            {
+                ProductId = invalid.ProductId,
+                IsSuccess = false,
+                error = "Unit is required — please select a unit before saving.",
+            });
+        }
+
+        if (validItems.Count > 0)
+        {
+            var cmd = new SaveCountsCommand(validItems, userId, stocks, conversions, clock, tenant);
+            var result = await cmd.ExecuteAsync(ct);
+
+            if (result.IsFailure)
+                return StatusCode(500, new { error = result.Error.Description });
+
+            perRowResults.AddRange(result.Value.Select(r => (object)new
+            {
+                r.ProductId,
+                r.IsSuccess,
+                error = r.IsSuccess ? null : r.FailureReason?.Description,
+            }));
+        }
+
+        return new JsonResult(new { results = perRowResults });
     }
 
     // ── GET (Lots fragment — escape hatch) ────────────────────────────────────
@@ -346,7 +380,12 @@ public sealed class WalkModel(
     {
         public Guid    ProductId     { get; set; }
         public decimal CountedValue  { get; set; }
-        public Guid    CountedUnitId { get; set; }
+        /// <summary>
+        /// Stored as string? so JSON deserialization tolerates an empty string ("") from stale
+        /// Path A clients that posted unitId before DefaultUnitId was wired up.
+        /// Parsed to Guid (with empty-string → Guid.Empty → per-row error) in OnPostSaveAsync.
+        /// </summary>
+        public string? CountedUnitId { get; set; }
         public string? Reason        { get; set; }
     }
 

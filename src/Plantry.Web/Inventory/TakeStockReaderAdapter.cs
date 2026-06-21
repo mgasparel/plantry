@@ -222,7 +222,8 @@ public sealed class TakeStockReaderAdapter(
                 p.Id.Value,
                 p.Name,
                 unitCodesById.GetValueOrDefault(p.DefaultUnitId.Value, "?"),
-                p.DefaultLocationId?.Value ?? Guid.Empty))
+                p.DefaultLocationId?.Value ?? Guid.Empty,
+                p.DefaultUnitId.Value))
             .ToList();
     }
 

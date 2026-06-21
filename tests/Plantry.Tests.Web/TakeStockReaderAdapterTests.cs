@@ -451,6 +451,22 @@ public sealed class TakeStockReaderAdapterTests
         Assert.Empty(result);
     }
 
+    [Fact(DisplayName = "SearchProducts — result carries DefaultUnitId (path A unit pre-fill)")]
+    public async Task SearchProducts_ResultCarriesDefaultUnitId()
+    {
+        var units = new TsUnitRepository();
+        var (_, gramId) = MakeUnit(units, "g");
+
+        var prods = new TsProductRepository();
+        prods.Add(Product.Create(Household, "Flour", UnitId.From(gramId), Clock));
+
+        var adapter = BuildAdapter(new TsStockRepository(), prods, units, new TsLocationRepository());
+        var result = await adapter.SearchProductsAsync("Flour");
+
+        var match = Assert.Single(result);
+        Assert.Equal(gramId, match.DefaultUnitId);
+    }
+
     [Fact(DisplayName = "SearchProducts — parent products (HasVariants) are excluded")]
     public async Task SearchProducts_ParentProducts_Excluded()
     {
