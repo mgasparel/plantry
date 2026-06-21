@@ -5317,3 +5317,50 @@ button.sadd svg { width: 13px; height: 13px; }
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+/* ── Take Stock — "No location" section (P4-8) ───────────────────────────────── */
+
+/* Location-list "No location" entry — visually distinct from named locations */
+.catalog-list__item--no-location .catalog-list__primary {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+.catalog-list__badge {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-accent-subtle) 60%, var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.45em;
+  white-space: nowrap;
+}
+
+/* Intro text on the no-location walk page */
+.take-stock-no-location__intro {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-4);
+}
+
+/* Location picker row within each card */
+.take-stock-no-location__picker {
+  margin-top: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.take-stock-no-location__picker-label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  min-width: 6rem;
+}
+.take-stock-no-location__picker-select {
+  flex: 1;
+  min-width: 10rem;
+}
+.take-stock-no-location__required {
+  color: var(--color-danger);
+}

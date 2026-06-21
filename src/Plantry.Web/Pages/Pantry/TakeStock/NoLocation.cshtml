@@ -1,0 +1,242 @@
+@page "/pantry/take-stock/no-location"
+@model Plantry.Web.Pages.Pantry.TakeStock.NoLocationModel
+@{
+    ViewData["Title"] = "No location — Take Stock";
+}
+
+@* Alpine working-set client for the No-location section (P4-8, J7).
+   rows: { [productId]: { recorded, counted, unitCode, unitId, locationId, dirty, failed, failMsg } }
+   The beforeunload guard fires when any row is dirty (C7).
+   JSON data passed via a script-block global to avoid HTML-entity escaping issues with
+   double-quoted JSON keys in x-data (bd memory: Razor+Alpine gotcha). *@
+<script>
+(function () {
+    'use strict';
+    window['__noLocationRows'] = @Html.Raw(Model.AlpineRowsJson);
+})();
+</script>
+<div x-data="takeStockNoLocation(window['__noLocationRows'])"
+     x-init="init()">
+
+    @Html.AntiForgeryToken()
+
+    <div class="page-header">
+        <a href="/pantry/take-stock" class="btn btn--ghost btn--sm">&larr; Locations</a>
+        <h1 class="page-header__title">No location</h1>
+    </div>
+
+    <p class="take-stock-no-location__intro">
+        These products have stock recorded but no storage location assigned. Choose a location for each one to file it for future walks.
+    </p>
+
+    @if (Model.Rows.Count == 0)
+    {
+        <p class="empty-state">All products have a location — nothing to file here.</p>
+    }
+    else
+    {
+        <ul class="take-stock-rows" role="list">
+            @foreach (var row in Model.Rows)
+            {
+                var pid = row.ProductId.ToString();
+                var recorded = row.RecordedQuantity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                <template x-if="rows['@pid'] !== undefined">
+                <li class="take-stock-row"
+                    :class="{ 'take-stock-row--dirty': rows['@pid']?.dirty, 'take-stock-row--failed': rows['@pid']?.failed }">
+
+                    <div class="take-stock-row__info">
+                        <span class="take-stock-row__name">@row.ProductName</span>
+                        <span class="take-stock-row__recorded">
+                            @row.RecordedQuantity.ToString("0.###") @row.DisplayUnitCode recorded
+                        </span>
+                        <span class="take-stock-row__fail-msg"
+                              x-show="rows['@pid']?.failed"
+                              x-text="rows['@pid']?.failMsg ?? ''"
+                              role="alert"></span>
+                    </div>
+
+                    <div class="take-stock-row__controls">
+                        @* Count stepper with the canonical <stepper> tag helper *@
+                        <stepper
+                            name=""
+                            value-bind="rows['@pid']?.counted ?? @recorded"
+                            input-handler="setCount('@pid', $event.target.value)"
+                            decrease-click="setCount('@pid', Math.max(0, parseFloat(rows['@pid']?.counted ?? @recorded) - 1))"
+                            increase-click="setCount('@pid', parseFloat(rows['@pid']?.counted ?? @recorded) + 1)"
+                            decrease-label="Decrease count for @row.ProductName"
+                            increase-label="Increase count for @row.ProductName"
+                            input-label="Count for @row.ProductName" />
+
+                        <span class="take-stock-row__unit">@row.DisplayUnitCode</span>
+                    </div>
+
+                    @* Required location picker — the user must choose a location before Save (J7) *@
+                    <div class="take-stock-no-location__picker">
+                        <label class="take-stock-no-location__picker-label" for="loc-@(pid.Replace("-",""))">
+                            Location <span class="take-stock-no-location__required" aria-label="required">*</span>
+                        </label>
+                        <select id="loc-@(pid.Replace("-",""))"
+                                class="field__input take-stock-no-location__picker-select"
+                                x-model="rows['@pid'].locationId"
+                                x-on:change="onLocationChange('@pid')"
+                                aria-label="Location for @row.ProductName"
+                                required>
+                            <option value="">— Choose location —</option>
+                            @foreach (var loc in Model.LocationOptions)
+                            {
+                                <option value="@loc.Value">@loc.Text</option>
+                            }
+                        </select>
+                    </div>
+                </li>
+                </template>
+            }
+        </ul>
+
+        @* Sticky save bar — visible when any row is dirty (location chosen) *@
+        <div class="take-stock-savebar" x-show="isDirty()" x-cloak>
+            <span class="take-stock-savebar__count"
+                  x-text="dirtyCount() + (dirtyCount() === 1 ? ' item to file' : ' items to file')"></span>
+            <button type="button"
+                    class="btn btn--primary"
+                    :disabled="saving"
+                    x-text="saving ? 'Filing…' : 'File'"
+                    x-on:click="save('@Url.Page("./NoLocation", "Save")')">
+            </button>
+        </div>
+
+        @* Toast notification *@
+        <div class="take-stock-toast"
+             role="status"
+             aria-live="polite"
+             x-show="toast !== null" x-cloak
+             x-text="toast ?? ''"
+             x-on:click="toast = null"></div>
+    }
+</div>
+
+<script>
+function takeStockNoLocation(initialRows) {
+    return {
+        rows: initialRows,
+        saving: false,
+        toast: null,
+        _guardHandler: null,
+
+        init() {
+            // Leave-page guard (C7): fires when the user navigates away with unsaved changes.
+            this._guardHandler = (e) => {
+                if (this.isDirty() && !this.saving) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            };
+            window.addEventListener('beforeunload', this._guardHandler);
+        },
+
+        destroy() {
+            if (this._guardHandler) {
+                window.removeEventListener('beforeunload', this._guardHandler);
+            }
+        },
+
+        isDirty() {
+            return Object.values(this.rows).some(r => r && r.dirty);
+        },
+
+        dirtyCount() {
+            return Object.values(this.rows).filter(r => r && r.dirty).length;
+        },
+
+        setCount(productId, rawValue) {
+            const row = this.rows[productId];
+            if (!row) return;
+            const parsed = parseFloat(rawValue);
+            const counted = isNaN(parsed) ? row.recorded : Math.max(0, parsed);
+            row.counted = counted;
+            // A row is dirty when a location has been chosen (location is the gate).
+            row.dirty = row.locationId !== '' && row.locationId !== null;
+            row.failed = false;
+            row.failMsg = null;
+        },
+
+        onLocationChange(productId) {
+            const row = this.rows[productId];
+            if (!row) return;
+            // Selecting a location always marks the row dirty.
+            row.dirty = row.locationId !== '' && row.locationId !== null;
+            row.failed = false;
+            row.failMsg = null;
+        },
+
+        async save(url) {
+            if (this.saving) return;
+            this.saving = true;
+            this.toast = null;
+
+            const items = Object.entries(this.rows)
+                .filter(([, r]) => r && r.dirty && r.locationId)
+                .map(([productId, r]) => ({
+                    productId,
+                    locationId: r.locationId,
+                    countedValue: r.counted,
+                    countedUnitId: r.unitId,
+                }));
+
+            if (items.length === 0) {
+                this.saving = false;
+                return;
+            }
+
+            try {
+                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify({ items }),
+                });
+
+                if (!resp.ok) {
+                    this.toast = 'Save failed (' + resp.status + ') — please try again';
+                    return;
+                }
+
+                const data = await resp.json();
+                let filed = 0, failed = 0;
+
+                for (const result of data.results ?? []) {
+                    const pid = result.productId;
+                    const row = this.rows[pid];
+                    if (!row) continue;
+                    if (result.isSuccess) {
+                        // Remove the row from Alpine state — it has been filed and leaves the list.
+                        delete this.rows[pid];
+                        filed++;
+                    } else {
+                        row.failed = true;
+                        row.failMsg = result.error ?? 'Failed to file';
+                        row.dirty = false;
+                        failed++;
+                    }
+                }
+
+                if (failed === 0) {
+                    this.toast = filed === 1 ? '1 product filed' : filed + ' products filed';
+                } else if (filed === 0) {
+                    this.toast = 'File failed — please try again';
+                } else {
+                    this.toast = filed + ' filed, ' + failed + ' failed — retry the highlighted rows';
+                }
+            } catch {
+                this.toast = 'Network error — please try again';
+            } finally {
+                this.saving = false;
+            }
+        }
+    };
+}
+</script>
