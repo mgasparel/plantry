@@ -48,6 +48,8 @@ public static class RecipeEditorFixture
     // Tag ids.
     public static readonly TagId VegetarianTagId = new(Guid.Parse("88888888-8888-8888-8888-888888888888"));
     public static readonly TagId QuickTagId      = new(Guid.Parse("99999999-9999-9999-9999-999999999999"));
+    // Archived tag — applied to the rich recipe but absent from the active picker dropdown.
+    public static readonly TagId ArchivedTagId   = new(Guid.Parse("aaaaaaaa-1111-1111-1111-111111111111"));
 
     /// <summary>
     /// A recipe with no ingredients — approximates the state of a freshly opened edit form for a recipe
@@ -124,13 +126,103 @@ public static class RecipeEditorFixture
         new(EachUnitId, "ea"),
     ];
 
-    /// <summary>Tag names for the tag pre-population in edit GET.</summary>
+    /// <summary>
+    /// Default unit ids per product for use with <see cref="FakeEditorProductReader"/> on the POST path.
+    /// Ensures the conversion check (<c>unit != defaultUnitId</c>) passes without needing
+    /// <see cref="FakeUnitConverter"/> when unit and default unit are the same.
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, Guid> ProductDefaultUnits() =>
+        new Dictionary<Guid, Guid>
+        {
+            [PastaId]  = GramUnitId,
+            [TomatoId] = GramUnitId,
+            [GarlicId] = EachUnitId,
+            [ChiliId]  = EachUnitId,
+            [SaltId]   = GramUnitId,
+        };
+
+    /// <summary>Tag names for the tag pre-population in edit GET (resolve names for pre-selected chips).
+    /// Includes archived tags so chips on existing recipes never go blank (mirroring ITagRepository.ResolveNamesAsync).</summary>
     public static IReadOnlyDictionary<TagId, string> TagNames() =>
         new Dictionary<TagId, string>
         {
             [VegetarianTagId] = "Vegetarian",
             [QuickTagId]      = "Quick",
+            [ArchivedTagId]   = "Grocer",   // still resolvable even when archived
         };
+
+    /// <summary>
+    /// Active tag objects for the recipe editor's closed-vocabulary picker dropdown.
+    /// Both fixture tags are active (not archived), ordered alphabetically.
+    /// </summary>
+    public static IReadOnlyList<Tag> ActiveTags()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+        var vegetarian = Tag.Create(hid, "Vegetarian", null, clock);
+        SetTagId(vegetarian, VegetarianTagId);
+        var quick = Tag.Create(hid, "Quick", null, clock);
+        SetTagId(quick, QuickTagId);
+        return [quick, vegetarian]; // alphabetical: Quick, Vegetarian
+    }
+
+    /// <summary>
+    /// Full tag list (active + archived) for a <see cref="FakeTagRepository"/> seeded to support the
+    /// archived-tag edge-case scenario.
+    /// <para>
+    /// <see cref="FakeTagRepository.GetByIdAsync"/> looks up tags from this list, so archived tags
+    /// applied to existing recipes are still findable. <see cref="FakeTagRepository.ListAllAsync"/>
+    /// with <c>activeOnly:true</c> filters by <see cref="Tag.IsArchived"/>, so the picker dropdown
+    /// only surfaces active tags even when this full list is seeded.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<Tag> AllTagsIncludingArchived()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+        var vegetarian = Tag.Create(hid, "Vegetarian", null, clock);
+        SetTagId(vegetarian, VegetarianTagId);
+        var quick = Tag.Create(hid, "Quick", null, clock);
+        SetTagId(quick, QuickTagId);
+        var grocer = Tag.Create(hid, "Grocer", null, clock);
+        SetTagId(grocer, ArchivedTagId);
+        grocer.Archive(clock); // archived — excluded from active picker dropdown
+        return [quick, vegetarian, grocer];
+    }
+
+    /// <summary>
+    /// Builds the rich recipe with an additional archived tag applied, for the archived-tag edge-case fixture.
+    /// The recipe is separate from <see cref="BuildRich"/> so the existing rich-recipe snapshots remain stable.
+    /// </summary>
+    public static readonly RecipeId RichArchivedTagRecipeId = RecipesDomain.RecipeId.From(
+        Guid.Parse("eeeeeeee-0000-0000-0000-000000000005"));
+
+    public static Recipe BuildRichWithArchivedTag()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Spicy Arrabbiata (Archived Tag)", defaultServings: 4, clock).Value;
+        SetId(recipe, RichArchivedTagRecipeId);
+
+        // The archived tag is pre-applied — it shows as a chip on the GET (ResolveNamesAsync still finds it)
+        // but is absent from the picker dropdown (ListAllAsync activeOnly:true excludes it).
+        recipe.SetTags([VegetarianTagId, ArchivedTagId], clock);
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(PastaId, 400m, GramUnitId, GroupHeading: null, Ordinal: 0),
+        ], clock);
+
+        return recipe;
+    }
+
+    /// <summary>Sets a <see cref="Tag"/>'s id via reflection for deterministic fixture ids.</summary>
+    private static void SetTagId(Tag tag, TagId id)
+    {
+        var prop = typeof(Tag).BaseType?.BaseType?  // Entity<TagId>
+            .GetProperty("Id", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        prop?.SetValue(tag, id);
+    }
 
     // ── internal helper ──────────────────────────────────────────────────────────
 
@@ -159,7 +251,17 @@ public static class RecipeEditorFixture
 public sealed class FakeEditorRecipeRepository(ITenantContext tenant, params Recipe[] knownRecipes)
     : IRecipeRepository
 {
-    public Task AddAsync(Recipe r, CancellationToken ct = default) => Task.CompletedTask;
+    /// <summary>
+    /// Captures the last recipe added via <see cref="AddAsync"/> so POST round-trip tests
+    /// can assert what was persisted. Null until the first Add call.
+    /// </summary>
+    public Recipe? LastAdded { get; private set; }
+
+    public Task AddAsync(Recipe r, CancellationToken ct = default)
+    {
+        LastAdded = r;
+        return Task.CompletedTask;
+    }
 
     public Task<Recipe?> GetByIdAsync(RecipeId id, CancellationToken ct = default)
     {
@@ -190,11 +292,28 @@ public sealed class FakeEditorRecipeRepository(ITenantContext tenant, params Rec
 public sealed class FakeEditorProductReader(
     IReadOnlyDictionary<Guid, CatalogProductSummary> summaries,
     IReadOnlyDictionary<Guid, string> unitCodes,
-    IReadOnlyList<CatalogUnitOption> unitOptions)
+    IReadOnlyList<CatalogUnitOption> unitOptions,
+    IReadOnlyDictionary<Guid, Guid>? productDefaultUnits = null)
     : ICatalogProductReader
 {
-    public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
-        Task.FromResult<CatalogProduct?>(null);
+    /// <summary>
+    /// Returns a <see cref="CatalogProduct"/> from the fixture summaries so that <see cref="AuthorRecipe"/>
+    /// can resolve an ingredient line's product on the POST path. The default unit comes from
+    /// <paramref name="productDefaultUnits"/> (if supplied) or falls back to the first unit option.
+    /// </summary>
+    public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default)
+    {
+        if (!summaries.TryGetValue(productId, out var summary)) return Task.FromResult<CatalogProduct?>(null);
+        var defaultUnitId = productDefaultUnits?.GetValueOrDefault(productId)
+            ?? unitOptions.FirstOrDefault()?.Id
+            ?? Guid.Empty;
+        var product = new CatalogProduct(
+            productId, summary.Name, summary.TrackStock,
+            DefaultUnitId: defaultUnitId,
+            ParentProductId: null, IsParent: false,
+            VariantProductIds: []);
+        return Task.FromResult<CatalogProduct?>(product);
+    }
 
     public Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(
         string nameQuery, CancellationToken ct = default) =>

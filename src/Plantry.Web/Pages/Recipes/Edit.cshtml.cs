@@ -92,10 +92,16 @@ public sealed class EditModel(
             Input.Directions = recipe.Directions;
             Input.ScaleMode = ScaleMode.Keep;
 
-            // Pre-populate tags — resolve their names for the tag chip display
-            var tagIds = recipe.Tags.Select(rt => rt.TagId).ToList();
-            var tagNameLookup = await tags.ResolveNamesAsync(tagIds, ct);
-            Input.Tags = recipe.Tags
+            // Pre-populate tags — resolve id+name for the Alpine chip state ({id,name} objects).
+            // ResolveNamesAsync includes archived tags so chips survive for tags archived since the
+            // recipe was last saved (archived chips still show and can be removed; they cannot be
+            // re-added from the active-only dropdown).
+            var recipeTagIds = recipe.Tags.Select(rt => rt.TagId).ToList();
+            var tagNameLookup = await tags.ResolveNamesAsync(recipeTagIds, ct);
+            Input.TagIds = recipe.Tags
+                .Select(rt => rt.TagId.Value)
+                .ToList();
+            Input.TagNames = recipe.Tags
                 .Select(rt => tagNameLookup.GetValueOrDefault(rt.TagId) ?? rt.TagId.Value.ToString("N")[..8])
                 .ToList();
 
@@ -192,10 +198,8 @@ public sealed class EditModel(
             return Page();
         }
 
-        var tagNames = (Input.Tags ?? [])
-            .Select(t => t.Trim())
-            .Where(t => !string.IsNullOrEmpty(t))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        var tagIds = (Input.TagIds ?? [])
+            .Distinct()
             .ToList();
 
         var command = new AuthorRecipeCommand(
@@ -203,7 +207,7 @@ public sealed class EditModel(
             Name: Input.Name?.Trim() ?? "",
             DefaultServings: Input.DefaultServings,
             Lines: lines,
-            TagNames: tagNames,
+            TagIds: tagIds,
             Source: string.IsNullOrWhiteSpace(Input.Source) ? null : Input.Source.Trim(),
             CookTimeMinutes: Input.CookTimeMinutes,
             Directions: string.IsNullOrWhiteSpace(Input.Directions) ? null : Input.Directions,
@@ -259,9 +263,12 @@ public sealed class EditModel(
             .Select(u => new SelectListItem(u.Code, u.Id.ToString()))
             .ToList();
 
-        // Tag options from household: resolve known tags for the multi-select completion.
-        // Tags are a small set (dozens, not thousands) — list all and filter client-side.
-        TagOptions = [];
+        // Active tag options — activeOnly:true so archived tags are excluded from the picker dropdown.
+        // Tags are a small set (dozens, not thousands) — list all and filter client-side in Alpine.
+        var activeTags = await tags.ListAllAsync(activeOnly: true, ct);
+        TagOptions = activeTags
+            .Select(t => new SelectListItem(t.Name, t.Id.Value.ToString()))
+            .ToList();
     }
 
     private async Task ApplyPhotoAsync(RecipeId recipeId, IFormFile photo, CancellationToken ct)
@@ -302,8 +309,19 @@ public sealed class RecipeEditInput
     public string? Source { get; set; }
     public string? Directions { get; set; }
 
-    /// <summary>Tag names (typed strings; resolved or minted by AuthorRecipe).</summary>
-    public List<string> Tags { get; set; } = [];
+    /// <summary>
+    /// Selected tag ids — posted by the closed-vocabulary picker as hidden inputs (one per chip).
+    /// Resolved by <see cref="AuthorRecipe"/> to existing household <see cref="Plantry.Recipes.Domain.Tag"/>s;
+    /// unknown or foreign ids are dropped silently (no minting).
+    /// </summary>
+    public List<Guid> TagIds { get; set; } = [];
+
+    /// <summary>
+    /// Tag display names parallel to <see cref="TagIds"/> — used only on the GET path to seed the
+    /// Alpine <c>tags</c> state with <c>{id, name}</c> objects. Not posted on submit (only
+    /// <see cref="TagIds"/> are posted). Populated by the page model's GET pre-population code.
+    /// </summary>
+    public List<string> TagNames { get; set; } = [];
 
     /// <summary>
     /// Scale mode for the J7 servings change — Proportional scales ingredient quantities;

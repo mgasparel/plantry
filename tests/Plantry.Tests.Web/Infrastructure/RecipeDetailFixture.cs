@@ -170,17 +170,21 @@ public static class RecipeDetailFixture
 }
 
 /// <summary>
-/// In-memory <see cref="ITagRepository"/> for the recipe detail L4 tests.
+/// In-memory <see cref="ITagRepository"/> for the recipe detail and editor L4 tests.
 /// <see cref="ResolveNamesAsync"/> returns the dictionary the fixture defines, filtered to
 /// the requested ids — mirroring the real household-scoped query.
+/// <see cref="ListAllAsync"/> returns the optional <paramref name="activeTags"/> list (active-only
+/// filter applied in-memory), enabling the editor's tag picker dropdown to be populated in tests.
 /// </summary>
-public sealed class FakeTagRepository(IReadOnlyDictionary<TagId, string> tagNames) : ITagRepository
+public sealed class FakeTagRepository(
+    IReadOnlyDictionary<TagId, string> tagNames,
+    IReadOnlyList<Tag>? activeTags = null) : ITagRepository
 {
     public Task<Tag?> FindByNameAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         Task.FromResult<Tag?>(null);
 
     public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) =>
-        Task.FromResult<Tag?>(null);
+        Task.FromResult(activeTags?.FirstOrDefault(t => t.Id == id));
 
     public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(
         IReadOnlyList<TagId> ids, CancellationToken ct = default)
@@ -195,8 +199,14 @@ public sealed class FakeTagRepository(IReadOnlyDictionary<TagId, string> tagName
 
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 
-    public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<Tag>>([]);
+    public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default)
+    {
+        var all = activeTags ?? [];
+        IReadOnlyList<Tag> result = activeOnly
+            ? all.Where(t => !t.IsArchived).OrderBy(t => t.Name).ToList()
+            : all.OrderBy(t => t.Name).ToList();
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>

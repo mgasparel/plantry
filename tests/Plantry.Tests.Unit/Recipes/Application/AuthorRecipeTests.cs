@@ -43,18 +43,21 @@ public sealed class AuthorRecipeTests
     // ── Create ──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Create_With_Tracked_Lines_Saves_Recipe_And_Mints_Tag()
+    public async Task Create_With_Tracked_Lines_Saves_Recipe_And_Resolves_Tag()
     {
         var h = BuildHarness();
         var unit = Guid.CreateVersion7();
         var product = h.Products.AddTracked(unit);
+        // Pre-seed the household tag that the picker would submit.
+        var existingTag = Tag.Create(Household, "Breakfast", null, Clock);
+        h.Tags.Items.Add(existingTag);
 
         var command = new AuthorRecipeCommand(
             RecipeId: null,
             Name: "Pancakes",
             DefaultServings: 4,
             Lines: [new AuthorIngredientLine(product.Id, 200m, unit, null, 0)],
-            TagNames: ["Breakfast"]);
+            TagIds: [existingTag.Id.Value]);
 
         var result = await h.Service.ExecuteAsync(command);
 
@@ -65,11 +68,34 @@ public sealed class AuthorRecipeTests
         var ing = Assert.Single(recipe.Ingredients);
         Assert.Equal(product.Id, ing.ProductId);
         Assert.Equal(200m, ing.Quantity);
-        // Inline tag minting (J6): an unknown name creates a Tag and applies it.
-        var tag = Assert.Single(h.Tags.Items);
-        Assert.Equal("Breakfast", tag.Name);
-        Assert.Equal(tag.Id, Assert.Single(recipe.Tags).TagId);
+        // Resolve-only: the pre-seeded tag is applied; no new tag is minted.
+        Assert.Single(h.Tags.Items); // still only the pre-seeded tag
+        Assert.Equal(existingTag.Id, Assert.Single(recipe.Tags).TagId);
         Assert.Equal(1, h.Recipes.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task Create_With_Unknown_TagId_Drops_It_And_Does_Not_Mint()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var product = h.Products.AddTracked(unit);
+        var foreignId = Guid.NewGuid(); // not in the repository
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Toast",
+            DefaultServings: 1,
+            Lines: [new AuthorIngredientLine(product.Id, 1m, unit, null, 0)],
+            TagIds: [foreignId]);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        var recipe = Assert.Single(h.Recipes.Items);
+        // Unknown id is silently dropped — no tag minted, recipe has no tags.
+        Assert.Empty(h.Tags.Items);
+        Assert.Empty(recipe.Tags);
     }
 
     [Fact]
@@ -86,7 +112,7 @@ public sealed class AuthorRecipeTests
             Lines: [new AuthorIngredientLine(
                 ProductId: null, Quantity: null, UnitId: null, GroupHeading: null, Ordinal: 0,
                 NewStapleName: "Salt", NewStapleDefaultUnitId: unit)],
-            TagNames: []);
+            TagIds: []);
 
         var result = await h.Service.ExecuteAsync(command);
 
@@ -101,7 +127,7 @@ public sealed class AuthorRecipeTests
     }
 
     [Fact]
-    public async Task Create_Reuses_Existing_Tag_Instead_Of_Minting_A_Duplicate()
+    public async Task Create_Resolves_Existing_Tag_By_Id()
     {
         var h = BuildHarness();
         var unit = Guid.CreateVersion7();
@@ -109,10 +135,11 @@ public sealed class AuthorRecipeTests
         var existingTag = Tag.Create(Household, "Dinner", null, Clock);
         h.Tags.Items.Add(existingTag);
 
+        // Picker submits the existing tag's id — must resolve and apply, not duplicate.
         var command = new AuthorRecipeCommand(
             RecipeId: null, Name: "Roast", DefaultServings: 4,
             Lines: [new AuthorIngredientLine(product.Id, 1m, unit, null, 0)],
-            TagNames: ["dinner"]); // different case — must resolve to the existing tag
+            TagIds: [existingTag.Id.Value]);
 
         var result = await h.Service.ExecuteAsync(command);
 
@@ -135,7 +162,7 @@ public sealed class AuthorRecipeTests
         var command = new AuthorRecipeCommand(
             RecipeId: null, Name: "pancakes", DefaultServings: 4,
             Lines: [new AuthorIngredientLine(product.Id, 1m, unit, null, 0)],
-            TagNames: []);
+            TagIds: []);
 
         var result = await h.Service.ExecuteAsync(command);
 
@@ -154,7 +181,7 @@ public sealed class AuthorRecipeTests
         var command = new AuthorRecipeCommand(
             RecipeId: null, Name: "Bread", DefaultServings: 2,
             Lines: [new AuthorIngredientLine(product.Id, Quantity: null, UnitId: null, null, 0)],
-            TagNames: []);
+            TagIds: []);
 
         var result = await h.Service.ExecuteAsync(command);
 
@@ -169,7 +196,7 @@ public sealed class AuthorRecipeTests
         var h = BuildHarness(authenticated: false);
 
         var command = new AuthorRecipeCommand(
-            RecipeId: null, Name: "X", DefaultServings: 1, Lines: [], TagNames: []);
+            RecipeId: null, Name: "X", DefaultServings: 1, Lines: [], TagIds: []);
 
         var result = await h.Service.ExecuteAsync(command);
 
@@ -190,7 +217,7 @@ public sealed class AuthorRecipeTests
         var firstAttempt = new AuthorRecipeCommand(
             RecipeId: null, Name: "Cake", DefaultServings: 6,
             Lines: [new AuthorIngredientLine(product.Id, 2m, lineUnit, null, 0)],
-            TagNames: []);
+            TagIds: []);
 
         var first = await h.Service.ExecuteAsync(firstAttempt);
 
@@ -236,7 +263,7 @@ public sealed class AuthorRecipeTests
                 new AuthorIngredientLine(first.Id, 1m, unit, null, 2),
                 new AuthorIngredientLine(second.Id, 2m, unit, null, 5),
             ],
-            TagNames: []);
+            TagIds: []);
 
         var result = await h.Service.ExecuteAsync(command);
 
@@ -268,7 +295,7 @@ public sealed class AuthorRecipeTests
                 new AuthorIngredientLine(productA.Id, 200m, unit, null, 0),
                 new AuthorIngredientLine(productB.Id, 100m, unit, null, 1),
             ],
-            TagNames: [],
+            TagIds: [],
             ScaleMode: mode);
 
         var result = await h.Service.ExecuteAsync(edit);
@@ -290,7 +317,7 @@ public sealed class AuthorRecipeTests
                 new AuthorIngredientLine(productA.Id, 200m, unit, null, 0),
                 new AuthorIngredientLine(productB.Id, 100m, unit, null, 1),
             ],
-            TagNames: []);
+            TagIds: []);
 
         var result = await h.Service.ExecuteAsync(create);
         return Assert.IsType<AuthorRecipeResult.Saved>(result).RecipeId;

@@ -667,42 +667,102 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Tag multi-select with inline create</h2>
+        <h2 class="catalog-section__heading">Tag picker — type-to-filter chips (closed vocabulary)</h2>
     </div>
     <p>
-        The recipe tag editor is a chip-based multi-select: typed tag names become badge chips inside
-        a bordered container; pressing <kbd>Enter</kbd> or <kbd>,</kbd> adds the tag (minting it if new
-        via <code>AuthorRecipe</code> on submit). Backspace with an empty input removes the last chip.
-        The container acts as a single focusable field — clicking anywhere inside it forwards focus to
-        the text input. No server round-trip for add/remove; Alpine owns the <code>tags[]</code> array
-        and hidden <code>&lt;input type="hidden" name="Input.Tags"&gt;</code> inputs post the array.
+        The recipe tag editor is a chip-based multi-select over a <strong>read-only, household-defined vocabulary</strong>.
+        A text input filters the active defined tags into a dropdown; selecting one adds it as a chip.
+        Typing a brand-new name does <em>not</em> create anything — no Enter/comma mint.
+        Backspace with an empty input removes the last chip; clicking elsewhere closes the dropdown.
     </p>
-    <div style="max-width: 36rem" x-data="{ tags: ['Weeknight', 'Soup'], newTag: '' }">
-        <template x-for="(tag, ti) in tags" :key="ti">
-            <input type="hidden" name="Input.Tags" :value="tag" />
+    <p>
+        Alpine state: <code>tags</code> is an array of <code>&#123;id, name&#125;</code> objects; <code>tagOptions</code>
+        is the full active-tag list from the server (serialised once via <code>JsonSerializer.Serialize</code>
+        without <code>Html.Raw</code>). Hidden inputs post <code>Input.TagIds</code> (one per chip).
+        The dropdown offers only active tags not already selected — <code>filteredTagOptions()</code> excludes
+        both already-selected and non-matching options. Clicking an option calls <code>addTagFromOption(opt)</code>
+        via <code>@@mousedown.prevent</code> so the input blur does not fire before the click registers.
+    </p>
+    <p>
+        <strong>Empty-household state:</strong> when <code>Model.TagOptions</code> is empty (the household
+        has no active tags), the picker body shows a guidance message linking to <code>/Settings/Tags</code>
+        — rendered server-side (no Alpine branch needed) because <code>TagOptions</code> is known at render time.
+    </p>
+    @{
+        var demoTagOpts = System.Text.Json.JsonSerializer.Serialize(new[]
+        {
+            new { id = "aaa", name = "Breakfast" },
+            new { id = "bbb", name = "Quick" },
+            new { id = "ccc", name = "Vegetarian" },
+            new { id = "ddd", name = "Weeknight" },
+        });
+    }
+    <div style="max-width: 36rem"
+         x-data="{
+             tags: [{ id: 'bbb', name: 'Quick' }],
+             tagQuery: '',
+             tagDropOpen: false,
+             tagOptions: @demoTagOpts,
+             filteredTagOptions() {
+                 const q = this.tagQuery.trim().toLowerCase();
+                 return this.tagOptions.filter(o =>
+                     !this.tags.some(t => t.id === o.id) &&
+                     (!q || o.name.toLowerCase().includes(q)));
+             },
+             addTagFromOption(opt) {
+                 if (!this.tags.some(t => t.id === opt.id))
+                     this.tags.push({ id: opt.id, name: opt.name });
+                 this.tagQuery = '';
+                 this.tagDropOpen = false;
+                 this.$nextTick(() => this.$refs.tagInputDemo.focus());
+             },
+             removeTag(i) { this.tags.splice(i, 1); },
+         }">
+        <template x-for="(tag, ti) in tags" :key="tag.id">
+            <input type="hidden" name="Input.TagIds" :value="tag.id" />
         </template>
-        <div class="recipe-tag-editor"
-             style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text"
-             @@click="$refs.tagInput.focus()">
-            <template x-for="(tag, ti) in tags" :key="ti">
-                <span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
-                    <span x-text="tag"></span>
-                    <button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @@click.stop="tags.splice(ti, 1)">×</button>
-                </span>
-            </template>
-            <input type="text" x-ref="tagInput" x-model="newTag" placeholder="Add a tag…"
-                   class="field__input"
-                   style="border:none;outline:none;box-shadow:none;padding:0;min-width:8rem;flex:1"
-                   @@keydown.enter.prevent="const t=newTag.trim(); if(t && !tags.includes(t)) tags.push(t); newTag='';"
-                   @@keydown.comma.prevent="const t=newTag.trim(); if(t && !tags.includes(t)) tags.push(t); newTag='';"
-                   @@keydown.backspace="if (!newTag && tags.length) tags.splice(tags.length - 1, 1)" />
+        <div style="position:relative">
+            <div class="recipe-tag-editor"
+                 style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text"
+                 @@click="$refs.tagInputDemo.focus()">
+                <template x-for="(tag, ti) in tags" :key="tag.id">
+                    <span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
+                        <span x-text="tag.name"></span>
+                        <button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @@click.stop="removeTag(ti)">×</button>
+                    </span>
+                </template>
+                <input type="text" x-ref="tagInputDemo" x-model="tagQuery"
+                       placeholder="Filter tags…"
+                       class="field__input"
+                       style="border:none;outline:none;box-shadow:none;padding:0;min-width:8rem;flex:1"
+                       @@focus="tagDropOpen = true"
+                       @@input="tagDropOpen = true"
+                       @@keydown.escape="tagDropOpen = false; tagQuery = ''"
+                       @@keydown.backspace="if (!tagQuery && tags.length) removeTag(tags.length - 1)"
+                       autocomplete="off" />
+            </div>
+            <div x-show="tagDropOpen && filteredTagOptions().length > 0"
+                 x-cloak
+                 @@click.outside="tagDropOpen = false"
+                 style="position:absolute;z-index:50;left:0;right:0;margin-top:2px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:12rem;overflow-y:auto;box-shadow:var(--shadow-md)">
+                <template x-for="opt in filteredTagOptions()" :key="opt.id">
+                    <button type="button"
+                            class="tag-picker-option"
+                            style="display:block;width:100%;text-align:left;padding:var(--space-2) var(--space-3);background:none;border:none;cursor:pointer;font:inherit;color:var(--color-text)"
+                            @@mousedown.prevent="addTagFromOption(opt)"
+                            x-text="opt.name"></button>
+                </template>
+            </div>
         </div>
         <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-2) 0 0">
-            Current tags: <code x-text="JSON.stringify(tags)"></code>
+            Try typing to filter. Selected: <code x-text="JSON.stringify(tags)"></code>
         </p>
     </div>
-    <style>.recipe-tag-editor:focus-within { border-color: var(--color-accent); }</style>
-    <pre class="code-sample"><code>@("// Alpine x-data: { tags: ['Weeknight'], newTag: '' }\n// Hidden inputs post the array:\n<template x-for=\"(tag, ti) in tags\" :key=\"ti\">\n  <input type=\"hidden\" name=\"Input.Tags\" :value=\"tag\" />\n</template>\n\n<div class=\"recipe-tag-editor\" @click=\"$refs.tagInput.focus()\">\n  <template x-for=\"(tag, ti) in tags\" :key=\"ti\">\n    <span class=\"badge badge--neutral\">\n      <span x-text=\"tag\"></span>\n      <button type=\"button\" @click.stop=\"tags.splice(ti, 1)\">×</button>\n    </span>\n  </template>\n  <input type=\"text\" x-ref=\"tagInput\" x-model=\"newTag\" placeholder=\"Add a tag…\"\n         @keydown.enter.prevent=\"addTag()\" @keydown.comma.prevent=\"addTag()\"\n         @keydown.backspace=\"if (!newTag && tags.length) removeTag(tags.length - 1)\" />\n</div>")</code></pre>
+    <style>
+        .recipe-tag-editor:focus-within { border-color: var(--color-accent); }
+        .tag-picker-option:hover { background: var(--color-surface-2) !important; }
+    </style>
+    <pre class="code-sample"><code>@("// Page model: TagOptions populated via tags.ListAllAsync(activeOnly: true)\n// Server-side JSON (without Html.Raw):\n// var tagsInitJson = JsonSerializer.Serialize(Input.TagIds.Zip(Input.TagNames, (id, name) => new { id, name }).ToList());\n// var tagOptionsJson = JsonSerializer.Serialize(TagOptions.Select(o => new { id = o.Value, name = o.Text }).ToList());\n\n// Alpine x-data (substitute serialised JSON for the two variables):\n// tags: <tagsInitJson>,           // [{id, name}, ...] — pre-selected chips (incl. archived)\n// tagOptions: <tagOptionsJson>,    // [{id, name}, ...] — active defined tags only\n// filteredTagOptions() — excludes already-selected and non-matching\n// addTagFromOption(opt) — pushes chip, clears query, closes dropdown\n// removeTag(i) — splices from tags[]\n\n// Hidden inputs post the TagId array (one per chip):\n<template x-for=\"(tag, ti) in tags\" :key=\"tag.id\">\n  <input type=\"hidden\" name=\"Input.TagIds\" :value=\"tag.id\" />\n</template>\n\n// Chip + filter input container:\n<div class=\"recipe-tag-editor\" @click=\"$refs.tagInput.focus()\">\n  <template x-for=\"(tag, ti) in tags\" :key=\"tag.id\">\n    <span class=\"badge badge--neutral\">\n      <span x-text=\"tag.name\"></span>\n      <button type=\"button\" @click.stop=\"removeTag(ti)\">x</button>\n    </span>\n  </template>\n  <input type=\"text\" x-ref=\"tagInput\" x-model=\"tagQuery\" placeholder=\"Filter tags…\"\n         @focus=\"tagDropOpen = true\" @input=\"tagDropOpen = true\"\n         @keydown.escape=\"tagDropOpen = false; tagQuery = ''\"\n         @keydown.backspace=\"if (!tagQuery && tags.length) removeTag(tags.length - 1)\"\n         autocomplete=\"off\" />\n</div>\n\n// Dropdown:\n<div x-show=\"tagDropOpen && filteredTagOptions().length > 0\" x-cloak @click.outside=\"tagDropOpen = false\"\n     style=\"position:absolute;...\">\n  <template x-for=\"opt in filteredTagOptions()\" :key=\"opt.id\">\n    <button type=\"button\" class=\"tag-picker-option\" @mousedown.prevent=\"addTagFromOption(opt)\" x-text=\"opt.name\"></button>\n  </template>\n</div>\n\n// Empty-household server-side guidance (when Model.TagOptions is empty):\n<p>No tags defined yet. <a href=\"/Settings/Tags\">Manage tags in Settings</a>.</p>")</code></pre>
 </section>
 
 <section class="catalog-section">
