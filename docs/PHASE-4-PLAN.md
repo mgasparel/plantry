@@ -50,21 +50,22 @@ Build order top to bottom. Each is independently shippable and pierces the full 
 (Razor page → application service → domain → EF → Postgres → htmx fragment). T-shirt sizes are
 sequencing aids, not commitments.
 
-| # | Slice | Journeys | Contexts | Size | Blocks | Status |
-|---|---|---|---|---|---|---|
-| P4-1 | Domain primitives — upward `Correction` + location-scoped consume | — | Inventory | S | P4-4a, P4-5, P4-7, P4-8 | ⬜ Not started |
-| P4-2 | Catalog `SetDefaultLocationCommand` | — | Catalog | S | P4-7, P4-8 | ⬜ Not started |
-| P4-3 | Read side — `ITakeStockReader` + location index | J1/J2/J3/J7 | Inventory ↔ Catalog | M | P4-4b, P4-5, P4-7, P4-8 | ⬜ Not started |
-| P4-4a | Count commands (scalar) — `RecordCountCommand` + `SaveCountsCommand` | J2/J4 | Inventory | M | P4-4b, P4-5, P4-7, P4-8 | ⬜ Not started |
-| P4-4b | Walk pages + working-set client | J1/J2/J4 | Inventory | M | P4-9 | ⬜ Not started |
-| P4-5 | Lot escape hatch | J3 | Inventory | M | — | ⬜ Not started |
-| P4-6 | Extract shared product-search/create sheet | — | (Recipes UI) | M | P4-7 | ⬜ Not started |
-| P4-7 | Inline add (search-or-create during a walk) | J5 | Inventory ↔ Catalog | M | — | ⬜ Not started |
-| P4-8 | "No location" section | J7 | Inventory ↔ Catalog | M | — | ⬜ Not started |
-| P4-9 | Onboarding entry from Today | J6 | Home (Today) | S | — | ⬜ Not started |
+| # | Slice | Journeys | Contexts | Size | Blocks |
+|---|---|---|---|---|---|
+| P4-1 | Domain primitives — upward `Correction` + location-scoped consume | — | Inventory | S | P4-4a, P4-5, P4-7, P4-8 |
+| P4-2 | Catalog `SetDefaultLocationCommand` | — | Catalog | S | P4-7, P4-8 |
+| P4-3 | Read side — `ITakeStockReader` + location index | J1/J2/J3/J7 | Inventory ↔ Catalog | M | P4-4b, P4-5, P4-7, P4-8 |
+| P4-4a | Count commands (scalar) — `RecordCountCommand` + `SaveCountsCommand` | J2/J4 | Inventory | M | P4-4b, P4-5, P4-7, P4-8 |
+| P4-4b | Walk pages + working-set client | J1/J2/J4 | Inventory | M | P4-9 |
+| P4-5 | Lot escape hatch | J3 | Inventory | M | — |
+| P4-6 | Extract shared product-search/create sheet | — | (Recipes UI) | M | P4-7 |
+| P4-7 | Inline add (search-or-create during a walk) | J5 | Inventory ↔ Catalog | M | — |
+| P4-8 | "No location" section | J7 | Inventory ↔ Catalog | M | — |
+| P4-9 | Onboarding entry from Today | J6 | Home (Today) | S | — |
 
-> **Tracker legend:** ✅ Done · 🔄 In progress · ⬜ Not started. Update the Status column as each slice
-> lands; this is the single source of truth for "where are we" in Phase 4.
+> **Status / tracking:** beads are the single source of truth — this epic's slices are `bd` issues under
+> the Take Stock epic (`plantry-hcj3`). Run `bd ready` / `bd show <id>` for live status; this plan holds
+> *sequence and scope*, not progress.
 
 P4-1, P4-2, P4-3, and P4-6 are independent and parallelizable. The critical path is
 **P4-1 → P4-4a → P4-4b → (P4-5 / P4-7 / P4-8)**, with P4-3 a co-requisite of P4-4b (the page listing) and
