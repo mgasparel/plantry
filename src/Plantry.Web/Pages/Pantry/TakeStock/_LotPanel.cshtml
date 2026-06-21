@@ -2,128 +2,99 @@
 @using Plantry.Inventory.Application
 @*
     Lot escape-hatch panel (P4-5, J3).
-    Rendered by WalkModel.OnGetLotsAsync into the .take-stock-lot-panel placeholder beneath a count row.
+    Rendered by WalkModel.OnGetLotsAsync into the lot-panel-{productId} placeholder beneath a count row.
     Alpine component: takeStockLotPanel — tracks per-lot reduce inputs, spoiled toggle, and the
     "add found stock" form; POSTs to /SaveLots on submit.
 *@
-<div class="take-stock-lot-panel"
+<div class="ts-hatch"
      x-data='takeStockLotPanel(@Html.Raw(BuildLotJson(Model)))'
      x-init="init()">
 
-    <div class="take-stock-lot-panel__header">
-        <span class="take-stock-lot-panel__title">Lots</span>
-        <button type="button" class="btn btn--ghost btn--sm take-stock-lot-panel__collapse"
+    <div class="ts-hatch-head">
+        <svg class="icon" aria-hidden="true"><use href="#i-box" /></svg>
+        Individual lots — adjust each instead of one total
+        <span class="spacer"></span>
+        <button type="button" class="ts-retry"
                 x-on:click="$dispatch('collapse-lots', { productId: '@Model.ProductId' })"
-                aria-label="Collapse lot list">
-            Collapse
-        </button>
+                aria-label="Collapse lot list">Collapse</button>
     </div>
 
     @if (Model.Lots.Count == 0)
     {
-        <p class="empty-state take-stock-lot-panel__empty">No active lots in this location.</p>
+        <p class="ts-hatch-status">No active lots in this location.</p>
     }
     else
     {
-        <ul class="take-stock-lot-panel__lots" role="list">
-            @foreach (var lot in Model.Lots)
-            {
-                var eid = lot.EntryId.ToString();
-                <li class="take-stock-lot-panel__lot"
-                    :class="{ 'take-stock-lot-panel__lot--failed': lots['@eid']?.failed }">
-
-                    <div class="take-stock-lot-panel__lot-info">
-                        <span class="take-stock-lot-panel__lot-qty">
-                            @lot.Quantity.ToString("0.###") @lot.UnitCode
-                        </span>
+        @foreach (var lot in Model.Lots)
+        {
+            var eid = lot.EntryId.ToString();
+            <div class="ts-lot" :class="{ failed: lots['@eid']?.failed }">
+                <div class="ts-lot-top">
+                    <div class="ts-lot-qty">
+                        <input type="number" min="0" step="any"
+                               :value="lots['@eid']?.amount ?? 0"
+                               x-on:input="setLotAmount('@eid', $event.target.value)"
+                               aria-label="Amount to reduce for this lot" />
+                        <span class="lq-unit">@lot.UnitCode</span>
+                    </div>
+                    <div class="ts-lot-meta">
                         @if (lot.ExpiryDate is { } exp)
                         {
-                            <span class="take-stock-lot-panel__lot-expiry">
-                                Expires @exp.ToString("d MMM yyyy")
+                            <span class="ts-lot-exp">
+                                <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
+                                @lot.Quantity.ToString("0.###") @lot.UnitCode · Expires @exp.ToString("d MMM yyyy")
                             </span>
                         }
                         else
                         {
-                            <span class="take-stock-lot-panel__lot-expiry take-stock-lot-panel__lot-expiry--none">
-                                No expiry
+                            <span class="ts-lot-exp none">
+                                <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
+                                @lot.Quantity.ToString("0.###") @lot.UnitCode · No expiry
                             </span>
                         }
-                    </div>
-
-                    <div class="take-stock-lot-panel__lot-controls">
-                        <label class="take-stock-lot-panel__lot-qty-label" for="lot-qty-@eid">
-                            Reduce by
+                        <label class="ts-lot-spoiled">
+                            <input type="checkbox"
+                                   :checked="lots['@eid']?.spoiled ?? false"
+                                   x-on:change="setSpoiled('@eid', $event.target.checked)" />
+                            Spoiled (discard)
                         </label>
-                        <input type="number"
-                               id="lot-qty-@eid"
-                               class="take-stock-lot-panel__lot-qty-input input"
-                               min="0"
-                               step="any"
-                               :value="lots['@eid']?.amount ?? 0"
-                               x-on:input="setLotAmount('@eid', $event.target.value)"
-                               aria-label="Amount to reduce for lot @eid" />
-                        <span class="take-stock-lot-panel__lot-unit">@lot.UnitCode</span>
                     </div>
-
-                    @* Spoiled toggle — Discarded reason (C9) *@
-                    <label class="take-stock-lot-panel__spoiled">
-                        <input type="checkbox"
-                               :checked="lots['@eid']?.spoiled ?? false"
-                               x-on:change="setSpoiled('@eid', $event.target.checked)" />
-                        <span>Spoiled (discard)</span>
-                    </label>
-
-                    <span class="take-stock-lot-panel__lot-fail"
-                          x-show="lots['@eid']?.failed"
-                          x-text="lots['@eid']?.failMsg ?? ''"
-                          role="alert"></span>
-                </li>
-            }
-        </ul>
+                </div>
+                <span class="ts-lot-fail"
+                      x-show="lots['@eid']?.failed"
+                      x-text="lots['@eid']?.failMsg ?? ''"
+                      role="alert"></span>
+            </div>
+        }
     }
 
-    @* Add found stock form *@
-    <details class="take-stock-lot-panel__found" x-ref="foundDetails">
-        <summary class="take-stock-lot-panel__found-summary">+ Add found stock</summary>
-        <div class="take-stock-lot-panel__found-fields">
-            <label class="take-stock-lot-panel__found-label" for="found-qty-@Model.ProductId">
-                Quantity found
-            </label>
-            <input type="number"
-                   id="found-qty-@Model.ProductId"
-                   class="input take-stock-lot-panel__found-qty"
-                   min="0.001"
-                   step="any"
-                   x-model.number="found.amount"
-                   aria-label="Quantity of found stock to add" />
-            <span class="take-stock-lot-panel__found-unit">
-                @(Model.Lots.FirstOrDefault()?.UnitCode ?? "")
-            </span>
-            <input type="hidden" x-bind:value="found.unitId" />
-
-            <label class="take-stock-lot-panel__found-label" for="found-expiry-@Model.ProductId">
-                Expiry date <span class="take-stock-lot-panel__optional">(optional)</span>
-            </label>
-            <input type="date"
-                   id="found-expiry-@Model.ProductId"
-                   class="input take-stock-lot-panel__found-expiry"
+    @* Add found stock — opening-balance Correction lot *@
+    <div class="ts-lot found">
+        <div class="ts-lot-top">
+            <span class="found-tag">Found stock</span>
+            <div class="ts-lot-qty">
+                <input type="number" min="0" step="any"
+                       x-model.number="found.amount"
+                       aria-label="Quantity of found stock to add" />
+                <span class="lq-unit">@(Model.Lots.FirstOrDefault()?.UnitCode ?? "")</span>
+            </div>
+            <input type="date" class="ts-date-input"
                    x-model="found.expiryDate"
                    aria-label="Expiry date for found stock" />
+            <input type="hidden" x-bind:value="found.unitId" />
         </div>
-    </details>
+    </div>
 
     @* Save / status row *@
-    <div class="take-stock-lot-panel__actions">
+    <div class="ts-hatch-foot">
         <button type="button"
                 class="btn btn--primary btn--sm"
                 :disabled="saving || !isDirty()"
-                x-text="saving ? 'Saving…' : 'Save lot changes'"
                 x-on:click="save('@Url.Page("./Walk", "SaveLots", new { locationId = Model.LocationId, productId = Model.ProductId })')">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            <span x-text="saving ? 'Saving…' : 'Save lot changes'"></span>
         </button>
-        <span class="take-stock-lot-panel__status"
-              x-text="status ?? ''"
-              role="status"
-              aria-live="polite"></span>
+        <span class="ts-hatch-status" x-text="status ?? ''" role="status" aria-live="polite"></span>
     </div>
 </div>
 

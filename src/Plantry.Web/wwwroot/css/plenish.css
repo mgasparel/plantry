@@ -26,6 +26,10 @@
   --color-surface-2:   #f3eee2;
   --color-border:      #e4ddcc;
   --color-border-subtle: #ece5d4;
+  /* Darker hairline for input/control borders (proto --line-strong).
+     Defined once via color-mix on the themed border + text so it
+     auto-recomputes for the market/slate themes below. */
+  --color-border-strong: color-mix(in srgb, var(--color-border) 82%, var(--color-text));
 
   --color-text:        #2b2b28;
   --color-text-muted:  #6d685d;
@@ -5001,380 +5005,242 @@ button.sadd svg { width: 13px; height: 13px; }
   color: var(--color-text);
 }
 
-/* ── Take Stock walk page (P4-4b) ──────────────────────────────────────────── */
+/* ===========================================================================
+   Take Stock — location picker (J1), walk (J2), lot hatch (J3), save bar (J4),
+   add-item trigger (J5), no-location (J7). Ported from the design prototype
+   (take-stock.css), translated onto the app's --color-* / --space-* tokens.
+   Reuses the shared .stepper, .cat-chip, .btn and _ProductSearchCreateSheet
+   primitives — only Take-Stock-specific structure lives here.
+   =========================================================================== */
 
-/* Row list */
-.take-stock-rows {
-  list-style: none;
-  margin: 0 0 var(--space-5);
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+/* ---- shared page frame -------------------------------------------------- */
+.ts-wrap { max-width: 1080px; margin: 0 auto; padding-bottom: 120px; }
+.ts-head { margin-bottom: var(--space-6); }
+.ts-eyebrow {
+  display: inline-flex; align-items: center; gap: 7px; margin-bottom: var(--space-3);
+  font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--color-accent); background: var(--color-accent-subtle); border-radius: 999px; padding: 5px 11px;
 }
+.ts-eyebrow .icon { width: 13px; height: 13px; }
+.ts-head h1 { font-size: 1.875rem; letter-spacing: -0.025em; margin: 0 0 7px; font-weight: 700; color: var(--color-text); }
+.ts-head p { margin: 0; color: var(--color-text-muted); font-size: 0.9375rem; max-width: 62ch; }
 
-/* Individual product row */
-.take-stock-row {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  transition: border-color 0.15s;
+/* ---- J1: location picker ------------------------------------------------ */
+.ts-loc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
+.ts-loc-card {
+  display: flex; align-items: center; gap: var(--space-4); text-align: left;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  padding: var(--space-5); transition: border-color .14s, box-shadow .14s, transform .08s;
+  width: 100%; font: inherit; color: inherit; box-shadow: var(--shadow-card); text-decoration: none;
 }
-.take-stock-row--dirty {
-  border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-subtle) 60%, var(--color-surface));
+.ts-loc-card:hover { border-color: var(--color-accent); box-shadow: var(--shadow-lg); text-decoration: none; }
+.ts-loc-card:active { transform: translateY(1px); }
+.ts-loc-ico {
+  width: 52px; height: 52px; flex: none; border-radius: 13px;
+  display: grid; place-items: center; background: var(--color-accent-subtle); color: var(--color-accent);
 }
-.take-stock-row--failed {
-  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
-  background: color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface));
-}
+.ts-loc-ico .icon { width: 24px; height: 24px; }
+.ts-loc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ts-loc-name { font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; color: var(--color-text); }
+.ts-loc-sub { font-size: 0.8125rem; color: var(--color-text-muted); margin-top: 3px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.ts-loc-sub .tdot { width: 4px; height: 4px; border-radius: 50%; background: var(--color-text-faint); }
+.ts-loc-count { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; text-align: right; }
+.ts-loc-count .n { font-size: 1.625rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.ts-loc-count .l { font-size: 0.6875rem; color: var(--color-text-faint); }
+.ts-loc-card .ts-chev { color: var(--color-text-faint); flex: none; transition: transform .12s, color .12s; width: 18px; height: 18px; }
+.ts-loc-card:hover .ts-chev { color: var(--color-accent); transform: translateX(2px); }
 
-/* Row — info section */
-.take-stock-row__info {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-3);
-}
-.take-stock-row__name {
-  font-weight: 600;
-  color: var(--color-text);
-  font-size: 0.9375rem;
-}
-.take-stock-row__recorded {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-.take-stock-row__fail-msg {
-  width: 100%;
-  font-size: var(--font-size-sm);
-  color: var(--color-danger);
-  font-weight: 500;
-}
+/* "No location" card variant */
+.ts-loc-card.unplaced { border-style: dashed; background: var(--color-surface-2); box-shadow: none; grid-column: 1 / -1; }
+.ts-loc-card.unplaced .ts-loc-ico { background: var(--color-warning-bg); color: var(--color-warning); }
 
-/* Row — controls section */
-.take-stock-row__controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+/* empty / onboarding states */
+.ts-empty {
+  text-align: center; max-width: 460px; margin: var(--space-8) auto; padding: 46px 30px;
+  border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); background: var(--color-surface);
 }
-.take-stock-row__unit {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  font-weight: 500;
+.ts-empty .em-mark {
+  width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 18px;
+  display: grid; place-items: center; background: var(--color-accent-subtle); color: var(--color-accent);
 }
-.take-stock-row__none-left {
-  margin-left: auto;
-  color: var(--color-text-muted);
-}
-.take-stock-row__none-left:hover {
-  color: var(--color-danger);
-  background: var(--color-danger-bg);
-  border-color: transparent;
-}
+.ts-empty .em-mark .icon { width: 26px; height: 26px; }
+.ts-empty h3 { margin: 0 0 8px; font-size: 1.25rem; letter-spacing: -0.01em; color: var(--color-text); }
+.ts-empty p { margin: 0 0 20px; color: var(--color-text-muted); font-size: 0.90625rem; }
 
-/* Row — reason selector */
-.take-stock-row__reason {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border);
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+.ts-onboard {
+  display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-5);
+  padding: 18px 20px; border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-cook) 14%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-cook) 28%, transparent);
 }
-.take-stock-row__reason-label {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  font-weight: 500;
-  white-space: nowrap;
-}
+.ts-onboard .ob-ico { width: 42px; height: 42px; flex: none; border-radius: 11px; display: grid; place-items: center; background: var(--color-cook); color: #fff; }
+.ts-onboard .ob-body { flex: 1; min-width: 0; }
+.ts-onboard .ob-title { font-weight: 700; font-size: 0.9375rem; color: var(--color-text); }
+.ts-onboard .ob-sub { font-size: 0.8125rem; color: var(--color-text-muted); margin-top: 2px; }
 
-/* Sticky save bar — floats at the bottom of the viewport when rows are dirty */
-.take-stock-savebar {
-  position: sticky;
-  bottom: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border-top: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-border));
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 -8px 24px -16px rgba(43, 43, 40, 0.45);
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  animation: barup 0.24s cubic-bezier(0.34, 1.1, 0.64, 1);
+/* ---- J2: walk header --------------------------------------------------- */
+.ts-walk-head {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding-bottom: var(--space-4); margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
 }
-.take-stock-savebar__count {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--color-text-muted);
+.ts-back {
+  display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; flex: none;
+  border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted);
+  border-radius: var(--radius-md); font-weight: 600; font-size: 0.84375rem; white-space: nowrap; text-decoration: none;
 }
+.ts-back:hover { background: var(--color-surface-2); color: var(--color-text); text-decoration: none; }
+.ts-back .icon { width: 15px; height: 15px; transform: rotate(180deg); }
+.ts-walk-title { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.ts-walk-title .wt-ico { width: 40px; height: 40px; flex: none; border-radius: 11px; display: grid; place-items: center; background: var(--color-accent-subtle); color: var(--color-accent); }
+.ts-walk-title .wt-ico .icon { width: 20px; height: 20px; }
+.ts-walk-title h1, .ts-walk-title h2 { margin: 0; font-size: 1.25rem; letter-spacing: -0.02em; color: var(--color-text); }
+.ts-walk-title .sub { font-size: 0.78125rem; color: var(--color-text-faint); }
+.ts-walk-head .spacer { flex: 1; }
 
-/* Toast notification */
-.take-stock-toast {
-  position: fixed;
-  bottom: var(--space-6);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
-  padding: var(--space-3) var(--space-5);
-  background: var(--color-text);
-  color: var(--color-text-on-accent);
-  border-radius: 999px;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(43, 43, 40, 0.35);
-  cursor: pointer;
-  animation: fadein 0.2s ease;
-}
+.ts-walk-inner { max-width: 880px; margin: 0 auto; padding-bottom: 120px; }
+.ts-walk-intro { display: flex; align-items: flex-start; gap: var(--space-3); margin-bottom: 18px; font-size: 0.84375rem; color: var(--color-text-muted); }
+.ts-walk-intro .icon { color: var(--color-accent); flex: none; margin-top: 1px; width: 17px; height: 17px; }
 
-/* ── Take Stock: lot escape-hatch (P4-5) ─────────────────────────────────── */
+/* ---- walk row ---------------------------------------------------------- */
+.ts-rows { display: flex; flex-direction: column; gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
+.ts-row {
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  transition: border-color .14s, box-shadow .14s; overflow: hidden;
+}
+.ts-row.changed { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent-subtle), var(--shadow-card); }
+.ts-row.saved { border-left: 3px solid var(--color-success); }
+.ts-row.errored { border-left: 3px solid var(--color-danger); }
+.ts-row.zero:not(.changed) { opacity: .92; }
+.ts-row.needsloc { border-left: 3px solid var(--color-cook); }
+.ts-row-main { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); }
 
-/* "Adjust lots" expand button — sits below the reason selector on a count row */
-.take-stock-row__lots-btn {
-  margin-top: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-.take-stock-row__lots-btn:hover {
-  color: var(--color-accent);
-}
+.ts-id { flex: 1; min-width: 0; }
+.ts-name { font-weight: 600; font-size: 0.9375rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: 9px; color: var(--color-text); }
+.ts-name .nm-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-changed-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-accent); flex: none; }
+.ts-recorded { font-size: 0.78125rem; color: var(--color-text-faint); margin-top: 3px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.ts-recorded b { color: var(--color-text-muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ts-recorded .new-tag { color: var(--color-cook); font-weight: 700; font-size: 0.6875rem; letter-spacing: .03em; text-transform: uppercase; }
+.ts-row-source { font-size: 0.71875rem; color: var(--color-text-faint); font-style: italic; }
 
-/* Lot panel host — rendered below the expand button */
-.take-stock-row__lot-panel {
-  margin-top: var(--space-3);
+/* count control cluster — wraps the shared <stepper> primitive */
+.ts-count { display: flex; align-items: center; gap: 9px; flex: none; }
+.ts-unit { font-size: 0.8125rem; color: var(--color-text-muted); font-weight: 600; }
+.ts-none-btn {
+  border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted);
+  border-radius: var(--radius-md); padding: 8px 11px; font-size: 0.78125rem; font-weight: 600; white-space: nowrap;
+  transition: all .12s; cursor: pointer;
 }
+.ts-none-btn:hover, .ts-none-btn.on { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
+.ts-expand {
+  width: 34px; height: 34px; flex: none; border-radius: var(--radius-md); display: grid; place-items: center;
+  border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted); cursor: pointer;
+}
+.ts-expand:hover { background: var(--color-surface-2); color: var(--color-text); }
+.ts-expand.open { background: var(--color-accent-subtle); color: var(--color-accent); border-color: transparent; }
+.ts-expand .icon { width: 16px; height: 16px; transition: transform .18s; }
+.ts-expand.open .icon { transform: rotate(180deg); }
 
-/* Lot panel container */
-.take-stock-lot-panel {
-  background: color-mix(in srgb, var(--color-surface-2) 60%, var(--color-surface));
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
+/* delta hint pill on a changed row */
+.ts-delta { display: flex; align-items: center; gap: 7px; padding: 9px var(--space-4); border-top: 1px dashed var(--color-border); font-size: 0.78125rem; color: var(--color-text-muted); }
+.ts-delta .dpill { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 2px 8px; border-radius: 999px; }
+.ts-delta .dpill .icon { width: 12px; height: 12px; }
+.ts-delta .dpill.down { background: var(--color-danger-bg); color: var(--color-danger); }
+.ts-delta .dpill.up { background: var(--color-success-bg); color: var(--color-success); }
+.ts-loc-warn { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 600; color: var(--color-cook); }
+.ts-loc-warn .icon { width: 13px; height: 13px; }
 
-.take-stock-lot-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+/* reason selector — appears when count < recorded */
+.ts-reason { display: flex; align-items: center; gap: 11px; padding: 12px var(--space-4) 14px; border-top: 1px solid var(--color-border); background: var(--color-surface-2); flex-wrap: wrap; }
+.ts-reason-lbl { font-size: 0.78125rem; font-weight: 600; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 7px; }
+.ts-reason-lbl .icon { width: 14px; height: 14px; }
+.ts-reason-opts { display: flex; gap: 8px; flex-wrap: wrap; }
+.ts-reason-opt {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; white-space: nowrap;
+  border-radius: 999px; border: 1px solid var(--color-border-strong); background: var(--color-surface);
+  font-size: 0.8125rem; font-weight: 600; color: var(--color-text-muted); transition: all .12s; cursor: pointer;
 }
+.ts-reason-opt:hover { border-color: var(--color-accent); color: var(--color-text); }
+.ts-reason-opt .rdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ts-reason-opt.correction .rdot { background: var(--color-text-faint); }
+.ts-reason-opt.consumed .rdot { background: var(--color-accent); }
+.ts-reason-opt.discarded .rdot { background: var(--color-danger); }
+.ts-reason-opt.sel { border-color: transparent; color: #fff; }
+.ts-reason-opt.sel.correction { background: var(--color-text-muted); }
+.ts-reason-opt.sel.consumed { background: var(--color-accent); }
+.ts-reason-opt.sel.discarded { background: var(--color-danger); }
+.ts-reason-opt.sel .rdot { background: rgba(255,255,255,.92); }
 
-.take-stock-lot-panel__title {
-  font-weight: 600;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
+/* inline save error */
+.ts-row-err { display: flex; align-items: center; gap: 10px; padding: 11px var(--space-4); border-top: 1px solid var(--color-border); background: var(--color-danger-bg); color: var(--color-danger); font-size: 0.8125rem; font-weight: 600; }
+.ts-row-err .icon { width: 15px; height: 15px; flex: none; }
+.ts-row-err .spacer { flex: 1; }
+.ts-retry { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: var(--radius-md); padding: 5px 11px; font-size: 0.78125rem; font-weight: 700; cursor: pointer; }
+.ts-retry:hover { background: var(--color-danger); color: #fff; border-color: var(--color-danger); }
 
-.take-stock-lot-panel__empty {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  text-align: center;
-  padding: var(--space-3) 0;
+/* ---- J3: lot hatch ----------------------------------------------------- */
+.ts-hatch { border-top: 1px solid var(--color-border); background: var(--color-surface-2); padding: 14px var(--space-4) 16px; }
+.ts-hatch-head { font-size: 0.71875rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-faint); margin-bottom: 11px; display: flex; align-items: center; gap: 8px; }
+.ts-hatch-head .spacer { flex: 1; }
+.ts-hatch-head .icon { width: 13px; height: 13px; }
+.ts-lot { display: flex; flex-direction: column; gap: 9px; padding: 11px 0; border-top: 1px solid var(--color-border); list-style: none; }
+.ts-lot:first-of-type { border-top: none; }
+.ts-lot.failed { border-left: 2px solid var(--color-danger); padding-left: 8px; margin-left: -10px; }
+.ts-lot-top { display: flex; align-items: center; gap: 12px; }
+.ts-lot-qty { display: flex; align-items: stretch; }
+.ts-lot-qty input {
+  width: 64px; border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text);
+  font: inherit; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-md) 0 0 var(--radius-md); padding: 7px 4px; -moz-appearance: textfield;
 }
+.ts-lot-qty input::-webkit-outer-spin-button, .ts-lot-qty input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ts-lot-qty .lq-unit { display: inline-flex; align-items: center; padding: 0 10px; font-size: 0.78125rem; font-weight: 600; color: var(--color-text-faint); background: var(--color-bg-subtle); border: 1px solid var(--color-border-strong); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.ts-lot-meta { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; }
+.ts-lot-exp { font-size: 0.78125rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.ts-lot-exp.none { font-style: italic; color: var(--color-text-faint); }
+.ts-lot-exp .icon { width: 13px; height: 13px; }
+.ts-lot-spoiled { display: inline-flex; align-items: center; gap: 7px; font-size: 0.78125rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; white-space: nowrap; }
+.ts-lot-fail { font-size: 0.78125rem; color: var(--color-danger); font-weight: 600; }
+.ts-date-input { border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted); font: inherit; font-size: 0.78125rem; border-radius: var(--radius-md); padding: 6px 9px; }
+.ts-lot.found { background: var(--color-success-bg); margin: 6px -8px 0; padding: 11px 8px; border-radius: var(--radius-md); border-top: none; }
+.ts-lot .found-tag { font-size: 0.625rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-success); }
+.ts-hatch-foot { display: flex; align-items: center; gap: 12px; margin-top: 13px; }
+.ts-add-lot { display: inline-flex; align-items: center; gap: 7px; background: none; border: 1px dashed var(--color-border-strong); color: var(--color-text-muted); border-radius: var(--radius-md); padding: 8px 12px; font-weight: 600; font-size: 0.8125rem; cursor: pointer; }
+.ts-add-lot:hover { border-color: var(--color-success); color: var(--color-success); background: var(--color-success-bg); }
+.ts-add-lot .icon { width: 14px; height: 14px; }
+.ts-hatch-sum { margin-left: auto; font-size: 0.78125rem; color: var(--color-text-muted); }
+.ts-hatch-sum b { color: var(--color-text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ts-hatch-status { font-size: 0.78125rem; color: var(--color-text-muted); }
 
-/* Lot list */
-.take-stock-lot-panel__lots {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
+/* add-item row trigger */
+.ts-add-item { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: var(--space-3); width: 100%; background: none; border: 1.5px dashed var(--color-border-strong); color: var(--color-text-muted); border-radius: var(--radius-lg); padding: 14px; font-weight: 600; font-size: 0.875rem; cursor: pointer; }
+.ts-add-item:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-subtle); }
+.ts-add-item .icon { width: 17px; height: 17px; }
 
-.take-stock-lot-panel__lot {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
+/* ---- J7: per-row location picker (no-location walk) -------------------- */
+.ts-locpick { display: flex; align-items: center; gap: 8px; flex: none; }
+.ts-locpick select { font: inherit; font-size: 0.84375rem; font-weight: 600; color: var(--color-text); border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-md); padding: 9px 11px; min-width: 140px; }
+.ts-locpick select.unset { color: var(--color-text-faint); border-color: var(--color-cook); background: color-mix(in srgb, var(--color-cook) 14%, var(--color-surface)); }
 
-.take-stock-lot-panel__lot--failed {
-  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
+/* ---- J4: sticky save bar ----------------------------------------------- */
+.ts-savebar {
+  position: sticky; bottom: 0; z-index: 20;
+  display: flex; align-items: center; gap: var(--space-4); padding: 14px var(--space-5);
+  border-top: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  backdrop-filter: blur(10px); border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
+.ts-savebar .sb-summary { font-size: 0.875rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 10px; }
+.ts-savebar .sb-summary b { color: var(--color-text); font-weight: 700; }
+.ts-savebar .spacer { flex: 1; }
+.ts-pending-badge { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--color-accent); color: var(--color-text-on-accent); font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ts-pending-badge.zero { background: var(--color-bg-subtle); color: var(--color-text-faint); }
 
-.take-stock-lot-panel__lot-info {
-  display: flex;
-  gap: var(--space-3);
-  align-items: baseline;
-  flex-wrap: wrap;
-}
+/* toast */
+.ts-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; z-index: 70; display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: var(--color-text); color: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+.ts-toast .icon { color: var(--color-success); width: 16px; height: 16px; }
 
-.take-stock-lot-panel__lot-qty {
-  font-weight: 600;
-  font-size: 0.9375rem;
-}
-
-.take-stock-lot-panel__lot-expiry {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-.take-stock-lot-panel__lot-expiry--none {
-  font-style: italic;
-}
-
-.take-stock-lot-panel__lot-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.take-stock-lot-panel__lot-qty-label {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.take-stock-lot-panel__lot-qty-input {
-  width: 6rem;
-}
-
-.take-stock-lot-panel__lot-unit {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.take-stock-lot-panel__spoiled {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.take-stock-lot-panel__lot-fail {
-  font-size: var(--font-size-sm);
-  color: var(--color-danger);
-  font-weight: 500;
-}
-
-/* Found stock */
-.take-stock-lot-panel__found {
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-3);
-}
-
-.take-stock-lot-panel__found-summary {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--color-accent);
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
-}
-
-.take-stock-lot-panel__found-fields {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-.take-stock-lot-panel__found-label {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.take-stock-lot-panel__found-qty {
-  width: 8rem;
-}
-
-.take-stock-lot-panel__found-unit {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  font-weight: 500;
-  margin-left: var(--space-1);
-}
-
-.take-stock-lot-panel__found-expiry {
-  width: 12rem;
-}
-
-.take-stock-lot-panel__optional {
-  font-size: var(--font-size-xs, 0.75rem);
-  color: var(--color-text-muted);
-  font-weight: 400;
-}
-
-/* Actions row */
-.take-stock-lot-panel__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--color-border);
-}
-
-.take-stock-lot-panel__status {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-/* ── Take Stock — "No location" section (P4-8) ───────────────────────────────── */
-
-/* Location-list "No location" entry — visually distinct from named locations */
-.catalog-list__item--no-location .catalog-list__primary {
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-.catalog-list__badge {
-  font-size: var(--font-size-xs, 0.75rem);
-  color: var(--color-text-muted);
-  background: color-mix(in srgb, var(--color-accent-subtle) 60%, var(--color-surface));
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 0.1em 0.45em;
-  white-space: nowrap;
-}
-
-/* Intro text on the no-location walk page */
-.take-stock-no-location__intro {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  margin-bottom: var(--space-4);
-}
-
-/* Location picker row within each card */
-.take-stock-no-location__picker {
-  margin-top: var(--space-3);
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-.take-stock-no-location__picker-label {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--color-text);
-  white-space: nowrap;
-  min-width: 6rem;
-}
-.take-stock-no-location__picker-select {
-  flex: 1;
-  min-width: 10rem;
-}
-.take-stock-no-location__required {
-  color: var(--color-danger);
+@media (max-width: 720px) {
+  .ts-loc-grid { grid-template-columns: 1fr; }
+  .ts-row-main { flex-wrap: wrap; }
 }

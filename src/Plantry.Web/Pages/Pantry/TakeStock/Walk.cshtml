@@ -38,174 +38,233 @@
 
     @Html.AntiForgeryToken()
 
-    <div class="page-header">
-        <a href="/pantry/take-stock" class="btn btn--ghost btn--sm">&larr; Locations</a>
-        <h1 class="page-header__title">@(Model.LocationName ?? "Take Stock")</h1>
-        @* + Add item button (P4-7, J5) — opens the inline-add sheet *@
-        <button type="button" class="btn btn--secondary btn--sm take-stock-add-item"
-                x-on:click="openAdd()"
+    @* ── Walk header (J2) — back, location title, live product count *@
+    <div class="ts-walk-head">
+        <a href="/pantry/take-stock" class="ts-back">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg> Locations
+        </a>
+        <div class="ts-walk-title">
+            <span class="wt-ico"><svg class="icon" aria-hidden="true"><use href="#i-location" /></svg></span>
+            <div>
+                <h1>@(Model.LocationName ?? "Take Stock")</h1>
+                <div class="sub" x-text="Object.keys(rows).length + ' product' + (Object.keys(rows).length === 1 ? '' : 's') + ' here'"></div>
+            </div>
+        </div>
+        <div class="spacer"></div>
+    </div>
+
+    <div class="ts-walk-inner">
+        <div class="ts-walk-intro">
+            <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg>
+            <span>Counts are pre-filled to what Plantry has on record. Change only what's different — untouched rows are left alone.</span>
+        </div>
+
+        @if (Model.Rows.Count == 0)
+        {
+            <div class="ts-empty">
+                <div class="em-mark"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></div>
+                <h3>Nothing here yet</h3>
+                <p>Add the items on this shelf to start tracking them.</p>
+            </div>
+        }
+        else
+        {
+            <ul class="ts-rows" role="list">
+                @foreach (var row in Model.Rows)
+                {
+                    var pid = row.ProductId.ToString();
+                    var recorded = row.RecordedQuantity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                    <li class="ts-row"
+                        :class="{ changed: rows['@pid']?.dirty, errored: rows['@pid']?.failed }">
+
+                        <div class="ts-row-main">
+                            <div class="ts-id">
+                                <div class="ts-name">
+                                    <span class="ts-changed-dot" x-show="rows['@pid']?.dirty" x-cloak></span>
+                                    <span class="nm-text">@row.ProductName</span>
+                                </div>
+                                <div class="ts-recorded">
+                                    Plantry has <b>@row.RecordedQuantity.ToString("0.###") @row.DisplayUnitCode</b> on record
+                                </div>
+                            </div>
+
+                            <div class="ts-count">
+                                @* Count stepper with the canonical <stepper> tag helper *@
+                                <stepper
+                                    name=""
+                                    value-bind="rows['@pid']?.counted ?? @recorded"
+                                    input-handler="setCount('@pid', $event.target.value)"
+                                    decrease-click="setCount('@pid', Math.max(0, parseFloat(rows['@pid']?.counted ?? @recorded) - 1))"
+                                    increase-click="setCount('@pid', parseFloat(rows['@pid']?.counted ?? @recorded) + 1)"
+                                    decrease-label="Decrease count for @row.ProductName"
+                                    increase-label="Increase count for @row.ProductName"
+                                    input-label="Count for @row.ProductName" />
+
+                                <span class="ts-unit">@row.DisplayUnitCode</span>
+
+                                @* One-tap "none left" (J2 step 4) *@
+                                <button type="button"
+                                        class="ts-none-btn"
+                                        :class="{ on: (rows['@pid']?.counted ?? @recorded) <= 0 }"
+                                        x-on:click="setNoneLeft('@pid')"
+                                        aria-label="None left — set @row.ProductName to zero">
+                                    None left
+                                </button>
+
+                                @* Lot escape-hatch toggle (P4-5, J3) — only for rows with active stock *@
+                                @if (row.HasActiveStock)
+                                {
+                                    <button type="button"
+                                            class="ts-expand"
+                                            :class="{ open: expandedLots['@pid'] }"
+                                            x-on:click="expandedLots['@pid'] ? collapseLotsPanel('@pid') : expandLots('@pid', '@Url.Page("./Walk", "Lots", new { locationId = Model.LocationId, productId = row.ProductId })')"
+                                            aria-label="Show lots for @row.ProductName"
+                                            aria-controls="lot-panel-@pid">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        @* Delta hint pill on a changed row *@
+                        <div class="ts-delta" x-show="rows['@pid']?.dirty && !rows['@pid']?.failed" x-cloak>
+                            <span class="dpill down" x-show="(rows['@pid']?.counted ?? 0) < (rows['@pid']?.recorded ?? 0)">
+                                <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                <span x-text="Math.abs((rows['@pid']?.counted ?? 0) - (rows['@pid']?.recorded ?? 0))"></span> @row.DisplayUnitCode
+                            </span>
+                            <span class="dpill up" x-show="(rows['@pid']?.counted ?? 0) > (rows['@pid']?.recorded ?? 0)">
+                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                <span x-text="Math.abs((rows['@pid']?.counted ?? 0) - (rows['@pid']?.recorded ?? 0))"></span> @row.DisplayUnitCode
+                            </span>
+                            <span x-text="(rows['@pid']?.counted ?? 0) < (rows['@pid']?.recorded ?? 0) ? 'will be removed from stock' : 'added to stock'"></span>
+                        </div>
+
+                        @* Reason selector (C9) — visible only when the row goes downward-dirty *@
+                        <div class="ts-reason" x-show="isDown('@pid')" x-cloak
+                             role="group" aria-label="Reason for @row.ProductName count change">
+                            <span class="ts-reason-lbl"><svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg> Why the drop?</span>
+                            <div class="ts-reason-opts">
+                                <button type="button" class="ts-reason-opt correction"
+                                        :class="{ sel: rows['@pid']?.reason === 'Correction' }"
+                                        x-on:click="setReason('@pid', 'Correction')">
+                                    <span class="rdot"></span> Correction
+                                </button>
+                                <button type="button" class="ts-reason-opt consumed"
+                                        :class="{ sel: rows['@pid']?.reason === 'Consumed' }"
+                                        x-on:click="setReason('@pid', 'Consumed')">
+                                    <span class="rdot"></span> Used it
+                                </button>
+                                <button type="button" class="ts-reason-opt discarded"
+                                        :class="{ sel: rows['@pid']?.reason === 'Discarded' }"
+                                        x-on:click="setReason('@pid', 'Discarded')">
+                                    <span class="rdot"></span> Spoiled
+                                </button>
+                            </div>
+                        </div>
+
+                        @* Lot panel host — loaded via fetch GET /Lots on expand (P4-5, J3) *@
+                        <div id="lot-panel-@pid"
+                             data-product-id="@pid"
+                             x-show="expandedLots['@pid']" x-cloak>
+                        </div>
+
+                        @* Inline save error with retry *@
+                        <div class="ts-row-err" x-show="rows['@pid']?.failed" x-cloak>
+                            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+                            <span x-text="rows['@pid']?.failMsg ?? 'Couldn\'t save'"></span>
+                            <span class="spacer"></span>
+                            <button type="button" class="ts-retry"
+                                    x-on:click="save('@Url.Page("./Walk", "Save", new { locationId = Model.LocationId })')">Retry</button>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+
+        @* ── Dynamically-added rows (P4-7, J5) — rows inserted by the inline-add sheet.
+             These exist only in Alpine state. Tag helpers cannot render inside x-for, so the
+             count stepper is hand-rolled here using the shared .stepper markup. *@
+        <template x-if="newRowKeys().length > 0">
+            <ul class="ts-rows" role="list" aria-label="Added items">
+                <template x-for="pid in newRowKeys()" :key="pid">
+                    <li class="ts-row"
+                        :class="{ changed: rows[pid]?.dirty, errored: rows[pid]?.failed }">
+
+                        <div class="ts-row-main">
+                            <div class="ts-id">
+                                <div class="ts-name">
+                                    <span class="ts-changed-dot" x-show="rows[pid]?.dirty" x-cloak></span>
+                                    <span class="nm-text" x-text="rows[pid]?.productName ?? '(new item)'"></span>
+                                </div>
+                                <div class="ts-recorded">
+                                    <span class="new-tag">New here</span>
+                                    <span>· not stocked at this location yet</span>
+                                </div>
+                            </div>
+
+                            <div class="ts-count">
+                                <div class="stepper" role="group">
+                                    <button type="button" class="stepper__btn"
+                                            x-on:click="setCount(pid, Math.max(0, (parseFloat(rows[pid]?.counted ?? 0) || 0) - 1))"
+                                            aria-label="Decrease count">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                    </button>
+                                    <input class="stepper__val" type="number" min="0" step="any"
+                                           :value="rows[pid]?.counted ?? 0"
+                                           :aria-label="'Count for ' + (rows[pid]?.productName ?? 'new item')"
+                                           x-on:input="setCount(pid, $event.target.value)" />
+                                    <button type="button" class="stepper__btn"
+                                            x-on:click="setCount(pid, (parseFloat(rows[pid]?.counted ?? 0) || 0) + 1)"
+                                            aria-label="Increase count">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                    </button>
+                                </div>
+                                <span class="ts-unit" x-text="rows[pid]?.unitCode ?? ''"></span>
+                                <button type="button" class="ts-none-btn"
+                                        :class="{ on: (rows[pid]?.counted ?? 0) <= 0 }"
+                                        x-on:click="setNoneLeft(pid)"
+                                        aria-label="None left — set to zero">
+                                    None left
+                                </button>
+                            </div>
+                        </div>
+                    </li>
+                </template>
+            </ul>
+        </template>
+
+        @* Add an item to this location (P4-7, J5) — opens the inline-add sheet *@
+        <button type="button" class="ts-add-item" x-on:click="openAdd()"
                 aria-label="Add a new item to this location">
-            + Add item
+            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Add item
         </button>
     </div>
 
-    @if (Model.Rows.Count == 0)
-    {
-        <p class="empty-state">No items in this location.</p>
-    }
-    else
-    {
-        <ul class="take-stock-rows" role="list">
-            @foreach (var row in Model.Rows)
-            {
-                var pid = row.ProductId.ToString();
-                var recorded = row.RecordedQuantity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-                <li class="take-stock-row"
-                    :class="{ 'take-stock-row--dirty': rows['@pid']?.dirty, 'take-stock-row--failed': rows['@pid']?.failed }">
-
-                    <div class="take-stock-row__info">
-                        <span class="take-stock-row__name">@row.ProductName</span>
-                        <span class="take-stock-row__recorded">
-                            @row.RecordedQuantity.ToString("0.###") @row.DisplayUnitCode recorded
-                        </span>
-                        <span class="take-stock-row__fail-msg"
-                              x-show="rows['@pid']?.failed"
-                              x-text="rows['@pid']?.failMsg ?? ''"
-                              role="alert"></span>
-                    </div>
-
-                    <div class="take-stock-row__controls">
-                        @* Count stepper with the canonical <stepper> tag helper *@
-                        <stepper
-                            name=""
-                            value-bind="rows['@pid']?.counted ?? @recorded"
-                            input-handler="setCount('@pid', $event.target.value)"
-                            decrease-click="setCount('@pid', Math.max(0, parseFloat(rows['@pid']?.counted ?? @recorded) - 1))"
-                            increase-click="setCount('@pid', parseFloat(rows['@pid']?.counted ?? @recorded) + 1)"
-                            decrease-label="Decrease count for @row.ProductName"
-                            increase-label="Increase count for @row.ProductName"
-                            input-label="Count for @row.ProductName" />
-
-                        <span class="take-stock-row__unit">@row.DisplayUnitCode</span>
-
-                        @* One-tap "none left" (J2 step 4) *@
-                        <button type="button"
-                                class="btn btn--ghost btn--sm take-stock-row__none-left"
-                                x-on:click="setNoneLeft('@pid')"
-                                aria-label="None left — set @row.ProductName to zero">
-                            None left
-                        </button>
-                    </div>
-
-                    @* Reason selector (C9) — visible only when the row goes downward-dirty *@
-                    <div class="take-stock-row__reason"
-                         x-show="isDown('@pid')" x-cloak>
-                        <span class="take-stock-row__reason-label">Reason:</span>
-                        <div class="seg-ctrl" role="group" aria-label="Reason for @row.ProductName count change">
-                            <label class="seg-ctrl__item">
-                                <input type="radio" name="reason_@(pid.Replace("-",""))" value="Correction"
-                                       :checked="rows['@pid']?.reason === 'Correction'"
-                                       x-on:change="setReason('@pid', 'Correction')" />
-                                <span>Correction</span>
-                            </label>
-                            <label class="seg-ctrl__item">
-                                <input type="radio" name="reason_@(pid.Replace("-",""))" value="Consumed"
-                                       :checked="rows['@pid']?.reason === 'Consumed'"
-                                       x-on:change="setReason('@pid', 'Consumed')" />
-                                <span>Used it</span>
-                            </label>
-                            <label class="seg-ctrl__item">
-                                <input type="radio" name="reason_@(pid.Replace("-",""))" value="Discarded"
-                                       :checked="rows['@pid']?.reason === 'Discarded'"
-                                       x-on:change="setReason('@pid', 'Discarded')" />
-                                <span>Spoiled</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    @* Lot escape-hatch expand button (P4-5, J3) — only shown for rows with active stock *@
-                    @if (row.HasActiveStock)
-                    {
-                        <button type="button"
-                                class="btn btn--ghost btn--sm take-stock-row__lots-btn"
-                                x-show="!expandedLots['@pid']"
-                                x-on:click="expandLots('@pid', '@Url.Page("./Walk", "Lots", new { locationId = Model.LocationId, productId = row.ProductId })')"
-                                aria-label="Expand lots for @row.ProductName"
-                                aria-controls="lot-panel-@pid">
-                            Adjust lots
-                        </button>
-                    }
-
-                    @* Lot panel host — loaded via htmx GET /Lots on expand (P4-5, J3) *@
-                    <div id="lot-panel-@pid"
-                         class="take-stock-row__lot-panel"
-                         data-product-id="@pid"
-                         x-show="expandedLots['@pid']" x-cloak>
-                    </div>
-                </li>
-            }
-        </ul>
-    }
-
-    @* ── Dynamically-added rows (P4-7, J5) — rows inserted by the inline-add sheet
-         These rows exist only in Alpine state (not in the Razor-rendered HTML).
-         Rendered via x-for over the keys with isNewRow === true.
-         Use a plain number input (not the <stepper> tag helper) since tag helpers cannot be
-         rendered inside Alpine x-for templates at this page level. *@
-    <template x-if="newRowKeys().length > 0">
-        <ul class="take-stock-rows take-stock-rows--added" role="list" aria-label="Added items">
-            <template x-for="pid in newRowKeys()" :key="pid">
-                <li class="take-stock-row"
-                    :class="{ 'take-stock-row--dirty': rows[pid]?.dirty, 'take-stock-row--failed': rows[pid]?.failed }">
-
-                    <div class="take-stock-row__info">
-                        <span class="take-stock-row__name" x-text="rows[pid]?.productName ?? '(new item)'"></span>
-                        <span class="take-stock-row__recorded">
-                            <span x-text="rows[pid]?.recorded ?? 0"></span>&nbsp;<span x-text="rows[pid]?.unitCode ?? ''"></span> recorded
-                        </span>
-                        <span class="take-stock-row__fail-msg"
-                              x-show="rows[pid]?.failed"
-                              x-text="rows[pid]?.failMsg ?? ''"
-                              role="alert"></span>
-                    </div>
-
-                    <div class="take-stock-row__controls">
-                        <input type="number" class="field__input stepper__input" step="any" min="0"
-                               :value="rows[pid]?.counted ?? 0"
-                               :aria-label="'Count for ' + (rows[pid]?.productName ?? 'new item')"
-                               x-on:input="setCount(pid, $event.target.value)" />
-                        <span class="take-stock-row__unit" x-text="rows[pid]?.unitCode ?? ''"></span>
-                        <button type="button"
-                                class="btn btn--ghost btn--sm take-stock-row__none-left"
-                                x-on:click="setNoneLeft(pid)"
-                                aria-label="None left — set to zero">
-                            None left
-                        </button>
-                    </div>
-                </li>
-            </template>
-        </ul>
-    </template>
-
     @* Sticky save bar (J4) — visible when any row is dirty *@
-    <div class="take-stock-savebar" x-show="isDirty()" x-cloak>
-        <span class="take-stock-savebar__count"
-              x-text="dirtyCount() + (dirtyCount() === 1 ? ' unsaved item' : ' unsaved items')"></span>
+    <div class="ts-savebar" x-show="isDirty()" x-cloak>
+        <div class="sb-summary">
+            <span class="ts-pending-badge" x-text="dirtyCount()"></span>
+            <span><b x-text="dirtyCount()"></b> <span x-text="dirtyCount() === 1 ? 'row' : 'rows'"></span> ready to save</span>
+        </div>
+        <div class="spacer"></div>
         <button type="button"
                 class="btn btn--primary"
                 :disabled="saving"
-                x-text="saving ? 'Saving…' : 'Save'"
                 x-on:click="save('@Url.Page("./Walk", "Save", new { locationId = Model.LocationId })')">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            <span x-text="saving ? 'Saving…' : 'Save'"></span>
         </button>
     </div>
 
     @* Toast notification (J4 confirmation) *@
-    <div class="take-stock-toast"
+    <div class="ts-toast"
          role="status"
          aria-live="polite"
          x-show="toast !== null" x-cloak
-         x-text="toast ?? ''"
-         x-on:click="toast = null"></div>
+         x-on:click="toast = null">
+        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+        <span x-text="toast ?? ''"></span>
+    </div>
 </div>
 
 <script>

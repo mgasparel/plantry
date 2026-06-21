@@ -2,28 +2,42 @@
 
 @if (Model.Locations.Count == 0)
 {
-    <div class="empty-state" id="take-stock-list">
-        <p>No locations defined. <a href="/Catalog/Locations">Add a location</a> before taking stock.</p>
+    <div class="ts-empty" id="take-stock-list">
+        <div class="em-mark"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></div>
+        <h3>No storage locations yet</h3>
+        <p>Take Stock walks you shelf by shelf — so first, tell Plantry where things live. Add a location like Fridge or Pantry to begin.</p>
+        <a class="btn btn--primary" href="/Catalog/Locations">
+            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Create a location
+        </a>
     </div>
 }
 else
 {
-    <ul class="catalog-list" role="list" id="take-stock-list">
+    <ul class="ts-loc-grid" role="list" id="take-stock-list">
         @foreach (var loc in Model.Locations)
         {
-            <li class="catalog-list__item">
-                <a class="catalog-list__primary" href="/pantry/take-stock/@loc.LocationId">
-                    @loc.LocationName
+            <li>
+                <a class="ts-loc-card" href="/pantry/take-stock/@loc.LocationId">
+                    <span class="ts-loc-ico"><svg class="icon" aria-hidden="true"><use href="#i-location" /></svg></span>
+                    <span class="ts-loc-main">
+                        <span class="ts-loc-name">@loc.LocationName</span>
+                        <span class="ts-loc-sub">Count what's on these shelves</span>
+                    </span>
+                    <svg class="icon ts-chev" aria-hidden="true"><use href="#i-chevron-right" /></svg>
                 </a>
             </li>
         }
         @if (Model.HasNoLocationProducts)
         {
-            <li class="catalog-list__item catalog-list__item--no-location">
-                <a class="catalog-list__primary" href="/pantry/take-stock/no-location">
-                    No location
+            <li>
+                <a class="ts-loc-card unplaced" href="/pantry/take-stock/no-location">
+                    <span class="ts-loc-ico"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg></span>
+                    <span class="ts-loc-main">
+                        <span class="ts-loc-name">No location</span>
+                        <span class="ts-loc-sub">Tracked products that still need filing</span>
+                    </span>
+                    <svg class="icon ts-chev" aria-hidden="true"><use href="#i-chevron-right" /></svg>
                 </a>
-                <span class="catalog-list__badge">needs filing</span>
             </li>
         }
     </ul>
