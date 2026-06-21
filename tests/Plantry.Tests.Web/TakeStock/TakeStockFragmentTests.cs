@@ -498,6 +498,89 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
+    [Fact(DisplayName = "POST Save with empty-string countedUnitId returns per-row error, not HTTP 400 (defense-in-depth: stale Path A client)")]
+    public async Task Post_Save_EmptyStringCountedUnitId_ReturnsPerRowError_NotBatch400()
+    {
+        var client = AuthClient();
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Send raw JSON with countedUnitId: "" (empty string) — the actual payload a stale Path A
+        // client sends when draft.addUnitId was never seeded (before DefaultUnitId was plumbed).
+        // Before the fix, this caused STJ to throw on non-parseable Guid, returning HTTP 400 for
+        // the whole batch. After the fix, SaveItem.CountedUnitId is string? and TryParse guards it.
+        var rawJson = $$"""
+            {"items":[{"productId":"{{TakeStockFixture.FlourId}}","countedValue":300,"countedUnitId":"","reason":"Correction"}]}
+            """;
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = new StringContent(rawJson, System.Text.Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        // Must return 200 (not 400) — the defense-in-depth catches empty string at the row level.
+        var resp = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.Equal(TakeStockFixture.FlourId, result.ProductId);
+        Assert.False(result.IsSuccess, "Expected per-row failure for empty-string countedUnitId");
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact(DisplayName = "POST Save with zero-guid countedUnitId returns per-row error, not HTTP 400 (defense-in-depth: zero Guid)")]
+    public async Task Post_Save_ZeroGuidCountedUnitId_ReturnsPerRowError_NotBatch400()
+    {
+        var client = AuthClient();
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Send one item with Guid.Empty as the unit id — also guarded by the defense-in-depth.
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId = TakeStockFixture.FlourId,
+                    countedValue = 300m,
+                    countedUnitId = Guid.Empty,
+                    reason = "Correction"
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.Equal(TakeStockFixture.FlourId, result.ProductId);
+        Assert.False(result.IsSuccess, "Expected per-row failure for zero-guid countedUnitId");
+        Assert.NotNull(result.Error);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static string ExtractAntiforgeryToken(string html)

@@ -261,6 +261,10 @@ function takeStockWalk(initialRows, addItemUrl) {
             row.productId = detail.value;
             row.productName = detail.name;
             row.isUntracked = false; // Take Stock always shows tracked products only.
+            // Seed addUnitId from the product's default unit (Path A fix: prevents empty unitId on save).
+            if (detail.defaultUnitId) {
+                row.addUnitId = detail.defaultUnitId;
+            }
         },
 
         /// <summary>

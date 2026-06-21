@@ -61,7 +61,8 @@ public sealed record TakeStockProductMatch(
     Guid ProductId,
     string Name,
     string DefaultUnitCode,
-    Guid DefaultLocationId);
+    Guid DefaultLocationId,
+    Guid DefaultUnitId);
 
 // ─── Port ─────────────────────────────────────────────────────────────────────
 
