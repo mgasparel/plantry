@@ -7,12 +7,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Plantry.Catalog.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Web.Infrastructure;
+using CatalogUnit = Plantry.Catalog.Domain.Unit;
 
 namespace Plantry.Tests.Web.TakeStock;
 
@@ -364,6 +366,114 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.Contains(correctionJournals, j => j.Delta == 150m);
     }
 
+    // ── J5: Inline-add — SearchProducts + AddItem (P4-7) ─────────────────────
+
+    [Fact(DisplayName = "GET /SearchProducts returns product option markup (J5)")]
+    public async Task Get_SearchProducts_ReturnsProductOptionMarkup()
+    {
+        // The FakeTakeStockReader.SearchProductsAsync returns empty; use a factory with a reader
+        // that returns a hit.
+        var client = AuthClient();
+        // Empty query → returns empty HTML.
+        var resp = await client.GetAsync(
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=SearchProducts&q=");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+        Assert.Equal("", html);
+    }
+
+    [Fact(DisplayName = "GET /SearchProducts with query returns empty when no matches (J5)")]
+    public async Task Get_SearchProducts_WithQuery_ReturnsEmptyForNoMatches()
+    {
+        var client = AuthClient();
+        var resp = await client.GetAsync(
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=SearchProducts&q=xyznotexists");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+        // Fake reader returns [] for all queries; response should be empty (no <li>).
+        Assert.DoesNotContain("<li", html);
+    }
+
+    [Fact(DisplayName = "POST AddItem creates product and records opening balance (J5)")]
+    public async Task Post_AddItem_CreatesProductAndRecordsOpeningBalance()
+    {
+        var client = AuthClient();
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name = "New Tracked Item",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue = 250m,
+            countedUnitId = TakeStockFixture.GramUnitId,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess, $"Expected success but got error: {data.Error}");
+        Assert.NotEqual(Guid.Empty, data.ProductId);
+        Assert.Equal("New Tracked Item", data.ProductName);
+        Assert.Equal(250m, data.CountedValue);
+    }
+
+    [Fact(DisplayName = "POST AddItem with duplicate name returns Catalog error inline (J5)")]
+    public async Task Post_AddItem_DuplicateName_ReturnsErrorInline()
+    {
+        // Use a dedicated factory that registers a catalog writer configured to throw on create
+        // (simulating Catalog.DuplicateProductName), so we can test the HTTP-layer error surfacing.
+        using var dupFactory = new TakeStockDuplicateNameFactory();
+        var dupClient = dupFactory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await dupClient.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name = "Flour",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue = 5m,
+            countedUnitId = TakeStockFixture.GramUnitId,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await dupClient.SendAsync(request);
+        resp.EnsureSuccessStatusCode(); // The handler returns 200 with isSuccess=false for domain errors.
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.False(data.IsSuccess, "Expected isSuccess=false for a duplicate-name rejection.");
+        Assert.NotNull(data.Error);
+        Assert.Contains("Flour", data.Error);
+    }
+
     // ── Auth boundary ─────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "Unauthenticated GET /pantry/take-stock returns 401")]
@@ -422,6 +532,17 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         public Guid?   EntryId   { get; set; }
         public bool    IsSuccess { get; set; }
         public string? Error     { get; set; }
+    }
+
+    private sealed class AddItemResponse
+    {
+        public bool    IsSuccess    { get; set; }
+        public Guid    ProductId    { get; set; }
+        public string? ProductName  { get; set; }
+        public string? UnitCode     { get; set; }
+        public Guid    UnitId       { get; set; }
+        public decimal CountedValue { get; set; }
+        public string? Error        { get; set; }
     }
 }
 
@@ -559,6 +680,71 @@ public sealed class FakeTsStockRepository : IProductStockRepository
         await work(ct);
 }
 
+// ── In-memory fake catalog writer (P4-7) ─────────────────────────────────────
+
+/// <summary>
+/// Fake <see cref="ITakeStockCatalogWriter"/> for L4 fragment tests.
+/// Returns a fixed product id on create; can be configured to throw for duplicate-name tests.
+/// </summary>
+public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? throwMessage = null)
+    : ITakeStockCatalogWriter
+{
+    private static readonly Guid DefaultProductId = Guid.Parse("55555555-0000-0000-0000-500000000001");
+
+    public int CreateCalls { get; private set; }
+    public string? LastName { get; private set; }
+    public Guid LastUnitId { get; private set; }
+    public Guid LastLocationId { get; private set; }
+
+    public Task<Guid> CreateTrackedProductAsync(
+        string name, Guid defaultUnitId, Guid defaultLocationId, CancellationToken ct = default)
+    {
+        CreateCalls++;
+        LastName = name;
+        LastUnitId = defaultUnitId;
+        LastLocationId = defaultLocationId;
+
+        if (throwMessage is not null)
+            throw new InvalidOperationException(throwMessage);
+
+        return Task.FromResult(returnProductId ?? DefaultProductId);
+    }
+
+    public Task SetDefaultLocationAsync(Guid productId, Guid locationId, CancellationToken ct = default) =>
+        Task.CompletedTask;
+}
+
+/// <summary>
+/// Fake <see cref="IUnitRepository"/> for L4 fragment tests. Returns a single gram unit.
+/// </summary>
+public sealed class FakeTsUnitRepository : IUnitRepository
+{
+    private readonly List<CatalogUnit> _items =
+    [
+        CatalogUnit.Create(HouseholdId.From(TakeStockFixture.HouseholdAId), "g", "gram",
+            Dimension.Mass, factorToBase: 1m, isBase: true),
+    ];
+
+    public IReadOnlyList<CatalogUnit> Items => _items;
+
+    public Task<CatalogUnit?> FindAsync(UnitId id, CancellationToken ct = default) =>
+        Task.FromResult(_items.SingleOrDefault(u => u.Id == id));
+
+    public Task<CatalogUnit?> FindByCodeAsync(string code, CancellationToken ct = default) =>
+        Task.FromResult(_items.SingleOrDefault(u => u.Code.Equals(code, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<List<CatalogUnit>> ListAsync(CancellationToken ct = default) =>
+        Task.FromResult(_items.ToList());
+
+    public Task AddAsync(CatalogUnit unit, CancellationToken ct = default)
+    {
+        _items.Add(unit);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
 // ── In-memory fake conversion provider ───────────────────────────────────────
 
 public sealed class FakeTsConversionProvider : IProductConversionProvider
@@ -593,14 +779,22 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
     /// </summary>
     public FakeTsStockRepository StockRepository { get; } = new FakeTsStockRepository();
 
+    /// <summary>
+    /// The shared fake catalog writer — exposed so L4 inline-add tests can inspect create calls.
+    /// </summary>
+    public FakeTsCatalogWriter CatalogWriter { get; } = new FakeTsCatalogWriter();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services => RegisterFakes(services, StockRepository, hasNoLocationProducts: false));
+        builder.ConfigureTestServices(services =>
+            RegisterFakes(services, StockRepository, CatalogWriter, hasNoLocationProducts: false));
     }
 
     internal static void RegisterFakes(
-        IServiceCollection services, FakeTsStockRepository? stockRepo = null,
+        IServiceCollection services,
+        FakeTsStockRepository? stockRepo = null,
+        FakeTsCatalogWriter? catalogWriter = null,
         bool hasNoLocationProducts = false)
     {
         services.AddAuthentication(opts =>
@@ -619,9 +813,41 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
 
         services.RemoveAll<IProductConversionProvider>();
         services.AddSingleton<IProductConversionProvider, FakeTsConversionProvider>();
+
+        // P4-7 inline-add fakes.
+        services.RemoveAll<ITakeStockCatalogWriter>();
+        services.AddSingleton<ITakeStockCatalogWriter>(catalogWriter ?? new FakeTsCatalogWriter());
+
+        services.RemoveAll<IUnitRepository>();
+        services.AddSingleton<IUnitRepository, FakeTsUnitRepository>();
     }
 
     /// <summary>Creates an authenticated HTTP client for the given household.</summary>
+    public HttpClient CreateAuthClient(Guid householdId)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, householdId.ToString());
+        return client;
+    }
+}
+
+/// <summary>
+/// L4 WebApplicationFactory for the Take Stock inline-add duplicate-name test.
+/// Registers a <see cref="FakeTsCatalogWriter"/> that throws an <see cref="InvalidOperationException"/>
+/// to simulate the Catalog.DuplicateProductName error.
+/// </summary>
+public sealed class TakeStockDuplicateNameFactory : WebApplicationFactory<Program>
+{
+    private static readonly FakeTsCatalogWriter _dupWriter = new FakeTsCatalogWriter(
+        throwMessage: "Create tracked product failed (Catalog.DuplicateProductName): A product named 'Flour' already exists.");
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+            TakeStockFragmentFactory.RegisterFakes(services, catalogWriter: _dupWriter));
+    }
+
     public HttpClient CreateAuthClient(Guid householdId)
     {
         var client = CreateClient();

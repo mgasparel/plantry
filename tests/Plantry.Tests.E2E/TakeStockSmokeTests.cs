@@ -39,6 +39,145 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
         _playwright.Dispose();
     }
 
+    [Fact(DisplayName = "Take Stock: inline add — new item appears with stock; existing item reused, no dup (J5/P4-7)")]
+    public async Task TakeStock_InlineAdd_NewItemAppearsWithStockExistingItemReused()
+    {
+        var uniqueEmail = $"ts-inline-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"InlineItem {Guid.NewGuid():N}".Substring(0, 22);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household ─────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS Inline Add E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS Inline E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Navigate to Take Stock → open Pantry walk ─────────────────────────
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            var pantryLink = page.Locator(".catalog-list a.catalog-list__primary", new() { HasText = "Pantry" });
+            await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pantryLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+
+            // ── Click "+ Add item" to open the inline-add sheet ───────────────────
+            var addItemBtn = page.Locator("button.take-stock-add-item");
+            await Assertions.Expect(addItemBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await addItemBtn.ClickAsync();
+
+            // The inline-add sheet is the one containing "Add ingredient" in its header.
+            // Use :has to scope to the take-stock-add sheet specifically (avoids conflicts with
+            // the global inventory sheet which may also be present in the page layout).
+            var sheet = page.Locator(".sheet:has(.sheet__title:text-is('Add ingredient')) .sheet__panel");
+            await Assertions.Expect(sheet).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+
+            // ── Switch to "Create as staple" mode to type a new product name ──────
+            var createStapleBtn = sheet.Locator("button:has-text('+ Create as staple')");
+            await Assertions.Expect(createStapleBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await createStapleBtn.ClickAsync();
+
+            // Staple name input should appear.
+            var stapleNameInput = sheet.Locator(".ingredient-row__staple input[type='text']");
+            await Assertions.Expect(stapleNameInput).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await stapleNameInput.FillAsync(productName);
+
+            // Select unit in the staple mode unit select (available when TrackStock=false uses newStapleUnit).
+            var stapleUnitSelect = sheet.Locator(".ingredient-row__staple select");
+            await stapleUnitSelect.SelectOptionAsync(new SelectOptionValue { Label = "g" });
+
+            // Fill in the opening count in the extra-fields partial.
+            var countInput = sheet.Locator("#add-count");
+            await Assertions.Expect(countInput).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await countInput.FillAsync("150");
+
+            // ── Confirm add ───────────────────────────────────────────────────────
+            var addBtn = sheet.Locator("button.btn--primary");
+            await Assertions.Expect(addBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await addBtn.ClickAsync();
+
+            // Sheet should close (sheetOpen → false).
+            await Assertions.Expect(sheet).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
+
+            // ── New row should appear in the added-items section ──────────────────
+            // Toast confirms success.
+            var toast = page.Locator(".take-stock-toast");
+            await Assertions.Expect(toast).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+
+            // The added-items list renders the new row name.
+            var addedRows = page.Locator(".take-stock-rows--added");
+            await Assertions.Expect(addedRows).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+            await Assertions.Expect(addedRows.Locator(".take-stock-row__name", new() { HasText = productName })).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+
+            // ── Re-open sheet and select the same product via search (Path A — reuse, no dup) ─
+            // This verifies that an existing catalog match is reused rather than duplicated.
+            await addItemBtn.ClickAsync();
+            await Assertions.Expect(sheet).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+
+            // Search for the product that was just created — hits the real catalog.
+            // Use PressSequentiallyAsync to fire keydown/keypress/keyup events for each character
+            // so that htmx's "keyup changed" trigger fires reliably.
+            var searchInput = page.Locator("#prod-search-sheet");
+            await searchInput.ClickAsync();
+            await searchInput.PressSequentiallyAsync(productName, new() { Delay = 50 });
+
+            // Wait for the htmx search to populate the listbox (250ms debounce + server round-trip).
+            var searchResult = page.Locator("#prod-list-sheet li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(searchResult).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+
+            // Select the existing product from search results — exercises Path A (selectProduct).
+            // Clicking the <li> fires its Alpine @click handler, which dispatches 'pick-product'
+            // that bubbles to the .sheet div where selectProduct(draft, detail) sets draft.productId.
+            await searchResult.ClickAsync();
+
+            // Set a new opening count in the extra-fields partial.
+            var countInputReuse = sheet.Locator("#add-count");
+            await countInputReuse.ClearAsync();
+            await countInputReuse.FillAsync("50");
+
+            // Click Add — Path A: existing product → inject as dirty row, no server create.
+            var addBtnReuse = sheet.Locator("button.btn--primary");
+            await Assertions.Expect(addBtnReuse).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 5000 });
+            await addBtnReuse.ClickAsync();
+
+            // Sheet closes and a toast appears confirming the item was added to the working set.
+            await Assertions.Expect(sheet).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
+            await Assertions.Expect(page.Locator(".take-stock-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+
+            // Save the dirty reuse row via the sticky save bar.
+            var saveBar = page.Locator(".take-stock-savebar");
+            await Assertions.Expect(saveBar).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await page.ClickAsync(".take-stock-savebar button:has-text('Save')");
+            await Assertions.Expect(page.Locator(".take-stock-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
+
+            // ── Verify the product has stock on Pantry and appears only once (no dup) ──
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            var productRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(productRow).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            // Product appears exactly once — no duplicate catalog row minted.
+            await Assertions.Expect(productRow).ToHaveCountAsync(1, new LocatorAssertionsToHaveCountOptions { Timeout = 10000 });
+            // Quantity reflects the reuse save (50g), not the original 150g.
+            await Assertions.Expect(productRow).ToContainTextAsync("50", new LocatorAssertionsToContainTextOptions { Timeout = 10000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-inline-add.zip" });
+        }
+    }
+
     [Fact(DisplayName = "Take Stock: lot escape hatch — expand lots, adjust two lots, save reflects each (J3/P4-5)")]
     public async Task TakeStock_LotEscapeHatch_ExpandAndAdjustTwoLots()
     {

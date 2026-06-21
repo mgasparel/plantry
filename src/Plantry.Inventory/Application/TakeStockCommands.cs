@@ -355,6 +355,73 @@ public sealed class RecordCountCommand(
     }
 }
 
+// ─── AddCountedItemCommand ────────────────────────────────────────────────────
+
+/// <summary>
+/// Inline-add command for the Take Stock walk (P4-7, J5, C8). Creates a new tracked product via
+/// the <see cref="ITakeStockCatalogWriter"/> write port and immediately records its opening-balance
+/// <see cref="StockReason.Correction"/> via <see cref="RecordCountCommand"/>.
+///
+/// <para>The caller is responsible for deduplication (search-first): this command is the
+/// <em>no-match</em> path. If Catalog already has a product with the given name,
+/// <see cref="ITakeStockCatalogWriter.CreateTrackedProductAsync"/> throws and this command
+/// surfaces the error to the UI — the search-first step makes this uncommon.</para>
+///
+/// <para>The opening-balance count is a positive <see cref="StockReason.Correction"/> (C8).
+/// A zero count skips the <see cref="RecordCountCommand"/> call and leaves the product
+/// registered in Catalog but with no stock yet.</para>
+/// </summary>
+public sealed class AddCountedItemCommand(
+    string name,
+    Guid defaultUnitId,
+    Guid locationId,
+    decimal countedValue,
+    Guid countedUnitId,
+    Guid userId,
+    ITakeStockCatalogWriter writer,
+    IProductStockRepository stocks,
+    IProductConversionProvider conversions,
+    IClock clock,
+    ITenantContext tenant)
+{
+    /// <summary>
+    /// Creates the tracked product and records the opening-balance count.
+    /// Returns the new product id on success so the UI can add the item to the working set.
+    /// </summary>
+    public async Task<Result<Guid>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is null)
+            return Error.Unauthorized;
+
+        // Step 1 — create the tracked product with the current walk location as default.
+        Guid productId;
+        try
+        {
+            productId = await writer.CreateTrackedProductAsync(name, defaultUnitId, locationId, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Surface the Catalog rejection inline (duplicate name, unknown unit, etc.).
+            return Error.Custom("Inventory.InlineAddFailed", ex.Message);
+        }
+
+        // Step 2 — record the opening-balance Correction for a positive count (C8).
+        // A zero count is valid (register the product but don't add stock yet).
+        if (countedValue > 0m)
+        {
+            var countCmd = new RecordCountCommand(
+                productId, locationId, countedValue, countedUnitId,
+                StockReason.Correction, userId, stocks, conversions, clock, tenant);
+
+            var countResult = await countCmd.ExecuteAsync(ct);
+            if (countResult.IsFailure)
+                return countResult.Error;
+        }
+
+        return productId;
+    }
+}
+
 // ─── SaveCountsCommand ────────────────────────────────────────────────────────
 
 /// <summary>

@@ -1,0 +1,48 @@
+@*
+    Extra-fields slot for the Take Stock inline-add sheet (P4-7, J5).
+    Rendered by _ProductSearchCreateSheet.cshtml inside the sheet panel, between the product-picker
+    block and the action bar, via the ExtraFieldsPartial slot.
+
+    Injects two fields into the Alpine draft context established by the host walk page (takeStockWalk):
+      draft.addCount   — the opening-balance quantity (decimal, default 1)
+      draft.addUnitId  — the unit for the opening balance (Guid string)
+
+    The location is implicit — the walk URL carries the locationId and OnPostAddItemAsync reads it
+    from the route. No location picker is needed here.
+
+    Model access: this partial is rendered without an explicit model by the shared sheet partial.
+    The enclosing Walk page model is accessible via ViewContext.ViewData.Model. Unit options
+    are also passed via ViewData["TakeStockUnitOptions"] set in the Walk page's GET handler.
+*@
+@{
+    var unitOptions = ViewData["TakeStockUnitOptions"] as IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>
+                   ?? (ViewContext.ViewData.Model as Plantry.Web.Pages.Pantry.TakeStock.WalkModel)?.UnitOptions
+                   ?? [];
+}
+
+<div class="form-grid">
+    <div class="form-grid__field">
+        <label class="form-grid__field__label" for="add-count">Opening count (optional)</label>
+        <div class="form-grid__field__control">
+            <input type="number" id="add-count" class="field__input" step="any" min="0"
+                   placeholder="0"
+                   x-model="draft.addCount"
+                   aria-label="Opening count for new item" />
+        </div>
+    </div>
+
+    <div class="form-grid__field">
+        <label class="form-grid__field__label" for="add-unit">Unit</label>
+        <div class="form-grid__field__control">
+            <select id="add-unit" class="field__input"
+                    x-model="draft.addUnitId"
+                    aria-label="Unit for opening count">
+                <option value="">— Unit —</option>
+                @foreach (var u in unitOptions)
+                {
+                    <option value="@u.Value">@u.Text</option>
+                }
+            </select>
+        </div>
+    </div>
+</div>
