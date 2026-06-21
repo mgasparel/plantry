@@ -1,24 +1,32 @@
-# Release workflow — semver-tagged public images + self-host compose assets
+# Release + deploy pipeline — the authoritative full-suite gate and the ONLY
+# path to production.
 #
 # Triggered by pushing a version tag (e.g. git tag v1.4.0 && git push --tags).
-# Builds plantry-web and plantry-migrator, publishes them to GHCR with the
-# full semver tag family (:1.4.0, :1.4, :1, :latest), and attaches the
-# self-host compose files and .env.example as GitHub Release assets.
 #
-# Images are marked public so self-hosters can pull without a registry token.
-# The GHCR package visibility API requires the repository to already be public,
-# OR uses the `gh` CLI with an admin token.  This workflow sets visibility via
-# the GitHub Packages REST API using the built-in GITHUB_TOKEN — works when the
-# repository is already public (OSS-ready).  If the repo is private, the
-# visibility step is a no-op (the API returns 403 which is swallowed); images
-# remain accessible to repository collaborators only until the publish flip.
+#   1. verify  — full slow suite (integration + E2E + coverage, Docker-in-CI).
+#                This is the authoritative CI gate ADR-016 places at the release
+#                boundary (amended 2026-06-20): nothing ships unless it passes.
+#   2. release — build plantry-web + plantry-migrator, publish the semver tag
+#                family (:1.4.0 :1.4 :1 :latest) to GHCR, mark images public, and
+#                attach the self-host compose assets to a GitHub Release.
+#   3. deploy  — ssh to the prod host, pull the semver images, run the migrator
+#                one-shot, roll the web service, smoke-check /alive. (Folded in
+#                from the retired cd.yml — deploy is now release-gated, keyed on
+#                the semver version rather than the commit SHA, not per-merge.)
 #
-# Required secrets: none beyond the built-in GITHUB_TOKEN.
+# Required GitHub Actions secrets (repository or environment level):
+#   DEPLOY_SSH_KEY — PEM private SSH key whose public half is in the deploy host's
+#                    ~/.ssh/authorized_keys
+#   DEPLOY_HOST    — SSH target hostname/IP of the production server
+#   DEPLOY_USER    — SSH username on the production server (e.g. plantry)
+#   DEPLOY_DOMAIN  — public TLS domain served by Caddy (e.g. plantry.example.com),
+#                    used for the post-deploy smoke check at https://<domain>/alive
+# GHCR is authenticated via the built-in GITHUB_TOKEN (write:packages granted
+# automatically). The prod compose file must exist at ~/plantry/docker-compose.prod.yml
+# and the .env at ~/plantry/.env. See docs/Operations/deployment.md.
 #
-# Tag format: v<major>.<minor>.<patch>   (e.g. v1.4.0, v2.0.0)
-# The leading "v" is stripped before tagging images (images use 1.4.0, not v1.4.0).
-#
-# See docs/Operations/self-hosting.md for the operator upgrade contract.
+# Tag format: v<major>.<minor>.<patch> (e.g. v1.4.0). The leading "v" is stripped
+# before tagging images (images use 1.4.0, not v1.4.0).
 
 name: Release
 
@@ -28,20 +36,116 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
+  # ── Stage 1: Full-suite gate (integration + E2E + coverage) ──────────────────
+  # The slow suite that used to run on every CI run now runs once here, gating
+  # the release (and therefore prod). Docker is pre-installed on ubuntu-latest;
+  # the integration + E2E fixtures manage their own Postgres via Testcontainers/
+  # Aspire. A red verify blocks the build, publish, and deploy below.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # Install Playwright's Chromium + system deps (CLI ships beside the E2E binaries).
+      - name: Install Playwright browsers
+        run: >
+          pwsh tests/Plantry.Tests.E2E/bin/Release/net10.0/playwright.ps1
+          install chromium --with-deps
+
+      # ── L1: Domain unit tests (included so the coverage gate sees domain code) ─
+      - name: Unit tests
+        run: >
+          dotnet test tests/Plantry.Tests.Unit
+          --no-build --configuration Release
+          --collect:"XPlat Code Coverage"
+          --results-directory coverage/unit
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
+
+      # ── L3: Integration tests (Testcontainers; self-managed Postgres) ─────────
+      - name: Integration tests
+        run: >
+          dotnet test tests/Plantry.Tests.Integration
+          --no-build --configuration Release
+          --collect:"XPlat Code Coverage"
+          --results-directory coverage/integration
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
+
+      # ── L5: E2E tests (Aspire boots full stack; Playwright drives browser) ────
+      - name: E2E tests
+        run: >
+          dotnet test tests/Plantry.Tests.E2E
+          --no-build --configuration Release
+          --collect:"XPlat Code Coverage"
+          --results-directory coverage/e2e
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
+
+      # Upload Playwright traces on failure so failures can be diagnosed.
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: "**/trace.zip"
+          retention-days: 7
+
+      # ── Coverage gate (unit + integration + E2E combined) ─────────────────────
+      - name: Coverage report
+        uses: danielpalme/ReportGenerator-GitHub-Action@5
+        with:
+          reports: "coverage/**/*.xml"
+          targetdir: "coverage/report"
+          reporttypes: "HtmlInline;Cobertura"
+
+      - name: Check coverage threshold
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: coverage/report/Cobertura.xml
+          badge: false
+          thresholds: "70 85"   # warn at 70%, fail at 85% for domain projects
+          fail_below_min: true
+
+  # ── Stage 2: Build + publish semver images and the GitHub Release ────────────
   release:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write      # create GitHub Release and upload assets
       packages: write      # push images to GHCR
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout tag
         uses: actions/checkout@v4
 
       # ── Derive semver components ──────────────────────────────────────────
-      # github.ref_name is the tag name (e.g. v1.4.0) for tag pushes.
-      # Strip the leading "v" to get the bare version (1.4.0), then split
-      # into major (1) and minor (1.4) for the floating tag family.
+      # github.ref_name is the tag name (e.g. v1.4.0). Strip the leading "v" to
+      # get the bare version (1.4.0), then split into major (1) and minor (1.4)
+      # for the floating tag family.
       - name: Derive version tags
         id: version
         run: |
@@ -49,13 +153,10 @@ jobs:
           VERSION="${TAG#v}"                      # 1.4.0
           MAJOR="${VERSION%%.*}"                  # 1
           MINOR="${VERSION%.*}"                   # 1.4
-          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "major=$MAJOR"   >> "$GITHUB_OUTPUT"
-          echo "minor=$MINOR"   >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+          echo "major=$MAJOR"     >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR"     >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -103,11 +204,6 @@ jobs:
       # When the repository is already public, make the packages visible without
       # a pull token so self-hosters can `docker compose pull` without logging in.
       # If the repo is private (pre-publish-flip) the API returns 403 — tolerated.
-      #
-      # The Packages REST API uses the organisation name from the owner.  For
-      # a personal account, replace "orgs" with "users" in the URL — the endpoint
-      # differs.  We detect which to use based on github.repository_owner matching
-      # the actor (personal) vs. an org name.
       - name: Make packages public
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -116,7 +212,6 @@ jobs:
           PACKAGES=("plantry%2Fweb" "plantry%2Fmigrator")
 
           # Determine if this is a user or org namespace.
-          # gh api /users/<owner> exists for both users and orgs, but type differs.
           OWNER_TYPE=$(gh api "/users/${OWNER}" --jq '.type' 2>/dev/null || echo "User")
           if [ "$OWNER_TYPE" = "Organization" ]; then
             API_NS="orgs/${OWNER}"
@@ -126,7 +221,6 @@ jobs:
 
           for PKG in "${PACKAGES[@]}"; do
             echo "==> Setting ${PKG} to public..."
-            # container type; url-encoded package name
             gh api \
               --method PATCH \
               "/${API_NS}/packages/container/${PKG}" \
@@ -136,8 +230,6 @@ jobs:
           done
 
       # ── Package self-host release assets ─────────────────────────────────
-      # Bundle the three compose files and .env.example into a single archive
-      # that self-hosters download from the release page.
       - name: Bundle self-host assets
         run: |
           mkdir -p /tmp/plantry-selfhost
@@ -150,9 +242,8 @@ jobs:
 
       # ── Create GitHub Release ─────────────────────────────────────────────
       # Creates a draft release so the operator can add release notes before
-      # publishing.  The draft is auto-populated with the compose assets.
-      # Change `draft: true` to `draft: false` once changelog discipline is in
-      # place (tracked in plantry-wzz6.11 — OSS publish prep).
+      # publishing. Change `draft: true` to `draft: false` once changelog
+      # discipline is in place (tracked in plantry-wzz6.11 — OSS publish prep).
       - name: Create GitHub Release
         id: release
         uses: softprops/action-gh-release@v2
@@ -165,3 +256,79 @@ jobs:
             deploy/docker-compose.yml
             deploy/docker-compose.caddy.yml
             deploy/.env.example
+
+  # ── Stage 3: Deploy to the production host (folded in from the retired cd.yml) ─
+  # Pulls the exact semver images verified + published above and rolls prod.
+  # The migrator one-shot is the critical gate: a non-zero exit leaves the old
+  # web container running and fails the workflow — the old version keeps serving.
+  deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Configure a "production" GitHub environment (with deployment protection
+    # rules) to add a manual approval gate before any production deploy.
+    environment: production
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            VERSION="${{ needs.release.outputs.version }}"
+            COMPOSE_DIR=~/plantry
+            COMPOSE_FILE="$COMPOSE_DIR/docker-compose.prod.yml"
+
+            echo "==> Deploying version $VERSION"
+            cd "$COMPOSE_DIR"
+
+            # Export the exact semver image tags so Compose uses the released images.
+            export PLANTRY_WEB_IMAGE="ghcr.io/${{ github.repository_owner }}/plantry/web:$VERSION"
+            export MIGRATOR_IMAGE="ghcr.io/${{ github.repository_owner }}/plantry/migrator:$VERSION"
+
+            # 1. Pull both images (fails loud if the registry is unreachable or
+            #    the images don't exist — deploy aborts before touching anything).
+            echo "==> Pulling images"
+            docker compose -f "$COMPOSE_FILE" pull plantry-web migrator
+
+            # 2. Run migrations (one-shot, fails loud). On non-zero exit the script
+            #    aborts here (set -e); the old web container keeps serving.
+            echo "==> Running migrator"
+            docker compose -f "$COMPOSE_FILE" run --rm migrator
+
+            # 3. Roll the web service (and Caddy, so Caddyfile changes take effect).
+            echo "==> Starting updated services"
+            docker compose -f "$COMPOSE_FILE" up -d plantry-web caddy
+
+            echo "==> Deploy complete, running smoke check"
+
+      # Smoke check runs from the Actions runner so it validates external
+      # reachability, not just localhost. Retries up to 5× with 10s delays.
+      - name: Smoke check /alive
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          # Use DEPLOY_DOMAIN (public TLS hostname Caddy serves), not DEPLOY_HOST.
+          HOST="${{ secrets.DEPLOY_DOMAIN }}"
+          URL="https://${HOST}/alive"
+
+          echo "==> Smoke-checking $URL (version $VERSION)"
+
+          for attempt in 1 2 3 4 5; do
+            echo "  Attempt $attempt/5..."
+            if curl --fail --silent --show-error --max-time 10 "$URL"; then
+              echo ""
+              echo "==> Smoke check passed"
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              echo "  Not ready yet, waiting 10s..."
+              sleep 10
+            fi
+          done
+
+          echo "ERROR: smoke check failed after 5 attempts — $URL did not return 2xx"
+          exit 1
