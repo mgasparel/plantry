@@ -42,7 +42,7 @@ stale.
 |---|---|---|
 | Source | a real feature; children defined in beads | loose one-offs the loop auto-attaches |
 | Identity | the epic bead id | a `type=epic` bead labelled `rollup`; **identity is the bead id** (branch `epic/<bead-id>`), title is just a dated label. Only ever one open unsealed rollup at a time. |
-| Membership | fixed | open until **sealed** (label `sealed`, or auto at `ROLLUP_MAX_CHILDREN`) |
+| Membership | fixed | open until **sealed** (human applies label `sealed`, or auto at `ROLLUP_MAX_CHILDREN`) |
 | Ships when | 100% of children staged | sealed **and** 100% of (now-fixed) children staged |
 
 **Constants:**
@@ -196,6 +196,8 @@ later one-offs don't pile onto a shipping batch:
 ```bash
 bd update <epic-id> --add-label sealed
 ```
+
+> **The orchestrator adds the `sealed` label in exactly one place: this auto-seal when >= ROLLUP_MAX_CHILDREN. Never add it for any other reason — including because all currently-staged children happen to be the ones named in a single user request.**
 
 **The epic is READY TO FLUSH when every child is `staged` AND** either:
 - it is a **curated** epic (membership is fixed — all children staged means 100%), or
@@ -358,9 +360,13 @@ Log `PARKED: epic <epic-id> — ci-failed (exhausted)`; return to Step 1.
 - **Epics ship complete, never partial.** An epic flushes only when every child is
   `staged`. A parked/failed child blocks its whole epic — uniformly, curated or rollup —
   until a human clears it. Nothing partial reaches `main`.
-- **Rollups seal, then ship.** A rollup accepts loose one-offs until sealed (label or
-  `ROLLUP_MAX_CHILDREN`); a sealed rollup is just a fixed-set epic. The `sealed` label
-  only freezes membership — it never ships anything early.
+- **Rollups seal, then ship — and only the human or the auto-seal seals them.** A rollup
+  accepts loose one-offs until sealed (human applies label `sealed`, or auto at
+  `ROLLUP_MAX_CHILDREN`). The orchestrator adds `sealed` in exactly one place: the Step 4
+  auto-seal when the child count reaches the limit. It must not seal a rollup for any
+  other reason — including because a batch of requested issues are all staged, or to make
+  a flush happen. A sealed rollup is just a fixed-set epic; the label freezes membership,
+  it does not ship anything early.
 - **`bd close` only fires post-merge.** Children and the epic are batch-closed only after
   the epic PR's `state == MERGED` is confirmed.
 - **Rebase before the PR.** The epic branch is rebased onto fresh `origin/main`
