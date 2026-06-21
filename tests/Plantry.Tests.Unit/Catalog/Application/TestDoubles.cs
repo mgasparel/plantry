@@ -4,6 +4,43 @@ using CatalogUnit = Plantry.Catalog.Domain.Unit;
 
 namespace Plantry.Tests.Unit.Catalog.Application;
 
+internal sealed class FakeProductRepository : IProductRepository
+{
+    public List<Product> Items { get; } = [];
+    public int SaveChangesCalls { get; private set; }
+
+    public Task<Product?> FindAsync(ProductId id, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(p => p.Id == id));
+
+    public Task<Product?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(p =>
+            p.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    public Task<List<Product>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(p => p.ArchivedAt is null).ToList());
+
+    public Task<List<Product>> ListActiveWithSkusAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(p => p.ArchivedAt is null).ToList());
+
+    public Task<List<Product>> ListWithConversionsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(p => ids.Contains(p.Id)).ToList());
+
+    public Task<List<Product>> ListVariantsAsync(ProductId parentId, CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(p => p.ParentProductId == parentId).ToList());
+
+    public Task AddAsync(Product product, CancellationToken ct = default)
+    {
+        Items.Add(product);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveChangesCalls++;
+        return Task.CompletedTask;
+    }
+}
+
 internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
 {
     public Guid? HouseholdId { get; } = householdId;
