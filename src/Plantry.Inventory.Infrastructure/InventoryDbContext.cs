@@ -92,6 +92,12 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
             b.HasIndex(e => new { e.HouseholdId, e.ProductId, e.ExpiryDate, e.CreatedAt })
                 .HasDatabaseName("ix_stock_entry_fefo");
 
+            // TS-S2: Take Stock location scan — filters only active (non-depleted) lots so the
+            // index is small and the walk query never hits depleted rows.
+            b.HasIndex(e => new { e.HouseholdId, e.LocationId, e.ProductId })
+                .HasDatabaseName("ix_stock_entry_by_location")
+                .HasFilter("depleted_at IS NULL");
+
             b.HasQueryFilter(e => e.HouseholdId == HouseholdId.From(_householdId));
         });
 
