@@ -23,7 +23,7 @@
     };
     var crumbIcons = new Dictionary<string, string>
     {
-        ["Today"] = "calendar",
+        ["Today"] = "sun",
         ["Pantry"] = "pantry",
         ["Intake"] = "receipt",
         ["Shopping"] = "cart",
@@ -156,6 +156,9 @@
         <symbol id="i-import" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3v12" /><path d="M7 11l5 5 5-5" /><path d="M3 19h18" />
         </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19" />
+        </symbol>
     </svg>
 
     @* Desktop sidebar (hidden below md breakpoint via CSS) *@
@@ -169,7 +172,7 @@
             <li class="sidebar__band-label">Cook &amp; Plan</li>
             <li>
                 <a href="/Today" class="sidebar__link@(NavActive("/Today"))">
-                    <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Today
+                    <svg class="icon" aria-hidden="true"><use href="#i-sun" /></svg> Today
                 </a>
             </li>
             <li>
@@ -266,7 +269,7 @@
         @* Mobile bottom nav — exactly 5 items: Today | Recipes | Add | Shop | More *@
         <nav class="bottom-nav" aria-label="Mobile navigation">
             <a href="/Today" class="bottom-nav__item@(BottomNavActive("/Today"))">
-                <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg>
+                <svg class="icon" aria-hidden="true"><use href="#i-sun" /></svg>
                 <span>Today</span>
             </a>
             <a href="/Recipes" class="bottom-nav__item@(BottomNavActive("/Recipes"))">
