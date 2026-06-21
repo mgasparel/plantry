@@ -20,98 +20,134 @@
 
     @Html.AntiForgeryToken()
 
-    <div class="page-header">
-        <a href="/pantry/take-stock" class="btn btn--ghost btn--sm">&larr; Locations</a>
-        <h1 class="page-header__title">No location</h1>
+    @* Walk header (J7) — back + "No location" title *@
+    <div class="ts-walk-head">
+        <a href="/pantry/take-stock" class="ts-back">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg> Locations
+        </a>
+        <div class="ts-walk-title">
+            <span class="wt-ico"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg></span>
+            <div>
+                <h1>No location</h1>
+                <div class="sub">Tracked products that need filing</div>
+            </div>
+        </div>
+        <div class="spacer"></div>
     </div>
 
-    <p class="take-stock-no-location__intro">
-        These products have stock recorded but no storage location assigned. Choose a location for each one to file it for future walks.
-    </p>
+    <div class="ts-walk-inner">
+        <div class="ts-walk-intro">
+            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+            <span>These products have no home yet. Give each one a location — and a count if you have it on hand — to file it back into your pantry.</span>
+        </div>
 
-    @if (Model.Rows.Count == 0)
+        @if (Model.Rows.Count == 0)
+        {
+            <div class="ts-empty">
+                <div class="em-mark"><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg></div>
+                <h3>Everything's filed</h3>
+                <p>All products have a location — nothing to file here.</p>
+            </div>
+        }
+        else
+        {
+            <ul class="ts-rows" role="list">
+                @foreach (var row in Model.Rows)
+                {
+                    var pid = row.ProductId.ToString();
+                    var recorded = row.RecordedQuantity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                    <template x-if="rows['@pid'] !== undefined">
+                    <li class="ts-row needsloc"
+                        :class="{ changed: rows['@pid']?.dirty, errored: rows['@pid']?.failed }">
+
+                        <div class="ts-row-main">
+                            <div class="ts-id">
+                                <div class="ts-name">
+                                    <span class="ts-changed-dot" x-show="rows['@pid']?.dirty" x-cloak></span>
+                                    <span class="nm-text">@row.ProductName</span>
+                                </div>
+                                <div class="ts-recorded">
+                                    Plantry has <b>@row.RecordedQuantity.ToString("0.###") @row.DisplayUnitCode</b> on record
+                                </div>
+                            </div>
+
+                            @* Required location picker — must be chosen before Save (J7) *@
+                            <div class="ts-locpick">
+                                <select class="ts-locpick-select"
+                                        :class="{ unset: !rows['@pid'].locationId }"
+                                        x-model="rows['@pid'].locationId"
+                                        x-on:change="onLocationChange('@pid')"
+                                        aria-label="Location for @row.ProductName"
+                                        required>
+                                    <option value="">Choose location…</option>
+                                    @foreach (var loc in Model.LocationOptions)
+                                    {
+                                        <option value="@loc.Value">@loc.Text</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="ts-count">
+                                <stepper
+                                    name=""
+                                    value-bind="rows['@pid']?.counted ?? @recorded"
+                                    input-handler="setCount('@pid', $event.target.value)"
+                                    decrease-click="setCount('@pid', Math.max(0, parseFloat(rows['@pid']?.counted ?? @recorded) - 1))"
+                                    increase-click="setCount('@pid', parseFloat(rows['@pid']?.counted ?? @recorded) + 1)"
+                                    decrease-label="Decrease count for @row.ProductName"
+                                    increase-label="Increase count for @row.ProductName"
+                                    input-label="Count for @row.ProductName" />
+                                <span class="ts-unit">@row.DisplayUnitCode</span>
+                            </div>
+                        </div>
+
+                        @* Location-required hint *@
+                        <div class="ts-delta" x-show="!rows['@pid'].locationId" x-cloak>
+                            <span class="ts-loc-warn">
+                                <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+                                Choose a location before this can be filed
+                            </span>
+                        </div>
+
+                        @* Inline save error *@
+                        <div class="ts-row-err" x-show="rows['@pid']?.failed" x-cloak>
+                            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+                            <span x-text="rows['@pid']?.failMsg ?? 'Couldn\'t file'"></span>
+                        </div>
+                    </li>
+                    </template>
+                }
+            </ul>
+        }
+    </div>
+
+    @if (Model.Rows.Count > 0)
     {
-        <p class="empty-state">All products have a location — nothing to file here.</p>
-    }
-    else
-    {
-        <ul class="take-stock-rows" role="list">
-            @foreach (var row in Model.Rows)
-            {
-                var pid = row.ProductId.ToString();
-                var recorded = row.RecordedQuantity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-                <template x-if="rows['@pid'] !== undefined">
-                <li class="take-stock-row"
-                    :class="{ 'take-stock-row--dirty': rows['@pid']?.dirty, 'take-stock-row--failed': rows['@pid']?.failed }">
-
-                    <div class="take-stock-row__info">
-                        <span class="take-stock-row__name">@row.ProductName</span>
-                        <span class="take-stock-row__recorded">
-                            @row.RecordedQuantity.ToString("0.###") @row.DisplayUnitCode recorded
-                        </span>
-                        <span class="take-stock-row__fail-msg"
-                              x-show="rows['@pid']?.failed"
-                              x-text="rows['@pid']?.failMsg ?? ''"
-                              role="alert"></span>
-                    </div>
-
-                    <div class="take-stock-row__controls">
-                        @* Count stepper with the canonical <stepper> tag helper *@
-                        <stepper
-                            name=""
-                            value-bind="rows['@pid']?.counted ?? @recorded"
-                            input-handler="setCount('@pid', $event.target.value)"
-                            decrease-click="setCount('@pid', Math.max(0, parseFloat(rows['@pid']?.counted ?? @recorded) - 1))"
-                            increase-click="setCount('@pid', parseFloat(rows['@pid']?.counted ?? @recorded) + 1)"
-                            decrease-label="Decrease count for @row.ProductName"
-                            increase-label="Increase count for @row.ProductName"
-                            input-label="Count for @row.ProductName" />
-
-                        <span class="take-stock-row__unit">@row.DisplayUnitCode</span>
-                    </div>
-
-                    @* Required location picker — the user must choose a location before Save (J7) *@
-                    <div class="take-stock-no-location__picker">
-                        <label class="take-stock-no-location__picker-label" for="loc-@(pid.Replace("-",""))">
-                            Location <span class="take-stock-no-location__required" aria-label="required">*</span>
-                        </label>
-                        <select id="loc-@(pid.Replace("-",""))"
-                                class="field__input take-stock-no-location__picker-select"
-                                x-model="rows['@pid'].locationId"
-                                x-on:change="onLocationChange('@pid')"
-                                aria-label="Location for @row.ProductName"
-                                required>
-                            <option value="">— Choose location —</option>
-                            @foreach (var loc in Model.LocationOptions)
-                            {
-                                <option value="@loc.Value">@loc.Text</option>
-                            }
-                        </select>
-                    </div>
-                </li>
-                </template>
-            }
-        </ul>
-
         @* Sticky save bar — visible when any row is dirty (location chosen) *@
-        <div class="take-stock-savebar" x-show="isDirty()" x-cloak>
-            <span class="take-stock-savebar__count"
-                  x-text="dirtyCount() + (dirtyCount() === 1 ? ' item to file' : ' items to file')"></span>
+        <div class="ts-savebar" x-show="isDirty()" x-cloak>
+            <div class="sb-summary">
+                <span class="ts-pending-badge" x-text="dirtyCount()"></span>
+                <span><b x-text="dirtyCount()"></b> <span x-text="dirtyCount() === 1 ? 'item to file' : 'items to file'"></span></span>
+            </div>
+            <div class="spacer"></div>
             <button type="button"
                     class="btn btn--primary"
                     :disabled="saving"
-                    x-text="saving ? 'Filing…' : 'File'"
                     x-on:click="save('@Url.Page("./NoLocation", "Save")')">
+                <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                <span x-text="saving ? 'Filing…' : 'File'"></span>
             </button>
         </div>
 
         @* Toast notification *@
-        <div class="take-stock-toast"
+        <div class="ts-toast"
              role="status"
              aria-live="polite"
              x-show="toast !== null" x-cloak
-             x-text="toast ?? ''"
-             x-on:click="toast = null"></div>
+             x-on:click="toast = null">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            <span x-text="toast ?? ''"></span>
+        </div>
     }
 </div>
 

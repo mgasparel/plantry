@@ -4,4 +4,15 @@
     ViewData["Title"] = "Take Stock";
 }
 
-<partial name="_LocationList" model="Model" />
+<div class="ts-wrap">
+    <div class="ts-head">
+        <span class="ts-eyebrow"><svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg> Take Stock</span>
+        <h1>Walk your kitchen</h1>
+        <p>
+            Pick a location and count what's physically there. Plantry reconciles your numbers
+            against what it has on record — only the rows you change get saved.
+        </p>
+    </div>
+
+    <partial name="_LocationList" model="Model" />
+</div>
