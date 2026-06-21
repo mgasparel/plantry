@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -40,6 +41,19 @@ using Plantry.Web.Tenancy;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+
+// Persist the DataProtection key ring to a fixed path mounted as a named Docker volume.
+// Without explicit PersistKeysToFileSystem, ASP.NET Core falls back to the home-relative
+// default ($HOME/.aspnet/DataProtection-Keys) and always logs warning [60] — even when
+// that directory is mounted. An explicit repository suppresses the warning and ensures the
+// key ring survives 'docker compose pull && up -d' (container recreation on update).
+// SetApplicationName keeps the purpose string stable across image rebuilds so an existing
+// ring remains valid. The /keys path matches the dp_keys volume mount in docker-compose.yml
+// and docker-compose.prod.yml; for local dev the directory is created on first startup.
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(
+        builder.Configuration["DataProtection:KeyPath"] ?? "/keys"))
+    .SetApplicationName("Plantry");
 
 // Session support — required for IPendingProposalStore store keys (P3-6a).
 // Uses in-process distributed memory cache (single-server; no Redis needed for Phase 3).

@@ -81,6 +81,13 @@ services:
       # Optional: omit (or leave blank) to degrade AI features to a locked-feature
       # UI.  The app still runs normally without an AI key.
       AI__ApiKey: ${AI_API_KEY:-}
+    volumes:
+      # Persist the ASP.NET Core DataProtection key ring so auth cookies and
+      # antiforgery tokens survive 'docker compose pull && up -d' (container
+      # recreation).  Without this, every update invalidates all sessions.
+      # /keys matches the PersistKeysToFileSystem path configured in Program.cs.
+      - dp_keys:/keys
 
 volumes:
   postgres_data:
+  dp_keys:

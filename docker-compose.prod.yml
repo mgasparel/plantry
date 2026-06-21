@@ -71,6 +71,13 @@ services:
       Database__AppUserPassword: ${APP_USER_PASSWORD}
       # Optional: omit to degrade AI features to a locked-feature UI (the app still runs).
       AI__ApiKey: ${AI_API_KEY:-}
+    volumes:
+      # Persist the ASP.NET Core DataProtection key ring so auth cookies and
+      # antiforgery tokens survive container recreation on update.  Without
+      # this, every 'docker compose up -d' after an image pull invalidates
+      # all user sessions.
+      # /keys matches the PersistKeysToFileSystem path configured in Program.cs.
+      - dp_keys:/keys
     # Web is not exposed directly — Caddy handles TLS termination and reverse proxying.
     healthcheck:
       # The mcr.microsoft.com/dotnet/aspnet runtime image ships bash but not curl/wget.
@@ -183,3 +190,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  dp_keys:
