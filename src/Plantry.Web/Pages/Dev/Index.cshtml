@@ -753,6 +753,117 @@
     <pre class="code-sample"><code>@("// Alpine: showScaleOffer() { return !isCreate && hasIngredients && parseInt(servings) !== origServings; }\n// Hidden input posts selected mode:\n<input type=\"hidden\" name=\"Input.ScaleMode\" :value=\"scaleMode\" />\n\n<div class=\"card\" x-show=\"showScaleOffer()\" x-cloak>\n  <div class=\"card__body\">\n    <div class=\"seg-ctrl\" role=\"group\" aria-label=\"Scale mode\">\n      <label class=\"seg-ctrl__item\">\n        <input type=\"radio\" name=\"_scaleMode\" value=\"Proportional\" x-model=\"scaleMode\" />\n        <span>Proportional — scale quantities</span>\n      </label>\n      <label class=\"seg-ctrl__item\">\n        <input type=\"radio\" name=\"_scaleMode\" value=\"Keep\" x-model=\"scaleMode\" />\n        <span>Keep — preserve quantities</span>\n      </label>\n    </div>\n  </div>\n</div>")</code></pre>
 </section>
 
+@*
+    ── P4-6: Product search / create sheet ──────────────────────────────────────────────────────────
+    Shared _ProductSearchCreateSheet partial — extracted from Recipes/Edit and reused by Take Stock
+    inline-add (P4-7, plantry-hcj3.8). Added here first per the component-library-first convention.
+*@
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Product search / create sheet (<code>Shared/_ProductSearchCreateSheet</code>)</h2>
+    </div>
+    <p>
+        <code>Shared/_ProductSearchCreateSheet</code> is the shared bottom-drawer for picking or
+        creating a catalog product. It provides two modes: a type-to-search product picker (htmx-driven
+        <code>searchableSelect</code>) and an inline staple-create escape hatch (C12) that lets the user
+        type a name and default unit when no match exists.
+    </p>
+    <p>
+        <strong>Alpine contract:</strong> the host page's <code>x-data</code> must expose
+        <code>sheetOpen</code>, <code>editingIdx</code> (null = adding, number = editing),
+        <code>draft</code> (working copy of the row), <code>closeSheet()</code>, <code>saveSheet()</code>,
+        and <code>selectProduct(row, detail)</code>.
+    </p>
+    <p>
+        <strong>Event contract:</strong>
+    </p>
+    <ul style="font-size:var(--font-size-sm)">
+        <li><code>sheet-product-set</code> (window) — dispatched inbound by the host when opening the sheet to
+            pre-populate the search box (<code>detail: label string</code>).</li>
+        <li><code>pick-product</code> — dispatched outbound from each search result <code>&lt;li&gt;</code> on click.
+            <code>detail: &#123; value: ProductId, name, track: "true"|"false" &#125;</code>.
+            The host catches it on the sheet element via <code>@@pick-product="selectProduct(draft, $event.detail)"</code>.</li>
+    </ul>
+    <p>
+        <strong>Parameters (<code>ProductSearchCreateSheetViewModel</code>):</strong>
+    </p>
+    <ul style="font-size:var(--font-size-sm)">
+        <li><code>SearchUrl</code> — htmx endpoint (<code>hx-get</code>) returning <code>&lt;li role="option"&gt;</code> markup.</li>
+        <li><code>UnitOptions</code> — units for the staple-create unit select and (when <code>TrackStock</code> is true) the ingredient unit select.</li>
+        <li><code>TrackStock</code> — when true (Recipes), qty + unit fields appear for tracked products.
+            When false (Take Stock inline-add) those fields are hidden; count lives in the extra-fields slot.</li>
+        <li><code>ExtraFieldsPartial</code> — optional partial name rendered between the product picker and action bar (e.g. Take Stock count + location fields for P4-7).</li>
+    </ul>
+
+    @*
+        Live demo wrapped in a minimal Alpine host satisfying the sheet's x-data contract.
+        Uses /Dev?handler=FilterGroceries (same endpoint as the searchable-select demo) so the
+        picker works without a full recipe-page context.
+    *@
+    <div style="max-width: 36rem"
+         x-data="{
+             sheetOpen: false,
+             editingIdx: null,
+             draft: {},
+             blankDraft() {
+                 return { productId: '', productName: '', isUntracked: false,
+                          newStapleName: null, newStapleUnit: '', qty: '', unitId: '', groupHeading: '' };
+             },
+             openSheet() {
+                 this.editingIdx = null;
+                 this.draft = this.blankDraft();
+                 this.sheetOpen = true;
+                 this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: '' })));
+             },
+             closeSheet() { this.sheetOpen = false; },
+             saveSheet() { this.sheetOpen = false; },
+             selectProduct(row, detail) {
+                 row.productId = detail.value;
+                 row.productName = detail.name;
+                 row.isUntracked = detail.track === 'false';
+             },
+         }">
+        <button type="button" class="btn btn--secondary" @@click="openSheet()">Open sheet demo</button>
+        <p x-show="!sheetOpen" style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-2) 0 0">
+            Click to open the shared sheet. Search for "milk" or "pasta".
+        </p>
+
+        <partial name="Shared/_ProductSearchCreateSheet"
+                 model='new Plantry.Web.Pages.Shared.ProductSearchCreateSheetViewModel
+                 {
+                     SearchUrl   = "/Dev?handler=FilterGroceries",
+                     UnitOptions = Model.UnitOptions,
+                     TrackStock  = true,
+                 }' />
+    </div>
+
+    <pre class="code-sample"><code>@(@"// View-model
+new ProductSearchCreateSheetViewModel
+{
+    SearchUrl          = Url.Page(""./MyPage"", ""SearchProducts"")!,
+    UnitOptions        = Model.UnitOptions,  // IReadOnlyList<SelectListItem>
+    TrackStock         = true,               // false = hide qty/unit (Take Stock mode)
+    ExtraFieldsPartial = null,               // or ""TakeStock/_CountLocationFields"" for P4-7
+}
+
+// Host x-data must expose:
+//   sheetOpen, editingIdx, draft, closeSheet(), saveSheet(),
+//   selectProduct(row, detail)   ← catches the pick-product event
+
+// Usage:
+<partial name=""Shared/_ProductSearchCreateSheet"" model=""Model.SheetVm"" />
+
+// Or inline (page with Url helper):
+<partial name=""Shared/_ProductSearchCreateSheet""
+         model='new ProductSearchCreateSheetViewModel
+         {
+             SearchUrl = Url.Page(""./Edit"", ""SearchProducts"")!,
+             UnitOptions = Model.UnitOptions,
+             TrackStock = true,
+         }' />")</code></pre>
+</section>
+
 <section class="catalog-section">
     <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Recipes browse — fulfillment pill (gallery)</h2>

@@ -1,0 +1,167 @@
+@model Plantry.Web.Pages.Shared.ProductSearchCreateSheetViewModel
+
+@*
+    Shared product search / create sheet — a self-contained bottom-drawer fragment for picking or
+    creating a catalog product.  Consumed by:
+      - Recipes/Edit.cshtml  (ingredient add/edit — trackStock:true, qty+unit fields shown)
+      - TakeStock walk pages (P4-7 inline add — trackStock depends on context, extra slot for count+location)
+
+    ── Alpine contract ───────────────────────────────────────────────────────────────────────────────
+    The host page's x-data must expose:
+      sheetOpen  : bool — controls x-show on this fragment
+      editingIdx : null | number — null = adding, number = editing existing row
+      draft      : object — working copy of the row being added/edited:
+                     { productId, productName, isUntracked, newStapleName, newStapleUnit,
+                       qty, unitId, groupHeading, ... }
+      closeSheet()  — called by Cancel / Escape / overlay click
+      saveSheet()   — called by the Add/Save button
+
+    ── Event contract ────────────────────────────────────────────────────────────────────────────────
+    Inbound  — sheet-product-set (window): { detail: label string }
+               Dispatched by the host when opening the sheet to pre-populate the search box.
+               Handled by @sheet-product-set.window on the searchable-select wrapper.
+
+    Outbound — pick-product (bubbles from inside the sheet to the .sheet element)
+               Detail: { value: ProductId string, name: string, track: "true"|"false" }
+               The host catches via @pick-product="selectProduct(draft, $event.detail)" on the sheet.
+
+    ── TrackStock / slot ──────────────────────────────────────────────────────────────────────────────
+    Model.TrackStock = true  → qty + unit fields are shown for tracked products (Recipes).
+    Model.TrackStock = false → qty + unit fields are never shown (Take Stock — count lives elsewhere).
+    Model.ExtraFieldsPartial → optional partial name rendered after the product picker section,
+                               before the action bar (e.g. Take Stock count + location fields, P4-7).
+
+    ── Why x-show, not x-if ─────────────────────────────────────────────────────────────────────────
+    The sheet stays in the DOM (x-show, not x-if) so the nested searchable-select inits once at
+    page load and the htmx product-search binding is established before the sheet first opens.
+    Using x-if would re-mount the widget on every open, losing focus and triggering redundant htmx setup.
+*@
+
+<div class="sheet" x-show="sheetOpen" x-cloak role="dialog" aria-modal="true"
+     :aria-label="editingIdx === null ? 'Add ingredient' : 'Edit ingredient'"
+     @@pick-product="selectProduct(draft, $event.detail)"
+     @@keydown.escape="closeSheet()">
+    <div class="sheet__overlay" @@click="closeSheet()"></div>
+    <div class="sheet__panel">
+        <header class="sheet__header">
+            <h2 class="sheet__title" x-text="editingIdx === null ? 'Add ingredient' : 'Edit ingredient'"></h2>
+            <button type="button" class="sheet__close" aria-label="Close" @@click="closeSheet()">&times;</button>
+        </header>
+
+        <div class="form-grid">
+            @* ── Product — searchable-select or new-staple input ─────────────────────── *@
+            <div class="form-grid__field form-grid__field--full">
+                <label class="form-grid__field__label">Product</label>
+                <div class="form-grid__field__control">
+
+                    @* Product search mode (default) *@
+                    <div x-show="draft.newStapleName === null">
+                        @*
+                            htmx:afterSwap bubbles from the #prod-list-sheet <ul> to here (not the sibling
+                            input), so 'open' is driven reactively from the result count — the popover shows
+                            only when there are matches and never as an empty panel.
+                        *@
+                        <div class="searchable-select" x-data="searchableSelect()"
+                             :data-initial-label="draft.productName"
+                             @@sheet-product-set.window="query = $event.detail; open = false; highlighted = -1"
+                             @@htmx:after-swap="open = ($event.target.children.length > 0)"
+                             @@click.outside="open = false" @@keydown.escape.stop="open = false">
+                            <input type="text" class="field__input" role="combobox" autocomplete="off"
+                                   placeholder="Search products…"
+                                   x-model="query"
+                                   :aria-expanded="open"
+                                   @@keydown.down.prevent="highlightNext()"
+                                   @@keydown.up.prevent="highlightPrev()"
+                                   @@keydown.enter.prevent="(function(){ const li = $refs.listbox && ($refs.listbox.querySelector('[aria-selected=true]') || $refs.listbox.querySelector('li')); if (li) li.click(); })()"
+                                   name="q"
+                                   id="prod-search-sheet"
+                                   hx-get="@Model.SearchUrl"
+                                   hx-trigger="keyup changed delay:250ms, focus"
+                                   hx-target="#prod-list-sheet"
+                                   hx-swap="innerHTML"
+                                   hx-params="q" />
+                            <ul class="searchable-select__listbox"
+                                id="prod-list-sheet"
+                                role="listbox"
+                                x-ref="listbox"
+                                x-show="open" x-cloak style="display:none">
+                            </ul>
+                        </div>
+                        <div x-show="!draft.productId" style="margin-top:var(--space-2)">
+                            <button type="button" class="btn btn--ghost btn--sm"
+                                    @@click="draft.newStapleName = ''">
+                                + Create as staple (untracked)
+                            </button>
+                        </div>
+                    </div>
+
+                    @* New staple mode (C12) — shown when user clicks "Create as staple" *@
+                    <div class="ingredient-row__staple" x-show="draft.newStapleName !== null">
+                        <input type="text" class="field__input" placeholder="Staple name (e.g. Salt)"
+                               x-model="draft.newStapleName" style="flex:1;min-width:8rem" />
+                        <select class="field__input" x-model="draft.newStapleUnit" style="min-width:5rem">
+                            <option value="">unit</option>
+                            @foreach (var u in Model.UnitOptions)
+                            {
+                                <option value="@u.Value">@u.Text</option>
+                            }
+                        </select>
+                        <button type="button" class="btn btn--ghost btn--sm"
+                                @@click="draft.newStapleName = null; draft.productId = ''; draft.newStapleUnit = ''">
+                            ← Search instead
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @if (Model.TrackStock)
+            {
+                @* Quantity — hidden for untracked / staple rows *@
+                <div class="form-grid__field" x-show="!draft.isUntracked && draft.newStapleName === null">
+                    <label class="form-grid__field__label">Quantity</label>
+                    <div class="form-grid__field__control">
+                        <input type="number" class="field__input" step="any" min="0"
+                               placeholder="e.g. 50" x-model="draft.qty" />
+                    </div>
+                </div>
+
+                @* Unit — hidden for untracked / staple rows *@
+                <div class="form-grid__field" x-show="!draft.isUntracked && draft.newStapleName === null">
+                    <label class="form-grid__field__label">Unit</label>
+                    <div class="form-grid__field__control">
+                        <select class="field__input" x-model="draft.unitId">
+                            <option value="">— Unit —</option>
+                            @foreach (var u in Model.UnitOptions)
+                            {
+                                <option value="@u.Value">@u.Text</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            }
+
+            @* Group heading — always shown *@
+            <div class="form-grid__field form-grid__field--full">
+                <label class="form-grid__field__label">Group (optional)</label>
+                <div class="form-grid__field__control">
+                    <input type="text" class="field__input" placeholder="e.g. Sauce, Topping"
+                           x-model="draft.groupHeading" />
+                </div>
+            </div>
+        </div>
+
+        @* ── Host extra-fields slot ──────────────────────────────────────────────── *@
+        @* Rendered between the product picker and the action bar. Used by Take Stock (P4-7) *@
+        @* to inject count + location fields. Null = no extra markup.                       *@
+        @if (Model.ExtraFieldsPartial is { } slot)
+        {
+            <partial name="@slot" />
+        }
+
+        <div class="sheet__actions">
+            <button type="button" class="btn btn--primary" @@click="saveSheet()"
+                    x-text="editingIdx === null ? 'Add' : 'Save'"></button>
+            <button type="button" class="btn btn--ghost" @@click="closeSheet()">Cancel</button>
+        </div>
+    </div>
+</div>
