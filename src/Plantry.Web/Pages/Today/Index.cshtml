@@ -45,11 +45,11 @@
                     Three quick steps to get going.
                 </p>
                 <div class="today-welcome__steps">
-                    <a class="today-welcome__step" href="/Pantry">
+                    <a class="today-welcome__step today-welcome__step--cta" href="/pantry/take-stock">
                         <span class="today-welcome__step-num">1</span>
                         <span class="today-welcome__step-txt">
-                            <span class="today-welcome__step-t">Add your groceries</span>
-                            <span class="today-welcome__step-s">Snap or forward a receipt to stock your pantry</span>
+                            <span class="today-welcome__step-t">Stock your pantry — Take Stock</span>
+                            <span class="today-welcome__step-s">Walk your kitchen and tell Plantry what's on your shelves</span>
                         </span>
                         <svg class="icon today-welcome__step-chev" aria-hidden="true"><use href="#i-chevron-right" /></svg>
                     </a>
@@ -93,6 +93,21 @@
             </div>
 
             <div class="today-rail">
+                @if (Model.ShowTakeStockCta)
+                {
+                    <div class="today-widget today-widget--cta" id="today-take-stock-cta">
+                        <div class="today-widget__head">
+                            <h3>Stock your pantry</h3>
+                        </div>
+                        <div class="today-widget__body">
+                            <p class="today-cta__sub">Your pantry is empty. Walk your shelves and tell Plantry what you have — takes just a few minutes.</p>
+                            <a class="btn btn--primary today-cta__link" href="/pantry/take-stock">
+                                Take Stock
+                                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                            </a>
+                        </div>
+                    </div>
+                }
                 @* Expiring-soon widget — populated by sibling ticket plantry-81x *@
                 <div class="today-widget">
                     <div class="today-widget__head">
