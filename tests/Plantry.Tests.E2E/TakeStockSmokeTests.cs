@@ -39,6 +39,137 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
         _playwright.Dispose();
     }
 
+    [Fact(DisplayName = "Take Stock: lot escape hatch — expand lots, adjust two lots, save reflects each (J3/P4-5)")]
+    public async Task TakeStock_LotEscapeHatch_ExpandAndAdjustTwoLots()
+    {
+        var uniqueEmail = $"ts-lot-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"TS Lot {Guid.NewGuid():N}".Substring(0, 16);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household ─────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS Lot E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS Lot E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Create a stock-holding product ────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
+            await page.WaitForURLAsync("**/Catalog/Products/Create");
+            await page.FillAsync("[name='Input.Name']", productName);
+            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.ClickAsync("button:has-text('Add product')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+
+            // ── Add two lots of stock in Pantry (200g + 300g = 500g) ──────────────
+            // Lot 1: 200g, no expiry
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
+            await productSearch.FillAsync(productName);
+            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "200");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            var pantryRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(pantryRow).ToBeVisibleAsync();
+
+            // Lot 2: 300g, no expiry
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            await productSearch.FillAsync(productName);
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "300");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            await Assertions.Expect(pantryRow).ToContainTextAsync("500 g", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+
+            // ── Navigate to Take Stock → open Pantry walk ─────────────────────────
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            var pantryLink = page.Locator(".catalog-list a.catalog-list__primary", new() { HasText = "Pantry" });
+            await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pantryLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+
+            // ── Expand the lot panel ──────────────────────────────────────────────
+            var adjustLotsBtn = page.Locator(".take-stock-row__lots-btn", new() { HasText = "Adjust lots" });
+            await Assertions.Expect(adjustLotsBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await adjustLotsBtn.ClickAsync();
+
+            // The lot panel should appear with both lots.
+            var lotPanel = page.Locator(".take-stock-lot-panel");
+            await Assertions.Expect(lotPanel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            // Two lot rows should appear.
+            await Assertions.Expect(page.Locator(".take-stock-lot-panel__lot")).ToHaveCountAsync(2, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
+
+            // ── Adjust Alpine state and trigger save via $data.save() directly ──────────
+            // Alpine.$data(panel) returns a reactive proxy of the merged data stack.
+            // setLotAmount and save() are accessible directly. This is more reliable than
+            // synthetic button click events for testing async Alpine methods.
+            var saveUrl = await page.EvaluateAsync<string>(@"
+                () => {
+                    const panel = document.querySelector('.take-stock-lot-panel');
+                    if (!panel || !window.Alpine) return null;
+                    const data = window.Alpine.$data(panel);
+                    if (!data || typeof data.setLotAmount !== 'function') return null;
+                    const lotIds = Object.keys(data.lots ?? {});
+                    if (lotIds.length >= 1) data.setLotAmount(lotIds[0], 50);
+                    if (lotIds.length >= 2) {
+                        data.setLotAmount(lotIds[1], 80);
+                        data.setSpoiled(lotIds[1], true);
+                    }
+                    // Extract the save URL from the button's x-on:click attribute.
+                    const btn = panel.querySelector('button[x-on\\:click]');
+                    const clickAttr = btn ? btn.getAttribute('x-on:click') : '';
+                    const m = clickAttr && clickAttr.match(/save\('([^']+)'\)/);
+                    return m ? m[1] : null;
+                }
+            ");
+
+            // Wait for button to enable (isDirty() reactive update).
+            var saveBtn = page.Locator(".take-stock-lot-panel button:has-text('Save lot changes')");
+            await Assertions.Expect(saveBtn).ToBeEnabledAsync(new LocatorAssertionsToBeEnabledOptions { Timeout = 15000 });
+
+            // ── Save lot changes ──────────────────────────────────────────────────
+            await saveBtn.ClickAsync();
+
+            // After a successful save, the panel is collapsed by onLotsSaved (parent removes innerHTML).
+            // Wait for the lot panel to disappear as a proxy for save success.
+            await Assertions.Expect(lotPanel).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+
+            // ── Verify Pantry reflects each lot change ────────────────────────────
+            // Stock was 500g; lot 1 reduced by 50 + lot 2 reduced by 80 = 130g removed → 370g
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            var updatedRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(updatedRow).ToContainTextAsync("370 g", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-lots.zip" });
+        }
+    }
+
     [Fact(DisplayName = "Take Stock: walk page navigable + count update round-trip (J2/J4)")]
     public async Task TakeStock_WalkPage_CountUpdateRoundTrip()
     {

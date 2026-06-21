@@ -5120,3 +5120,200 @@ button.sadd svg { width: 13px; height: 13px; }
   cursor: pointer;
   animation: fadein 0.2s ease;
 }
+
+/* ── Take Stock: lot escape-hatch (P4-5) ─────────────────────────────────── */
+
+/* "Adjust lots" expand button — sits below the reason selector on a count row */
+.take-stock-row__lots-btn {
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.take-stock-row__lots-btn:hover {
+  color: var(--color-accent);
+}
+
+/* Lot panel host — rendered below the expand button */
+.take-stock-row__lot-panel {
+  margin-top: var(--space-3);
+}
+
+/* Lot panel container */
+.take-stock-lot-panel {
+  background: color-mix(in srgb, var(--color-surface-2) 60%, var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.take-stock-lot-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.take-stock-lot-panel__title {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.take-stock-lot-panel__empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  padding: var(--space-3) 0;
+}
+
+/* Lot list */
+.take-stock-lot-panel__lots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.take-stock-lot-panel__lot {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.take-stock-lot-panel__lot--failed {
+  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
+}
+
+.take-stock-lot-panel__lot-info {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.take-stock-lot-panel__lot-qty {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.take-stock-lot-panel__lot-expiry {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.take-stock-lot-panel__lot-expiry--none {
+  font-style: italic;
+}
+
+.take-stock-lot-panel__lot-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.take-stock-lot-panel__lot-qty-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.take-stock-lot-panel__lot-qty-input {
+  width: 6rem;
+}
+
+.take-stock-lot-panel__lot-unit {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.take-stock-lot-panel__spoiled {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.take-stock-lot-panel__lot-fail {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  font-weight: 500;
+}
+
+/* Found stock */
+.take-stock-lot-panel__found {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.take-stock-lot-panel__found-summary {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.take-stock-lot-panel__found-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.take-stock-lot-panel__found-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.take-stock-lot-panel__found-qty {
+  width: 8rem;
+}
+
+.take-stock-lot-panel__found-unit {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  margin-left: var(--space-1);
+}
+
+.take-stock-lot-panel__found-expiry {
+  width: 12rem;
+}
+
+.take-stock-lot-panel__optional {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+/* Actions row */
+.take-stock-lot-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.take-stock-lot-panel__status {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

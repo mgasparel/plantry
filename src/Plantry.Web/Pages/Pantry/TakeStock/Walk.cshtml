@@ -6,6 +6,7 @@
 
 @* Alpine working-set client (C7, J2/J4).
    rows: { [productId]: { recorded, counted, unitId, reason, dirty, failed, failMsg } }
+   expandedLots: { [productId]: boolean } — tracks which rows have the lot panel open.
    The beforeunload guard fires when any row is dirty — unsaved counts are discarded on navigation (C7).
    Uses x-init to wire the guard because @@beforeunload would conflict with Razor @ syntax.
    JSON data is passed via a script-block global (not inline in the double-quoted x-data attribute)
@@ -17,7 +18,9 @@
 })();
 </script>
 <div x-data="takeStockWalk(window['__takeStockRows_@(Model.LocationId.ToString("N"))'])"
-     x-init="init()">
+     x-init="init()"
+     x-on:collapse-lots.window="collapseLotsPanel($event.detail.productId)"
+     x-on:lots-saved.window="onLotsSaved($event.detail.productId)">
 
     @Html.AntiForgeryToken()
 
@@ -99,6 +102,26 @@
                             </label>
                         </div>
                     </div>
+
+                    @* Lot escape-hatch expand button (P4-5, J3) — only shown for rows with active stock *@
+                    @if (row.HasActiveStock)
+                    {
+                        <button type="button"
+                                class="btn btn--ghost btn--sm take-stock-row__lots-btn"
+                                x-show="!expandedLots['@pid']"
+                                x-on:click="expandLots('@pid', '@Url.Page("./Walk", "Lots", new { locationId = Model.LocationId, productId = row.ProductId })')"
+                                aria-label="Expand lots for @row.ProductName"
+                                aria-controls="lot-panel-@pid">
+                            Adjust lots
+                        </button>
+                    }
+
+                    @* Lot panel host — loaded via htmx GET /Lots on expand (P4-5, J3) *@
+                    <div id="lot-panel-@pid"
+                         class="take-stock-row__lot-panel"
+                         data-product-id="@pid"
+                         x-show="expandedLots['@pid']" x-cloak>
+                    </div>
                 </li>
             }
         </ul>
@@ -129,6 +152,7 @@
 function takeStockWalk(initialRows) {
     return {
         rows: initialRows,
+        expandedLots: {},
         saving: false,
         toast: null,
         _guardHandler: null,
@@ -148,6 +172,47 @@ function takeStockWalk(initialRows) {
             if (this._guardHandler) {
                 window.removeEventListener('beforeunload', this._guardHandler);
             }
+        },
+
+        // ── Lot escape-hatch (P4-5, J3) ───────────────────────────────────────
+
+        /// <summary>Expand the lot panel for a row — fetches the fragment via fetch and injects it.</summary>
+        async expandLots(productId, url) {
+            const host = document.getElementById('lot-panel-' + productId);
+            if (!host) return;
+            try {
+                const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!resp.ok) return;
+                const html = await resp.text();
+                host.innerHTML = html;
+                // Re-init Alpine on the injected HTML so the x-data component activates.
+                if (window.Alpine) window.Alpine.initTree(host);
+                this.expandedLots[productId] = true;
+            } catch { /* silently ignore — panel simply doesn't open */ }
+        },
+
+        collapseLotsPanel(productId) {
+            const host = document.getElementById('lot-panel-' + (productId || ''));
+            if (host) host.innerHTML = '';
+            this.expandedLots[productId] = false;
+        },
+
+        /// <summary>
+        /// Called after a successful lot-level save (lots-saved event from _LotPanel).
+        /// Refreshes the lot panel so the user sees updated quantities, and clears
+        /// the scalar dirty state for the product (the lots are now the truth).
+        /// </summary>
+        onLotsSaved(productId) {
+            if (!productId) return;
+            const row = this.rows[productId];
+            if (row) {
+                // Reset the scalar count to the recorded value so the row is no longer dirty.
+                row.counted = row.recorded;
+                row.dirty = false;
+            }
+            // Collapse and re-open the lot panel to reflect the updated quantities.
+            // We cannot re-fetch without the URL — so just collapse; the user can re-expand.
+            this.collapseLotsPanel(productId);
         },
 
         isDirty() {
@@ -247,6 +312,133 @@ function takeStockWalk(initialRows) {
                 this.saving = false;
             }
         }
+    };
+}
+
+// ── Lot escape-hatch Alpine component (P4-5, J3) ────────────────────────────
+// Defined here (on the host page) so it is loaded before Alpine.initTree is
+// called on dynamically injected _LotPanel partial markup. Scripts inside
+// innerHTML fragments are never executed by the browser.
+function takeStockLotPanel(data) {
+    // data: { lots: { [entryId]: { unitId } }, foundUnitId }
+    const initialLots = {};
+    for (const eid of Object.keys(data.lots ?? {})) {
+        initialLots[eid] = {
+            amount: 0,
+            unitId: (data.lots[eid]?.unitId ?? ''),
+            spoiled: false,
+            failed: false,
+            failMsg: null,
+        };
+    }
+
+    return {
+        lots: initialLots,
+        found: { amount: null, expiryDate: '', unitId: data.foundUnitId ?? '' },
+        saving: false,
+        status: null,
+
+        init() {
+            // nothing to wire on init — collapse handled by parent via custom event
+        },
+
+        setLotAmount(entryId, rawValue) {
+            const lot = this.lots[entryId];
+            if (!lot) return;
+            const parsed = parseFloat(rawValue);
+            lot.amount = isNaN(parsed) ? 0 : Math.max(0, parsed);
+            lot.failed = false;
+            lot.failMsg = null;
+        },
+
+        setSpoiled(entryId, checked) {
+            const lot = this.lots[entryId];
+            if (!lot) return;
+            lot.spoiled = checked;
+        },
+
+        isDirty() {
+            const anyLot = Object.values(this.lots).some(l => l.amount > 0);
+            const foundDirty = this.found.amount != null && this.found.amount > 0;
+            return anyLot || foundDirty;
+        },
+
+        async save(url) {
+            if (this.saving || !this.isDirty()) return;
+            this.saving = true;
+            this.status = null;
+
+            const adjustments = [];
+
+            for (const [entryId, lot] of Object.entries(this.lots)) {
+                if (lot.amount <= 0) continue;
+                adjustments.push({
+                    entryId,
+                    amount: lot.amount,
+                    unitId: lot.unitId,
+                    reason: lot.spoiled ? 'Discarded' : 'Correction',
+                });
+            }
+
+            if (this.found.amount != null && this.found.amount > 0) {
+                adjustments.push({
+                    entryId: null,
+                    amount: this.found.amount,
+                    unitId: this.found.unitId,
+                    reason: 'Correction',
+                    expiryDate: this.found.expiryDate || null,
+                });
+            }
+
+            try {
+                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify({ adjustments }),
+                });
+
+                if (!resp.ok) {
+                    this.status = 'Save failed (' + resp.status + ') — please try again';
+                    return;
+                }
+
+                const result = await resp.json();
+                let saved = 0, failed = 0;
+
+                for (const r of result.results ?? []) {
+                    if (r.entryId) {
+                        const lot = this.lots[r.entryId];
+                        if (lot) {
+                            lot.failed = !r.isSuccess;
+                            lot.failMsg = r.isSuccess ? null : r.error ?? 'Failed';
+                            if (r.isSuccess) lot.amount = 0;
+                        }
+                    }
+                    if (r.isSuccess) saved++; else failed++;
+                }
+
+                if (failed === 0) {
+                    this.status = saved === 1 ? '1 lot updated' : saved + ' lots updated';
+                    this.found.amount = null;
+                    this.found.expiryDate = '';
+                    // Notify the parent walk component to collapse the panel.
+                    this.$dispatch('lots-saved', {
+                        productId: this.$el.closest('[data-product-id]')?.dataset?.productId
+                    });
+                } else {
+                    this.status = failed + ' adjustment(s) failed — see highlighted lots';
+                }
+            } catch {
+                this.status = 'Network error — please try again';
+            } finally {
+                this.saving = false;
+            }
+        },
     };
 }
 </script>

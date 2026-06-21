@@ -183,6 +183,187 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.Empty(data.Results);
     }
 
+    // ── J3: Lot panel fragment (P4-5) ─────────────────────────────────────────
+
+    [Fact(DisplayName = "GET /Lots returns the lot panel fragment for a product in a location (J3)")]
+    public async Task Get_Lots_ReturnsLotPanelFragment()
+    {
+        var client = AuthClient();
+        var url = $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Lots&productId={TakeStockFixture.FlourId}";
+        var resp = await client.GetAsync(url);
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("take-stock-lot-panel", html);
+        Assert.Contains("300", html);    // lot A quantity
+        Assert.Contains("200", html);    // lot B quantity
+        Assert.Contains("Spoiled", html);
+        Assert.Contains("Add found stock", html);
+    }
+
+    [Fact(DisplayName = "GET /Lots for a location with no lots renders empty state")]
+    public async Task Get_Lots_EmptyLocationRendersEmptyState()
+    {
+        var client = AuthClient();
+        // Fridge location has no lots in the fixture
+        var url = $"/pantry/take-stock/{TakeStockFixture.FridgeLocId}?handler=Lots&productId={TakeStockFixture.FlourId}";
+        var resp = await client.GetAsync(url);
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("take-stock-lot-panel", html);
+        Assert.Contains("No active lots", html);
+    }
+
+    [Fact(DisplayName = "POST SaveLots with a lot reduce writes removal and returns success (J3)")]
+    public async Task Post_SaveLots_LotReduce_ReturnsSuccess()
+    {
+        var client = AuthClient();
+
+        // Get antiforgery token from the walk page
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Use the seeded lot IDs from the factory
+        var lotAId = _factory.StockRepository.FlourLotIds[0];
+
+        var payload = new
+        {
+            adjustments = new[]
+            {
+                new
+                {
+                    entryId = lotAId,
+                    amount = 50m,
+                    unitId = TakeStockFixture.GramUnitId,
+                    reason = "Correction",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=SaveLots&productId={TakeStockFixture.FlourId}")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveLotsResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.Equal(lotAId, result.EntryId);
+        Assert.True(result.IsSuccess, $"Expected success but got: {result.Error}");
+    }
+
+    [Fact(DisplayName = "POST SaveLots with spoiled reason writes Discarded (J3)")]
+    public async Task Post_SaveLots_Spoiled_WritesDiscardedReason()
+    {
+        var client = AuthClient();
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var lotBId = _factory.StockRepository.FlourLotIds[1];
+
+        var payload = new
+        {
+            adjustments = new[]
+            {
+                new
+                {
+                    entryId = lotBId,
+                    amount = 100m,
+                    unitId = TakeStockFixture.GramUnitId,
+                    reason = "Discarded",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=SaveLots&productId={TakeStockFixture.FlourId}")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveLotsResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got: {result.Error}");
+
+        // Verify the journal entry has Discarded reason
+        var stock = _factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        var discardedJournals = stock.Journal.Where(j => j.Reason == Plantry.Inventory.Domain.StockReason.Discarded).ToList();
+        Assert.Single(discardedJournals);
+        Assert.Equal(-100m, discardedJournals[0].Delta);
+    }
+
+    [Fact(DisplayName = "POST SaveLots with found stock adds a Correction lot (J3)")]
+    public async Task Post_SaveLots_FoundStock_AddsCorrectionLot()
+    {
+        var client = AuthClient();
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            adjustments = new[]
+            {
+                new
+                {
+                    entryId = (Guid?)null,
+                    amount = 150m,
+                    unitId = TakeStockFixture.GramUnitId,
+                    reason = "Correction",
+                    expiryDate = "2027-06-01",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=SaveLots&productId={TakeStockFixture.FlourId}")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveLotsResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got: {result.Error}");
+
+        // The aggregate should have a new Correction lot
+        var stock = _factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        var correctionJournals = stock.Journal
+            .Where(j => j.Reason == Plantry.Inventory.Domain.StockReason.Correction && j.Delta > 0)
+            .ToList();
+        Assert.NotEmpty(correctionJournals);
+        Assert.Contains(correctionJournals, j => j.Delta == 150m);
+    }
+
     // ── Auth boundary ─────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "Unauthenticated GET /pantry/take-stock returns 401")]
@@ -230,6 +411,18 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         public bool IsSuccess  { get; set; }
         public string? Error   { get; set; }
     }
+
+    private sealed class SaveLotsResponse
+    {
+        public List<SaveLotResultItem> Results { get; set; } = [];
+    }
+
+    private sealed class SaveLotResultItem
+    {
+        public Guid?   EntryId   { get; set; }
+        public bool    IsSuccess { get; set; }
+        public string? Error     { get; set; }
+    }
 }
 
 // The "No location" card and its fragment test ship with plantry-hcj3.9 (P4-8),
@@ -247,6 +440,8 @@ public static class TakeStockFixture
     public static readonly Guid FridgeLocId   = Guid.Parse("11111111-0000-0000-0000-100000000002");
     public static readonly Guid FlourId       = Guid.Parse("22222222-0000-0000-0000-200000000001");
     public static readonly Guid GramUnitId    = Guid.Parse("33333333-0000-0000-0000-300000000001");
+    public static readonly Guid LotAId        = Guid.Parse("44444444-0000-0000-0000-400000000001");
+    public static readonly Guid LotBId        = Guid.Parse("44444444-0000-0000-0000-400000000002");
 
     public static TakeStockLocationRow PantryRow =>
         new(PantryLocId, "Pantry");
@@ -290,8 +485,16 @@ public sealed class FakeTakeStockReader(bool hasNoLocationProducts = false) : IT
     }
 
     public Task<IReadOnlyList<TakeStockLotRow>> ListLotsAsync(
-        Guid productId, Guid locationId, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<TakeStockLotRow>>([]);
+        Guid productId, Guid locationId, CancellationToken ct = default)
+    {
+        IReadOnlyList<TakeStockLotRow> rows = productId == TakeStockFixture.FlourId && locationId == TakeStockFixture.PantryLocId
+            ? [
+                new TakeStockLotRow(TakeStockFixture.LotAId, 300m, "g", TakeStockFixture.GramUnitId, null, false),
+                new TakeStockLotRow(TakeStockFixture.LotBId, 200m, "g", TakeStockFixture.GramUnitId, new DateOnly(2026, 12, 31), false),
+              ]
+            : [];
+        return Task.FromResult(rows);
+    }
 
     public Task<IReadOnlyList<TakeStockProductMatch>> SearchProductsAsync(
         string query, CancellationToken ct = default) =>
@@ -305,13 +508,24 @@ public sealed class FakeTsStockRepository : IProductStockRepository
     private readonly List<ProductStock> _stocks = [];
     private static readonly IClock Clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
 
+    /// <summary>Exposes seeded stocks for assertion in L4 tests.</summary>
+    public IReadOnlyList<ProductStock> Items => _stocks;
+
+    /// <summary>
+    /// The entry IDs added during seeding — used by L4 SaveLots tests to target specific lots.
+    /// Index 0 = lot A (300g), index 1 = lot B (200g).
+    /// </summary>
+    public IReadOnlyList<Guid> FlourLotIds { get; }
+
     public FakeTsStockRepository()
     {
-        // Seed: 500g of Flour in Pantry location.
+        // Seed: two Flour lots in Pantry location — matches the FakeTakeStockReader.ListLotsAsync fixture.
+        var userId = Guid.Parse("00000000-0000-0000-0000-0000000000aa");
         var stock = ProductStock.Start(TakeStockFixture.Household, TakeStockFixture.FlourId, Clock);
-        stock.AddStock(500m, TakeStockFixture.GramUnitId, TakeStockFixture.PantryLocId,
-            userId: Guid.Parse("00000000-0000-0000-0000-0000000000aa"), Clock);
+        var lotA = stock.AddStock(300m, TakeStockFixture.GramUnitId, TakeStockFixture.PantryLocId, userId, Clock);
+        var lotB = stock.AddStock(200m, TakeStockFixture.GramUnitId, TakeStockFixture.PantryLocId, userId, Clock);
         _stocks.Add(stock);
+        FlourLotIds = [lotA.Id.Value, lotB.Id.Value];
     }
 
     public Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
@@ -374,13 +588,20 @@ public sealed class FakeTsConversionProvider : IProductConversionProvider
 /// </summary>
 public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
 {
+    /// <summary>
+    /// The shared fake stock repository — exposed so L4 SaveLots tests can read seeded lot IDs.
+    /// </summary>
+    public FakeTsStockRepository StockRepository { get; } = new FakeTsStockRepository();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services => RegisterFakes(services, hasNoLocationProducts: false));
+        builder.ConfigureTestServices(services => RegisterFakes(services, StockRepository, hasNoLocationProducts: false));
     }
 
-    internal static void RegisterFakes(IServiceCollection services, bool hasNoLocationProducts)
+    internal static void RegisterFakes(
+        IServiceCollection services, FakeTsStockRepository? stockRepo = null,
+        bool hasNoLocationProducts = false)
     {
         services.AddAuthentication(opts =>
             {
@@ -394,7 +615,7 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
         services.AddSingleton<ITakeStockReader>(new FakeTakeStockReader(hasNoLocationProducts));
 
         services.RemoveAll<IProductStockRepository>();
-        services.AddSingleton<IProductStockRepository, FakeTsStockRepository>();
+        services.AddSingleton<IProductStockRepository>(stockRepo ?? new FakeTsStockRepository());
 
         services.RemoveAll<IProductConversionProvider>();
         services.AddSingleton<IProductConversionProvider, FakeTsConversionProvider>();
