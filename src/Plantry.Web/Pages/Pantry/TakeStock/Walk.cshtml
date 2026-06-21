@@ -1,0 +1,252 @@
+@page "/pantry/take-stock/{locationId:guid}"
+@model Plantry.Web.Pages.Pantry.TakeStock.WalkModel
+@{
+    ViewData["Title"] = Model.LocationName ?? "Take Stock";
+}
+
+@* Alpine working-set client (C7, J2/J4).
+   rows: { [productId]: { recorded, counted, unitId, reason, dirty, failed, failMsg } }
+   The beforeunload guard fires when any row is dirty — unsaved counts are discarded on navigation (C7).
+   Uses x-init to wire the guard because @@beforeunload would conflict with Razor @ syntax.
+   JSON data is passed via a script-block global (not inline in the double-quoted x-data attribute)
+   to avoid HTML-entity escaping issues with double-quoted JSON keys (bd memory: Razor+Alpine gotcha). *@
+<script>
+(function () {
+    'use strict';
+    window['__takeStockRows_@(Model.LocationId.ToString("N"))'] = @Html.Raw(Model.AlpineRowsJson);
+})();
+</script>
+<div x-data="takeStockWalk(window['__takeStockRows_@(Model.LocationId.ToString("N"))'])"
+     x-init="init()">
+
+    @Html.AntiForgeryToken()
+
+    <div class="page-header">
+        <a href="/pantry/take-stock" class="btn btn--ghost btn--sm">&larr; Locations</a>
+        <h1 class="page-header__title">@(Model.LocationName ?? "Take Stock")</h1>
+    </div>
+
+    @if (Model.Rows.Count == 0)
+    {
+        <p class="empty-state">No items in this location.</p>
+    }
+    else
+    {
+        <ul class="take-stock-rows" role="list">
+            @foreach (var row in Model.Rows)
+            {
+                var pid = row.ProductId.ToString();
+                var recorded = row.RecordedQuantity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                <li class="take-stock-row"
+                    :class="{ 'take-stock-row--dirty': rows['@pid']?.dirty, 'take-stock-row--failed': rows['@pid']?.failed }">
+
+                    <div class="take-stock-row__info">
+                        <span class="take-stock-row__name">@row.ProductName</span>
+                        <span class="take-stock-row__recorded">
+                            @row.RecordedQuantity.ToString("0.###") @row.DisplayUnitCode recorded
+                        </span>
+                        <span class="take-stock-row__fail-msg"
+                              x-show="rows['@pid']?.failed"
+                              x-text="rows['@pid']?.failMsg ?? ''"
+                              role="alert"></span>
+                    </div>
+
+                    <div class="take-stock-row__controls">
+                        @* Count stepper with the canonical <stepper> tag helper *@
+                        <stepper
+                            name=""
+                            value-bind="rows['@pid']?.counted ?? @recorded"
+                            input-handler="setCount('@pid', $event.target.value)"
+                            decrease-click="setCount('@pid', Math.max(0, parseFloat(rows['@pid']?.counted ?? @recorded) - 1))"
+                            increase-click="setCount('@pid', parseFloat(rows['@pid']?.counted ?? @recorded) + 1)"
+                            decrease-label="Decrease count for @row.ProductName"
+                            increase-label="Increase count for @row.ProductName"
+                            input-label="Count for @row.ProductName" />
+
+                        <span class="take-stock-row__unit">@row.DisplayUnitCode</span>
+
+                        @* One-tap "none left" (J2 step 4) *@
+                        <button type="button"
+                                class="btn btn--ghost btn--sm take-stock-row__none-left"
+                                x-on:click="setNoneLeft('@pid')"
+                                aria-label="None left — set @row.ProductName to zero">
+                            None left
+                        </button>
+                    </div>
+
+                    @* Reason selector (C9) — visible only when the row goes downward-dirty *@
+                    <div class="take-stock-row__reason"
+                         x-show="isDown('@pid')" x-cloak>
+                        <span class="take-stock-row__reason-label">Reason:</span>
+                        <div class="seg-ctrl" role="group" aria-label="Reason for @row.ProductName count change">
+                            <label class="seg-ctrl__item">
+                                <input type="radio" name="reason_@(pid.Replace("-",""))" value="Correction"
+                                       :checked="rows['@pid']?.reason === 'Correction'"
+                                       x-on:change="setReason('@pid', 'Correction')" />
+                                <span>Correction</span>
+                            </label>
+                            <label class="seg-ctrl__item">
+                                <input type="radio" name="reason_@(pid.Replace("-",""))" value="Consumed"
+                                       :checked="rows['@pid']?.reason === 'Consumed'"
+                                       x-on:change="setReason('@pid', 'Consumed')" />
+                                <span>Used it</span>
+                            </label>
+                            <label class="seg-ctrl__item">
+                                <input type="radio" name="reason_@(pid.Replace("-",""))" value="Discarded"
+                                       :checked="rows['@pid']?.reason === 'Discarded'"
+                                       x-on:change="setReason('@pid', 'Discarded')" />
+                                <span>Spoiled</span>
+                            </label>
+                        </div>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+
+    @* Sticky save bar (J4) — visible when any row is dirty *@
+    <div class="take-stock-savebar" x-show="isDirty()" x-cloak>
+        <span class="take-stock-savebar__count"
+              x-text="dirtyCount() + (dirtyCount() === 1 ? ' unsaved item' : ' unsaved items')"></span>
+        <button type="button"
+                class="btn btn--primary"
+                :disabled="saving"
+                x-text="saving ? 'Saving…' : 'Save'"
+                x-on:click="save('@Url.Page("./Walk", "Save", new { locationId = Model.LocationId })')">
+        </button>
+    </div>
+
+    @* Toast notification (J4 confirmation) *@
+    <div class="take-stock-toast"
+         role="status"
+         aria-live="polite"
+         x-show="toast !== null" x-cloak
+         x-text="toast ?? ''"
+         x-on:click="toast = null"></div>
+</div>
+
+<script>
+function takeStockWalk(initialRows) {
+    return {
+        rows: initialRows,
+        saving: false,
+        toast: null,
+        _guardHandler: null,
+
+        init() {
+            // Leave-page guard (C7): fires when the user tries to navigate away with unsaved counts.
+            this._guardHandler = (e) => {
+                if (this.isDirty() && !this.saving) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            };
+            window.addEventListener('beforeunload', this._guardHandler);
+        },
+
+        destroy() {
+            if (this._guardHandler) {
+                window.removeEventListener('beforeunload', this._guardHandler);
+            }
+        },
+
+        isDirty() {
+            return Object.values(this.rows).some(r => r.dirty);
+        },
+
+        dirtyCount() {
+            return Object.values(this.rows).filter(r => r.dirty).length;
+        },
+
+        isDown(productId) {
+            const r = this.rows[productId];
+            return r && r.dirty && r.counted < r.recorded;
+        },
+
+        setCount(productId, rawValue) {
+            const row = this.rows[productId];
+            if (!row) return;
+            const parsed = parseFloat(rawValue);
+            const counted = isNaN(parsed) ? row.recorded : Math.max(0, parsed);
+            row.counted = counted;
+            row.dirty = counted !== row.recorded;
+            row.failed = false;
+            row.failMsg = null;
+        },
+
+        setNoneLeft(productId) {
+            this.setCount(productId, 0);
+        },
+
+        setReason(productId, reason) {
+            const row = this.rows[productId];
+            if (!row) return;
+            row.reason = reason;
+        },
+
+        async save(url) {
+            if (this.saving) return;
+            this.saving = true;
+            this.toast = null;
+
+            const items = Object.entries(this.rows)
+                .filter(([, r]) => r.dirty)
+                .map(([productId, r]) => ({
+                    productId,
+                    countedValue: r.counted,
+                    countedUnitId: r.unitId,
+                    reason: r.reason
+                }));
+
+            try {
+                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token,
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({ items })
+                });
+
+                if (!resp.ok) {
+                    this.toast = 'Save failed (' + resp.status + ') — please try again';
+                    return;
+                }
+
+                const data = await resp.json();
+                let saved = 0, failed = 0;
+
+                for (const result of data.results ?? []) {
+                    const row = this.rows[result.productId];
+                    if (!row) continue;
+                    if (result.isSuccess) {
+                        row.recorded = row.counted;
+                        row.dirty = false;
+                        row.failed = false;
+                        row.failMsg = null;
+                        saved++;
+                    } else {
+                        row.failed = true;
+                        row.failMsg = result.error ?? 'Failed to save';
+                        failed++;
+                    }
+                }
+
+                if (failed === 0) {
+                    this.toast = saved === 1 ? '1 item updated' : saved + ' items updated';
+                } else if (saved === 0) {
+                    this.toast = 'Save failed — please try again';
+                } else {
+                    this.toast = saved + ' saved, ' + failed + ' failed — retry the highlighted rows';
+                }
+            } catch {
+                this.toast = 'Network error — please try again';
+            } finally {
+                this.saving = false;
+            }
+        }
+    };
+}
+</script>

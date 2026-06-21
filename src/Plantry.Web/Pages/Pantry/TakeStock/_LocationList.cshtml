@@ -1,0 +1,24 @@
+@model Plantry.Web.Pages.Pantry.TakeStock.IndexModel
+
+@if (Model.Locations.Count == 0)
+{
+    <div class="empty-state" id="take-stock-list">
+        <p>No locations defined. <a href="/Catalog/Locations">Add a location</a> before taking stock.</p>
+    </div>
+}
+else
+{
+    <ul class="catalog-list" role="list" id="take-stock-list">
+        @foreach (var loc in Model.Locations)
+        {
+            <li class="catalog-list__item">
+                <a class="catalog-list__primary" href="/pantry/take-stock/@loc.LocationId">
+                    @loc.LocationName
+                </a>
+            </li>
+        }
+        @* No-location walk entry is scaffolded by plantry-hcj3.9 (P4-8) once the
+           /pantry/take-stock/no-location route exists. Model.HasNoLocationProducts
+           is kept on IndexModel for hcj3.9 to consume without re-reading the reader. *@
+    </ul>
+}

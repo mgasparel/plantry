@@ -23,7 +23,13 @@ public sealed record TakeStockLocationProductRow(
     /// <summary>Sum of active lots in the product's display unit (0 if no active stock in this location).</summary>
     decimal RecordedQuantity,
     /// <summary>True when branch A (active stock present); false when branch B (default-location only).</summary>
-    bool HasActiveStock);
+    bool HasActiveStock,
+    /// <summary>
+    /// The Guid of the product's display unit — used by the walk page to pass the unit id to
+    /// <see cref="SaveCountsCommand"/> (P4-4b). Defaults to <see cref="Guid.Empty"/> when the unit
+    /// cannot be resolved (guards against forward-compatibility breakage).
+    /// </summary>
+    Guid DisplayUnitId = default);
 
 /// <summary>
 /// One product row on the "No location" section (J7): tracked products that have active stock
