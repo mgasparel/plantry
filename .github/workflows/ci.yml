@@ -27,12 +27,14 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
-          # `code` is true when any changed file is NOT Markdown. `'**'` matches
-          # everything; `'!**/*.md'` removes Markdown from the match set — so a
-          # change touching only *.md leaves nothing and `code` is false.
+          # `code` is true when any changed file is NOT Markdown. dorny matches a
+          # file if it matches ANY listed pattern (.some), so a single negated glob
+          # means "matches when the file is not *.md" — an all-Markdown change
+          # matches nothing and `code` is false. Do NOT add a `'**'` line: it
+          # matches everything and would make `code` always true (the negation
+          # would never subtract).
           filters: |
             code:
-              - '**'
               - '!**/*.md'
 
   # ── Fast gate: build + unit + architecture (< 2 min, runs first) ─────────────
