@@ -46,6 +46,10 @@ public sealed class BrowseRecipesQuery(
         if (allRecipes.Count == 0)
             return new BrowseRecipesResult(allTags, [], CookableCount: 0);
 
+        // Lightweight existence projection: which recipe ids have a photo stored?
+        // Selects only the PK column from recipe_photo — no bytea loaded, honouring resolved call 3.
+        var photoIds = await recipes.ListRecipeIdsWithPhotoAsync(ct);
+
         // Compute fulfillment + cost per recipe sequentially.
         // Task.WhenAll would launch concurrent awaits over the shared scoped DbContexts
         // (CatalogDbContext, InventoryDbContext) within a single HTTP request, which throws
@@ -58,7 +62,7 @@ public sealed class BrowseRecipesQuery(
         {
             var fulfillmentResult = await fulfillment.ComputeAsync(r, r.DefaultServings, today, ct);
             var costResult = await costing.ComputeAsync(r, r.DefaultServings, ct);
-            computed.Add(BuildRow(r, fulfillmentResult, costResult));
+            computed.Add(BuildRow(r, fulfillmentResult, costResult, photoIds));
         }
 
         var cookableCount = computed.Count(row => row.FullyCookable);
@@ -112,7 +116,7 @@ public sealed class BrowseRecipesQuery(
         return new BrowseRecipesResult(allTags, rows, cookableCount);
     }
 
-    private static RecipeBrowseRow BuildRow(Recipe recipe, FulfillmentResult fulfillmentResult, CostPerServing costResult)
+    private static RecipeBrowseRow BuildRow(Recipe recipe, FulfillmentResult fulfillmentResult, CostPerServing costResult, IReadOnlySet<RecipeId> photoIds)
     {
         // inStock = ingredients that are InStock or Untracked (satisfied)
         var totalTracked = fulfillmentResult.Lines.Count(l => l.Status != IngredientStatus.Untracked);
@@ -147,7 +151,7 @@ public sealed class BrowseRecipesQuery(
             HasIngredientExpiringSoon: hasExpiringSoon,
             CostPerServing: costResult.Completeness != CostCompleteness.None ? costResult.Amount : null,
             CostCompleteness: costResult.Completeness,
-            HasPhoto: false // Thumbnail is resolved lazily via the image endpoint (resolved call 3)
+            HasPhoto: photoIds.Contains(recipe.Id)
         );
     }
 }

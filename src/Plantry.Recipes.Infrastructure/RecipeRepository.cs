@@ -30,6 +30,16 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
             .OrderBy(r => r.Name)
             .ToListAsync(ct);
 
+    public async Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default)
+    {
+        // Select only the PK column (recipe_id) from recipe_photo — no bytea loaded.
+        // RLS query filter on RecipePhoto scopes to the current household automatically.
+        var ids = await db.RecipePhotos
+            .Select(p => p.Id)
+            .ToListAsync(ct);
+        return ids.ToHashSet();
+    }
+
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         db.Recipes.AnyAsync(r => r.HouseholdId == householdId && r.ArchivedAt == null, ct);
 }

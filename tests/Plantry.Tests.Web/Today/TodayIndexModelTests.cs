@@ -206,6 +206,8 @@ public sealed class TodayIndexModelTests
         // Unused by IndexModel:
         public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<Recipe>>(Array.Empty<Recipe>());
+        public Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());
         public Task AddAsync(Recipe recipe, CancellationToken ct = default) => Task.CompletedTask;
         public Task<Recipe?> GetByIdAsync(RecipeId id, CancellationToken ct = default) => Task.FromResult<Recipe?>(null);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;

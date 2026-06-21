@@ -219,6 +219,9 @@ public sealed class FakeRecipeRepository(ITenantContext tenant, Recipe recipe) :
     public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<Recipe>>([]);
 
+    public Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());
+
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(false);
 }

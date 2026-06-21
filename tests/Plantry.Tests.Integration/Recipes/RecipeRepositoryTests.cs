@@ -191,6 +191,40 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(_household, created.HouseholdId);
     }
 
+    [Fact(DisplayName = "ListRecipeIdsWithPhotoAsync returns only ids of recipes that have a photo")]
+    public async Task ListRecipeIdsWithPhotoAsync_Returns_Only_Photo_Recipe_Ids()
+    {
+        // Seed two recipes: one with a photo, one without.
+        RecipeId withPhotoId;
+        RecipeId withoutPhotoId;
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+
+            var withPhoto = Recipe.Create(_household, "Photo Recipe", 2, _clock).Value;
+            withPhoto.ReplaceIngredients(
+                [new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            withPhoto.SetPhoto([0xDE, 0xAD], "image/jpeg", null, _clock);
+            withPhotoId = withPhoto.Id;
+            await repo.AddAsync(withPhoto);
+
+            var withoutPhoto = Recipe.Create(_household, "No Photo Recipe", 2, _clock).Value;
+            withoutPhoto.ReplaceIngredients(
+                [new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            withoutPhotoId = withoutPhoto.Id;
+            await repo.AddAsync(withoutPhoto);
+
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var photoIds = await new RecipeRepository(ctx2).ListRecipeIdsWithPhotoAsync();
+
+        Assert.Contains(withPhotoId, photoIds);
+        Assert.DoesNotContain(withoutPhotoId, photoIds);
+    }
+
     // ── Private helpers ────────────────────────────────────────────────────────
 
     private RecipesDbContext NewContext()

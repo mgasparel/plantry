@@ -176,6 +176,9 @@ public sealed class FakeEditorRecipeRepository(ITenantContext tenant, params Rec
     public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<Recipe>>([]);
 
+    public Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());
+
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(false);
 }

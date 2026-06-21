@@ -37,6 +37,12 @@ internal sealed class FakeRecipeRepository : IRecipeRepository
     public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<Recipe>>(Items.Where(r => r.ArchivedAt == null).OrderBy(r => r.Name).ToList());
 
+    public Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default)
+    {
+        IReadOnlySet<RecipeId> result = Items.Where(r => r.Photo is not null).Select(r => r.Id).ToHashSet();
+        return Task.FromResult(result);
+    }
+
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(Items.Any(r => r.HouseholdId == householdId && r.ArchivedAt == null));
 }
