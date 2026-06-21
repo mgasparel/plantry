@@ -24,7 +24,8 @@ public sealed class TagReaderAdapter(ITagRepository tagRepository) : ITagReader
 
     public async Task<IReadOnlyList<TagGroup>> ListGroupedAsync(CancellationToken ct = default)
     {
-        var all = await tagRepository.ListAllAsync(ct);
+        // Active-only: archived tags should not appear in dietary preferences.
+        var all = await tagRepository.ListAllAsync(activeOnly: true, ct);
 
         var grouped = all
             .GroupBy(t => t.Category?.ToString())

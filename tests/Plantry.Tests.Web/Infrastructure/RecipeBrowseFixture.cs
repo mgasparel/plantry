@@ -171,6 +171,9 @@ public sealed class FakeBrowseTagRepository(IReadOnlyList<Tag> tags) : ITagRepos
     public Task<Tag?> FindByNameAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         Task.FromResult<Tag?>(null);
 
+    public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) =>
+        Task.FromResult(tags.FirstOrDefault(t => t.Id == id));
+
     public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(
         IReadOnlyList<TagId> ids, CancellationToken ct = default)
     {
@@ -182,8 +185,14 @@ public sealed class FakeBrowseTagRepository(IReadOnlyList<Tag> tags) : ITagRepos
 
     public Task AddAsync(Tag tag, CancellationToken ct = default) => Task.CompletedTask;
 
-    public Task<IReadOnlyList<Tag>> ListAllAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<Tag>>(tags.ToList());
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default)
+    {
+        var query = tags.AsEnumerable();
+        if (activeOnly) query = query.Where(t => !t.IsArchived);
+        return Task.FromResult<IReadOnlyList<Tag>>(query.ToList());
+    }
 }
 
 /// <summary>

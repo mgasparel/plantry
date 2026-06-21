@@ -50,14 +50,19 @@ internal sealed class FakeRecipeRepository : IRecipeRepository
 internal sealed class FakeTagRepository : ITagRepository
 {
     public List<Tag> Items { get; } = [];
+    public int SaveChangesCalls { get; private set; }
 
     public Task<Tag?> FindByNameAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         Task.FromResult(Items.SingleOrDefault(t =>
             t.HouseholdId == householdId && string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)));
 
+    public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(t => t.Id == id));
+
     public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(
         IReadOnlyList<TagId> ids, CancellationToken ct = default)
     {
+        // Archived tags are included intentionally so existing recipe references render.
         IReadOnlyDictionary<TagId, string> result = Items
             .Where(t => ids.Contains(t.Id))
             .ToDictionary(t => t.Id, t => t.Name);
@@ -70,8 +75,18 @@ internal sealed class FakeTagRepository : ITagRepository
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyList<Tag>> ListAllAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<Tag>>(Items.OrderBy(t => t.Name).ToList());
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveChangesCalls++;
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default)
+    {
+        var query = Items.AsEnumerable();
+        if (activeOnly) query = query.Where(t => !t.IsArchived);
+        return Task.FromResult<IReadOnlyList<Tag>>(query.OrderBy(t => t.Name).ToList());
+    }
 }
 
 internal sealed class FakeCatalogProductReader : ICatalogProductReader

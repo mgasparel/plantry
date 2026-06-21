@@ -1,0 +1,146 @@
+@model Plantry.Web.Pages.Settings.TagsModel
+@using Plantry.Recipes.Domain
+
+@{
+    var activeTags   = Model.Tags.Where(t => !t.IsArchived).ToList();
+    var archivedTags = Model.Tags.Where(t => t.IsArchived).ToList();
+}
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert--danger" role="alert">@Model.ErrorMessage</div>
+}
+
+<div class="card card--overflow-visible">
+    <div class="card__head">
+        <h3 class="card__head-title">Tags</h3>
+        <span class="ch-sub">&middot; @activeTags.Count active</span>
+    </div>
+    <div class="card__body">
+
+        @if (activeTags.Count == 0)
+        {
+            <p class="catalog-section__empty">No tags yet. Add one below.</p>
+        }
+        else
+        {
+            <ul class="tag-admin-list" role="list">
+                @foreach (var tag in activeTags)
+                {
+                    <li class="tag-admin-row" data-tag-id="@tag.Id.Value">
+                        @* Name — inline edit on change *@
+                        <input class="tag-name-input"
+                               name="name"
+                               value="@tag.Name"
+                               placeholder="Tag name"
+                               aria-label="Tag name"
+                               hx-trigger="change"
+                               hx-post="/Settings/Tags?handler=Rename&id=@tag.Id.Value"
+                               hx-include="this"
+                               hx-target="#tags-region"
+                               hx-swap="innerHTML" />
+
+                        @* Category — select on change *@
+                        <select class="tag-cat-select"
+                                name="category"
+                                aria-label="Category"
+                                hx-trigger="change"
+                                hx-post="/Settings/Tags?handler=Category&id=@tag.Id.Value"
+                                hx-include="this"
+                                hx-target="#tags-region"
+                                hx-swap="innerHTML">
+                            <option value="" selected="@(tag.Category is null ? "selected" : null)">No category</option>
+                            @foreach (var cat in Enum.GetValues<TagCategory>())
+                            {
+                                <option value="@cat" selected="@(tag.Category == cat ? "selected" : null)">@cat</option>
+                            }
+                        </select>
+
+                        @* Actions *@
+                        <div class="tag-admin-acts">
+                            <button type="button"
+                                    class="btn btn--ghost btn--sm"
+                                    title="Archive tag"
+                                    hx-post="/Settings/Tags?handler=Archive&id=@tag.Id.Value"
+                                    hx-target="#tags-region"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="Archive '@tag.Name'? It will stop appearing in the recipe picker but existing recipe references will still show.">
+                                <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                                Archive
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+
+        @* Add new tag *@
+        <div class="tag-add" x-data="{ name: '', cat: '' }">
+            <input name="name"
+                   x-model="name"
+                   class="tag-add-name"
+                   placeholder="New tag name"
+                   aria-label="New tag name"
+                   x-on:keydown.enter.prevent="if (name.trim()) $el.closest('.tag-add').querySelector('.tag-add-btn').click()" />
+
+            <select name="category"
+                    x-model="cat"
+                    class="tag-cat-select"
+                    aria-label="Category for new tag">
+                <option value="">No category</option>
+                @foreach (var cat in Enum.GetValues<TagCategory>())
+                {
+                    <option value="@cat">@cat</option>
+                }
+            </select>
+
+            <button type="button"
+                    class="btn btn--soft tag-add-btn"
+                    x-bind:disabled="!name.trim()"
+                    hx-post="/Settings/Tags?handler=Create"
+                    hx-target="#tags-region"
+                    hx-swap="innerHTML"
+                    hx-include="closest .tag-add"
+                    hx-on::after-request="name = ''; cat = ''">
+                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                Add tag
+            </button>
+        </div>
+    </div>
+</div>
+
+@* Archived tags (collapsible) *@
+@if (archivedTags.Count > 0)
+{
+    <div class="card" style="margin-top: var(--spacing-4)">
+        <div class="card__head">
+            <h3 class="card__head-title">Archived</h3>
+            <span class="ch-sub">&middot; @archivedTags.Count</span>
+        </div>
+        <div class="card__body">
+            <ul class="tag-admin-list" role="list">
+                @foreach (var tag in archivedTags)
+                {
+                    <li class="tag-admin-row tag-admin-row--archived" data-tag-id="@tag.Id.Value">
+                        <span class="tag-name-static">@tag.Name</span>
+                        @if (tag.Category is not null)
+                        {
+                            <span class="tag-cat-badge">@tag.Category</span>
+                        }
+                        <div class="tag-admin-acts">
+                            <button type="button"
+                                    class="btn btn--ghost btn--sm"
+                                    title="Restore tag"
+                                    hx-post="/Settings/Tags?handler=Unarchive&id=@tag.Id.Value"
+                                    hx-target="#tags-region"
+                                    hx-swap="innerHTML">
+                                <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                Restore
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+}

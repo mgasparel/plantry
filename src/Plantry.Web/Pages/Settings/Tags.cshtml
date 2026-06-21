@@ -1,0 +1,24 @@
+@page
+@model Plantry.Web.Pages.Settings.TagsModel
+@{
+    ViewData["Title"] = "Tags";
+}
+
+<div class="cfg-wrap" data-screen-label="Tags">
+    <div class="cfg-head">
+        <div class="eyebrow">Household vocabulary</div>
+        <h1>Tags</h1>
+        <p>
+            Define and manage the tags your household uses on recipes. The recipe editor&rsquo;s tag
+            picker only shows active tags &mdash; archiving a tag removes it from the picker while
+            keeping it on any existing recipes.
+        </p>
+    </div>
+
+    <div id="tags-region"
+         hx-get="/Settings/Tags?handler=List"
+         hx-trigger="none"
+         hx-swap="innerHTML">
+        @await Html.PartialAsync("Settings/_TagsList", Model)
+    </div>
+</div>

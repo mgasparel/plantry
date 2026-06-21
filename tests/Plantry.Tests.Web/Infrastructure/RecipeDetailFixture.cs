@@ -179,6 +179,9 @@ public sealed class FakeTagRepository(IReadOnlyDictionary<TagId, string> tagName
     public Task<Tag?> FindByNameAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         Task.FromResult<Tag?>(null);
 
+    public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) =>
+        Task.FromResult<Tag?>(null);
+
     public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(
         IReadOnlyList<TagId> ids, CancellationToken ct = default)
     {
@@ -190,7 +193,9 @@ public sealed class FakeTagRepository(IReadOnlyDictionary<TagId, string> tagName
 
     public Task AddAsync(Tag tag, CancellationToken ct = default) => Task.CompletedTask;
 
-    public Task<IReadOnlyList<Tag>> ListAllAsync(CancellationToken ct = default) =>
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<Tag>>([]);
 }
 

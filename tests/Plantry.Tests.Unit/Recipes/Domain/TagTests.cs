@@ -83,6 +83,68 @@ public sealed class TagTests
         Assert.Equal(Later, tag.UpdatedAt);
     }
 
+    // ── Archive / Unarchive ──────────────────────────────────────────────────
+
+    [Fact]
+    public void Archive_Sets_ArchivedAt_And_IsArchived()
+    {
+        var tag = Tag.Create(HouseholdId, "Vegan", null, new FixedClock(Origin));
+        Assert.False(tag.IsArchived);
+
+        tag.Archive(new FixedClock(Later));
+
+        Assert.True(tag.IsArchived);
+        Assert.Equal(Later, tag.ArchivedAt);
+        Assert.Equal(Later, tag.UpdatedAt);
+    }
+
+    [Fact]
+    public void Archive_Is_Idempotent_And_Preserves_First_ArchivedAt()
+    {
+        var tag = Tag.Create(HouseholdId, "Vegan", null, new FixedClock(Origin));
+        tag.Archive(new FixedClock(Later));
+
+        var evenLater = new DateTimeOffset(2026, 12, 31, 0, 0, 0, TimeSpan.Zero);
+        tag.Archive(new FixedClock(evenLater));
+
+        // ArchivedAt must not change on second call.
+        Assert.Equal(Later, tag.ArchivedAt);
+    }
+
+    [Fact]
+    public void Unarchive_Clears_ArchivedAt_And_IsArchived()
+    {
+        var tag = Tag.Create(HouseholdId, "Vegan", null, new FixedClock(Origin));
+        tag.Archive(new FixedClock(Later));
+
+        var evenLater = new DateTimeOffset(2026, 12, 31, 0, 0, 0, TimeSpan.Zero);
+        tag.Unarchive(new FixedClock(evenLater));
+
+        Assert.False(tag.IsArchived);
+        Assert.Null(tag.ArchivedAt);
+        Assert.Equal(evenLater, tag.UpdatedAt);
+    }
+
+    [Fact]
+    public void Unarchive_Is_Idempotent_When_Already_Active()
+    {
+        var tag = Tag.Create(HouseholdId, "Vegan", null, new FixedClock(Origin));
+        // Not archived — calling Unarchive should be a no-op.
+        tag.Unarchive(new FixedClock(Later));
+
+        Assert.False(tag.IsArchived);
+        // UpdatedAt should not change on no-op.
+        Assert.Equal(Origin, tag.UpdatedAt);
+    }
+
+    [Fact]
+    public void Create_IsArchived_Is_False()
+    {
+        var tag = Tag.Create(HouseholdId, "Fresh", null, Clock);
+        Assert.False(tag.IsArchived);
+        Assert.Null(tag.ArchivedAt);
+    }
+
     private static readonly DateTimeOffset Origin = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset Later = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
 
