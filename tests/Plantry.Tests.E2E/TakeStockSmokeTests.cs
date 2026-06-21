@@ -431,4 +431,125 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await context.Tracing.StopAsync(new() { Path = "trace-takestock.zip" });
         }
     }
+
+    [Fact(DisplayName = "Take Stock: no-location section — file unplaced product → moves under its Location (J7/P4-8)")]
+    public async Task TakeStock_NoLocation_FileUnplacedProduct_MovesUnderLocation()
+    {
+        var uniqueEmail = $"ts-noloc-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"TS NoLoc {Guid.NewGuid():N}".Substring(0, 18);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household ─────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS No-Location E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS NoLoc E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Create a stock-holding product WITHOUT a default location ──────────
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
+            await page.WaitForURLAsync("**/Catalog/Products/Create");
+            await page.FillAsync("[name='Input.Name']", productName);
+            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
+            // Do NOT set a default location — leave it blank so the product is unplaced.
+            await page.ClickAsync("button:has-text('Add product')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+
+            // ── Add stock to the unplaced product via the Pantry AddStock sheet ──
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
+            await productSearch.FillAsync(productName);
+            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "200");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            var pantryRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(pantryRow).ToBeVisibleAsync();
+
+            // ── Navigate to Take Stock index — "No location" entry should appear ──
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            var noLocLink = page.Locator("a[href='/pantry/take-stock/no-location']");
+            await Assertions.Expect(noLocLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+
+            // ── Navigate to the No-location page ─────────────────────────────────
+            await noLocLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/no-location**");
+
+            // The product should appear in the no-location section.
+            await Assertions.Expect(page.Locator(".take-stock-row__name", new() { HasText = productName }))
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+
+            // ── Choose a location for the product ─────────────────────────────────
+            // Alpine state: set locationId via the <select> for this row.
+            await page.WaitForFunctionAsync(@"
+                () => {
+                    const el = document.querySelector('[x-data]');
+                    const data = el && window.Alpine && window.Alpine.$data(el);
+                    return data && typeof data.onLocationChange === 'function';
+                }
+            ");
+
+            // Select "Pantry" from the location picker for the first (and only) row.
+            var pickerSelect = page.Locator(".take-stock-no-location__picker-select").First;
+            await Assertions.Expect(pickerSelect).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pickerSelect.SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
+
+            // Save bar should appear (row is now dirty — location chosen).
+            await Assertions.Expect(page.Locator(".take-stock-savebar"))
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+
+            // ── File the product ──────────────────────────────────────────────────
+            await page.ClickAsync(".take-stock-savebar button:has-text('File')");
+
+            // Toast should confirm.
+            await Assertions.Expect(page.Locator(".take-stock-toast"))
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".take-stock-toast"))
+                .ToContainTextAsync("filed", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+
+            // The row should disappear from the Alpine working set (client removes it).
+            await Assertions.Expect(page.Locator(".take-stock-row__name", new() { HasText = productName }))
+                .ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+
+            // ── Navigate back to the Take Stock index — "No location" entry gone ──
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            // The "needs filing" badge must no longer be present (product is now placed).
+            await Assertions.Expect(page.Locator(".catalog-list__badge"))
+                .ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+
+            // ── Product now appears in the Pantry walk under its Location ──────────
+            var pantryWalkLink = page.Locator(".catalog-list a.catalog-list__primary", new() { HasText = "Pantry" });
+            await Assertions.Expect(pantryWalkLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pantryWalkLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+
+            // The product should now appear on the Pantry walk page (default location = Pantry).
+            await Assertions.Expect(page.Locator(".take-stock-row__name", new() { HasText = productName }))
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-no-location.zip" });
+        }
+    }
 }

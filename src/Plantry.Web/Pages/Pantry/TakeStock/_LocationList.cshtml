@@ -17,8 +17,14 @@ else
                 </a>
             </li>
         }
-        @* No-location walk entry is scaffolded by plantry-hcj3.9 (P4-8) once the
-           /pantry/take-stock/no-location route exists. Model.HasNoLocationProducts
-           is kept on IndexModel for hcj3.9 to consume without re-reading the reader. *@
+        @if (Model.HasNoLocationProducts)
+        {
+            <li class="catalog-list__item catalog-list__item--no-location">
+                <a class="catalog-list__primary" href="/pantry/take-stock/no-location">
+                    No location
+                </a>
+                <span class="catalog-list__badge">needs filing</span>
+            </li>
+        }
     </ul>
 }
