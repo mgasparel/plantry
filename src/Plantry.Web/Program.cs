@@ -137,6 +137,7 @@ builder.Services.AddScoped<InventoryQueryService>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 builder.Services.AddScoped<ITakeStockReader, TakeStockReaderAdapter>();
+builder.Services.AddScoped<ITakeStockCatalogWriter, TakeStockCatalogWriterAdapter>();
 
 // Pricing context
 builder.Services.AddDbContext<PricingDbContext>((sp, opts) =>

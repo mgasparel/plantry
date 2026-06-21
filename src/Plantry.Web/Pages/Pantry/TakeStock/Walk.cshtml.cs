@@ -1,9 +1,12 @@
 using System.Security.Claims;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Plantry.Catalog.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.SharedKernel.Domain;
@@ -19,6 +22,10 @@ namespace Plantry.Web.Pages.Pantry.TakeStock;
 /// lot list fragment; POST /SaveLots applies per-lot <see cref="SaveLotAdjustmentsCommand"/>
 /// adjustments and returns a per-item result JSON.
 ///
+/// Inline-add (P4-7, J5): GET /SearchProducts returns <c>&lt;li&gt;</c> markup for the shared
+/// product-search sheet; POST /AddItem runs <see cref="AddCountedItemCommand"/> (create + opening
+/// balance) and returns the new product row as JSON for Alpine to inject into the working set.
+///
 /// Alpine owns the working set until the user taps Save. Save POSTs a JSON body of dirty rows only;
 /// the handler runs <see cref="SaveCountsCommand"/> and returns a per-item result JSON for the
 /// client to reflect success/failure on each row without a page reload (C7, TS-6).
@@ -26,6 +33,8 @@ namespace Plantry.Web.Pages.Pantry.TakeStock;
 [Authorize]
 public sealed class WalkModel(
     ITakeStockReader reader,
+    ITakeStockCatalogWriter catalogWriter,
+    IUnitRepository unitRepository,
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
@@ -43,10 +52,104 @@ public sealed class WalkModel(
     /// <summary>JSON initialiser for the Alpine working set — one entry per row, keyed by product id.</summary>
     public string AlpineRowsJson { get; private set; } = "{}";
 
+    /// <summary>Unit options for the inline-add sheet's unit selector.</summary>
+    public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
+
     // ── GET ───────────────────────────────────────────────────────────────────
 
     public async Task OnGetAsync(CancellationToken ct = default) =>
         await LoadAsync(ct);
+
+    // ── GET (Product search — inline add sheet, P4-7) ─────────────────────────
+
+    /// <summary>
+    /// Returns &lt;li role="option"&gt; markup for the inline-add product search.
+    /// Called by htmx on keyup in the shared product-search sheet's input.
+    /// Only tracked, non-archived products are returned (same filter as <see cref="ITakeStockReader.SearchProductsAsync"/>).
+    /// </summary>
+    public async Task<IActionResult> OnGetSearchProductsAsync(string q, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(q))
+            return Content("", "text/html");
+
+        var hits = await reader.SearchProductsAsync(q.Trim(), ct);
+        var enc = HtmlEncoder.Default;
+        var html = string.Join("", hits.Select(p =>
+            $$"""<li role="option" data-value="{{p.ProductId}}" data-track="true" data-default-location="{{p.DefaultLocationId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: 'true'})">{{enc.Encode(p.Name)}}</li>"""));
+        return Content(html, "text/html");
+    }
+
+    // ── POST (Add item — inline create + opening balance, P4-7) ─────────────────
+
+    /// <summary>
+    /// Accepts a JSON body
+    /// <c>{ name, defaultUnitId, countedValue, countedUnitId }</c>
+    /// posted by the Alpine inline-add sheet's saveSheet() function.
+    ///
+    /// Runs <see cref="AddCountedItemCommand"/> (create tracked product → RecordCount opening
+    /// balance) and returns a JSON response the Alpine client uses to inject the new product row
+    /// into the working set:
+    /// <c>{ isSuccess, productId, productName, unitCode, unitId, countedValue, error? }</c>.
+    ///
+    /// The new row is added to Alpine's <c>rows</c> map at the current recorded quantity (the
+    /// just-applied opening balance) so the row shows as saved (not dirty) immediately.
+    /// </summary>
+    public async Task<IActionResult> OnPostAddItemAsync(CancellationToken ct = default)
+    {
+        using var bodyReader = new StreamReader(Request.Body);
+        var bodyJson = await bodyReader.ReadToEndAsync(ct);
+        AddItemRequest? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize<AddItemRequest>(bodyJson, JsonOptions);
+        }
+        catch
+        {
+            return BadRequest(new { error = "Invalid request body." });
+        }
+
+        if (payload is null || string.IsNullOrWhiteSpace(payload.Name))
+            return BadRequest(new { error = "Name is required." });
+
+        if (tenant.HouseholdId is null)
+            return Unauthorized();
+
+        var userId = CurrentUserId;
+
+        var cmd = new AddCountedItemCommand(
+            payload.Name.Trim(),
+            payload.DefaultUnitId,
+            LocationId,
+            payload.CountedValue,
+            payload.CountedUnitId == Guid.Empty ? payload.DefaultUnitId : payload.CountedUnitId,
+            userId,
+            catalogWriter,
+            stocks,
+            conversions,
+            clock,
+            tenant);
+
+        var result = await cmd.ExecuteAsync(ct);
+
+        if (result.IsFailure)
+            return new JsonResult(new { isSuccess = false, error = result.Error.Description });
+
+        var productId = result.Value;
+
+        // Resolve the unit code for the response — the client needs it to display the row.
+        var units = await unitRepository.ListAsync(ct);
+        var unitCode = units.FirstOrDefault(u => u.Id.Value == payload.DefaultUnitId)?.Code ?? "?";
+
+        return new JsonResult(new
+        {
+            isSuccess = true,
+            productId,
+            productName = payload.Name.Trim(),
+            unitCode,
+            unitId = payload.DefaultUnitId,
+            countedValue = payload.CountedValue,
+        });
+    }
 
     // ── POST (Save) ───────────────────────────────────────────────────────────
 
@@ -181,6 +284,13 @@ public sealed class WalkModel(
         LocationName = locations.FirstOrDefault(l => l.LocationId == LocationId)?.LocationName;
         Rows = await reader.ListLocationRowsAsync(LocationId, ct);
         AlpineRowsJson = BuildAlpineRowsJson(Rows);
+
+        // Load unit options for the inline-add sheet (P4-7).
+        var units = await unitRepository.ListAsync(ct);
+        UnitOptions = units
+            .OrderBy(u => u.Code, StringComparer.OrdinalIgnoreCase)
+            .Select(u => new SelectListItem(u.Code, u.Id.Value.ToString()))
+            .ToList();
     }
 
     private static string BuildAlpineRowsJson(IReadOnlyList<TakeStockLocationProductRow> rows)
@@ -252,6 +362,18 @@ public sealed class WalkModel(
         public Guid     UnitId     { get; set; }
         public string?  Reason     { get; set; }
         public DateOnly? ExpiryDate { get; set; }
+    }
+
+    private sealed class AddItemRequest
+    {
+        /// <summary>Product name typed in the create-new mode of the inline-add sheet.</summary>
+        public string? Name           { get; set; }
+        /// <summary>Selected default unit for the new product.</summary>
+        public Guid   DefaultUnitId   { get; set; }
+        /// <summary>Counted quantity for the opening-balance Correction (0 = register only, no stock).</summary>
+        public decimal CountedValue   { get; set; }
+        /// <summary>Unit for the counted quantity; falls back to DefaultUnitId when empty.</summary>
+        public Guid   CountedUnitId   { get; set; }
     }
 }
 

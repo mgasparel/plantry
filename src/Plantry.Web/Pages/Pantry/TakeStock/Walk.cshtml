@@ -1,12 +1,14 @@
 @page "/pantry/take-stock/{locationId:guid}"
 @model Plantry.Web.Pages.Pantry.TakeStock.WalkModel
+@using Plantry.Web.Pages.Shared
 @{
     ViewData["Title"] = Model.LocationName ?? "Take Stock";
 }
 
-@* Alpine working-set client (C7, J2/J4).
+@* Alpine working-set client (C7, J2/J4) + inline-add sheet state (P4-7, J5).
    rows: { [productId]: { recorded, counted, unitId, reason, dirty, failed, failMsg } }
    expandedLots: { [productId]: boolean } — tracks which rows have the lot panel open.
+   sheetOpen / editingIdx / draft — shared-sheet Alpine contract (see _ProductSearchCreateSheet.cshtml).
    The beforeunload guard fires when any row is dirty — unsaved counts are discarded on navigation (C7).
    Uses x-init to wire the guard because @@beforeunload would conflict with Razor @ syntax.
    JSON data is passed via a script-block global (not inline in the double-quoted x-data attribute)
@@ -15,18 +17,36 @@
 (function () {
     'use strict';
     window['__takeStockRows_@(Model.LocationId.ToString("N"))'] = @Html.Raw(Model.AlpineRowsJson);
+    window['__addItemUrl_@(Model.LocationId.ToString("N"))'] = '@Url.Page("./Walk", "AddItem", new { locationId = Model.LocationId })';
 })();
 </script>
-<div x-data="takeStockWalk(window['__takeStockRows_@(Model.LocationId.ToString("N"))'])"
+<div x-data="takeStockWalk(window['__takeStockRows_@(Model.LocationId.ToString("N"))'], window['__addItemUrl_@(Model.LocationId.ToString("N"))'])"
      x-init="init()"
      x-on:collapse-lots.window="collapseLotsPanel($event.detail.productId)"
      x-on:lots-saved.window="onLotsSaved($event.detail.productId)">
+
+    @* ── Inline-add sheet (P4-7, J5) — shared _ProductSearchCreateSheet with count+location slot *@
+    @* TrackStock=false because the sheet's qty/unit fields are not shown; count lives in the slot. *@
+    <partial name="Shared/_ProductSearchCreateSheet"
+             model='new ProductSearchCreateSheetViewModel
+             {
+                 SearchUrl        = Url.Page("./Walk", "SearchProducts", new { locationId = Model.LocationId })!,
+                 UnitOptions      = Model.UnitOptions,
+                 TrackStock       = false,
+                 ExtraFieldsPartial = "TakeStock/_CountLocationFields",
+             }' />
 
     @Html.AntiForgeryToken()
 
     <div class="page-header">
         <a href="/pantry/take-stock" class="btn btn--ghost btn--sm">&larr; Locations</a>
         <h1 class="page-header__title">@(Model.LocationName ?? "Take Stock")</h1>
+        @* + Add item button (P4-7, J5) — opens the inline-add sheet *@
+        <button type="button" class="btn btn--secondary btn--sm take-stock-add-item"
+                x-on:click="openAdd()"
+                aria-label="Add a new item to this location">
+            + Add item
+        </button>
     </div>
 
     @if (Model.Rows.Count == 0)
@@ -127,6 +147,46 @@
         </ul>
     }
 
+    @* ── Dynamically-added rows (P4-7, J5) — rows inserted by the inline-add sheet
+         These rows exist only in Alpine state (not in the Razor-rendered HTML).
+         Rendered via x-for over the keys with isNewRow === true.
+         Use a plain number input (not the <stepper> tag helper) since tag helpers cannot be
+         rendered inside Alpine x-for templates at this page level. *@
+    <template x-if="newRowKeys().length > 0">
+        <ul class="take-stock-rows take-stock-rows--added" role="list" aria-label="Added items">
+            <template x-for="pid in newRowKeys()" :key="pid">
+                <li class="take-stock-row"
+                    :class="{ 'take-stock-row--dirty': rows[pid]?.dirty, 'take-stock-row--failed': rows[pid]?.failed }">
+
+                    <div class="take-stock-row__info">
+                        <span class="take-stock-row__name" x-text="rows[pid]?.productName ?? '(new item)'"></span>
+                        <span class="take-stock-row__recorded">
+                            <span x-text="rows[pid]?.recorded ?? 0"></span>&nbsp;<span x-text="rows[pid]?.unitCode ?? ''"></span> recorded
+                        </span>
+                        <span class="take-stock-row__fail-msg"
+                              x-show="rows[pid]?.failed"
+                              x-text="rows[pid]?.failMsg ?? ''"
+                              role="alert"></span>
+                    </div>
+
+                    <div class="take-stock-row__controls">
+                        <input type="number" class="field__input stepper__input" step="any" min="0"
+                               :value="rows[pid]?.counted ?? 0"
+                               :aria-label="'Count for ' + (rows[pid]?.productName ?? 'new item')"
+                               x-on:input="setCount(pid, $event.target.value)" />
+                        <span class="take-stock-row__unit" x-text="rows[pid]?.unitCode ?? ''"></span>
+                        <button type="button"
+                                class="btn btn--ghost btn--sm take-stock-row__none-left"
+                                x-on:click="setNoneLeft(pid)"
+                                aria-label="None left — set to zero">
+                            None left
+                        </button>
+                    </div>
+                </li>
+            </template>
+        </ul>
+    </template>
+
     @* Sticky save bar (J4) — visible when any row is dirty *@
     <div class="take-stock-savebar" x-show="isDirty()" x-cloak>
         <span class="take-stock-savebar__count"
@@ -149,13 +209,20 @@
 </div>
 
 <script>
-function takeStockWalk(initialRows) {
+function takeStockWalk(initialRows, addItemUrl) {
     return {
         rows: initialRows,
+        _addItemUrl: addItemUrl,
         expandedLots: {},
         saving: false,
         toast: null,
         _guardHandler: null,
+
+        // ── Inline-add sheet state (P4-7, J5) — shared sheet Alpine contract ────
+        // The _ProductSearchCreateSheet partial expects these on the host x-data context.
+        sheetOpen: false,
+        editingIdx: null,
+        draft: {},
 
         init() {
             // Leave-page guard (C7): fires when the user tries to navigate away with unsaved counts.
@@ -171,6 +238,134 @@ function takeStockWalk(initialRows) {
         destroy() {
             if (this._guardHandler) {
                 window.removeEventListener('beforeunload', this._guardHandler);
+            }
+        },
+
+        // ── Inline-add sheet lifecycle (P4-7, J5) ────────────────────────────────
+
+        openAdd() {
+            this.editingIdx = null;
+            this.draft = { productId: '', productName: '', isUntracked: false,
+                           newStapleName: null, newStapleUnit: '', groupHeading: '',
+                           addCount: 1, addUnitId: '' };
+            this.sheetOpen = true;
+            // Push empty search so the searchable-select resets.
+            this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: '' })));
+        },
+
+        closeSheet() {
+            this.sheetOpen = false;
+        },
+
+        selectProduct(row, detail) {
+            row.productId = detail.value;
+            row.productName = detail.name;
+            row.isUntracked = false; // Take Stock always shows tracked products only.
+        },
+
+        /// <summary>
+        /// saveSheet() — called by the shared sheet's Add button (P4-7, J5).
+        ///
+        /// Two paths:
+        ///   A) Existing product picked (draft.productId set, draft.newStapleName null):
+        ///      The product already exists; inject it into the working set with count = addCount (or 0).
+        ///      No server round-trip needed — the product already exists in Catalog. The row is added
+        ///      dirty so the user's next Save records the opening balance via RecordCountCommand.
+        ///
+        ///   B) New product typed (draft.newStapleName set, draft.productId empty):
+        ///      POST to /AddItem to create the tracked product + opening-balance Correction.
+        ///      On success, inject the returned row into the working set as already saved (not dirty).
+        /// </summary>
+        async saveSheet() {
+            const addItemUrl = this._addItemUrl;
+            // Path A: existing product selected — inject as a dirty row for the next scalar Save.
+            if (this.draft.productId) {
+                const pid = this.draft.productId;
+                if (!this.rows[pid]) {
+                    // New row: seed with 0 recorded (not in this location yet), counted = addCount.
+                    const counted = parseFloat(this.draft.addCount) || 0;
+                    this.rows[pid] = {
+                        recorded: 0,
+                        counted: counted,
+                        unitCode: '',    // resolved server-side on save
+                        unitId: this.draft.addUnitId || '',
+                        reason: 'Correction',
+                        dirty: counted !== 0,
+                        failed: false,
+                        failMsg: null,
+                        productName: this.draft.productName,
+                        isNewRow: true,  // flag so the UI renders the row name
+                    };
+                } else {
+                    // Row already exists — just update the count.
+                    const existing = this.rows[pid];
+                    const newCounted = parseFloat(this.draft.addCount) || existing.counted;
+                    existing.counted = newCounted;
+                    existing.dirty = newCounted !== existing.recorded;
+                }
+                this.sheetOpen = false;
+                this.toast = 'Added — tap Save to record.';
+                return;
+            }
+
+            // Path B: new product name typed — create via server.
+            const name = this.draft.newStapleName?.trim();
+            const unitId = this.draft.addUnitId || this.draft.newStapleUnit || '';
+            if (!name || !unitId) {
+                // Missing required fields — stay open.
+                return;
+            }
+
+            const counted = parseFloat(this.draft.addCount) || 0;
+            const payload = {
+                name,
+                defaultUnitId: unitId,
+                countedValue: counted,
+                countedUnitId: unitId,
+            };
+
+            try {
+                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+                const resp = await fetch(addItemUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!resp.ok) {
+                    this.toast = 'Add item failed (' + resp.status + ') — please try again';
+                    return;
+                }
+
+                const data = await resp.json();
+
+                if (!data.isSuccess) {
+                    this.toast = data.error ?? 'Failed to create product';
+                    return;
+                }
+
+                // Inject the newly created product into the working set as already-saved (not dirty).
+                const pid = data.productId;
+                this.rows[pid] = {
+                    recorded: data.countedValue,
+                    counted: data.countedValue,
+                    unitCode: data.unitCode,
+                    unitId: data.unitId,
+                    reason: 'Correction',
+                    dirty: false,
+                    failed: false,
+                    failMsg: null,
+                    productName: data.productName,
+                    isNewRow: true,
+                };
+                this.sheetOpen = false;
+                this.toast = '✓ ' + data.productName + ' added' + (data.countedValue > 0 ? ' with ' + data.countedValue + ' ' + data.unitCode : '') + '.';
+            } catch {
+                this.toast = 'Network error — please try again';
             }
         },
 
@@ -247,6 +442,12 @@ function takeStockWalk(initialRows) {
             const row = this.rows[productId];
             if (!row) return;
             row.reason = reason;
+        },
+
+        /// Returns the product id keys of rows that were added dynamically via the inline-add
+        /// sheet (P4-7) and are not yet represented in the Razor-rendered HTML row list.
+        newRowKeys() {
+            return Object.keys(this.rows).filter(k => this.rows[k]?.isNewRow === true);
         },
 
         async save(url) {
