@@ -58,6 +58,173 @@ public sealed record CountItem(
     Guid CountedUnitId,
     StockReason Reason = StockReason.Correction);
 
+// ─── Lot escape-hatch (P4-5) ──────────────────────────────────────────────────
+
+/// <summary>
+/// One per-lot adjustment in a <see cref="SaveLotAdjustmentsCommand"/> batch (P4-5, J3).
+/// Two shapes:
+/// <list type="bullet">
+/// <item><b>Reduce</b> — targeted <see cref="ProductStock.Consume"/> on an existing lot identified
+/// by <see cref="EntryId"/>. <see cref="Amount"/> and <see cref="UnitId"/> are the quantity to
+/// remove in the given unit. <see cref="Reason"/> must be a removal reason; use
+/// <see cref="StockReason.Discarded"/> for the "spoiled" toggle (TS-4 / C9).</item>
+/// <item><b>FoundStock</b> — <see cref="ProductStock.AddStock"/> with
+/// <see cref="StockReason.Correction"/> (upward Correction per TS-4). <see cref="EntryId"/> is
+/// null; <see cref="ExpiryDate"/> is the optional expiry supplied by the user.</item>
+/// </list>
+/// Both shapes target one (product, location) pair and run inside the same transaction as the
+/// <see cref="SaveLotAdjustmentsCommand"/> for that product.
+/// </summary>
+public sealed record LotAdjustItem(
+    /// <summary>The lot to reduce (null for found-stock additions).</summary>
+    Guid? EntryId,
+    /// <summary>
+    /// Amount to remove (Reduce) or add (FoundStock). Must be positive; the direction is inferred
+    /// from whether <see cref="EntryId"/> is null.
+    /// </summary>
+    decimal Amount,
+    Guid UnitId,
+    /// <summary>
+    /// Removal reason for the Reduce shape (ignored for FoundStock). Defaults to
+    /// <see cref="StockReason.Correction"/> (inventory discrepancy fix). Pass
+    /// <see cref="StockReason.Discarded"/> for the spoiled toggle.
+    /// </summary>
+    StockReason Reason = StockReason.Correction,
+    /// <summary>Optional expiry date for found-stock additions (ignored for Reduce).</summary>
+    DateOnly? ExpiryDate = null)
+{
+    /// <summary>True when this is a found-stock addition (no target lot); false for a lot reduce.</summary>
+    public bool IsFoundStock => EntryId is null;
+}
+
+/// <summary>
+/// The outcome returned for one <see cref="LotAdjustItem"/> within a
+/// <see cref="SaveLotAdjustmentsCommand"/>. Either succeeded or failed with a reason.
+/// </summary>
+public sealed record LotAdjustResult(
+    Guid? EntryId,
+    bool IsSuccess,
+    Error? FailureReason)
+{
+    public static LotAdjustResult Ok(Guid? entryId) => new(entryId, true, null);
+    public static LotAdjustResult Fail(Guid? entryId, Error error) => new(entryId, false, error);
+}
+
+/// <summary>
+/// The outcome of a <see cref="SaveLotAdjustmentsCommand"/> execution — whether it succeeded at
+/// the product level, plus per-adjustment results for the UI to surface inline.
+/// </summary>
+public sealed record SaveLotAdjustmentsOutcome(
+    bool IsSuccess,
+    IReadOnlyList<LotAdjustResult> Results,
+    Error? FailureReason = null)
+{
+    public static SaveLotAdjustmentsOutcome Ok(IReadOnlyList<LotAdjustResult> results) =>
+        new(true, results);
+
+    public static SaveLotAdjustmentsOutcome Fail(Error error) =>
+        new(false, [], error);
+}
+
+/// <summary>
+/// Applies a set of per-lot adjustments to one product's stock in one Location (P4-5, J3).
+/// Runs inside a single <c>FOR UPDATE</c> transaction so all lot mutations are atomic per product.
+///
+/// Each <see cref="LotAdjustItem"/> is either:
+/// <list type="bullet">
+/// <item>A <b>Reduce</b> — targeted <see cref="ProductStock.Consume"/> on the named lot
+/// (<see cref="LotAdjustItem.EntryId"/> set). Reason: Correction / Consumed / Discarded (C9).</item>
+/// <item>A <b>FoundStock</b> addition — <see cref="ProductStock.AddStock"/> with
+/// <see cref="StockReason.Correction"/> and the user-supplied optional expiry (TS-4).</item>
+/// </list>
+///
+/// Items are processed in order; a single item failure is recorded in the result vector but does
+/// not abort the remaining items. The transaction is committed after all items are processed.
+/// <c>source_type = Manual</c>.
+/// </summary>
+public sealed class SaveLotAdjustmentsCommand(
+    Guid productId,
+    Guid locationId,
+    IReadOnlyList<LotAdjustItem> adjustments,
+    Guid userId,
+    IProductStockRepository stocks,
+    IProductConversionProvider conversions,
+    IClock clock,
+    ITenantContext tenant)
+{
+    public async Task<Result<SaveLotAdjustmentsOutcome>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        if (adjustments.Count == 0)
+            return SaveLotAdjustmentsOutcome.Ok([]);
+
+        var converter = await conversions.ForProductAsync(productId, ct);
+        var household = HouseholdId.From(householdId);
+
+        return await stocks.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var stock = await stocks.FindForUpdateAsync(household, productId, innerCt);
+            if (stock is null)
+                return Result<SaveLotAdjustmentsOutcome>.Success(
+                    SaveLotAdjustmentsOutcome.Fail(
+                        Error.Custom("Inventory.NoStock", "There is no stock for this product.")));
+
+            var results = new List<LotAdjustResult>(adjustments.Count);
+
+            foreach (var item in adjustments)
+            {
+                if (item.IsFoundStock)
+                {
+                    // FoundStock: AddStock with Correction reason and optional expiry (TS-4).
+                    if (item.Amount <= 0m)
+                    {
+                        results.Add(LotAdjustResult.Fail(null,
+                            Error.Custom("Inventory.InvalidLotAmount", "Found-stock quantity must be positive.")));
+                        continue;
+                    }
+
+                    stock.AddStock(
+                        item.Amount, item.UnitId, locationId, userId, clock,
+                        expiryDate: item.ExpiryDate,
+                        sourceType: StockSourceType.Manual,
+                        reason: StockReason.Correction);
+
+                    results.Add(LotAdjustResult.Ok(null));
+                }
+                else
+                {
+                    // Reduce: targeted Consume on the named lot (C9).
+                    if (item.Amount <= 0m)
+                    {
+                        results.Add(LotAdjustResult.Fail(item.EntryId,
+                            Error.Custom("Inventory.InvalidLotAmount", "Reduce quantity must be positive.")));
+                        continue;
+                    }
+
+                    var consumeReason = item.Reason.IsRemoval() ? item.Reason : StockReason.Correction;
+                    var outcome = stock.Consume(
+                        item.Amount, item.UnitId, consumeReason, converter, userId, clock,
+                        sourceType: StockSourceType.Manual,
+                        targetEntry: StockEntryId.From(item.EntryId!.Value));
+
+                    if (outcome.IsFailure)
+                    {
+                        results.Add(LotAdjustResult.Fail(item.EntryId, outcome.Error));
+                        continue;
+                    }
+
+                    results.Add(LotAdjustResult.Ok(item.EntryId));
+                }
+            }
+
+            await stocks.SaveChangesAsync(innerCt);
+            return Result<SaveLotAdjustmentsOutcome>.Success(SaveLotAdjustmentsOutcome.Ok(results));
+        }, ct);
+    }
+}
+
 // ─── RecordCountCommand ───────────────────────────────────────────────────────
 
 /// <summary>

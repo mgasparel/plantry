@@ -1,0 +1,151 @@
+@model Plantry.Web.Pages.Pantry.TakeStock.LotPanelModel
+@using Plantry.Inventory.Application
+@*
+    Lot escape-hatch panel (P4-5, J3).
+    Rendered by WalkModel.OnGetLotsAsync into the .take-stock-lot-panel placeholder beneath a count row.
+    Alpine component: takeStockLotPanel — tracks per-lot reduce inputs, spoiled toggle, and the
+    "add found stock" form; POSTs to /SaveLots on submit.
+*@
+<div class="take-stock-lot-panel"
+     x-data='takeStockLotPanel(@Html.Raw(BuildLotJson(Model)))'
+     x-init="init()">
+
+    <div class="take-stock-lot-panel__header">
+        <span class="take-stock-lot-panel__title">Lots</span>
+        <button type="button" class="btn btn--ghost btn--sm take-stock-lot-panel__collapse"
+                x-on:click="$dispatch('collapse-lots', { productId: '@Model.ProductId' })"
+                aria-label="Collapse lot list">
+            Collapse
+        </button>
+    </div>
+
+    @if (Model.Lots.Count == 0)
+    {
+        <p class="empty-state take-stock-lot-panel__empty">No active lots in this location.</p>
+    }
+    else
+    {
+        <ul class="take-stock-lot-panel__lots" role="list">
+            @foreach (var lot in Model.Lots)
+            {
+                var eid = lot.EntryId.ToString();
+                <li class="take-stock-lot-panel__lot"
+                    :class="{ 'take-stock-lot-panel__lot--failed': lots['@eid']?.failed }">
+
+                    <div class="take-stock-lot-panel__lot-info">
+                        <span class="take-stock-lot-panel__lot-qty">
+                            @lot.Quantity.ToString("0.###") @lot.UnitCode
+                        </span>
+                        @if (lot.ExpiryDate is { } exp)
+                        {
+                            <span class="take-stock-lot-panel__lot-expiry">
+                                Expires @exp.ToString("d MMM yyyy")
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="take-stock-lot-panel__lot-expiry take-stock-lot-panel__lot-expiry--none">
+                                No expiry
+                            </span>
+                        }
+                    </div>
+
+                    <div class="take-stock-lot-panel__lot-controls">
+                        <label class="take-stock-lot-panel__lot-qty-label" for="lot-qty-@eid">
+                            Reduce by
+                        </label>
+                        <input type="number"
+                               id="lot-qty-@eid"
+                               class="take-stock-lot-panel__lot-qty-input input"
+                               min="0"
+                               step="any"
+                               :value="lots['@eid']?.amount ?? 0"
+                               x-on:input="setLotAmount('@eid', $event.target.value)"
+                               aria-label="Amount to reduce for lot @eid" />
+                        <span class="take-stock-lot-panel__lot-unit">@lot.UnitCode</span>
+                    </div>
+
+                    @* Spoiled toggle — Discarded reason (C9) *@
+                    <label class="take-stock-lot-panel__spoiled">
+                        <input type="checkbox"
+                               :checked="lots['@eid']?.spoiled ?? false"
+                               x-on:change="setSpoiled('@eid', $event.target.checked)" />
+                        <span>Spoiled (discard)</span>
+                    </label>
+
+                    <span class="take-stock-lot-panel__lot-fail"
+                          x-show="lots['@eid']?.failed"
+                          x-text="lots['@eid']?.failMsg ?? ''"
+                          role="alert"></span>
+                </li>
+            }
+        </ul>
+    }
+
+    @* Add found stock form *@
+    <details class="take-stock-lot-panel__found" x-ref="foundDetails">
+        <summary class="take-stock-lot-panel__found-summary">+ Add found stock</summary>
+        <div class="take-stock-lot-panel__found-fields">
+            <label class="take-stock-lot-panel__found-label" for="found-qty-@Model.ProductId">
+                Quantity found
+            </label>
+            <input type="number"
+                   id="found-qty-@Model.ProductId"
+                   class="input take-stock-lot-panel__found-qty"
+                   min="0.001"
+                   step="any"
+                   x-model.number="found.amount"
+                   aria-label="Quantity of found stock to add" />
+            <span class="take-stock-lot-panel__found-unit">
+                @(Model.Lots.FirstOrDefault()?.UnitCode ?? "")
+            </span>
+            <input type="hidden" x-bind:value="found.unitId" />
+
+            <label class="take-stock-lot-panel__found-label" for="found-expiry-@Model.ProductId">
+                Expiry date <span class="take-stock-lot-panel__optional">(optional)</span>
+            </label>
+            <input type="date"
+                   id="found-expiry-@Model.ProductId"
+                   class="input take-stock-lot-panel__found-expiry"
+                   x-model="found.expiryDate"
+                   aria-label="Expiry date for found stock" />
+        </div>
+    </details>
+
+    @* Save / status row *@
+    <div class="take-stock-lot-panel__actions">
+        <button type="button"
+                class="btn btn--primary btn--sm"
+                :disabled="saving || !isDirty()"
+                x-text="saving ? 'Saving…' : 'Save lot changes'"
+                x-on:click="save('@Url.Page("./Walk", "SaveLots", new { locationId = Model.LocationId, productId = Model.ProductId })')">
+        </button>
+        <span class="take-stock-lot-panel__status"
+              x-text="status ?? ''"
+              role="status"
+              aria-live="polite"></span>
+    </div>
+</div>
+
+@functions {
+    /// <summary>Serialises initial lot state for the Alpine data function.</summary>
+    string BuildLotJson(LotPanelModel m)
+    {
+        var lots = m.Lots.ToDictionary(
+            l => l.EntryId.ToString(),
+            l => new { amount = 0m, unitId = l.UnitId.ToString(), spoiled = false, failed = false, failMsg = (string?)null });
+        // found.unitId defaults to the first lot's unit Guid (the display unit for this product/location).
+        var foundUnitId = m.Lots.Count > 0 ? m.Lots[0].UnitId.ToString() : "";
+        var json = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            lots,
+            foundUnitId,
+        });
+        return json;
+    }
+}
+
+@* takeStockLotPanel is defined in Walk.cshtml (the host page) — it must be
+   pre-loaded at page time so it is available when Alpine.initTree re-initialises
+   the injected partial markup. Scripts inside dynamically injected innerHTML do
+   not execute in browsers (HTML spec §4.12.1 / fetch-and-run semantics). *@

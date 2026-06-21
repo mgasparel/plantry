@@ -43,11 +43,14 @@ public sealed record TakeStockNoLocationRow(
 
 /// <summary>
 /// One active lot for a product in a location — shown in the lot escape-hatch view (ListLots).
+/// <see cref="UnitId"/> is the Catalog unit Guid needed by the server when the UI sends per-lot
+/// adjustments back (P4-5 / <see cref="LotAdjustItem"/>).
 /// </summary>
 public sealed record TakeStockLotRow(
     Guid EntryId,
     decimal Quantity,
     string UnitCode,
+    Guid UnitId,
     DateOnly? ExpiryDate,
     bool IsOpen);
 

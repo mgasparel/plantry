@@ -15,6 +15,10 @@ namespace Plantry.Web.Pages.Pantry.TakeStock;
 /// Walk page for one Location (P4-4b, J2/J4). Shows the C5 union product rows with count inputs
 /// (stepper + display-unit, reason selector), wired to <see cref="SaveCountsCommand"/> on POST.
 ///
+/// Also hosts the lot escape-hatch panel (P4-5, J3): GET /Lots returns a per-(product, location)
+/// lot list fragment; POST /SaveLots applies per-lot <see cref="SaveLotAdjustmentsCommand"/>
+/// adjustments and returns a per-item result JSON.
+///
 /// Alpine owns the working set until the user taps Save. Save POSTs a JSON body of dirty rows only;
 /// the handler runs <see cref="SaveCountsCommand"/> and returns a per-item result JSON for the
 /// client to reflect success/failure on each row without a page reload (C7, TS-6).
@@ -97,6 +101,78 @@ public sealed class WalkModel(
         return new JsonResult(new { results = responseItems });
     }
 
+    // ── GET (Lots fragment — escape hatch) ────────────────────────────────────
+
+    /// <summary>
+    /// Returns the lot-panel fragment for a single (product, location) pair (P4-5, J3).
+    /// Called via htmx GET when the user expands a count row's lot list.
+    /// Renders <c>_LotPanel</c> partial pre-populated with active lots from
+    /// <see cref="ITakeStockReader.ListLotsAsync"/>.
+    /// </summary>
+    public async Task<IActionResult> OnGetLotsAsync(Guid productId, CancellationToken ct = default)
+    {
+        var lots = await reader.ListLotsAsync(productId, LocationId, ct);
+        return Partial("_LotPanel", new LotPanelModel(productId, LocationId, lots));
+    }
+
+    // ── POST (SaveLots — escape-hatch adjustments) ────────────────────────────
+
+    /// <summary>
+    /// Accepts a JSON body of per-lot adjustments (P4-5, J3):
+    /// <c>{ adjustments: [{ entryId?, amount, unitId, reason, expiryDate? }] }</c>.
+    /// Runs <see cref="SaveLotAdjustmentsCommand"/> and returns a per-item result vector.
+    /// </summary>
+    public async Task<IActionResult> OnPostSaveLotsAsync(Guid productId, CancellationToken ct = default)
+    {
+        using var bodyReader = new StreamReader(Request.Body);
+        var bodyJson = await bodyReader.ReadToEndAsync(ct);
+        SaveLotsRequest? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize<SaveLotsRequest>(bodyJson, JsonOptions);
+        }
+        catch
+        {
+            return BadRequest(new { error = "Invalid request body." });
+        }
+
+        if (payload?.Adjustments is null)
+            return BadRequest(new { error = "No adjustments supplied." });
+
+        if (tenant.HouseholdId is null)
+            return Unauthorized();
+
+        var userId = CurrentUserId;
+        var adjustments = payload.Adjustments
+            .Select(a => new LotAdjustItem(
+                a.EntryId,
+                a.Amount,
+                a.UnitId,
+                ParseReason(a.Reason),
+                a.ExpiryDate))
+            .ToList();
+
+        var cmd = new SaveLotAdjustmentsCommand(
+            productId, LocationId, adjustments, userId, stocks, conversions, clock, tenant);
+        var result = await cmd.ExecuteAsync(ct);
+
+        if (result.IsFailure)
+            return StatusCode(500, new { error = result.Error.Description });
+
+        var outcome = result.Value;
+        if (!outcome.IsSuccess && outcome.Results.Count == 0)
+            return StatusCode(500, new { error = outcome.FailureReason?.Description });
+
+        var responseItems = outcome.Results.Select(r => new
+        {
+            r.EntryId,
+            r.IsSuccess,
+            error = r.IsSuccess ? null : r.FailureReason?.Description,
+        });
+
+        return new JsonResult(new { results = responseItems });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private async Task LoadAsync(CancellationToken ct)
@@ -163,4 +239,27 @@ public sealed class WalkModel(
         public Guid    CountedUnitId { get; set; }
         public string? Reason        { get; set; }
     }
+
+    private sealed class SaveLotsRequest
+    {
+        public List<SaveLotAdjust>? Adjustments { get; set; }
+    }
+
+    private sealed class SaveLotAdjust
+    {
+        public Guid?    EntryId    { get; set; }
+        public decimal  Amount     { get; set; }
+        public Guid     UnitId     { get; set; }
+        public string?  Reason     { get; set; }
+        public DateOnly? ExpiryDate { get; set; }
+    }
 }
+
+/// <summary>
+/// View model for the <c>_LotPanel</c> partial (P4-5, J3).
+/// Carries the active lots for one (product, location) pair to render the escape-hatch lot list.
+/// </summary>
+public sealed record LotPanelModel(
+    Guid ProductId,
+    Guid LocationId,
+    IReadOnlyList<TakeStockLotRow> Lots);

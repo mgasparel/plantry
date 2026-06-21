@@ -187,6 +187,7 @@ public sealed class TakeStockReaderAdapter(
                 e.Id.Value,
                 e.Quantity,
                 unitCodes.GetValueOrDefault(e.UnitId, "?"),
+                e.UnitId,
                 e.ExpiryDate,
                 e.IsOpen))
             .ToList();
