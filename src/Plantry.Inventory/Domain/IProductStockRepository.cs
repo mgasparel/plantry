@@ -24,6 +24,12 @@ public interface IProductStockRepository
     /// <summary>All product-stock aggregates (with lots) for <paramref name="householdId"/> — feeds the pantry read model.</summary>
     Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Returns true if the household has at least one product-stock record — used for the
+    /// Today-page cold-start check to avoid materializing the full list.
+    /// </summary>
+    Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default);
+
     Task AddAsync(ProductStock stock, CancellationToken ct = default);
 
     /// <summary>

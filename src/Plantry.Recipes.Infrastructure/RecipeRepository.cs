@@ -29,4 +29,7 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
             .Where(r => r.ArchivedAt == null)
             .OrderBy(r => r.Name)
             .ToListAsync(ct);
+
+    public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        db.Recipes.AnyAsync(r => r.HouseholdId == householdId && r.ArchivedAt == null, ct);
 }

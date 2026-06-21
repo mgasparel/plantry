@@ -525,6 +525,9 @@ file sealed class TsStockRepository : IProductStockRepository
 
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 
+    public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult(_stocks.Any(s => s.HouseholdId == householdId));
+
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) =>
         await work(ct);
 }

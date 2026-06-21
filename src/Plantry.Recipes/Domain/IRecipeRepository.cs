@@ -27,4 +27,10 @@ public interface IRecipeRepository
     /// Ordered by name for a stable default query; final sort is applied in the application layer.
     /// </summary>
     Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns true if the household has at least one non-archived recipe — used for the
+    /// Today-page cold-start check to avoid materializing the full browse list.
+    /// </summary>
+    Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default);
 }

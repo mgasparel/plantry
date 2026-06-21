@@ -45,6 +45,9 @@ internal sealed class FakeImportSessionRepository : IImportSessionRepository
     public Task<List<ImportSession>> ListPendingAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(Sessions.Where(s => s.HouseholdId == householdId && s.Status == ImportStatus.Ready).ToList());
 
+    public Task<bool> HasPendingAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult(Sessions.Any(s => s.HouseholdId == householdId && s.Status == ImportStatus.Ready));
+
     public Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default) =>
         Task.FromResult(Sessions
             .Where(s => s.HouseholdId == householdId &&

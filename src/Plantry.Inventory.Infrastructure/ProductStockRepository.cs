@@ -44,6 +44,10 @@ public sealed class ProductStockRepository(InventoryDbContext db) : IProductStoc
             .Where(p => p.HouseholdId == householdId)
             .ToListAsync(ct);
 
+    public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        db.ProductStocks
+            .AnyAsync(p => p.HouseholdId == householdId, ct);
+
     public async Task AddAsync(ProductStock stock, CancellationToken ct = default) =>
         await db.ProductStocks.AddAsync(stock, ct);
 

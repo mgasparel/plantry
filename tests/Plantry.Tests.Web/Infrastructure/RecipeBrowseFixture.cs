@@ -147,6 +147,9 @@ public sealed class FakeBrowseRecipeRepository(ITenantContext tenant, IReadOnlyL
         IReadOnlyList<Recipe> result = recipes.Where(r => r.HouseholdId.Value == hid).ToList();
         return Task.FromResult(result);
     }
+
+    public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult(recipes.Any(r => r.HouseholdId == householdId && r.ArchivedAt == null));
 }
 
 /// <summary>
