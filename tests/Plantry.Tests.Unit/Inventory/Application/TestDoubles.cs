@@ -30,6 +30,9 @@ internal sealed class FakeProductStockRepository : IProductStockRepository
     public Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(Items.Where(s => s.HouseholdId == householdId).ToList());
 
+    public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult(Items.Any(s => s.HouseholdId == householdId));
+
     public Task AddAsync(ProductStock stock, CancellationToken ct = default)
     {
         Items.Add(stock);

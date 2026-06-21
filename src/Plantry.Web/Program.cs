@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -41,6 +42,19 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
+// Persist the DataProtection key ring to a fixed path mounted as a named Docker volume.
+// Without explicit PersistKeysToFileSystem, ASP.NET Core falls back to the home-relative
+// default ($HOME/.aspnet/DataProtection-Keys) and always logs warning [60] — even when
+// that directory is mounted. An explicit repository suppresses the warning and ensures the
+// key ring survives 'docker compose pull && up -d' (container recreation on update).
+// SetApplicationName keeps the purpose string stable across image rebuilds so an existing
+// ring remains valid. The /keys path matches the dp_keys volume mount in docker-compose.yml
+// and docker-compose.prod.yml; for local dev the directory is created on first startup.
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(
+        builder.Configuration["DataProtection:KeyPath"] ?? "/keys"))
+    .SetApplicationName("Plantry");
+
 // Session support — required for IPendingProposalStore store keys (P3-6a).
 // Uses in-process distributed memory cache (single-server; no Redis needed for Phase 3).
 builder.Services.AddDistributedMemoryCache();
@@ -60,10 +74,12 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AddPageRoute("/Recipes/Edit", "Recipes/New");
 });
 
-// The injected connection string is the database owner — used for migrations (which create
-// roles, schemas, and RLS policies). At runtime the app instead connects as the non-superuser
-// 'app_user' role so the Postgres RLS policies actually apply (RLS, even FORCE, never applies
-// to superusers/owners). See the InitialCatalogSchema / InitialIdentitySchema migrations.
+// The injected connection string is the database owner. At runtime the app connects as the
+// non-superuser 'app_user' role so Postgres RLS policies actually apply (RLS, even FORCE,
+// never applies to superusers/owners). The owner string is used here only to derive the
+// app_user runtime connection (swap username/password). Migrations are handled externally:
+// the Migrator resource in Aspire (dev) and the Plantry.Migrator container in compose (prod).
+// See the InitialCatalogSchema / InitialIdentitySchema migrations and ADR-017.
 var ownerConnStr = builder.Configuration.GetConnectionString("plantrydb")
     ?? "Host=localhost;Database=plantrydb;Username=postgres;Password=postgres";
 
@@ -350,71 +366,6 @@ if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();
 
 var app = builder.Build();
-
-// Migrations run as the database owner (creating the app_user role, schemas, and RLS
-// policies), NOT as the runtime app_user role — so build throwaway owner-connection
-// contexts here rather than resolving the app_user-scoped DI contexts.
-// In non-Development environments (Staging, Production) migrations are handled by the
-// one-shot Plantry.Migrator console tool before the web process starts (ADR-017).
-// The L4 WebApplicationFactory suite boots under the "Testing" environment with
-// in-memory fakes and no Postgres, so it must skip startup migrations too.
-if (app.Environment.IsDevelopment())
-{
-    var identityMigrateOpts = new DbContextOptionsBuilder<PlantryIdentityDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Identity.Infrastructure"))
-        .Options;
-    await using (var identityDb = new PlantryIdentityDbContext(identityMigrateOpts))
-        await identityDb.Database.MigrateAsync();
-
-    var catalogMigrateOpts = new DbContextOptionsBuilder<CatalogDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Catalog.Infrastructure"))
-        .Options;
-    await using (var catalogDb = new CatalogDbContext(catalogMigrateOpts))
-        await catalogDb.Database.MigrateAsync();
-
-    var inventoryMigrateOpts = new DbContextOptionsBuilder<InventoryDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Inventory.Infrastructure"))
-        .Options;
-    await using (var inventoryDb = new InventoryDbContext(inventoryMigrateOpts))
-        await inventoryDb.Database.MigrateAsync();
-
-    var pricingMigrateOpts = new DbContextOptionsBuilder<PricingDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Pricing.Infrastructure"))
-        .Options;
-    await using (var pricingDb = new PricingDbContext(pricingMigrateOpts))
-        await pricingDb.Database.MigrateAsync();
-
-    var intakeMigrateOpts = new DbContextOptionsBuilder<IntakeDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
-        .Options;
-    await using (var intakeDb = new IntakeDbContext(intakeMigrateOpts))
-        await intakeDb.Database.MigrateAsync();
-
-    var recipesMigrateOpts = new DbContextOptionsBuilder<RecipesDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure"))
-        .Options;
-    await using (var recipesDb = new RecipesDbContext(recipesMigrateOpts))
-        await recipesDb.Database.MigrateAsync();
-
-    var shoppingMigrateOpts = new DbContextOptionsBuilder<ShoppingDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.Shopping.Infrastructure"))
-        .Options;
-    await using (var shoppingDb = new ShoppingDbContext(shoppingMigrateOpts))
-        await shoppingDb.Database.MigrateAsync();
-
-    var mealPlanningMigrateOpts = new DbContextOptionsBuilder<MealPlanningDbContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
-        .Options;
-    await using (var mealPlanningDb = new MealPlanningDbContext(mealPlanningMigrateOpts))
-        await mealPlanningDb.Database.MigrateAsync();
-}
-
-if (app.Environment.IsDevelopment())
-{
-    // Auto-seed on first startup: no-ops if the demo user already exists.
-    await using var seedScope = app.Services.CreateAsyncScope();
-    await seedScope.ServiceProvider.GetRequiredService<FakeDataSeeder>().SeedAsync();
-}
 
 if (!app.Environment.IsDevelopment())
 {

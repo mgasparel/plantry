@@ -37,12 +37,13 @@ public static class RecipeBrowseFixture
     // Recipes are built fresh per test run; their ids are random (Verify scrubs all GUIDs).
     public static IReadOnlyList<Recipe> BuildRecipes()
     {
-        // Pancakes: flour, in-stock, Vegetarian tag.
+        // Pancakes: flour, in-stock, Vegetarian tag, with a photo to exercise the HasPhoto branch.
         var pancakes = Recipe.Create(Household, "Pancakes", defaultServings: 4, Clock).Value;
         pancakes.SetCookTime(20, Clock);
         pancakes.SetTags([VegTagId], Clock);
         pancakes.ReplaceIngredients(
             [new IngredientLine(FlourId, 200m, GramUnit, null, 0)], Clock);
+        pancakes.SetPhoto([1, 2, 3], "image/jpeg", null, Clock);
 
         // Omelette: eggs expiring soon, Spicy tag.
         var omelette = Recipe.Create(Household, "Omelette", defaultServings: 2, Clock).Value;
@@ -147,6 +148,18 @@ public sealed class FakeBrowseRecipeRepository(ITenantContext tenant, IReadOnlyL
         IReadOnlyList<Recipe> result = recipes.Where(r => r.HouseholdId.Value == hid).ToList();
         return Task.FromResult(result);
     }
+
+    public Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default)
+    {
+        IReadOnlySet<RecipeId> result = recipes
+            .Where(r => r.Photo is not null)
+            .Select(r => r.Id)
+            .ToHashSet();
+        return Task.FromResult(result);
+    }
+
+    public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult(recipes.Any(r => r.HouseholdId == householdId && r.ArchivedAt == null));
 }
 
 /// <summary>

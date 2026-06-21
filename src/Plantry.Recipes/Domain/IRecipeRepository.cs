@@ -27,4 +27,18 @@ public interface IRecipeRepository
     /// Ordered by name for a stable default query; final sort is applied in the application layer.
     /// </summary>
     Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the set of recipe ids that have a stored photo, scoped to the current household by
+    /// the RLS query filter. Selects only the PK column — no photo bytes are loaded.
+    /// Used by <see cref="BrowseRecipesQuery"/> to populate <c>HasPhoto</c> without an eager Include
+    /// that would drag the <c>bytea</c> column into the browse query (resolved call 3).
+    /// </summary>
+    Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns true if the household has at least one non-archived recipe — used for the
+    /// Today-page cold-start check to avoid materializing the full browse list.
+    /// </summary>
+    Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default);
 }

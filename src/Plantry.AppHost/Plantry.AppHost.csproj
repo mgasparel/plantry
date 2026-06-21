@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.ServiceDefaults\Plantry.ServiceDefaults.csproj" IsAspireProjectResource="false" />
+    <ProjectReference Include="..\Plantry.Migrator\Plantry.Migrator.csproj" />
     <ProjectReference Include="..\Plantry.Web\Plantry.Web.csproj" />
   </ItemGroup>
 

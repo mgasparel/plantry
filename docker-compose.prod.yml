@@ -53,7 +53,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};GssEncMode=disable"
       Database__AppUserPassword: ${APP_USER_PASSWORD}
 
   # ── Plantry Web ───────────────────────────────────────────────────────────
@@ -67,10 +67,17 @@ services:
         condition: service_completed_successfully
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD}"
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD};GssEncMode=disable"
       Database__AppUserPassword: ${APP_USER_PASSWORD}
       # Optional: omit to degrade AI features to a locked-feature UI (the app still runs).
       AI__ApiKey: ${AI_API_KEY:-}
+    volumes:
+      # Persist the ASP.NET Core DataProtection key ring so auth cookies and
+      # antiforgery tokens survive container recreation on update.  Without
+      # this, every 'docker compose up -d' after an image pull invalidates
+      # all user sessions.
+      # /keys matches the PersistKeysToFileSystem path configured in Program.cs.
+      - dp_keys:/keys
     # Web is not exposed directly — Caddy handles TLS termination and reverse proxying.
     healthcheck:
       # The mcr.microsoft.com/dotnet/aspnet runtime image ships bash but not curl/wget.
@@ -183,3 +190,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  dp_keys:

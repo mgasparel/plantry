@@ -49,7 +49,7 @@ else
                         @* Hero thumbnail: lazy-loaded by the image endpoint (resolved call 3 — no photo join in list query) *@
                         @if (row.HasPhoto)
                         {
-                            <img src="/Recipes/@row.RecipeId/Photo" alt="@row.Name" loading="lazy" />
+                            <img src="/Recipes/@row.RecipeId?handler=Photo" alt="@row.Name" loading="lazy" />
                         }
                     </div>
                     <div class="recipe-card__scrim" aria-hidden="true"></div>

@@ -30,6 +30,10 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
             .Where(s => s.HouseholdId == householdId && s.Status == ImportStatus.Ready)
             .ToListAsync(ct);
 
+    public Task<bool> HasPendingAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        db.ImportSessions
+            .AnyAsync(s => s.HouseholdId == householdId && s.Status == ImportStatus.Ready, ct);
+
     public Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default) =>
         db.ImportSessions
             .Include(s => s.Lines)

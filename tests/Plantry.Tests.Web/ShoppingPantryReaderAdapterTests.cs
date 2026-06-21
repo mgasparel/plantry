@@ -213,6 +213,8 @@ file sealed class FakePantryStockRepository : IProductStockRepository
     public Task AddAsync(ProductStock stock, CancellationToken ct = default) { _stocks.Add(stock); return Task.CompletedTask; }
     public Task<bool> TryAddAndSaveAsync(ProductStock stock, CancellationToken ct = default) { _stocks.Add(stock); return Task.FromResult(true); }
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+    public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult(_stocks.Any(s => s.HouseholdId == householdId));
 
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) =>
         await work(ct);

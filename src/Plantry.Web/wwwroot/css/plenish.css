@@ -323,6 +323,12 @@ button { font-family: inherit; cursor: pointer; }
   max-width: none;
 }
 
+/* Roomy pages keep standard centered/padded chrome but raise the cap to 1200px —
+   wide enough to display dense staging tables (up to ~70rem) without horizontal scroll. */
+.page-content--roomy {
+  max-width: 1200px;
+}
+
 .app-content:has(.page-content--fluid) {
   height: 100dvh;
   min-height: unset;

@@ -58,14 +58,9 @@ public sealed class IndexModel(
 
             Greeting = BuildGreeting(now.LocalDateTime.Hour, HouseholdName);
 
-            var allStock = await stocks.ListForHouseholdAsync(houseId, ct);
-            var hasStock = allStock.Count > 0;
-
-            var allRecipes = await recipes.ListForBrowseAsync(ct);
-            var hasRecipes = allRecipes.Count > 0;
-
-            var pendingSessions = await sessions.ListPendingAsync(houseId, ct);
-            var hasPendingIntake = pendingSessions.Count > 0;
+            var hasStock = await stocks.AnyForHouseholdAsync(houseId, ct);
+            var hasRecipes = await recipes.AnyForHouseholdAsync(houseId, ct);
+            var hasPendingIntake = await sessions.HasPendingAsync(houseId, ct);
 
             IsColdStart = !hasStock && !hasRecipes && !hasPendingIntake;
             ShowTakeStockCta = !hasStock;

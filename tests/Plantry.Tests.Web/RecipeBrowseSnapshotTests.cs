@@ -139,6 +139,23 @@ public sealed class RecipeBrowseSnapshotTests(RecipeBrowseFragmentFactory factor
             "Response should contain gallery, grid, or empty-state element.");
     }
 
+    // ── Photo thumbnail renders with ?handler=Photo URL (regression guard for HasPhoto branch) ──
+
+    [Fact]
+    public async Task Browse_gallery_photo_img_uses_handler_url()
+    {
+        // Pancakes fixture recipe has a photo set; the gallery must render an <img> whose
+        // src uses the ?handler=Photo query-string convention (not the /Photo path form which
+        // does not route to the Razor Page handler and causes a 404).
+        var html = await GetBrowsePageAsync();
+        var doc = Parser.ParseDocument(html);
+        var img = doc.QuerySelector(".recipe-card__photo img")
+            ?? throw new InvalidOperationException("Expected a recipe-card photo <img> in gallery (Pancakes fixture has a photo).");
+        var src = img.GetAttribute("src") ?? string.Empty;
+        Assert.Contains("?handler=Photo", src, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/Photo", src.Split('?')[0], StringComparison.OrdinalIgnoreCase);
+    }
+
     // ── Unauthenticated request is challenged ─────────────────────────────────
 
     [Fact]

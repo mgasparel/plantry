@@ -153,7 +153,7 @@ public sealed class TodayIndexModelTests
             new FakeHouseholdRepository("Test Household"),
             new FakeProductStockRepository(hasStock),
             new FakeRecipeRepository(hasRecipes),
-            new FakeSessionRepository(hasPendingIntake, TestHousehold),
+            new FakeSessionRepository(hasPendingIntake),
             new FakeClock(new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero)),
             tenant);
     }
@@ -183,16 +183,12 @@ public sealed class TodayIndexModelTests
 
     private sealed class FakeProductStockRepository(bool hasStock) : IProductStockRepository
     {
-        public Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
-        {
-            if (!hasStock) return Task.FromResult(new List<ProductStock>());
-            // Return a one-element list so Count > 0 — IndexModel only checks .Count > 0.
-            var sentinel = ProductStock.Start(householdId, Guid.NewGuid(),
-                new FakeClock(DateTimeOffset.UtcNow));
-            return Task.FromResult(new List<ProductStock> { sentinel });
-        }
+        public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(hasStock);
 
         // Unused by IndexModel:
+        public Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(new List<ProductStock>());
         public Task<ProductStock?> FindForUpdateAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
         public Task<ProductStock?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
         public Task<ProductStock?> FindWithHistoryAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
@@ -204,30 +200,28 @@ public sealed class TodayIndexModelTests
 
     private sealed class FakeRecipeRepository(bool hasRecipes) : IRecipeRepository
     {
-        public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default)
-        {
-            if (!hasRecipes) return Task.FromResult<IReadOnlyList<Recipe>>(Array.Empty<Recipe>());
-            // Return a one-element list so Count > 0 — IndexModel only checks .Count > 0.
-            var clock = new FakeClock(DateTimeOffset.UtcNow);
-            var recipe = Recipe.Create(TestHousehold, "Pasta", 2, clock).Value;
-            return Task.FromResult<IReadOnlyList<Recipe>>(new[] { recipe });
-        }
+        public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(hasRecipes);
+
+        // Unused by IndexModel:
+        public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<Recipe>>(Array.Empty<Recipe>());
+        public Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());
         public Task AddAsync(Recipe recipe, CancellationToken ct = default) => Task.CompletedTask;
         public Task<Recipe?> GetByIdAsync(RecipeId id, CancellationToken ct = default) => Task.FromResult<Recipe?>(null);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) => Task.FromResult(false);
     }
 
-    private sealed class FakeSessionRepository(bool hasPendingIntake, HouseholdId householdId) : IImportSessionRepository
+    private sealed class FakeSessionRepository(bool hasPendingIntake) : IImportSessionRepository
     {
-        public Task<List<ImportSession>> ListPendingAsync(HouseholdId hid, CancellationToken ct = default)
-        {
-            if (!hasPendingIntake) return Task.FromResult(new List<ImportSession>());
-            // Return a one-element list so Count > 0 — IndexModel only checks .Count > 0.
-            var clock = new FakeClock(DateTimeOffset.UtcNow);
-            var session = ImportSession.Start(householdId, ImportSourceType.Receipt, Guid.NewGuid(), clock);
-            return Task.FromResult(new List<ImportSession> { session });
-        }
+        public Task<bool> HasPendingAsync(HouseholdId hid, CancellationToken ct = default) =>
+            Task.FromResult(hasPendingIntake);
+
+        // Unused by IndexModel:
+        public Task<List<ImportSession>> ListPendingAsync(HouseholdId hid, CancellationToken ct = default) =>
+            Task.FromResult(new List<ImportSession>());
         public Task AddAsync(ImportSession session, CancellationToken ct = default) => Task.CompletedTask;
         public Task AddReceiptAsync(ImportReceipt receipt, CancellationToken ct = default) => Task.CompletedTask;
         public Task<ImportSession?> FindAsync(ImportSessionId sessionId, CancellationToken ct = default) => Task.FromResult<ImportSession?>(null);
