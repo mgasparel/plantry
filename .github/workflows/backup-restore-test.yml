@@ -19,15 +19,18 @@
 #      drop/recreate/pg_restore path is what's under test here).
 #   6. Asserts the canary row is present — data round-tripped through real scripts.
 #
-# Runs on every push to main and slice/**/ issue/** branches.
+# Runs ONLY on a tagged release (v* tag) — disaster-recovery verification at ship
+# time, not on every push. The full suite (incl. E2E) and deploy are likewise
+# release-gated (ADR-016, amended); this is the matching gate for the backup/restore
+# scripts. Running it per-push would spin up a Postgres compose stack (~12 min) on
+# every branch push for no added signal between releases.
 
 name: Backup and restore test
 
 on:
   push:
-    branches: [main, "slice/**", "issue/**"]
-  pull_request:
-    branches: [main]
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
   backup-restore:
@@ -145,7 +148,7 @@ jobs:
             ./deploy/restore.sh "$DUMP_FILE"
           echo "==> restore.sh exited $?"
 
-      - name: Assert round-trip: canary row is present
+      - name: "Assert round-trip: canary row is present"
         run: |
           echo "==> Checking canary row after restore"
           COUNT=$(docker compose -f docker-compose.prod.yml exec -T postgres \
