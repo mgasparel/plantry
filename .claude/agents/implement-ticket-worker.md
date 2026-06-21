@@ -25,7 +25,11 @@ When invoked, your prompt is a single beads issue ID (e.g. `plantry-abc`).
 bd show <issue-id>
 ```
 
-Read the full description, design notes, and acceptance criteria.
+Read the full description, design notes, and acceptance criteria. **Note the parent
+epic id** — the issue belongs to an epic (a curated feature epic, or the rollup the
+orchestrator attached it to), and Step 2 branches off that epic's `epic/<parent-id>`
+integration branch. An issue dispatched by the orchestrator always has a parent; if
+there is none (a human running the worker by hand), see the fallback in Step 2.
 
 - **Minor ambiguity** (implementation detail, naming, which pattern to follow): make
   the best reasonable interpretation and document it immediately on the issue:
@@ -58,23 +62,29 @@ rather than branching on the current status.
 
 ## Step 2 — Create the worktree
 
-From the project root (`code/`):
+Your branch is cut from the **epic integration branch**, not `main`. The orchestrator
+has already created `epic/<parent-id>` off fresh `origin/main` and staged any earlier
+siblings onto it. From the project root (`code/`):
 
 ```bash
-git fetch origin main
-git worktree add ../worktrees/<issue-id> -b issue/<issue-id> origin/main
+git fetch origin
+git worktree add ../worktrees/<issue-id> -b issue/<issue-id> epic/<parent-id>
 ```
 
-Branch off the freshly-fetched `origin/main`, **not** local `main`. Local `main` is
-never refreshed by the loop, so branching off it would cut every PR from a stale base
-— the branch is born behind `main` and drifts further each iteration. Branching off
-`origin/main` after an explicit fetch makes "born behind" structurally impossible.
+Branch off `epic/<parent-id>` so your work builds on the siblings already staged in
+this epic. Because the loop is strictly serial, the epic branch is current — nothing
+else is advancing it while you work. You do **not** open a PR; on a PASS verdict the
+orchestrator merges your branch into the epic and, only when the whole epic is
+complete, opens one `epic → main` PR for the batch (see Step 5.5).
 
-All subsequent work happens inside `../worktrees/<issue-id>/`. The main working tree
-is untouched until the orchestrator merges.
+**Direct single-issue fallback** (a human running the worker by hand, with no parent
+epic): branch off `origin/main` instead —
+`git worktree add ../worktrees/<issue-id> -b issue/<issue-id> origin/main` — and Step
+5.5 pushes + opens a PR to `main` yourself. This is the only path that touches `main`
+directly; never branch off local `main`, which the loop never refreshes.
 
-If the worktree already exists (retry after crash): verify it is on branch
-`issue/<issue-id>` and continue from where it left off.
+All subsequent work happens inside `../worktrees/<issue-id>/`. If the worktree already
+exists (retry after crash): verify it is on branch `issue/<issue-id>` and continue.
 
 ## Step 3 — Implement
 
@@ -165,9 +175,10 @@ fix and loop back to 4a as normal.
 Increment `pass_count`.
 
 Spawn a **fresh Opus sub-agent** (`model: opus`) with this prompt (substitute `<issue-id>`,
-`<worktree-path>`, and `<test-results>` — the per-category executed/passed/skipped counts
-captured in step 4b, e.g. `Unit 600/600, Integration 114/114, E2E 2/2, Architecture 26/26`,
-naming any suite that was skipped or did not run):
+`<worktree-path>`, `<base-branch>` — the branch the worktree was cut from, `epic/<parent-id>`
+in the loop or `origin/main` for a direct invocation — and `<test-results>` — the per-category
+executed/passed/skipped counts captured in step 4b, e.g. `Unit 600/600, Integration 114/114,
+E2E 2/2, Architecture 26/26`, naming any suite that was skipped or did not run):
 
 ---
 
@@ -177,6 +188,7 @@ naming any suite that was skipped or did not run):
 >
 > **Your issue:** `<issue-id>`
 > **Worktree:** `<worktree-path>`
+> **Base branch:** `<base-branch>`
 > **Test execution this pass:** `<test-results>`
 >
 > ## Step A — Build context (do this before reading the diff)
@@ -201,12 +213,13 @@ naming any suite that was skipped or did not run):
 > ## Step B — Get the diff
 >
 > ```bash
-> git -C <worktree-path> diff origin/main
+> git -C <worktree-path> diff <base-branch>
 > ```
 >
-> Diff against `origin/main` (the branch's actual base), not local `main` —
-> the branch was cut from `origin/main` and local `main` may lag behind it,
-> which would pollute the diff with unrelated commits.
+> Diff against `<base-branch>` — the branch this issue was cut from. In the loop that
+> is `epic/<parent-id>`, so the diff shows only THIS child's changes, not the siblings
+> already staged in the epic; for a direct invocation it is `origin/main`. Do not diff
+> against local `main`, which may lag the base and pollute the diff.
 >
 > ## Step C — Review
 >
@@ -339,42 +352,44 @@ EOF
 - Body explains why, not what — the diff already shows what.
 - Interpretations belong on the issue (Step 1), not in the commit message.
 
-## Step 5.5 — Push branch + open PR
+## Step 5.5 — Hand the branch back (no per-child PR)
 
-After the commit succeeds, push the branch and open a draft PR:
+In the batched loop you do **not** push or open a PR. Your `issue/<issue-id>` branch
+sits on top of `epic/<parent-id>` as a single commit. Leave it: on your PASS verdict the
+orchestrator merges it into the epic branch, and only when the whole epic is complete
+does it open one `epic/<parent-id> → main` PR for the batch. **Per-child CI does not
+run** — the epic PR is the gate. Do not push, do not `gh pr create`, do not remove the
+worktree; the orchestrator owns all integration, the epic PR, and cleanup.
+
+**Direct single-issue fallback** (no parent epic — you branched off `origin/main` in
+Step 2): push and open the PR yourself, since no orchestrator will pick it up:
 
 ```bash
 git -C ../worktrees/<issue-id> push -u origin issue/<issue-id>
-gh pr create \
-  --title "<title from bd show output>" \
+gh pr create --title "<title from bd show output>" --base main --head issue/<issue-id> \
   --body "$(cat <<'PRBODY'
 Implements beads issue <issue-id>.
-
-**Description:** <one paragraph from the bead description>
 
 **Acceptance criteria:**
 <verbatim acceptance criteria from bd show>
 
 Pre-flight: PASS — build, unit/arch/integration/E2E, Opus critic (<pass_count> pass(es))
 PRBODY
-)" \
-  --base main \
-  --head issue/<issue-id>
+)"
 ```
 
-Capture the PR URL from `gh pr create` output. It is included in the verdict and completion comment.
-
-If `gh pr create` fails (e.g. no GitHub remote configured, auth not set up): log the error as a NOTE in the completion comment and continue to Step 5.6 — do not park solely on a PR creation failure. The branch is pushed; the PR can be opened manually.
+Capture the PR URL for the verdict. If `gh pr create` fails (no remote / auth), log it
+as a NOTE and continue — the branch is pushed and a PR can be opened manually.
 
 ## Step 5.6 — Write completion comment
 
 ```bash
-bd comment <issue-id> "Implementation complete. Branch: issue/<issue-id>. PR: <pr-url>. Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups> Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>"
+bd comment <issue-id> "Implementation complete. Branch: issue/<issue-id> (off epic/<parent-id>). Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups> Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>"
 ```
 
-Write this after the push and PR creation, before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.
+Write this before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.
 
-**Cleanup timing note:** Do NOT remove the worktree or delete the local branch here. Cleanup happens post-merge (the pipeline orchestrator or operator does this after the PR merges via `git worktree remove` + `git branch -d`). Premature cleanup breaks the CI gate that runs against the pushed branch.
+**Cleanup timing note:** Do NOT remove the worktree or delete the local branch here. The orchestrator merges your branch into the epic, then removes the worktree after the epic's PR lands. Premature cleanup would lose the commit the orchestrator needs to integrate.
 
 ## Step 6 — Return verdict
 
@@ -382,13 +397,17 @@ Write this after the push and PR creation, before returning the verdict. Keep it
 === implement-ticket VERDICT ===
 RESULT: PASS
 ISSUE: <issue-id>
+EPIC: <parent-id>
 BRANCH: issue/<issue-id>
-PR: <pr-url>
+BASE: epic/<parent-id>
 WORKTREE: ../worktrees/<issue-id>
 CRITIC_PASSES: <pass_count>
 TESTS_RUN: <per-category executed/passed counts, e.g. Unit 600/600, Integration 114/114, E2E 2/2, Architecture 26/26; name any skipped suite>
 PREFLIGHT: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md
 ```
+
+For a direct single-issue invocation (no epic), set `EPIC: none`, `BASE: origin/main`,
+and add a `PR: <pr-url>` line from Step 5.5.
 
 `TESTS_RUN` must show every acceptance-criterion-bearing suite as executed green. A PASS
 verdict that lists a required suite as skipped/not-run is self-contradictory — resolve it
