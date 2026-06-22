@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Plantry.Catalog.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.SharedKernel.Domain;
@@ -31,7 +30,6 @@ namespace Plantry.Web.Pages.Pantry.TakeStock;
 public sealed class NoLocationModel(
     ITakeStockReader reader,
     ITakeStockCatalogWriter catalogWriter,
-    IUnitRepository unitRepository,
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
@@ -169,20 +167,12 @@ public sealed class NoLocationModel(
             .Select(l => new SelectListItem(l.LocationName, l.LocationId.ToString()))
             .ToList();
 
-        // Resolve unit ids for each row (needed by RecordCountCommand / Alpine counted-unit-id).
-        // TakeStockNoLocationRow carries DisplayUnitCode but not DisplayUnitId; look up by code.
-        var units = await unitRepository.ListAsync(ct);
-        var unitIdByCode = units.ToDictionary(
-            u => u.Code,
-            u => u.Id.Value,
-            StringComparer.OrdinalIgnoreCase);
-
-        AlpineRowsJson = BuildAlpineRowsJson(Rows, unitIdByCode);
+        // TakeStockNoLocationRow now carries DisplayUnitId directly (C10 additive change);
+        // the per-code unit lookup and its IUnitRepository dependency were removed.
+        AlpineRowsJson = BuildAlpineRowsJson(Rows);
     }
 
-    private static string BuildAlpineRowsJson(
-        IReadOnlyList<TakeStockNoLocationRow> rows,
-        Dictionary<string, Guid> unitIdByCode)
+    private static string BuildAlpineRowsJson(IReadOnlyList<TakeStockNoLocationRow> rows)
     {
         var dict = rows.ToDictionary(
             r => r.ProductId.ToString(),
@@ -190,7 +180,7 @@ public sealed class NoLocationModel(
                 r.RecordedQuantity,
                 r.RecordedQuantity,
                 r.DisplayUnitCode,
-                unitIdByCode.GetValueOrDefault(r.DisplayUnitCode, Guid.Empty),
+                r.DisplayUnitId,
                 LocationId: Guid.Empty,
                 Dirty: false,
                 Failed: false,

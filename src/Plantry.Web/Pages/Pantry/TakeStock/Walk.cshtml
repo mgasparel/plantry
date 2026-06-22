@@ -100,7 +100,23 @@
                                     increase-label="Increase count for @row.ProductName"
                                     input-label="Count for @row.ProductName" />
 
-                                <span class="ts-unit">@row.DisplayUnitCode</span>
+                                @* C10: unit selector — options come from SupportedUnits in Alpine state (set server-side).
+                                   Changing the unit does NOT dirty the row on its own; dirty is driven only by count != recorded. *@
+                                @if (row.SupportedUnits is { Count: > 1 })
+                                {
+                                    <select class="field__input" style="min-width:4rem;max-width:7rem"
+                                            x-model="rows['@pid'].unitId"
+                                            aria-label="Unit for @row.ProductName">
+                                        @foreach (var opt in row.SupportedUnits)
+                                        {
+                                            <option value="@opt.UnitId">@opt.Code</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <span class="ts-unit">@row.DisplayUnitCode</span>
+                                }
 
                                 @* One-tap "none left" (J2 step 4) *@
                                 <button type="button"
@@ -219,7 +235,20 @@
                                         <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
                                     </button>
                                 </div>
-                                <span class="ts-unit" x-text="rows[pid]?.unitCode ?? ''"></span>
+                                @* C10: dynamically-added rows use the product's default unit (full conversion list
+                                   is not available client-side for new items — single-option selector). *@
+                                <template x-if="(rows[pid]?.supportedUnits ?? []).length > 1">
+                                    <select class="field__input" style="min-width:4rem;max-width:7rem"
+                                            x-model="rows[pid].unitId"
+                                            :aria-label="'Unit for ' + (rows[pid]?.productName ?? 'new item')">
+                                        <template x-for="opt in (rows[pid]?.supportedUnits ?? [])" :key="opt.unitId">
+                                            <option :value="opt.unitId" x-text="opt.code"></option>
+                                        </template>
+                                    </select>
+                                </template>
+                                <template x-if="(rows[pid]?.supportedUnits ?? []).length <= 1">
+                                    <span class="ts-unit" x-text="rows[pid]?.unitCode ?? ''"></span>
+                                </template>
                                 <button type="button" class="ts-none-btn"
                                         :class="{ on: (rows[pid]?.counted ?? 0) <= 0 }"
                                         x-on:click="setNoneLeft(pid)"

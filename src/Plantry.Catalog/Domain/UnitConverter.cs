@@ -52,6 +52,64 @@ public static class UnitConverter
             $"No conversion is known from unit '{fromUnitId}' to unit '{toUnitId}'.");
     }
 
+    /// <summary>
+    /// Enumerates every unit the caller can express a quantity in for the given product, ordered
+    /// with <paramref name="defaultUnitId"/> first and then alphabetically by code.
+    ///
+    /// A unit is "reachable" if:
+    ///   (a) it is the default unit, OR
+    ///   (b) it shares the same <see cref="Unit.Dimension"/> as the default unit (same-dimension
+    ///       siblings — no <see cref="ProductConversion"/> required), OR
+    ///   (c) it is the <c>FromUnit</c> or <c>ToUnit</c> of any <see cref="ProductConversion"/>
+    ///       on the product, OR
+    ///   (d) it shares the same <see cref="Unit.Dimension"/> as any such conversion anchor
+    ///       (bridged siblings — reached via a same-dimension hop on either side).
+    ///
+    /// A product with no conversions returns a single-element list (its default unit only).
+    /// </summary>
+    public static IReadOnlyList<Guid> ReachableUnits(
+        Guid defaultUnitId,
+        IReadOnlyList<Unit> allUnits,
+        IReadOnlyList<ProductConversion> productConversions)
+    {
+        // Index units for fast lookup.
+        var unitById = allUnits.ToDictionary(u => u.Id.Value);
+
+        // Collect the dimensions that are reachable.
+        var reachableDimensions = new HashSet<Dimension>();
+
+        // (a)+(b) default unit and its dimension.
+        if (unitById.TryGetValue(defaultUnitId, out var defaultUnit))
+            reachableDimensions.Add(defaultUnit.Dimension);
+
+        // (c)+(d) each conversion anchor and its dimension siblings.
+        foreach (var conv in productConversions)
+        {
+            if (unitById.TryGetValue(conv.FromUnitId.Value, out var fromUnit))
+                reachableDimensions.Add(fromUnit.Dimension);
+            if (unitById.TryGetValue(conv.ToUnitId.Value, out var toUnit))
+                reachableDimensions.Add(toUnit.Dimension);
+        }
+
+        // Every unit whose dimension is reachable is reachable.
+        var reachable = allUnits
+            .Where(u => reachableDimensions.Contains(u.Dimension))
+            .Select(u => u.Id.Value)
+            .ToHashSet();
+
+        // Always include the default unit (even if it somehow has no dimension entry).
+        reachable.Add(defaultUnitId);
+
+        // Order: default first, then by code ascending.
+        var ordered = reachable
+            .OrderBy(id => id == defaultUnitId ? 0 : 1)
+            .ThenBy(id => unitById.TryGetValue(id, out var u) ? u.Code : string.Empty,
+                StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return ordered;
+    }
+
     /// <summary>Linear scaling factor between two units of the same dimension — 1 for the same unit, null when unresolvable.</summary>
     private static decimal? SameDimensionFactor(Guid fromUnitId, Guid toUnitId, IReadOnlyCollection<Unit> units)
     {

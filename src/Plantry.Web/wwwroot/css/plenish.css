@@ -5205,6 +5205,7 @@ button.sadd svg { width: 13px; height: 13px; }
 /* count control cluster — wraps the shared <stepper> primitive */
 .ts-count { display: flex; align-items: center; gap: 9px; flex: none; }
 .ts-unit { font-size: 0.8125rem; color: var(--color-text-muted); font-weight: 600; }
+/* C10 unit selector uses the shared .field__input primitive (sized via inline style) — no custom CSS needed. */
 .ts-none-btn {
   border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted);
   border-radius: var(--radius-md); padding: 8px 11px; font-size: 0.78125rem; font-weight: 600; white-space: nowrap;
