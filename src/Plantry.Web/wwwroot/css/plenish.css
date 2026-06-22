@@ -1323,8 +1323,10 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 /* ── Stepper (− [value] +) — unified primitive replacing .qty-stepper/.rd-serv-stepper/.sl-qty-stepper ── */
-/* Base (default): 36 px icon buttons — intake review qty, cook page qty.                                   */
+/* Base (default): 40 px icon buttons — intake review qty, cook page qty, shopping add-form, etc.           */
 .stepper { display: flex; align-items: stretch; }
+/* Default rectangular variant: 40 px tall — compact and pill override to auto below. */
+.stepper:not(.stepper--compact):not(.stepper--pill) { height: 40px; }
 .stepper__val {
   border-radius: 0;
   border-left: none;
@@ -1359,7 +1361,7 @@ button { font-family: inherit; cursor: pointer; }
   padding: 0 4px;
 }
 .stepper__btn {
-  width: 36px;
+  width: 38px;
   flex-shrink: 0;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
@@ -1368,19 +1370,11 @@ button { font-family: inherit; cursor: pointer; }
   place-items: center;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
-.stepper__btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-.stepper__btn:last-child  { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-.stepper__btn:hover:not(:disabled) { background: var(--color-bg-subtle); color: var(--color-text); }
+.stepper__btn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.stepper__btn:last-child  { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.stepper__btn:hover:not(:disabled) { background: var(--color-surface-2); color: var(--color-text); }
 .stepper__btn:disabled { opacity: .35; cursor: not-allowed; }
-.stepper__btn .icon { width: 0.875rem; height: 0.875rem; }
-
-/* -- lg: 40 px buttons — shopping add-form + inline qty editor ── */
-.stepper--lg { height: 40px; }
-.stepper--lg .stepper__btn { width: 38px; border-radius: 0; }
-.stepper--lg .stepper__btn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
-.stepper--lg .stepper__btn:last-child  { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
-.stepper--lg .stepper__btn:hover:not(:disabled) { background: var(--color-surface-2); }
-.stepper--lg .stepper__btn .icon { width: 15px; height: 15px; }
+.stepper__btn .icon { width: 15px; height: 15px; }
 
 /* -- compact: borderless square buttons inside a bordered container — recipe-detail ingredients header ── */
 .stepper--compact {
@@ -3435,7 +3429,7 @@ button { font-family: inherit; cursor: pointer; }
   border: 1px solid var(--color-border); background: var(--color-surface-2); border-radius: var(--radius-md);
   padding: 0 9px; height: 40px; min-width: 60px; display: inline-flex; align-items: center;
 }
-/* .sl-qty-stepper / .sl-qbtn removed — replaced by .stepper--lg (see unified stepper above) */
+/* .sl-qty-stepper / .sl-qbtn removed — replaced by .stepper (see unified stepper above) */
 
 /* ---- list groups -------------------------------------------------------- */
 .sl-group {

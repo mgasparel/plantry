@@ -553,21 +553,11 @@
     </div>
     <p>
         The canonical −&nbsp;[value]&nbsp;+ primitive. Use the <code>&lt;stepper&gt;</code> tag helper — never
-        hand-roll the markup. Four visual variants via CSS modifier; two structural modes (input vs display).
+        hand-roll the markup. Three visual variants via CSS modifier; two structural modes (input vs display).
     </p>
-    <p><strong>Default</strong> — 36 px icon buttons, rectangle. Intake review qty, cook page qty.</p>
+    <p><strong>Default</strong> — 40 px icon buttons, rounded corners. Intake review qty, cook page qty, shopping add-form, inline-edit qty.</p>
     <div x-data="{ qty: 2 }" style="max-width:200px; margin-bottom: var(--space-4)">
         <stepper name="qty-demo"
-                 x-model="qty"
-                 decrease-click="qty = Math.max(0, qty - 1)"
-                 increase-click="qty = qty + 1"
-                 decrease-label="Decrease quantity"
-                 increase-label="Increase quantity" />
-    </div>
-    <p><strong>lg</strong> — 40 px icon buttons, rounded corners. Shopping add-form + inline-edit qty.</p>
-    <div x-data="{ qty: 2 }" style="max-width:200px; margin-bottom: var(--space-4)">
-        <stepper variant="lg"
-                 name="qty-lg-demo"
                  x-model="qty"
                  decrease-click="qty = Math.max(0, qty - 1)"
                  increase-click="qty = qty + 1"

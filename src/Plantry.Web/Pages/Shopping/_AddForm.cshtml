@@ -44,8 +44,7 @@
     <div class="sl-add-foot" x-data="{ qty: 1 }">
         <div class="sl-field">
             <label asp-for="Input.Quantity">Quantity</label>
-            <stepper variant="lg"
-                     asp-for="Input.Quantity"
+            <stepper asp-for="Input.Quantity"
                      x-model="qty"
                      x-model-modifier="number"
                      decrease-click="qty = Math.max(0, +(qty - 1).toFixed(2))"
