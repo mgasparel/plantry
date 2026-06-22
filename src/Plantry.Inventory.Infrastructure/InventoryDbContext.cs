@@ -35,6 +35,7 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
 
             b.Property(p => p.CreatedAt).HasColumnName("created_at");
             b.Property(p => p.UpdatedAt).HasColumnName("updated_at");
+            b.Property(p => p.LowStockThreshold).HasColumnName("low_stock_threshold").HasPrecision(12, 3);
 
             // Optimistic-concurrency backstop: Postgres' xmin system column, no stored column and
             // no app-side increment (inventory.md resolved-call #1). Npgsql maps a uint shadow

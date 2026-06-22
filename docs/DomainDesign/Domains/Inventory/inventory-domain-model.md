@@ -26,6 +26,14 @@ User Journeys  →  Ubiquitous Language  →  Domain Model (← here)  →  Data
 
 `StockEntry` (a lot) is a mutable child — quantity decreases as stock is consumed; it gains `depleted_at` when empty but is **never hard-deleted** (journal FK integrity). `StockJournalEntry` is append-only — no update, no delete; a correction is a new row.
 
+#### ProductStock attributes
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `household_id`, `product_id` | `uuid` | Composite PK (identity) |
+| `low_stock_threshold` | `decimal?` | Per-household, per-product low stock threshold (see R8 and ubiquitous language). Null = no threshold. Positive value: `IsRunningLow` = `onHand ≤ threshold`. |
+| `created_at`, `updated_at` | `timestamptz` | |
+
 ### Keying
 
 `ProductStock` is keyed by `(household_id, product_id)` — the product ID is a **soft-ref** to `catalog.product` (no enforced cross-context FK). There is no surrogate PK on `product_stock`; the composite is the identity.
@@ -43,6 +51,7 @@ User Journeys  →  Ubiquitous Language  →  Domain Model (← here)  →  Data
 | **R5** | Write serialization: every multi-lot consume does `SELECT … FOR UPDATE` on the `ProductStock` root before deducting from lots — prevents over-deduction under concurrent consumes | App service |
 | **R6** | Transfer, freeze, thaw, and open are **lot-state transitions** — they update `stock_entry` in place; they do **not** write a journal row because they don't change quantity (DM-14) | App service |
 | **R7** | An untracked product (`catalog.product.track_stock = false`) has **no** `product_stock` or `stock_entry` rows; Inventory ignores it | App layer |
+| **R8** | `low_stock_threshold` is null or positive; zero is treated as "no threshold" — `IsRunningLow` is always false when threshold is null or zero. When set and positive, `IsRunningLow` = `onHand ≤ threshold`. The threshold lives in Inventory (household-specific), not in Catalog. | Domain (`ProductStock.IsRunningLow`) |
 
 ---
 
