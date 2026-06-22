@@ -1,0 +1,57 @@
+[
+  {
+    "id": 10,
+    "name": "Scrambled Eggs",
+    "description": "<p>Classic scrambled eggs.</p>",
+    "base_servings": 2,
+    "desired_servings": null,
+    "type": "normal",
+    "product_id": null,
+    "picture_file_name": null,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  },
+  {
+    "id": 11,
+    "name": "Butter Cake",
+    "description": null,
+    "base_servings": 4,
+    "desired_servings": null,
+    "type": "normal",
+    "product_id": null,
+    "picture_file_name": null,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  },
+  {
+    "id": 20,
+    "name": "Monday Plan",
+    "description": null,
+    "base_servings": 1,
+    "desired_servings": null,
+    "type": "mealplan-day",
+    "product_id": null,
+    "picture_file_name": null,
+    "row_created_timestamp": "2024-01-02 00:00:00"
+  },
+  {
+    "id": 21,
+    "name": "Shadow of Eggs",
+    "description": null,
+    "base_servings": 2,
+    "desired_servings": null,
+    "type": "mealplan-shadow",
+    "product_id": null,
+    "picture_file_name": null,
+    "row_created_timestamp": "2024-01-02 00:00:00"
+  },
+  {
+    "id": 22,
+    "name": "Week 12",
+    "description": null,
+    "base_servings": 1,
+    "desired_servings": null,
+    "type": "mealplan-week",
+    "product_id": null,
+    "picture_file_name": null,
+    "row_created_timestamp": "2024-01-02 00:00:00"
+  }
+]

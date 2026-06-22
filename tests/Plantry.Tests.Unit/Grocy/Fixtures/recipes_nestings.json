@@ -1,0 +1,23 @@
+[
+  {
+    "id": 301,
+    "recipe_id": 11,
+    "includes_recipe_id": 10,
+    "servings": 1,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  },
+  {
+    "id": 302,
+    "recipe_id": 20,
+    "includes_recipe_id": 10,
+    "servings": 2,
+    "row_created_timestamp": "2024-01-02 00:00:00"
+  },
+  {
+    "id": 303,
+    "recipe_id": 22,
+    "includes_recipe_id": 11,
+    "servings": 1,
+    "row_created_timestamp": "2024-01-02 00:00:00"
+  }
+]

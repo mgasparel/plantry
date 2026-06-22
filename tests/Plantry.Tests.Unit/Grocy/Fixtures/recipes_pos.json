@@ -1,0 +1,72 @@
+[
+  {
+    "id": 101,
+    "recipe_id": 10,
+    "product_id": 2,
+    "amount": 3,
+    "qu_id": 4,
+    "note": null,
+    "ingredient_group": null,
+    "not_check_stock_fulfillment": null,
+    "only_check_single_unit_in_stock": null,
+    "variable_amount": null,
+    "price_factor": null,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  },
+  {
+    "id": 102,
+    "recipe_id": 10,
+    "product_id": 3,
+    "amount": 20,
+    "qu_id": 3,
+    "note": "Unsalted",
+    "ingredient_group": null,
+    "not_check_stock_fulfillment": null,
+    "only_check_single_unit_in_stock": null,
+    "variable_amount": null,
+    "price_factor": null,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  },
+  {
+    "id": 103,
+    "recipe_id": 11,
+    "product_id": 1,
+    "amount": 250,
+    "qu_id": 3,
+    "note": null,
+    "ingredient_group": null,
+    "not_check_stock_fulfillment": null,
+    "only_check_single_unit_in_stock": null,
+    "variable_amount": null,
+    "price_factor": null,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  },
+  {
+    "id": 201,
+    "recipe_id": 20,
+    "product_id": 2,
+    "amount": 2,
+    "qu_id": 4,
+    "note": null,
+    "ingredient_group": null,
+    "not_check_stock_fulfillment": null,
+    "only_check_single_unit_in_stock": null,
+    "variable_amount": null,
+    "price_factor": null,
+    "row_created_timestamp": "2024-01-02 00:00:00"
+  },
+  {
+    "id": 202,
+    "recipe_id": 21,
+    "product_id": 3,
+    "amount": 50,
+    "qu_id": 3,
+    "note": null,
+    "ingredient_group": null,
+    "not_check_stock_fulfillment": null,
+    "only_check_single_unit_in_stock": null,
+    "variable_amount": null,
+    "price_factor": null,
+    "row_created_timestamp": "2024-01-02 00:00:00"
+  }
+]

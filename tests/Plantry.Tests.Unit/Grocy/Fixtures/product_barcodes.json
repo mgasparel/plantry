@@ -1,0 +1,11 @@
+[
+  {
+    "id": 1,
+    "product_id": 1,
+    "barcode": "012345678901",
+    "qu_id": null,
+    "amount": null,
+    "shopping_location_id": null,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  }
+]
