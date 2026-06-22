@@ -31,8 +31,9 @@ public sealed class BrowseRecipesQuery(
     /// </summary>
     public async Task<BrowseRecipesResult> ExecuteAsync(BrowseRecipesFilter filter, CancellationToken ct = default)
     {
-        // All-tags for the filter chip row — must include tags on ANY recipe, even filtered-out ones.
-        var allTags = await tags.ListAllAsync(ct);
+        // All-tags for the filter chip row — must include tags on ANY recipe, even filtered-out ones
+        // (including archived tags so existing recipe-tag associations remain filterable).
+        var allTags = await tags.ListAllAsync(activeOnly: false, ct);
 
         if (tenant.HouseholdId is null)
         {

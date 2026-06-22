@@ -193,7 +193,7 @@ public sealed class RecipeCommitService(
                     Name:           row.PlantryName,
                     DefaultServings: Math.Max(1, row.BaseServings),
                     Lines:          ingredientLines,
-                    TagNames:       [],     // Grocy recipes have no tags (plan §5.1)
+                    TagIds:         [],     // Grocy recipes have no tags (plan §5.1)
                     Source:         row.Source,
                     CookTimeMinutes: null,  // Grocy has no cook-time field
                     Directions:     row.Directions,

@@ -234,6 +234,7 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
                     c => c == null ? null : c.Value.ToDbValue(),
                     v => v == null ? (TagCategory?)null : TagCategoryExtensions.Parse(v))
                 .HasColumnName("category");
+            b.Property(t => t.ArchivedAt).HasColumnName("archived_at");
             b.Property(t => t.CreatedAt).HasColumnName("created_at");
             b.Property(t => t.UpdatedAt).HasColumnName("updated_at");
 

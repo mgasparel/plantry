@@ -16,9 +16,10 @@ namespace Plantry.Recipes.Application;
 /// only for an untracked product); and validates the unit→product-default conversion path via
 /// <see cref="IUnitConverter"/> (R7/C10), surfacing the inline <c>ProductConversion</c> form as
 /// <see cref="AuthorRecipeResult.NeedsConversion"/> when no path exists and writing the author-supplied
-/// factor on the retry. It mints unknown tag names (J6) before <c>Recipe.SetTags</c>, enforces name
-/// uniqueness (R1), and persists through <see cref="IRecipeRepository"/> — RecipeCreated/RecipeUpdated
-/// flow out through the DomainEventDispatch interceptor on save.</para>
+/// factor on the retry. Tags are resolved by <see cref="TagId"/> — the picker posts known household tag
+/// ids; unknown or foreign ids are silently dropped (no minting). Persists through
+/// <see cref="IRecipeRepository"/> — RecipeCreated/RecipeUpdated flow out through the DomainEventDispatch
+/// interceptor on save.</para>
 /// </summary>
 public sealed class AuthorRecipe(
     IRecipeRepository recipes,
@@ -114,22 +115,21 @@ public sealed class AuthorRecipe(
         if (missing.Count > 0)
             return new AuthorRecipeResult.NeedsConversion(missing);
 
-        // ── Inline tag minting (J6) — resolve each typed name to an existing or freshly minted Tag ──
+        // ── Tag resolution — resolve each submitted TagId to an existing household tag; drop unknowns ──
+        // The picker posts closed-vocabulary TagIds; no minting occurs. Unknown/foreign ids are dropped
+        // silently so a stale client or a tampered request cannot mint or reference tags outside the
+        // household (server validates membership; RLS / query filter also applies in GetByIdAsync).
         var tagIds = new List<TagId>();
-        var seenTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var rawTag in command.TagNames)
+        var seenTagIds = new HashSet<TagId>();
+        foreach (var rawId in command.TagIds)
         {
-            var tagName = rawTag?.Trim();
-            if (string.IsNullOrEmpty(tagName) || !seenTags.Add(tagName))
+            var tid = TagId.From(rawId);
+            if (!seenTagIds.Add(tid))
                 continue;
 
-            var tag = await tags.FindByNameAsync(household, tagName, ct);
-            if (tag is null)
-            {
-                tag = Tag.Create(household, tagName, category: null, clock);
-                await tags.AddAsync(tag, ct);
-            }
-            tagIds.Add(tag.Id);
+            var tag = await tags.GetByIdAsync(tid, ct);
+            if (tag is not null)
+                tagIds.Add(tag.Id);
         }
 
         // ── Assemble the ordered, validated lines with contiguous 0-based ordinals ──
@@ -202,13 +202,15 @@ public sealed class AuthorRecipe(
 /// <summary>
 /// Editor input for <see cref="AuthorRecipe"/>. <see cref="RecipeId"/> null ⇒ create (J6); set ⇒ edit
 /// (J7). <see cref="ScaleMode"/> applies only on an edit that changes <see cref="DefaultServings"/>.
+/// <see cref="TagIds"/> are household tag ids submitted by the closed-vocabulary picker; unknown/foreign
+/// ids are dropped silently (server validates; no minting).
 /// </summary>
 public sealed record AuthorRecipeCommand(
     RecipeId? RecipeId,
     string Name,
     int DefaultServings,
     IReadOnlyList<AuthorIngredientLine> Lines,
-    IReadOnlyList<string> TagNames,
+    IReadOnlyList<Guid> TagIds,
     string? Source = null,
     int? CookTimeMinutes = null,
     string? Directions = null,

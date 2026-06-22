@@ -4226,6 +4226,45 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .cfg-foot-note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
 
+/* ── tag admin list (Settings/Tags) ──────────────────────────────────────── */
+.tag-admin-list { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.tag-admin-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px; border-radius: var(--radius-sm);
+  background: var(--color-surface-1); border: 1px solid var(--color-border);
+}
+.tag-admin-row--archived { opacity: 0.65; }
+.tag-name-input {
+  flex: 1 1 auto; min-width: 0;
+  border: none; background: transparent; font-size: 14px; font-weight: 500; color: var(--color-text);
+  padding: 4px 6px; border-radius: var(--radius-xs);
+}
+.tag-name-input:hover { background: var(--color-surface-2); }
+.tag-name-input:focus { outline: 2px solid var(--color-accent); outline-offset: 0; background: var(--color-surface-2); }
+.tag-name-static { flex: 1 1 auto; font-size: 14px; font-weight: 500; padding: 4px 6px; color: var(--color-text-muted); }
+.tag-cat-badge { font-size: 11px; color: var(--color-text-faint); padding: 2px 7px; background: var(--color-surface-2); border-radius: 99px; white-space: nowrap; }
+.tag-cat-select {
+  flex: 0 0 auto; min-width: 120px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface-1); color: var(--color-text);
+  font-size: 13px; padding: 4px 8px;
+}
+.tag-admin-acts { flex: 0 0 auto; margin-left: auto; }
+
+/* ── tag add bar ────────────────────────────────────────────────────────── */
+.tag-add {
+  display: flex; align-items: center; gap: 8px; padding: 10px 0 2px;
+  border-top: 1px solid var(--color-border);
+}
+.tag-add-name {
+  flex: 1 1 auto; min-width: 0;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface-1); color: var(--color-text);
+  font-size: 14px; padding: 6px 10px;
+}
+.tag-add-name::placeholder { color: var(--color-text-faint); }
+.tag-add-name:focus { outline: 2px solid var(--color-accent); outline-offset: 0; }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    P3-3 — Week grid: view + manual assign + reschedule
    New wkgrid layout, meal cards, drag-drop, and meal editor modal.
