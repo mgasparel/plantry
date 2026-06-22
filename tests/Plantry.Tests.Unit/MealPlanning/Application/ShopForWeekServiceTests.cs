@@ -219,6 +219,9 @@ internal sealed class FakeMissingIngredientsReader(
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult(id == recipeId ? missing : (IReadOnlyList<RecipeMissingIngredient>)[]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 internal sealed class FakeMultiMissingReader(
@@ -238,6 +241,9 @@ internal sealed class FakeMultiMissingReader(
         var match = map.FirstOrDefault(m => m.RecipeId == id);
         return Task.FromResult(match.Missing ?? (IReadOnlyList<RecipeMissingIngredient>)[]);
     }
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 internal sealed class FakeStockReaderForShop(MealPlanProductStock? stock) : IMealPlanStockReader

@@ -118,6 +118,17 @@ public sealed class RecipeReadModelAdapter(
     }
 
     /// <inheritdoc />
+    public async Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+    {
+        // Targeted full-corpus query: does ANY non-archived recipe carry this tag?
+        // Never filtered by the 50-cap candidate list from SearchAsync.
+        var tid = TagId.From(tagId);
+        return await db.Recipes
+            .Where(r => r.ArchivedAt == null)
+            .AnyAsync(r => r.Tags.Any(t => t.TagId == tid), ct);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(
         Guid recipeId,
         int servings,

@@ -358,6 +358,10 @@ internal sealed class TwoProposalRecipeReader : IRecipeReadModel
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    // so5.5: targeted full-corpus tag check — returns true for any tag (all cells are fulfillable in the regenerate test scenario).
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 /// <summary>WAF for the merge-safety test. Uses TwoProposalPendingStore (mutable) + TwoProposalRecipeReader.</summary>
@@ -426,6 +430,10 @@ public sealed class TwoProposalRegenerateFactory : WebApplicationFactory<Program
 
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
+
+            // so5.5: stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
 
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
@@ -515,6 +523,10 @@ public sealed class RegenerateCellFactory : WebApplicationFactory<Program>
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
 
+            // so5.5: stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
+
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
@@ -530,3 +542,5 @@ public sealed class RegenerateCellFactory : WebApplicationFactory<Program>
         });
     }
 }
+
+// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).

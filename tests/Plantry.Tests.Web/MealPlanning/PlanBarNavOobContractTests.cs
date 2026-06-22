@@ -181,6 +181,10 @@ public sealed class PlanBarNavOobFactory : WebApplicationFactory<Program>
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
 
+            // so5.5: stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
+
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
@@ -196,3 +200,5 @@ public sealed class PlanBarNavOobFactory : WebApplicationFactory<Program>
         });
     }
 }
+
+// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).

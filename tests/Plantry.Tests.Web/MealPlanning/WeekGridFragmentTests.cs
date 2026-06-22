@@ -533,6 +533,10 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
 
+            // Stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
+
             // P3-5: stub expiring-stock reader; re-register insights service
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
@@ -662,6 +666,13 @@ internal sealed class FakeRecipeReader(IReadOnlyList<RecipeReadModel> recipes) :
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    /// <summary>
+    /// Targeted full-corpus query: returns true when ANY recipe in the in-memory list carries the tag.
+    /// Unlike SearchAsync (which respects maxResults), this queries ALL recipes — no cap.
+    /// </summary>
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(recipes.Any(r => r.TagIds.Contains(tagId)));
 }
 
 internal sealed class FakeProductReader(IReadOnlyList<MealPlanProductReadModel> products) : IMealPlanCatalogProductReader
@@ -958,3 +969,5 @@ internal sealed class NullWeekOverrideRepo : IWeekPlanningOverrideRepository
     public Task AddAsync(WeekPlanningOverride weekOverride, CancellationToken ct = default) => Task.CompletedTask;
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
+
+// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).

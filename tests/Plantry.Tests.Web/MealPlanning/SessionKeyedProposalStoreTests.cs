@@ -352,6 +352,10 @@ internal sealed class SessionKeyedRecipeReader : IRecipeReadModel
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    // so5.5: targeted full-corpus tag check — returns true for any tag (all cells are fulfillable in this scenario).
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 /// <summary>Recipe reader that resolves both two-proposal recipes.</summary>
@@ -379,6 +383,10 @@ internal sealed class SessionKeyedTwoProposalRecipeReader : IRecipeReadModel
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    // so5.5: targeted full-corpus tag check — returns true for any tag (all cells are fulfillable in this scenario).
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 // ── WAF factories ─────────────────────────────────────────────────────────────
@@ -467,6 +475,10 @@ public sealed class SessionKeyedStoreFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
+
+            // so5.5: stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
 
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
@@ -560,6 +572,10 @@ public sealed class SessionKeyedTwoProposalFactory : WebApplicationFactory<Progr
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
 
+            // so5.5: stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
+
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
@@ -607,3 +623,5 @@ internal sealed class SessionKeyedMealPlanRepo : IMealPlanRepository
 
     private static string PlanKey(HouseholdId h, DateOnly w) => $"{h.Value:N}_{w:yyyyMMdd}";
 }
+
+// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).

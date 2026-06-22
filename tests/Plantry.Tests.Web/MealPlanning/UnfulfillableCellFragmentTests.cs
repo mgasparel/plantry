@@ -17,16 +17,21 @@ using Xunit;
 namespace Plantry.Tests.Web.MealPlanning;
 
 /// <summary>
-/// L4 fragment tests for C6 hard-stance conflict cell rendering.
-/// Validates that when <see cref="GeneratePlanService"/> detects an irreconcilable
-/// hard-stance conflict (two attendees whose Required tags exclude every candidate),
-/// the POST /MealPlan?handler=Generate response renders the conflict markers:
+/// L4 fragment tests for Unfulfillable cell rendering.
+/// Validates that when <see cref="GeneratePlanService"/> detects an unfulfillable cell
+/// (an attendee's Required tag has ZERO recipes in the full corpus), the POST /MealPlan?handler=Generate
+/// response renders:
 ///   - <c>class="mcell conflict"</c>
-///   - <c>data-conflict="hard-stance"</c>
-///   - <c>conflict-notice</c> div with text "No single dish suits everyone here"
+///   - <c>data-conflict="unfulfillable"</c>
+///   - <c>conflict-notice</c> with the specific "Your recipe book has no [tag] recipes." message
+///   - <c>conflict-acts</c> with "Add a [tag] recipe" CTA
+///
+/// Also validates that:
+///   - A normal cell (attendee has a Required tag AND a matching recipe) does NOT render conflict markers.
+///   - The Unfulfillable message differs from the HardConflict message (distinct reasons, distinct UI).
 /// </summary>
-[Collection(nameof(ConflictCellCollection))]
-public sealed class ConflictCellFragmentTests(ConflictCellFactory factory)
+[Collection(nameof(UnfulfillableCellCollection))]
+public sealed class UnfulfillableCellFragmentTests(UnfulfillableCellFactory factory)
 {
     private HttpClient CreateClient()
     {
@@ -35,10 +40,10 @@ public sealed class ConflictCellFragmentTests(ConflictCellFactory factory)
         return client;
     }
 
-    // ── POST Generate returns grid with conflict cell markers ─────────────────
+    // ── POST Generate returns grid with unfulfillable cell markers ────────────
 
-    [Fact(DisplayName = "POST Generate: irreconcilable hard-stance → grid renders mcell conflict class")]
-    public async Task PostGenerate_HardConflict_RendersConflictCellClass()
+    [Fact(DisplayName = "POST Generate: unfulfillable cell → grid renders mcell conflict class")]
+    public async Task PostGenerate_Unfulfillable_RendersConflictCellClass()
     {
         var client = CreateClient();
         var html = await PostGenerateAndReadGridAsync(client);
@@ -46,35 +51,50 @@ public sealed class ConflictCellFragmentTests(ConflictCellFactory factory)
         Assert.Contains("mcell conflict", html);
     }
 
-    [Fact(DisplayName = "POST Generate: irreconcilable hard-stance → grid renders data-conflict attribute")]
-    public async Task PostGenerate_HardConflict_RendersDataConflictAttribute()
+    [Fact(DisplayName = "POST Generate: unfulfillable cell → grid renders data-conflict=unfulfillable attribute")]
+    public async Task PostGenerate_Unfulfillable_RendersDataConflictAttribute()
     {
         var client = CreateClient();
         var html = await PostGenerateAndReadGridAsync(client);
 
-        Assert.Contains("data-conflict=\"hard-stance\"", html);
+        Assert.Contains("data-conflict=\"unfulfillable\"", html);
     }
 
-    [Fact(DisplayName = "POST Generate: irreconcilable hard-stance → grid renders conflict-notice with full actionable message")]
-    public async Task PostGenerate_HardConflict_RendersConflictNoticeText()
+    [Fact(DisplayName = "POST Generate: unfulfillable cell → grid renders conflict-notice--unfulfillable with tag-specific message")]
+    public async Task PostGenerate_Unfulfillable_RendersUnfulfillableNotice()
     {
         var client = CreateClient();
         var html = await PostGenerateAndReadGridAsync(client);
 
-        Assert.Contains("conflict-notice", html);
-        // so5.5 supersedes so5.4's minimal seed with the full actionable message + dual CTAs.
-        Assert.Contains("requirements conflict", html);
+        Assert.Contains("conflict-notice--unfulfillable", html);
+        // Tag name "Vegetarian" should appear in the message.
+        Assert.Contains("Vegetarian", html);
+        // The specific unfulfillable message format.
+        Assert.Contains("recipe book has no", html);
     }
 
-    [Fact(DisplayName = "POST Generate: irreconcilable hard-stance → grid renders dual CTAs (add by hand + adjust attendance)")]
-    public async Task PostGenerate_HardConflict_RendersDualCtas()
+    [Fact(DisplayName = "POST Generate: unfulfillable cell → grid renders Add a [tag] recipe CTA")]
+    public async Task PostGenerate_Unfulfillable_RendersAddRecipeCta()
     {
         var client = CreateClient();
         var html = await PostGenerateAndReadGridAsync(client);
 
         Assert.Contains("conflict-acts", html);
-        Assert.Contains("Add a dish by hand", html);
-        Assert.Contains("Adjust who", html); // "Adjust who's attending"
+        // The CTA should name the tag.
+        Assert.Contains("Add a Vegetarian recipe", html);
+    }
+
+    [Fact(DisplayName = "POST Generate: unfulfillable cell does NOT render HardConflict dual CTAs")]
+    public async Task PostGenerate_Unfulfillable_DoesNotRenderHardConflictCtas()
+    {
+        var client = CreateClient();
+        var html = await PostGenerateAndReadGridAsync(client);
+
+        // HardConflict renders "Adjust who's attending" and "Add a dish by hand".
+        // Unfulfillable should NOT render these.
+        Assert.DoesNotContain("Adjust who", html);
+        // The HardConflict-specific message should not appear either.
+        Assert.DoesNotContain("requirements conflict", html);
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────
@@ -88,7 +108,7 @@ public sealed class ConflictCellFragmentTests(ConflictCellFactory factory)
         Assert.True(match.Success, "No antiforgery token found on the page.");
         var token = match.Groups[1].Value;
 
-        var week = ConflictCellFixture.WeekStart.ToString("yyyy-MM-dd");
+        var week = UnfulfillableCellFixture.WeekStart.ToString("yyyy-MM-dd");
         var form = new FormUrlEncodedContent(new[]
         {
             new KeyValuePair<string, string>("__RequestVerificationToken", token),
@@ -100,14 +120,14 @@ public sealed class ConflictCellFragmentTests(ConflictCellFactory factory)
     }
 }
 
-[CollectionDefinition(nameof(ConflictCellCollection))]
-public sealed class ConflictCellCollection : ICollectionFixture<ConflictCellFactory> { }
+[CollectionDefinition(nameof(UnfulfillableCellCollection))]
+public sealed class UnfulfillableCellCollection : ICollectionFixture<UnfulfillableCellFactory> { }
 
 /// <summary>
-/// WAF factory that seeds two attendees with mutually exclusive Required stances and a
-/// candidate pool where no recipe satisfies both — every cell is irreconcilable (C6).
+/// WAF factory that seeds one attendee with a Required "Vegetarian" tag but NO vegetarian recipes
+/// in the corpus. Every cell is unfulfillable (corpus gap, not attendee conflict).
 /// </summary>
-public sealed class ConflictCellFactory : WebApplicationFactory<Program>
+public sealed class UnfulfillableCellFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -127,40 +147,37 @@ public sealed class ConflictCellFactory : WebApplicationFactory<Program>
             services.AddSingleton<UserManager<AppUser>>(
                 new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000aa" }));
 
-            // Slot config: both Alice and Bob are default attendees on every slot.
+            // Slot config: Alice is default attendee on every slot.
             services.RemoveAll<IMealSlotConfigRepository>();
             services.AddScoped<IMealSlotConfigRepository>(_ =>
             {
                 var hh = Plantry.SharedKernel.HouseholdId.From(WeekGridFixture.HouseholdId);
                 var config = MealSlotConfig.CreateWithDefaults(hh, Plantry.SharedKernel.Domain.SystemClock.Instance);
                 foreach (var slot in config.Slots.Where(s => s.IsActive))
-                    config.SetDefaultAttendees(slot.Id, [ConflictCellFixture.AliceId, ConflictCellFixture.BobId], Plantry.SharedKernel.Domain.SystemClock.Instance);
+                    config.SetDefaultAttendees(slot.Id, [UnfulfillableCellFixture.AliceId], Plantry.SharedKernel.Domain.SystemClock.Instance);
                 return new FakeSlotRepo(config);
             });
 
             services.RemoveAll<IHouseholdMemberReader>();
             services.AddSingleton<IHouseholdMemberReader>(
                 new FakeMemberReader([
-                    new HouseholdMember(ConflictCellFixture.AliceId, "Alice", "A"),
-                    new HouseholdMember(ConflictCellFixture.BobId, "Bob", "B"),
+                    new HouseholdMember(UnfulfillableCellFixture.AliceId, "Alice", "A"),
                 ]));
 
-            // Preferences: Alice requires VeganTag, Bob requires MeatTag.
+            // Preferences: Alice requires VegetarianTag.
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(
-                new ConflictPrefsRepo(ConflictCellFixture.BuildAlicePref(), ConflictCellFixture.BuildBobPref()));
+                new UnfulfillablePrefsRepo(UnfulfillableCellFixture.BuildAlicePref()));
 
-            // Recipes: one vegan (only VeganTag) + one meat (only MeatTag). No recipe covers both.
+            // Recipes: ONLY meat recipes — NO vegetarian recipes. Every cell is unfulfillable for Alice.
             services.RemoveAll<IRecipeReadModel>();
             services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([
-                new RecipeReadModel(ConflictCellFixture.VeganRecipeId, "Vegan Stir-Fry", [ConflictCellFixture.VeganTag], 2),
-                new RecipeReadModel(ConflictCellFixture.MeatRecipeId, "Beef Stew", [ConflictCellFixture.MeatTag], 4),
+                new RecipeReadModel(UnfulfillableCellFixture.MeatRecipeId, "Beef Stew", [UnfulfillableCellFixture.MeatTag], 4),
             ]));
 
-            // Tag reader: stub so UnfulfillabilityDetector resolves tag names.
-            // Both VeganTag and MeatTag have recipes (so no cell is Unfulfillable — only HardConflict).
+            // Tag reader: returns the Vegetarian tag so it can be resolved to a name in-cell.
             services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
+            services.AddSingleton<ITagReader>(new UnfulfillableTagReader());
 
             services.RemoveAll<IMealPlanRepository>();
             services.AddScoped<IMealPlanRepository>(_ => new FakeMealPlanRepo());
@@ -187,7 +204,7 @@ public sealed class ConflictCellFactory : WebApplicationFactory<Program>
             services.RemoveAll<ShopForWeekService>();
             services.AddScoped<ShopForWeekService>();
 
-            // Planner: NullMealPlanner — never called because all cells conflict.
+            // Planner: NullMealPlanner — never called because all cells are unfulfillable.
             services.RemoveAll<IMealPlanner>();
             services.AddSingleton<IMealPlanner>(new NullMealPlanner());
             services.RemoveAll<IPendingProposalStore>();
@@ -196,10 +213,6 @@ public sealed class ConflictCellFactory : WebApplicationFactory<Program>
             services.AddScoped<GeneratePlanService>();
             services.RemoveAll<AcceptProposalService>();
             services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(
-                new ConflictPrefsRepo(ConflictCellFixture.BuildAlicePref(), ConflictCellFixture.BuildBobPref()));
 
             // P3-5: stub expiring-stock reader; re-register insights service
             services.RemoveAll<IMealPlanExpiringStockReader>();
@@ -218,9 +231,9 @@ public sealed class ConflictCellFactory : WebApplicationFactory<Program>
     }
 }
 
-// ── ConflictCellFixture ───────────────────────────────────────────────────────
+// ── UnfulfillableCellFixture ──────────────────────────────────────────────────
 
-internal static class ConflictCellFixture
+internal static class UnfulfillableCellFixture
 {
     /// <summary>Monday of the current ISO week — kept dynamic so dates always fall in the rendered week.</summary>
     public static DateOnly WeekStart
@@ -233,13 +246,10 @@ internal static class ConflictCellFixture
         }
     }
 
-    public static readonly Guid AliceId  = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
-    public static readonly Guid BobId    = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
-    public static readonly Guid VeganTag = Guid.Parse("cccccccc-0000-0000-0000-000000000010");
-    public static readonly Guid MeatTag  = Guid.Parse("cccccccc-0000-0000-0000-000000000011");
-
-    public static readonly Guid VeganRecipeId = Guid.Parse("dddddddd-0000-0000-0000-000000000020");
-    public static readonly Guid MeatRecipeId  = Guid.Parse("dddddddd-0000-0000-0000-000000000021");
+    public static readonly Guid AliceId  = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000003");
+    public static readonly Guid VegetarianTag = Guid.Parse("cccccccc-0000-0000-0000-000000000030");
+    public static readonly Guid MeatTag  = Guid.Parse("cccccccc-0000-0000-0000-000000000031");
+    public static readonly Guid MeatRecipeId  = Guid.Parse("dddddddd-0000-0000-0000-000000000030");
 
     private static readonly HouseholdId Hh =
         Plantry.SharedKernel.HouseholdId.From(WeekGridFixture.HouseholdId);
@@ -247,37 +257,41 @@ internal static class ConflictCellFixture
     public static UserPreference BuildAlicePref()
     {
         var pref = UserPreference.Create(Hh, AliceId, Plantry.SharedKernel.Domain.SystemClock.Instance);
-        pref.SetStance(VeganTag, "Required", Plantry.SharedKernel.Domain.SystemClock.Instance);
-        return pref;
-    }
-
-    public static UserPreference BuildBobPref()
-    {
-        var pref = UserPreference.Create(Hh, BobId, Plantry.SharedKernel.Domain.SystemClock.Instance);
-        pref.SetStance(MeatTag, "Required", Plantry.SharedKernel.Domain.SystemClock.Instance);
+        // Alice requires vegetarian food, but there are NO vegetarian recipes in the corpus.
+        pref.SetStance(VegetarianTag, "Required", Plantry.SharedKernel.Domain.SystemClock.Instance);
         return pref;
     }
 }
 
 /// <summary>
-/// Prefs repo that returns Alice's or Bob's preferences by their seeded user IDs.
+/// Prefs repo that returns Alice's preference (Required VegetarianTag).
 /// </summary>
-internal sealed class ConflictPrefsRepo(UserPreference alicePref, UserPreference bobPref) : IUserPreferenceRepository
+internal sealed class UnfulfillablePrefsRepo(UserPreference alicePref) : IUserPreferenceRepository
 {
     public Task<UserPreference?> FindByUserIdAsync(Guid userId, CancellationToken ct = default)
     {
-        if (userId == ConflictCellFixture.AliceId) return Task.FromResult<UserPreference?>(alicePref);
-        if (userId == ConflictCellFixture.BobId) return Task.FromResult<UserPreference?>(bobPref);
-        return Task.FromResult<UserPreference?>(null);
+        var result = userId == UnfulfillableCellFixture.AliceId ? alicePref : null;
+        return Task.FromResult<UserPreference?>(result);
     }
 
     public Task AddAsync(UserPreference preference, CancellationToken ct = default) => Task.CompletedTask;
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
-/// <summary>No-op ITagReader stub for WAF tests that don't test tag name resolution.</summary>
-internal sealed class NullTagReader : ITagReader
+/// <summary>
+/// ITagReader stub that returns the "Vegetarian" tag so the unfulfillable cell can show
+/// "Your recipe book has no Vegetarian recipes." and "Add a Vegetarian recipe".
+/// </summary>
+internal sealed class UnfulfillableTagReader : ITagReader
 {
     public Task<IReadOnlyList<TagGroup>> ListGroupedAsync(CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<TagGroup>>([]);
+    {
+        IReadOnlyList<TagGroup> groups =
+        [
+            new TagGroup("Diet", 150, [
+                new TagSummary(UnfulfillableCellFixture.VegetarianTag, "Vegetarian", "Diet", 150),
+            ])
+        ];
+        return Task.FromResult(groups);
+    }
 }

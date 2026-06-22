@@ -72,6 +72,13 @@ public sealed class IndexModel(
     /// </summary>
     public Dictionary<string, HardConflictCell> ConflictCells { get; private set; } = [];
 
+    /// <summary>
+    /// Cells that were detected as unfulfillable during the most recent generate call — an attendee's
+    /// Required tag has ZERO recipes in the full corpus. Keyed by "date_slotId". Request-scoped — not
+    /// stored; on a plain GET reload without generation this is empty.
+    /// </summary>
+    public Dictionary<string, UnfulfillableCell> UnfulfillableCells { get; private set; } = [];
+
     /// <summary>Advisory insight callouts for the rail, derived from the loaded week (presentation only).</summary>
     public List<InsightCallout> Insights { get; private set; } = [];
 
@@ -359,9 +366,11 @@ public sealed class IndexModel(
             await pendingProposalStore.SetAsync(storeKey, merged, ct);
         }
 
-        // Carry hard-conflict cells (C6) so the grid can render in-cell markers.
+        // Carry hard-conflict cells (C6) and unfulfillable cells so the grid can render in-cell markers.
         ConflictCells = generateResult.Conflicts
             .ToDictionary(c => CellKey(c.Date, c.MealSlotId));
+        UnfulfillableCells = generateResult.UnfulfillableCells
+            .ToDictionary(u => CellKey(u.Date, u.MealSlotId));
 
         // Reload to pick up pending proposals; WeekBudgetTarget is resolved inside LoadWeekAsync.
         await LoadWeekAsync(week, ct);
@@ -1010,7 +1019,9 @@ public sealed class IndexModel(
         // Model.Insights and Model.HasEmptyCells for the mutated plan, so both OOB fragments
         // are fresh. Routing every cell-targeted mutation through this single helper guarantees
         // the "recompute on EVERY change" invariant — no per-handler wiring to forget.
-        var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment);
+        var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment,
+            IsHardConflict: ConflictCells.ContainsKey(key),
+            UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key));
         var railVm = new PlanRailVm(Insights, PendingCount, Oob: true);
         var barNavVm = BuildPlanBarNavVm(Oob: true);
         return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm, barNavVm));
@@ -1141,11 +1152,16 @@ public sealed class IndexModel(
         MealFulfillmentVm? GhostEnrichment = null,
         /// <summary>
         /// True when this cell was flagged as an irreconcilable hard-stance conflict (C6) during
-        /// the current generate pass. Renders a distinct in-cell "No single dish suits everyone here"
-        /// marker instead of the plain empty state. so5.5 will supersede this marker with the full
-        /// actionable empty-cell UI. Only populated during a generate response — plain GET is false.
+        /// the current generate pass. Renders the full actionable in-cell UI with dual CTAs:
+        /// "Add a dish by hand" + "Adjust who's attending". Only populated during a generate response.
         /// </summary>
-        bool IsHardConflict = false);
+        bool IsHardConflict = false,
+        /// <summary>
+        /// Non-null when this cell was flagged as unfulfillable during the current generate pass —
+        /// an attendee's Required tag has ZERO recipes in the full corpus. Carries the tag name for
+        /// the actionable "Add a [tag] recipe" CTA. Only populated during a generate response.
+        /// </summary>
+        UnfulfillableCell? UnfulfillableCellInfo = null);
 
     /// <summary>
     /// View model for the advisory insights rail (P3-5). Rendered inline inside <c>_WeekGrid</c>

@@ -225,6 +225,9 @@ internal sealed class FakePriceEnrichmentReader(Guid recipeId, RecipeDishEnrichm
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 internal sealed class FakeMultiPriceEnrichmentReader(
@@ -244,6 +247,9 @@ internal sealed class FakeMultiPriceEnrichmentReader(
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 internal sealed class FakePriceReader(MealPlanPricePoint? price) : IMealPlanPriceReader
