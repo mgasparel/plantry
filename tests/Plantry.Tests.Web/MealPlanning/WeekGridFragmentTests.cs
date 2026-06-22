@@ -392,6 +392,14 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
             services.AddScoped<PlanInsightsService>();
+
+            // plantry-so5.3: stub planning settings repos
+            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
+            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
+            services.RemoveAll<IWeekPlanningOverrideRepository>();
+            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
+            services.RemoveAll<SetPlanningSettingsService>();
+            services.AddScoped<SetPlanningSettingsService>();
         });
     }
 }
@@ -530,6 +538,14 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
             services.AddScoped<PlanInsightsService>();
+
+            // plantry-so5.3: stub planning settings repos so WAF tests don't need Postgres
+            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
+            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
+            services.RemoveAll<IWeekPlanningOverrideRepository>();
+            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
+            services.RemoveAll<SetPlanningSettingsService>();
+            services.AddScoped<SetPlanningSettingsService>();
         });
     }
 }
@@ -812,6 +828,14 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
             services.AddScoped<PlanInsightsService>();
+
+            // plantry-so5.3: stub planning settings repos
+            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
+            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
+            services.RemoveAll<IWeekPlanningOverrideRepository>();
+            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
+            services.RemoveAll<SetPlanningSettingsService>();
+            services.AddScoped<SetPlanningSettingsService>();
         });
     }
 }
@@ -913,4 +937,24 @@ internal sealed class NullShoppingWriter : IMealPlanShoppingWriter
 {
     public Task AddItemsAsync(IEnumerable<MealPlanShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
         => Task.CompletedTask;
+}
+
+// ── plantry-so5.3 null stubs (planning settings — no-op for WAF tests that don't test budget) ──
+
+internal sealed class NullPlanningSettingsRepo : IHouseholdPlanningSettingsRepository
+{
+    public Task<HouseholdPlanningSettings?> FindByHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
+        => Task.FromResult<HouseholdPlanningSettings?>(null);
+
+    public Task AddAsync(HouseholdPlanningSettings settings, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+internal sealed class NullWeekOverrideRepo : IWeekPlanningOverrideRepository
+{
+    public Task<WeekPlanningOverride?> FindAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
+        => Task.FromResult<WeekPlanningOverride?>(null);
+
+    public Task AddAsync(WeekPlanningOverride weekOverride, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

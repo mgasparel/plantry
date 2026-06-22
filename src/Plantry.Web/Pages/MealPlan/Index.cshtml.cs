@@ -29,6 +29,9 @@ public sealed class IndexModel(
     IRecipeReadModel recipeReader,
     IMealPlanCatalogProductReader catalogReader,
     IHouseholdMemberReader memberReader,
+    SetPlanningSettingsService setPlanningSettingsService,
+    IHouseholdPlanningSettingsRepository planningSettingsRepo,
+    IWeekPlanningOverrideRepository weekOverrideRepo,
     ITenantContext tenant,
     UserManager<AppUser> userManager,
     IClock clock) : PageModel
@@ -72,11 +75,17 @@ public sealed class IndexModel(
     public bool WeekCostIsPartial { get; private set; }
 
     /// <summary>
-    /// User-entered weekly budget target from the tune popover (P3-6b, C14).
-    /// Non-null when the user supplied a positive budget via the Generate POST. Passed to
-    /// PlanInsightsService so the over-budget insight fires. Null when not provided.
+    /// Resolved weekly budget target for the viewed week (persisted household setting + per-week override).
+    /// Loaded on every request path (GET + all OOB refreshes) by LoadWeekAsync so insights survive
+    /// reloads and cell operations. Null = no target = over-budget insight suppressed.
     /// </summary>
     public decimal? WeekBudgetTarget { get; private set; }
+
+    /// <summary>
+    /// Resolved planning weights for the viewed week. Null = use PlanningWeights.Default.
+    /// Exposed so the Tune popover can reflect persisted values on every render.
+    /// </summary>
+    public PlanningWeights? WeekPlanningWeights { get; private set; }
 
     /// <summary>Builds the store key for the pending proposal store: {householdId}_{weekStart:yyyyMMdd}_{sessionId}.</summary>
     private string BuildStoreKey(HouseholdId householdId) =>
@@ -286,10 +295,6 @@ public sealed class IndexModel(
 
     public async Task<IActionResult> OnPostGenerateAsync(
         string? week = null,
-        [FromForm] int? wasteWeight = null,
-        [FromForm] int? costWeight = null,
-        [FromForm] int? varietyWeight = null,
-        [FromForm] decimal? budget = null,
         string? scope = null,
         CancellationToken ct = default)
     {
@@ -301,18 +306,13 @@ public sealed class IndexModel(
         // Ensure session is started and cookie issued so Session.Id is stable across requests.
         await EnsureSessionStartedAsync(ct);
 
-        // Rebuild WeekStart so BuildStoreKey is correct
+        // Rebuild WeekStart so BuildStoreKey is correct; also resolves persisted budget/weights.
         await LoadWeekAsync(week, ct);
 
-        // Resolve PlanningWeights from tuning popover inputs (C14).
+        // PlanningWeights come from the resolved persisted setting (no longer read from form).
         // PlanningWeights only bias SOFT choices — they never relax a hard dietary stance (M5/M11).
         // The constraint resolver from P3-6a stays authoritative.
-        PlanningWeights? weights = null;
-        if (wasteWeight.HasValue && costWeight.HasValue && varietyWeight.HasValue)
-        {
-            try { weights = new PlanningWeights(wasteWeight.Value, costWeight.Value, varietyWeight.Value); }
-            catch (ArgumentException) { /* Invalid weights (don't sum to 100) — fall back to default */ }
-        }
+        var weights = WeekPlanningWeights;
 
         // Resolve scope date (L2 per-day scope targeting, P3-6b):
         //   • Per-day header buttons post scope=today&week=<that day's ISO date> — derive from week
@@ -324,9 +324,6 @@ public sealed class IndexModel(
         {
             scopeDate = (week is not null && DateOnly.TryParse(week, out var sd)) ? sd : DateOnly.FromDateTime(DateTime.Today);
         }
-
-        // Stash user-entered budget target so BuildInsightsAsync can pass it to the over-budget rule.
-        decimal? resolvedBudget = budget is > 0 ? budget : null;
 
         var storeKey = BuildStoreKey(householdId);
 
@@ -355,8 +352,7 @@ public sealed class IndexModel(
             await pendingProposalStore.SetAsync(storeKey, merged, ct);
         }
 
-        // Reload to pick up pending proposals; pass budget target so the over-budget insight fires.
-        WeekBudgetTarget = resolvedBudget;
+        // Reload to pick up pending proposals; WeekBudgetTarget is resolved inside LoadWeekAsync.
         await LoadWeekAsync(week, ct);
         return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
@@ -388,6 +384,46 @@ public sealed class IndexModel(
         var storeKey = BuildStoreKey(householdId);
         await acceptProposalService.DiscardAsync(storeKey, ct);
 
+        await LoadWeekAsync(week, ct);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
+    }
+
+    // ── Set planning settings POST ────────────────────────────────────────────
+    // Persists the week budget and/or weights as a per-week override (scoped to the
+    // currently-viewed week). Returns the full grid+bar so the budget chip and
+    // over-budget insight recompute immediately via the existing OOB plumbing.
+
+    public async Task<IActionResult> OnPostSetPlanningSettingsAsync(
+        string? week = null,
+        [FromForm] decimal? budget = null,
+        [FromForm] int? wasteWeight = null,
+        [FromForm] int? costWeight = null,
+        [FromForm] int? varietyWeight = null,
+        CancellationToken ct = default)
+    {
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+
+        // Normalise week so the override targets the correct Monday.
+        var weekStart = week is not null && DateOnly.TryParse(week, out var parsed)
+            ? DomainMealPlan.NormalizeToMonday(parsed)
+            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(DateTime.Today));
+
+        // Resolve the submitted budget: positive value → Money; zero or null → clear.
+        Money? budgetMoney = budget is > 0
+            ? Money.FromDecimal(budget.Value, "USD")
+            : null;
+
+        // Resolve the submitted weights; ignore if they don't sum to 100.
+        PlanningWeights? weights = null;
+        if (wasteWeight.HasValue && costWeight.HasValue && varietyWeight.HasValue)
+        {
+            try { weights = new PlanningWeights(wasteWeight.Value, costWeight.Value, varietyWeight.Value); }
+            catch (ArgumentException) { /* Invalid — fall back to null (no override) */ }
+        }
+
+        await setPlanningSettingsService.ExecuteAsync(householdId, weekStart, budgetMoney, weights, ct);
+
+        // Reload so the resolved budget + insights recompute from DB truth.
         await LoadWeekAsync(week, ct);
         return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
@@ -693,6 +729,10 @@ public sealed class IndexModel(
 
         HasSlots = Slots.Count > 0;
 
+        // Resolve persisted planning settings (budget + weights) for the viewed week.
+        // Runs on every request path (GET + all OOB refreshes) so WeekBudgetTarget is always populated.
+        await LoadPlanningSettingsAsync(householdId, ct);
+
         // Load planned meals for this week, enriched with live fulfillment and cost.
         DomainMealPlan? loadedPlan = null;
         if (HasSlots)
@@ -817,6 +857,22 @@ public sealed class IndexModel(
         Insights = insights.Insights
             .Select(i => new InsightCallout(i.Tone, i.Icon, i.Title, i.Body, i.ActionUrl))
             .ToList();
+    }
+
+    /// <summary>
+    /// Resolves the effective planning settings for the viewed week by merging the household
+    /// default with the per-week override. Populates WeekBudgetTarget and WeekPlanningWeights.
+    /// Called on every request path (GET + all OOB refreshes) so the budget chip and insights
+    /// survive reloads, navigation, and cell operations.
+    /// </summary>
+    private async Task LoadPlanningSettingsAsync(HouseholdId householdId, CancellationToken ct)
+    {
+        var settings = await planningSettingsRepo.FindByHouseholdAsync(householdId, ct);
+        var weekOverride = await weekOverrideRepo.FindAsync(householdId, WeekStart, ct);
+        var (budget, weights) = PlanningSettingsResolver.Resolve(settings, weekOverride);
+
+        WeekBudgetTarget = budget?.ToDecimal();
+        WeekPlanningWeights = weights;
     }
 
     private async Task LoadPendingProposalsAsync(HouseholdId householdId, CancellationToken ct)

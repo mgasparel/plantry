@@ -6,8 +6,9 @@ namespace Plantry.MealPlanning.Infrastructure;
 
 /// <summary>
 /// EF DbContext for the Meal Planning bounded context (<c>meal_planning</c> schema).
-/// Owns seven tables across three aggregates: MealPlan (+ PlannedMeal + PlannedDish),
-/// MealSlotConfig (+ MealSlot), and UserPreference (+ TagStance).
+/// Owns nine tables across five aggregates: MealPlan (+ PlannedMeal + PlannedDish),
+/// MealSlotConfig (+ MealSlot), UserPreference (+ TagStance),
+/// HouseholdPlanningSettings, and WeekPlanningOverride.
 /// <para>
 /// The RlsMiddleware MUST call <see cref="SetHouseholdId"/> on this context for every authenticated
 /// request, exactly as it does for all other bounded-context DbContexts (the known P2-0 gotcha:
@@ -23,6 +24,8 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
     public DbSet<MealSlot> MealSlots => Set<MealSlot>();
     public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
     public DbSet<TagStance> TagStances => Set<TagStance>();
+    public DbSet<HouseholdPlanningSettings> HouseholdPlanningSettings => Set<HouseholdPlanningSettings>();
+    public DbSet<WeekPlanningOverride> WeekPlanningOverrides => Set<WeekPlanningOverride>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -289,6 +292,66 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
                 .HasDatabaseName("ux_tag_stance_pref_tag");
 
             b.HasQueryFilter(ts => ts.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── HouseholdPlanningSettings aggregate root ────────────────────────────
+        // One row per household. Seeded lazily on first write (null = no target).
+        // HouseholdId is both the PK and the aggregate identity (mirrors the pattern used
+        // by single-per-household aggregates in this context).
+        builder.Entity<HouseholdPlanningSettings>(b =>
+        {
+            b.ToTable("household_planning_settings");
+            b.HasKey(s => s.HouseholdId);
+            b.Property(s => s.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .ValueGeneratedNever();
+
+            // Money stored as two nullable columns: minor_units (bigint) + currency (char(3)).
+            // Owned entity mapping splits Money into the parent table (no join table needed).
+            b.OwnsOne(s => s.DefaultWeeklyBudget, mb =>
+            {
+                mb.Property(m => m.MinorUnits).HasColumnName("budget_minor_units");
+                mb.Property(m => m.Currency).HasColumnName("budget_currency").HasMaxLength(3);
+            });
+
+            // PlanningWeights stored as three nullable int columns.
+            b.OwnsOne(s => s.DefaultPlanningWeights, wb =>
+            {
+                wb.Property(w => w.Waste).HasColumnName("weights_waste");
+                wb.Property(w => w.Cost).HasColumnName("weights_cost");
+                wb.Property(w => w.Variety).HasColumnName("weights_variety");
+            });
+
+            b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── WeekPlanningOverride ────────────────────────────────────────────────
+        // One row per (household, weekStart). A row exists only when the user has
+        // overridden something for that specific week.
+        builder.Entity<WeekPlanningOverride>(b =>
+        {
+            b.ToTable("week_planning_override");
+            b.HasKey(o => new { HouseholdId = o.HouseholdId, WeekStart = o.WeekStart });
+            b.Property(o => o.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id");
+            b.Property(o => o.WeekStart).HasColumnName("week_start");
+
+            b.OwnsOne(o => o.BudgetOverride, mb =>
+            {
+                mb.Property(m => m.MinorUnits).HasColumnName("budget_minor_units");
+                mb.Property(m => m.Currency).HasColumnName("budget_currency").HasMaxLength(3);
+            });
+
+            b.OwnsOne(o => o.WeightsOverride, wb =>
+            {
+                wb.Property(w => w.Waste).HasColumnName("weights_waste");
+                wb.Property(w => w.Cost).HasColumnName("weights_cost");
+                wb.Property(w => w.Variety).HasColumnName("weights_variety");
+            });
+
+            b.HasQueryFilter(o => o.HouseholdId == HouseholdId.From(_householdId));
         });
     }
 

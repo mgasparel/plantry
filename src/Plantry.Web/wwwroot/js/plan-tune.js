@@ -11,10 +11,11 @@
 // waste/cost/variety flat-key shape (wasteDefault, costDefault, varietyDefault) so existing
 // callers keep working without change.
 //
-// Produces (in the meal-plan context) hidden inputs read by OnPostGenerateAsync:
-//   wasteWeight, costWeight, varietyWeight  — integers summing to 100
-//   budget                                  — optional weekly budget (0 = no target)
-//   scope                                   — "week" | "today"
+// Produces (in the meal-plan context):
+//   persistSettings(el) — on slider/budget change, POSTs wasteWeight/costWeight/varietyWeight/budget
+//                         to ?handler=SetPlanningSettings (persists as week override independently
+//                         of Generate). htmx processes the response to update the grid + bar.
+//   scope               — "week" | "today" — included in Generate POST only.
 //
 // REBALANCE rule: when one slider is dragged the others are proportionally rescaled so all
 // values always sum to 100. Edge case: when all others are at 0 the remainder splits evenly.
@@ -39,17 +40,58 @@ document.addEventListener('alpine:init', function () {
 
         return {
             tuneOpen: false,
-            budget: 0,
+            // Seed from persisted resolved value (0 when not set). cfg.budget is a numeric decimal
+            // injected by the Razor page (window.__planTuneCfg.budget) so the popover reflects the
+            // persisted budget on every render rather than always opening at 0.
+            budget: (typeof cfg.budget === 'number' ? cfg.budget : 0),
             scope: 'week',
             buckets: buckets,
             weights: Object.assign({}, initialWeights),
 
             reset: function () {
+                // Reset to app defaults (PlanningWeights.Default), not to persisted values.
+                // Uses appDefault (injected per-bucket) so reset always restores the hard-coded
+                // app baseline regardless of what the user has persisted.
                 var w = {};
-                this.buckets.forEach(function (b) { w[b.key] = b.defaultWeight; });
+                this.buckets.forEach(function (b) { w[b.key] = (b.appDefault !== undefined ? b.appDefault : b.defaultWeight); });
                 this.weights = w;
                 this.budget = 0;
                 this.scope = 'week';
+            },
+
+            // Persist the current budget + weights as a per-week override via SetPlanningSettings.
+            // Fired on slider change (@@change) and budget input change (@@change). Uses htmx to
+            // POST the hidden inputs inside the component root and swaps the grid + bar from the response.
+            persistSettings: function (rootEl) {
+                // Collect the antiforgery token from the page (all Razor Pages forms include it).
+                var token = document.querySelector('input[name="__RequestVerificationToken"]');
+                if (!token) return; // no token = test or non-form page; skip gracefully.
+
+                // Build the form data from the hidden inputs inside the component.
+                var form = new FormData();
+                form.append('__RequestVerificationToken', token.value);
+                var wasteEl = rootEl.querySelector('input[name="wasteWeight"]');
+                var costEl  = rootEl.querySelector('input[name="costWeight"]');
+                var varEl   = rootEl.querySelector('input[name="varietyWeight"]');
+                var budgEl  = rootEl.querySelector('input[name="budget"]');
+                if (wasteEl) form.append('wasteWeight', wasteEl.value);
+                if (costEl)  form.append('costWeight',  costEl.value);
+                if (varEl)   form.append('varietyWeight', varEl.value);
+                if (budgEl)  form.append('budget',      budgEl.value);
+
+                // Derive the week from the Generate button's URL on the page.
+                var genBtn = rootEl.querySelector('[hx-post*="handler=Generate"]');
+                var weekParam = '';
+                if (genBtn) {
+                    var url = genBtn.getAttribute('hx-post') || '';
+                    var m = url.match(/week=([^&]+)/);
+                    if (m) weekParam = '&week=' + m[1];
+                }
+
+                // POST to SetPlanningSettings; htmx processes the response automatically.
+                htmx.ajax('POST',
+                    '/MealPlan?handler=SetPlanningSettings' + weekParam,
+                    { source: rootEl, target: '#plan-main-content', swap: 'innerHTML', values: form });
             },
 
             // Keep all bucket weights summing to 100 as one is dragged.

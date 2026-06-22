@@ -472,6 +472,14 @@ public sealed class SessionKeyedStoreFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
             services.AddScoped<PlanInsightsService>();
+
+            // plantry-so5.3: stub planning settings repos
+            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
+            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
+            services.RemoveAll<IWeekPlanningOverrideRepository>();
+            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
+            services.RemoveAll<SetPlanningSettingsService>();
+            services.AddScoped<SetPlanningSettingsService>();
         });
     }
 }
@@ -556,6 +564,14 @@ public sealed class SessionKeyedTwoProposalFactory : WebApplicationFactory<Progr
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
             services.AddScoped<PlanInsightsService>();
+
+            // plantry-so5.3: stub planning settings repos
+            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
+            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
+            services.RemoveAll<IWeekPlanningOverrideRepository>();
+            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
+            services.RemoveAll<SetPlanningSettingsService>();
+            services.AddScoped<SetPlanningSettingsService>();
         });
     }
 }
