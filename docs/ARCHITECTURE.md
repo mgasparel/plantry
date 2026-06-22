@@ -60,9 +60,9 @@ Nine contexts in one process and database, each with its own module/namespace, i
 | Intake | core | 1 | Receipt image, AI parse/match, import proposal, review-then-commit |
 | Pricing | supporting | 1→2 | Price observations (purchase + deal), price read models |
 | Recipes | core | 2 | Recipe (+ingredients, +directions), cook flow; fulfillment & cost as read models |
-| Meal Planning | core | 2 | Meal plan, slots, AI plan proposal |
+| Meal Planning | core | 3 | Meal plan, slots, AI plan proposal |
 | Shopping | supporting | 1 | Shopping list, items, check-off |
-| Deals | core | 3 | Store config, flyer ingestion, deal, match queue + memory |
+| Deals | core | 5 | Store subscription, flyer ingestion (ACL), deal, match queue + memory |
 
 ### Context map
 
@@ -118,7 +118,7 @@ Contexts communicate via **in-process application-service calls**. Where a downs
 | Recipes | `Recipe` (with `Ingredient` children); fulfillment and cost are read models, not aggregates |
 | Meal Planning | `MealPlan` (with `Slot` children), `MealSlotConfig`, `MealPlanProposal` (AI staging) |
 | Shopping | `ShoppingList` (with `Item` children) |
-| Deals | `Store`, `Deal`, `DealMatchMemory` |
+| Deals | `StoreSubscription`, `FlyerImport` (ACL provenance, `raw_flyer` jsonb quarantine), `Deal` (its own long-lived root), `DealMatchMemory` — the merchant *identity* `Store` is **Catalog-owned** (DM-16), referenced by ID (ADR-010 amended; DATA-MODEL DM-22) |
 
 Aggregates are modified one-per-transaction. Cross-aggregate references are by ID only.
 

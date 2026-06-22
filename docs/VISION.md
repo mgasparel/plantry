@@ -57,26 +57,6 @@ Plantry integrates with local store flyers to surface this week's deals, mapped 
 
 ---
 
-## Phased Delivery
-
-### Phase 1 — Pantry + Intake
-
-The core loop: add stock, view inventory, consume stock. Manual intake and the AI receipt flow. Product catalog with SKUs, units, and expiry tracking. The import review form — the most important UI in the product. Shopping list.
-
-### Phase 2 — Recipes + Meal Planning
-
-Recipe browser with fulfillment scoring and cost per serving. Cook flow with FEFO consumption. AI meal planner — generates a week of meals from pantry state, expiry, and user preferences. "Shop for this week" integrates the meal plan with the shopping list. _(Recipe import from URL is a nice-to-have — see FUTURE.md.)_
-
-### Phase 3 — Deal Integration
-
-Flipp integration for local store flyers. Deal-to-product matching with a review queue. Stock-up alerts. Deal-aware recipe costing and meal planning.
-
-### Phase 4 — Intelligence Layer
-
-Deeper AI features: deal-optimized shopping list routing, pattern-based stock-up recommendations, consumption trend analysis.
-
----
-
 ## Open Questions
 
 - **Flipp access:** No official public API. Options are an unofficial API, a scraper, or a browser extension exporter. Stability trade-offs TBD.

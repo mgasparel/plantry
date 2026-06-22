@@ -1,11 +1,11 @@
 # Deals — Ubiquitous Language
 
-> **Status:** Complete (approved) — Phase 4. Second stage of the Deals design chain. Every term here should appear
+> **Status:** Complete (approved) — Phase 5. Second stage of the Deals design chain. Every term here should appear
 > **verbatim** in domain code, schema, and conversation. Built from
 > [deals-journeys.md](deals-journeys.md) and aligned with the established `DataModels/`, Intake, and
 > Pricing vocabulary. Feeds the Domain Model (next step).
 >
-> **Bounded context:** Deals (`deals` schema, Phase 4). A **core** context wrapping an untrusted
+> **Bounded context:** Deals (`deals` schema, Phase 5). A **core** context wrapping an untrusted
 > external flyer feed behind an anticorruption layer (ADR-007/ADR-010). References Catalog, Pricing,
 > Shopping, Inventory, Identity **by ID only** (DM-3); writes `deal` price observations to Pricing on
 > confirm. The `catalog.store` reference table lands this phase (Catalog-owned, DM-16).
@@ -108,7 +108,7 @@ seam.
 | **DealConfirmed** | `householdId, dealId, productId, storeId, validFrom, validTo, by, at` | A deal is confirmed/corrected — by the user (DJ4) or auto via memory (DJ2). The trigger for stock-up-alert recomputation and the audit trail. `by` is null/system for memory auto-confirm. |
 | **DealRejected** | `householdId, dealId, by, at` | A deal is rejected in review (DJ4). |
 
-> Kept deliberately light, as Recipes / Meal Planning did. In Phase 4 these primarily feed the Home
+> Kept deliberately light, as Recipes / Meal Planning did. In Phase 5 these primarily feed the Home
 > banner and audit/attribution; stock-up alerts are a **read model** recomputed on demand, so they do
 > not *require* an event subscriber (an event-driven refresh is an optimization, not a dependency).
 > `DealConfirmed` is the natural hook if push notifications (deferred, D10) are ever added.
@@ -172,6 +172,6 @@ These are **not** redefined here — this fixes which word Deals uses for each.
   nullable `store_id` soft-ref becomes populated for deal observations and **back-fillable** for
   historical purchase observations — closing the DM-16 deferral.
 
-- **Phase numbering.** Deals is **Phase 4** (Meal Planning took the Phase-3 slot). Older docs that
-  said "Deals (Phase 3)" (VISION, ARCHITECTURE, the Pricing/Intake data models, ADR-010) are being
-  reconciled alongside this design.
+- **Phase numbering.** Deals is **build-phase 5** (P4 is Take Stock — inventory reconciliation).
+  Older docs that numbered Deals earlier (Phase 3, then Phase 4 before Take Stock was injected) are
+  **reconciled in the schema pass** — see the [ADR-010](../../ADRs/ADR-010.md) amendment 2026-06-22.

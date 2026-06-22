@@ -35,7 +35,7 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | **Uncheck** | Clear `checked_at` — move an item back to the active list. |
 | **Clear checked** | Hard-delete all items where `checked_at IS NOT NULL`. The list's scratchpad clean-up action. |
 | **Category grouping** | Read-time grouping of the list by `catalog.product.category_id`. Free-text items fall to "Uncategorized." **Not stored** on the item. |
-| **Deal badge** | A read-time indicator on a product item showing the cheapest active deal (from Pricing's read model). **Not stored** on the item — a pure read-time join. Phase 4 display feature. |
+| **Deal badge** | A read-time indicator on a product item showing the cheapest active deal (from Pricing's read model). **Not stored** on the item — a pure read-time join. Phase 5 display feature. |
 | **`source`** | Provenance enum: `manual` / `recipe` / `meal_plan` / `deal`. Records what triggered the add. |
 | **`source_ref`** | The UUID of the originating record (e.g., `recipe_id`, `meal_plan_id`) — completes the provenance for bulk-add flows. |
 | **Merge** | When a bulk-add flow (Recipes, Meal Planning) adds a product already on the list as an unchecked item, the app-layer merge increments/updates it rather than inserting a duplicate. Intentional manual duplicates are still possible. |

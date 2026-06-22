@@ -26,8 +26,8 @@ Meal Planning is fully designed: [journeys](DomainDesign/Domains/MealPlanning/me
 - **The AI proposes recipes only (v1).** Product dishes ("frozen pizza") and free-text notes
   ("Takeout") are **manual** (C16). Proposing in-stock products is a natural future extension of the
   Waste lever — not built now.
-- **The planner is deal-blind.** Deals moved to Phase 4 (C7), so cost comes from purchase-price
-  history (Pricing, DM-17) only. The deal-aware bias and "active deals" generation input are a Phase-4
+- **The planner is deal-blind.** Deals moved to Phase 5 (C7), so cost comes from purchase-price
+  history (Pricing, DM-17) only. The deal-aware bias and "active deals" generation input are a Phase-5
   enhancement; the seam (`IPriceReader`) is left open, not built.
 - **Suggestions are transient.** AI proposals live in a **session-keyed pending store**, reviewed
   **inline on the plan grid** (MP-O7) — there is no separate proposal screen and no proposal table

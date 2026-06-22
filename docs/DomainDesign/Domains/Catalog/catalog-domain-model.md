@@ -71,7 +71,7 @@ Catalog **reads nothing** from other contexts.
 - **DM-8:** `UniversalConversion` aggregate deleted. Within-dimension conversion is always `value × (factor_to_base_from / factor_to_base_to)` using the two `unit` rows that already exist. No pairwise table.
 - **DM-9:** Reference data (units, categories, locations) is seeded per-household at registration. Tenancy is uniform; no global rows with nullable `household_id`.
 - **DM-10:** `Product` is the rich aggregate root with `product_sku` children (pack-size variants) and `product_conversion` children (density conversions). Four expiry-default columns on `product` (ambient, after-open, after-freeze, after-thaw).
-- **DM-16 (partial):** `catalog.store` is the eventual home for resolved merchant identity — planned but **deferred to Phase 3** with Deals. Phase 1 Pricing uses free-text `merchant_text` only.
+- **DM-16:** `catalog.store` is the home for resolved merchant identity — Catalog-owned reference data, deferred through Phases 1–3 and **landing in Phase 5 with Deals** ([DataModels/catalog.md](../../DataModels/catalog.md)). Phases 1–3 Pricing uses free-text `merchant_text`; `store_id` is populated from Phase 5 and back-fillable.
 - **DM-19:** Product groups — `product.parent_product_id` nullable self-ref FK; abstract parents have no stock; max depth = 1.
 - **Untracked staples (`track_stock = false`):** A product that is always on hand (salt, pepper) is a normal Catalog citizen but exempt from quantity accounting. Fulfillment treats it as always satisfied; Cook skips it; Shopping never auto-adds it. Can be auto-created inline from recipe authoring or Intake.
 

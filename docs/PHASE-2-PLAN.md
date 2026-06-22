@@ -28,7 +28,7 @@ Recipes is fully designed: [journeys](DomainDesign/Domains/Recipes/recipes-journ
   (`Plantry.Shopping` / `.Infrastructure`), so Phase 2 **completes** it rather than starting it.
 - **Shopping scope is lean-but-coherent.** Build the core list — view + category grouping,
   manual add (product or free text), check-off, clear — plus the J5 add-missing hook. Defer
-  only per-item notes and Phase-3 deal badges. The aim is a list that stands on its own (so
+  only per-item notes and Phase-5 deal badges. The aim is a list that stands on its own (so
   "add missing" doesn't dead-end), not a deliberately partial feature.
 - **No new walking skeleton.** The cross-cutting plumbing from Phase-1 Slice 0 — tenancy/RLS,
   auth, migrations pipeline, the full test harness, the themed responsive shell — already
@@ -208,7 +208,7 @@ early / parallel work. *(This is the Shopping list moved out of Phase 1 — see
 - **Manual add** (§3b): product search **or** free text; optional quantity + unit;
   `CHECK (num_nonnulls(product_id, free_text) = 1)`.
 - **Check-off** via `checked_at` + `checked_by` (§3c); **clear checked** = hard-delete (§3e).
-- *Defers:* per-item notes, deal badges (Phase 3), multiple named lists.
+- *Defers:* per-item notes, deal badges (Phase 5), multiple named lists.
 
 **Tests / done-when.** L1 / L3 item-shape constraint + merge + check-off lifecycle; L4 list
 fragments; L5 add → check → clear.

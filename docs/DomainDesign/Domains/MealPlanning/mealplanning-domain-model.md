@@ -344,7 +344,7 @@ exist for attribution/audit and a future analytics consumer — kept light, as R
   in the soft tier — no weight setting can change which recipes are *eligible*, only which eligible
   recipe is *chosen* (M11). This is why a budget overage produces an `OverBudget` **insight** rather
   than dropping a dietary requirement. **`Deals` is a defined lever pinned at 0** in Phase 3 (C7) so
-  the slider UI and weight vector need no reshape when Phase-4 deal pricing arrives — it becomes a
+  the slider UI and weight vector need no reshape when Phase-5 deal pricing arrives — it becomes a
   fourth non-zero term and an additional soft input. `PlanInsights` are **read-side and advisory**
   (C15): computed from the same reads, never gating a save or generation (C12).
 

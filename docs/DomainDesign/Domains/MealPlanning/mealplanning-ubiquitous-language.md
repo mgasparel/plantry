@@ -65,7 +65,7 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | **MealCost** | A meal's rolled-up cost: **recipe** dishes sum `CostPerServing × servings` (Recipes); **product** dishes use the product's price × quantity (Pricing). Inherits `CostCompleteness` (`Full`/`Partial`/`None`) — `Partial` if any dish lacks data. A note-meal has none. Deal-blind in Phase 3 (C7). |
 | **PlanningScope** | What a generation request targets (C13): **`Week`** (all empty cells) · **`Day(date)`** (a day's slots) · **`SlotSeries(slotId, dates)`** ("all dinners") · **`SingleMeal(date, slotId)`** (one cell, J8). Auto-fill touches only empty cells in scope unless **replace** is requested. The dimension that makes planning a spectrum, not a mode. |
 | **PlanningWeights** | The normalized objective weights for a generation (C14): a vector over **PlanningLever** that **always sums to 100** (raise one → others fall proportionally). Bias the planner's **soft** objective only — never relaxes a hard stance (M5). Default leans **Waste**. |
-| **PlanningLever** | Enum: **`Cost`** (favour cheaper) · **`Waste`** (favour soon-to-expire stock) · **`Variety`** (avoid recently planned/cooked recipes — reads retained plans + `cook_event`, C2) · **`Deals`** (defined but **fixed at 0 / hidden** until Phase 4, C7). |
+| **PlanningLever** | Enum: **`Cost`** (favour cheaper) · **`Waste`** (favour soon-to-expire stock) · **`Variety`** (avoid recently planned/cooked recipes — reads retained plans + `cook_event`, C2) · **`Deals`** (defined but **fixed at 0 / hidden** until Phase 5, C7). |
 | **PlanInsights** | A computed, **advisory** list of **Insight**s over a plan or proposal (C15). Read-side, never stored; recomputed on every change. |
 | **Insight** | One advisory observation: an **InsightKind** + a human message (+ optional link/target). |
 | **InsightKind** | Enum: **`UnusedExpiring`** (expiring stock the plan doesn't use) · **`OverBudget`** (est. cost > budget target) · **`Repetition`** (recipe repeated this week / from last week) · **`UnfilledSlot`** (requested slot left empty) · **`HardConflictResolved`** (a meal was split into separate dishes, C6). |
@@ -145,7 +145,7 @@ These are **not** redefined here — this fixes which word Meal Planning uses fo
 | **ShoppingList** / **AddItems** | Shopping (DM-18) | Target of "shop for this week" (J6), reusing the P2-4 seam. |
 | **Household** / **User** / **membership** | Identity (DM-6) | Tenancy, attendees, and per-member preference owners. |
 | **AI / household AI key** | per ADR-007 / DM-7 | The planner is an untrusted function; the key is encrypted at rest, never client-sent. |
-| **Deal** | Deals (Phase 4) | **Not referenced in Phase 3** — the deal-aware seam is left open (C7). |
+| **Deal** | Deals (Phase 5) | **Not referenced in Phase 3** — the deal-aware seam is left open (C7). |
 
 ---
 

@@ -53,8 +53,8 @@ Multiple callers add items through a single `AddItems` application-service port,
 |---|---|---|
 | Manual UI | `manual` | null |
 | Recipes "add missing" (J5) | `recipe` | `recipe_id` |
-| Meal Planning "shop for this week" (Phase 2) | `meal_plan` | `meal_plan_id` |
-| Deals stock-up (Phase 3) | `deal` | `deal_id` |
+| Meal Planning "shop for this week" (Phase 3) | `meal_plan` | `meal_plan_id` |
+| Deals stock-up (Phase 5) | `deal` | `deal_id` |
 
 ---
 
@@ -63,7 +63,7 @@ Multiple callers add items through a single `AddItems` application-service port,
 | Direction | Context | What's exchanged |
 |---|---|---|
 | Reads (soft) | **Catalog** | Product name, `category_id` (for grouping read model); unit name |
-| Reads (via service) | **Pricing** | Cheapest-active-deal read model for deal badge (Phase 4) — never direct table read |
+| Reads (via service) | **Pricing** | Cheapest-active-deal read model for deal badge (Phase 5) — never direct table read |
 | Receives writes | **Recipes** | `IShoppingListWriter.AddItems(product_id, scaledQty, unit_id, source="recipe", source_ref=recipeId)` |
 | Receives writes | **Meal Planning** (Phase 2) | `IShoppingListWriter.AddItems(…, source="meal_plan")` |
 

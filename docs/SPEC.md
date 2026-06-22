@@ -22,7 +22,7 @@ Footer: Settings, Sign out.
 
 The **Add** item is a quick-action shortcut (opens the intake sheet from any tab), not a full page. **More** is the overflow grid (Pantry, Catalog, Meal Plan, Deals, Settings).
 
-¹ Meal Plan arrives in Phase 3; Deals in Phase 4.
+¹ Meal Plan arrives in Phase 3; Deals in Phase 5.
 
 ---
 
@@ -41,7 +41,7 @@ The **Add** item is a quick-action shortcut (opens the intake sheet from any tab
 #### 0b. Review pending work
 1. When intake items have been parsed and are awaiting review (e.g. a forwarded receipt, §2b), a banner reads "N items ready to review."
 2. User taps **Review** → the intake review form (§2e); or dismisses the banner for this session.
-3. Later phases add more banner kinds to the same stack — the **deal review queue** (§6b, Phase 4).
+3. Later phases add more banner kinds to the same stack — the **deal review queue** (§6b, Phase 5).
 
 #### 0c. Decide what to cook
 1. The meals section answers "what's for dinner?"
@@ -61,7 +61,7 @@ The **Add** item is a quick-action shortcut (opens the intake sheet from any tab
 ### Features
 - Default post-login landing surface; both navs lead here first.
 - Greeting header: household name + current date.
-- **Review banner stack** — dismissible per session, one row per pending-work kind; intake (Phase 2), deals (Phase 4). Renders nothing when no work is pending.
+- **Review banner stack** — dismissible per session, one row per pending-work kind; intake (Phase 2), deals (Phase 5). Renders nothing when no work is pending.
 - **Meals section** — cook-now recipe picks (Phase 2) → today's planned meals (Phase 3+); each a Cook entry point.
 - **Expiring-soon widget** — top-N items in the expiry window, soonest-first, expired-vs-soon distinction, "Use it up" CTA.
 - Three states: **cold** (welcome hero + onboarding empties), **active** (pending work / expiring stock), **all-clear** (good-state empties — "nothing expiring this week").
@@ -215,7 +215,7 @@ This is the central UI for AI-assisted intake. Every receipt parse ends here.
 #### 3e. Clear completed
 1. After a shopping trip, user taps "Clear checked" to remove picked-up items.
 
-#### 3f. Deal overlay (Phase 4)
+#### 3f. Deal overlay (Phase 5)
 1. Items on the list that have an active deal at a local store show a deal badge.
 2. Tapping shows the deal detail: store, price, valid until.
 
@@ -478,7 +478,7 @@ Every way stock leaves the pantry runs through one consumption operation (ARCHIT
 - **Cook** (§4c) — consumes each ingredient at the chosen servings. Swaps consume a different product; skips consume nothing. All of it compiles down to the same consume operation per ingredient.
 - **Throw out expired** — from expiry review (§1d), the user can discard an item; this is logged as **waste**, distinct from normal use.
 
-Each removal records *why*: **Consumed (used)** vs **Discarded (wasted/expired)** vs **Correction**. This split is what makes future waste-reduction and consumption-trend analysis (VISION Phase 4) possible — it can't be reconstructed later if everything is logged as a generic "consume."
+Each removal records *why*: **Consumed (used)** vs **Discarded (wasted/expired)** vs **Correction**. This split is what makes future waste-reduction and consumption-trend analysis (a future intelligence layer) possible — it can't be reconstructed later if everything is logged as a generic "consume."
 
 ---
 

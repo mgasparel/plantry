@@ -50,7 +50,7 @@ These have been mentioned but are not committed. Listed so they aren't lost.
 
 - **PWA install + web-push notifications.** The core app is a responsive, mobile-first web app; camera capture for receipts works through the standard browser file input. Installability, offline shell, and web-push (for stock-up alerts) are an additive enhancement layer, not a foundational requirement.
 - **Per-member roles / permissions.** v1 households are flat (every member equal). Owner/member roles and per-user preferences layer on top of the existing `household_id` scoping (ARCHITECTURE.md ADR-008) if needed.
-- **Deeper intelligence layer** (already VISION Phase 4): deal-optimized shopping-list routing, pattern-based stock-up recommendations, consumption-trend analysis.
+- **Deeper intelligence layer:** deal-optimized shopping-list routing, pattern-based stock-up recommendations, consumption-trend analysis.
 - **Consumption Rates** We drink a lot of Bubly. How many cans per week do we go through? When will we need to restock? This could be expanded into a complete analytics section.
 - **Auto-Convert Units** When displaying units, use the highest human-friendly unit. For example, a recipe calls for 1/2 Cup, and we double the recipe. We should never list 2 x 1/2 Cup, we should list 1 Cup.
 - **Auto-Suggest Tags for Recipes** Based on the ingredient list, suggest or auto-tag recipes, ie: Spicy, Vegetarian, Vegan, Meat, Fish

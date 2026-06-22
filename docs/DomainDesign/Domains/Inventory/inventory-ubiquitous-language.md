@@ -45,6 +45,8 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | **Waste / Discard** | A consume whose `reason = Discarded` — stock the user is throwing away, not using. Produces a `−delta` journal row; marks lot `depleted_at`. |
 | **Correction** | A new journal row (`reason = Correction`) that adjusts quantity without a real-world event (e.g., re-count). Corrections are new rows; they never mutate existing entries. |
 | **Fulfillment** | Whether a product (or recipe ingredient) is sufficiently in stock. Read-side concern: Inventory provides `IInventoryStockReader`; Recipes computes `FulfillmentResult` from it. |
+| **Low stock threshold** | A per-`(household, product)` quantity (`LowStockThreshold` / `low_stock_threshold`) that defines when a product is **running low**: `on-hand <= threshold`. A passive flag, **not** auto-reorder — it only drives the running-low state and stock-up alerts; the user decides whether to buy. Null/0 = no threshold, so the product is never running low. User-facing label: "Low stock threshold" / "Running low at". (Hospitality calls this *par*; we don't use that term, nor Grocy's dropped *min_stock_amount*.) |
+| **Running low** | The state a product is in when its on-hand quantity has reached its **low stock threshold** (`on-hand <= threshold`). Surfaced by Shopping on item sublines and by stock-up alerts. |
 | **`xmin`** | The Postgres system column used as an optimistic concurrency token on `product_stock`. No stored version column needed. |
 
 ---
