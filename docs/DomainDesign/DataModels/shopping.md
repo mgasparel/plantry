@@ -32,7 +32,7 @@ The only **mutable working-state** context in Phase 1. Unlike the journal and `p
 | `note` | `text` null | per-item note (SPEC §3) |
 | `checked_at` | `timestamptz` null | **null = unchecked**; drives checked-to-bottom ordering and "clear checked" (SPEC §3c/§3e) |
 | `checked_by` | `uuid` null | attribution, soft ref → identity user (multi-member households) |
-| `source` | `text` | `manual` / `recipe` / `meal_plan` / `deal` (CHECK), default `manual` — provenance for the bulk-add flows (SPEC §3d, §5d, §6c). `deal` is modeled forward-looking; its writer (Deals stock-up, §6c) is Phase 3 |
+| `source` | `text` | `manual` / `recipe` / `meal_plan` / `deal` (CHECK), default `manual` — provenance for the bulk-add flows (SPEC §3d, §5d, §6c). `deal` is modeled forward-looking; its writer (Deals stock-up, §6c) is Phase 5 |
 | `source_ref` | `uuid` null | soft ref to the originating `recipe` / `meal_plan` / `deal`; mirrors `price_observation.source_ref` |
 | `created_at` / `updated_at` | `timestamptz` | **mutable** — fields are edited in place, rows deleted on clear |
 
@@ -45,7 +45,7 @@ Backing index `(household_id, shopping_list_id)` for the list view; `checked_at`
 ## Read models (not tables / not stored)
 
 - **Category grouping** (SPEC §3a) — join `product_id → catalog.product.category_id` at read time. Free-text items (no `product_id`) fall to an **"Uncategorized"** bucket. No `category_id` is stored on the item.
-- **Deal badge** (SPEC §3f, Phase 4) — call Pricing's "cheapest active deal" read model by `product_id`. Shopping never reads Deals/Pricing tables directly (ADR-010, no cross-context table reads) and never stores the badge on the item.
+- **Deal badge** (SPEC §3f, Phase 5) — call Pricing's "cheapest active deal" read model by `product_id`. Shopping never reads Deals/Pricing tables directly (ADR-010, no cross-context table reads) and never stores the badge on the item.
 
 ---
 
@@ -65,8 +65,8 @@ Backing index `(household_id, shopping_list_id)` for the list view; `checked_at`
 
 ---
 
-> **Writers.** Manual add (UI, `source = manual`); Recipes "add missing to shopping list" (§3d, `source = recipe`, `source_ref = recipe_id`); Meal Planning "shop for this week" (§5d, `source = meal_plan`); Deals stock-up "add to list" (§6c, Phase 3+, `source = deal`). All go through Shopping's add-item application service, which applies the §5 merge rule.
+> **Writers.** Manual add (UI, `source = manual`); Recipes "add missing to shopping list" (§3d, `source = recipe`, `source_ref = recipe_id`); Meal Planning "shop for this week" (§5d, `source = meal_plan`); Deals stock-up "add to list" (§6c, Phase 5+, `source = deal`). All go through Shopping's add-item application service, which applies the §5 merge rule.
 
-> **Readers.** The list view composes `shopping_list_item × catalog.product` (name, category) `× catalog.unit`, and — Phase 4 — Pricing's cheapest-active-deal read model for the badge. All via application services / read models, never direct table reads (ADR-010).
+> **Readers.** The list view composes `shopping_list_item × catalog.product` (name, category) `× catalog.unit`, and — Phase 5 — Pricing's cheapest-active-deal read model for the badge. All via application services / read models, never direct table reads (ADR-010).
 
 > **ADR note.** Confirms ADR-010 §Aggregates "Shopping — `ShoppingList` root with `Item` children (`product_id` or free text, qty, note, checked); deal badges are a read-time join, never stored." Refinements added by this model: `checked` is a `checked_at` **timestamp** (not a boolean) for ordering + attribution; `source`/`source_ref` provenance; and the explicit mutable / hard-delete lifecycle.

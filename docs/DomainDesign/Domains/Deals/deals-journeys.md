@@ -1,13 +1,13 @@
 # Deals — User Journey Map
 
-> **Status:** Complete (approved) — Phase 4. First stage of the Deals design chain; feeds the ubiquitous
+> **Status:** Complete (approved) — Phase 5. First stage of the Deals design chain; feeds the ubiquitous
 > language, domain model, and data schema (next steps). Anchored on [SPEC.md](../../../SPEC.md) §6
 > (Deals), §7e (Stores & Deals), §3f (deal overlay on the shopping list) and §0b (deal review
 > banner); [VISION.md](../../../VISION.md) ("Deal awareness baked in"); [ADR-010](../../../ADRs/ADR-010.md)
 > (Deals aggregates + the ACL classification), [ADR-007](../../../ADRs/ADR-007.md) (untrusted external
 > source → review-then-commit), and the Pricing context's already-built deal seam ([DM-16](../../DataModels/index.md)/[DM-17](../../DataModels/pricing.md)).
 >
-> **Bounded context:** Deals (`deals` schema, Phase 4). A **core** context. References Catalog,
+> **Bounded context:** Deals (`deals` schema, Phase 5). A **core** context. References Catalog,
 > Pricing, Shopping, Inventory, Identity **by ID only** (DM-3); writes `deal` price observations to
 > Pricing on confirm (the seam Pricing left open). The `catalog.store` reference table lands with this
 > phase (Catalog-owned, DM-16).
@@ -35,9 +35,9 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 | D7 | Store identity vs. flyer subscription | Two separate things. **`catalog.store`** is the *merchant identity* — stable per-household reference data of the same shape as `Location`/`Unit`/`Category` (Catalog-owned, [DM-16](../../DataModels/index.md)); its table **lands this phase**. Deals owns a **`StoreSubscription`** config — *which* of those stores the household pulls flyers from (§7e "Manage which stores to pull deals from"). Subscribing to a new merchant ensures a `catalog.store` row, then a subscription referencing it by ID. |
 | D8 | Deals **prices**, never **stock** | Deals is a pure price/awareness context. Confirming a deal **never** touches Inventory — a deal is an *advertised price*, not a purchase. Stock only changes when the user actually buys the item and logs it through Intake (§2). The only write Deals makes downstream is the `deal` `PriceObservation` (D6) and, on a stock-up-alert tap, a Shopping list item (D10). |
 | D9 | Deal validity & the "active" lifecycle | A deal carries a **validity window** (`valid_from`/`valid_to`) from the flyer. "**Active**" = `valid_from ≤ today ≤ valid_to` **and** `status = confirmed`. The Deals page (§6a) defaults to active deals; expired deals are **retained** (never deleted) as price history — their `price_observation` stays in Pricing indefinitely, feeding cost trends (SPEC §6 "Deal data stored indefinitely as price history"). |
-| D10 | Stock-up alerts | **Frequently-bought products that have an active confirmed deal** surface as **stock-up alerts** (§6c) — a read model over (purchase-frequency × active-deal). Surfaced as a banner/badge on the Deals page and, optionally, the Home review-banner stack (Phase-4 banner, [plantry-bpw]). Tapping an alert **adds the product to the shopping list** — reusing the **P2-4 `IShoppingListWriter.AddItems` seam** with `source="deal"`. Push notification is an **enhancement** (needs PWA install), not v1 (VISION open question). |
+| D10 | Stock-up alerts | **Frequently-bought products that have an active confirmed deal** surface as **stock-up alerts** (§6c) — a read model over (purchase-frequency × active-deal). Surfaced as a banner/badge on the Deals page and, optionally, the Home review-banner stack (Phase-5 banner, [plantry-bpw]). Tapping an alert **adds the product to the shopping list** — reusing the **P2-4 `IShoppingListWriter.AddItems` seam** with `source="deal"`. Push notification is an **enhancement** (needs PWA install), not v1 (VISION open question). |
 | D11 | Deal badge on the shopping list (read-time, Shopping-owned) | The deal indicator on a shopping-list item (§3a/§3f) is a **read-time join** computed by **Shopping** against a Deals read model (`IActiveDealReader.ForProducts`), **never stored** on the shopping item ([DM-18](../../DataModels/index.md)). Deals *supplies* the active-deal-per-product read model; it does not own or mutate the shopping list. Same pattern as the recipe cost badge reading Pricing. |
-| D12 | Manual deal entry | **Deferred (not v1).** With Flipp as the ingestion mechanism (D1), v1 has no hand-entry form for deals. Manual entry (type in a store/product/price/window) is a clean future extension — it would create a `Deal` with `source = manual` and `flyer_import_id = null`, taking the same confirm path — but it is **out of scope** for the Phase-4 build. Noted so the model leaves room (a nullable `flyer_import_id` + a `source` discriminator), not built. |
+| D12 | Manual deal entry | **Deferred (not v1).** With Flipp as the ingestion mechanism (D1), v1 has no hand-entry form for deals. Manual entry (type in a store/product/price/window) is a clean future extension — it would create a `Deal` with `source = manual` and `flyer_import_id = null`, taking the same confirm path — but it is **out of scope** for the Phase-5 build. Noted so the model leaves room (a nullable `flyer_import_id` + a `source` discriminator), not built. |
 
 ---
 
@@ -128,7 +128,7 @@ processor — no user present). Not a user-facing journey; it produces the work 
 ### DJ4 — Review the deal queue (Confirm / Correct / Reject)
 
 **Trigger:** User taps Review on the Deals page (§6b), or the Home "N deals ready to review" banner
-(§0b, Phase-4 banner). This is the deal-side twin of the Intake review form (§2e), and reuses its
+(§0b, Phase-5 banner). This is the deal-side twin of the Intake review form (§2e), and reuses its
 ACL mental model.
 
 | Step | Actor | Action / System response |

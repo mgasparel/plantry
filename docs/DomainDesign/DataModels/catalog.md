@@ -45,6 +45,21 @@ The universal upstream supplier; every other context references its entities **b
 
 ---
 
+**`store`** — merchant identity reference data (DM-16; **table lands Phase 5 with Deals**)
+
+| Column | Type | Notes |
+|---|---|---|
+| `store_id` | `uuid` PK | UUIDv7 |
+| `household_id` | `uuid` | |
+| `name` | `text` | the merchant, "FreshCo"; `UNIQUE (household_id, name)` |
+| `external_ref` | `text` null | the flyer-source (Flipp) store identifier — how a `deals.store_subscription` / ingest pull resolves *this* merchant in the external directory; null for a manually-named store |
+| `archived_at` | `timestamptz` null | soft delete (reference data, DM-4) |
+| `created_at` / `updated_at` | `timestamptz` | |
+
+The merchant **identity** — stable per-household reference data of the same shape as `location` / `unit` / `category` (DM-16/D7). Catalog-owned; **referenced by ID** from Pricing (`price_observation.store_id`, the resolved merchant), Intake (on commit), and Deals (`store_subscription` / `flyer_import` / `deal`, which `store_id` soft-refs it). Deferred through Phases 1–3 (no merchant-management UI was needed); it **lands in Phase 5 with Deals** ([deals.md](deals.md)), where subscribing to a merchant ensures its `store` row exists. Its arrival lets `price_observation.store_id` be populated for deal observations and **back-filled** for historical purchases — closing the DM-16 deferral.
+
+---
+
 **`product`** — the rich aggregate root
 
 | Column | Type | Notes |

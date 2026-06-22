@@ -1,15 +1,15 @@
 # Deals — Domain Model
 
-> **Status:** Draft — pending approval — Phase 4. Modeling calls DL-O1–DL-O7 resolved here. Feeds the **Data Schema**
-> pass (`deals` schema, provisional **DM-22**) and, after that, a delivery plan (PHASE-4-PLAN, not
-> written yet).
+> **Status:** Draft — pending approval — Phase 5. Modeling calls DL-O1–DL-O7 resolved here. Rendered into the
+> **Data Schema** ([`DataModels/deals.md`](../../DataModels/deals.md), **DM-22**); the remaining step is a
+> delivery plan (PHASE-5-PLAN, not written yet).
 >
 > **Purpose:** Translate the confirmed [ubiquitous language](deals-ubiquitous-language.md) into
 > aggregate boundaries, invariants, behaviours, value objects, and the cross-context ports the Deals
 > context needs. This is the contract the Data Schema step renders into the `deals` schema and the App
 > Services step implements. Terms here appear **verbatim** in the language doc.
 >
-> **Bounded context:** Deals (`deals` schema, Phase 4). A **core** context wrapping an untrusted,
+> **Bounded context:** Deals (`deals` schema, Phase 5). A **core** context wrapping an untrusted,
 > fragile external flyer feed (Flipp) behind an anticorruption layer (ADR-007/ADR-010). References
 > Catalog, Pricing, Shopping, Inventory, Identity **by ID only** — no enforced cross-context FKs
 > (DM-3). The `catalog.store` reference table lands this phase (Catalog-owned, DM-16).
@@ -174,7 +174,7 @@ history (D9).
 |---|---|
 | `Deal.Stage(householdId, flyerImportId, storeId, rawFields, normalizedName, matchProposal, window, clock)` | Factory. Materializes a `Pending` deal from a `RawDeal` + its match proposal (DJ2 step 5). |
 | `AutoConfirm(productId, clock)` | Memory path (D4): sets `ProductId = productId`, `Status = Confirmed`, `AutoMatched = true`, `MatchConfidence = High`. The price-observation write + memory upsert are the **service's** job (§7) — the root only owns its own state. |
-| `Confirm(productId, by, clock)` | User confirms the (possibly corrected) match: `ProductId = productId`, `Status = Confirmed`, stamps `ReviewedBy/At`. |
+| `Confirm(productId, by, clock)` | User confirms the (possibly corrected) match: `ProductId = productId`, `Status = Confirmed`, stamps `ReviewedBy/At`. Permitted even when the window has **closed** — confirming an expired deal is an explicit price-history backfill (DD14); the memory upsert + observation still run. |
 | `Correct(productId, by, clock)` | Re-resolve to a different product. Valid on a `Pending` **or** an already-`Confirmed` auto-match (DJ4 edge); flips/keeps `Confirmed` with the new `ProductId`. The supersede-observation + memory-rewrite are the service's job. |
 | `Reject(by, clock)` | `Status = Rejected`, `ProductId = null`. Writes no observation (D5). |
 | `LinkObservation(priceObservationId, clock)` | Records `CommittedPriceObservationId` after the service writes the Pricing row (DD2). |
@@ -197,6 +197,17 @@ stage-1 line item.
 The remembered resolution that skips re-review (D4 / SPEC §6b). One per
 `(household, store, normalized_name)`.
 
+> **Store-scoped by design (DD3).** The key includes `StoreId` rather than being household-global
+> because the same `NormalizedName` can resolve to **different products across stores** for brand-less
+> generics ("2% milk", "bananas") — and the cost of a wrong key is asymmetric. A household-global key
+> would risk a **silent cross-store mis-auto-confirm** (memory auto-confirms the wrong product →
+> `AutoConfirm` writes a wrong `price_observation`), exactly the silent auto-error the
+> human-authoritative posture (DL-O3/C12) exists to prevent. A store-scoped key's only cost is
+> re-review per store for identically-named generics — **visible, bounded, and self-correcting**.
+> Negative memory is store-scoped on the same grounds. **If multi-store re-review friction ever proves
+> real, the fix is a UI "apply to all my stores?" affordance** (writes one memory row per subscription),
+> **not** a key change.
+
 ### 6.1 DealMatchMemory (root)
 
 | Field | Type | Notes |
@@ -205,6 +216,8 @@ The remembered resolution that skips re-review (D4 / SPEC §6b). One per
 | `HouseholdId` | `HouseholdId` | tenancy |
 | `StoreId` | `StoreId` | soft-ref → `catalog.store` |
 | `NormalizedName` | `string` | with `StoreId`, **unique per household** (DD3) |
+| `RawName` | `string` | the raw advertised name this key was derived from — **retained** so a normalizer change can re-derive the key without waiting for the item to reappear (DD4) |
+| `NormalizerVersion` | `int` | the `DealNormalizer` version that produced `NormalizedName`; a bump flags rows for backfill (DD4) |
 | `ProductId` | `ProductId?` | the remembered product; **null = negative memory** ("not a tracked product", DJ4 step 4) |
 | `LastConfirmedByUserId` | `UserId?` | provenance |
 | `CreatedAt` / `UpdatedAt` | `DateTimeOffset` | |
@@ -222,11 +235,11 @@ None lives *on* an aggregate — keeping the roots pure of Flipp/AI/Pricing know
 | Service | Responsibility | Touches |
 |---|---|---|
 | **DealNormalizer** (domain, pure) | `Normalize(rawName) → NormalizedName` — the deterministic, reproducible normalization (lowercase, trim, strip pack-size/units/punctuation, DL-O6). Pure function; the stable match-memory/dedup key. No I/O. | — |
-| **IngestFlyer** (application) | DJ2, the async worker. Per active `StoreSubscription`: pull via `IFlyerSource`; **dedup** on `(store, flyer_external_id)` + content hash (DD5) — unchanged ⇒ no-op; create/update a `FlyerImport` (`raw_flyer` quarantined); stage-1 `RawDeal`s + `DealNormalizer`; stage-2 **match** (memory lookup first, else `IDealMatcher` AI); materialize `Deal`s (memory matches → `AutoConfirm` → the confirm side-effects below; rest → `Pending`); `MarkParsed`; emit **FlyerImported**. On pull failure → `MarkFailed`, retry next cycle. | `IFlyerSource`, `IDealMatcher`, `ICatalogProductReader`, `IPriceObservationWriter`, in-context (`DealNormalizer`, all four roots) |
+| **IngestFlyer** (application) | DJ2, the async worker. Per active `StoreSubscription`: pull via `IFlyerSource`; **dedup** on `(store, flyer_external_id)` + content hash (DD5) — unchanged ⇒ no-op; create/update a `FlyerImport` (`raw_flyer` quarantined); stage-1 `RawDeal`s + `DealNormalizer`; stage-2 **match** (memory lookup first, else `IDealMatcher` AI); materialize `Deal`s (memory matches → `AutoConfirm` → the confirm side-effects below; rest → `Pending`) — on a re-pull, refresh **only still-`Pending`** deals; resolved deals are frozen (DD13); `MarkParsed`; emit **FlyerImported**. On pull failure → `MarkFailed`, retry next cycle. | `IFlyerSource`, `IDealMatcher`, `ICatalogProductReader`, `IPriceObservationWriter`, in-context (`DealNormalizer`, all four roots) |
 | **ConfirmDeal** (application) | DJ4. `Deal.Confirm/AutoConfirm/Correct` → then, **each in its own transaction** (Intake discipline): (1) **upsert `DealMatchMemory`** `(store, normalized_name) → product`; (2) `IPriceObservationWriter.RecordObservation(source=deal, price, quantity, unit, valid_from, valid_to, store_id, source_ref=deal_id)` → `Deal.LinkObservation`. A **Correct** on an already-confirmed deal **supersedes** with a new observation (Pricing append-only, never edits, DM-17/R1) and **Repoints** memory. | `IPriceObservationWriter`, in-context (`Deal`, `DealMatchMemory`) |
 | **RejectDeal** (application) | DJ4. `Deal.Reject`; optional `DealMatchMemory.RememberNegative` (DL-O3). Writes no observation. | in-context |
 | **ManageSubscriptions** (application) | DJ1. Subscribe/pause/unsubscribe; on subscribe, **ensure** the `catalog.store` identity exists (`ICatalogStoreReader`/`Writer`) then create the `StoreSubscription`. Store-directory search via `IFlyerSource`. | `ICatalogStoreReader`, `ICatalogStoreWriter`, `IFlyerSource`, in-context |
-| **BrowseDeals** (application/read) | DJ3 / §6a. Lists **active** deals (`Confirmed` ∧ in-window) and the **pending** queue, with product names (`ICatalogProductReader`). | `ICatalogProductReader`, in-context |
+| **BrowseDeals** (application/read) | DJ3 / §6a. Lists **active** deals (`Confirmed` ∧ in-window) and the **pending** queue (`Pending` ∧ in-window — expired-unreviewed deals drop off, DD14), with product names (`ICatalogProductReader`). | `ICatalogProductReader`, in-context |
 | **StockUpAlerts** (domain/read + application) | DJ5 / §6c. `Compute() → StockUpAlert[]`: frequently-bought products (`IPurchaseFrequencyReader`, DL-O4) ∩ active deals; recomputed, never stored. "Add to list" → `IShoppingListWriter.AddItems(source="deal", source_ref=deal_id)` (reused P2-4 seam). | `IPurchaseFrequencyReader`, `IShoppingListWriter`, in-context |
 | **ActiveDealReader** (read model, **exposed** to other contexts) | The `IActiveDealReader.ForProducts(productIds) → ActiveDeal[]` surface Shopping joins for the deal badge (D11/§3f) and the Deals page consumes. Read-side over `Deal` + clock; nothing stored. | in-context |
 
@@ -234,8 +247,9 @@ None lives *on* an aggregate — keeping the roots pure of Flipp/AI/Pricing know
 state-flip, the memory upsert, and the price-observation write are **separate transactions** so a
 failure mid-confirm never double-writes — re-running confirms only what isn't yet linked
 (`CommittedPriceObservationId` null). Ingestion (`IngestFlyer`) is **idempotent** via the dedup key
-(DD5): re-pulling a flyer updates the existing `FlyerImport`/`Deal`s rather than appending, and a
-memory auto-confirm that already wrote its observation is skipped on re-pull.
+(DD5): re-pulling a flyer updates the existing `FlyerImport` and **still-`Pending`** `Deal`s rather
+than appending — a `Confirmed`/`Rejected` deal is **frozen** against re-pull (DD13) — and a memory
+auto-confirm that already wrote its observation is skipped on re-pull.
 
 ---
 
@@ -271,9 +285,14 @@ implement them. All traffic is by ID (DM-3).
 | **DealConfirmed** | `householdId, dealId, productId, storeId, validFrom, validTo, by, at` | `ConfirmDeal` (user or auto; `by` null for memory). Hook for stock-up-alert refresh + (deferred) push. |
 | **DealRejected** | `householdId, dealId, by, at` | `RejectDeal` (DJ4). |
 
-No Phase-4 cross-context reaction *requires* these (stock-up alerts are a read model recomputed on
+No Phase-5 cross-context reaction *requires* these (stock-up alerts are a read model recomputed on
 demand; Shopping is called directly via a port). Kept light, as Recipes / Meal Planning did — for the
 Home banner, audit/attribution, and future consumers (push, analytics).
+
+> **`FlyerImported.pendingCount` is point-in-time.** It is correct **at `MarkParsed`** (every
+> newly-staged deal is in-window then). The standing Home banner must **recount against the clock**
+> (`Pending` ∧ in-window, DD14), **not** trust the stamped count — otherwise a week-old event keeps
+> advertising deals that have since expired.
 
 ---
 
@@ -284,8 +303,8 @@ Home banner, audit/attribution, and future consumers (push, analytics).
 | **DD1** | A `Confirmed` deal has a non-null `ProductId`; a `Rejected` deal has `ProductId = null`; a `Pending` deal has no committed observation | D5 | Aggregate (`Confirm`/`Correct`/`Reject`) |
 | **DD2** | Only a `Confirmed` deal projects a `price_observation`, and it records exactly one via `CommittedPriceObservationId`; a **Correct** supersedes with a **new** observation (append-only, never edited) | D6 | `ConfirmDeal` orchestration + Pricing (DM-17/R1) |
 | **DD3** | `DealMatchMemory` is unique per `(household_id, store_id, normalized_name)` | D4 | DB `UNIQUE` + upsert |
-| **DD4** | `NormalizedName` is **deterministic and reproducible** across pulls (pure ACL function, never AI-derived) | DL-O6 | `DealNormalizer` (pure) |
-| **DD5** | Ingestion is **idempotent / de-duplicated** on `(household_id, store_id, flyer_external_id)` (and content hash); a re-pull updates, never appends duplicate `FlyerImport`/`Deal`s | DL-O5 | DB `UNIQUE` + `IngestFlyer` |
+| **DD4** | `NormalizedName` is **deterministic and reproducible** across pulls **for a given normalizer version** (pure ACL function, never AI-derived); memory rows stamp their `NormalizerVersion` and retain `RawName`, so a normalizer change is a **one-time backfill**, not silent memory decay | DL-O6 | `DealNormalizer` (pure) + version stamp |
+| **DD5** | Ingestion is **idempotent / de-duplicated** on `(household_id, store_id, flyer_external_id)` (and content hash); a re-pull updates, never appends duplicate `FlyerImport`/`Deal`s — and a re-pull refreshes only **`Pending`** deals (DD13) | DL-O5 | DB `UNIQUE` + `IngestFlyer` |
 | **DD6** | The ACL quarantine — `FlyerImport.raw_flyer` and a `Deal`'s `Suggested*`/`MatchConfidence`/`MatchReasoning` — is **never overwritten** after parse (the provenance half of the ACL) | ADR-007 | App service (write-once) |
 | **DD7** | A deal is **Active** iff `Status = Confirmed` **and** `ValidFrom ≤ today ≤ ValidTo` | D9 | Read model (`ActiveDealReader`) |
 | **DD8** | Deals **never** writes Inventory — confirming a deal records a price, not a purchase | D8 | No Inventory write port exists in §8 |
@@ -293,6 +312,8 @@ Home banner, audit/attribution, and future consumers (push, analytics).
 | **DD10** | A deal's `ValidFrom ≤ ValidTo`, and the window projects unchanged onto its `price_observation` | D9 | Aggregate + `ConfirmDeal` |
 | **DD11** | Confirm/Correct **upserts** `DealMatchMemory`; Reject **may** write a negative memory; both keep memory consistent with the latest human decision | D4, DL-O3 | `ConfirmDeal` / `RejectDeal` |
 | **DD12** | `FlyerImport.Status` is monotonic: `Pulling → Parsed` **or** `Pulling → Failed` | D2 | Aggregate |
+| **DD13** | A re-pull may **refresh only a `Pending` deal**; a `Confirmed`/`Rejected` deal is **frozen** — ingestion never overwrites its status, resolution, raw fields, or `Price`. (A genuine flyer reprice on an already-resolved item is left as-is in v1; auto-supersede-on-reprice is deferred behind a same-id content-churn telemetry trigger.) Prevents a re-pull silently clobbering a human resolution or invalidating a committed observation's provenance | D5, DL-O3 | `IngestFlyer` (state guard) |
+| **DD14** | `Pending` is surfaced in the review queue only **in-window** (`today ≤ ValidTo`); an expired-unreviewed deal is **inert** (not Active, off the queue) but **remains confirmable** as an explicit price-history backfill — and confirmation **always** upserts `DealMatchMemory`, regardless of window | D9 | Read model (`BrowseDeals`) + `Confirm` allows past-window |
 
 ---
 
@@ -339,7 +360,12 @@ Home banner, audit/attribution, and future consumers (push, analytics).
   pack-size/unit tokens and punctuation — a **pure** `DealNormalizer` (no I/O, no AI), so the
   `DealMatchMemory` key and the dedup behaviour are **stable and reproducible** across pulls (DD4).
   An AI-derived key would drift between runs and silently break match memory. The AI does **matching**
-  (name → product), never **keying**.
+  (name → product), never **keying**. **Version caveat:** determinism holds only *per normalizer
+  version* — the stripping rules **will** be tuned against real flyer data, and each change re-keys some
+  inputs, silently orphaning memory rows computed by the old rules. So memory stamps `NormalizerVersion`
+  and retains `RawName`; a normalizer bump triggers a **one-time backfill** (re-normalize stored raw
+  names) rather than letting accumulated memory decay. Read-time multi-version fallback was rejected —
+  it spreads version-awareness into the hot lookup path and doesn't compose past two versions.
 
 - **DL-O7 — Confidence reuses Intake's scale ✅.** `MatchConfidence` is `High`/`Low`/`None` verbatim
   (DM-15), so the review-form treatment (`High` pre-filled, `Low` flagged, `None` "Unrecognized"),
@@ -370,25 +396,36 @@ Home banner, audit/attribution, and future consumers (push, analytics).
 - **DM-16 closed out.** `catalog.store` lands this phase, so `price_observation.store_id` is populated
   for deal observations and **back-fillable** for historical purchases — the DM-16 deferral resolves.
 
-- **Phase numbering.** Deals is **Phase 4**. Older docs saying "Deals (Phase 3)" (VISION,
-  ARCHITECTURE, the Pricing/Intake data models, ADR-010) are reconciled alongside this design.
+- **Pricing read models must key historical reasoning off the `validity_window`, not record time.**
+  Deals can now feed **backdated** observations — confirming an expired deal as a price-history
+  backfill (DD14) writes an observation today with a past window. A naïve "latest price =
+  most-recently-*recorded* observation" would let such a backfill masquerade as the current price.
+  DD10 projects the window unchanged onto the observation, so Pricing has what it needs — confirm its
+  "latest"/"current" reads filter on the **window**, not insertion time. **Flag at the App Services step.**
+
+- **Phase numbering.** Deals is **build-phase 5**: the sequence is P1 Pantry+Intake · P2 Recipes ·
+  P3 Meal Planning · **P4 Take Stock (inventory reconciliation)** · **P5 Deals**. Older docs that
+  numbered Deals earlier (Phase 3, then Phase 4 before Take Stock was injected at P4) are
+  **reconciled in this pass** — recorded in the [ADR-010](../../ADRs/ADR-010.md) amendment 2026-06-22.
 
 ---
 
 ## Feeds the next step
 
-The **Data Schema** pass renders this into the `deals` schema (provisional **DM-22**):
+The **Data Schema** pass rendered this into the `deals` schema —
+[`DataModels/deals.md`](../../DataModels/deals.md), **DM-22**:
 `store_subscription` (root, `UNIQUE(household_id, store_id)`); `flyer_import` (root, `UNIQUE(household_id,
 store_id, flyer_external_id)`, `raw_flyer` jsonb, `status` `text`+`CHECK`, `content_hash` bytea,
 `valid_from`/`valid_to`); `deal` (root, `flyer_import_id` within-context FK RESTRICT/nullable, `status`
 + `match_confidence` + `source` `text`+`CHECK`, `normalized_name`, the `suggested_*` ACL columns vs the
 resolved `product_id`, `valid_from`/`valid_to`, `committed_price_observation_id` soft-ref); `deal_match_memory`
-(root, `UNIQUE(household_id, store_id, normalized_name)`, nullable `product_id` for negative memory) —
+(root, `UNIQUE(household_id, store_id, normalized_name)`, nullable `product_id` for negative memory,
+plus `normalizer_version` and a retained `raw_name` for normalizer-change backfill, DD4) —
 UUIDv7 PKs, `household_id` + per-household RLS (ADR-008), per `DataModels/conventions.md`. The
-**`catalog.store`** reference table (Catalog-owned, DM-16) is added to `catalog.md` this phase.
-`ActiveDeal` and `StockUpAlert` get **no tables** (computed read-side). The ports in §8 become the
-application-service interfaces wired in the App Services step; `IFlyerSource` and `IDealMatcher` are
-implemented in `Plantry.Deals.Infrastructure` (the latter over the household AI key, DM-7, exactly as
-Intake wraps its `ChatClient`). **`MealPlanningDbContext`-style RLS-middleware wiring applies**: the
-new `DealsDbContext` must be registered in `RlsMiddleware` (the known gotcha) or reads silently return
-nothing.
+**`catalog.store`** reference table (Catalog-owned, DM-16) was added to [`catalog.md`](../../DataModels/catalog.md)
+this phase. `ActiveDeal` and `StockUpAlert` get **no tables** (computed read-side). The ports in §8 become the
+application-service interfaces wired in the App Services step (PHASE-5-PLAN, not yet written);
+`IFlyerSource` and `IDealMatcher` are implemented in `Plantry.Deals.Infrastructure` (the latter over the
+household AI key, DM-7, exactly as Intake wraps its `ChatClient`). **`MealPlanningDbContext`-style
+RLS-middleware wiring applies**: the new `DealsDbContext` must be registered in `RlsMiddleware` (the
+known gotcha) or reads silently return nothing.

@@ -164,7 +164,7 @@ Slice 3 can run in parallel with later work once its dependencies are met. (The 
 - Pantry list (§1a): product-level aggregated quantity, expiry badges (configurable threshold), search + filter, group-by category/location, display in the product's preferred unit.
 - Product detail (§1b): per-lot entries, consumption history from the journal.
 - **The single `Consume` primitive** (§1c, ARCHITECTURE §Consumption, ADR-011): unit conversion, **FEFO nulls-last with `entry_id` tiebreaker**, multi-lot deduction, shortfall report, `FOR UPDATE`+`xmin` serialization (DM-13).
-- Expiry review (§1d): throw-out logged as **`Discarded` (waste)** vs `Consumed` — the reason taxonomy that VISION Phase 4 depends on.
+- Expiry review (§1d): throw-out logged as **`Discarded` (waste)** vs `Consumed` — the reason taxonomy that future waste analysis depends on.
 
 **Tests / done-when.** `Consume`/FEFO/reason-taxonomy near-exhaustively unit-tested; **mutation-tested**; concurrency test proving two parallel consumes don't over-deduct (L3); E2E: add → pantry → consume → see journal.
 
@@ -202,7 +202,7 @@ unchanged — [shopping.md](DomainDesign/DataModels/shopping.md), DM-18.
 **Goal.** Capture purchase prices and expose "latest/representative price" reads. No standalone UI in Phase 1 — Pricing is fed by intake and read by display.
 
 **Scope.**
-- `PriceObservation` append-only root keyed `product_id` (+ nullable `sku_id`), `source = purchase` (DM-17); `merchant_text` free-text (DM-16), `store_id` left null until Phase 3.
+- `PriceObservation` append-only root keyed `product_id` (+ nullable `sku_id`), `source = purchase` (DM-17); `merchant_text` free-text (DM-16), `store_id` left null until Phase 5.
 - `unit_price` materialized at write, **soft-fail (null)** on cross-dimension — unlike `Consume`'s hard fail (DM-17).
 - Read model: latest purchase price per product/SKU (consumed by intake display and product detail).
 

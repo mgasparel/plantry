@@ -2,7 +2,7 @@
 
 > **Status:** Implemented — Phase 1. Retrospective backfill; the DDD process was formalized after these contexts were designed.
 >
-> **Purpose:** A supporting read-side context: an append-only time-series of observed prices. Intake writes `purchase` prices on commit; Deals (Phase 3) will write `deal` prices on confirm. Recipes and Meal Planning read it for cost-per-serving. Keeping it out of Catalog prevents a growing price series from polluting stable reference data.
+> **Purpose:** A supporting read-side context: an append-only time-series of observed prices. Intake writes `purchase` prices on commit; Deals (Phase 5) will write `deal` prices on confirm. Recipes and Meal Planning read it for cost-per-serving. Keeping it out of Catalog prevents a growing price series from polluting stable reference data.
 >
 > **Bounded context:** Pricing (`pricing` schema, Phase 1→2). No children, no mutable state. "Latest price" and "cheapest active deal" are **read models** over `PriceObservation`, not tables.
 >
@@ -56,10 +56,10 @@ These are queries, not tables. No context reads Pricing's table directly (ADR-01
 | Direction | Context | What's exchanged |
 |---|---|---|
 | Written by | **Intake** | `RecordObservation(source=purchase, merchant_text, source_ref=import_line_id)` on commit |
-| Written by | **Deals** (Phase 3) | `RecordObservation(source=deal, valid_from, valid_to, source_ref=deal_id)` on deal confirm |
+| Written by | **Deals** (Phase 5) | `RecordObservation(source=deal, valid_from, valid_to, source_ref=deal_id)` on deal confirm |
 | Read by | **Recipes** | `IPriceReader` — latest purchase unit price + cheapest active deal per product for `CostPerServing` |
-| Read by | **Meal Planning** (Phase 2) | Same cost surfaces |
-| Soft-refs in | Catalog | `product_id`, `sku_id`, `unit_id`, `store_id` (Phase 3, nullable now) |
+| Read by | **Meal Planning** (Phase 3) | Same cost surfaces |
+| Soft-refs in | Catalog | `product_id`, `sku_id`, `unit_id`, `store_id` (Phase 5, nullable now) |
 
 ---
 
@@ -67,7 +67,7 @@ These are queries, not tables. No context reads Pricing's table directly (ADR-01
 
 - **DM-17:** Flat, append-only, no children — no composite-FK plumbing. `PriceObservation` is an immutable log; nothing FKs into it within-context.
 - **Normalize at write, fail soft (DM-17):** `unit_price` is materialized once at write (mirrors expiry materialization in Inventory). Unlike the `Consume` primitive (which fails **loudly** on a missing conversion because mis-deducting stock is unacceptable), Pricing fails **soft** — a missing cross-dimension `ProductConversion` leaves `unit_price` null and read models fall back to raw `price/quantity`. A missing density must not block recording a legitimate price.
-- **DM-16 (finalized):** `store_id` (soft-ref to `catalog.store`) exists on the row but is null in Phase 1. `merchant_text` is the only merchant data until Phase 3. When `catalog.store` exists (Phase 3), `store_id` can be back-filled.
+- **DM-16 (finalized):** `store_id` (soft-ref to `catalog.store`) exists on the row but is null in Phase 1. `merchant_text` is the only merchant data until Phase 5. When `catalog.store` exists (Phase 5, DM-22), `store_id` can be back-filled.
 - **Deal validity window on the row (DM-17):** The "cheapest active deal" read model must be queryable entirely within Pricing. Hence `valid_from`/`valid_to` are on `price_observation`, not only on the `deals.deal` aggregate.
 
 > Full schema: [../DataModels/pricing.md](../../DataModels/pricing.md)

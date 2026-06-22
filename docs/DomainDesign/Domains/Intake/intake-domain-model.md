@@ -81,7 +81,7 @@ When no `confirmed` lines remain uncommitted, the session becomes `committed`. A
 ## Key decisions
 
 - **DM-15:** `ImportSession` root + `ImportLine` child table (individually edited, matched, dismissed, commit-tracked). Raw AI payload retained as `raw_parse` jsonb **per row** for ACL provenance. Refines ADR-010's "parsed rows (jsonb)."
-- **DM-16 (partial):** `merchant_text` is free text on `ImportSession` (the only merchant data Phase 1 has). It is copied to each `price_observation` on commit. `store_id` is deferred to Phase 3.
+- **DM-16 (partial):** `merchant_text` is free text on `ImportSession` (the only merchant data Phase 1 has). It is copied to each `price_observation` on commit. `store_id` is deferred to Phase 5 (lands with Deals, DM-16/DM-22).
 - **Resumable commit:** Each line is an independent transaction so a failure mid-batch never double-writes or leaves the session in an inconsistent state.
 - **ACL discipline:** The AI is treated as an untrusted external system. Its full output is quarantined; only what the user explicitly confirms crosses the domain boundary.
 
