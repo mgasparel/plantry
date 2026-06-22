@@ -232,11 +232,23 @@ public sealed class GhostCellFactory : WebApplicationFactory<Program>
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
 
+            // so5.5: stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
+
             // P3-5: stub expiring-stock reader; re-register insights service
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
             services.AddScoped<PlanInsightsService>();
+
+            // plantry-so5.3: stub planning settings repos
+            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
+            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
+            services.RemoveAll<IWeekPlanningOverrideRepository>();
+            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
+            services.RemoveAll<SetPlanningSettingsService>();
+            services.AddScoped<SetPlanningSettingsService>();
         });
     }
 }
@@ -245,7 +257,18 @@ public sealed class GhostCellFactory : WebApplicationFactory<Program>
 
 internal static class GhostCellFixture
 {
-    public static readonly DateOnly WeekStart = new DateOnly(2026, 6, 16); // A Monday
+    /// <summary>Monday of the current ISO week — kept dynamic so the proposal date always
+    /// falls within the week the server renders on today's GET /MealPlan.</summary>
+    public static DateOnly WeekStart
+    {
+        get
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var offset = ((int)today.DayOfWeek + 6) % 7; // days since Monday
+            return today.AddDays(-offset);
+        }
+    }
+
     public static readonly Guid RecipeId = Guid.Parse("dddddddd-0000-0000-0000-000000000001");
     public const string RecipeName = "Test Ghost Recipe";
 
@@ -297,4 +320,10 @@ internal sealed class GhostCellRecipeReader : IRecipeReadModel
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    // so5.5: targeted full-corpus tag check — the ghost cell recipe has no tags, so returns false.
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(false);
 }
+
+// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).

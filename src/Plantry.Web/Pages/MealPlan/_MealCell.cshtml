@@ -4,10 +4,25 @@
     var dateIso = Model.Date.ToString("yyyy-MM-dd");
     var slotId = Model.SlotId.Value;
     var hasGhost = Model.Meals.Count == 0 && Model.PendingProposal is not null;
+    var isUnfulfillable = Model.UnfulfillableCellInfo is not null;
+    var cellClass = Model.Meals.Count > 0 ? "filled"
+        : hasGhost ? "ghost"
+        : Model.IsHardConflict ? "conflict"
+        : isUnfulfillable ? "conflict"
+        : "empty";
+    // Tag name for unfulfillable message; falls back to generic text when tag name is unknown.
+    var unfulfillableTagName = Model.UnfulfillableCellInfo?.TagName;
+    var unfulfillableMsg = unfulfillableTagName is not null
+        ? $"Your recipe book has no {unfulfillableTagName} recipes."
+        : "Your recipe book has no recipes matching this dietary requirement.";
+    var unfulfillableCtaLabel = unfulfillableTagName is not null
+        ? $"Add a {unfulfillableTagName} recipe"
+        : "Add a recipe";
 }
 
 <div id="@cellId"
-     class="mcell @(Model.Meals.Count > 0 ? "filled" : hasGhost ? "ghost" : "empty")"
+     class="mcell @cellClass"
+     @Html.Raw(Model.IsHardConflict ? "data-conflict=\"hard-stance\"" : isUnfulfillable ? "data-conflict=\"unfulfillable\"" : "")
      ondragover="onDragOver(event)"
      ondragleave="onDragLeave(event)"
      ondrop="onDrop(event, '@dateIso', '@slotId')">
@@ -49,6 +64,43 @@
             Model.Date, Model.SlotId, Model.SlotLabel, Model.PendingProposal!,
             Model.GhostDishNames ?? Model.PendingProposal!.Dishes.Select(_ => "Recipe").ToList(),
             Model.GhostEnrichment))
+    }
+    else if (Model.IsHardConflict)
+    {
+        @* Hard-stance conflict cell (C6): no single dish can satisfy every attendee attending together.
+           Full actionable in-cell UI: distinct message explaining the conflict + dual CTAs.
+           Supersedes so5.4's minimal "No single dish suits everyone here" seed. *@
+        <div class="conflict-notice" role="status">
+            <svg class="icon conflict-notice__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span class="conflict-notice__text">Attendees&#x2019; requirements conflict &#x2014; no single dish works for everyone.</span>
+        </div>
+        <div class="conflict-acts">
+            <button class="conflict-cta conflict-cta--primary"
+                    hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId"
+                    hx-target="#meal-editor-dialog"
+                    hx-swap="innerHTML">
+                Add a dish by hand
+            </button>
+            <a href="/Settings/MealSlots" class="conflict-cta conflict-cta--secondary">
+                Adjust who&#x2019;s attending
+            </a>
+        </div>
+    }
+    else if (isUnfulfillable)
+    {
+        @* Unfulfillable cell: one attendee's Required tag has ZERO recipes in the full corpus.
+           Distinct from HardConflict — this is a corpus gap (no recipes for a dietary need),
+           not an attendee conflict (two attendees whose requirements can't be jointly met).
+           Full actionable in-cell UI: specific message naming the missing tag + "Add a [tag] recipe" CTA. *@
+        <div class="conflict-notice conflict-notice--unfulfillable" role="status">
+            <svg class="icon conflict-notice__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span class="conflict-notice__text">@unfulfillableMsg</span>
+        </div>
+        <div class="conflict-acts">
+            <a href="/Recipes/Edit" class="conflict-cta conflict-cta--primary">
+                @unfulfillableCtaLabel
+            </a>
+        </div>
     }
     else
     {

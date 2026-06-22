@@ -88,7 +88,9 @@ else
 
                     @await Html.PartialAsync("_MealCell", new Plantry.Web.Pages.MealPlan.IndexModel.CellFragmentVm(
                         cellDate, slot.Id, slot.Label, meals, Model.WeekStart, Model.Members,
-                        null, pending, ghostDishNames, ghostEnr))
+                        null, pending, ghostDishNames, ghostEnr,
+                        IsHardConflict: Model.ConflictCells.ContainsKey(key),
+                        UnfulfillableCellInfo: Model.UnfulfillableCells.GetValueOrDefault(key)))
                 }
             }
         </div>

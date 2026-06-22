@@ -365,4 +365,8 @@ internal sealed class EnrichedRecipeReader(Guid enrichedRecipeId) : IRecipeReadM
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    // so5.5: targeted full-corpus tag check — returns true for any tag (all cells are fulfillable in the editor test scenario).
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }

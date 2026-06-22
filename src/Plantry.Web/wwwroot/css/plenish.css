@@ -4425,6 +4425,45 @@ button.sadd svg { width: 13px; height: 13px; }
 .empty-auto:hover { background: var(--color-accent-subtle); }
 .empty-auto svg { width: 13px; height: 13px; }
 
+/* ── conflict / unfulfillable cell state (so5.4 + so5.5) ─────────────────
+   Two reasons a generated cell is left unfilled and flagged:
+   1. HardConflict (data-conflict="hard-stance"): attendees' Required tags clash —
+      no single recipe satisfies everyone. Fix: add a compromise dish or adjust attendance.
+   2. Unfulfillable (data-conflict="unfulfillable"): an attendee's Required tag has
+      ZERO recipes in the full corpus. Fix: add a recipe with that dietary tag.
+   Both use .mcell.conflict; the inner .conflict-notice--unfulfillable modifier
+   adds a distinct visual treatment for the corpus-gap reason.
+   ──────────────────────────────────────────────────────────────────────── */
+.mcell.conflict {
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: var(--color-warning-bg); align-items: center; justify-content: center; gap: 8px;
+}
+
+.conflict-notice {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 8px 10px 6px; text-align: center;
+}
+.conflict-notice--unfulfillable .conflict-notice__icon { color: var(--color-accent); }
+.conflict-notice__icon { width: 20px; height: 20px; flex-shrink: 0; color: var(--color-warning); }
+.conflict-notice__text { font-size: 11.5px; line-height: 1.45; color: var(--color-text-muted); font-weight: 500; }
+
+.conflict-acts {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; width: 100%;
+}
+.conflict-cta {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; border-radius: 999px; padding: 4px 11px;
+  text-decoration: none; transition: all .12s; white-space: nowrap;
+}
+.conflict-cta--primary {
+  background: var(--color-accent); color: var(--color-text-on-accent); border: 1px solid transparent;
+}
+.conflict-cta--primary:hover { background: var(--color-accent-hover); }
+.conflict-cta--secondary {
+  background: transparent; color: var(--color-text-muted); border: 1px solid var(--color-border);
+}
+.conflict-cta--secondary:hover { background: var(--color-accent-subtle); border-color: var(--color-accent); color: var(--color-accent); }
+
 /* ── drag-over state ────────────────────────────────────────────────────── */
 .mcell.drag-over {
   border-color: var(--color-cook) !important; border-style: solid !important;

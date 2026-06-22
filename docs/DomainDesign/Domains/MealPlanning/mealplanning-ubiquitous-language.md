@@ -42,7 +42,7 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 |------|------|------------|
 | **MealPlan** | Aggregate root | The household's plan for one ISO week, keyed `(HouseholdId, WeekStart)` — `WeekStart` is the week's Monday (C2). Owns an ordered collection of **PlannedMeal**s. Mutable; **past weeks retained** as the planning-history substrate. |
 | **PlannedMeal** | Entity (child of MealPlan) | One meal in the week: a `Date`, the `MealSlot` it fills (by ID), an **Ordinal** (its position in the cell's stack), an optional per-instance **AttendeeSet override**, an optional **reasoning** snippet (when AI-proposed), and **either 0..n PlannedDishes XOR a free-text `Note`** (C16). A `(Date, MealSlot)` cell holds an **ordered stack of 0..n PlannedMeals** (N1); a persisted one is **occupied** (has dishes or a note). |
-| **PlannedDish** | Entity (child of PlannedMeal) | One dish planned within a meal: a **`RecipeId` XOR a `ProductId`** (N8/C16), **Servings** (seeded from attendee count, C8), and an **ordinal**. Multiple dishes per meal (main + side, a per-member split from C6, or a recipe + a product). |
+| **PlannedDish** | Entity (child of PlannedMeal) | One dish planned within a meal: a **`RecipeId` XOR a `ProductId`** (N8/C16), **Servings** (seeded from attendee count, C8), and an **ordinal**. Multiple dishes per meal (main + side, or a recipe + a product). Note: when attendees' hard stances are irreconcilable (C6), the cell is left **unfilled and flagged in-cell** — no per-attendee dish split is generated in P3 (auto-split deferred to FUTURE). |
 | **Note** | Field on PlannedMeal | A free-text reason a slot is occupied without a meal — "Takeout", "Out of town", "Leftovers" (N9). Mutually exclusive with dishes; contributes nothing to fulfillment/cost/shopping. Manual-only (the planner never emits one). |
 | **MealSlotConfig** | Aggregate root (one per household) | The household's ordered set of **MealSlot** definitions (§7h). Mutable: add / rename / reorder / archive slots; set per-slot default attendees. |
 | **MealSlot** | Entity (child of MealSlotConfig) | A recurring meal definition: free-text **Label** ("Light lunch"), an **ordinal** (order within a day), and **default attendees** (the members who normally eat it, C5). **Soft-archived**, not deleted, so historical PlannedMeals stay resolvable (MP-O2). |
@@ -68,7 +68,10 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | **PlanningLever** | Enum: **`Cost`** (favour cheaper) · **`Waste`** (favour soon-to-expire stock) · **`Variety`** (avoid recently planned/cooked recipes — reads retained plans + `cook_event`, C2) · **`Deals`** (defined but **fixed at 0 / hidden** until Phase 5, C7). |
 | **PlanInsights** | A computed, **advisory** list of **Insight**s over a plan or proposal (C15). Read-side, never stored; recomputed on every change. |
 | **Insight** | One advisory observation: an **InsightKind** + a human message (+ optional link/target). |
-| **InsightKind** | Enum: **`UnusedExpiring`** (expiring stock the plan doesn't use) · **`OverBudget`** (est. cost > budget target) · **`Repetition`** (recipe repeated this week / from last week) · **`UnfilledSlot`** (requested slot left empty) · **`HardConflictResolved`** (a meal was split into separate dishes, C6). |
+| **InsightKind** | Enum: **`UnusedExpiring`** (expiring stock the plan doesn't use) · **`OverBudget`** (est. cost > budget target) · **`Repetition`** (recipe repeated this week / from last week) · **`UnfilledSlot`** (requested slot left empty). Note: `HardConflictResolved` has been removed (so5.4) — a hard-stance conflict (C6) is now an **unfillable-cell state** rendered in-cell during generate/review, not a saved-plan rail insight. See also so5.5 `Unfulfillable` (sibling in-cell state). |
+| **HardConflictCell** | Result of `HardConflictDetector.Detect`: a `(Date, MealSlotId, attendeeIds, conflictingTagIds)` triple identifying a cell where no single recipe satisfies all attendees simultaneously (C6). Rendered with `data-conflict="hard-stance"` and a dual-CTA in-cell UI. |
+| **UnfulfillableCell** | Result of `UnfulfillabilityDetector.DetectAsync` for a cell: a `(Date, MealSlotId, UnfulfillableResult, TagName?)` triple. `UnfulfillableResult` holds `(AttendeeId, UnfulfillableTagId)`. Rendered with `data-conflict="unfulfillable"` and a tag-specific "Add a X recipe" CTA. Distinct from HardConflict — this is a corpus gap (no recipes for a dietary tag anywhere), not an attendee conflict. |
+| **GeneratePlanResult** | Request-scoped, non-persisted value returned by `GeneratePlanService`: `(ProposedCount, UnfilledCount, Conflicts: IReadOnlyList<HardConflictCell>, UnfulfillableCells: IReadOnlyList<UnfulfillableCell>)`. Drives the in-cell rendering on the grid after a generate request. |
 
 ---
 
@@ -80,11 +83,15 @@ Planning **reads them by ID** and attaches per-member **Stance** to them. The pl
 1. For each meal, resolve the **effective AttendeeSet** (override ?? slot default, C5).
 2. Aggregate those attendees' stances into **MealConstraints**: union the hard ones, average the soft ones.
 3. Choose dishes that satisfy the hard constraints and maximize the soft score + fulfillment + expiry-use − cost.
-4. When attendees' **hard** stances are irreconcilable (one `Vegan`-`Required`, one meat-`Required`), **split into separate `PlannedDish`es** — one per conflicting requirement — within the same meal (C6).
+4. Two reasons a cell is left unfilled and flagged in-cell (AI never called for either):
+   - **HardConflict** (C6): attendees' hard stances are irreconcilable — recipes exist for each attendee individually, but no single candidate satisfies everyone jointly. UI: "Attendees' requirements conflict — no single dish works for everyone" + dual CTAs (add dish by hand / adjust attendance).
+   - **Unfulfillable** (so5.5): an attendee's Required tag has **zero** recipes in the household's full recipe corpus — it is a corpus gap, not an attendee clash. UI: "Your recipe book has no X recipes" + "Add a X recipe" CTA.
+   - **Order matters:** `HardConflictDetector` runs first; if that fires, `UnfulfillabilityDetector` is skipped for that cell (the fix for HardConflict is "find a compromise dish", not "add a recipe"). A cell is Unfulfillable only when HardConflict does not apply.
+   - Generative per-attendee auto-split with serving apportionment is deferred to FUTURE because of the serving/waste cascade.
 
 This is why *per-member preferences*, *per-slot attendance*, and *multi-dish meals* are one
-mechanism, not three features: attendance scopes whose stances apply, and multi-dish is how
-conflicting hard stances are honoured.
+mechanism, not three features: attendance scopes whose stances apply, and multi-dish supports
+main+side combinations (not conflict auto-splitting in P3).
 
 **The planner's output is advisory (C12).** Hard stances bind the **AI's own** proposals (the ACL
 validates them), but never the user: every proposed meal can be swapped, hand-edited, cleared, or

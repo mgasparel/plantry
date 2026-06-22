@@ -267,6 +267,9 @@ internal sealed class FakeMissingReader(
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult(id == recipeId ? missing : (IReadOnlyList<RecipeMissingIngredient>)[]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 internal sealed class NullMealPlanStockReader : IMealPlanStockReader

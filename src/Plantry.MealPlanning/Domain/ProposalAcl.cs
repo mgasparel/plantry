@@ -5,10 +5,10 @@ namespace Plantry.MealPlanning.Domain;
 /// Validates each raw AI proposal against the current candidate recipe list and the resolved
 /// generation constraints. Enforces:
 ///   - Recipe must exist in the candidate list (no hallucinated IDs)
-///   - If a dish's recipe carries a Restricted tag: try to drop that dish; if no valid dishes remain,
-///     return unfilled (simplified C6 for P3-6a — no per-attendee sub-split yet)
-///   - Every Required tag (M5) must be collectively covered by the surviving dishes; if any
-///     Required tag is uncovered, return unfilled (no valid recipe set satisfies the hard stance)
+///   - If a dish's recipe carries any attendee's Restricted tag: drop that dish; if no valid dishes
+///     remain, return unfilled.
+///   - Every attendee's Required tags (M5) must be satisfied by ≥1 SURVIVING dish covering ALL of
+///     that attendee's RequiredTagIds. If any attendee is uncovered, return unfilled.
 /// Raw AI output is NEVER persisted — only the validated ProposedMeal reaches the store.
 /// </summary>
 public static class ProposalAcl
@@ -22,58 +22,59 @@ public static class ProposalAcl
         GenerationConstraints constraints)
     {
         var candidateMap = candidates.ToDictionary(c => c.RecipeId);
-        var validDishes = new List<ProposedDish>();
-        var coveredTagIds = new HashSet<Guid>();
-        var wasSplit = false;
+        var validDishes = new List<(ProposedDish Dish, CandidateRecipe Recipe)>();
+
+        // Derived union of all Restricted tag IDs (fast drop test).
+        var allRestrictedTagIds = constraints.RestrictedTagIds;
 
         foreach (var dish in proposed.Dishes)
         {
-            // Reject hallucinated recipe IDs
+            // Reject hallucinated recipe IDs.
             if (!candidateMap.TryGetValue(dish.RecipeId, out var recipe))
                 continue;
 
-            // Check whether this recipe violates any Restricted stance
-            var hasRestricted = recipe.TagIds.Any(t => constraints.RestrictedTagIds.Contains(t));
+            // Drop any dish that carries any attendee's Restricted tag.
+            var hasRestricted = recipe.TagIds.Any(t => allRestrictedTagIds.Contains(t));
             if (hasRestricted)
-            {
-                wasSplit = true;
-                continue; // Drop this dish — simplified C6 for P3-6a
-            }
+                continue;
 
-            validDishes.Add(dish);
-            coveredTagIds.UnionWith(recipe.TagIds);
+            validDishes.Add((dish, recipe));
         }
 
         if (validDishes.Count == 0)
-        {
             return AclValidationResult.Unfilled;
-        }
 
-        // M5 (hard stance): every Required tag must be collectively covered by the surviving
-        // dishes. RequiredTagIds is the resolver's union across attendees (mirrors Restricted);
-        // if any Required tag is uncovered, no valid recipe set satisfies the constraint → unfilled.
-        if (!constraints.RequiredTagIds.All(coveredTagIds.Contains))
+        // M5 (per-attendee Required satisfaction): every attendee in AttendeeStances must have
+        // ≥1 surviving dish whose recipe.TagIds covers ALL of that attendee's RequiredTagIds.
+        // An attendee with no Required tags is always satisfied.
+        foreach (var attendee in constraints.AttendeeStances)
         {
-            return AclValidationResult.Unfilled;
+            if (attendee.RequiredTagIds.Count == 0)
+                continue;
+
+            var covered = validDishes.Any(vd =>
+                attendee.RequiredTagIds.All(vd.Recipe.TagIds.Contains));
+
+            if (!covered)
+                return AclValidationResult.Unfilled;
         }
 
         var validated = new ProposedMeal(
             proposed.Date,
             proposed.MealSlotId,
             proposed.EffectiveAttendees,
-            validDishes,
+            validDishes.Select(vd => vd.Dish).ToList(),
             proposed.Reasoning);
 
-        return new AclValidationResult(IsValid: true, ValidatedProposal: validated, WasSplit: wasSplit);
+        return new AclValidationResult(IsValid: true, ValidatedProposal: validated);
     }
 }
 
 /// <summary>Result of ACL validation for a single AI-proposed meal.</summary>
 public sealed record AclValidationResult(
     bool IsValid,
-    ProposedMeal? ValidatedProposal,
-    bool WasSplit)
+    ProposedMeal? ValidatedProposal)
 {
     /// <summary>Singleton result for cells that have no valid recipe after ACL filtering.</summary>
-    public static AclValidationResult Unfilled { get; } = new(IsValid: false, ValidatedProposal: null, WasSplit: false);
+    public static AclValidationResult Unfilled { get; } = new(IsValid: false, ValidatedProposal: null);
 }

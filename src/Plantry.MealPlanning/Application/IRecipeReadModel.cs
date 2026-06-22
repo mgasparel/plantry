@@ -41,6 +41,16 @@ public interface IRecipeReadModel
         Guid recipeId,
         int servings,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns <see langword="true"/> when ANY recipe in the household's full recipe corpus carries
+    /// <paramref name="tagId"/> — regardless of the 50-cap candidate list from <see cref="SearchAsync"/>.
+    /// Used by <see cref="Plantry.MealPlanning.Domain.UnfulfillabilityDetector"/> for feasibility
+    /// pre-checks: a confident "you have no vegetarian recipes" would be wrong if recipes outside
+    /// the top-50 carry the tag. This is a targeted, cheap corpus query.
+    /// Returns <see langword="false"/> when no non-archived recipe carries the tag.
+    /// </summary>
+    Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default);
 }
 
 /// <summary>Display facts for a recipe in the meal editor.</summary>

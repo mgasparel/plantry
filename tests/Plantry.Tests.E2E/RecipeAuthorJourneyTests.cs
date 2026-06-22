@@ -149,6 +149,15 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             var tomatoName = $"Roma Tomato {Guid.NewGuid():N}".Substring(0, 24);
             await SeedProductAsync(page, tomatoName);
 
+            // ── Create the "Italian" tag in Settings first (tag picker is read-only; only shows defined tags) ──
+            await page.GotoAsync($"{BaseUrl}/Settings/Tags");
+            await page.WaitForURLAsync("**/Settings/Tags**");
+            await page.FillAsync("input.tag-add-name", "Italian");
+            await page.ClickAsync("button.tag-add-btn");
+            // Wait for htmx swap to render the new tag row
+            await Assertions.Expect(page.Locator(".tag-name-input[value='Italian']"))
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+
             // ── Navigate to new recipe form via the /Recipes/New alias ───────────
             await page.GotoAsync($"{BaseUrl}/Recipes/New");
             await page.WaitForURLAsync("**/Recipes/New");
@@ -158,9 +167,11 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await page.FillAsync("[name='Input.Name']", recipeName);
             await page.FillAsync("[name='Input.DefaultServings']", "2");
 
-            // ── Add a tag inline: type in the tag input and press Enter ───────────
-            await page.FillAsync("input[placeholder='Add a tag…']", "Italian");
-            await page.Keyboard.PressAsync("Enter");
+            // ── Add a tag via the filter-and-select picker ────────────────────────
+            await page.FillAsync("input[placeholder='Filter tags…']", "Ital");
+            var tagOption = page.Locator(".tag-picker-option", new() { HasText = "Italian" });
+            await Assertions.Expect(tagOption).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await tagOption.ClickAsync();
             // The chip should appear in the tag editor (Alpine-rendered)
             await Assertions.Expect(page.Locator(".recipe-tag-editor .badge", new() { HasText = "Italian" }))
                 .ToBeVisibleAsync();

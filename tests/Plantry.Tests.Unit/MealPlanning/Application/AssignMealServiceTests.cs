@@ -275,6 +275,9 @@ public sealed class FakeRecipeReadModel : IRecipeReadModel
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(false);
 }
 
 public sealed class FakeCatalogProductReader(bool existsResult = true) : IMealPlanCatalogProductReader

@@ -26,10 +26,12 @@
                 wasteDefault: @(PlanningWeights.Default.Waste),
                 costDefault: @(PlanningWeights.Default.Cost),
                 varietyDefault: @(PlanningWeights.Default.Variety),
+                // Resolved budget (decimal amount, or 0 when not set) — popover money-input reflects persisted value.
+                budget: @((Model.WeekBudgetTarget ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 buckets: [
-                    { key: 'waste',   label: 'Waste',   color: 'oklch(0.62 0.13 150)', defaultWeight: @(PlanningWeights.Default.Waste)   },
-                    { key: 'cost',    label: 'Cost',     color: 'oklch(0.62 0.13 70)',  defaultWeight: @(PlanningWeights.Default.Cost)    },
-                    { key: 'variety', label: 'Variety',  color: 'oklch(0.62 0.13 255)', defaultWeight: @(PlanningWeights.Default.Variety) }
+                    { key: 'waste',   label: 'Waste',   color: 'oklch(0.62 0.13 150)', defaultWeight: @(Model.WeekPlanningWeights?.Waste   ?? PlanningWeights.Default.Waste),   appDefault: @(PlanningWeights.Default.Waste)   },
+                    { key: 'cost',    label: 'Cost',     color: 'oklch(0.62 0.13 70)',  defaultWeight: @(Model.WeekPlanningWeights?.Cost    ?? PlanningWeights.Default.Cost),    appDefault: @(PlanningWeights.Default.Cost)    },
+                    { key: 'variety', label: 'Variety',  color: 'oklch(0.62 0.13 255)', defaultWeight: @(Model.WeekPlanningWeights?.Variety ?? PlanningWeights.Default.Variety), appDefault: @(PlanningWeights.Default.Variety) }
                 ]
             };
         </script>

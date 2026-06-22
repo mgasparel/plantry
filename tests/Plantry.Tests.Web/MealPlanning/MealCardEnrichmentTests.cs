@@ -196,11 +196,23 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IUserPreferenceRepository>();
             services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
 
+            // so5.5: stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
+
             // P3-5: stub expiring-stock reader; re-register insights service
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
             services.RemoveAll<PlanInsightsService>();
             services.AddScoped<PlanInsightsService>();
+
+            // plantry-so5.3: stub planning settings repos
+            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
+            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
+            services.RemoveAll<IWeekPlanningOverrideRepository>();
+            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
+            services.RemoveAll<SetPlanningSettingsService>();
+            services.AddScoped<SetPlanningSettingsService>();
         });
     }
 }
@@ -256,6 +268,10 @@ internal sealed class EnrichmentRecipeReader(Guid recipeId, RecipeDishEnrichment
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    // so5.5: targeted full-corpus tag check — returns true for any tag (all cells are fulfillable in the enrichment test scenario).
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 /// <summary>Shared stable identifiers for the enrichment test scenario.</summary>
@@ -268,3 +284,5 @@ internal static class EnrichmentFixture
     public static readonly MealSlotConfig SlotConfig = MealSlotConfig.CreateWithDefaults(HhId, SharedSystemClock.Instance);
     public static readonly MealSlotId SlotId = SlotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First().Id;
 }
+
+// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).

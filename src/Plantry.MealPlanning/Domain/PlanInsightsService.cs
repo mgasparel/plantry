@@ -16,7 +16,10 @@ namespace Plantry.MealPlanning.Domain;
 ///   3. <see cref="InsightKind.RepetitionThisWeek"/> — same recipe appears 2+ times this week.
 ///   4. <see cref="InsightKind.RepetitionVsHistory"/> — same recipe appears in a retained prior plan.
 ///   5. <see cref="InsightKind.UnfilledSlot"/>     — one or more (date × slot) cells have no meal.
-///   6. <see cref="InsightKind.HardConflictResolved"/> — a cell has a meal with 2+ dishes (split conflict).
+///
+/// Note: HardConflictResolved has been removed (so5.4). Hard-stance conflicts (C6) are now a
+/// per-cell state rendered in-cell during generate/review, not a saved-plan rail insight.
+/// The former ≥2-dishes heuristic was a false positive on ordinary main+side meals.
 /// </summary>
 public sealed class PlanInsightsService(
     IMealPlanExpiringStockReader expiringStockReader,
@@ -95,17 +98,6 @@ public sealed class PlanInsightsService(
                 "info", "calendar",
                 $"{emptyCellCount} slot{(emptyCellCount == 1 ? "" : "s")} still open this week",
                 "Auto-fill the gaps with AI suggestions, or add meals by hand.",
-                ActionUrl: null));
-        }
-
-        // ── Rule 6: Hard conflict resolved (split meals) ───────────────────────
-        foreach (var meal in plan.PlannedMeals.Where(m => m.PlannedDishes.Count >= 2))
-        {
-            callouts.Add(new PlanInsight(
-                InsightKind.HardConflictResolved,
-                "info", "layers",
-                $"Split meal on {meal.Date:ddd MMM d}",
-                "A meal was split into multiple dishes in the same slot — a conflict was resolved by combining them.",
                 ActionUrl: null));
         }
 
@@ -269,9 +261,6 @@ public enum InsightKind
 
     /// <summary>One or more (date × slot) cells have no meal assigned.</summary>
     UnfilledSlot,
-
-    /// <summary>A cell has a meal with 2+ dishes — a hard conflict was resolved by splitting.</summary>
-    HardConflictResolved,
 }
 
 /// <summary>

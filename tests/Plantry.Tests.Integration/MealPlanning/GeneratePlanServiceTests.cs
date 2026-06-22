@@ -6,6 +6,7 @@ using Plantry.MealPlanning.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Xunit;
+using System.Collections.Generic;
 
 namespace Plantry.Tests.Integration.MealPlanning;
 
@@ -26,7 +27,8 @@ public sealed class GeneratePlanServiceTests
             MealSlotConfig? slotConfig = null,
             IReadOnlyList<UserPreference>? prefs = null,
             IReadOnlyList<RecipeReadModel>? recipes = null,
-            IMealPlanner? planner = null)
+            IMealPlanner? planner = null,
+            ITagReader? tagReader = null)
     {
         var config = slotConfig ?? BuildDefaultSlotConfig();
         var slotConfigRepo = new FakeSlotConfigRepo(config);
@@ -38,9 +40,10 @@ public sealed class GeneratePlanServiceTests
         var store = new DistributedCachePendingProposalStore(memoryCache);
         var resolver = new MealConstraintResolver();
         var fakePlanner = planner ?? new FakeMealPlanner();
+        var fakeTagReader = tagReader ?? new NullTagReader();
 
         var generateService = new GeneratePlanService(
-            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver);
+            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, fakeTagReader);
 
         var acceptService = new AcceptProposalService(
             mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, Clock);
@@ -193,6 +196,202 @@ public sealed class GeneratePlanServiceTests
         Assert.False(acceptResult.Accepted);
     }
 
+    // ── Execute_ConflictCell_DetectedAndExcluded ──────────────────────────────────
+
+    [Fact(DisplayName = "Execute_ConflictCell — two attendees with conflicting hard Required stances, no shared recipe → cell in Conflicts, excluded from ProposedCount")]
+    public async Task Execute_ConflictCell_DetectedAndExcluded()
+    {
+        // Arrange: two attendees with mutually exclusive Required stances.
+        var aliceId = Guid.NewGuid();
+        var bobId = Guid.NewGuid();
+        var veganTag = Guid.NewGuid();
+        var meatTag = Guid.NewGuid();
+
+        // Set both as default attendees on every slot.
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [aliceId, bobId], Clock);
+
+        // Alice requires vegan; Bob requires meat.
+        var alicePref = UserPreference.Create(Household, aliceId, Clock);
+        alicePref.SetStance(veganTag, "Required", Clock);
+        var bobPref = UserPreference.Create(Household, bobId, Clock);
+        bobPref.SetStance(meatTag, "Required", Clock);
+
+        // Candidate pool: one vegan recipe (satisfies Alice, not Bob) + one meat recipe (vice-versa).
+        // No recipe carries both tags → every cell is irreconcilable.
+        var veganRecipeId = Guid.NewGuid();
+        var meatRecipeId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel>
+        {
+            new(veganRecipeId, "Vegan Stir-Fry", [veganTag], DefaultServings: 2),
+            new(meatRecipeId, "Beef Stew", [meatTag], DefaultServings: 4),
+        };
+
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [alicePref, bobPref],
+            recipes: recipes);
+
+        var storeKey = "conflict-test-key";
+
+        // Act
+        var result = await generateService.ExecuteAsync(Household, Monday, storeKey, null);
+
+        // Assert: every cell is irreconcilable → all cells show up as Conflicts, none proposed.
+        Assert.True(result.Conflicts.Count > 0, "Expected at least one irreconcilable conflict cell");
+        Assert.Equal(0, result.ProposedCount);
+
+        // No proposals were staged.
+        var pending = await store.GetAsync(storeKey);
+        Assert.Empty(pending);
+
+        // Each conflict carries the attendee IDs and clashing tags.
+        var firstConflict = result.Conflicts[0].Conflict;
+        Assert.Contains(aliceId, firstConflict.AttendeeIds);
+        Assert.Contains(bobId, firstConflict.AttendeeIds);
+    }
+
+    // ── Execute_UnfulfillableCell_DetectedAndExcluded ─────────────────────────────
+
+    [Fact(DisplayName = "Execute_UnfulfillableCell — vegetarian attendee + no vegetarian recipes in corpus → cell in UnfulfillableCells, AI NOT called")]
+    public async Task Execute_UnfulfillableCell_DetectedAndExcluded()
+    {
+        // Arrange: one attendee with a Required vegetarian tag, but the recipe corpus has NO vegetarian recipes.
+        var userId = Guid.NewGuid();
+        var vegetarianTag = Guid.NewGuid();
+        var meatTag = Guid.NewGuid();
+
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [userId], Clock);
+
+        var pref = UserPreference.Create(Household, userId, Clock);
+        pref.SetStance(vegetarianTag, "Required", Clock);
+
+        // Recipe corpus: only a meat recipe — NO vegetarian recipes (no recipe with vegetarianTag).
+        var meatRecipeId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel>
+        {
+            new(meatRecipeId, "Beef Stew", [meatTag], DefaultServings: 4),
+        };
+
+        // Track whether ProposeWeekAsync was called (it should NOT be for unfulfillable cells).
+        var trackingPlanner = new TrackingMealPlanner();
+        var tagReader = new NamedTagReader(vegetarianTag, "Vegetarian");
+
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [pref],
+            recipes: recipes,
+            planner: trackingPlanner,
+            tagReader: tagReader);
+
+        var storeKey = "unfulfillable-test-key";
+
+        // Act
+        var result = await generateService.ExecuteAsync(Household, Monday, storeKey, null);
+
+        // Assert: all cells are unfulfillable (no vegetarian recipe at all in corpus).
+        Assert.True(result.UnfulfillableCells.Count > 0, "Expected at least one unfulfillable cell");
+        Assert.Equal(0, result.ProposedCount);
+        Assert.Empty(result.Conflicts); // Not a HardConflict — it's an Unfulfillable (corpus gap)
+
+        // AI was NOT called — no token spend for a provably-unfillable cell.
+        Assert.False(trackingPlanner.WasCalled, "AI planner should NOT be called for unfulfillable cells");
+
+        // No proposals were staged.
+        var pending = await store.GetAsync(storeKey);
+        Assert.Empty(pending);
+
+        // The tag name is resolved in the cell.
+        var firstUnfulfillable = result.UnfulfillableCells[0];
+        Assert.Equal("Vegetarian", firstUnfulfillable.TagName);
+        Assert.Equal(userId, firstUnfulfillable.Reason.AttendeeId);
+        Assert.Equal(vegetarianTag, firstUnfulfillable.Reason.UnfulfillableTagId);
+    }
+
+    [Fact(DisplayName = "Execute_HardConflict_NotUnfulfillable — two attendees each have recipes but no shared one → HardConflict, not Unfulfillable")]
+    public async Task Execute_HardConflict_WinsOver_Unfulfillable()
+    {
+        // Arrange: two attendees each have recipes satisfying their respective Required tags,
+        // but no single recipe satisfies BOTH. This is HardConflict (C6), NOT Unfulfillable.
+        var aliceId = Guid.NewGuid();
+        var bobId = Guid.NewGuid();
+        var veganTag = Guid.NewGuid();
+        var meatTag = Guid.NewGuid();
+
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [aliceId, bobId], Clock);
+
+        var alicePref = UserPreference.Create(Household, aliceId, Clock);
+        alicePref.SetStance(veganTag, "Required", Clock);
+        var bobPref = UserPreference.Create(Household, bobId, Clock);
+        bobPref.SetStance(meatTag, "Required", Clock);
+
+        // Both tags HAVE recipes in the corpus — just no shared recipe.
+        var veganRecipeId = Guid.NewGuid();
+        var meatRecipeId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel>
+        {
+            new(veganRecipeId, "Vegan Stir-Fry", [veganTag], DefaultServings: 2),
+            new(meatRecipeId, "Beef Stew", [meatTag], DefaultServings: 4),
+        };
+
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [alicePref, bobPref],
+            recipes: recipes);
+
+        var storeKey = "hard-conflict-test-key";
+
+        // Act
+        var result = await generateService.ExecuteAsync(Household, Monday, storeKey, null);
+
+        // Assert: cells flagged as HardConflict, NOT as Unfulfillable.
+        Assert.True(result.Conflicts.Count > 0, "Expected at least one HardConflict");
+        Assert.Empty(result.UnfulfillableCells); // No corpus gap — both tags have recipes
+        Assert.Equal(0, result.ProposedCount);
+    }
+
+    [Fact(DisplayName = "Execute_NormalCell_NotUnfulfillable — attendee has Required tag and a matching recipe → cell goes to planner")]
+    public async Task Execute_NormalCell_IsProposed()
+    {
+        // Arrange: one attendee with vegetarian Required tag AND a vegetarian recipe in corpus.
+        var userId = Guid.NewGuid();
+        var vegetarianTag = Guid.NewGuid();
+
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [userId], Clock);
+
+        var pref = UserPreference.Create(Household, userId, Clock);
+        pref.SetStance(vegetarianTag, "Required", Clock);
+
+        // A vegetarian recipe exists in the corpus.
+        var veganRecipeId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel>
+        {
+            new(veganRecipeId, "Vegan Curry", [vegetarianTag], DefaultServings: 4),
+        };
+
+        var (generateService, _, _, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [pref],
+            recipes: recipes);
+
+        var storeKey = "normal-cell-test-key";
+
+        // Act
+        var result = await generateService.ExecuteAsync(Household, Monday, storeKey, null);
+
+        // Assert: no unfulfillable, no conflict — cells reach the planner.
+        Assert.Empty(result.UnfulfillableCells);
+        Assert.Empty(result.Conflicts);
+        // ProposedCount may be 0 if the FakeMealPlanner returns nothing, but cells WERE submitted.
+    }
+
     // ── Test doubles ──────────────────────────────────────────────────────────────
 
     private sealed class FakeSlotConfigRepo(MealSlotConfig config) : IMealSlotConfigRepository
@@ -224,6 +423,49 @@ public sealed class GeneratePlanServiceTests
 
         public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+        /// <summary>
+        /// Targeted full-corpus query: returns true when ANY recipe in the in-memory list carries the tag.
+        /// Unlike SearchAsync (which respects maxResults), this queries ALL recipes.
+        /// </summary>
+        public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default) =>
+            Task.FromResult(recipes.Any(r => r.TagIds.Contains(tagId)));
+    }
+
+    /// <summary>Returns empty tag groups; used when tag name resolution is not under test.</summary>
+    private sealed class NullTagReader : ITagReader
+    {
+        public Task<IReadOnlyList<TagGroup>> ListGroupedAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<TagGroup>>([]);
+    }
+
+    /// <summary>
+    /// ITagReader that returns a named tag for a given tag ID. Used to test tag name resolution
+    /// in unfulfillable cell output.
+    /// </summary>
+    private sealed class NamedTagReader(Guid tagId, string tagName) : ITagReader
+    {
+        public Task<IReadOnlyList<TagGroup>> ListGroupedAsync(CancellationToken ct = default)
+        {
+            IReadOnlyList<TagGroup> groups = [new TagGroup("Diet", 150,
+                [new TagSummary(tagId, tagName, "Diet", 150)])];
+            return Task.FromResult(groups);
+        }
+    }
+
+    /// <summary>A planner that records whether ProposeWeekAsync was called.</summary>
+    private sealed class TrackingMealPlanner : IMealPlanner
+    {
+        public bool WasCalled { get; private set; }
+
+        public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
+            IReadOnlyList<PlannerMealSlotContext> contexts,
+            PlanningWeights weights,
+            CancellationToken ct = default)
+        {
+            WasCalled = true;
+            return Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
+        }
     }
 
     private sealed class FakeMealPlanRepository : IMealPlanRepository

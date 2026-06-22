@@ -227,6 +227,9 @@ internal sealed class FakeEnrichmentRecipeReader(Guid recipeId, RecipeDishEnrich
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 /// <summary>Fake <see cref="IRecipeReadModel"/> that supports multiple recipe IDs.</summary>
@@ -247,6 +250,9 @@ internal sealed class FakeMultiEnrichmentReader(
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 /// <summary>Fake <see cref="IMealPlanStockReader"/> that returns a fixed stock record.</summary>

@@ -266,6 +266,13 @@ builder.Services.AddScoped<GeneratePlanService>();
 builder.Services.AddScoped<AcceptProposalService>();
 builder.Services.AddScoped<IPendingProposalStore, DistributedCachePendingProposalStore>();
 
+// Meal Planning — persisted planning settings (plantry-so5.3).
+// HouseholdPlanningSettings (household default budget/weights) + WeekPlanningOverride (per-week override).
+// SetPlanningSettingsService upserts overrides and returns resolved values.
+builder.Services.AddScoped<IHouseholdPlanningSettingsRepository, HouseholdPlanningSettingsRepository>();
+builder.Services.AddScoped<IWeekPlanningOverrideRepository, WeekPlanningOverrideRepository>();
+builder.Services.AddScoped<SetPlanningSettingsService>();
+
 // IMealPlanner: FakeMealPlanner for test/no-key, real AI otherwise.
 if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseFakePlanner")
     || string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))

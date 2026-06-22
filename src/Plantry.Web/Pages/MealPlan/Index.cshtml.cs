@@ -29,6 +29,9 @@ public sealed class IndexModel(
     IRecipeReadModel recipeReader,
     IMealPlanCatalogProductReader catalogReader,
     IHouseholdMemberReader memberReader,
+    SetPlanningSettingsService setPlanningSettingsService,
+    IHouseholdPlanningSettingsRepository planningSettingsRepo,
+    IWeekPlanningOverrideRepository weekOverrideRepo,
     ITenantContext tenant,
     UserManager<AppUser> userManager,
     IClock clock) : PageModel
@@ -62,6 +65,20 @@ public sealed class IndexModel(
     /// </summary>
     public Dictionary<string, MealFulfillmentVm> GhostEnrichments { get; private set; } = [];
 
+    /// <summary>
+    /// Cells that were detected as irreconcilable hard-stance conflicts (C6) during the most recent
+    /// generate call. Keyed by "date_slotId". Request-scoped — not stored; on a plain GET reload
+    /// without generation this is empty and the cell renders as a plain empty cell.
+    /// </summary>
+    public Dictionary<string, HardConflictCell> ConflictCells { get; private set; } = [];
+
+    /// <summary>
+    /// Cells that were detected as unfulfillable during the most recent generate call — an attendee's
+    /// Required tag has ZERO recipes in the full corpus. Keyed by "date_slotId". Request-scoped — not
+    /// stored; on a plain GET reload without generation this is empty.
+    /// </summary>
+    public Dictionary<string, UnfulfillableCell> UnfulfillableCells { get; private set; } = [];
+
     /// <summary>Advisory insight callouts for the rail, derived from the loaded week (presentation only).</summary>
     public List<InsightCallout> Insights { get; private set; } = [];
 
@@ -72,11 +89,17 @@ public sealed class IndexModel(
     public bool WeekCostIsPartial { get; private set; }
 
     /// <summary>
-    /// User-entered weekly budget target from the tune popover (P3-6b, C14).
-    /// Non-null when the user supplied a positive budget via the Generate POST. Passed to
-    /// PlanInsightsService so the over-budget insight fires. Null when not provided.
+    /// Resolved weekly budget target for the viewed week (persisted household setting + per-week override).
+    /// Loaded on every request path (GET + all OOB refreshes) by LoadWeekAsync so insights survive
+    /// reloads and cell operations. Null = no target = over-budget insight suppressed.
     /// </summary>
     public decimal? WeekBudgetTarget { get; private set; }
+
+    /// <summary>
+    /// Resolved planning weights for the viewed week. Null = use PlanningWeights.Default.
+    /// Exposed so the Tune popover can reflect persisted values on every render.
+    /// </summary>
+    public PlanningWeights? WeekPlanningWeights { get; private set; }
 
     /// <summary>Builds the store key for the pending proposal store: {householdId}_{weekStart:yyyyMMdd}_{sessionId}.</summary>
     private string BuildStoreKey(HouseholdId householdId) =>
@@ -286,10 +309,6 @@ public sealed class IndexModel(
 
     public async Task<IActionResult> OnPostGenerateAsync(
         string? week = null,
-        [FromForm] int? wasteWeight = null,
-        [FromForm] int? costWeight = null,
-        [FromForm] int? varietyWeight = null,
-        [FromForm] decimal? budget = null,
         string? scope = null,
         CancellationToken ct = default)
     {
@@ -301,18 +320,13 @@ public sealed class IndexModel(
         // Ensure session is started and cookie issued so Session.Id is stable across requests.
         await EnsureSessionStartedAsync(ct);
 
-        // Rebuild WeekStart so BuildStoreKey is correct
+        // Rebuild WeekStart so BuildStoreKey is correct; also resolves persisted budget/weights.
         await LoadWeekAsync(week, ct);
 
-        // Resolve PlanningWeights from tuning popover inputs (C14).
+        // PlanningWeights come from the resolved persisted setting (no longer read from form).
         // PlanningWeights only bias SOFT choices — they never relax a hard dietary stance (M5/M11).
         // The constraint resolver from P3-6a stays authoritative.
-        PlanningWeights? weights = null;
-        if (wasteWeight.HasValue && costWeight.HasValue && varietyWeight.HasValue)
-        {
-            try { weights = new PlanningWeights(wasteWeight.Value, costWeight.Value, varietyWeight.Value); }
-            catch (ArgumentException) { /* Invalid weights (don't sum to 100) — fall back to default */ }
-        }
+        var weights = WeekPlanningWeights;
 
         // Resolve scope date (L2 per-day scope targeting, P3-6b):
         //   • Per-day header buttons post scope=today&week=<that day's ISO date> — derive from week
@@ -324,9 +338,6 @@ public sealed class IndexModel(
         {
             scopeDate = (week is not null && DateOnly.TryParse(week, out var sd)) ? sd : DateOnly.FromDateTime(DateTime.Today);
         }
-
-        // Stash user-entered budget target so BuildInsightsAsync can pass it to the over-budget rule.
-        decimal? resolvedBudget = budget is > 0 ? budget : null;
 
         var storeKey = BuildStoreKey(householdId);
 
@@ -345,7 +356,7 @@ public sealed class IndexModel(
                 .ToList();
         }
 
-        await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, ct);
+        var generateResult = await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, ct);
 
         // Re-merge surviving proposals when a per-day scope was used.
         if (scopeDate.HasValue && otherDayProposals is { Count: > 0 })
@@ -355,8 +366,13 @@ public sealed class IndexModel(
             await pendingProposalStore.SetAsync(storeKey, merged, ct);
         }
 
-        // Reload to pick up pending proposals; pass budget target so the over-budget insight fires.
-        WeekBudgetTarget = resolvedBudget;
+        // Carry hard-conflict cells (C6) and unfulfillable cells so the grid can render in-cell markers.
+        ConflictCells = generateResult.Conflicts
+            .ToDictionary(c => CellKey(c.Date, c.MealSlotId));
+        UnfulfillableCells = generateResult.UnfulfillableCells
+            .ToDictionary(u => CellKey(u.Date, u.MealSlotId));
+
+        // Reload to pick up pending proposals; WeekBudgetTarget is resolved inside LoadWeekAsync.
         await LoadWeekAsync(week, ct);
         return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
@@ -388,6 +404,46 @@ public sealed class IndexModel(
         var storeKey = BuildStoreKey(householdId);
         await acceptProposalService.DiscardAsync(storeKey, ct);
 
+        await LoadWeekAsync(week, ct);
+        return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
+    }
+
+    // ── Set planning settings POST ────────────────────────────────────────────
+    // Persists the week budget and/or weights as a per-week override (scoped to the
+    // currently-viewed week). Returns the full grid+bar so the budget chip and
+    // over-budget insight recompute immediately via the existing OOB plumbing.
+
+    public async Task<IActionResult> OnPostSetPlanningSettingsAsync(
+        string? week = null,
+        [FromForm] decimal? budget = null,
+        [FromForm] int? wasteWeight = null,
+        [FromForm] int? costWeight = null,
+        [FromForm] int? varietyWeight = null,
+        CancellationToken ct = default)
+    {
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+
+        // Normalise week so the override targets the correct Monday.
+        var weekStart = week is not null && DateOnly.TryParse(week, out var parsed)
+            ? DomainMealPlan.NormalizeToMonday(parsed)
+            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(DateTime.Today));
+
+        // Resolve the submitted budget: positive value → Money; zero or null → clear.
+        Money? budgetMoney = budget is > 0
+            ? Money.FromDecimal(budget.Value, "USD")
+            : null;
+
+        // Resolve the submitted weights; ignore if they don't sum to 100.
+        PlanningWeights? weights = null;
+        if (wasteWeight.HasValue && costWeight.HasValue && varietyWeight.HasValue)
+        {
+            try { weights = new PlanningWeights(wasteWeight.Value, costWeight.Value, varietyWeight.Value); }
+            catch (ArgumentException) { /* Invalid — fall back to null (no override) */ }
+        }
+
+        await setPlanningSettingsService.ExecuteAsync(householdId, weekStart, budgetMoney, weights, ct);
+
+        // Reload so the resolved budget + insights recompute from DB truth.
         await LoadWeekAsync(week, ct);
         return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
@@ -693,6 +749,10 @@ public sealed class IndexModel(
 
         HasSlots = Slots.Count > 0;
 
+        // Resolve persisted planning settings (budget + weights) for the viewed week.
+        // Runs on every request path (GET + all OOB refreshes) so WeekBudgetTarget is always populated.
+        await LoadPlanningSettingsAsync(householdId, ct);
+
         // Load planned meals for this week, enriched with live fulfillment and cost.
         DomainMealPlan? loadedPlan = null;
         if (HasSlots)
@@ -819,6 +879,22 @@ public sealed class IndexModel(
             .ToList();
     }
 
+    /// <summary>
+    /// Resolves the effective planning settings for the viewed week by merging the household
+    /// default with the per-week override. Populates WeekBudgetTarget and WeekPlanningWeights.
+    /// Called on every request path (GET + all OOB refreshes) so the budget chip and insights
+    /// survive reloads, navigation, and cell operations.
+    /// </summary>
+    private async Task LoadPlanningSettingsAsync(HouseholdId householdId, CancellationToken ct)
+    {
+        var settings = await planningSettingsRepo.FindByHouseholdAsync(householdId, ct);
+        var weekOverride = await weekOverrideRepo.FindAsync(householdId, WeekStart, ct);
+        var (budget, weights) = PlanningSettingsResolver.Resolve(settings, weekOverride);
+
+        WeekBudgetTarget = budget?.ToDecimal();
+        WeekPlanningWeights = weights;
+    }
+
     private async Task LoadPendingProposalsAsync(HouseholdId householdId, CancellationToken ct)
     {
         try
@@ -943,7 +1019,9 @@ public sealed class IndexModel(
         // Model.Insights and Model.HasEmptyCells for the mutated plan, so both OOB fragments
         // are fresh. Routing every cell-targeted mutation through this single helper guarantees
         // the "recompute on EVERY change" invariant — no per-handler wiring to forget.
-        var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment);
+        var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment,
+            IsHardConflict: ConflictCells.ContainsKey(key),
+            UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key));
         var railVm = new PlanRailVm(Insights, PendingCount, Oob: true);
         var barNavVm = BuildPlanBarNavVm(Oob: true);
         return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm, barNavVm));
@@ -1071,7 +1149,19 @@ public sealed class IndexModel(
         string? HardStanceWarning = null,
         ProposedMeal? PendingProposal = null,
         IReadOnlyList<string>? GhostDishNames = null,
-        MealFulfillmentVm? GhostEnrichment = null);
+        MealFulfillmentVm? GhostEnrichment = null,
+        /// <summary>
+        /// True when this cell was flagged as an irreconcilable hard-stance conflict (C6) during
+        /// the current generate pass. Renders the full actionable in-cell UI with dual CTAs:
+        /// "Add a dish by hand" + "Adjust who's attending". Only populated during a generate response.
+        /// </summary>
+        bool IsHardConflict = false,
+        /// <summary>
+        /// Non-null when this cell was flagged as unfulfillable during the current generate pass —
+        /// an attendee's Required tag has ZERO recipes in the full corpus. Carries the tag name for
+        /// the actionable "Add a [tag] recipe" CTA. Only populated during a generate response.
+        /// </summary>
+        UnfulfillableCell? UnfulfillableCellInfo = null);
 
     /// <summary>
     /// View model for the advisory insights rail (P3-5). Rendered inline inside <c>_WeekGrid</c>
