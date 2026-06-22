@@ -44,6 +44,28 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         return match.Groups[1].Value;
     }
 
+    /// <summary>Monday of the current ISO week as ISO-8601 string, matching the server's default week.</summary>
+    private static string CurrentMondayIso
+    {
+        get
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var offset = ((int)today.DayOfWeek + 6) % 7;
+            return today.AddDays(-offset).ToString("yyyy-MM-dd");
+        }
+    }
+
+    /// <summary>Wednesday of the current ISO week (Day0+2) — used for "empty cell" target in merge-safety tests.</summary>
+    private static string CurrentWednesdayIso
+    {
+        get
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var offset = ((int)today.DayOfWeek + 6) % 7;
+            return today.AddDays(-offset + 2).ToString("yyyy-MM-dd");
+        }
+    }
+
     // ── 1. OobContract: RegenerateCell carries plan-rail ──────────────────────
 
     [Fact(DisplayName = "POST RegenerateCell re-emits #plan-rail out-of-band (OobContract — ADR-013)")]
@@ -61,7 +83,7 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         });
 
         var response = await client.PostAsync(
-            $"/MealPlan?handler=RegenerateCell&date=2026-06-16&slotId={slot.Id.Value:D}", form);
+            $"/MealPlan?handler=RegenerateCell&date={CurrentMondayIso}&slotId={slot.Id.Value:D}", form);
 
         response.EnsureSuccessStatusCode();
         var fragment = await response.Content.ReadAsStringAsync();
@@ -89,7 +111,7 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
 
         // Target an EMPTY cell (no seeded proposal) — per-cell "Auto-fill" on an empty slot.
         var response = await client.PostAsync(
-            $"/MealPlan?handler=GenerateCell&date=2026-06-17&slotId={slot.Id.Value:D}", form);
+            $"/MealPlan?handler=GenerateCell&date={CurrentWednesdayIso}&slotId={slot.Id.Value:D}", form);
 
         response.EnsureSuccessStatusCode();
         var fragment = await response.Content.ReadAsStringAsync();
@@ -125,9 +147,9 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
             new KeyValuePair<string, string>("__RequestVerificationToken", token),
         });
 
-        // Auto-fill the empty Wednesday cell (2026-06-17) — neither seeded proposal lives here.
+        // Auto-fill the empty Wednesday cell — neither seeded proposal lives here.
         var response = await client.PostAsync(
-            $"/MealPlan?handler=GenerateCell&date=2026-06-17&slotId={slot.Id.Value:D}", form);
+            $"/MealPlan?handler=GenerateCell&date={CurrentWednesdayIso}&slotId={slot.Id.Value:D}", form);
 
         response.EnsureSuccessStatusCode();
 
@@ -154,7 +176,7 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         });
 
         var response = await client.PostAsync(
-            $"/MealPlan?handler=RegenerateCell&date=2026-06-16&slotId={slot.Id.Value:D}", form);
+            $"/MealPlan?handler=RegenerateCell&date={CurrentMondayIso}&slotId={slot.Id.Value:D}", form);
 
         response.EnsureSuccessStatusCode();
         var fragment = await response.Content.ReadAsStringAsync();
@@ -180,7 +202,7 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         });
 
         var response = await client.PostAsync(
-            $"/MealPlan?handler=RegenerateCell&date=2026-06-16&slotId={slot.Id.Value:D}", form);
+            $"/MealPlan?handler=RegenerateCell&date={CurrentMondayIso}&slotId={slot.Id.Value:D}", form);
 
         response.EnsureSuccessStatusCode();
     }
@@ -214,7 +236,7 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
 
         // RegenerateCell on the Monday cell (day 0 of week)
         var response = await client.PostAsync(
-            $"/MealPlan?handler=RegenerateCell&date=2026-06-15&slotId={slot.Id.Value:D}", form);
+            $"/MealPlan?handler=RegenerateCell&date={TwoProposalFixture.Day0:yyyy-MM-dd}&slotId={slot.Id.Value:D}", form);
 
         response.EnsureSuccessStatusCode();
 
@@ -234,14 +256,25 @@ public sealed class RegenerateCellCollection : ICollectionFixture<RegenerateCell
 
 /// <summary>
 /// Two pending proposals on different days of the same week.
-/// Day0 = Monday (2026-06-15); Day1 = Tuesday (2026-06-16).
+/// Day0 = current-week Monday; Day1 = current-week Tuesday.
+/// Dates are kept dynamic so proposals always fall within the week the server renders.
 /// The merge-safety test regenerates Day0 and asserts Day1 recipe name survives.
 /// </summary>
 internal static class TwoProposalFixture
 {
-    public static readonly DateOnly WeekStart = new DateOnly(2026, 6, 15); // Monday
-    public static readonly DateOnly Day0 = new DateOnly(2026, 6, 15);      // regenerated
-    public static readonly DateOnly Day1 = new DateOnly(2026, 6, 16);      // must survive
+    private static DateOnly CurrentMonday
+    {
+        get
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var offset = ((int)today.DayOfWeek + 6) % 7;
+            return today.AddDays(-offset);
+        }
+    }
+
+    public static DateOnly WeekStart => CurrentMonday;
+    public static DateOnly Day0 => CurrentMonday;           // regenerated
+    public static DateOnly Day1 => CurrentMonday.AddDays(1); // must survive
 
     public const string RecipeDay0Name = "Regen Target Dish";
     public const string RecipeDay1Name = "Survivor Ghost Dish";

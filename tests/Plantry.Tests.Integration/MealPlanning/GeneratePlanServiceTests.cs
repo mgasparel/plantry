@@ -193,6 +193,62 @@ public sealed class GeneratePlanServiceTests
         Assert.False(acceptResult.Accepted);
     }
 
+    // ── Execute_ConflictCell_DetectedAndExcluded ──────────────────────────────────
+
+    [Fact(DisplayName = "Execute_ConflictCell — two attendees with conflicting hard Required stances, no shared recipe → cell in Conflicts, excluded from ProposedCount")]
+    public async Task Execute_ConflictCell_DetectedAndExcluded()
+    {
+        // Arrange: two attendees with mutually exclusive Required stances.
+        var aliceId = Guid.NewGuid();
+        var bobId = Guid.NewGuid();
+        var veganTag = Guid.NewGuid();
+        var meatTag = Guid.NewGuid();
+
+        // Set both as default attendees on every slot.
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [aliceId, bobId], Clock);
+
+        // Alice requires vegan; Bob requires meat.
+        var alicePref = UserPreference.Create(Household, aliceId, Clock);
+        alicePref.SetStance(veganTag, "Required", Clock);
+        var bobPref = UserPreference.Create(Household, bobId, Clock);
+        bobPref.SetStance(meatTag, "Required", Clock);
+
+        // Candidate pool: one vegan recipe (satisfies Alice, not Bob) + one meat recipe (vice-versa).
+        // No recipe carries both tags → every cell is irreconcilable.
+        var veganRecipeId = Guid.NewGuid();
+        var meatRecipeId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel>
+        {
+            new(veganRecipeId, "Vegan Stir-Fry", [veganTag], DefaultServings: 2),
+            new(meatRecipeId, "Beef Stew", [meatTag], DefaultServings: 4),
+        };
+
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [alicePref, bobPref],
+            recipes: recipes);
+
+        var storeKey = "conflict-test-key";
+
+        // Act
+        var result = await generateService.ExecuteAsync(Household, Monday, storeKey, null);
+
+        // Assert: every cell is irreconcilable → all cells show up as Conflicts, none proposed.
+        Assert.True(result.Conflicts.Count > 0, "Expected at least one irreconcilable conflict cell");
+        Assert.Equal(0, result.ProposedCount);
+
+        // No proposals were staged.
+        var pending = await store.GetAsync(storeKey);
+        Assert.Empty(pending);
+
+        // Each conflict carries the attendee IDs and clashing tags.
+        var firstConflict = result.Conflicts[0].Conflict;
+        Assert.Contains(aliceId, firstConflict.AttendeeIds);
+        Assert.Contains(bobId, firstConflict.AttendeeIds);
+    }
+
     // ── Test doubles ──────────────────────────────────────────────────────────────
 
     private sealed class FakeSlotConfigRepo(MealSlotConfig config) : IMealSlotConfigRepository

@@ -229,8 +229,9 @@ repetition, unfilled slots, resolved conflicts. (J10)
 - `PlanInsightsService` (domain): `Inspect(plan) → PlanInsights`, read-side, recomputed on every
   change, **no new ports** — `UnusedExpiring` (expiring stock no planned dish consumes),
   `OverBudget` (week `MealCost` vs budget target), `Repetition` (recipe repeated this week / vs
-  retained recent plans + `cook_event`), `UnfilledSlot`, `HardConflictResolved` (a meal split into
-  separate dishes). Reuses `IInventoryStockReader`, `IRecipeReadModel`, and in-context plan history.
+  retained recent plans + `cook_event`), `UnfilledSlot`. Note: `HardConflictResolved` removed (so5.4)
+  — hard-stance conflicts (C6) are a per-cell unfillable state rendered in-cell, not a rail insight.
+  Reuses `IInventoryStockReader`, `IRecipeReadModel`, and in-context plan history.
 - **UI**: the advisory panel on the week view (J1 step 5) and during review (J4 step 7); insights are
   observations with links (e.g. tap `UnusedExpiring` → Recipes "Use soon"), **never block** (C12).
 
@@ -257,9 +258,11 @@ accept / reject / regenerate / edit, all on one screen. (J4 / J8)
   default leans Waste, C14; optional budget target; ad-hoc tag prefer/exclude); gathers context
   (candidate recipes + tags + fulfillment + cost via `IRecipeReadModel`; expiring stock via
   `IInventoryStockReader`; recent cook/plan history for the Variety lever; per-meal `MealConstraints`);
-  invokes the **untrusted `IMealPlanner`** (ADR-007); **validates the raw output in a transient ACL
-  step** (reject malformed, auto-split hard conflicts into separate dishes per C6, leave impossible
-  cells unfilled); writes validated `ProposedMeal`s to a **session-keyed pending store** (§6, MP-O7) —
+  invokes the **untrusted `IMealPlanner`** (ADR-007); **pre-flight conflict detection** (`HardConflictDetector`
+  per cell — irreconcilable cells C6 are flagged in-cell and skipped, no auto-split in P3); **validates
+  the raw output in a transient ACL step** (reject malformed, drop Restricted dishes, per-attendee
+  Required satisfaction check, leave impossible cells unfilled); writes validated `ProposedMeal`s to a
+  **session-keyed pending store** (§6, MP-O7) —
   raw payload **never persisted**. Targets only empty cells unless `replace = true`.
 - `RegenerateMeal` (J8): the `SingleMeal` convenience — re-propose one cell, rewrite that one pending
   entry, leave the rest untouched.

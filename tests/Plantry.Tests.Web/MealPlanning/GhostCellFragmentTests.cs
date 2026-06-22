@@ -253,7 +253,18 @@ public sealed class GhostCellFactory : WebApplicationFactory<Program>
 
 internal static class GhostCellFixture
 {
-    public static readonly DateOnly WeekStart = new DateOnly(2026, 6, 16); // A Monday
+    /// <summary>Monday of the current ISO week — kept dynamic so the proposal date always
+    /// falls within the week the server renders on today's GET /MealPlan.</summary>
+    public static DateOnly WeekStart
+    {
+        get
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var offset = ((int)today.DayOfWeek + 6) % 7; // days since Monday
+            return today.AddDays(-offset);
+        }
+    }
+
     public static readonly Guid RecipeId = Guid.Parse("dddddddd-0000-0000-0000-000000000001");
     public const string RecipeName = "Test Ghost Recipe";
 

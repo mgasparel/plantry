@@ -7,8 +7,11 @@ namespace Plantry.MealPlanning.Application;
 /// <summary>
 /// Application service that drives the AI generate-plan flow (P3-6a, J7).
 /// Orchestrates: load week plan → find empty cells → resolve constraints →
-/// load candidates → call IMealPlanner (untrusted) → validate via ProposalAcl → stage in IPendingProposalStore.
+/// load candidates → detect irreconcilable hard-stance conflicts (C6) → call IMealPlanner
+/// (untrusted) → validate via ProposalAcl → stage in IPendingProposalStore.
 /// The AI output is never persisted directly — it goes to the pending store for user review.
+/// Irreconcilable cells (C6: no single candidate satisfies every attendee) are skipped from
+/// the planner request, counted as unfilled, and recorded in GeneratePlanResult.Conflicts.
 /// </summary>
 public sealed class GeneratePlanService(
     IMealPlanner planner,
@@ -44,7 +47,7 @@ public sealed class GeneratePlanService(
         // 2. Load slot config, find active slots
         var slotConfig = await slotConfigRepo.FindByHouseholdAsync(householdId, ct);
         if (slotConfig is null)
-            return new GeneratePlanResult(0, 0);
+            return new GeneratePlanResult(0, 0, []);
 
         var activeSlots = slotConfig.Slots
             .Where(s => s.IsActive)
@@ -52,7 +55,7 @@ public sealed class GeneratePlanService(
             .ToList();
 
         if (activeSlots.Count == 0)
-            return new GeneratePlanResult(0, 0);
+            return new GeneratePlanResult(0, 0, []);
 
         // 3. Load all household member preferences
         var allPrefs = new List<UserPreference>();
@@ -90,7 +93,7 @@ public sealed class GeneratePlanService(
         }
 
         if (emptyCells.Count == 0)
-            return new GeneratePlanResult(0, 0);
+            return new GeneratePlanResult(0, 0, []);
 
         // 5. Load candidate recipes (up to 50)
         var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 50, ct);
@@ -98,11 +101,25 @@ public sealed class GeneratePlanService(
             .Select(r => new CandidateRecipe(r.RecipeId, r.Name, r.TagIds, r.DefaultServings, null))
             .ToList();
 
-        // 6. Build PlannerMealSlotContext list
+        // 6. Build PlannerMealSlotContext list, detecting irreconcilable cells first (C6).
         var contexts = new List<PlannerMealSlotContext>();
+        var hardConflictCells = new List<HardConflictCell>();
+        var unfilledCount = 0;
+
         foreach (var (date, slot) in emptyCells)
         {
             var constraints = constraintResolver.ResolveForGeneration(slot.Id, slot, allPrefs);
+
+            // C6: detect whether no single candidate can satisfy all attendees.
+            var conflict = HardConflictDetector.Detect(constraints, candidates);
+            if (conflict is not null)
+            {
+                // Irreconcilable — skip from planner request, count as unfilled, record conflict.
+                hardConflictCells.Add(new HardConflictCell(date, slot.Id, conflict));
+                unfilledCount++;
+                continue;
+            }
+
             contexts.Add(new PlannerMealSlotContext(
                 Date: date,
                 MealSlotId: slot.Id,
@@ -113,11 +130,12 @@ public sealed class GeneratePlanService(
         }
 
         // 7. Invoke IMealPlanner (UNTRUSTED — output always goes through ACL)
-        var rawProposals = await planner.ProposeWeekAsync(contexts, effectiveWeights, ct);
+        var rawProposals = contexts.Count > 0
+            ? await planner.ProposeWeekAsync(contexts, effectiveWeights, ct)
+            : new List<ProposedMeal>();
 
         // 8. Validate each proposal through ProposalAcl
         var validatedProposals = new List<ProposedMeal>();
-        var unfilledCount = 0;
 
         // Build a lookup for O(1) context retrieval
         var contextLookup = contexts.ToDictionary(c => CellKey(c.Date, c.MealSlotId));
@@ -141,14 +159,15 @@ public sealed class GeneratePlanService(
 
         // Count cells that got no proposal at all
         var proposedCellKeys = rawProposals.Select(p => CellKey(p.Date, p.MealSlotId)).ToHashSet();
-        unfilledCount += emptyCells.Count(c => !proposedCellKeys.Contains(CellKey(c.Date, c.Slot.Id)));
+        unfilledCount += contexts.Count(c => !proposedCellKeys.Contains(CellKey(c.Date, c.MealSlotId)));
 
         // 9. Write validated proposals to the pending store
         await proposalStore.SetAsync(storeKey, validatedProposals, ct);
 
         return new GeneratePlanResult(
             ProposedCount: validatedProposals.Count,
-            UnfilledCount: unfilledCount);
+            UnfilledCount: unfilledCount,
+            Conflicts: hardConflictCells);
     }
 
     private static string CellKey(DateOnly date, MealSlotId slotId) =>
@@ -159,5 +178,20 @@ public sealed class GeneratePlanService(
 public sealed record GeneratePlanResult(
     /// <summary>Number of cells that received a validated AI proposal.</summary>
     int ProposedCount,
-    /// <summary>Number of cells that could not be filled (no proposal or ACL rejection).</summary>
-    int UnfilledCount);
+    /// <summary>Number of cells that could not be filled (no proposal, ACL rejection, or hard conflict).</summary>
+    int UnfilledCount,
+    /// <summary>
+    /// Cells that were detected as irreconcilable hard-stance conflicts (C6): no single candidate
+    /// recipe satisfies every attendee. These are excluded from the planner request and counted in
+    /// UnfilledCount. The conflict descriptor carries attendee IDs and the clashing tag IDs.
+    /// Request-scoped: not persisted — only relevant during the generate/review flow.
+    /// </summary>
+    IReadOnlyList<HardConflictCell> Conflicts);
+
+/// <summary>
+/// A single cell flagged as an irreconcilable hard-stance conflict during generation (C6).
+/// </summary>
+public sealed record HardConflictCell(
+    DateOnly Date,
+    MealSlotId MealSlotId,
+    HardStanceConflict Conflict);

@@ -65,7 +65,7 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.Contains("500", html);   // recorded quantity
         Assert.Contains("g", html);     // unit code
         Assert.Contains("None left", html);
-        Assert.Contains("take-stock-rows", html);
+        Assert.Contains("ts-rows", html);
     }
 
     [Fact(DisplayName = "GET /pantry/take-stock/{locationId} renders empty state when no rows")]
@@ -76,7 +76,7 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var resp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.FridgeLocId}");
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("empty-state", html);
+        Assert.Contains("ts-empty", html);
     }
 
     [Fact(DisplayName = "GET /pantry/take-stock/{locationId} includes Alpine initialiser JSON")]
@@ -99,8 +99,8 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var resp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("take-stock-savebar", html);
-        Assert.Contains("take-stock-row__reason", html);
+        Assert.Contains("ts-savebar", html);
+        Assert.Contains("ts-reason", html);
         Assert.Contains("Correction", html);
         Assert.Contains("Used it", html);
         Assert.Contains("Spoiled", html);
@@ -195,11 +195,11 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var resp = await client.GetAsync(url);
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("take-stock-lot-panel", html);
+        Assert.Contains("ts-hatch", html);
         Assert.Contains("300", html);    // lot A quantity
         Assert.Contains("200", html);    // lot B quantity
         Assert.Contains("Spoiled", html);
-        Assert.Contains("Add found stock", html);
+        Assert.Contains("Found stock", html);
     }
 
     [Fact(DisplayName = "GET /Lots for a location with no lots renders empty state")]
@@ -211,7 +211,7 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var resp = await client.GetAsync(url);
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("take-stock-lot-panel", html);
+        Assert.Contains("ts-hatch", html);
         Assert.Contains("No active lots", html);
     }
 

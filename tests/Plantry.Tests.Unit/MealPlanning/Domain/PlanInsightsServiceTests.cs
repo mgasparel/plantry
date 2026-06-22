@@ -234,35 +234,6 @@ public sealed class PlanInsightsServiceTests
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.UnfilledSlot);
     }
 
-    // ── Rule 6: HardConflictResolved ──────────────────────────────────────────
-
-    [Fact(DisplayName = "Rule 6 — meal has 2 dishes → HardConflictResolved callout")]
-    public async Task Rule6_HardConflictResolved_AppearsWhenMealHasMultipleDishes()
-    {
-        var svc = BuildService();
-        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [
-            new DishSpec(DishKind.Recipe, Guid.NewGuid(), 2),
-            new DishSpec(DishKind.Recipe, Guid.NewGuid(), 2),
-        ], null, "manual", UserId, Clock);
-
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
-
-        Assert.Contains(result.Insights, i => i.Kind == InsightKind.HardConflictResolved);
-    }
-
-    [Fact(DisplayName = "Rule 6 — all meals have single dish → no HardConflictResolved callout")]
-    public async Task Rule6_HardConflictResolved_NoCalloutForSingleDishMeals()
-    {
-        var svc = BuildService();
-        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, Guid.NewGuid(), 2)], null, "manual", UserId, Clock);
-
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
-
-        Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.HardConflictResolved);
-    }
-
     // ── L2 composition: all rules run via faked adapters ─────────────────────
 
     [Fact(DisplayName = "L2 composition — InspectAsync composes over both faked adapters and returns insights from multiple rules")]

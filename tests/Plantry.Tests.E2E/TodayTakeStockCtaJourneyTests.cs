@@ -74,7 +74,7 @@ public sealed class TodayTakeStockCtaJourneyTests(AppHostFixture appHost) : IAsy
             await page.WaitForURLAsync("**/pantry/take-stock**");
 
             // Verify we landed on the Take Stock location-list page.
-            await Assertions.Expect(page.Locator(".catalog-list")).ToBeVisibleAsync(
+            await Assertions.Expect(page.Locator(".ts-loc-grid")).ToBeVisibleAsync(
                 new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
             // ── Step 3: Add stock via the Pantry add-stock sheet ─────────────────

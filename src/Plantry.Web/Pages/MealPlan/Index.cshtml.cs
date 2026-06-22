@@ -65,6 +65,13 @@ public sealed class IndexModel(
     /// </summary>
     public Dictionary<string, MealFulfillmentVm> GhostEnrichments { get; private set; } = [];
 
+    /// <summary>
+    /// Cells that were detected as irreconcilable hard-stance conflicts (C6) during the most recent
+    /// generate call. Keyed by "date_slotId". Request-scoped — not stored; on a plain GET reload
+    /// without generation this is empty and the cell renders as a plain empty cell.
+    /// </summary>
+    public Dictionary<string, HardConflictCell> ConflictCells { get; private set; } = [];
+
     /// <summary>Advisory insight callouts for the rail, derived from the loaded week (presentation only).</summary>
     public List<InsightCallout> Insights { get; private set; } = [];
 
@@ -342,7 +349,7 @@ public sealed class IndexModel(
                 .ToList();
         }
 
-        await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, ct);
+        var generateResult = await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, ct);
 
         // Re-merge surviving proposals when a per-day scope was used.
         if (scopeDate.HasValue && otherDayProposals is { Count: > 0 })
@@ -351,6 +358,10 @@ public sealed class IndexModel(
             var merged = otherDayProposals.Concat(newDayProposals).ToList();
             await pendingProposalStore.SetAsync(storeKey, merged, ct);
         }
+
+        // Carry hard-conflict cells (C6) so the grid can render in-cell markers.
+        ConflictCells = generateResult.Conflicts
+            .ToDictionary(c => CellKey(c.Date, c.MealSlotId));
 
         // Reload to pick up pending proposals; WeekBudgetTarget is resolved inside LoadWeekAsync.
         await LoadWeekAsync(week, ct);
@@ -1127,7 +1138,14 @@ public sealed class IndexModel(
         string? HardStanceWarning = null,
         ProposedMeal? PendingProposal = null,
         IReadOnlyList<string>? GhostDishNames = null,
-        MealFulfillmentVm? GhostEnrichment = null);
+        MealFulfillmentVm? GhostEnrichment = null,
+        /// <summary>
+        /// True when this cell was flagged as an irreconcilable hard-stance conflict (C6) during
+        /// the current generate pass. Renders a distinct in-cell "No single dish suits everyone here"
+        /// marker instead of the plain empty state. so5.5 will supersede this marker with the full
+        /// actionable empty-cell UI. Only populated during a generate response — plain GET is false.
+        /// </summary>
+        bool IsHardConflict = false);
 
     /// <summary>
     /// View model for the advisory insights rail (P3-5). Rendered inline inside <c>_WeekGrid</c>

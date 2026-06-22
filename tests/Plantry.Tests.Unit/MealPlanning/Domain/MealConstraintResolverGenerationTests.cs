@@ -8,7 +8,7 @@ namespace Plantry.Tests.Unit.MealPlanning.Domain;
 /// <summary>
 /// L1 unit tests for <see cref="MealConstraintResolver.ResolveForGeneration"/>.
 /// Covers: empty attendees → empty constraints; hard-stance union (Required + Restricted);
-/// soft-bias average (Preferred/Disliked).
+/// per-attendee AttendeeStances carry separate entries per user; soft-bias average (Preferred/Disliked).
 /// </summary>
 public sealed class MealConstraintResolverGenerationTests
 {
@@ -64,9 +64,18 @@ public sealed class MealConstraintResolverGenerationTests
 
         var result = _resolver.ResolveForGeneration(slot.Id, slot, [alice, bob]);
 
+        // Derived union still contains both restricted tags.
         Assert.Contains(treeNutsTag, result.RestrictedTagIds);
         Assert.Contains(dairyTag, result.RestrictedTagIds);
         Assert.Empty(result.RequiredTagIds);
+
+        // Per-attendee: each attendee's own Restricted tag is on their own entry.
+        var aliceStance = result.AttendeeStances.Single(a => a.UserId == aliceId);
+        var bobStance = result.AttendeeStances.Single(a => a.UserId == bobId);
+        Assert.Contains(treeNutsTag, aliceStance.RestrictedTagIds);
+        Assert.DoesNotContain(dairyTag, aliceStance.RestrictedTagIds);
+        Assert.Contains(dairyTag, bobStance.RestrictedTagIds);
+        Assert.DoesNotContain(treeNutsTag, bobStance.RestrictedTagIds);
     }
 
     // ── hard-stance union (Required) ─────────────────────────────────────────────
@@ -88,9 +97,18 @@ public sealed class MealConstraintResolverGenerationTests
 
         var result = _resolver.ResolveForGeneration(slot.Id, slot, [alice, bob]);
 
+        // Derived union still contains both required tags.
         Assert.Contains(veganTag, result.RequiredTagIds);
         Assert.Contains(halalTag, result.RequiredTagIds);
         Assert.Empty(result.RestrictedTagIds);
+
+        // Per-attendee: Alice's Required tag is on her entry, Bob's on his — kept SEPARATE.
+        var aliceStance = result.AttendeeStances.Single(a => a.UserId == aliceId);
+        var bobStance = result.AttendeeStances.Single(a => a.UserId == bobId);
+        Assert.Contains(veganTag, aliceStance.RequiredTagIds);
+        Assert.DoesNotContain(halalTag, aliceStance.RequiredTagIds);
+        Assert.Contains(halalTag, bobStance.RequiredTagIds);
+        Assert.DoesNotContain(veganTag, bobStance.RequiredTagIds);
     }
 
     // ── soft average ─────────────────────────────────────────────────────────────

@@ -93,18 +93,26 @@ public sealed class MealConstraintResolver
             .Where(p => defaultAttendees.Contains(p.UserId))
             .ToList();
 
-        // Hard stance unions across all attendees
-        var requiredTagIds = new HashSet<Guid>();
-        var restrictedTagIds = new HashSet<Guid>();
-
-        foreach (var pref in attendeePrefs)
-        {
-            foreach (var ts in pref.TagStances)
+        // Build per-attendee hard stances. Include all effective attendees so headcount is correct;
+        // attendees with no hard stances get empty collections (irrelevant to conflict detection).
+        var prefLookup = attendeePrefs.ToDictionary(p => p.UserId);
+        var attendeeStances = defaultAttendees
+            .Select(userId =>
             {
-                if (ts.Stance == "Required")   requiredTagIds.Add(ts.TagId);
-                if (ts.Stance == "Restricted") restrictedTagIds.Add(ts.TagId);
-            }
-        }
+                if (!prefLookup.TryGetValue(userId, out var pref))
+                    return new AttendeeHardStances(userId, [], []);
+
+                var required = pref.TagStances
+                    .Where(ts => ts.Stance == "Required")
+                    .Select(ts => ts.TagId)
+                    .ToHashSet();
+                var restricted = pref.TagStances
+                    .Where(ts => ts.Stance == "Restricted")
+                    .Select(ts => ts.TagId)
+                    .ToHashSet();
+                return new AttendeeHardStances(userId, required, restricted);
+            })
+            .ToList();
 
         // Soft bias: average weight per tag across all attendees
         // Preferred = +1, Disliked = -1 (absent = 0, normalised by attendee count)
@@ -133,8 +141,7 @@ public sealed class MealConstraintResolver
 
         return new GenerationConstraints(
             EffectiveAttendees: [..defaultAttendees],
-            RequiredTagIds: requiredTagIds,
-            RestrictedTagIds: restrictedTagIds,
+            AttendeeStances: attendeeStances,
             PreferredTagWeights: preferredTagWeights);
     }
 }

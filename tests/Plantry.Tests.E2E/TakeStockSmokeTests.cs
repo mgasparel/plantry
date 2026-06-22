@@ -68,13 +68,13 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // ── Navigate to Take Stock → open Pantry walk ─────────────────────────
             await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
             await page.WaitForURLAsync("**/pantry/take-stock**");
-            var pantryLink = page.Locator(".catalog-list a.catalog-list__primary", new() { HasText = "Pantry" });
+            var pantryLink = page.Locator(".ts-loc-grid a.ts-loc-card", new() { HasText = "Pantry" });
             await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await pantryLink.ClickAsync();
             await page.WaitForURLAsync("**/pantry/take-stock/**");
 
             // ── Click "+ Add item" to open the inline-add sheet ───────────────────
-            var addItemBtn = page.Locator("button.take-stock-add-item");
+            var addItemBtn = page.Locator("button.ts-add-item");
             await Assertions.Expect(addItemBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await addItemBtn.ClickAsync();
 
@@ -113,13 +113,13 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             // ── New row should appear in the added-items section ──────────────────
             // Toast confirms success.
-            var toast = page.Locator(".take-stock-toast");
+            var toast = page.Locator(".ts-toast");
             await Assertions.Expect(toast).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
 
             // The added-items list renders the new row name.
-            var addedRows = page.Locator(".take-stock-rows--added");
+            var addedRows = page.Locator("ul.ts-rows[aria-label='Added items']");
             await Assertions.Expect(addedRows).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
-            await Assertions.Expect(addedRows.Locator(".take-stock-row__name", new() { HasText = productName })).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
+            await Assertions.Expect(addedRows.Locator(".nm-text", new() { HasText = productName })).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
 
             // ── Re-open sheet and select the same product via search (Path A — reuse, no dup) ─
             // This verifies that an existing catalog match is reused rather than duplicated.
@@ -154,13 +154,13 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             // Sheet closes and a toast appears confirming the item was added to the working set.
             await Assertions.Expect(sheet).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
-            await Assertions.Expect(page.Locator(".take-stock-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await Assertions.Expect(page.Locator(".ts-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
 
             // Save the dirty reuse row via the sticky save bar.
-            var saveBar = page.Locator(".take-stock-savebar");
+            var saveBar = page.Locator(".ts-savebar");
             await Assertions.Expect(saveBar).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
-            await page.ClickAsync(".take-stock-savebar button:has-text('Save')");
-            await Assertions.Expect(page.Locator(".take-stock-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
+            await page.ClickAsync(".ts-savebar button:has-text('Save')");
+            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
 
             // ── Verify the product has stock on Pantry and appears only once (no dup) ──
             await page.GotoAsync($"{BaseUrl}/Pantry");
@@ -245,21 +245,23 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // ── Navigate to Take Stock → open Pantry walk ─────────────────────────
             await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
             await page.WaitForURLAsync("**/pantry/take-stock**");
-            var pantryLink = page.Locator(".catalog-list a.catalog-list__primary", new() { HasText = "Pantry" });
+            var pantryLink = page.Locator(".ts-loc-grid a.ts-loc-card", new() { HasText = "Pantry" });
             await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await pantryLink.ClickAsync();
             await page.WaitForURLAsync("**/pantry/take-stock/**");
 
             // ── Expand the lot panel ──────────────────────────────────────────────
-            var adjustLotsBtn = page.Locator(".take-stock-row__lots-btn", new() { HasText = "Adjust lots" });
+            // The expand-lots button uses aria-label pattern; locate by its CSS class ts-expand
+            // (visible only for rows with active stock).
+            var adjustLotsBtn = page.Locator("button.ts-expand").First;
             await Assertions.Expect(adjustLotsBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await adjustLotsBtn.ClickAsync();
 
             // The lot panel should appear with both lots.
-            var lotPanel = page.Locator(".take-stock-lot-panel");
+            var lotPanel = page.Locator(".ts-hatch");
             await Assertions.Expect(lotPanel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            // Two lot rows should appear.
-            await Assertions.Expect(page.Locator(".take-stock-lot-panel__lot")).ToHaveCountAsync(2, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
+            // Two active lot rows should appear (the panel also contains a .ts-lot.found row for adding found stock).
+            await Assertions.Expect(page.Locator(".ts-lot:not(.found)")).ToHaveCountAsync(2, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
 
             // ── Adjust Alpine state and trigger save via $data.save() directly ──────────
             // Alpine.$data(panel) returns a reactive proxy of the merged data stack.
@@ -267,7 +269,7 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // synthetic button click events for testing async Alpine methods.
             var saveUrl = await page.EvaluateAsync<string>(@"
                 () => {
-                    const panel = document.querySelector('.take-stock-lot-panel');
+                    const panel = document.querySelector('.ts-hatch');
                     if (!panel || !window.Alpine) return null;
                     const data = window.Alpine.$data(panel);
                     if (!data || typeof data.setLotAmount !== 'function') return null;
@@ -286,7 +288,7 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             ");
 
             // Wait for button to enable (isDirty() reactive update).
-            var saveBtn = page.Locator(".take-stock-lot-panel button:has-text('Save lot changes')");
+            var saveBtn = page.Locator(".ts-hatch button:has-text('Save lot changes')");
             await Assertions.Expect(saveBtn).ToBeEnabledAsync(new LocatorAssertionsToBeEnabledOptions { Timeout = 15000 });
 
             // ── Save lot changes ──────────────────────────────────────────────────
@@ -371,19 +373,19 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // Verify we landed on the Take Stock page (title in document head or page body).
             await Assertions.Expect(page).ToHaveTitleAsync(new Regex("Take Stock"), new PageAssertionsToHaveTitleOptions { Timeout = 30000 });
 
-            // The location list must render — check the catalog list is present.
-            var catalogList = page.Locator(".catalog-list");
-            await Assertions.Expect(catalogList).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            // The location list must render — check the location grid is present.
+            var locGrid = page.Locator(".ts-loc-grid");
+            await Assertions.Expect(locGrid).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
             // ── Open the Pantry walk page ─────────────────────────────────────────
-            var pantryLink = catalogList.Locator("a.catalog-list__primary", new() { HasText = "Pantry" });
+            var pantryLink = locGrid.Locator("a.ts-loc-card", new() { HasText = "Pantry" });
             await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await pantryLink.ClickAsync();
             await page.WaitForURLAsync("**/pantry/take-stock/**");
 
             // The walk page must render count rows.
-            await Assertions.Expect(page.Locator(".take-stock-rows")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(page.Locator(".take-stock-row__name", new() { HasText = productName })).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".ts-rows")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".nm-text", new() { HasText = productName })).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
             // ── Change count to 300 via direct Alpine state mutation ──────────────
             // FillAsync alone does not reliably trigger Alpine's @input handler in Playwright
@@ -407,18 +409,18 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             ");
 
             // Save bar appears when the row is dirty (proves Alpine working-set client).
-            await Assertions.Expect(page.Locator(".take-stock-savebar")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(page.Locator(".take-stock-savebar")).ToContainTextAsync("unsaved", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".ts-savebar")).ToContainTextAsync("ready to save", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
 
             // ── Tap Save ──────────────────────────────────────────────────────────
-            await page.ClickAsync(".take-stock-savebar button:has-text('Save')");
+            await page.ClickAsync(".ts-savebar button:has-text('Save')");
 
             // Toast confirms save (proves POST Save handler worked).
-            await Assertions.Expect(page.Locator(".take-stock-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(page.Locator(".take-stock-toast")).ToContainTextAsync("updated", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".ts-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".ts-toast")).ToContainTextAsync("updated", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
 
             // Save bar hidden (no more dirty rows).
-            await Assertions.Expect(page.Locator(".take-stock-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
 
             // ── Verify the Pantry reflects the new count ──────────────────────────
             await page.GotoAsync($"{BaseUrl}/Pantry");
@@ -495,7 +497,7 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/pantry/take-stock/no-location**");
 
             // The product should appear in the no-location section.
-            await Assertions.Expect(page.Locator(".take-stock-row__name", new() { HasText = productName }))
+            await Assertions.Expect(page.Locator(".nm-text", new() { HasText = productName }))
                 .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
             // ── Choose a location for the product ─────────────────────────────────
@@ -509,42 +511,42 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             ");
 
             // Select "Pantry" from the location picker for the first (and only) row.
-            var pickerSelect = page.Locator(".take-stock-no-location__picker-select").First;
+            var pickerSelect = page.Locator(".ts-locpick-select").First;
             await Assertions.Expect(pickerSelect).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await pickerSelect.SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
 
             // Save bar should appear (row is now dirty — location chosen).
-            await Assertions.Expect(page.Locator(".take-stock-savebar"))
+            await Assertions.Expect(page.Locator(".ts-savebar"))
                 .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
             // ── File the product ──────────────────────────────────────────────────
-            await page.ClickAsync(".take-stock-savebar button:has-text('File')");
+            await page.ClickAsync(".ts-savebar button:has-text('File')");
 
             // Toast should confirm.
-            await Assertions.Expect(page.Locator(".take-stock-toast"))
+            await Assertions.Expect(page.Locator(".ts-toast"))
                 .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(page.Locator(".take-stock-toast"))
+            await Assertions.Expect(page.Locator(".ts-toast"))
                 .ToContainTextAsync("filed", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
 
             // The row should disappear from the Alpine working set (client removes it).
-            await Assertions.Expect(page.Locator(".take-stock-row__name", new() { HasText = productName }))
+            await Assertions.Expect(page.Locator(".nm-text", new() { HasText = productName }))
                 .ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
 
             // ── Navigate back to the Take Stock index — "No location" entry gone ──
             await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
             await page.WaitForURLAsync("**/pantry/take-stock**");
-            // The "needs filing" badge must no longer be present (product is now placed).
-            await Assertions.Expect(page.Locator(".catalog-list__badge"))
+            // The unplaced entry must no longer be present (product is now placed).
+            await Assertions.Expect(page.Locator("a.ts-loc-card.unplaced"))
                 .ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
 
             // ── Product now appears in the Pantry walk under its Location ──────────
-            var pantryWalkLink = page.Locator(".catalog-list a.catalog-list__primary", new() { HasText = "Pantry" });
+            var pantryWalkLink = page.Locator(".ts-loc-grid a.ts-loc-card", new() { HasText = "Pantry" });
             await Assertions.Expect(pantryWalkLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await pantryWalkLink.ClickAsync();
             await page.WaitForURLAsync("**/pantry/take-stock/**");
 
             // The product should now appear on the Pantry walk page (default location = Pantry).
-            await Assertions.Expect(page.Locator(".take-stock-row__name", new() { HasText = productName }))
+            await Assertions.Expect(page.Locator(".nm-text", new() { HasText = productName }))
                 .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
         }
         finally

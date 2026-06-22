@@ -121,7 +121,7 @@ Per domain model §6/§7 — computed fresh at query time, **no storage**:
 | **MealConstraints** | `MealConstraintResolver` (domain): effective `AttendeeSet` = `attendees_override ?? meal_slot.default_attendees`, intersected with **current** household members; unions hard stances, averages soft stances across attendees (M4, MP-O4) |
 | **MealFulfillment** | `PlanFulfillmentService` rolls up Recipes' `FulfillmentResult` (recipe dishes) at planned servings and `IInventoryStockReader` "in stock?" (product dishes) across a meal/week; note-meals contribute none |
 | **MealCost** / **CostCompleteness** | `PlanCostingService`: `CostPerServing × servings` (recipe dishes, via `IRecipeReadModel`) + price × quantity (product dishes, via `IPriceReader`); deal-blind in Phase 3 (C7) |
-| **PlanInsights** | `PlanInsightsService`: `UnusedExpiring` / `OverBudget` / `Repetition` / `UnfilledSlot` / `HardConflictResolved` — read-side, recomputed on every change, no new ports (C15 / J10) |
+| **PlanInsights** | `PlanInsightsService`: `UnusedExpiring` / `OverBudget` / `Repetition` / `UnfilledSlot` — read-side, recomputed on every change, no new ports (C15 / J10). Note: `HardConflictResolved` removed (so5.4); hard-stance conflicts (C6) are an unfillable-cell state rendered in-cell, not a rail insight. |
 | **ProposedMeal** / pending-suggestion store | The AI ACL output (MP-O7). Validated typed suggestions held in a **transient, session-keyed store** (domain model §6) — **never persisted to `meal_planning`, never read by a domain query** (M7); only user-confirmed suggestions cross into `MealPlan`. There is **no `meal_plan_proposal` table** (the deliberate divergence from intake's persisted `import_session`, DM-15) |
 
 ---

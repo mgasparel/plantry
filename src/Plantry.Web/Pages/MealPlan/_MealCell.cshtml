@@ -4,10 +4,12 @@
     var dateIso = Model.Date.ToString("yyyy-MM-dd");
     var slotId = Model.SlotId.Value;
     var hasGhost = Model.Meals.Count == 0 && Model.PendingProposal is not null;
+    var cellClass = Model.Meals.Count > 0 ? "filled" : hasGhost ? "ghost" : Model.IsHardConflict ? "conflict" : "empty";
 }
 
 <div id="@cellId"
-     class="mcell @(Model.Meals.Count > 0 ? "filled" : hasGhost ? "ghost" : "empty")"
+     class="mcell @cellClass"
+     @Html.Raw(Model.IsHardConflict ? "data-conflict=\"hard-stance\"" : "")
      ondragover="onDragOver(event)"
      ondragleave="onDragLeave(event)"
      ondrop="onDrop(event, '@dateIso', '@slotId')">
@@ -49,6 +51,24 @@
             Model.Date, Model.SlotId, Model.SlotLabel, Model.PendingProposal!,
             Model.GhostDishNames ?? Model.PendingProposal!.Dishes.Select(_ => "Recipe").ToList(),
             Model.GhostEnrichment))
+    }
+    else if (Model.IsHardConflict)
+    {
+        @* Hard-stance conflict cell (C6): no single dish can satisfy every attendee.
+           so5.5 will supersede this minimal marker with the full actionable empty-cell UI. *@
+        <div class="conflict-notice" role="status">
+            <svg class="icon conflict-notice__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span class="conflict-notice__text">No single dish suits everyone here</span>
+        </div>
+        <div class="empty-acts">
+            <button class="empty-add"
+                    hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId"
+                    hx-target="#meal-editor-dialog"
+                    hx-swap="innerHTML"
+                    aria-label="Add meal manually">
+                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+            </button>
+        </div>
     }
     else
     {

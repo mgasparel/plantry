@@ -50,13 +50,13 @@ public sealed class TakeStockNoLocationFragmentTests : IClassFixture<TakeStockNo
         // The orphan product name from the fixture
         Assert.Contains("Orphan Product", html);
         // Location picker is present (a select per row)
-        Assert.Contains("take-stock-no-location__picker", html);
+        Assert.Contains("ts-locpick", html);
         Assert.Contains("Choose location", html);
         // Location options from FakeTakeStockReader.ListLocationsAsync
         Assert.Contains("Pantry", html);
         Assert.Contains("Fridge", html);
         // Save bar markup is rendered
-        Assert.Contains("take-stock-savebar", html);
+        Assert.Contains("ts-savebar", html);
     }
 
     [Fact(DisplayName = "GET /pantry/take-stock/no-location renders empty state when no unplaced products")]
@@ -69,7 +69,7 @@ public sealed class TakeStockNoLocationFragmentTests : IClassFixture<TakeStockNo
         var resp = await client.GetAsync("/pantry/take-stock/no-location");
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("empty-state", html);
+        Assert.Contains("ts-empty", html);
     }
 
     // ── Index shows "No location" entry ──────────────────────────────────────
@@ -82,7 +82,7 @@ public sealed class TakeStockNoLocationFragmentTests : IClassFixture<TakeStockNo
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
         Assert.Contains("no-location", html);
-        Assert.Contains("needs filing", html);
+        Assert.Contains("need filing", html);
     }
 
     [Fact(DisplayName = "GET /pantry/take-stock omits 'No location' entry when no unplaced products")]
