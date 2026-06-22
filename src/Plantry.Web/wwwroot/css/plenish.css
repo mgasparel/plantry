@@ -5323,3 +5323,162 @@ button.sadd svg { width: 13px; height: 13px; }
   .ts-loc-grid { grid-template-columns: 1fr; }
   .ts-row-main { flex-wrap: wrap; }
 }
+
+/* ── Popover ────────────────────────────────────────────────────────────────── */
+
+/* Wrapper — keeps content absolutely positioned relative to the trigger */
+.popover { position: relative; display: inline-flex; }
+
+/* Trigger badge — 1.25 rem circular button with accent border on hover/focus */
+.popover__trigger {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.popover__trigger:hover { background: var(--color-accent-subtle); color: var(--color-accent); }
+.popover__trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* Content panel — hidden by default; revealed on trigger hover/focus or panel hover */
+.popover__content {
+  position: absolute;
+  z-index: 50;
+  width: max-content;
+  max-width: 16rem;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  text-align: left;
+  font-weight: 400;
+  opacity: 0;
+  visibility: hidden;
+  /* Default position: above, centered */
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translate(-50%, 2px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
+}
+
+/* Arrow — default: below the content panel (points down toward trigger) */
+.popover__content::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  transform: rotate(45deg);
+  bottom: -5px;
+  left: 50%;
+  margin-left: -4px;
+  border-top: none;
+  border-left: none;
+}
+
+/* Reveal: trigger hover, keyboard focus-visible, focus-within (so links inside the
+   panel remain reachable via keyboard), or hovering the panel itself. */
+.popover__trigger:hover + .popover__content,
+.popover__trigger:focus-visible + .popover__content,
+.popover:focus-within > .popover__content,
+.popover__content:hover {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+/* Modifier: below — panel drops below the trigger */
+.popover--below .popover__content {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform: translateY(2px);
+}
+.popover--below .popover__content::after {
+  top: -5px;
+  bottom: auto;
+  border-top: 1px solid var(--color-border);
+  border-left: 1px solid var(--color-border);
+  border-bottom: none;
+  border-right: none;
+}
+.popover--below .popover__trigger:hover + .popover__content,
+.popover--below .popover__trigger:focus-visible + .popover__content,
+.popover--below:focus-within > .popover__content,
+.popover--below .popover__content:hover { transform: translateY(0); }
+
+/* Modifier: start — left-aligned; arrow near left edge */
+.popover--start .popover__content {
+  left: 0;
+  transform: translateY(2px);
+}
+.popover--start .popover__content::after { left: 14px; margin-left: 0; }
+.popover--start .popover__trigger:hover + .popover__content,
+.popover--start .popover__trigger:focus-visible + .popover__content,
+.popover--start:focus-within > .popover__content,
+.popover--start .popover__content:hover { transform: translateY(0); }
+
+/* Modifier: end — right-aligned; arrow near right edge */
+.popover--end .popover__content {
+  left: auto;
+  right: 0;
+  transform: translateY(2px);
+}
+.popover--end .popover__content::after { left: auto; right: 14px; margin-left: 0; }
+.popover--end .popover__trigger:hover + .popover__content,
+.popover--end .popover__trigger:focus-visible + .popover__content,
+.popover--end:focus-within > .popover__content,
+.popover--end .popover__content:hover { transform: translateY(0); }
+
+/* Title — bold first line for richer popovers */
+.popover__title { display: block; font-weight: 700; margin-bottom: var(--space-1); }
+
+/* Links inside the content panel */
+.popover__content a { color: var(--color-accent); text-decoration: underline; }
+
+/* Reduced motion — drop translate, keep opacity fade */
+@media (prefers-reduced-motion: reduce) {
+  .popover__content { transition: opacity var(--transition-fast), visibility var(--transition-fast); }
+  .popover__trigger:hover + .popover__content,
+  .popover__trigger:focus-visible + .popover__content,
+  .popover:focus-within > .popover__content,
+  .popover--below .popover__trigger:hover + .popover__content,
+  .popover--below .popover__trigger:focus-visible + .popover__content,
+  .popover--below:focus-within > .popover__content,
+  .popover--start .popover__trigger:hover + .popover__content,
+  .popover--start .popover__trigger:focus-visible + .popover__content,
+  .popover--start:focus-within > .popover__content,
+  .popover--end .popover__trigger:hover + .popover__content,
+  .popover--end .popover__trigger:focus-visible + .popover__content,
+  .popover--end:focus-within > .popover__content,
+  .popover__content:hover { transform: none; }
+}
+
+/* ── Demo surface (component library) ──────────────────────────────────────── */
+/* Flex wrapper used on the Dev/Index component library page to display demos   */
+/* side-by-side with consistent padding and surface treatment.                  */
+.demo-surface {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}

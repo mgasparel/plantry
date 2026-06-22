@@ -1143,3 +1143,72 @@ new ProductSearchCreateSheetViewModel
   </template>
 </div>")</code></pre>
 </section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Tooltip / Popover</h2>
+    </div>
+    <p>
+        <code>&lt;popover&gt;</code> is a CSS-only anchored overlay. The trigger is a real
+        <code>&lt;button type="button"&gt;</code> (focusable, tap-friendly). Content shows on
+        hover, keyboard <code>:focus-visible</code>, and tap; hovering onto the panel keeps it
+        open so inline links stay reachable. <code>aria-describedby</code> wiring is generated
+        automatically — consumers never wire ids. The first downstream consumer is
+        <strong>plantry-opc</strong> (Form Hint).
+    </p>
+
+    <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Default (above, centered)</h3>
+    <div class="demo-surface">
+        <popover>Net quantity is what's left after consumption — it can differ from the amount you bought.</popover>
+        <span style="color: var(--color-text-muted); font-size: var(--font-size-sm)">← hover or Tab to the badge</span>
+    </div>
+
+    <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Position modifiers</h3>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+        No JS collision-flipping (accepted). Pick a modifier when the default would clip.
+    </p>
+    <div class="demo-surface">
+        <div style="text-align: center">
+            <div style="font-size: var(--font-size-xs); color: var(--color-text-faint); margin-bottom: var(--space-1)">default (above)</div>
+            <popover>Appears above, arrow centered.</popover>
+        </div>
+        <div style="text-align: center">
+            <div style="font-size: var(--font-size-xs); color: var(--color-text-faint); margin-bottom: var(--space-1)">below</div>
+            <popover position="below">Drops below the trigger.</popover>
+        </div>
+        <div style="text-align: center">
+            <div style="font-size: var(--font-size-xs); color: var(--color-text-faint); margin-bottom: var(--space-1)">start (left-aligned)</div>
+            <popover position="start">Left-aligned so it won't run off the left margin.</popover>
+        </div>
+        <div style="text-align: center; margin-left: auto">
+            <div style="font-size: var(--font-size-xs); color: var(--color-text-faint); margin-bottom: var(--space-1)">end (right-aligned)</div>
+            <popover position="end">Right-aligned so it stays inside the viewport's right edge.</popover>
+        </div>
+    </div>
+
+    <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Rich content (title + link)</h3>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+        Content is trusted developer copy. The <code>title</code> attribute renders a bold first line.
+    </p>
+    <div class="demo-surface">
+        <popover title="Confidence score">
+            How sure the AI match is. Below 60% the item is staged for review.
+            <a href="#">Learn more</a>
+        </popover>
+    </div>
+
+    <pre class="code-sample"><code>@(@"<popover>Net quantity is what's left after consumption.</popover>
+
+<popover position=""below"" title=""Confidence score"">
+    How sure the AI match is. Below 60% the item is staged for review.
+    <a href=""#"">Learn more</a>
+</popover>
+
+<popover position=""start"" label=""i"">Left-aligned hint text.</popover>
+<popover position=""end"">Right-aligned hint text.</popover>
+
+{{!-- Attributes --}}
+{{!-- position: above (default) | below | start | end --}}
+{{!-- label:    trigger glyph + aria-label, default ""?"" --}}
+{{!-- title:    optional bold first line inside the panel --}}")</code></pre>
+</section>
