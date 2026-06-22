@@ -9,6 +9,7 @@ The ground truth for stock. `ProductStock` is the aggregate root, keyed by `(hou
 | Column | Type | Notes |
 |---|---|---|
 | `household_id`, `product_id` | `uuid` | composite PK (the ADR-010 keying); `product_id` is a **soft ref** to `catalog.product` — no cross-context FK |
+| `low_stock_threshold` | `numeric(12,3)` null | Per-household, per-product low stock threshold ("Running low at" in the UI). Null or zero = no threshold (never running low). When positive: `IsRunningLow` = total on-hand ≤ this value. Owned by Inventory, not Catalog. |
 | `xmin` | system column | optimistic-concurrency token — Postgres' built-in row version, mapped via EF Core `.IsRowVersion()`. **No stored column, no app-side increment.** |
 | `created_at` / `updated_at` | `timestamptz` | |
 

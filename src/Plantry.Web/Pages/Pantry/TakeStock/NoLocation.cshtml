@@ -97,7 +97,13 @@
                                     decrease-label="Decrease count for @row.ProductName"
                                     increase-label="Increase count for @row.ProductName"
                                     input-label="Count for @row.ProductName" />
-                                <span class="ts-unit">@row.DisplayUnitCode</span>
+                                @* C10: no-location rows use a fixed single-option selector (default unit only;
+                                   full conversion list is not loaded for no-location rows). *@
+                                <select class="field__input" style="min-width:4rem;max-width:7rem"
+                                        x-model="rows['@pid'].unitId"
+                                        aria-label="Unit for @row.ProductName">
+                                    <option value="@row.DisplayUnitId">@row.DisplayUnitCode</option>
+                                </select>
                             </div>
                         </div>
 

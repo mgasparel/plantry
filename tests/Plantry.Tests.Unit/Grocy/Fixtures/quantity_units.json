@@ -1,0 +1,20 @@
+[
+  {
+    "id": 3,
+    "name": "Gram",
+    "description": "Base mass unit",
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  },
+  {
+    "id": 4,
+    "name": "Piece",
+    "description": null,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  },
+  {
+    "id": 5,
+    "name": "Kilogram",
+    "description": null,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  }
+]

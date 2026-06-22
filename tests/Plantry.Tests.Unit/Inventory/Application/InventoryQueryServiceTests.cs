@@ -222,4 +222,87 @@ public sealed class InventoryQueryServiceTests
         Assert.Equal("?", detail.DisplayUnitCode);
         Assert.Equal(0m, detail.TotalQuantity);
     }
+
+    // ── LowStockThreshold / IsRunningLow surfaced via ListPantry ──────────
+
+    [Fact]
+    public async Task ListPantry_Surfaces_LowStockThreshold_And_IsRunningLow_True_When_OnHand_At_Or_Below_Threshold()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(4m, _grams, _location, _user, Clock);
+        stock.SetLowStockThreshold(5m); // 4 ≤ 5 → running low
+        stocks.Items.Add(stock);
+
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        var item = Assert.Single(pantry);
+        Assert.Equal(5m, item.LowStockThreshold);
+        Assert.True(item.IsRunningLow);
+    }
+
+    [Fact]
+    public async Task ListPantry_Surfaces_IsRunningLow_False_When_OnHand_Above_Threshold()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(10m, _grams, _location, _user, Clock);
+        stock.SetLowStockThreshold(5m); // 10 > 5 → not running low
+        stocks.Items.Add(stock);
+
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        var item = Assert.Single(pantry);
+        Assert.Equal(5m, item.LowStockThreshold);
+        Assert.False(item.IsRunningLow);
+    }
+
+    [Fact]
+    public async Task ListPantry_Surfaces_IsRunningLow_False_When_No_Threshold_Set()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(1m, _grams, _location, _user, Clock);
+        // no threshold set
+        stocks.Items.Add(stock);
+
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        var item = Assert.Single(pantry);
+        Assert.Null(item.LowStockThreshold);
+        Assert.False(item.IsRunningLow);
+    }
+
+    // ── LowStockThreshold / IsRunningLow surfaced via FindDetail ──────────
+
+    [Fact]
+    public async Task FindDetail_Surfaces_LowStockThreshold_And_IsRunningLow_True_When_OnHand_At_Threshold()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(5m, _grams, _location, _user, Clock);
+        stock.SetLowStockThreshold(5m); // exactly at threshold → running low
+        stocks.Items.Add(stock);
+
+        var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).FindDetailAsync(_productId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(5m, detail!.LowStockThreshold);
+        Assert.True(detail.IsRunningLow);
+    }
+
+    [Fact]
+    public async Task FindDetail_Surfaces_IsRunningLow_False_When_No_Threshold_Set()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(100m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock);
+
+        var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).FindDetailAsync(_productId);
+
+        Assert.NotNull(detail);
+        Assert.Null(detail!.LowStockThreshold);
+        Assert.False(detail.IsRunningLow);
+    }
 }

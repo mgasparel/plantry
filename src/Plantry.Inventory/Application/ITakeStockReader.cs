@@ -10,6 +10,11 @@ public sealed record TakeStockLocationRow(
     string LocationName);
 
 /// <summary>
+/// One unit option in the per-row unit selector on the Take Stock walk (C10).
+/// </summary>
+public sealed record TakeStockUnitOption(Guid UnitId, string Code);
+
+/// <summary>
 /// One product row on the "walk a location" card (C5 union branch A or B).
 /// Branch A: the product has active stock in this location; <see cref="RecordedQuantity"/> is the
 /// sum in the product's display unit and <see cref="HasActiveStock"/> is true.
@@ -29,7 +34,14 @@ public sealed record TakeStockLocationProductRow(
     /// <see cref="SaveCountsCommand"/> (P4-4b). Defaults to <see cref="Guid.Empty"/> when the unit
     /// cannot be resolved (guards against forward-compatibility breakage).
     /// </summary>
-    Guid DisplayUnitId = default);
+    Guid DisplayUnitId = default,
+    /// <summary>
+    /// All units the user can choose when entering a count for this product (C10).
+    /// Default unit is first, then alphabetically by code.
+    /// Defaults to empty — callers that do not populate this field get a single-option selector
+    /// driven by <see cref="DisplayUnitCode"/> on the client side.
+    /// </summary>
+    IReadOnlyList<TakeStockUnitOption> SupportedUnits = default!);
 
 /// <summary>
 /// One product row on the "No location" section (J7): tracked products that have active stock
@@ -39,7 +51,13 @@ public sealed record TakeStockNoLocationRow(
     Guid ProductId,
     string ProductName,
     string DisplayUnitCode,
-    decimal RecordedQuantity);
+    decimal RecordedQuantity,
+    /// <summary>
+    /// The Guid of the product's display unit — used by the no-location walk page to populate
+    /// the single-option unit selector (C10 fallback). Defaults to <see cref="Guid.Empty"/> when
+    /// the unit cannot be resolved (guards against forward-compatibility breakage).
+    /// </summary>
+    Guid DisplayUnitId = default);
 
 /// <summary>
 /// One active lot for a product in a location — shown in the lot escape-hatch view (ListLots).

@@ -23,10 +23,9 @@ namespace Plantry.Web.TagHelpers;
 /// </para>
 ///
 /// <para>
-/// Four visual variants (CSS modifier):
+/// Three visual variants (CSS modifier):
 /// <list type="bullet">
-///   <item><term>(default)</term><description>36 px rectangular icon buttons — intake qty, cook qty.</description></item>
-///   <item><term>lg</term><description>40 px rectangular icon buttons — shopping add-form / inline-edit qty.</description></item>
+///   <item><term>(default)</term><description>40 px rectangular icon buttons — intake qty, cook qty, shopping add-form, inline-edit qty.</description></item>
 ///   <item><term>compact</term><description>borderless square icon buttons inside a bordered container — recipe-detail ingredients header.</description></item>
 ///   <item><term>pill</term><description>24 px circular text-glyph (−/+) buttons, inline flow — recipe-meta strip servings.</description></item>
 /// </list>
@@ -34,14 +33,14 @@ namespace Plantry.Web.TagHelpers;
 ///
 /// Usage examples:
 /// <code>
-/// // Input stepper (intake review drawer, default size)
+/// // Input stepper (intake review drawer, default 40px size)
 /// &lt;stepper name="Edit.Quantity" x-model="v"
 ///          decrease-click="v = Math.max(0.001, (parseFloat(v)||0) - 1)"
 ///          increase-click="v = (parseFloat(v)||0) + 1"
 ///          decrease-label="Decrease quantity" increase-label="Increase quantity" /&gt;
 ///
-/// // Input stepper with .number modifier (shopping add-form, lg size)
-/// &lt;stepper variant="lg" name="Input.Quantity" x-model="qty" x-model-modifier="number"
+/// // Input stepper with .number modifier (shopping add-form, default 40px size)
+/// &lt;stepper name="Input.Quantity" x-model="qty" x-model-modifier="number"
 ///          decrease-click="qty = Math.max(0, +(qty - 1).toFixed(2))"
 ///          increase-click="qty = +(qty + 1).toFixed(2)"
 ///          decrease-label="Decrease" increase-label="Increase" /&gt;
@@ -196,7 +195,7 @@ public sealed class StepperTagHelper : TagHelper
     // ── Visual variant ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Visual variant. Accepted values: <c>"default"</c> (or omit), <c>"lg"</c>, <c>"compact"</c>, <c>"pill"</c>.
+    /// Visual variant. Accepted values: <c>"default"</c> (or omit), <c>"compact"</c>, <c>"pill"</c>.
     /// </summary>
     public string Variant { get; set; } = "default";
 
@@ -219,7 +218,6 @@ public sealed class StepperTagHelper : TagHelper
 
         var wrapperClass = Variant switch
         {
-            "lg"      => "stepper stepper--lg",
             "compact" => "stepper stepper--compact",
             "pill"    => "stepper stepper--pill",
             _         => "stepper",

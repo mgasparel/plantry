@@ -48,7 +48,8 @@ public sealed class TakeStockReaderAdapter(
         // sequential — EF Core DbContext is single-threaded (not safe for concurrent async queries).
         var allStockTask = stocks.ListForHouseholdAsync(household, ct);
         var allProducts = await products.ListActiveAsync(ct);
-        var unitCodesById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
+        var allUnits = await units.ListAsync(ct);
+        var unitCodesById = allUnits.ToDictionary(u => u.Id.Value, u => u.Code);
         var allStock = await allStockTask;
 
         // Indexed for fast lookup.
@@ -60,6 +61,23 @@ public sealed class TakeStockReaderAdapter(
             .Select(s => s.ProductId)
             .Distinct();
         var convertersByProduct = await conversions.ForProductsAsync(productIdsWithActiveStockHere, ct);
+
+        // Batch-load products with their conversions for SupportedUnits derivation (C10).
+        // We need all product ids that will appear in the row set (both branch A and branch B).
+        var branchAIds = allStock
+            .Where(s => s.ActiveLotsFefo().Any(e => e.LocationId == locationId))
+            .Where(s => allProducts.Any(p => p.Id.Value == s.ProductId && p.CanHoldStock))
+            .Select(s => s.ProductId);
+        var branchBIds = allProducts
+            .Where(p => p.CanHoldStock && p.DefaultLocationId?.Value == locationId)
+            .Select(p => p.Id.Value);
+        var rowProductIds = branchAIds.Concat(branchBIds).Distinct();
+
+        var productsWithConversions = await products.ListWithConversionsAsync(
+            rowProductIds.Select(Catalog.Domain.ProductId.From).ToList(), ct);
+        var productConversionsById = productsWithConversions.ToDictionary(
+            p => p.Id.Value,
+            p => (IReadOnlyList<ProductConversion>)p.Conversions);
 
         var rows = new Dictionary<Guid, TakeStockLocationProductRow>();
 
@@ -79,6 +97,8 @@ public sealed class TakeStockReaderAdapter(
             var displayUnitId = product.DefaultUnitId.Value;
             var displayUnitCode = unitCodesById.GetValueOrDefault(displayUnitId, "?");
             var total = SumInDisplayUnit(lotsHere, displayUnitId, converter);
+            var productConversions = productConversionsById.GetValueOrDefault(stock.ProductId, []);
+            var supportedUnits = BuildSupportedUnits(displayUnitId, allUnits, productConversions, unitCodesById);
 
             rows[stock.ProductId] = new TakeStockLocationProductRow(
                 stock.ProductId,
@@ -86,7 +106,8 @@ public sealed class TakeStockReaderAdapter(
                 displayUnitCode,
                 total,
                 HasActiveStock: true,
-                DisplayUnitId: displayUnitId);
+                DisplayUnitId: displayUnitId,
+                SupportedUnits: supportedUnits);
         }
 
         // Branch B: tracked products whose default_location_id matches but have no active stock here
@@ -100,6 +121,8 @@ public sealed class TakeStockReaderAdapter(
 
             var displayUnitId = product.DefaultUnitId.Value;
             var displayUnitCode = unitCodesById.GetValueOrDefault(displayUnitId, "?");
+            var productConversions = productConversionsById.GetValueOrDefault(product.Id.Value, []);
+            var supportedUnits = BuildSupportedUnits(displayUnitId, allUnits, productConversions, unitCodesById);
 
             rows[product.Id.Value] = new TakeStockLocationProductRow(
                 product.Id.Value,
@@ -107,7 +130,8 @@ public sealed class TakeStockReaderAdapter(
                 displayUnitCode,
                 RecordedQuantity: 0m,
                 HasActiveStock: false,
-                DisplayUnitId: displayUnitId);
+                DisplayUnitId: displayUnitId,
+                SupportedUnits: supportedUnits);
         }
 
         return rows.Values
@@ -161,7 +185,8 @@ public sealed class TakeStockReaderAdapter(
                 stock.ProductId,
                 product.Name,
                 displayUnitCode,
-                total));
+                total,
+                DisplayUnitId: displayUnitId));
         }
 
         return rows
@@ -239,6 +264,22 @@ public sealed class TakeStockReaderAdapter(
             if (converted.IsSuccess) total += converted.Value;
         }
         return total;
+    }
+
+    /// <summary>
+    /// Builds the ordered list of <see cref="TakeStockUnitOption"/> for the per-row unit selector (C10).
+    /// Delegates reachability derivation to <see cref="UnitConverter.ReachableUnits"/>.
+    /// </summary>
+    private static IReadOnlyList<TakeStockUnitOption> BuildSupportedUnits(
+        Guid defaultUnitId,
+        IReadOnlyList<Unit> allUnits,
+        IReadOnlyList<ProductConversion> productConversions,
+        Dictionary<Guid, string> unitCodesById)
+    {
+        var reachableIds = UnitConverter.ReachableUnits(defaultUnitId, allUnits, productConversions);
+        return reachableIds
+            .Select(id => new TakeStockUnitOption(id, unitCodesById.GetValueOrDefault(id, "?")))
+            .ToList();
     }
 
     /// <summary>Pass-through converter when no conversion table is available (same-unit lots).</summary>

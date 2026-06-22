@@ -62,7 +62,7 @@
 			</button>
 			<form class="sl-qtyedit" x-show="editingQty" x-cloak="" hx-post="/Shopping?listId=Guid_2&amp;itemId=Guid_1&amp;handler=EditQuantity" hx-target="#shopping-list" hx-swap="outerHTML" x-on:submit="editingQty = false">
 				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-				<div class="stepper stepper--lg" role="group">
+				<div class="stepper" role="group">
 					<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="qty = (+qty - 1) < 0 ? '0' : (+qty - 1).toFixed(3).replace(/\.?0+$/, '') || '0'">
 						<svg class="icon" aria-hidden="true">
 							<use href="#i-minus"></use>

@@ -211,6 +211,70 @@ public sealed class TakeStockReaderAdapterTests
         Assert.Empty(result);
     }
 
+    // ── ListLocationRows SupportedUnits (C10) ────────────────────────────────
+
+    [Fact(DisplayName = "ListLocationRows — product with no conversions yields single-option SupportedUnits (default only)")]
+    public async Task ListLocationRows_NoConversions_SupportedUnitsSingleOption()
+    {
+        var units = new TsUnitRepository();
+        var (gramUnit, gramId) = MakeUnit(units, "g");
+
+        var prods = new TsProductRepository();
+        var flour = Product.Create(Household, "Flour", UnitId.From(gramId), Clock);
+        prods.Add(flour);
+
+        var stocks = new TsStockRepository();
+        var stock = ProductStock.Start(Household, flour.Id.Value, Clock);
+        stock.AddStock(500m, gramId, PantryLocId, userId: Guid.NewGuid(), Clock);
+        stocks.Add(stock);
+
+        var adapter = BuildAdapter(stocks, prods, units, new TsLocationRepository());
+        var result = await adapter.ListLocationRowsAsync(PantryLocId);
+
+        var row = Assert.Single(result);
+        Assert.NotNull(row.SupportedUnits);
+        var unit = Assert.Single(row.SupportedUnits);
+        Assert.Equal(gramId, unit.UnitId);
+        Assert.Equal(gramId, row.DisplayUnitId);
+    }
+
+    [Fact(DisplayName = "ListLocationRows — product with a ProductConversion yields default unit first then alternate")]
+    public async Task ListLocationRows_WithProductConversion_SupportedUnitsHasDefaultFirstAndAlternate()
+    {
+        var units = new TsUnitRepository();
+        // g (Mass) — product default; kg (Mass) — same-dimension sibling; cup (Volume) — cross-dimension via ProductConversion
+        var gramUnit  = CatalogUnit.Create(Household, "g",   "g",   Dimension.Mass,   1m,    isBase: true);
+        var kgUnit    = CatalogUnit.Create(Household, "kg",  "kg",  Dimension.Mass,   1000m);
+        var cupUnit   = CatalogUnit.Create(Household, "cup", "cup", Dimension.Volume, 240m);
+        units.Add(gramUnit);
+        units.Add(kgUnit);
+        units.Add(cupUnit);
+
+        var prods = new TsProductRepository();
+        var flour = Product.Create(Household, "Flour", gramUnit.Id, Clock);
+        // 1 cup ≈ 120 g (cross-dimension product conversion)
+        flour.AddConversion(cupUnit.Id, gramUnit.Id, 120m, Clock);
+        prods.Add(flour);
+
+        var stocks = new TsStockRepository();
+        var stock = ProductStock.Start(Household, flour.Id.Value, Clock);
+        stock.AddStock(500m, gramUnit.Id.Value, PantryLocId, userId: Guid.NewGuid(), Clock);
+        stocks.Add(stock);
+
+        var adapter = BuildAdapter(stocks, prods, units, new TsLocationRepository());
+        var result = await adapter.ListLocationRowsAsync(PantryLocId);
+
+        var row = Assert.Single(result);
+        Assert.NotNull(row.SupportedUnits);
+        // default (g) is first
+        Assert.Equal(gramUnit.Id.Value, row.SupportedUnits[0].UnitId);
+        // both Mass siblings and the Volume anchor are reachable
+        var reachableIds = row.SupportedUnits.Select(u => u.UnitId).ToHashSet();
+        Assert.Contains(gramUnit.Id.Value, reachableIds);  // default
+        Assert.Contains(kgUnit.Id.Value,   reachableIds);  // same-dimension sibling
+        Assert.Contains(cupUnit.Id.Value,  reachableIds);  // ProductConversion anchor
+    }
+
     // ── ListNoLocationRows (J7) ───────────────────────────────────────────────
 
     [Fact(DisplayName = "ListNoLocationRows — tracked product with active stock and no default location returned")]

@@ -434,6 +434,131 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
         }
     }
 
+    [Fact(DisplayName = "Take Stock: unit selector (C10) — select alternate unit, save, Pantry reflects converted quantity (L5)")]
+    public async Task TakeStock_UnitSelector_AlternateUnit_SaveReflectsConvertedQuantity()
+    {
+        var uniqueEmail = $"ts-unit-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"TS Unit {Guid.NewGuid():N}".Substring(0, 18);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household ─────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS Unit Sel E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS Unit E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Create a stock-holding product with default unit = g ──────────────
+            // g is a Mass unit; kg is a same-dimension Mass sibling — both will appear in
+            // the unit selector (C10 SupportedUnits via UnitConverter.ReachableUnits).
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
+            await page.WaitForURLAsync("**/Catalog/Products/Create");
+            await page.FillAsync("[name='Input.Name']", productName);
+            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.ClickAsync("button:has-text('Add product')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+
+            // ── Add 500g to Pantry ─────────────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
+            await productSearch.FillAsync(productName);
+            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "500");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            var pantryRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(pantryRow).ToBeVisibleAsync();
+            await Assertions.Expect(pantryRow).ToContainTextAsync("500 g");
+
+            // ── Navigate to Take Stock → open Pantry walk ─────────────────────────
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            var pantryLink = page.Locator(".ts-loc-card", new() { HasText = "Pantry" });
+            await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pantryLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+
+            // ── Verify the unit selector renders with multiple options (C10) ───────
+            // The selector has aria-label "Unit for <productName>" and should include kg.
+            var unitSelect = page.Locator($"select[aria-label='Unit for {productName}']");
+            await Assertions.Expect(unitSelect).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+
+            // Collect the kg option value (its UUID) from the select to use in Alpine mutation.
+            var kgUnitId = await page.EvaluateAsync<string?>($@"
+                () => {{
+                    const sel = document.querySelector(""select[aria-label='Unit for {productName}']"");
+                    if (!sel) return null;
+                    const kgOpt = Array.from(sel.options).find(o => o.text === 'kg');
+                    return kgOpt ? kgOpt.value : null;
+                }}
+            ");
+            Assert.NotNull(kgUnitId);
+            Assert.NotEqual(string.Empty, kgUnitId);
+
+            // ── Wait for Alpine, then set count=1 in kg via Alpine $data ─────────
+            await page.WaitForFunctionAsync(@"
+                () => {
+                    const el = document.querySelector('[x-data]');
+                    const data = el && window.Alpine && window.Alpine.$data(el);
+                    return data && typeof data.setCount === 'function';
+                }
+            ");
+            await page.EvaluateAsync($@"
+                (kgUnitId) => {{
+                    const el = document.querySelector('[x-data]');
+                    const data = window.Alpine.$data(el);
+                    const firstPid = Object.keys(data.rows)[0];
+                    // Switch the unit to kg before setting the count so the payload carries the new unitId.
+                    data.rows[firstPid].unitId = kgUnitId;
+                    // Set count to 1 (= 1 kg; expect 1000 g in Pantry after Save).
+                    data.setCount(firstPid, 1);
+                }}
+            ", kgUnitId);
+
+            // ── Save bar should appear (row is dirty) ─────────────────────────────
+            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+
+            // ── Tap Save ──────────────────────────────────────────────────────────
+            await page.ClickAsync(".ts-savebar button:has-text('Save')");
+
+            // Toast confirms success.
+            await Assertions.Expect(page.Locator(".ts-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+
+            // Save bar hidden after save.
+            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+
+            // ── Verify Pantry reflects 1 kg = 1000 g ─────────────────────────────
+            // The save command stores the counted value in the chosen unit (kg).
+            // Plantry displays stock in the product's display unit (g), so 1 kg → 1000 g.
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            var updatedRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(updatedRow).ToContainTextAsync("1000 g", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-unit-selector.zip" });
+        }
+    }
+
     [Fact(DisplayName = "Take Stock: no-location section — file unplaced product → moves under its Location (J7/P4-8)")]
     public async Task TakeStock_NoLocation_FileUnplacedProduct_MovesUnderLocation()
     {

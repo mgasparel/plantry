@@ -339,7 +339,10 @@ public sealed class WalkModel(
                 "Correction",
                 false,
                 false,
-                null));
+                null,
+                r.SupportedUnits?
+                    .Select(u => new AlpineUnitOption(u.UnitId, u.Code))
+                    .ToList() ?? []));
 
         return JsonSerializer.Serialize(dict, JsonOptions);
     }
@@ -362,14 +365,19 @@ public sealed class WalkModel(
     // ── DTOs ──────────────────────────────────────────────────────────────────
 
     private sealed record AlpineRow(
-        [property: JsonPropertyName("recorded")]     decimal Recorded,
-        [property: JsonPropertyName("counted")]      decimal Counted,
-        [property: JsonPropertyName("unitCode")]     string  UnitCode,
-        [property: JsonPropertyName("unitId")]       Guid    UnitId,
-        [property: JsonPropertyName("reason")]       string  Reason,
-        [property: JsonPropertyName("dirty")]        bool    Dirty,
-        [property: JsonPropertyName("failed")]       bool    Failed,
-        [property: JsonPropertyName("failMsg")]      string? FailMsg);
+        [property: JsonPropertyName("recorded")]       decimal                    Recorded,
+        [property: JsonPropertyName("counted")]        decimal                    Counted,
+        [property: JsonPropertyName("unitCode")]       string                     UnitCode,
+        [property: JsonPropertyName("unitId")]         Guid                       UnitId,
+        [property: JsonPropertyName("reason")]         string                     Reason,
+        [property: JsonPropertyName("dirty")]          bool                       Dirty,
+        [property: JsonPropertyName("failed")]         bool                       Failed,
+        [property: JsonPropertyName("failMsg")]        string?                    FailMsg,
+        [property: JsonPropertyName("supportedUnits")] List<AlpineUnitOption>     SupportedUnits);
+
+    private sealed record AlpineUnitOption(
+        [property: JsonPropertyName("unitId")] Guid   UnitId,
+        [property: JsonPropertyName("code")]   string Code);
 
     private sealed class SaveRequest
     {

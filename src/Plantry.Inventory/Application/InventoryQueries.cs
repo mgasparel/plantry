@@ -28,7 +28,11 @@ public sealed record PantryListItem(
     DateOnly? SoonestExpiry,
     ExpiryTone ExpiryTone,
     /// <summary>Hue in degrees (0–359) from the product's category. Null when uncategorised or no hue assigned.</summary>
-    int? CategoryHue = null);
+    int? CategoryHue = null,
+    /// <summary>The configured low stock threshold for this product/household pair. Null means no threshold set.</summary>
+    decimal? LowStockThreshold = null,
+    /// <summary>True when <see cref="TotalQuantity"/> ≤ <see cref="LowStockThreshold"/> and a threshold is set.</summary>
+    bool IsRunningLow = false);
 
 /// <summary>One physical lot on the product detail page (SPEC §1b).</summary>
 public sealed record StockLotRow(
@@ -59,7 +63,11 @@ public sealed record ProductStockDetail(
     IReadOnlyList<StockJournalRow> History,
     string? CategoryName = null,
     /// <summary>Hue in degrees (0–359) from the product's category. Null when uncategorised or no hue assigned.</summary>
-    int? CategoryHue = null);
+    int? CategoryHue = null,
+    /// <summary>The configured low stock threshold for this product/household pair. Null means no threshold set.</summary>
+    decimal? LowStockThreshold = null,
+    /// <summary>True when <see cref="TotalQuantity"/> ≤ <see cref="LowStockThreshold"/> and a threshold is set.</summary>
+    bool IsRunningLow = false);
 
 /// <summary>
 /// Builds the pantry list and product-stock detail read models. Inventory owns the lots/journal; the
@@ -123,7 +131,9 @@ public sealed class InventoryQueryService(
                 activeLots.Count,
                 soonest,
                 ToneFor(soonest, today),
-                CategoryHue: product.CategoryHue));
+                CategoryHue: product.CategoryHue,
+                LowStockThreshold: stock.LowStockThreshold,
+                IsRunningLow: stock.IsRunningLow(total)));
         }
 
         return items
@@ -180,7 +190,9 @@ public sealed class InventoryQueryService(
             lots,
             history,
             CategoryName: product?.CategoryName,
-            CategoryHue: product?.CategoryHue);
+            CategoryHue: product?.CategoryHue,
+            LowStockThreshold: stock.LowStockThreshold,
+            IsRunningLow: stock.IsRunningLow(total));
     }
 
     /// <summary>

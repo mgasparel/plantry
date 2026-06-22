@@ -1,0 +1,11 @@
+[
+  {
+    "id": 1,
+    "entity": "recipes",
+    "name": "original_recipe",
+    "caption": "Original Recipe URL",
+    "type": "link",
+    "show_as_column_in_tables": 1,
+    "row_created_timestamp": "2024-01-01 00:00:00"
+  }
+]
