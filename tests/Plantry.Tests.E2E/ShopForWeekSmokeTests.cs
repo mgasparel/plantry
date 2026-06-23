@@ -108,12 +108,15 @@ public sealed class ShopForWeekSmokeTests(AppHostFixture appHost) : IAsyncLifeti
             await page.WaitForURLAsync("**/MealPlan**");
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
 
-            // Extract the first empty cell's date + slotId from its hx-get attribute.
-            var hxGet = await page.Locator(".empty-add").First.GetAttributeAsync("hx-get");
-            Assert.NotNull(hxGet);
-            var qs = System.Web.HttpUtility.ParseQueryString(new Uri("http://x" + hxGet).Query);
-            var cellDate = qs["date"] ?? "";
-            var slotId = qs["slotId"] ?? "";
+            // Extract the first empty cell's date + slotId from its onclick attribute.
+            // After island port (plantry-2zvm.4): empty-add uses onclick openEditor() not hx-get.
+            var onclick = await page.Locator(".empty-add").First.GetAttributeAsync("onclick");
+            Assert.NotNull(onclick);
+            var cellMatch = System.Text.RegularExpressions.Regex.Match(
+                onclick!, @"openEditor\('([^']+)',\s*'([^']+)',\s*null\)");
+            Assert.True(cellMatch.Success, $"Could not parse openEditor from onclick: {onclick}");
+            var cellDate = cellMatch.Groups[1].Value;
+            var slotId = cellMatch.Groups[2].Value;
             Assert.NotEmpty(cellDate);
             Assert.NotEmpty(slotId);
 

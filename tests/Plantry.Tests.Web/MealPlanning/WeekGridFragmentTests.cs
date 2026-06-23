@@ -202,10 +202,11 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
         var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
         var token = ExtractAntiforgeryToken(pageHtml);
 
+        // After island port (plantry-2zvm.4): add-meal buttons call openEditor() not hx-get.
         var cell = System.Text.RegularExpressions.Regex.Match(
             pageHtml,
-            "class=\"add-meal\"[^>]*hx-get=\"/MealPlan\\?handler=Editor&date=([^&]+)&slotId=([^\"]+)\"");
-        Assert.True(cell.Success, "Expected an add-meal button with an Editor hx-get on the seeded cell.");
+            "class=\"add-meal\"[^>]*onclick=\"[^\"]*openEditor\\('([^']+)',\\s*'([^']+)',\\s*null\\)");
+        Assert.True(cell.Success, "Expected an add-meal button with openEditor onclick on the seeded cell.");
         var date = cell.Groups[1].Value;
         var slotId = cell.Groups[2].Value;
 

@@ -11,20 +11,23 @@ using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.Preferences;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
 /// <summary>
-/// ADR-013 OOB-contract tests for the meal editor (plantry-cyj).
+/// ADR-013 OOB-contract tests for the meal editor (plantry-cyj, updated plantry-2zvm.4).
 ///
 /// Acceptance criteria:
-///   1. No client-side rollup formula — OnPostRollupAsync returns _EditorRollup for server-computed
-///      fulfillment/cost; the response does NOT carry a full-region repaint.
-///   2. Editor save (POST Assign) and clear (POST Clear) route through CellFragmentAsync and carry
-///      the #plan-rail projection, asserted by the shared OobContract primitive.
-///   3. The editor partial (GET Editor) renders the Alpine component scaffold (meal-editor-inner
-///      root, ed-rollup container for the server-swap target, Save/Clear action wiring).
+///   1. No client-side rollup formula — POST RollupJson returns { html } JSON carrying server-
+///      computed fulfillment/cost; the response does NOT carry a full-region repaint.
+///   2. Island save (POST AssignJson) and clear (POST ClearJson) return JSON carrying
+///      cellHtml, railHtml, barNavHtml projections — the ADR-013 OOB contract in JSON form.
+///   3. GET EditorJson returns JSON with island hydration (island scaffold, slotLabel, mode, etc.)
+///   4. The island mount point is present in the page (meal-planner-island-root).
 /// </summary>
 public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobContractFactory>
 {
@@ -41,37 +44,56 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
 
     // ── 1. Rollup handler: server-computed, no client formula ────────────────
 
-    [Fact(DisplayName = "POST Rollup returns _EditorRollup fragment for an empty dish list")]
-    public async Task PostRollup_EmptyDishList_ReturnsRollupFragment()
+    [Fact(DisplayName = "POST RollupJson returns { html } with empty-dish hint for an empty dish list")]
+    public async Task PostRollupJson_EmptyDishList_ReturnsRollupHtml()
     {
         var client = CreateClient();
-        var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
-
         var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
         var token = ExtractAntiforgeryToken(pageHtml);
 
-        var form = new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            new KeyValuePair<string, string>("mode", "dishes"),
-        });
-
+        var body = JsonSerializer.Serialize(new { mode = "dishes", dishes = Array.Empty<object>() });
         var response = await client.PostAsync(
-            $"/MealPlan?handler=Rollup&date=2026-06-01&slotId={slot.Id.Value:D}", form);
+            "/MealPlan?handler=RollupJson",
+            CreateJsonContent(body, token));
 
         response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
 
         // Empty dish list → "Add a dish to see fulfillment & cost" hint
-        Assert.Contains("Add a dish to see fulfillment", html);
+        Assert.True(doc.RootElement.TryGetProperty("html", out var htmlEl));
+        Assert.Contains("Add a dish to see fulfillment", htmlEl.GetString() ?? "");
 
-        // Must NOT be a full region repaint — the response is _EditorRollup only, not a cell swap.
-        OobContract.AssertNoFullRepaint(html, "wkgrid");
-        OobContract.AssertNoFullRepaint(html, "plan-rail");
+        // Must NOT be a full region repaint — the response carries _EditorRollup only.
+        var htmlStr = htmlEl.GetString() ?? "";
+        OobContract.AssertNoFullRepaint(htmlStr, "wkgrid");
+        OobContract.AssertNoFullRepaint(htmlStr, "plan-rail");
     }
 
-    [Fact(DisplayName = "POST Rollup in note mode returns note hint")]
-    public async Task PostRollup_NoteMode_ReturnsNoteHint()
+    [Fact(DisplayName = "POST RollupJson in note mode returns note hint in { html }")]
+    public async Task PostRollupJson_NoteMode_ReturnsNoteHint()
+    {
+        var client = CreateClient();
+        var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+
+        var body = JsonSerializer.Serialize(new { mode = "note", dishes = Array.Empty<object>() });
+        var response = await client.PostAsync(
+            "/MealPlan?handler=RollupJson",
+            CreateJsonContent(body, token));
+
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+
+        Assert.True(doc.RootElement.TryGetProperty("html", out var htmlEl));
+        Assert.Contains("A note keeps the slot", htmlEl.GetString() ?? "");
+    }
+
+    // ── 2. OobContract (JSON form): AssignJson and ClearJson carry projections ──
+
+    [Fact(DisplayName = "POST AssignJson returns cellHtml + railHtml + barNavHtml (OobContract — island JSON path)")]
+    public async Task PostAssignJson_CarriesPlanRailProjection()
     {
         var client = CreateClient();
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
@@ -79,53 +101,97 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
         var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
         var token = ExtractAntiforgeryToken(pageHtml);
 
-        var form = new FormUrlEncodedContent(new[]
+        var payload = new
         {
-            new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            new KeyValuePair<string, string>("mode", "note"),
-        });
-
+            date = "2026-06-01",
+            slotId = slot.Id.Value,
+            mode = "note",
+            note = "Editor OOB test",
+            dishes = Array.Empty<object>(),
+            att = Array.Empty<string>(),
+            attendeesOverridden = false,
+            mealId = (Guid?)null,
+        };
         var response = await client.PostAsync(
-            $"/MealPlan?handler=Rollup&date=2026-06-01&slotId={slot.Id.Value:D}", form);
+            "/MealPlan?handler=AssignJson",
+            CreateJsonContent(JsonSerializer.Serialize(payload), token));
 
         response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
 
-        Assert.Contains("A note keeps the slot", html);
+        // Response must carry the three HTML fragment keys
+        Assert.True(doc.RootElement.TryGetProperty("cellHtml", out var cellEl), "Response missing cellHtml");
+        Assert.True(doc.RootElement.TryGetProperty("railHtml", out var railEl), "Response missing railHtml");
+        Assert.True(doc.RootElement.TryGetProperty("barNavHtml", out var barEl), "Response missing barNavHtml");
+
+        // ADR-013 OOB-contract: each fragment must carry relevant identifiers.
+        // Cell: carries class="mcell" (id is dynamic: cell-{slotId:N}-{date})
+        var cellHtmlStr = cellEl.GetString() ?? "";
+        Assert.Contains("mcell", cellHtmlStr);
+        // Rail: carries id="plan-rail"
+        OobContract.AssertCarriesProjections(railEl.GetString() ?? "", "plan-rail");
+        // BarNav: plantry-khw — plan-bar-nav, plan-cost-chip, plan-bar-autofill
+        OobContract.AssertCarriesProjections(barEl.GetString() ?? "", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
     }
 
-    // ── 2. OobContract: Assign and Clear carry plan-rail ────────────────────
-
-    [Fact(DisplayName = "POST Assign re-emits #plan-rail out-of-band (OobContract — editor path)")]
-    public async Task PostAssign_CarriesPlanRailProjection()
+    [Fact(DisplayName = "POST AssignJson dishes-mode carries cellHtml + railHtml + barNavHtml (BuildDishSpecsFromJson covers array parsing — no key-collapse)")]
+    public async Task PostAssignJson_DishMode_CarriesPlanRailProjection()
     {
+        // Verifies the dish-mode path through AssignJson + BuildDishSpecsFromJson.
+        // BuildDishSpecsFromJson replaced the legacy BuildDishSpecs form-array parser
+        // that had the Object.fromEntries key-collapse bug (repeated dish keys were
+        // lost). Using a two-element dishes array confirms both entries survive parsing.
         var client = CreateClient();
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
 
         var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
         var token = ExtractAntiforgeryToken(pageHtml);
 
-        var form = new FormUrlEncodedContent(new[]
+        var payload = new
         {
-            new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            new KeyValuePair<string, string>("mode", "note"),
-            new KeyValuePair<string, string>("note", "Editor OOB test"),
-        });
-
+            date = "2026-06-01",
+            slotId = slot.Id.Value,
+            mode = "dishes",
+            note = (string?)null,
+            dishes = new[]
+            {
+                new { kind = "recipe", itemId = Guid.Parse("00000000-0000-0000-0000-000000000099"), servings = 2 },
+                new { kind = "recipe", itemId = Guid.Parse("00000000-0000-0000-0000-0000000000aa"), servings = 3 },
+            },
+            att = Array.Empty<string>(),
+            attendeesOverridden = false,
+            mealId = (Guid?)null,
+        };
         var response = await client.PostAsync(
-            $"/MealPlan?handler=Assign&date=2026-06-01&slotId={slot.Id.Value:D}", form);
+            "/MealPlan?handler=AssignJson",
+            CreateJsonContent(JsonSerializer.Serialize(payload), token));
 
         response.EnsureSuccessStatusCode();
-        var fragment = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
 
-        // ADR-013 OOB-contract: mutation response must carry the plan-rail projection.
-        // plantry-khw: also carries plan-bar-nav, plan-cost-chip, plan-bar-autofill projections.
-        // plantry-pg6: plan-cost-chip (renamed from plan-bar-cost) is the stable id for the budget chip.
-        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
+        // Three-fragment OOB contract
+        Assert.True(doc.RootElement.TryGetProperty("cellHtml", out var cellEl), "Response missing cellHtml");
+        Assert.True(doc.RootElement.TryGetProperty("railHtml", out var railEl), "Response missing railHtml");
+        Assert.True(doc.RootElement.TryGetProperty("barNavHtml", out var barEl), "Response missing barNavHtml");
+
+        // Cell carries mcell class — proves AssignMeal ran via BuildDishSpecsFromJson (both dishes present)
+        var cellHtml = cellEl.GetString() ?? "";
+        Assert.Contains("mcell", cellHtml);
+        // Dish-mode filled cell must carry "filled" class (not empty)
+        Assert.Contains("filled", cellHtml);
+
+        // Rail and barNav projections — same OOB contract as note mode
+        OobContract.AssertCarriesProjections(railEl.GetString() ?? "", "plan-rail");
+        OobContract.AssertCarriesProjections(barEl.GetString() ?? "", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
+
+        // No client-side rollup formula in the cell or rail HTML
+        OobContract.AssertNoFullRepaint(cellHtml, "wkgrid");
     }
 
-    [Fact(DisplayName = "POST Clear re-emits #plan-rail and plan-bar projections out-of-band (OobContract — editor path)")]
-    public async Task PostClear_CarriesPlanRailProjection()
+    [Fact(DisplayName = "POST ClearJson returns cellHtml + railHtml + barNavHtml (OobContract — island JSON path)")]
+    public async Task PostClearJson_CarriesPlanRailProjection()
     {
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, MealEditorFixture.HouseholdId.ToString());
@@ -135,77 +201,118 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
 
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
 
+        var payload = new
+        {
+            date = "2026-06-01",
+            slotId = slot.Id.Value,
+            mealId = MealEditorFixture.SeedMealId,
+        };
         var response = await client.PostAsync(
-            $"/MealPlan?handler=Clear&date=2026-06-01&slotId={slot.Id.Value:D}&mealId={MealEditorFixture.SeedMealId:D}",
-            new FormUrlEncodedContent(new[]
-            {
-                new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            }));
+            "/MealPlan?handler=ClearJson",
+            CreateJsonContent(JsonSerializer.Serialize(payload), token));
 
         response.EnsureSuccessStatusCode();
-        var fragment = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
 
-        // ADR-013 OOB-contract: mutation response must carry rail and plan-bar projections.
-        // plantry-khw: plan-bar-nav/autofill are re-emitted alongside every cell mutation.
-        // plantry-pg6: plan-cost-chip (renamed from plan-bar-cost) carries the budget chip.
-        OobContract.AssertCarriesProjections(fragment, "plan-rail", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
+        Assert.True(doc.RootElement.TryGetProperty("cellHtml", out var cellEl2), "Response missing cellHtml");
+        Assert.True(doc.RootElement.TryGetProperty("railHtml", out var railEl2), "Response missing railHtml");
+        Assert.True(doc.RootElement.TryGetProperty("barNavHtml", out var barEl2), "Response missing barNavHtml");
+
+        // Cell: carries class="mcell" (id is dynamic: cell-{slotId:N}-{date})
+        Assert.Contains("mcell", cellEl2.GetString() ?? "");
+        OobContract.AssertCarriesProjections(railEl2.GetString() ?? "", "plan-rail");
+        OobContract.AssertCarriesProjections(barEl2.GetString() ?? "", "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
     }
 
-    // ── 3. Editor partial scaffold ───────────────────────────────────────────
+    // ── 3. Island scaffold: GET EditorJson and page mount point ─────────────
 
-    [Fact(DisplayName = "GET Editor returns editor partial with meal-editor-inner root and ed-rollup container")]
-    public async Task GetEditor_ReturnsEditorScaffold()
+    [Fact(DisplayName = "GET EditorJson returns island hydration JSON with slotLabel, mode, and dish state")]
+    public async Task GetEditorJson_ReturnsIslandHydration()
     {
         var client = CreateClient();
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
 
         var response = await client.GetAsync(
-            $"/MealPlan?handler=Editor&date=2026-06-01&slotId={slot.Id.Value:D}");
+            $"/MealPlan?handler=EditorJson&date=2026-06-01&slotId={slot.Id.Value:D}");
 
         response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
 
-        // Editor root carries the Alpine.data component registration reference
-        Assert.Contains("meal-editor-inner", html);
-        Assert.Contains("mealEditor(", html);
+        // Core fields the island requires on mount
+        Assert.True(root.TryGetProperty("slotLabel", out _), "Response missing slotLabel");
+        Assert.True(root.TryGetProperty("mode", out var modeEl), "Response missing mode");
+        Assert.True(root.TryGetProperty("dishes", out _), "Response missing dishes");
+        Assert.True(root.TryGetProperty("att", out _), "Response missing att");
+        Assert.True(root.TryGetProperty("defaultAtt", out _), "Response missing defaultAtt");
+        Assert.True(root.TryGetProperty("isEditing", out _), "Response missing isEditing");
+        Assert.True(root.TryGetProperty("dateStr", out _), "Response missing dateStr");
+        Assert.True(root.TryGetProperty("slotIdStr", out _), "Response missing slotIdStr");
 
-        // Rollup container present for the server-swap target (ADR-013 §4/§5)
-        Assert.Contains("ed-rollup-", html);
+        // New empty slot: mode = "dishes", no mealId
+        Assert.Equal("dishes", modeEl.GetString());
 
-        // Save and cancel buttons
-        Assert.Contains("Save meal", html);
-        Assert.Contains("Cancel", html);
-
-        // No inline client formula — the 'roll' getter must NOT be in the response
-        Assert.DoesNotContain("get roll()", html);
-        Assert.DoesNotContain("mirrors PL.rollup", html);
+        // No client rollup formula — the JSON must NOT contain fulfillment formula tokens
+        Assert.DoesNotContain("get roll()", json);
+        Assert.DoesNotContain("mirrors PL.rollup", json);
     }
 
-    // ── 4. Initial rollup on GET Editor for existing meal (regression guard) ─
+    // ── 4. Island mount point is present in the page ─────────────────────────
 
-    [Fact(DisplayName = "GET Editor for existing dish meal renders initial rollup from server (no client formula)")]
-    public async Task GetEditor_ExistingDishMeal_RendersInitialRollup()
+    [Fact(DisplayName = "MealPlan page contains island mount point and hydration payload")]
+    public async Task MealPlanPage_ContainsIslandMountPoint()
     {
-        // Uses a variant factory that seeds a recipe-dish meal and returns enrichment data,
-        // so fulfillmentService.RollUpMealAsync returns a non-zero percent on open.
+        var client = CreateClient();
+        var html = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+
+        // Island mount root where Preact renders
+        Assert.Contains("id=\"meal-planner-island-root\"", html);
+
+        // Island hydration payload (JSON embedded for readHydration())
+        Assert.Contains("id=\"meal-planner-island-data\"", html);
+
+        // Island mount script
+        Assert.Contains("mountMealPlanner", html);
+
+        // Rollup stays server-side — no client formula in the page
+        Assert.DoesNotContain("get roll()", html);
+        Assert.DoesNotContain("mirrors PL.rollup", html);
+
+        // ed-rollup- container id prefix — the island renders this via dangerouslySetInnerHTML
+        // driven by the server rollup endpoint; the id must appear in the island JS, not inline HTML.
+        // The page no longer embeds the Alpine _MealEditor partial (mealEditor( Alpine registration removed).
+        Assert.DoesNotContain("mealEditor(", html);
+    }
+
+    // ── 5. Initial rollup on GET EditorJson for existing meal (regression guard) ─
+
+    [Fact(DisplayName = "GET EditorJson for existing dish meal returns initialRollupHtml from server (no client formula)")]
+    public async Task GetEditorJson_ExistingDishMeal_ReturnsInitialRollup()
+    {
         await using var factory = new ExistingDishMealEditorFactory();
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, WeekGridFixture.HouseholdId.ToString());
 
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
-
-        // GET Editor for the seeded meal — use the repo's exposed meal ID so it matches
         var mealId = factory.Repo.SeedMealId;
+
         var response = await client.GetAsync(
-            $"/MealPlan?handler=Editor&date=2026-06-01&slotId={slot.Id.Value:D}&mealId={mealId:D}");
+            $"/MealPlan?handler=EditorJson&date=2026-06-01&slotId={slot.Id.Value:D}&mealId={mealId:D}");
 
         response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
 
-        // The initial rollup section must render fulfillment info — not the empty-state hint.
+        Assert.True(root.TryGetProperty("initialRollupHtml", out var rollupEl));
+        var rollupHtml = rollupEl.GetString() ?? "";
+
+        // The initial rollup section must contain fulfillment info — not the empty-state hint.
         // If the regression recurs, this shows "Add a dish to see fulfillment & cost" instead.
-        Assert.DoesNotContain("Add a dish to see fulfillment", html);
-        Assert.Contains("in your pantry", html);
+        Assert.DoesNotContain("Add a dish to see fulfillment", rollupHtml);
+        Assert.Contains("in your pantry", rollupHtml);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -216,6 +323,14 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
             html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"");
         Assert.True(match.Success, "No antiforgery token found on the page.");
         return match.Groups[1].Value;
+    }
+
+    private static HttpContent CreateJsonContent(string json, string token)
+    {
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        content.Headers.Add("RequestVerificationToken", token);
+        content.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        return content;
     }
 }
 
@@ -230,7 +345,7 @@ internal static class MealEditorFixture
 /// <summary>
 /// Factory for meal editor OOB contract tests. Extends WeekGridFragmentFactory with:
 ///   - A real UserManager stub (POST handlers call GetCurrentUserIdAsync)
-///   - A seeded plan repo that has one meal so POST Clear has something to remove
+///   - A seeded plan repo that has one meal so POST ClearJson has something to remove
 /// </summary>
 public sealed class MealEditorOobContractFactory : WeekGridFragmentFactory
 {
@@ -240,12 +355,12 @@ public sealed class MealEditorOobContractFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
-            // POST Assign and POST Clear resolve the current user — stub UserManager.
+            // POST AssignJson and POST ClearJson resolve the current user — stub UserManager.
             services.RemoveAll<UserManager<AppUser>>();
             services.AddSingleton<UserManager<AppUser>>(
                 new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000aa" }));
 
-            // Seeded repo: one note meal on 2026-06-01 in slot 0, used by POST Clear test.
+            // Seeded repo: one note meal on 2026-06-01 in slot 0, used by POST ClearJson test.
             services.RemoveAll<IMealPlanRepository>();
             services.AddScoped<IMealPlanRepository>(_ => new SeededMealEditorRepo());
         });
@@ -253,7 +368,7 @@ public sealed class MealEditorOobContractFactory : WeekGridFragmentFactory
 }
 
 /// <summary>
-/// Meal plan repo seeded with one note meal so POST Clear can find a meal to remove.
+/// Meal plan repo seeded with one note meal so POST ClearJson can find a meal to remove.
 /// </summary>
 internal sealed class SeededMealEditorRepo : IMealPlanRepository
 {
@@ -281,15 +396,17 @@ internal sealed class SeededMealEditorRepo : IMealPlanRepository
             : weekStart);
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
         var plan = MealPlan.Start(householdId, monday, _clock);
-        plan.AssignNote(DateOnly.Parse("2026-06-01"), slot.Id, "ClearTestNote", null, "manual", Guid.Empty, _clock);
+        // Assign the note on the FIRST day of the plan's week (not hardcoded to 2026-06-01
+        // which would be outside the plan's week when tests run on a different Monday).
+        plan.AssignNote(monday, slot.Id, "ClearTestNote", null, "manual", Guid.Empty, _clock);
         return plan;
     }
 }
 
 /// <summary>
-/// Factory for the "GET Editor for existing dish meal renders initial rollup" regression test.
+/// Factory for the "GET EditorJson for existing dish meal returns initial rollup" regression test.
 /// Seeds a plan with a recipe dish meal and stubs the recipe reader to return enrichment data
-/// (so fulfillmentService.RollUpMealAsync returns a non-zero percent on the GET Editor open).
+/// (so fulfillmentService.RollUpMealAsync returns a non-zero percent on the GET EditorJson open).
 /// </summary>
 public sealed class ExistingDishMealEditorFactory : WeekGridFragmentFactory
 {

@@ -58,38 +58,22 @@
     </div>
 </div>
 
-@* Meal editor modal — loaded via htmx into this container *@
-<div id="meal-editor-modal" class="modal-veil" style="display:none"
-     x-data="{ open: false }"
-     x-show="open" x-cloak
-     @@keydown.escape.window="open = false">
-    <div class="editor" role="dialog" aria-modal="true" id="meal-editor-dialog">
-        @* Content injected by htmx *@
-    </div>
-</div>
+@* Island hydration payload — read by meal-planner.js via readHydration('meal-planner-island-data').
+   Contains endpoint URLs + household member data for the editor island.
+   Emitted unconditionally: the island mounts on every MealPlan page load. *@
+<script type="application/json" id="meal-planner-island-data">@Html.Raw(Model.IslandHydrationJson)</script>
+
+@* Antiforgery token — read by the island via readAntiforgeryToken() in helpers.js *@
+@Html.AntiForgeryToken()
+
+@* Island mount point — meal-planner.js renders the modal veil + editor dialog here.
+   Replaces the old Alpine-managed #meal-editor-modal div.
+   The island shows/hides the modal via Preact render; htmx is not involved. *@
+<div id="meal-planner-island-root"></div>
 
 @section Scripts {
+    @* Drag-drop: HTML5 + htmx (MP-O8: identified by mealId, not cell coordinates) *@
     <script>
-        // Open the editor modal when htmx loads the editor fragment
-        document.addEventListener('htmx:afterSwap', function (e) {
-            if (e.detail.target && e.detail.target.id === 'meal-editor-dialog') {
-                const veil = document.getElementById('meal-editor-modal');
-                if (veil) {
-                    veil.style.display = 'grid';
-                    veil._x_dataStack && (veil._x_dataStack[0].open = true);
-                }
-            }
-        });
-
-        function closeMealEditor() {
-            const veil = document.getElementById('meal-editor-modal');
-            if (veil) {
-                veil.style.display = 'none';
-                document.getElementById('meal-editor-dialog').innerHTML = '';
-            }
-        }
-
-        // Drag-drop: HTML5 + htmx (MP-O8: identified by mealId, not cell coordinates)
         function onDragStart(e, mealId, date, slotId) {
             e.dataTransfer.setData('text/plain', JSON.stringify({ mealId, date, slotId }));
             e.dataTransfer.effectAllowed = 'move';
@@ -120,8 +104,6 @@
                     headers: { 'RequestVerificationToken': document.querySelector('[name=__RequestVerificationToken]')?.value ?? '' }
                 });
         }
-
-        // planTune Alpine.data component lives in wwwroot/js/plan-tune.js (ADR-013 §5).
 
         // Alpine component: "Shop for this week" button (P3-4)
         function shopWeek() {
@@ -155,5 +137,18 @@
             };
         }
     </script>
-    @Html.AntiForgeryToken()
+
+    @* Mount the meal-planner island (replaces Alpine mealEditor + addDishFromResult bridge).
+       plan-tune.js (planning-weights popover) remains Alpine — it is not part of the editor. *@
+    <script type="module">
+        import { mountMealPlanner } from '/js/islands/meal-planner.js';
+        import { readHydration } from '/js/islands/helpers.js';
+
+        const root = document.getElementById('meal-planner-island-root');
+        const hydration = readHydration('meal-planner-island-data');
+
+        if (root && hydration) {
+            mountMealPlanner(root, hydration);
+        }
+    </script>
 }
