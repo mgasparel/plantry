@@ -1,28 +1,43 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Pages.Shared;
-using Plantry.Web.TagHelpers;
 
 namespace Plantry.Web.Pages.Intake;
 
 /// <summary>
-/// SPEC §2e — the intake review form. Renders a <c>Ready</c> <see cref="ImportSession"/> and its lines and
-/// drives per-line resolution through htmx fragments: each row action (confirm against an existing product,
-/// confirm-as-new, dismiss, restore) posts to a handler that returns the OOB-bundle contract (ADR-013 §1) —
-/// the one changed row swapped in place via outerHTML, plus OOB fragments for chips/progress/commit-bar/receipt-total.
+/// SPEC §2e — the intake review form. Renders a <c>Ready</c> <see cref="ImportSession"/> as a
+/// Preact island (ADR-020, plantry-2zvm.3) that owns all UI/draft/derived state. The OOB-bundle
+/// machinery (ADR-013) is retired for this surface — a reactive runtime makes derived-view drift
+/// structurally impossible.
 ///
-/// <para>The application commands (plantry-kuv) are constructed per-request here rather than injected — only
-/// the repository, tenant context and reference-data provider are DI'd. AI-suggested fields are display-only
-/// hints; nothing reaches the pantry until the user resolves a line and the session is committed through
-/// <see cref="CommitSessionCommand"/> (only Confirmed lines commit; committed lines are never re-written).</para>
+/// <para>GET: loads the session and builds the full hydration JSON that the island reads on mount.
+/// The hydration includes session header, reference data (products with defaults+skus, units,
+/// locations, categories), and per-line { line, prefill } objects where prefill is computed
+/// server-side via <see cref="ReviewRowModel.ComputePrefill"/> (the priority chain stays here,
+/// per ADR-020 §3 / Boundary judgment call 1).</para>
+///
+/// <para>POST endpoints return JSON (ADR-015 amendment: island data endpoints return JSON):
+///   SaveLine    → { status, isNewProduct, newProductName, productId, productName, price } | { error }
+///   DismissLine → { status } | { error }
+///   RestoreLine → { status } | { error }
+///   Commit      → { redirectUrl } | { error }
+///   Discard     → { redirectUrl } | { error }
+/// </para>
+///
+/// <para>The application commands are constructed per-request here rather than injected — only
+/// the repository, tenant context and reference-data provider are DI'd. AI-suggested fields are
+/// display-only hints; nothing reaches the pantry until the user resolves a line and the session
+/// is committed through <see cref="CommitSessionCommand"/> (only Confirmed lines commit; committed
+/// lines are never re-written).</para>
 /// </summary>
 [Authorize]
 public sealed class ReviewModel(
@@ -34,35 +49,25 @@ public sealed class ReviewModel(
     IClock clock,
     ITenantContext tenant) : PageModel
 {
-    /// <summary>Session id from the route; bound on GET and round-tripped on every row/commit POST.</summary>
+    /// <summary>Session id from the route; bound on GET and carried on every POST via the URL.</summary>
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
 
     public SessionReviewView Session { get; private set; } = null!;
 
-    public IReadOnlyList<ReviewRowModel> Rows { get; private set; } = [];
-
-    /// <summary>Today's date derived from the injected <see cref="IClock"/> — exposed so Razor partials
-    /// can embed it in Alpine x-data without reaching for <c>DateTime.UtcNow</c> directly, keeping the
-    /// rendered output deterministic under the test clock.</summary>
+    /// <summary>Today's date derived from the injected <see cref="IClock"/> — used in the hydration JSON.</summary>
     public DateOnly Today { get; private set; }
 
-    public IReadOnlyList<SelectListItem> ProductOptions { get; private set; } = [];
-    public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
-    public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
-    public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
+    /// <summary>Island hydration JSON — embedded in the page by Review.cshtml as a
+    /// &lt;script type="application/json"&gt; block for zero-round-trip island mount.</summary>
+    public string IslandHydrationJson { get; private set; } = "null";
 
-    /// <summary>Per-row edit form, model-bound on a save POST. The hidden <see cref="LineId"/> identifies
-    /// which line the drawer belongs to; <see cref="CreateNew"/> switches resolution to the §2d create path.</summary>
-    [BindProperty]
-    public LineEditInput Edit { get; set; } = new();
-
+    /// <summary>Per-row edit form shape — kept for JSON deserialization on POST.</summary>
     public sealed class LineEditInput
     {
         public Guid LineId { get; set; }
         public bool CreateNew { get; set; }
         public Guid? ProductId { get; set; }
-        /// <summary>Optional pack-size selection — the user picks the SKU manually; the AI only supplies the product match.</summary>
         public Guid? SkuId { get; set; }
         public string? NewProductName { get; set; }
         public Guid? NewProductCategoryId { get; set; }
@@ -79,66 +84,94 @@ public sealed class ReviewModel(
         if (loaded is { } failure)
             return failure;
 
-        // The review form only applies to a session the user can still act on. A committed or discarded
-        // session has no review to do — send the user to the pantry where the result lives.
         if (Session.Status != ImportStatus.Ready)
             return RedirectToPage("/Pantry/Index");
 
+        IslandHydrationJson = BuildHydrationJson();
         return Page();
     }
 
-    // ── Row actions — each returns the ADR-013 OOB-bundle (one row + four aggregate OOB fragments) ──
+    // ── Row actions — JSON endpoints (ADR-015 amendment: island data endpoints return JSON) ──
 
     /// <summary>Confirm/resolve a line — against an existing catalog product, or (CreateNew) the §2d
-    /// create-or-link path. Returns the OOB-bundle on success; a row error on validation failure.</summary>
+    /// create-or-link path. Returns updated line state as JSON on success; an error JSON on failure.
+    /// The server re-validates all fields and is authoritative (Boundary judgment call 3).
+    /// Id is route-bound (from /Intake/Review/{id:guid}?handler=SaveLine).</summary>
     public async Task<IActionResult> OnPostSaveLineAsync(CancellationToken ct)
     {
         var loaded = await LoadAsync(ct);
         if (loaded is { } failure)
             return failure;
 
-        var lineId = ImportLineId.From(Edit.LineId);
+        LineEditInput edit;
+        try
+        {
+            edit = await ReadJsonBodyAsync<LineEditInput>(ct) ?? new LineEditInput();
+        }
+        catch
+        {
+            return JsonError("Invalid request body.");
+        }
 
-        // Validate the user-resolved fields here, before the command — a confirmed line must carry a real
-        // quantity, unit and location (the AI hints are never trusted to fill these). The domain commands
-        // take them as required values, so a missing field is surfaced as an inline row error.
-        if (Edit.Quantity is not { } quantity || quantity <= 0m)
-            return RowError(lineId, "Enter a quantity greater than zero.");
-        if (Edit.UnitId is not { } unitId)
-            return RowError(lineId, "Choose a unit.");
-        if (Edit.LocationId is not { } locationId)
-            return RowError(lineId, "Choose a location.");
+        var lineId = ImportLineId.From(edit.LineId);
+
+        if (edit.Quantity is not { } quantity || quantity <= 0m)
+            return JsonError("Enter a quantity greater than zero.");
+        if (edit.UnitId is not { } unitId)
+            return JsonError("Choose a unit.");
+        if (edit.LocationId is not { } locationId)
+            return JsonError("Choose a location.");
 
         Result result;
-        if (Edit.CreateNew)
+        if (edit.CreateNew)
         {
-            if (string.IsNullOrWhiteSpace(Edit.NewProductName) || Edit.NewProductCategoryId is null)
-                return RowError(lineId, "A new product needs a name and a category.");
+            if (string.IsNullOrWhiteSpace(edit.NewProductName) || edit.NewProductCategoryId is null)
+                return JsonError("A new product needs a name and a category.");
 
             result = await new ConfirmLineAsNewCommand(
                 ImportSessionId.From(Id), lineId,
-                Edit.NewProductName!, Edit.NewProductCategoryId!.Value,
+                edit.NewProductName!, edit.NewProductCategoryId!.Value,
                 quantity, unitId, locationId,
-                Edit.ExpiryDate, Edit.Price,
+                edit.ExpiryDate, edit.Price,
                 sessions, tenant).ExecuteAsync(ct);
         }
         else
         {
-            if (Edit.ProductId is null)
-                return RowError(lineId, "Choose a product, or switch to creating a new one.");
+            if (edit.ProductId is null)
+                return JsonError("Choose a product, or switch to creating a new one.");
 
             result = await new ResolveLineCommand(
                 ImportSessionId.From(Id), lineId,
-                Edit.ProductId!.Value, skuId: Edit.SkuId,
+                edit.ProductId!.Value, skuId: edit.SkuId,
                 quantity, unitId, locationId,
-                Edit.ExpiryDate, Edit.Price,
+                edit.ExpiryDate, edit.Price,
                 sessions, tenant).ExecuteAsync(ct);
         }
 
-        return await RowResultAsync(lineId, result, ct);
+        if (result.IsFailure)
+            return JsonError(result.Error.Description);
+
+        // Reload to get the updated line state
+        await LoadAsync(ct);
+        var updated = Session.Lines.FirstOrDefault(l => l.LineId == lineId.Value);
+        if (updated is null)
+            return JsonError("Line not found after save.");
+
+        return new JsonResult(new
+        {
+            status = updated.Status.ToString(),
+            isNewProduct = updated.IsNewProduct,
+            newProductName = updated.NewProductName,
+            productId = updated.ProductId?.ToString(),
+            productName = updated.ProductId is { } pid
+                ? Session.ReferenceData.Products.FirstOrDefault(p => p.Id == pid)?.Name
+                : null,
+            price = updated.Price ?? updated.SuggestedPrice,
+            error = (string?)null,
+        });
     }
 
-    public async Task<IActionResult> OnPostDismissLineAsync(Guid lineId, CancellationToken ct)
+    public async Task<IActionResult> OnPostDismissLineAsync([FromQuery] Guid lineId, CancellationToken ct)
     {
         var loaded = await LoadAsync(ct);
         if (loaded is { } failure)
@@ -147,11 +180,14 @@ public sealed class ReviewModel(
         var id = ImportLineId.From(lineId);
         var result = await new DismissLineCommand(
             ImportSessionId.From(Id), id, sessions, tenant).ExecuteAsync(ct);
-        return await RowResultAsync(id, result, ct);
+
+        if (result.IsFailure)
+            return JsonError(result.Error.Description);
+
+        return new JsonResult(new { status = "Dismissed", error = (string?)null });
     }
 
-    /// <summary>Restore a dismissed line back to Pending so the user can resolve it again ("Add anyway").</summary>
-    public async Task<IActionResult> OnPostRestoreLineAsync(Guid lineId, CancellationToken ct)
+    public async Task<IActionResult> OnPostRestoreLineAsync([FromQuery] Guid lineId, CancellationToken ct)
     {
         var loaded = await LoadAsync(ct);
         if (loaded is { } failure)
@@ -160,75 +196,54 @@ public sealed class ReviewModel(
         var id = ImportLineId.From(lineId);
         var result = await new RestoreLineCommand(
             ImportSessionId.From(Id), id, sessions, tenant).ExecuteAsync(ct);
-        return await RowResultAsync(id, result, ct);
+
+        if (result.IsFailure)
+            return JsonError(result.Error.Description);
+
+        return new JsonResult(new { status = "Pending", error = (string?)null });
     }
 
-    // ── Commit / discard ────────────────────────────────────────────────────────────────────────
+    // ── Commit / discard — return redirect target so the island can navigate ────────
 
     public async Task<IActionResult> OnPostCommitAsync(CancellationToken ct)
     {
         if (tenant.HouseholdId is null)
-            return Forbid();
+            return JsonError("Unauthorized.");
 
         var result = await new CommitSessionCommand(
             ImportSessionId.From(Id), sessions, createProduct, addStock, recordPrice, clock, tenant)
             .ExecuteAsync(ct);
 
         if (result.IsFailure)
-        {
-            var loaded = await LoadAsync(ct);
-            if (loaded is { } failure)
-                return failure;
-            return CommitBarError(result.Error.Description);
-        }
+            return JsonError(result.Error.Description);
 
-        // Committed — the new stock now lives in the pantry. Tell htmx to do a full client-side redirect
-        // to the Done screen (an htmx response header, since the Commit button posts via hx-post).
-        Response.Headers["HX-Redirect"] = Url.Page("/Intake/Done", new { Id })!;
-        return new EmptyResult();
+        return new JsonResult(new
+        {
+            redirectUrl = Url.Page("/Intake/Done", new { Id })!,
+            error = (string?)null,
+        });
     }
 
     public async Task<IActionResult> OnPostDiscardAsync(CancellationToken ct)
     {
         if (tenant.HouseholdId is null)
-            return Forbid();
+            return JsonError("Unauthorized.");
 
         var result = await new DiscardSessionCommand(
             ImportSessionId.From(Id), sessions, tenant).ExecuteAsync(ct);
 
         if (result.IsFailure)
+            return JsonError(result.Error.Description);
+
+        return new JsonResult(new
         {
-            var loaded = await LoadAsync(ct);
-            if (loaded is { } failure)
-                return failure;
-            return CommitBarError(result.Error.Description);
-        }
-
-        Response.Headers["HX-Redirect"] = Url.Page("/Pantry/Index")!;
-        return new EmptyResult();
+            redirectUrl = Url.Page("/Pantry/Index")!,
+            error = (string?)null,
+        });
     }
 
-    // ── searchable-select product filter (htmx) ──────────────────────────────────────────────────
+    // ── Helpers ──────────────────────────────────────────────────────────────────────
 
-    public async Task<ContentResult> OnGetFilterProductsAsync(string? q, CancellationToken ct)
-    {
-        var reference = await referenceData.GetAsync(ct);
-        var matches = reference.Products
-            .Where(p => string.IsNullOrWhiteSpace(q) || p.Name.Contains(q.Trim(), StringComparison.OrdinalIgnoreCase))
-            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-            .Take(20)
-            .Select(p => new SelectListItem(p.Name, p.Id.ToString()));
-
-        var html = new System.Text.StringBuilder();
-        SearchableSelectTagHelper.AppendOptions(html, matches, System.Text.Encodings.Web.HtmlEncoder.Default);
-        return Content(html.ToString(), "text/html");
-    }
-
-    // ── helpers ──────────────────────────────────────────────────────────────────────────────────
-
-    /// <summary>Loads the session, lines and reference data via the application query, populating page
-    /// state. Returns a non-null <see cref="IActionResult"/> only on failure (NotFound / Forbid) — null on
-    /// success — so callers can short-circuit with <c>if (await LoadAsync(ct) is { } failure) return failure;</c>.</summary>
     private async Task<IActionResult?> LoadAsync(CancellationToken ct)
     {
         var query = new GetSessionForReviewQuery(
@@ -239,20 +254,57 @@ public sealed class ReviewModel(
             return result.Error.Code == Error.Unauthorized.Code ? Forbid() : NotFound();
 
         Session = result.Value;
-        var reference = Session.ReferenceData;
+        Today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        return null;
+    }
 
-        ProductOptions = reference.Products
-            .Select(p => new SelectListItem(p.Name, p.Id.ToString()))
-            .ToList();
-        UnitOptions = reference.Units
-            .Select(u => new SelectListItem($"{u.Code} — {u.Name}", u.Id.ToString()))
-            .ToList();
-        LocationOptions = reference.Locations
-            .Select(l => new SelectListItem(l.Name, l.Id.ToString()))
-            .ToList();
-        CategoryOptions = reference.Categories
-            .Select(c => new SelectListItem(c.Name, c.Id.ToString()))
-            .ToList();
+    /// <summary>Builds the full island hydration JSON from the loaded session and reference data.
+    /// Must be called after <see cref="LoadAsync"/> succeeds. This is the single emission point
+    /// for the island's initial state — the priority chain lives here, not in the island.</summary>
+    private string BuildHydrationJson()
+    {
+        var reference = Session.ReferenceData;
+        var today = Today;
+
+        // Products — include defaults so the island can fill empty unit/location/expiry
+        // on product re-selection (Boundary judgment call 2: form-filling from held data = UI, allowed).
+        var products = reference.Products.Select(p => new
+        {
+            id = p.Id.ToString(),
+            name = p.Name,
+            defaultUnitCode = p.DefaultUnitCode,
+            defaultUnitId = p.DefaultUnitId.ToString(),
+            defaultLocationId = p.DefaultLocationId?.ToString(),
+            skus = p.Skus.Select(s => new { id = s.Id.ToString(), label = s.Label }).ToList(),
+            defaults = new
+            {
+                unitId = p.DefaultUnitId.ToString(),
+                locationId = p.DefaultLocationId?.ToString(),
+                expiry = p.DefaultDueDays is { } n ? today.AddDays(n).ToString("yyyy-MM-dd") : (string?)null,
+            },
+            categoryId = p.CategoryId?.ToString(),
+            categoryHue = p.CategoryHue,
+        });
+
+        var units = reference.Units.Select(u => new
+        {
+            id = u.Id.ToString(),
+            code = u.Code,
+            name = u.Name,
+        });
+
+        var locations = reference.Locations.Select(l => new
+        {
+            id = l.Id.ToString(),
+            name = l.Name,
+        });
+
+        var categories = reference.Categories.Select(c => new
+        {
+            id = c.Id.ToString(),
+            name = c.Name,
+            hue = c.Hue,
+        });
 
         var unitCodeById = reference.Units.ToDictionary(u => u.Id, u => u.Code);
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
@@ -262,193 +314,120 @@ public sealed class ReviewModel(
         var productDefaultDueDaysById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultDueDays);
         var locationNameById = reference.Locations.ToDictionary(l => l.Id, l => l.Name);
 
-        Today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
-        var today = Today;
-
-        // Build a productId → SKU-options map for the drawer; only products that have SKUs are included.
         var skusByProductId = reference.Products
             .Where(p => p.Skus.Count > 0)
             .ToDictionary(
                 p => p.Id.ToString(),
                 p => (IReadOnlyList<ReviewSkuOption>)p.Skus);
 
-        Rows = Session.Lines
-            .Select(l => ReviewRowModel.From(l, Url, Id, unitCodeById, unitIdByCode, productNameById,
-                productDefaultLocationById, productDefaultUnitById, productDefaultDueDaysById,
-                locationNameById, skusByProductId, today))
-            .ToList();
+        // Per-line: line data + server-computed prefill (Boundary judgment call 1: chain stays server-side)
+        var lines = Session.Lines.Select(l =>
+        {
+            var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry) =
+                ReviewRowModel.ComputePrefill(l, unitIdByCode, productNameById, productDefaultLocationById,
+                    productDefaultUnitById, productDefaultDueDaysById, today);
 
-        return null;
+            var prefillLocationName = prefillLocationId is { } locId && locationNameById.TryGetValue(locId, out var locName)
+                ? locName : null;
+
+            // Alternatives: only resolved catalog entries, 2+ required
+            object? alternatives = null;
+            if (l.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts)
+            {
+                var resolved = alts
+                    .Where(a => a.ProductId is { } p && productNameById.ContainsKey(p))
+                    .Select((a, i) => new
+                    {
+                        productId = a.ProductId!.Value.ToString(),
+                        productName = productNameById.TryGetValue(a.ProductId!.Value, out var n) ? n : a.ProductName,
+                        confidence = a.Confidence,
+                    })
+                    .ToList();
+                if (resolved.Count >= ImportLine.MinAlternativesForSuggestion)
+                    alternatives = resolved;
+            }
+
+            var effectivePrice = l.Price ?? l.SuggestedPrice;
+
+            return new
+            {
+                line = new
+                {
+                    lineId = l.LineId.ToString(),
+                    lineNo = l.LineNo,
+                    receiptText = l.ReceiptText,
+                    confidence = l.SuggestedConfidence.ToString(),
+                    status = l.Status.ToString(),
+                    productId = l.ProductId?.ToString(),
+                    skuId = l.SkuId?.ToString(),
+                    quantity = l.Quantity,
+                    unitId = l.UnitId?.ToString(),
+                    locationId = l.LocationId?.ToString(),
+                    expiryDate = l.ExpiryDate?.ToString("yyyy-MM-dd"),
+                    price = l.Price,
+                    isNewProduct = l.IsNewProduct,
+                    newProductName = l.NewProductName,
+                    newProductCategoryId = l.NewProductCategoryId?.ToString(),
+                    suggestedPrice = l.SuggestedPrice,
+                },
+                prefill = new
+                {
+                    productId = prefillProductId?.ToString(),
+                    productName = prefillProductName,
+                    quantity = prefillQty,
+                    unitId = prefillUnitId?.ToString(),
+                    locationId = prefillLocationId?.ToString(),
+                    locationName = prefillLocationName,
+                    price = prefillPrice,
+                    expiry = prefillExpiry?.ToString("yyyy-MM-dd"),
+                    skuId = l.SkuId?.ToString(),
+                },
+                alternatives,
+            };
+        });
+
+        var hydration = new
+        {
+            sessionId = Session.SessionId.ToString(),
+            merchantText = string.IsNullOrWhiteSpace(Session.MerchantText) ? "Receipt" : Session.MerchantText,
+            sessionDate = Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture),
+            today = today.ToString("yyyy-MM-dd"),
+            commitUrl = Url.Page("./Review", "Commit", new { Id })!,
+            discardUrl = Url.Page("./Review", "Discard", new { Id })!,
+            saveLineUrl = Url.Page("./Review", "SaveLine", new { Id })!,
+            dismissLineUrl = Url.Page("./Review", "DismissLine", new { Id })!,
+            restoreLineUrl = Url.Page("./Review", "RestoreLine", new { Id })!,
+            products,
+            units,
+            locations,
+            categories,
+            lines,
+        };
+
+        return JsonSerializer.Serialize(hydration, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        });
     }
 
-    /// <summary>Renders one row's <c>_ReviewRow</c> fragment (the htmx swap target), optionally with an inline
-    /// error banner. The partial's model is the page itself so its model-bound <c>&lt;searchable-select&gt;</c>
-    /// resolves; the specific row is passed via <c>ViewData["Row"]</c>.</summary>
-    private IActionResult RowPartial(ImportLineId lineId, string? error = null)
+    private IActionResult JsonError(string message) =>
+        new JsonResult(new { error = message }) { StatusCode = 200 };
+
+    private async Task<T?> ReadJsonBodyAsync<T>(CancellationToken ct)
     {
-        var row = Rows.FirstOrDefault(r => r.Line.LineId == lineId.Value);
-        if (row is null)
-            return NotFound();
-        ViewData["Row"] = row;
-        ViewData["RowError"] = error;
-        // PageModel.Partial(name, model) builds a fresh ViewDataDictionary, dropping the entries set above
-        // (Row / RowError) that _ReviewRow reads. Return the result directly so this page's ViewData — with
-        // the row and the bind target (this) — flows into the fragment.
-        return new PartialViewResult { ViewName = "_ReviewRow", ViewData = ViewData, TempData = TempData };
+        Request.EnableBuffering();
+        return await JsonSerializer.DeserializeAsync<T>(Request.Body,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
     }
 
-    /// <summary>
-    /// ADR-013 §1 — the row-action response contract. On a successful command: sets HX-Retarget/HX-Reswap
-    /// so htmx swaps the one changed row in place (outerHTML on #import-line-{id}), then returns
-    /// <c>_ReviewRowOobBundle</c> which emits the row fragment + the four OOB projection fragments
-    /// (chips, progress, commit bar, receipt total). On failure: delegates to <see cref="RowError"/>.
-    /// </summary>
-    private async Task<IActionResult> RowResultAsync(ImportLineId lineId, Result result, CancellationToken ct)
-    {
-        if (result.IsFailure)
-            return RowError(lineId, result.Error.Description);
-
-        await LoadAsync(ct);
-
-        // Retarget to the specific row so htmx swaps the primary swap body as outerHTML on #import-line-{id}.
-        // The OOB fragments in _ReviewRowOobBundle land independently in their own regions.
-        Response.Headers["HX-Retarget"] = $"#import-line-{lineId.Value}";
-        Response.Headers["HX-Reswap"] = "outerHTML";
-
-        var row = Rows.FirstOrDefault(r => r.Line.LineId == lineId.Value);
-        if (row is null)
-            return NotFound();
-        ViewData["Row"] = row;
-        return new PartialViewResult { ViewName = "_ReviewRowOobBundle", ViewData = ViewData, TempData = TempData };
-    }
-
-    private IActionResult RowError(ImportLineId lineId, string message)
-    {
-        // A rejected edit hasn't changed any line's state, so chips and aggregates don't move —
-        // re-render only the offending row (drawer reopened) and retarget htmx back to it.
-        // 200 (not 422) so htmx performs the swap at all (htmx 2.x blocks swaps on 4xx by default).
-        Response.Headers["HX-Retarget"] = $"#import-line-{lineId.Value}";
-        Response.Headers["HX-Reswap"] = "outerHTML";
-        return RowPartial(lineId, message);
-    }
-
-    private IActionResult CommitBarError(string message)
-    {
-        // 200 so htmx swaps the alert (same reason as RowError).
-        ViewData["AlertMessage"] = message;
-        // As in RowPartial: return directly so the page's ViewData (carrying AlertMessage) reaches the fragment.
-        return new PartialViewResult { ViewName = "_ReviewAlert", ViewData = ViewData, TempData = TempData };
-    }
-
-    // ── Row partitioning + projections (ADR-013 §2) ──────────────────────────────────────────────
-    // Single source of truth for all page-level aggregates. Both the initial render (via _ReviewBody)
-    // and every row-action response (via _ReviewRowOobBundle) call BuildProjections() — they cannot drift.
-
-    public IReadOnlyList<ReviewRowModel> NeedsReviewRows =>
-        Rows.Where(r => !r.RowViewModel.IsConfirmed && !r.RowViewModel.IsCommitted && !r.RowViewModel.IsDismissed).ToList();
-
-    public IReadOnlyList<ReviewRowModel> ReadyRows =>
-        Rows.Where(r => r.RowViewModel.IsConfirmed || r.RowViewModel.IsCommitted).ToList();
-
-    public IReadOnlyList<ReviewRowModel> SkippedRows =>
-        Rows.Where(r => r.RowViewModel.IsDismissed).ToList();
-
-    /// <summary>
-    /// ADR-013 §2 — single projection builder. Collapses the four previously-scattered aggregate
-    /// computations (receipt total in Review.cshtml, BuildProgress(), BuildCommitBar(), chip counts
-    /// in _ReviewBody) into one typed record. Both the initial render and every row-action response
-    /// call this; the two renders are guaranteed to compute the same aggregates.
-    /// </summary>
-    public ReviewProjections BuildProjections()
-    {
-        var needsRows = NeedsReviewRows;
-        var readyRows = ReadyRows;
-        var skippedRows = SkippedRows;
-        var total = needsRows.Count + readyRows.Count;
-
-        var progress = new ReviewProgress(needsRows.Count, readyRows.Count);
-
-        // Committable = non-dismissed lines; value comes from confirmed + committed lines.
-        var committable = Session.Lines.Where(l => l.Status != LineStatus.Dismissed).ToList();
-        var confirmedLines = committable.Where(l => l.Status is LineStatus.Confirmed or LineStatus.Committed).ToList();
-        var confirmedValue = confirmedLines.Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
-        var commitBar = new CommitBarViewModel(
-            Confirmed: confirmedLines.Count,
-            Total: committable.Count,
-            ConfirmedValue: confirmedValue,
-            CommitUrl: Url.Page("./Review", "Commit", new { Id })!,
-            DiscardUrl: Url.Page("./Review", "Discard", new { Id })!);
-
-        // Receipt total = sum of non-dismissed lines (includes unconfirmed Pending lines).
-        var receiptTotal = Session.Lines
-            .Where(l => l.Status != LineStatus.Dismissed)
-            .Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
-
-        return new ReviewProjections(
-            NeedsCount: needsRows.Count,
-            ReadyCount: readyRows.Count,
-            SkippedCount: skippedRows.Count,
-            TotalItems: total,
-            Progress: progress,
-            CommitBar: commitBar,
-            ReceiptTotal: receiptTotal,
-            StoreLabel: StoreLabel,
-            SessionDate: Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture));
-    }
-
-    /// <summary>Merchant label shown in both the receipt panel (Review.cshtml) and the review header —
-    /// the parsed merchant text, or "Receipt" when the parser captured none. Computed once here so the
-    /// two panels can't display different store names.</summary>
-    public string StoreLabel =>
-        string.IsNullOrWhiteSpace(Session.MerchantText) ? "Receipt" : Session.MerchantText;
-
-    // ── Legacy helpers kept for backward-compat until all callers use BuildProjections() ─────────
-
-    public ReviewProgress BuildProgress() => new(NeedsReviewRows.Count, ReadyRows.Count);
-
-    public CommitBarViewModel BuildCommitBar()
-    {
-        var committable = Session.Lines.Where(l => l.Status != LineStatus.Dismissed).ToList();
-        var confirmedLines = committable.Where(l => l.Status is LineStatus.Confirmed or LineStatus.Committed).ToList();
-        var confirmedValue = confirmedLines.Sum(l => l.Price ?? l.SuggestedPrice ?? 0m);
-        return new CommitBarViewModel(
-            Confirmed: confirmedLines.Count,
-            Total: committable.Count,
-            ConfirmedValue: confirmedValue,
-            CommitUrl: Url.Page("./Review", "Commit", new { Id })!,
-            DiscardUrl: Url.Page("./Review", "Discard", new { Id })!);
-    }
 }
 
 /// <summary>
-/// ADR-013 §2 — the single typed projection record for all page-level aggregates. Returned by
-/// <see cref="ReviewModel.BuildProjections()"/> and consumed by both the initial render
-/// (_ReviewBody / Review.cshtml) and every row-action OOB response (_ReviewRowOobBundle).
+/// Couples the shared <see cref="ImportLineRowViewModel"/> with the original <see cref="ReviewLineView"/>
+/// so the page can pre-populate the full edit drawer. Also holds <see cref="ComputePrefill"/> — the
+/// server-side prefill priority chain (Boundary judgment call 1: stays here, never duplicated in JS).
 /// </summary>
-public sealed record ReviewProjections(
-    int NeedsCount,
-    int ReadyCount,
-    int SkippedCount,
-    int TotalItems,
-    ReviewProgress Progress,
-    CommitBarViewModel CommitBar,
-    decimal ReceiptTotal,
-    string StoreLabel,
-    string SessionDate);
-
-/// <summary>The review header's progress summary — how many lines still need a look versus are ready to
-/// commit, plus the derived percentage and commit-eligibility. Consumed by both the initial render and
-/// the OOB progress fragment (_ReviewProgressOob).</summary>
-public sealed record ReviewProgress(int NeedsCount, int ReadyCount)
-{
-    public int Total => NeedsCount + ReadyCount;
-    public int Percent => Total > 0 ? (int)Math.Round((double)ReadyCount / Total * 100) : 100;
-    public bool CanCommit => NeedsCount == 0 && Total > 0;
-}
-
-/// <summary>Couples the shared <see cref="ImportLineRowViewModel"/> (the swap-target VM the partial needs) with
-/// the original <see cref="ReviewLineView"/> so the page can pre-populate the full edit drawer (unit, location,
-/// category, price — fields the shared partial's lightweight drawer does not carry).</summary>
 public sealed record ReviewRowModel(
     ReviewLineView Line,
     ImportLineRowViewModel RowViewModel,
@@ -459,18 +438,9 @@ public sealed record ReviewRowModel(
     Guid? PrefillLocationId,
     string? PrefillLocationName,
     decimal? PrefillPrice,
-    /// <summary>Map of productId → list of SKU options for all products that have SKUs — embedded in the
-    /// drawer as JSON so Alpine can filter pack-size choices when the product selection changes.</summary>
     IReadOnlyDictionary<string, IReadOnlyList<ReviewSkuOption>> SkusByProductId,
     Guid? PrefillSkuId,
-    /// <summary>Ranked alternative candidates resolved against the household catalog — only set when there
-    /// are two or more credible candidates (mirrors the Line.SuggestedAlternatives gate). The product id
-    /// in each candidate is already resolved: candidates whose parser name did not match any catalog product
-    /// are excluded so the drawer never shows an unresolvable suggestion button.</summary>
     IReadOnlyList<ReviewAlternativeCandidate>? Alternatives = null,
-    /// <summary>Server-side initial expiry: today + DefaultDueDays for matched products; null when the
-    /// product has no expiry default, or when the line already carries a user-resolved or receipt expiry.
-    /// Alpine overwrites this on every product re-selection so it stays live even after the initial render.</summary>
     DateOnly? PrefillExpiry = null)
 {
     /// <summary>
@@ -494,9 +464,6 @@ public sealed record ReviewRowModel(
     {
         var isPending = line.Status == LineStatus.Pending;
 
-        // Pre-fill product: user-resolved first; for Pending lines fall back to AI suggestion,
-        // but only when the suggested ID actually resolves in the catalog — a phantom ID would
-        // show a name in the row summary while leaving the drawer's product dropdown empty.
         Guid? prefillProductId = line.IsNewProduct ? null
             : line.ProductId
               ?? (isPending && line.SuggestedProductId is { } sugPid && productNameById.ContainsKey(sugPid)
@@ -507,11 +474,8 @@ public sealed record ReviewRowModel(
                 ? ppname
                 : (isPending ? line.SuggestedProductName : null);
 
-        // Pre-fill qty/unit/price: user-resolved first; fall back to AI suggestion for Pending lines.
         var prefillQty = line.Quantity ?? (isPending ? line.SuggestedQuantity : null);
 
-        // Unit priority: user-resolved → receipt-parsed label → (only when no receipt unit) product default.
-        // "Receipt unit wins" preserves quantity semantics (e.g. "2 kg" never silently becomes "2 each").
         var hasReceiptUnit = isPending && line.SuggestedUnitLabel is not null;
 
         Guid? prefillUnitId = line.UnitId
@@ -523,7 +487,6 @@ public sealed record ReviewRowModel(
                     ? defUid
                     : (Guid?)null));
 
-        // Pre-fill location: user-resolved first; fall back to the matched product's default for Pending lines.
         Guid? prefillLocationId = line.LocationId
             ?? (isPending && prefillProductId is { } locPid && productDefaultLocationById.TryGetValue(locPid, out var defLoc)
                 ? defLoc
@@ -531,7 +494,6 @@ public sealed record ReviewRowModel(
 
         var prefillPrice = line.Price ?? (isPending ? line.SuggestedPrice : null);
 
-        // Pre-fill expiry: user-resolved first; for Pending matched lines compute today + DefaultDueDays.
         DateOnly? prefillExpiry = line.ExpiryDate
             ?? (isPending && prefillProductId is { } expPid
                 && productDefaultDueDaysById is not null
@@ -566,7 +528,6 @@ public sealed record ReviewRowModel(
             ? locName
             : null;
 
-        // Display name: new-product intent uses the chosen name; everything else uses the pre-fill.
         string? productName = line.IsNewProduct ? line.NewProductName : prefillProductName;
 
         var unitCode = prefillUnitId is { } uid && unitCodeById.TryGetValue(uid, out var code) ? code : "";
@@ -587,10 +548,6 @@ public sealed record ReviewRowModel(
             RestoreUrl: url.Page("./Review", "RestoreLine", new { Id = sessionId, lineId = line.LineId })!,
             SaveUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!);
 
-        // Resolve alternative candidates against the household catalog — only include candidates whose
-        // parser-supplied name maps to a real product id so the suggestion button always resolves.
-        // Alternatives are only surfaced when there are 2+ credible options (the gate is also applied
-        // in GetSessionForReviewQuery, but we re-check here so From() is self-contained).
         IReadOnlyList<ReviewAlternativeCandidate>? alternatives = null;
         if (line.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts)
         {
@@ -598,7 +555,6 @@ public sealed record ReviewRowModel(
                 .Where(a => a.ProductId is { } p && productNameById.ContainsKey(p))
                 .Select(a =>
                 {
-                    // ProductId is non-null and verified above; resolve the catalog display name.
                     var label = productNameById.TryGetValue(a.ProductId!.Value, out var n) ? n : a.ProductName;
                     return new ReviewAlternativeCandidate(a.ProductId!.Value, label, a.Confidence);
                 })
@@ -616,9 +572,6 @@ public sealed record ReviewRowModel(
 
 /// <summary>
 /// A catalog-resolved alternative candidate for the "Did you mean" suggestion block in the review drawer.
-/// Shown only when the line has two or more credible alternatives and is not yet confirmed.
-/// ProductId is always resolved — candidates without a matching catalog entry are filtered out in
-/// <see cref="ReviewRowModel.From"/>, so no suggestion button can produce an empty product selection.
 /// </summary>
 public sealed record ReviewAlternativeCandidate(
     Guid ProductId,
