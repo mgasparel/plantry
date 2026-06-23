@@ -57,31 +57,50 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
     [Fact(DisplayName = "GET /pantry/take-stock/{locationId} renders count rows")]
     public async Task Get_Walk_RendersCountRows()
     {
+        // The Walk page now mounts a Preact island (bead plantry-2zvm.2): rows, the save bar,
+        // reason selector, and empty state are rendered client-side by take-stock.js.
+        // The server emits a JSON hydration payload and the island root placeholder; the
+        // test proves the hydration data is well-formed and contains the expected rows.
         var client = AuthClient();
         var resp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("Flour", html);
-        Assert.Contains("500", html);   // recorded quantity
-        Assert.Contains("g", html);     // unit code
-        Assert.Contains("None left", html);
-        Assert.Contains("ts-rows", html);
+
+        // Island mount point must be present.
+        Assert.Contains("ts-walk-root", html);
+        // Hydration element must be emitted.
+        Assert.Contains("ts-walk-data", html);
+        // Product ID from the fixture must appear in the hydration JSON.
+        Assert.Contains(TakeStockFixture.FlourId.ToString(), html);
+        // Recorded quantity (500) and unit (g) must appear in the hydration JSON.
+        Assert.Contains("\"recorded\":500", html);
+        Assert.Contains("\"unitCode\":\"g\"", html);
     }
 
     [Fact(DisplayName = "GET /pantry/take-stock/{locationId} renders empty state when no rows")]
     public async Task Get_Walk_EmptyState_WhenNoRows()
     {
+        // Empty state is rendered by the island client-side. The server emits an empty
+        // hydration array [] — the test proves the page returns 200 and the island root is present.
         var client = AuthClient();
         // Fridge location has no products in the fixture
         var resp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.FridgeLocId}");
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("ts-empty", html);
+        Assert.Contains("ts-walk-root", html);
+        Assert.Contains("ts-walk-data", html);
+        // Hydration array is empty.
+        Assert.Contains("[]", html);
     }
 
-    [Fact(DisplayName = "GET /pantry/take-stock/{locationId} includes Alpine initialiser JSON")]
+    [Fact(DisplayName = "GET /pantry/take-stock/{locationId} includes island hydration JSON (was: Alpine initialiser)")]
     public async Task Get_Walk_IncludesAlpineJson()
     {
+        // Previously checked for "\"dirty\":false" in the Alpine working-set JSON.
+        // After migration to the Preact island (plantry-2zvm.2), the payload is the richer
+        // IslandRow array: productId, productName, recorded, unitCode, unitId, hasActiveStock,
+        // lotsUrl, supportedUnits. The "dirty" field is no longer emitted server-side
+        // (it is derived client-side via computed signal).
         var client = AuthClient();
         var resp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
         resp.EnsureSuccessStatusCode();
@@ -89,21 +108,29 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var flourId = TakeStockFixture.FlourId.ToString();
         Assert.Contains(flourId, html);
         Assert.Contains("\"recorded\":", html);
-        Assert.Contains("\"dirty\":false", html);
+        Assert.Contains("\"productName\":", html);
+        Assert.Contains("\"hasActiveStock\":", html);
+        Assert.Contains("\"lotsUrl\":", html);
     }
 
-    [Fact(DisplayName = "GET /pantry/take-stock/{locationId} includes save bar and reason selector markup")]
+    [Fact(DisplayName = "GET /pantry/take-stock/{locationId} includes island mount and sheet bridge")]
     public async Task Get_Walk_IncludesSaveBarAndReasonSelector()
     {
+        // Previously checked for Alpine-rendered save-bar and reason-selector markup.
+        // After migration (plantry-2zvm.2): the save-bar and reason-selector are rendered
+        // client-side by take-stock.js; the server emits the island root + sheet bridge.
         var client = AuthClient();
         var resp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("ts-savebar", html);
-        Assert.Contains("ts-reason", html);
-        Assert.Contains("Correction", html);
-        Assert.Contains("Used it", html);
-        Assert.Contains("Spoiled", html);
+        // Island root placeholder must be present.
+        Assert.Contains("ts-walk-root", html);
+        // Sheet bridge Alpine component must be present (inline-add sheet stays Alpine).
+        Assert.Contains("takeStockSheetBridge", html);
+        // Lot panel Alpine component must be present (lot panel fragments stay Alpine).
+        Assert.Contains("takeStockLotPanel", html);
+        // Antiforgery token must be emitted for island POST requests.
+        Assert.Contains("__RequestVerificationToken", html);
     }
 
     // ── J4: Save handler ──────────────────────────────────────────────────────
