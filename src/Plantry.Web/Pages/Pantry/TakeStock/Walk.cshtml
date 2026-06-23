@@ -5,28 +5,25 @@
     ViewData["Title"] = Model.LocationName ?? "Take Stock";
 }
 
-@* Alpine working-set client (C7, J2/J4) + inline-add sheet state (P4-7, J5).
-   rows: { [productId]: { recorded, counted, unitId, reason, dirty, failed, failMsg } }
-   expandedLots: { [productId]: boolean } — tracks which rows have the lot panel open.
-   sheetOpen / editingIdx / draft — shared-sheet Alpine contract (see _ProductSearchCreateSheet.cshtml).
-   The beforeunload guard fires when any row is dirty — unsaved counts are discarded on navigation (C7).
-   Uses x-init to wire the guard because @@beforeunload would conflict with Razor @ syntax.
-   JSON data is passed via a script-block global (not inline in the double-quoted x-data attribute)
-   to avoid HTML-entity escaping issues with double-quoted JSON keys (bd memory: Razor+Alpine gotcha). *@
-<script>
-(function () {
-    'use strict';
-    window['__takeStockRows_@(Model.LocationId.ToString("N"))'] = @Html.Raw(Model.AlpineRowsJson);
-    window['__addItemUrl_@(Model.LocationId.ToString("N"))'] = '@Url.Page("./Walk", "AddItem", new { locationId = Model.LocationId })';
-})();
-</script>
-<div x-data="takeStockWalk(window['__takeStockRows_@(Model.LocationId.ToString("N"))'], window['__addItemUrl_@(Model.LocationId.ToString("N"))'])"
-     x-init="init()"
-     x-on:collapse-lots.window="collapseLotsPanel($event.detail.productId)"
-     x-on:lots-saved.window="onLotsSaved($event.detail.productId)">
+@* Island hydration payload — read by take-stock.js via readHydration('ts-walk-data'). *@
+@* The island renders the whole row so the payload includes productName, recorded, unitCode, *@
+@* supportedUnits, hasActiveStock, and the per-product lots URL. *@
+<script type="application/json" id="ts-walk-data">@Html.Raw(Model.IslandRowsJson)</script>
 
-    @* ── Inline-add sheet (P4-7, J5) — shared _ProductSearchCreateSheet with count+location slot *@
-    @* TrackStock=false because the sheet's qty/unit fields are not shown; count lives in the slot. *@
+@* Location name — separate hydration element so no JS string escaping in the <script> tag. *@
+<script type="application/json" id="ts-walk-location">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.LocationName ?? "Take Stock"))</script>
+
+@* Inline-add sheet bridge (P4-7, J5) — a thin Alpine wrapper around the shared sheet only. *@
+@* The shared _ProductSearchCreateSheet is Alpine-owned and cross-feature (Recipes, Shopping). *@
+@* ADR-020 §2 bridge: the sheet stays Alpine; it dispatches ts-sheet-add to the island root. *@
+@* See take-stock.js for the full bridge rationale. *@
+<div id="ts-sheet-host"
+     x-data="takeStockSheetBridge()"
+     x-on:ts-open-add.window="openAdd()"
+     x-on:pick-product="selectProduct(draft, $event.detail)"
+     x-on:collapse-lots.window="collapseLotsFromAlpine($event.detail.productId)"
+     x-on:lots-saved.window="lotsDidSave($event.detail.productId)">
+    @* TrackStock=false: count lives in the island, not in the sheet's qty/unit fields. *@
     <partial name="Shared/_ProductSearchCreateSheet"
              model='new ProductSearchCreateSheetViewModel
              {
@@ -35,301 +32,47 @@
                  TrackStock       = false,
                  ExtraFieldsPartial = "TakeStock/_CountLocationFields",
              }' />
-
-    @Html.AntiForgeryToken()
-
-    @* ── Walk header (J2) — back, location title, live product count *@
-    <div class="ts-walk-head">
-        <a href="/pantry/take-stock" class="ts-back">
-            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg> Locations
-        </a>
-        <div class="ts-walk-title">
-            <span class="wt-ico"><svg class="icon" aria-hidden="true"><use href="#i-location" /></svg></span>
-            <div>
-                <h1>@(Model.LocationName ?? "Take Stock")</h1>
-                <div class="sub" x-text="Object.keys(rows).length + ' product' + (Object.keys(rows).length === 1 ? '' : 's') + ' here'"></div>
-            </div>
-        </div>
-        <div class="spacer"></div>
-    </div>
-
-    <div class="ts-walk-inner">
-        <div class="ts-walk-intro">
-            <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg>
-            <span>Counts are pre-filled to what Plantry has on record. Change only what's different — untouched rows are left alone.</span>
-        </div>
-
-        @if (Model.Rows.Count == 0)
-        {
-            <div class="ts-empty">
-                <div class="em-mark"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></div>
-                <h3>Nothing here yet</h3>
-                <p>Add the items on this shelf to start tracking them.</p>
-            </div>
-        }
-        else
-        {
-            <ul class="ts-rows" role="list">
-                @foreach (var row in Model.Rows)
-                {
-                    var pid = row.ProductId.ToString();
-                    var recorded = row.RecordedQuantity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-                    <li class="ts-row"
-                        :class="{ changed: rows['@pid']?.dirty, errored: rows['@pid']?.failed }">
-
-                        <div class="ts-row-main">
-                            <div class="ts-id">
-                                <div class="ts-name">
-                                    <span class="ts-changed-dot" x-show="rows['@pid']?.dirty" x-cloak></span>
-                                    <span class="nm-text">@row.ProductName</span>
-                                </div>
-                                <div class="ts-recorded">
-                                    Plantry has <b>@row.RecordedQuantity.ToString("0.###") @row.DisplayUnitCode</b> on record
-                                </div>
-                            </div>
-
-                            <div class="ts-count">
-                                @* Count stepper with the canonical <stepper> tag helper *@
-                                <stepper
-                                    name=""
-                                    value-bind="rows['@pid']?.counted ?? @recorded"
-                                    input-handler="setCount('@pid', $event.target.value)"
-                                    decrease-click="setCount('@pid', Math.max(0, parseFloat(rows['@pid']?.counted ?? @recorded) - 1))"
-                                    increase-click="setCount('@pid', parseFloat(rows['@pid']?.counted ?? @recorded) + 1)"
-                                    decrease-label="Decrease count for @row.ProductName"
-                                    increase-label="Increase count for @row.ProductName"
-                                    input-label="Count for @row.ProductName" />
-
-                                @* C10: unit selector — options come from SupportedUnits in Alpine state (set server-side).
-                                   Changing the unit does NOT dirty the row on its own; dirty is driven only by count != recorded. *@
-                                @if (row.SupportedUnits is { Count: > 1 })
-                                {
-                                    <select class="field__input" style="min-width:4rem;max-width:7rem"
-                                            x-model="rows['@pid'].unitId"
-                                            aria-label="Unit for @row.ProductName">
-                                        @foreach (var opt in row.SupportedUnits)
-                                        {
-                                            <option value="@opt.UnitId">@opt.Code</option>
-                                        }
-                                    </select>
-                                }
-                                else
-                                {
-                                    <span class="ts-unit">@row.DisplayUnitCode</span>
-                                }
-
-                                @* One-tap "none left" (J2 step 4) *@
-                                <button type="button"
-                                        class="ts-none-btn"
-                                        :class="{ on: (rows['@pid']?.counted ?? @recorded) <= 0 }"
-                                        x-on:click="setNoneLeft('@pid')"
-                                        aria-label="None left — set @row.ProductName to zero">
-                                    None left
-                                </button>
-
-                                @* Lot escape-hatch toggle (P4-5, J3) — only for rows with active stock *@
-                                @if (row.HasActiveStock)
-                                {
-                                    <button type="button"
-                                            class="ts-expand"
-                                            :class="{ open: expandedLots['@pid'] }"
-                                            x-on:click="expandedLots['@pid'] ? collapseLotsPanel('@pid') : expandLots('@pid', '@Url.Page("./Walk", "Lots", new { locationId = Model.LocationId, productId = row.ProductId })')"
-                                            aria-label="Show lots for @row.ProductName"
-                                            aria-controls="lot-panel-@pid">
-                                        <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
-                                    </button>
-                                }
-                            </div>
-                        </div>
-
-                        @* Delta hint pill on a changed row *@
-                        <div class="ts-delta" x-show="rows['@pid']?.dirty && !rows['@pid']?.failed" x-cloak>
-                            <span class="dpill down" x-show="(rows['@pid']?.counted ?? 0) < (rows['@pid']?.recorded ?? 0)">
-                                <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                                <span x-text="Math.abs((rows['@pid']?.counted ?? 0) - (rows['@pid']?.recorded ?? 0))"></span> @row.DisplayUnitCode
-                            </span>
-                            <span class="dpill up" x-show="(rows['@pid']?.counted ?? 0) > (rows['@pid']?.recorded ?? 0)">
-                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                <span x-text="Math.abs((rows['@pid']?.counted ?? 0) - (rows['@pid']?.recorded ?? 0))"></span> @row.DisplayUnitCode
-                            </span>
-                            <span x-text="(rows['@pid']?.counted ?? 0) < (rows['@pid']?.recorded ?? 0) ? 'will be removed from stock' : 'added to stock'"></span>
-                        </div>
-
-                        @* Reason selector (C9) — visible only when the row goes downward-dirty *@
-                        <div class="ts-reason" x-show="isDown('@pid')" x-cloak
-                             role="group" aria-label="Reason for @row.ProductName count change">
-                            <span class="ts-reason-lbl"><svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg> Why the drop?</span>
-                            <div class="ts-reason-opts">
-                                <button type="button" class="ts-reason-opt correction"
-                                        :class="{ sel: rows['@pid']?.reason === 'Correction' }"
-                                        x-on:click="setReason('@pid', 'Correction')">
-                                    <span class="rdot"></span> Correction
-                                </button>
-                                <button type="button" class="ts-reason-opt consumed"
-                                        :class="{ sel: rows['@pid']?.reason === 'Consumed' }"
-                                        x-on:click="setReason('@pid', 'Consumed')">
-                                    <span class="rdot"></span> Used it
-                                </button>
-                                <button type="button" class="ts-reason-opt discarded"
-                                        :class="{ sel: rows['@pid']?.reason === 'Discarded' }"
-                                        x-on:click="setReason('@pid', 'Discarded')">
-                                    <span class="rdot"></span> Spoiled
-                                </button>
-                            </div>
-                        </div>
-
-                        @* Lot panel host — loaded via fetch GET /Lots on expand (P4-5, J3) *@
-                        <div id="lot-panel-@pid"
-                             data-product-id="@pid"
-                             x-show="expandedLots['@pid']" x-cloak>
-                        </div>
-
-                        @* Inline save error with retry *@
-                        <div class="ts-row-err" x-show="rows['@pid']?.failed" x-cloak>
-                            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
-                            <span x-text="rows['@pid']?.failMsg ?? 'Couldn\'t save'"></span>
-                            <span class="spacer"></span>
-                            <button type="button" class="ts-retry"
-                                    x-on:click="save('@Url.Page("./Walk", "Save", new { locationId = Model.LocationId })')">Retry</button>
-                        </div>
-                    </li>
-                }
-            </ul>
-        }
-
-        @* ── Dynamically-added rows (P4-7, J5) — rows inserted by the inline-add sheet.
-             These exist only in Alpine state. Tag helpers cannot render inside x-for, so the
-             count stepper is hand-rolled here using the shared .stepper markup. *@
-        <template x-if="newRowKeys().length > 0">
-            <ul class="ts-rows" role="list" aria-label="Added items">
-                <template x-for="pid in newRowKeys()" :key="pid">
-                    <li class="ts-row"
-                        :class="{ changed: rows[pid]?.dirty, errored: rows[pid]?.failed }">
-
-                        <div class="ts-row-main">
-                            <div class="ts-id">
-                                <div class="ts-name">
-                                    <span class="ts-changed-dot" x-show="rows[pid]?.dirty" x-cloak></span>
-                                    <span class="nm-text" x-text="rows[pid]?.productName ?? '(new item)'"></span>
-                                </div>
-                                <div class="ts-recorded">
-                                    <span class="new-tag">New here</span>
-                                    <span>· not stocked at this location yet</span>
-                                </div>
-                            </div>
-
-                            <div class="ts-count">
-                                <div class="stepper" role="group">
-                                    <button type="button" class="stepper__btn"
-                                            x-on:click="setCount(pid, Math.max(0, (parseFloat(rows[pid]?.counted ?? 0) || 0) - 1))"
-                                            aria-label="Decrease count">
-                                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                                    </button>
-                                    <input class="stepper__val" type="number" min="0" step="any"
-                                           :value="rows[pid]?.counted ?? 0"
-                                           :aria-label="'Count for ' + (rows[pid]?.productName ?? 'new item')"
-                                           x-on:input="setCount(pid, $event.target.value)" />
-                                    <button type="button" class="stepper__btn"
-                                            x-on:click="setCount(pid, (parseFloat(rows[pid]?.counted ?? 0) || 0) + 1)"
-                                            aria-label="Increase count">
-                                        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                                    </button>
-                                </div>
-                                @* C10: dynamically-added rows use the product's default unit (full conversion list
-                                   is not available client-side for new items — single-option selector). *@
-                                <template x-if="(rows[pid]?.supportedUnits ?? []).length > 1">
-                                    <select class="field__input" style="min-width:4rem;max-width:7rem"
-                                            x-model="rows[pid].unitId"
-                                            :aria-label="'Unit for ' + (rows[pid]?.productName ?? 'new item')">
-                                        <template x-for="opt in (rows[pid]?.supportedUnits ?? [])" :key="opt.unitId">
-                                            <option :value="opt.unitId" x-text="opt.code"></option>
-                                        </template>
-                                    </select>
-                                </template>
-                                <template x-if="(rows[pid]?.supportedUnits ?? []).length <= 1">
-                                    <span class="ts-unit" x-text="rows[pid]?.unitCode ?? ''"></span>
-                                </template>
-                                <button type="button" class="ts-none-btn"
-                                        :class="{ on: (rows[pid]?.counted ?? 0) <= 0 }"
-                                        x-on:click="setNoneLeft(pid)"
-                                        aria-label="None left — set to zero">
-                                    None left
-                                </button>
-                            </div>
-                        </div>
-                    </li>
-                </template>
-            </ul>
-        </template>
-
-        @* Add an item to this location (P4-7, J5) — opens the inline-add sheet *@
-        <button type="button" class="ts-add-item" x-on:click="openAdd()"
-                aria-label="Add a new item to this location">
-            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Add item
-        </button>
-    </div>
-
-    @* Sticky save bar (J4) — visible when any row is dirty *@
-    <div class="ts-savebar" x-show="isDirty()" x-cloak>
-        <div class="sb-summary">
-            <span class="ts-pending-badge" x-text="dirtyCount()"></span>
-            <span><b x-text="dirtyCount()"></b> <span x-text="dirtyCount() === 1 ? 'row' : 'rows'"></span> ready to save</span>
-        </div>
-        <div class="spacer"></div>
-        <button type="button"
-                class="btn btn--primary"
-                :disabled="saving"
-                x-on:click="save('@Url.Page("./Walk", "Save", new { locationId = Model.LocationId })')">
-            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-            <span x-text="saving ? 'Saving…' : 'Save'"></span>
-        </button>
-    </div>
-
-    @* Toast notification (J4 confirmation) *@
-    <div class="ts-toast"
-         role="status"
-         aria-live="polite"
-         x-show="toast !== null" x-cloak
-         x-on:click="toast = null">
-        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-        <span x-text="toast ?? ''"></span>
-    </div>
 </div>
 
-<script>
-function takeStockWalk(initialRows, addItemUrl) {
-    return {
-        rows: initialRows,
-        _addItemUrl: addItemUrl,
-        expandedLots: {},
-        saving: false,
-        toast: null,
-        _guardHandler: null,
+@Html.AntiForgeryToken()
 
-        // ── Inline-add sheet state (P4-7, J5) — shared sheet Alpine contract ────
-        // The _ProductSearchCreateSheet partial expects these on the host x-data context.
+@* Island mount point — take-stock.js renders into this element. *@
+<div id="ts-walk-root"></div>
+
+@section Scripts {
+    <script type="module">
+        import { mountTakeStockWalk } from '/js/islands/take-stock.js';
+        import { readHydration, readAntiforgeryToken } from '/js/islands/helpers.js';
+
+        const root         = document.getElementById('ts-walk-root');
+        const rows         = readHydration('ts-walk-data');
+        const locationName = readHydration('ts-walk-location') ?? 'Take Stock';
+        const token        = readAntiforgeryToken();
+
+        if (root && rows) {
+            mountTakeStockWalk(root, {
+                rows,
+                saveUrl:      '@Url.Page("./Walk", "Save",    new { locationId = Model.LocationId })',
+                addItemUrl:   '@Url.Page("./Walk", "AddItem", new { locationId = Model.LocationId })',
+                token,
+                locationName,
+            });
+        }
+    </script>
+}
+
+@* ── Sheet bridge Alpine component ────────────────────────────────────────────────
+   Owns only the sheet-open state, draft, and the two paths of saveSheet.
+   On a successful add it dispatches ts-sheet-add to the island mount element so
+   the Preact island updates its reactive row list.
+   This is intentionally narrow — no rows map, no save logic, no dirty tracking here. *@
+<script>
+function takeStockSheetBridge() {
+    return {
+        // ── Shared sheet Alpine contract ─────────────────────────────────────
         sheetOpen: false,
         editingIdx: null,
         draft: {},
-
-        init() {
-            // Leave-page guard (C7): fires when the user tries to navigate away with unsaved counts.
-            this._guardHandler = (e) => {
-                if (this.isDirty() && !this.saving) {
-                    e.preventDefault();
-                    e.returnValue = '';
-                }
-            };
-            window.addEventListener('beforeunload', this._guardHandler);
-        },
-
-        destroy() {
-            if (this._guardHandler) {
-                window.removeEventListener('beforeunload', this._guardHandler);
-            }
-        },
-
-        // ── Inline-add sheet lifecycle (P4-7, J5) ────────────────────────────────
 
         openAdd() {
             this.editingIdx = null;
@@ -337,7 +80,6 @@ function takeStockWalk(initialRows, addItemUrl) {
                            newStapleName: null, newStapleUnit: '', groupHeading: '',
                            addCount: 1, addUnitId: '' };
             this.sheetOpen = true;
-            // Push empty search so the searchable-select resets.
             this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: '' })));
         },
 
@@ -348,270 +90,64 @@ function takeStockWalk(initialRows, addItemUrl) {
         selectProduct(row, detail) {
             row.productId = detail.value;
             row.productName = detail.name;
-            row.isUntracked = false; // Take Stock always shows tracked products only.
-            // Seed addUnitId from the product's default unit (Path A fix: prevents empty unitId on save).
+            row.isUntracked = false;
             if (detail.defaultUnitId) {
                 row.addUnitId = detail.defaultUnitId;
             }
         },
 
         /// <summary>
-        /// saveSheet() — called by the shared sheet's Add button (P4-7, J5).
-        ///
-        /// Two paths:
-        ///   A) Existing product picked (draft.productId set, draft.newStapleName null):
-        ///      The product already exists; inject it into the working set with count = addCount (or 0).
-        ///      No server round-trip needed — the product already exists in Catalog. The row is added
-        ///      dirty so the user's next Save records the opening balance via RecordCountCommand.
-        ///
-        ///   B) New product typed (draft.newStapleName set, draft.productId empty):
-        ///      POST to /AddItem to create the tracked product + opening-balance Correction.
-        ///      On success, inject the returned row into the working set as already saved (not dirty).
+        /// saveSheet() — called by the shared sheet's Add button.
+        /// Dispatches ts-sheet-add to the island root with enough info for both paths.
+        /// Path A: existing product (draft.productId set) → island injects dirty row.
+        /// Path B: new staple (draft.newStapleName set) → island POSTs /AddItem and injects saved row.
         /// </summary>
-        async saveSheet() {
-            const addItemUrl = this._addItemUrl;
-            // Path A: existing product selected — inject as a dirty row for the next scalar Save.
+        saveSheet() {
+            const islandRoot = document.getElementById('ts-walk-root');
+            if (!islandRoot) return;
+
             if (this.draft.productId) {
-                const pid = this.draft.productId;
-                if (!this.rows[pid]) {
-                    // New row: seed with 0 recorded (not in this location yet), counted = addCount.
-                    const counted = parseFloat(this.draft.addCount) || 0;
-                    this.rows[pid] = {
-                        recorded: 0,
-                        counted: counted,
-                        unitCode: '',    // resolved server-side on save
-                        unitId: this.draft.addUnitId || '',
-                        reason: 'Correction',
-                        dirty: counted !== 0,
-                        failed: false,
-                        failMsg: null,
+                islandRoot.dispatchEvent(new CustomEvent('ts-sheet-add', {
+                    bubbles: false,
+                    detail: {
+                        productId:   this.draft.productId,
                         productName: this.draft.productName,
-                        isNewRow: true,  // flag so the UI renders the row name
-                    };
-                } else {
-                    // Row already exists — just update the count.
-                    const existing = this.rows[pid];
-                    const newCounted = parseFloat(this.draft.addCount) || existing.counted;
-                    existing.counted = newCounted;
-                    existing.dirty = newCounted !== existing.recorded;
-                }
-                this.sheetOpen = false;
-                this.toast = 'Added — tap Save to record.';
-                return;
-            }
-
-            // Path B: new product name typed — create via server.
-            const name = this.draft.newStapleName?.trim();
-            const unitId = this.draft.addUnitId || this.draft.newStapleUnit || '';
-            if (!name || !unitId) {
-                // Missing required fields — stay open.
-                return;
-            }
-
-            const counted = parseFloat(this.draft.addCount) || 0;
-            const payload = {
-                name,
-                defaultUnitId: unitId,
-                countedValue: counted,
-                countedUnitId: unitId,
-            };
-
-            try {
-                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
-                const resp = await fetch(addItemUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'RequestVerificationToken': token,
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                    body: JSON.stringify(payload),
-                });
-
-                if (!resp.ok) {
-                    this.toast = 'Add item failed (' + resp.status + ') — please try again';
-                    return;
-                }
-
-                const data = await resp.json();
-
-                if (!data.isSuccess) {
-                    this.toast = data.error ?? 'Failed to create product';
-                    return;
-                }
-
-                // Inject the newly created product into the working set as already-saved (not dirty).
-                const pid = data.productId;
-                this.rows[pid] = {
-                    recorded: data.countedValue,
-                    counted: data.countedValue,
-                    unitCode: data.unitCode,
-                    unitId: data.unitId,
-                    reason: 'Correction',
-                    dirty: false,
-                    failed: false,
-                    failMsg: null,
-                    productName: data.productName,
-                    isNewRow: true,
-                };
-                this.sheetOpen = false;
-                this.toast = '✓ ' + data.productName + ' added' + (data.countedValue > 0 ? ' with ' + data.countedValue + ' ' + data.unitCode : '') + '.';
-            } catch {
-                this.toast = 'Network error — please try again';
-            }
-        },
-
-        // ── Lot escape-hatch (P4-5, J3) ───────────────────────────────────────
-
-        /// <summary>Expand the lot panel for a row — fetches the fragment via fetch and injects it.</summary>
-        async expandLots(productId, url) {
-            const host = document.getElementById('lot-panel-' + productId);
-            if (!host) return;
-            try {
-                const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                if (!resp.ok) return;
-                const html = await resp.text();
-                host.innerHTML = html;
-                // Re-init Alpine on the injected HTML so the x-data component activates.
-                if (window.Alpine) window.Alpine.initTree(host);
-                this.expandedLots[productId] = true;
-            } catch { /* silently ignore — panel simply doesn't open */ }
-        },
-
-        collapseLotsPanel(productId) {
-            const host = document.getElementById('lot-panel-' + (productId || ''));
-            if (host) host.innerHTML = '';
-            this.expandedLots[productId] = false;
-        },
-
-        /// <summary>
-        /// Called after a successful lot-level save (lots-saved event from _LotPanel).
-        /// Refreshes the lot panel so the user sees updated quantities, and clears
-        /// the scalar dirty state for the product (the lots are now the truth).
-        /// </summary>
-        onLotsSaved(productId) {
-            if (!productId) return;
-            const row = this.rows[productId];
-            if (row) {
-                // Reset the scalar count to the recorded value so the row is no longer dirty.
-                row.counted = row.recorded;
-                row.dirty = false;
-            }
-            // Collapse and re-open the lot panel to reflect the updated quantities.
-            // We cannot re-fetch without the URL — so just collapse; the user can re-expand.
-            this.collapseLotsPanel(productId);
-        },
-
-        isDirty() {
-            return Object.values(this.rows).some(r => r.dirty);
-        },
-
-        dirtyCount() {
-            return Object.values(this.rows).filter(r => r.dirty).length;
-        },
-
-        isDown(productId) {
-            const r = this.rows[productId];
-            return r && r.dirty && r.counted < r.recorded;
-        },
-
-        setCount(productId, rawValue) {
-            const row = this.rows[productId];
-            if (!row) return;
-            const parsed = parseFloat(rawValue);
-            const counted = isNaN(parsed) ? row.recorded : Math.max(0, parsed);
-            row.counted = counted;
-            row.dirty = counted !== row.recorded;
-            row.failed = false;
-            row.failMsg = null;
-        },
-
-        setNoneLeft(productId) {
-            this.setCount(productId, 0);
-        },
-
-        setReason(productId, reason) {
-            const row = this.rows[productId];
-            if (!row) return;
-            row.reason = reason;
-        },
-
-        /// Returns the product id keys of rows that were added dynamically via the inline-add
-        /// sheet (P4-7) and are not yet represented in the Razor-rendered HTML row list.
-        newRowKeys() {
-            return Object.keys(this.rows).filter(k => this.rows[k]?.isNewRow === true);
-        },
-
-        async save(url) {
-            if (this.saving) return;
-            this.saving = true;
-            this.toast = null;
-
-            const items = Object.entries(this.rows)
-                .filter(([, r]) => r.dirty)
-                .map(([productId, r]) => ({
-                    productId,
-                    countedValue: r.counted,
-                    countedUnitId: r.unitId,
-                    reason: r.reason
-                }));
-
-            try {
-                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
-                const resp = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'RequestVerificationToken': token,
-                        'X-Requested-With': 'XMLHttpRequest'
-                    },
-                    body: JSON.stringify({ items })
-                });
-
-                if (!resp.ok) {
-                    this.toast = 'Save failed (' + resp.status + ') — please try again';
-                    return;
-                }
-
-                const data = await resp.json();
-                let saved = 0, failed = 0;
-
-                for (const result of data.results ?? []) {
-                    const row = this.rows[result.productId];
-                    if (!row) continue;
-                    if (result.isSuccess) {
-                        row.recorded = row.counted;
-                        row.dirty = false;
-                        row.failed = false;
-                        row.failMsg = null;
-                        saved++;
-                    } else {
-                        row.failed = true;
-                        row.failMsg = result.error ?? 'Failed to save';
-                        failed++;
+                        addCount:    this.draft.addCount,
+                        addUnitId:   this.draft.addUnitId,
                     }
-                }
-
-                if (failed === 0) {
-                    this.toast = saved === 1 ? '1 item updated' : saved + ' items updated';
-                } else if (saved === 0) {
-                    this.toast = 'Save failed — please try again';
-                } else {
-                    this.toast = saved + ' saved, ' + failed + ' failed — retry the highlighted rows';
-                }
-            } catch {
-                this.toast = 'Network error — please try again';
-            } finally {
-                this.saving = false;
+                }));
+                this.sheetOpen = false;
+                return;
             }
-        }
+
+            const name = (this.draft.newStapleName ?? '').trim();
+            const unitId = this.draft.addUnitId || this.draft.newStapleUnit || '';
+            if (!name || !unitId) return; // stay open
+
+            islandRoot.dispatchEvent(new CustomEvent('ts-sheet-add', {
+                bubbles: false,
+                detail: {
+                    newStapleName: name,
+                    newStapleUnit: this.draft.newStapleUnit || '',
+                    addCount:      this.draft.addCount,
+                    addUnitId:     unitId,
+                }
+            }));
+            this.sheetOpen = false;
+        },
+
+        // ── Lot panel seam (relays Alpine events to island seam only when needed) ──
+        // The island directly listens for collapse-lots / lots-saved on window, so
+        // these methods are thin passthroughs kept here for symmetry.
+        collapseLotsFromAlpine(productId) { /* handled by island's window listener */ },
+        lotsDidSave(productId)             { /* handled by island's window listener */ },
     };
 }
 
-// ── Lot escape-hatch Alpine component (P4-5, J3) ────────────────────────────
-// Defined here (on the host page) so it is loaded before Alpine.initTree is
-// called on dynamically injected _LotPanel partial markup. Scripts inside
-// innerHTML fragments are never executed by the browser.
+// ── Lot escape-hatch Alpine component ────────────────────────────────────────────
+// Defined here on the host page so it is available when Alpine.initTree is called on
+// dynamically injected _LotPanel partial markup. Scripts inside innerHTML fragments
+// are never executed by browsers (HTML spec §4.12.1 / fetch-and-run semantics).
 function takeStockLotPanel(data) {
     // data: { lots: { [entryId]: { unitId } }, foundUnitId }
     const initialLots = {};
@@ -632,7 +168,7 @@ function takeStockLotPanel(data) {
         status: null,
 
         init() {
-            // nothing to wire on init — collapse handled by parent via custom event
+            // nothing to wire — collapse handled by island via window events
         },
 
         setLotAmount(entryId, rawValue) {
@@ -719,7 +255,7 @@ function takeStockLotPanel(data) {
                     this.status = saved === 1 ? '1 lot updated' : saved + ' lots updated';
                     this.found.amount = null;
                     this.found.expiryDate = '';
-                    // Notify the parent walk component to collapse the panel.
+                    // Notify the island to collapse the lot panel and reset scalar row state.
                     this.$dispatch('lots-saved', {
                         productId: this.$el.closest('[data-product-id]')?.dataset?.productId
                     });

@@ -49,8 +49,18 @@ public sealed class WalkModel(
 
     public IReadOnlyList<TakeStockLocationProductRow> Rows { get; private set; } = [];
 
-    /// <summary>JSON initialiser for the Alpine working set — one entry per row, keyed by product id.</summary>
+    /// <summary>
+    /// JSON initialiser for the Alpine working set — one entry per row, keyed by product id.
+    /// Retained for backward compatibility (Dev page and historical callers); the real Walk page
+    /// now uses <see cref="IslandRowsJson"/>. Dead-code removal deferred to plantry-2zvm.5.
+    /// </summary>
     public string AlpineRowsJson { get; private set; } = "{}";
+
+    /// <summary>
+    /// JSON hydration array for the Preact island — richer than <see cref="AlpineRowsJson"/> because
+    /// the island renders the whole row (product name, recorded quantity display, supported units, lots URL).
+    /// </summary>
+    public string IslandRowsJson { get; private set; } = "[]";
 
     /// <summary>Unit options for the inline-add sheet's unit selector.</summary>
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
@@ -318,6 +328,7 @@ public sealed class WalkModel(
         LocationName = locations.FirstOrDefault(l => l.LocationId == LocationId)?.LocationName;
         Rows = await reader.ListLocationRowsAsync(LocationId, ct);
         AlpineRowsJson = BuildAlpineRowsJson(Rows);
+        IslandRowsJson = BuildIslandRowsJson(Rows);
 
         // Load unit options for the inline-add sheet (P4-7).
         var units = await unitRepository.ListAsync(ct);
@@ -345,6 +356,30 @@ public sealed class WalkModel(
                     .ToList() ?? []));
 
         return JsonSerializer.Serialize(dict, JsonOptions);
+    }
+
+    /// <summary>
+    /// Builds the richer hydration JSON array for the Preact island. The island renders the whole
+    /// row (product name, recorded, supported units, lots URL) so the payload must carry those fields
+    /// in addition to the mutable draft state (counted / unitId / reason) that the Alpine version held.
+    /// </summary>
+    private string BuildIslandRowsJson(IReadOnlyList<TakeStockLocationProductRow> rows)
+    {
+        var list = rows.Select(r => new IslandRow(
+            r.ProductId,
+            r.ProductName,
+            r.RecordedQuantity,
+            r.DisplayUnitCode,
+            r.DisplayUnitId,
+            r.HasActiveStock,
+            // lotsUrl is resolved server-side so the island never constructs URLs.
+            // The handler remains the sole owner of its own routing.
+            Url.Page("./Walk", "Lots", new { locationId = LocationId, productId = r.ProductId }) ?? "",
+            r.SupportedUnits?
+                .Select(u => new AlpineUnitOption(u.UnitId, u.Code))
+                .ToList() ?? []));
+
+        return JsonSerializer.Serialize(list, JsonOptions);
     }
 
     private static StockReason ParseReason(string? reason) => reason switch
@@ -378,6 +413,21 @@ public sealed class WalkModel(
     private sealed record AlpineUnitOption(
         [property: JsonPropertyName("unitId")] Guid   UnitId,
         [property: JsonPropertyName("code")]   string Code);
+
+    /// <summary>
+    /// Full per-row hydration shape for the Preact island (take-stock.js).
+    /// The island renders the whole row so it needs productName, recorded quantity display,
+    /// supportedUnits, hasActiveStock, and the lots fragment URL.
+    /// </summary>
+    private sealed record IslandRow(
+        [property: JsonPropertyName("productId")]      Guid                   ProductId,
+        [property: JsonPropertyName("productName")]    string                 ProductName,
+        [property: JsonPropertyName("recorded")]       decimal                Recorded,
+        [property: JsonPropertyName("unitCode")]       string                 UnitCode,
+        [property: JsonPropertyName("unitId")]         Guid                   UnitId,
+        [property: JsonPropertyName("hasActiveStock")] bool                   HasActiveStock,
+        [property: JsonPropertyName("lotsUrl")]        string                 LotsUrl,
+        [property: JsonPropertyName("supportedUnits")] List<AlpineUnitOption> SupportedUnits);
 
     private sealed class SaveRequest
     {
