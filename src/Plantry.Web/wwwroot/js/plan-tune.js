@@ -1,7 +1,7 @@
 // Alpine.data component for constant-sum / proportional-allocation sliders.
 //
 // Generalised from the meal-planner tune popover (plantry-izgn.4).
-// Following the same pattern as meal-editor.js (ADR-013 §5).
+// Alpine.data component pattern (ADR-013 §5).
 //
 // Config object (passed from Razor via x-data="planTune(cfg)" where cfg = window.__planTuneCfg):
 //   buckets  — array of { key, label, color, defaultWeight } describing each slider bucket.

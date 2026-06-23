@@ -2,8 +2,8 @@
 @*
     Server-computed rollup footer for the meal editor — ADR-013 §4/§5.
 
-    This partial is returned by OnPostRollupAsync and swapped into #ed-rollup-{slotIdStr}
-    by the mealEditor Alpine component whenever the draft dish list changes.
+    This partial is returned by OnPostRollupJsonAsync as rendered HTML embedded in the JSON
+    response; the meal-planner island injects it into #ed-rollup-{slotIdStr}.
 
     The rollup (fulfillment %, estimated cost) is a DERIVED PROJECTION that must be
     server-computed via PlanFulfillmentService / PlanCostingService. There is no client-side

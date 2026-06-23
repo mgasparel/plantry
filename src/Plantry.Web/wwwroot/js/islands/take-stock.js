@@ -4,8 +4,7 @@
 //
 // Buildless Preact + htm + signals. Replaces the hand-rolled Alpine `takeStockWalk`
 // on the real Walk page, rendering the full per-product count rows, inline-add, lot
-// escape-hatch, and save-bar. The proof island `take-stock-island.js` remains for
-// the /Dev/TakeStockIsland harness; this file is the production island.
+// escape-hatch, and save-bar.
 //
 // ADR-020 §2 boundary: the island holds UI/draft state ONLY — counted value, unit,
 // reason, lot draft amounts — plus derived DISPLAY state (dirty, down, delta,

@@ -3,9 +3,9 @@
 // Meal Planner island (ADR-020, bead plantry-2zvm.4).
 //
 // Buildless Preact + htm + signals. Replaces the Alpine mealEditor component
-// (meal-editor.js) and the addDishFromResult DOM-walk bridge. plan-tune.js
-// (planning-weights popover) remains Alpine — it is a self-contained grid-level
-// control, not part of the editor.
+// and the addDishFromResult DOM-walk bridge. plan-tune.js (planning-weights
+// popover) remains Alpine — it is a self-contained grid-level control, not
+// part of the editor.
 //
 // ADR-020 §2 boundary:
 //   SERVER: domain rules (fulfillment, cost, assign/clear persistence, rollup projection).
@@ -18,7 +18,7 @@
 // ADR-020 §7 tripwire: fulfillment/cost MUST stay server-side. The island holds
 //   only { dishes, servings, mode, note, att, attOverridden } + derived canSave.
 //
-// Bug classes eliminated vs meal-editor.js:
+// Bug classes eliminated vs the previous Alpine mealEditor component:
 //   - "Object.fromEntries collapses repeated keys" (dish list now in JSON array)
 //   - "_x_dataStack[0] DOM-walk" bridge (dish search is in-component)
 //   - "Alpine var-token silently fails" (no Alpine variable scoping)

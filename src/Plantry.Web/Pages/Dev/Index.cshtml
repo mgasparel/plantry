@@ -1206,8 +1206,7 @@ new ProductSearchCreateSheetViewModel
 @*
     ── ADR-020 §1: Reactive islands — pattern documentation ────────────────────────────────────────
     Establishes WHEN to use an island vs htmx+Alpine, and documents the mounting convention that all
-    three island ports (Take Stock, Intake review, Meal Planner) compose from. The reference island is
-    take-stock-island.js; the dev harness lives at /Dev/TakeStockIsland. (bead plantry-2zvm.1)
+    three island ports (Take Stock, Intake review, Meal Planner) compose from. (bead plantry-2zvm)
 *@
 
 <section class="catalog-section">
@@ -1247,8 +1246,8 @@ new ProductSearchCreateSheetViewModel
     <p>All three islands follow the same mounting pattern:</p>
     <ol>
         <li>
-            <strong>Island source:</strong> one file at
-            <code>wwwroot/js/islands/&lt;surface&gt;-island.js</code>, importing from the shared
+            <strong>Island source:</strong> one file under
+            <code>wwwroot/js/islands/</code> (e.g. <code>take-stock.js</code>), importing from the shared
             runtime (<code>./runtime.js</code>) and helpers (<code>./helpers.js</code>).
             All vendor imports resolve by relative path — no import map.
         </li>
@@ -1330,19 +1329,29 @@ const token = readAntiforgeryToken();            // → string (warns if absent)
 const resp = await postJson(saveUrl, { items }, token);
 if (!resp.ok) { /* handle */ }")</code></pre>
 
-    <h3 style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Reference island</h3>
+    <h3 style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Production islands</h3>
     <p>
-        <strong><a href="/Dev/TakeStockIsland">Take Stock island dev harness</a></strong>
-        (<code>/Dev/TakeStockIsland</code>, dev-only) is the canonical reference. It demonstrates
-        the complete mounting convention end-to-end: hydration JSON, antiforgery token, signal-derived
-        dirty/down/delta state, the save-bar, per-row reconciliation, and the
-        <code>postJson</code> round-trip against a dev echo of the production JSON contract.
+        All three islands are live in production and serve as canonical implementation references.
+        Each demonstrates the complete mounting convention end-to-end.
     </p>
-    <p>
-        Source: <code>wwwroot/js/islands/take-stock-island.js</code> (imports from
-        <code>runtime.js</code> + <code>helpers.js</code>).
-        Dev harness: <code>Pages/Dev/TakeStockIsland.cshtml[.cs]</code>.
-    </p>
+    <ul>
+        <li>
+            <strong>Take Stock</strong> — <code>wwwroot/js/islands/take-stock.js</code>.
+            Signal-derived dirty/down/delta state, save-bar, per-row reconciliation, the
+            <code>postJson</code> round-trip against the production walk-save endpoint.
+            Mounted on <code>Pages/Inventory/Walk.cshtml</code>.
+        </li>
+        <li>
+            <strong>Intake review</strong> — <code>wwwroot/js/islands/intake-review.js</code>.
+            Full review-form with product search, chip suggestions, row-level edit drawers,
+            and commit-bar. Mounted on <code>Pages/Intake/Review.cshtml</code>.
+        </li>
+        <li>
+            <strong>Meal Planner editor</strong> — <code>wwwroot/js/islands/meal-planner.js</code>.
+            Modal editor with dish-list, attendee overrides, live rollup, and note-mode.
+            Mounted on <code>Pages/MealPlan/Index.cshtml</code>.
+        </li>
+    </ul>
     <p>
         <strong>No npm, no bundler, no import map</strong> (ADR-020 §6). The file that runs is the
         file you read. Type-checking works in-editor with zero install via <code>jsconfig.json</code>

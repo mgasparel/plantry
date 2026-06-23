@@ -16,5 +16,5 @@
       "htm": ["./vendor/vendor.d.ts"]
     }
   },
-  "include": ["runtime.js", "helpers.js", "take-stock-island.js", "vendor/vendor.d.ts"]
+  "include": ["runtime.js", "helpers.js", "take-stock.js", "intake-review.js", "meal-planner.js", "vendor/vendor.d.ts"]
 }
