@@ -95,39 +95,6 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
         Assert.Contains("slot-band", html);
     }
 
-    // ── Editor fragment ───────────────────────────────────────────────────────
-
-    [Fact(DisplayName = "GET /MealPlan?handler=Editor returns editor partial for a known slot")]
-    public async Task Get_EditorHandler_Returns_Editor_Partial()
-    {
-        var client = CreateClient();
-        AddHouseholdHeader(client);
-
-        // Use the first active slot (Breakfast) from the shared fixture config
-        var slotId = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First().Id.Value;
-        var date = "2026-06-01"; // A Monday
-
-        var response = await client.GetAsync($"/MealPlan?handler=Editor&date={date}&slotId={slotId:D}");
-
-        response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
-
-        Assert.Contains("ed-head", html);
-        Assert.Contains("Breakfast", html);
-    }
-
-    [Fact(DisplayName = "GET /MealPlan?handler=Editor returns 404 for unknown slotId")]
-    public async Task Get_EditorHandler_Returns_404_ForUnknownSlot()
-    {
-        var client = CreateClient();
-        AddHouseholdHeader(client);
-
-        var unknownSlotId = Guid.NewGuid();
-        var response = await client.GetAsync($"/MealPlan?handler=Editor&date=2026-06-01&slotId={unknownSlotId:D}");
-
-        Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
-    }
-
     // ── No slots empty state ──────────────────────────────────────────────────
 
     [Fact(DisplayName = "GET /MealPlan with no slots shows configure message")]
@@ -143,22 +110,6 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
 
         Assert.Contains("No meal slots are configured", html);
         Assert.Contains("Configure meal slots", html);
-    }
-
-    // ── Search fragment ───────────────────────────────────────────────────────
-
-    [Fact(DisplayName = "GET /MealPlan?handler=Search returns dish results partial")]
-    public async Task Get_SearchHandler_Returns_Dish_Results()
-    {
-        var client = CreateClient();
-        AddHouseholdHeader(client);
-
-        var response = await client.GetAsync("/MealPlan?handler=Search&q=pasta");
-
-        response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
-
-        Assert.Contains("Pasta Bolognese", html);
     }
 
     // ── MP-O8: multi-meal cell rendering ─────────────────────────────────────

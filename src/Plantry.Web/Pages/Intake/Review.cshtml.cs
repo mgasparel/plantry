@@ -9,8 +9,6 @@ using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Web.Pages.Shared;
-
 namespace Plantry.Web.Pages.Intake;
 
 /// <summary>
@@ -424,13 +422,12 @@ public sealed class ReviewModel(
 }
 
 /// <summary>
-/// Couples the shared <see cref="ImportLineRowViewModel"/> with the original <see cref="ReviewLineView"/>
-/// so the page can pre-populate the full edit drawer. Also holds <see cref="ComputePrefill"/> — the
-/// server-side prefill priority chain (Boundary judgment call 1: stays here, never duplicated in JS).
+/// Holds <see cref="ComputePrefill"/> — the server-side prefill priority chain
+/// (Boundary judgment call 1: stays here, never duplicated in JS). Also carries the
+/// resolved prefill values alongside the original <see cref="ReviewLineView"/> for test assertions.
 /// </summary>
 public sealed record ReviewRowModel(
     ReviewLineView Line,
-    ImportLineRowViewModel RowViewModel,
     Guid? PrefillProductId,
     string? PrefillProductName,
     decimal? PrefillQuantity,
@@ -447,8 +444,7 @@ public sealed record ReviewRowModel(
     /// Pure prefill computation — no URL or HTTP context needed. Applies the priority chain:
     /// user-resolved fields first, AI suggestions for Pending lines as fallback. Only uses
     /// <paramref name="unitIdByCode"/> (label → Guid) and <paramref name="productNameById"/>
-    /// (Guid → name); the display unit code lookup uses the broader <c>unitCodeById</c> in
-    /// <see cref="From"/> after this call.
+    /// (Guid → name).
     ///
     /// <para>Unit priority: user-resolved > receipt-parsed label > (no-receipt-unit only) product default.
     /// Expiry: user-resolved > (Pending + matched + DefaultDueDays) today+N > null.</para>
@@ -506,68 +502,6 @@ public sealed record ReviewRowModel(
         return (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry);
     }
 
-    public static ReviewRowModel From(
-        ReviewLineView line,
-        IUrlHelper url,
-        Guid sessionId,
-        IReadOnlyDictionary<Guid, string> unitCodeById,
-        IReadOnlyDictionary<string, Guid> unitIdByCode,
-        IReadOnlyDictionary<Guid, string> productNameById,
-        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById,
-        IReadOnlyDictionary<Guid, Guid> productDefaultUnitById,
-        IReadOnlyDictionary<Guid, int?> productDefaultDueDaysById,
-        IReadOnlyDictionary<Guid, string> locationNameById,
-        IReadOnlyDictionary<string, IReadOnlyList<ReviewSkuOption>> skusByProductId,
-        DateOnly? today = null)
-    {
-        var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry) =
-            ComputePrefill(line, unitIdByCode, productNameById, productDefaultLocationById,
-                productDefaultUnitById, productDefaultDueDaysById, today);
-
-        var prefillLocationName = prefillLocationId is { } locId && locationNameById.TryGetValue(locId, out var locName)
-            ? locName
-            : null;
-
-        string? productName = line.IsNewProduct ? line.NewProductName : prefillProductName;
-
-        var unitCode = prefillUnitId is { } uid && unitCodeById.TryGetValue(uid, out var code) ? code : "";
-
-        var vm = new ImportLineRowViewModel(
-            LineId: line.LineId.ToString(),
-            ProductName: productName,
-            RawText: line.ReceiptText,
-            Confidence: line.SuggestedConfidence,
-            Status: line.Status,
-            Quantity: prefillQty?.ToString("0.###", CultureInfo.InvariantCulture) ?? "—",
-            Unit: unitCode,
-            Price: prefillPrice is { } p ? p.ToString("C", CultureInfo.CurrentCulture) : "—",
-            Expiry: line.ExpiryDate?.ToString("d MMM", CultureInfo.CurrentCulture) ?? "—",
-            CreatedNew: line.IsNewProduct,
-            ConfirmUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!,
-            DismissUrl: url.Page("./Review", "DismissLine", new { Id = sessionId, lineId = line.LineId })!,
-            RestoreUrl: url.Page("./Review", "RestoreLine", new { Id = sessionId, lineId = line.LineId })!,
-            SaveUrl: url.Page("./Review", "SaveLine", new { Id = sessionId })!);
-
-        IReadOnlyList<ReviewAlternativeCandidate>? alternatives = null;
-        if (line.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts)
-        {
-            var resolved = alts
-                .Where(a => a.ProductId is { } p && productNameById.ContainsKey(p))
-                .Select(a =>
-                {
-                    var label = productNameById.TryGetValue(a.ProductId!.Value, out var n) ? n : a.ProductName;
-                    return new ReviewAlternativeCandidate(a.ProductId!.Value, label, a.Confidence);
-                })
-                .ToList();
-
-            if (resolved.Count >= ImportLine.MinAlternativesForSuggestion)
-                alternatives = resolved;
-        }
-
-        return new ReviewRowModel(line, vm, prefillProductId, prefillProductName, prefillQty, prefillUnitId,
-            prefillLocationId, prefillLocationName, prefillPrice, skusByProductId, PrefillSkuId: line.SkuId,
-            Alternatives: alternatives, PrefillExpiry: prefillExpiry);
-    }
 }
 
 /// <summary>
