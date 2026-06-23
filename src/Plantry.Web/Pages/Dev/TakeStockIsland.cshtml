@@ -1,0 +1,51 @@
+@page
+@model Plantry.Web.Pages.Dev.TakeStockIslandModel
+@{
+    ViewData["Title"] = "Take Stock island (proof)";
+}
+
+@* ADR-020 proof harness (bead plantry-2zvm). Dev-only (gated by DevPagesGateMiddleware).
+   Renders the Take Stock count-rows surface as a buildless Preact island, hydrated from
+   server JSON, deriving dirty/down/delta via signals, POSTing to a dev echo of the real
+   Save contract. See wwwroot/js/islands/take-stock-island.js. *@
+
+<div class="ts-wrap">
+    <div class="ts-head">
+        <span class="ts-eyebrow"><svg class="icon" aria-hidden="true"><use href="#i-components" /></svg> ADR-020 proof</span>
+        <h1>Take Stock — reactive island</h1>
+        <p>
+            Buildless Preact + htm + signals. The rows below are a Preact island hydrated from
+            server JSON; <code>dirty</code>, the delta pill, the reason selector, and the save-bar
+            count are all <code>computed</code> signals — change a count and watch them derive. Save
+            POSTs the dirty set to a dev echo of the real <code>Walk</code> contract (the row with a
+            blank unit is failed, to show per-row reconciliation).
+        </p>
+    </div>
+
+    @Html.AntiForgeryToken()
+
+    @* Hydration payload — emitted as the server does for the real Walk page. *@
+    <script type="application/json" id="ts-island-data">@Html.Raw(Model.RowsJson)</script>
+
+    @* Island mount point. *@
+    <div id="take-stock-island-root"></div>
+</div>
+
+@section Scripts {
+    @* No import map: the island and its vendored runtime resolve every dependency by relative
+       path, so there is nothing to map. (Import maps fight Razor's @@ escaping and have brittle
+       ordering/single-instance rules — relative vendoring is the robust buildless form.) *@
+    <script type="module">
+        import { mountTakeStock } from '/js/islands/take-stock-island.js';
+
+        const root = document.getElementById('take-stock-island-root');
+        const rows = JSON.parse(document.getElementById('ts-island-data').textContent);
+        const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+        mountTakeStock(root, {
+            rows,
+            saveUrl: '@Url.Page("./TakeStockIsland", "DevSave")',
+            token,
+        });
+    </script>
+}
