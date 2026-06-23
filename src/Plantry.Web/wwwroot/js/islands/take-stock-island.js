@@ -16,13 +16,8 @@
 // dirty bookkeeping (`row.dirty = counted !== recorded` set in every mutator) is
 // replaced by ONE `computed` that cannot drift.
 
-// Runtime imports resolve by relative path — no import map. (The JSDoc `import("@preact/signals")`
-// type references below are checker-only and resolve via jsconfig `paths` → vendor/vendor.d.ts.)
-import { h, render } from "./vendor/preact.module.js";
-import { signal, computed } from "./vendor/signals.module.js";
-import htm from "./vendor/htm.module.js";
-
-const html = htm.bind(h);
+import { render, html, signal, computed } from "./runtime.js";
+import { postJson } from "./helpers.js";
 
 /** @typedef {{ unitId: string, code: string }} UnitOption */
 
@@ -228,15 +223,7 @@ async function save(rows, saveUrl, token, toast, saving) {
   }));
 
   try {
-    const resp = await fetch(saveUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "RequestVerificationToken": token,
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      body: JSON.stringify({ items }),
-    });
+    const resp = await postJson(saveUrl, { items }, token);
     if (!resp.ok) {
       toast.value = `Save failed (${resp.status}) — please try again`;
       return;
