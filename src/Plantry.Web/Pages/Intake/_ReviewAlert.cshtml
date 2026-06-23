@@ -1,6 +1,0 @@
-@model Plantry.Web.Pages.Intake.ReviewModel
-@{
-    var message = ViewData["AlertMessage"] as string ?? "Something went wrong.";
-}
-@* Inline alert swapped into #review-alert when a commit or discard fails. *@
-<div class="alert alert--danger" role="alert">@message</div>

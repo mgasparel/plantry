@@ -13,10 +13,10 @@
 // Type references below are checker-only (JSDoc + jsconfig `paths` → vendor.d.ts).
 
 import { h, render, Fragment } from "./vendor/preact.module.js";
-import { signal, computed, effect } from "./vendor/signals.module.js";
+import { signal, computed, effect, batch } from "./vendor/signals.module.js";
 import htm from "./vendor/htm.module.js";
 
 /** Tagged-template html function pre-bound to Preact's `h`. */
 const html = htm.bind(h);
 
-export { h, render, Fragment, html, signal, computed, effect };
+export { h, render, Fragment, html, signal, computed, effect, batch };
