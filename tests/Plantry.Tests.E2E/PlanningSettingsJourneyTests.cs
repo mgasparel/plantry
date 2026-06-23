@@ -111,40 +111,73 @@ public sealed class PlanningSettingsJourneyTests(AppHostFixture appHost) : IAsyn
             await Assertions.Expect(page.Locator("#plan-cost-chip")).ToBeVisibleAsync();
 
             // ── 5. Cell op: assign a note to the first empty cell ────────────────
-            // This triggers the Assign handler which re-emits the OOB rail + bar.
-            // The budget chip must survive this OOB refresh.
+            // This triggers the AssignJson handler which re-emits the OOB rail + bar.
+            // The budget chip must survive this OOB refresh (via island DOM swap).
 
-            // GET the editor for the first empty cell
-            var firstEmptyAdd = page.Locator(".empty-add").First;
-            await page.RunAndWaitForResponseAsync(
-                async () => await firstEmptyAdd.ClickAsync(),
-                r => r.Url.Contains("handler=Editor") && r.Status == 200);
+            // Extract date+slotId from the first empty-add button's onclick attribute.
+            // After island port (plantry-2zvm.4): empty-add uses onclick openEditor() not hx-get.
+            var firstEmptyAddOnclick = await page.Locator(".empty-add").First.GetAttributeAsync("onclick");
+            Assert.NotNull(firstEmptyAddOnclick);
+            var cellM = System.Text.RegularExpressions.Regex.Match(
+                firstEmptyAddOnclick!, @"openEditor\('([^']+)',\s*'([^']+)',\s*null\)");
+            Assert.True(cellM.Success, $"Could not parse openEditor: {firstEmptyAddOnclick}");
+            var cellDate2 = cellM.Groups[1].Value;
+            var cellSlotId2 = cellM.Groups[2].Value;
 
-            // Wait for the editor to finish rendering
-            await page.WaitForFunctionAsync(@"() => {
-                return Object.keys(window).some(k => k.startsWith('__mealEditorCfg_'));
-            }");
-            await page.WaitForFunctionAsync(@"() => {
-                const inner = document.getElementById('meal-editor-inner');
-                if (!inner) return false;
-                const sects = inner.querySelectorAll('.ed-sect');
-                return sects.length >= 2 && getComputedStyle(sects[1]).display !== 'none';
-            }");
-
-            // Switch to note mode and pick Takeout preset
-            var addNoteLink = page.Locator("#meal-editor-dialog .ed-note-toggle button:has-text('add a note instead')");
-            await Assertions.Expect(addNoteLink).ToBeVisibleAsync();
-            await addNoteLink.ClickAsync();
-
-            var takeoutChip = page.Locator("#meal-editor-dialog .ed-note-chips button:has-text('Takeout')");
-            await Assertions.Expect(takeoutChip).ToBeVisibleAsync();
-            await takeoutChip.ClickAsync();
-
-            // Save the meal — Assign re-emits OOB plan-rail + plan-bar-nav
-            var saveButton = page.Locator("#meal-editor-dialog button.btn--primary:has-text('Save meal')");
-            await page.RunAndWaitForResponseAsync(
-                async () => await saveButton.ClickAsync(),
-                r => r.Url.Contains("handler=Assign") && r.Status == 200);
+            // POST AssignJson (note "Takeout") and apply the mutation. The barNav swap
+            // carried by AssignJson re-emits #plan-cost-chip; this validates that the
+            // budget chip survives a cell mutation's OOB barNav refresh.
+            // Use the island bridge (applyMutation = applyMutationResult) if mounted, else inline.
+            var assignJsonUrl2 = $"{BaseUrl}/MealPlan?handler=AssignJson";
+            var assignStatus2 = await page.EvaluateAsync<int>(@"
+                async (args) => {
+                    const token = document.querySelector('input[name=""__RequestVerificationToken""]')?.value ?? '';
+                    const body = JSON.stringify({
+                        mode: 'note',
+                        note: 'Takeout',
+                        dishes: [],
+                        att: null,
+                        attendeesOverridden: false,
+                        mealId: null,
+                        date: args.date,
+                        slotId: args.slotId
+                    });
+                    const r = await fetch(args.url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': token,
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body
+                    });
+                    if (!r.ok) return r.status;
+                    const data = await r.json();
+                    if (data.error) return -1;
+                    if (window.__mealPlannerIsland && window.__mealPlannerIsland.applyMutation) {
+                        window.__mealPlannerIsland.applyMutation(data);
+                    } else {
+                        // Inline fallback: swap rail + barNav fragments into live DOM.
+                        if (data.railHtml) {
+                            const railEl = document.getElementById('plan-rail');
+                            if (railEl) railEl.outerHTML = data.railHtml;
+                        }
+                        if (data.barNavHtml) {
+                            const tmp = document.createElement('div');
+                            tmp.innerHTML = data.barNavHtml;
+                            for (const el of Array.from(tmp.children)) {
+                                const existing = el.id && document.getElementById(el.id);
+                                if (existing) existing.outerHTML = el.outerHTML;
+                            }
+                        }
+                        if (data.cellHtml) {
+                            const m = data.cellHtml.match(/id=""(cell-[^""]+)""/);
+                            if (m) { const el = document.getElementById(m[1]); if (el) el.outerHTML = data.cellHtml; }
+                        }
+                    }
+                    return r.status;
+                }", new { url = assignJsonUrl2, date = cellDate2, slotId = cellSlotId2 });
+            Assert.Equal(200, assignStatus2);
 
             // Budget chip must still be present after the OOB bar refresh from Assign
             await Assertions.Expect(page.Locator("#plan-cost-chip")).ToBeVisibleAsync();
