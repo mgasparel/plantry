@@ -37,15 +37,18 @@
        ordering/single-instance rules — relative vendoring is the robust buildless form.) *@
     <script type="module">
         import { mountTakeStock } from '/js/islands/take-stock-island.js';
+        import { readHydration, readAntiforgeryToken } from '/js/islands/helpers.js';
 
-        const root = document.getElementById('take-stock-island-root');
-        const rows = JSON.parse(document.getElementById('ts-island-data').textContent);
-        const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+        const root  = document.getElementById('take-stock-island-root');
+        const rows  = readHydration('ts-island-data');
+        const token = readAntiforgeryToken();
 
-        mountTakeStock(root, {
-            rows,
-            saveUrl: '@Url.Page("./TakeStockIsland", "DevSave")',
-            token,
-        });
+        if (root && rows) {
+            mountTakeStock(root, {
+                rows,
+                saveUrl: '@Url.Page("./TakeStockIsland", "DevSave")',
+                token,
+            });
+        }
     </script>
 }
