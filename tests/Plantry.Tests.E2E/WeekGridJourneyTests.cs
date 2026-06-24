@@ -277,17 +277,23 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             var mealId = await ExtractMealIdFromCardAsync(page);
             Assert.False(string.IsNullOrEmpty(mealId), "Expected a meal card with a mealId after assign.");
 
-            // Clear by mealId (MP-O8: clear targets a specific meal, not a whole cell)
+            // Clear by mealId (MP-O8: clear targets a specific meal, not a whole cell).
+            // Production path: the island POSTs JSON to ClearJson.
             token = await GetAntiforgeryTokenAsync(page);
-            var clearUrl = $"{BaseUrl}/MealPlan?handler=Clear&date={date}&slotId={slotId}&mealId={mealId}";
+            var clearUrl = $"{BaseUrl}/MealPlan?handler=ClearJson";
             var clearStatus = await page.EvaluateAsync<int>(@"
                 async (args) => {
                     const r = await fetch(args.url, {
                         method: 'POST',
-                        headers: { 'RequestVerificationToken': args.token, 'HX-Request': 'true' }
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': args.token,
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({ date: args.date, slotId: args.slotId, mealId: args.mealId })
                     });
                     return r.status;
-                }", new { url = clearUrl, token });
+                }", new { url = clearUrl, date, slotId, mealId, token });
             Assert.Equal(200, clearStatus);
 
             // Reload → cell is empty
@@ -397,9 +403,6 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
     //       island replaces the old fragment-based Alpine editor (plantry-2zvm.4).
     //   (c) GET EditorJson returns island hydration JSON (not HTML) — the island
     //       fetches hydration on openEditor() and renders the editor client-side.
-    //
-    // For the dish-assign smoke test we post directly to ?handler=Assign (form-encoded)
-    // to validate the server-side Assign endpoint independently of the island client.
 
     [Fact(DisplayName = "Assign two-dish meal via POST → reload → meal card appears (fetch preserves repeated keys)")]
     public async Task TwoDishAssign_ViaFetch_MealCardAppearsOnReload()
@@ -652,22 +655,31 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
 
     private async Task<int> PostAssignNoteAsync(IPage page, string date, string slotId, string note, string token)
     {
-        var assignUrl = $"{BaseUrl}/MealPlan?handler=Assign&date={date}&slotId={slotId}";
+        // Posts to the island's production save path (AssignJson, JSON body) — the same
+        // endpoint the rendered editor's Save button uses.
+        var assignUrl = $"{BaseUrl}/MealPlan?handler=AssignJson";
         return await page.EvaluateAsync<int>(@"
             async (args) => {
-                const body = new URLSearchParams();
-                body.append('mode', 'note');
-                body.append('note', args.note);
+                const body = JSON.stringify({
+                    mode: 'note',
+                    note: args.note,
+                    dishes: [],
+                    att: null,
+                    attendeesOverridden: false,
+                    mealId: null,
+                    date: args.date,
+                    slotId: args.slotId
+                });
                 const r = await fetch(args.url, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Content-Type': 'application/json',
                         'RequestVerificationToken': args.token,
-                        'HX-Request': 'true'
+                        'X-Requested-With': 'XMLHttpRequest'
                     },
-                    body: body.toString()
+                    body
                 });
                 return r.status;
-            }", new { url = assignUrl, note, token });
+            }", new { url = assignUrl, note, date, slotId, token });
     }
 }

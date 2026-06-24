@@ -166,66 +166,6 @@ public sealed class IndexModel(
         return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
     }
 
-    // ── Assign meal POST ─────────────────────────────────────────────────────
-
-    public async Task<IActionResult> OnPostAssignAsync(
-        string date, Guid slotId,
-        [FromForm] string mode,
-        [FromForm] string? note,
-        [FromForm] List<string>? dishKinds,
-        [FromForm] List<Guid>? dishItemIds,
-        [FromForm] List<int>? dishServings,
-        [FromForm] List<Guid>? attendeesOverride,
-        [FromForm] bool attendeesOverridden = false,
-        [FromForm] Guid? mealId = null,
-        CancellationToken ct = default)
-    {
-        if (!DateOnly.TryParse(date, out var parsedDate))
-            return BadRequest();
-
-        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var userId = await GetCurrentUserIdAsync(ct);
-        var sid = MealSlotId.From(slotId);
-        var mid = mealId.HasValue ? PlannedMealId.From(mealId.Value) : (PlannedMealId?)null;
-
-        List<Guid>? overrideList = attendeesOverridden ? attendeesOverride ?? [] : null;
-
-        string? hardStanceWarning = null;
-        if (mode == "note")
-        {
-            if (string.IsNullOrWhiteSpace(note)) return BadRequest("Note is required.");
-            var noteResult = await assignService.AssignNoteAsync(householdId, parsedDate, sid, note!, overrideList, userId, mid, ct);
-            hardStanceWarning = noteResult.HardStanceWarning;
-        }
-        else
-        {
-            // Build dishes from three index-aligned arrays (kind, itemId, servings) so that
-            // servings are never mis-mapped when a meal mixes recipe and product dishes.
-            var specs = BuildDishSpecs(dishKinds, dishItemIds, dishServings);
-            if (specs.Count == 0) return BadRequest("At least one dish is required.");
-            var dishResult = await assignService.AssignDishesAsync(householdId, parsedDate, sid, specs, overrideList, userId, mid, ct);
-            hardStanceWarning = dishResult.HardStanceWarning;
-        }
-
-        // Return the updated cell fragment, including any dietary warning so the UI can display it
-        return await CellFragmentAsync(householdId, parsedDate, sid, hardStanceWarning, ct);
-    }
-
-    // ── Clear meal POST ──────────────────────────────────────────────────────
-
-    public async Task<IActionResult> OnPostClearAsync(
-        string date, Guid slotId, Guid mealId, CancellationToken ct = default)
-    {
-        if (!DateOnly.TryParse(date, out var parsedDate))
-            return BadRequest();
-
-        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var sid = MealSlotId.From(slotId);
-        await assignService.ClearMealAsync(householdId, parsedDate, PlannedMealId.From(mealId), ct);
-
-        return await CellFragmentAsync(householdId, parsedDate, sid, ct);
-    }
-
     // ── Move meal POST ───────────────────────────────────────────────────────
 
     public async Task<IActionResult> OnPostMoveAsync(
@@ -1227,9 +1167,9 @@ public sealed class IndexModel(
     }
 
     /// <summary>
-    /// Builds DishSpec list from JSON dish array (island JSON endpoint format).
-    /// Replaces BuildDishSpecs for the island paths — JSON carries a typed array
-    /// rather than three index-aligned form arrays, eliminating key-collapsing.
+    /// Builds DishSpec list from a JSON dish array (island JSON endpoint format).
+    /// JSON carries a typed array of (kind, itemId, servings) objects, so per-dish
+    /// servings can never be mis-mapped the way repeated form keys could collapse.
     /// </summary>
     private static List<DishSpec> BuildDishSpecsFromJson(List<DishJsonItem>? dishes)
     {
@@ -1329,28 +1269,6 @@ public sealed class IndexModel(
     {
         var user = await userManager.GetUserAsync(User);
         return user is not null ? Guid.Parse(user.Id) : Guid.Empty;
-    }
-
-    /// <summary>
-    /// Builds DishSpec list from three index-aligned form arrays (kinds, itemIds, servings).
-    /// The three arrays are emitted in display order by the editor, so index i of each array
-    /// always refers to the same dish — servings can never be mis-mapped across kind groups.
-    /// </summary>
-    private static List<DishSpec> BuildDishSpecs(
-        List<string>? kinds, List<Guid>? itemIds, List<int>? servings)
-    {
-        if (kinds is null || itemIds is null) return [];
-        var count = Math.Min(kinds.Count, itemIds.Count);
-        var specs = new List<DishSpec>(count);
-        for (int i = 0; i < count; i++)
-        {
-            var kind = kinds[i].Equals("recipe", StringComparison.OrdinalIgnoreCase)
-                ? DishKind.Recipe
-                : DishKind.Product;
-            var sv = servings != null && i < servings.Count ? servings[i] : 1;
-            specs.Add(new DishSpec(kind, itemIds[i], Math.Max(1, sv)));
-        }
-        return specs;
     }
 
     public static string CellKey(DateOnly date, MealSlotId slotId) => $"{date:yyyy-MM-dd}_{slotId.Value:N}";

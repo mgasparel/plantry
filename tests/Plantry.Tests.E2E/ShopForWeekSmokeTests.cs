@@ -120,27 +120,31 @@ public sealed class ShopForWeekSmokeTests(AppHostFixture appHost) : IAsyncLifeti
             Assert.NotEmpty(cellDate);
             Assert.NotEmpty(slotId);
 
-            // POST Assign recipe dish via fetch (same path as the Alpine editor Save button).
+            // POST a recipe dish via the island's production save path (AssignJson, JSON body).
             var token = await GetAntiforgeryTokenAsync(page);
-            var assignUrl = $"{BaseUrl}/MealPlan?handler=Assign&date={cellDate}&slotId={slotId}";
+            var assignUrl = $"{BaseUrl}/MealPlan?handler=AssignJson";
             var assignStatus = await page.EvaluateAsync<int>(@"
                 async (args) => {
-                    const params = new URLSearchParams();
-                    params.append('mode', 'dishes');
-                    params.append('dishKinds', 'recipe');
-                    params.append('dishItemIds', args.recipeId);
-                    params.append('dishServings', '2');
+                    const body = JSON.stringify({
+                        mode: 'dishes',
+                        dishes: [{ kind: 'recipe', itemId: args.recipeId, servings: 2 }],
+                        att: null,
+                        attendeesOverridden: false,
+                        mealId: null,
+                        date: args.date,
+                        slotId: args.slotId
+                    });
                     const r = await fetch(args.url, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Content-Type': 'application/json',
                             'RequestVerificationToken': args.token,
-                            'HX-Request': 'true'
+                            'X-Requested-With': 'XMLHttpRequest'
                         },
-                        body: params.toString()
+                        body
                     });
                     return r.status;
-                }", new { url = assignUrl, recipeId, token });
+                }", new { url = assignUrl, recipeId, date = cellDate, slotId, token });
             Assert.Equal(200, assignStatus);
 
             // ── Step 5: Reload Meal Plan and assert the "Shop for this week" button ─
