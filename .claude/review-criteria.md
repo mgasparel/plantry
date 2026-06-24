@@ -111,15 +111,25 @@ to fray — police it as a bright, boring rule.
   3. **Validation is mirrored, not moved.** An island may mirror field guards
      (`quantity > 0`, unit/location required, new-product needs name+category) to gate Save
      and show inline hints; the server re-validates every mutation and is **the truth**.
-- **Buildless, no new dependencies (ADR-020 §6).** The only sanctioned reactive tech is
-  **Preact + htm + `@preact/signals`**, vendored as pinned ESM in
-  `wwwroot/js/islands/vendor/` with **relative imports**. Flag any: new JS dependency beyond
-  {htmx, Alpine, the vendored island runtime}; `package.json` / `node_modules` / npm tree;
-  bundler; **import map** (it fights Razor `@@` escaping — relative vendoring is the form);
-  or build step that isn't `dotnet` / `dotnet watch`. **esbuild is the *only* sanctioned
-  future build step, and adopting it is an ADR-020 amendment, not a silent addition.** The
-  vendored `vendor/*.module.js` are pinned third-party — on a bump review the version/pin,
-  not the minified body.
+- **Buildless *shipped runtime*, no new shipped dependencies (ADR-020 §6).** The only
+  sanctioned reactive tech is **Preact + htm + `@preact/signals`**, vendored as pinned ESM in
+  `wwwroot/js/islands/vendor/` with **relative imports**. The rule is about what the **browser
+  loads**: the file that runs is the file you read. Flag any: new *shipped* JS dependency
+  beyond {htmx, Alpine, the vendored island runtime}; a bundler or transpile of shipped JS;
+  `node_modules` / an npm dependency tree on the shipped path; an **import map** (it fights
+  Razor `@@` escaping — relative vendoring is the form). **esbuild is the *only* sanctioned
+  future build step for shipped code, and adopting it is an ADR-020 amendment, not a silent
+  addition.** Vendored `vendor/*.module.js` are pinned third-party — on a bump review the
+  version/pin, not the minified body.
+- **Test-time Node is allowed; shipped/build Node is not (ADR-020 amended 2026-06-24).** Island
+  JS is tested with Node's built-in runner (`node --test`, zero dependency tree) importing the
+  ESM modules directly. A `package.json` is permitted **only** as a dev/test manifest — a `test`
+  script + `type: module`, **no dependencies** — with `node_modules` gitignored; it must never
+  put Node, a dependency tree, or a build on the **shipped** path. So: `node --test` and a
+  deps-free test manifest are fine; an npm dependency tree, a bundler, or Node in what ships are
+  still **FIX**. Untested island transform logic (factories, draft→POST-body builders, display
+  `computed`s) is now a normal testability finding — the rig exists, so "there's no JS test rig"
+  is no longer a reason to wave it through.
 - **Islands are not a SPA (ADR-020 §5).** No client router; each island mounts per page
   from server-rendered HTML and **dies on navigation**. The server owns routing,
   auth/session, and navigation. A client-owned app shell, a persistent client router, or
@@ -216,8 +226,10 @@ DEFER is for **open questions, not large diffs.** Trigger DEFER only when at lea
   no existing ADR or established pattern settles the choice (see next bullet).
 - **Out-of-scope blast radius** — the fix escapes the change under review: it touches another bounded
   context, a schema/migration, or a public contract beyond the current diff's footprint.
-- **Missing test infrastructure** — verifying the fix needs a harness that doesn't exist yet (e.g. a
-  JS test rig), so it can't be safely closed in-loop.
+- **Missing test infrastructure** — verifying the fix needs a harness that doesn't exist yet, so it
+  can't be safely closed in-loop. (Note: island JS is **no longer** an example — a `node --test` rig
+  is sanctioned as of the 2026-06-24 ADR-020 amendment, so "there's no JS test rig" is not a DEFER
+  reason for island-logic coverage once that rig has landed.)
 - **Low confidence** — the reviewer isn't sure the fix is correct or that the finding is real.
 
 **Effort and size are never on their own a reason to DEFER.** "It's a 45-minute refactor" is not an
@@ -274,7 +286,7 @@ finding actually lands.
 | Gates | Default tier |
 |-------|--------------|
 | 1–5 | **FIX** — correctness/security/tenancy/AI-staging defects always block merge |
-| 6 — new JS dep / npm tree / bundler / import map / non-`dotnet` build step; island outside the three sanctioned surfaces; SPA shell or client router | **FIX** |
+| 6 — new *shipped* JS dep / npm dependency tree / bundler / import map / Node or a build on the shipped path; island outside the three sanctioned surfaces; SPA shell or client router | **FIX** (test-time `node --test` + a deps-free test manifest are explicitly allowed — not a finding) |
 | 6 — §7 tripwire breach (domain logic computed inside an island); contract-seam divergence between server VM and island props | **FIX** — and a §7 breach also reopens ADR-020 (record an amendment) |
 | 6 — UI library drift, divergent Razor/CSS or island widgets, missing contract test for a new island surface | **FIX or DEFER** per the boundary (cheap & in-scope → FIX; needs a new shared component or JS test infra → DEFER) |
 | 7 | **FIX** — persistence contract violations cause correctness bugs |
