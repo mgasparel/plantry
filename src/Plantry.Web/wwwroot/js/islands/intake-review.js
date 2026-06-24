@@ -58,7 +58,6 @@ import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
  * @property {string|null} newProductName
  * @property {string|null} newProductCategoryId
  * @property {number|null} suggestedPrice
- * @property {PrefillData} prefill
  */
 
 /**
