@@ -89,3 +89,15 @@ jobs:
         run: >
           dotnet test tests/Plantry.Tests.Architecture
           --no-build --configuration Release
+
+      # ── L1: Island JS unit tests (ADR-020 amended 2026-06-24) ───────────────
+      # Zero npm dependencies — runs node --test directly; no `npm install` needed.
+      - name: Setup Node
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Island JS tests
+        if: needs.changes.outputs.code == 'true'
+        run: npm test

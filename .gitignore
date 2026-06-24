@@ -21,6 +21,9 @@ x86/
 *.nupkg
 **/[Pp]ackages/*
 
+# Node / JS test rig (ADR-020 amended 2026-06-24 — test-time Node only; no shipped node_modules)
+node_modules/
+
 # Test / mutation testing output
 TestResults/
 StrykerOutput/
