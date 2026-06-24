@@ -423,22 +423,9 @@ public sealed class ReviewModel(
 
 /// <summary>
 /// Holds <see cref="ComputePrefill"/> — the server-side prefill priority chain
-/// (Boundary judgment call 1: stays here, never duplicated in JS). Also carries the
-/// resolved prefill values alongside the original <see cref="ReviewLineView"/> for test assertions.
+/// (Boundary judgment call 1: stays here, never duplicated in JS).
 /// </summary>
-public sealed record ReviewRowModel(
-    ReviewLineView Line,
-    Guid? PrefillProductId,
-    string? PrefillProductName,
-    decimal? PrefillQuantity,
-    Guid? PrefillUnitId,
-    Guid? PrefillLocationId,
-    string? PrefillLocationName,
-    decimal? PrefillPrice,
-    IReadOnlyDictionary<string, IReadOnlyList<ReviewSkuOption>> SkusByProductId,
-    Guid? PrefillSkuId,
-    IReadOnlyList<ReviewAlternativeCandidate>? Alternatives = null,
-    DateOnly? PrefillExpiry = null)
+public static class ReviewRowModel
 {
     /// <summary>
     /// Pure prefill computation — no URL or HTTP context needed. Applies the priority chain:
@@ -503,11 +490,3 @@ public sealed record ReviewRowModel(
     }
 
 }
-
-/// <summary>
-/// A catalog-resolved alternative candidate for the "Did you mean" suggestion block in the review drawer.
-/// </summary>
-public sealed record ReviewAlternativeCandidate(
-    Guid ProductId,
-    string ProductName,
-    decimal Confidence);
