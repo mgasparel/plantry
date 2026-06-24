@@ -154,10 +154,7 @@ public sealed class IndexModel(
             EditorJsonUrl: "/MealPlan?handler=EditorJson",
             SearchJsonUrl: "/MealPlan?handler=SearchJson",
             Members: members);
-        return JsonSerializer.Serialize(vm, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        });
+        return JsonSerializer.Serialize(vm, MealPlanHydrationJson.Options);
     }
 
     // htmx fragment — returns the week grid partial + OOB plan-bar nav so the command
@@ -1553,19 +1550,5 @@ public sealed class IndexModel(
         public List<DishJsonItem>? Dishes { get; set; }
     }
 
-    /// <summary>
-    /// Hydration data for the meal-planner island (embedded in the page as JSON).
-    /// Contains endpoint URLs and household member data that the island needs on mount.
-    /// </summary>
-    public sealed record IslandHydrationVm(
-        string AssignUrl,
-        string ClearUrl,
-        string RollupUrl,
-        string EditorJsonUrl,
-        string SearchJsonUrl,
-        IReadOnlyList<IslandMemberVm> Members);
-
-    /// <summary>Household member info for the island (attendee toggle).</summary>
-    public sealed record IslandMemberVm(
-        string UserId, string DisplayName, string Initials, int ColorIndex);
+    // IslandHydrationVm and IslandMemberVm are defined in MealPlanHydration.cs (plantry-eoj5 Phase A).
 }
