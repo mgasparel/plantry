@@ -74,17 +74,74 @@ do not duplicate or diverge in either consumer.**
 - Only user-*resolved*, typed fields commit. Don't promote raw AI fields straight into
   typed columns.
 
-## Gate 6 — Hypermedia-first UI: no SPA, no Node
+## Gate 6 — UI architecture: hypermedia default, bounded reactive islands
 
-- No front-end framework, bundler, `package.json`, or `node_modules`. Flag any new JS
-  dependency that isn't htmx or Alpine, and any build step that isn't `dotnet`/
-  `dotnet watch`.
-- Server-driven interaction is **htmx fragment swaps**; local/draft client state is
-  **Alpine `x-data`**. Hand-rolled `fetch` + DOM manipulation that duplicates what
-  either library does is a smell.
-- The server renders domain state as HTML directly — there is no client-side shadow
-  model of domain data. JS that recomputes something the server already computed
-  (fulfillment %, cost per serving, totals) is exactly the drift this rules out.
+The app runs **two UI models** since ADR-020. The default is unchanged; islands are a
+bounded exception on three named surfaces. The line between them is the thing most likely
+to fray — police it as a bright, boring rule.
+
+- **Default is htmx + Alpine; islands are the bounded exception (ADR-020 §1).**
+  Server-driven interaction is **htmx fragment swaps**; local/draft state on non-island
+  pages is **Alpine `x-data`**. A client-side reactive **island** is sanctioned for
+  *exactly three* surfaces: **Intake review** (`Pages/Intake/Review`), **Meal Planner**
+  (`Pages/MealPlan` + editor), **Take Stock** (`Pages/Pantry/TakeStock`). New surfaces do
+  **not** default to an island — a new island anywhere else, or porting a fourth surface,
+  **reopens ADR-020** and is a finding, not a silent change. "Is this an htmx page or an
+  island?" must stay answerable at a glance.
+- **The island boundary — domain logic stays server-side (ADR-020 §2/§7).** An island
+  owns *only* ephemeral UI state: draft collections, open/closed drawers,
+  selected-but-unsaved fields, and derived **display** values that are pure functions of
+  state it already holds (counts, sums, progress, enable/disable). The **server owns every
+  domain concern** — persistence, fulfillment %, cost/rollup, validation-as-truth, and any
+  catalog-default or unit-semantics rule — behind JSON endpoints. **An island that computes
+  fulfillment, cost, validation-as-truth, or a catalog/unit-semantics rule client-side is a
+  §7 tripwire breach** — it reopens the ADR (record an amendment, never absorb silently).
+- **Where the line falls when "is this domain?" is ambiguous (ADR-020 §3 — apply these
+  verbatim, don't relitigate per screen):**
+  1. A **priority/derivation chain** that picks among competing sources (Intake's
+     `ComputePrefill`: `user-resolved > receipt-parsed > product-default`; *"receipt unit
+     wins so 2 kg never becomes 2 each"*; *"expiry = today + DefaultDueDays"*) is **domain
+     → server**. The island receives the *computed* values and renders them; it must never
+     re-derive the chain.
+  2. Filling **one** empty field from reference data the island already holds, on user
+     interaction (re-select a product → fill unit/location/expiry from that product's
+     hydrated defaults, incl. `today + dueDays`) is **UI → island-allowed**. The line:
+     applying a single default is UI; owning the priority chain that chooses *between*
+     sources is domain. Case 2 must not grow into case 1.
+  3. **Validation is mirrored, not moved.** An island may mirror field guards
+     (`quantity > 0`, unit/location required, new-product needs name+category) to gate Save
+     and show inline hints; the server re-validates every mutation and is **the truth**.
+- **Buildless, no new dependencies (ADR-020 §6).** The only sanctioned reactive tech is
+  **Preact + htm + `@preact/signals`**, vendored as pinned ESM in
+  `wwwroot/js/islands/vendor/` with **relative imports**. Flag any: new JS dependency beyond
+  {htmx, Alpine, the vendored island runtime}; `package.json` / `node_modules` / npm tree;
+  bundler; **import map** (it fights Razor `@@` escaping — relative vendoring is the form);
+  or build step that isn't `dotnet` / `dotnet watch`. **esbuild is the *only* sanctioned
+  future build step, and adopting it is an ADR-020 amendment, not a silent addition.** The
+  vendored `vendor/*.module.js` are pinned third-party — on a bump review the version/pin,
+  not the minified body.
+- **Islands are not a SPA (ADR-020 §5).** No client router; each island mounts per page
+  from server-rendered HTML and **dies on navigation**. The server owns routing,
+  auth/session, and navigation. A client-owned app shell, a persistent client router, or
+  cross-island shared mutable state is out of bounds.
+- **Transport & hydration go through the shared seam, not hand-rolled.** Islands read
+  server-emitted hydration via `readHydration` and post drafts via `postJson` +
+  `readAntiforgeryToken` (`islands/helpers.js`), and import the runtime from
+  `islands/runtime.js`. Hand-rolled `fetch`/DOM wiring that duplicates the runtime or
+  helpers is a smell (the islands analog of "don't re-implement what htmx/Alpine already
+  do"). **`helpers.js` and `runtime.js` are UI/transport only — domain logic must never
+  migrate into them either.**
+- **The contract seam must stay in sync (ADR-020 consequences).** Each island surface adds
+  a server-VM ↔ island-props JSON contract (the hydration payload + the JSON the island
+  POSTs back) that pure hypermedia lacks — **no compiler spans it.** A change to the
+  server-emitted shape not reflected in the island's consumption (or vice versa) is a real
+  defect → FIX. A *missing* contract test for a new island surface is a legitimate DEFER
+  (needs JS test infra).
+- **Reusable island widgets follow the same reuse discipline as Razor/CSS (below).** A
+  reactive widget built inline in one island and then near-duplicated in another (e.g. a
+  search-as-you-type picker living as both `ProductSearch` and `DishSearch`) is the JS
+  analog of four divergent steppers — extract the shared component before a third copy.
+  Conversely, don't force-share widgets whose behaviour genuinely diverges.
 - **The component library is the source of truth for *shared, reusable* UI — not an
   inventory of every element.** `src/Plantry.Web/Pages/Dev/Index.cshtml` catalogues the
   cross-cutting building blocks feature pages compose with: reusable Razor tag
@@ -217,8 +274,9 @@ finding actually lands.
 | Gates | Default tier |
 |-------|--------------|
 | 1–5 | **FIX** — correctness/security/tenancy/AI-staging defects always block merge |
-| 6 — new JS dependencies, SPA patterns, API key from browser | **FIX** |
-| 6 — UI library drift, component-order violations | **FIX or DEFER** per the boundary (cheap & in-scope → FIX; needs a new pattern/component decision → DEFER) |
+| 6 — new JS dep / npm tree / bundler / import map / non-`dotnet` build step; island outside the three sanctioned surfaces; SPA shell or client router | **FIX** |
+| 6 — §7 tripwire breach (domain logic computed inside an island); contract-seam divergence between server VM and island props | **FIX** — and a §7 breach also reopens ADR-020 (record an amendment) |
+| 6 — UI library drift, divergent Razor/CSS or island widgets, missing contract test for a new island surface | **FIX or DEFER** per the boundary (cheap & in-scope → FIX; needs a new shared component or JS test infra → DEFER) |
 | 7 | **FIX** — persistence contract violations cause correctness bugs |
 | 8 | **DEFER or NOTE** — product-alignment judgment; FIX only if egregious and in-scope |
 
