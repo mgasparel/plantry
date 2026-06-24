@@ -352,7 +352,7 @@ public sealed class WalkModel(
                 false,
                 null,
                 r.SupportedUnits?
-                    .Select(u => new AlpineUnitOption(u.UnitId, u.Code))
+                    .Select(u => new UnitOptionVm(u.UnitId, u.Code))
                     .ToList() ?? []));
 
         return JsonSerializer.Serialize(dict, JsonOptions);
@@ -365,7 +365,7 @@ public sealed class WalkModel(
     /// </summary>
     private string BuildIslandRowsJson(IReadOnlyList<TakeStockLocationProductRow> rows)
     {
-        var list = rows.Select(r => new IslandRow(
+        var list = rows.Select(r => new IslandRowVm(
             r.ProductId,
             r.ProductName,
             r.RecordedQuantity,
@@ -376,10 +376,10 @@ public sealed class WalkModel(
             // The handler remains the sole owner of its own routing.
             Url.Page("./Walk", "Lots", new { locationId = LocationId, productId = r.ProductId }) ?? "",
             r.SupportedUnits?
-                .Select(u => new AlpineUnitOption(u.UnitId, u.Code))
+                .Select(u => new UnitOptionVm(u.UnitId, u.Code))
                 .ToList() ?? []));
 
-        return JsonSerializer.Serialize(list, JsonOptions);
+        return JsonSerializer.Serialize(list, TakeStockHydrationJson.Options);
     }
 
     private static StockReason ParseReason(string? reason) => reason switch
@@ -400,34 +400,15 @@ public sealed class WalkModel(
     // ── DTOs ──────────────────────────────────────────────────────────────────
 
     private sealed record AlpineRow(
-        [property: JsonPropertyName("recorded")]       decimal                    Recorded,
-        [property: JsonPropertyName("counted")]        decimal                    Counted,
-        [property: JsonPropertyName("unitCode")]       string                     UnitCode,
-        [property: JsonPropertyName("unitId")]         Guid                       UnitId,
-        [property: JsonPropertyName("reason")]         string                     Reason,
-        [property: JsonPropertyName("dirty")]          bool                       Dirty,
-        [property: JsonPropertyName("failed")]         bool                       Failed,
-        [property: JsonPropertyName("failMsg")]        string?                    FailMsg,
-        [property: JsonPropertyName("supportedUnits")] List<AlpineUnitOption>     SupportedUnits);
-
-    private sealed record AlpineUnitOption(
-        [property: JsonPropertyName("unitId")] Guid   UnitId,
-        [property: JsonPropertyName("code")]   string Code);
-
-    /// <summary>
-    /// Full per-row hydration shape for the Preact island (take-stock.js).
-    /// The island renders the whole row so it needs productName, recorded quantity display,
-    /// supportedUnits, hasActiveStock, and the lots fragment URL.
-    /// </summary>
-    private sealed record IslandRow(
-        [property: JsonPropertyName("productId")]      Guid                   ProductId,
-        [property: JsonPropertyName("productName")]    string                 ProductName,
-        [property: JsonPropertyName("recorded")]       decimal                Recorded,
-        [property: JsonPropertyName("unitCode")]       string                 UnitCode,
-        [property: JsonPropertyName("unitId")]         Guid                   UnitId,
-        [property: JsonPropertyName("hasActiveStock")] bool                   HasActiveStock,
-        [property: JsonPropertyName("lotsUrl")]        string                 LotsUrl,
-        [property: JsonPropertyName("supportedUnits")] List<AlpineUnitOption> SupportedUnits);
+        [property: JsonPropertyName("recorded")]       decimal             Recorded,
+        [property: JsonPropertyName("counted")]        decimal             Counted,
+        [property: JsonPropertyName("unitCode")]       string              UnitCode,
+        [property: JsonPropertyName("unitId")]         Guid                UnitId,
+        [property: JsonPropertyName("reason")]         string              Reason,
+        [property: JsonPropertyName("dirty")]          bool                Dirty,
+        [property: JsonPropertyName("failed")]         bool                Failed,
+        [property: JsonPropertyName("failMsg")]        string?             FailMsg,
+        [property: JsonPropertyName("supportedUnits")] List<UnitOptionVm>  SupportedUnits);
 
     private sealed class SaveRequest
     {
