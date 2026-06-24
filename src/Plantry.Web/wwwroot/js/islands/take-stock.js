@@ -29,6 +29,7 @@
 
 import { render, html, signal, computed } from "./runtime.js";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
+import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults } from "./take-stock-logic.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -69,38 +70,19 @@ import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
 
 // ── Row factory ─────────────────────────────────────────────────────────────────
 
-/** @param {RowSeed & { isNewRow?: boolean }} seed @returns {Row} */
+/**
+ * Wrap makeRowFromSeed (from take-stock-logic.js) by injecting the real signal/computed
+ * factories from the island's runtime. This keeps the logic module free of runtime
+ * imports while preserving the injected-factory pattern for testability.
+ *
+ * @param {RowSeed & { isNewRow?: boolean }} seed @returns {Row}
+ */
 function makeRow(seed) {
-  const recorded = signal(seed.recorded);
-  const counted = signal(seed.recorded);
-  const dirty = computed(() => counted.value !== recorded.value);
-  const down = computed(() => dirty.value && counted.value < recorded.value);
-  return {
-    productId: seed.productId,
-    productName: seed.productName,
-    unitCode: seed.unitCode,
-    hasActiveStock: seed.hasActiveStock ?? false,
-    lotsUrl: seed.lotsUrl ?? "",
-    supportedUnits: seed.supportedUnits ?? [],
-    recorded,
-    counted,
-    unitId: signal(seed.unitId),
-    reason: signal("Correction"),
-    failed: signal(false),
-    failMsg: signal(/** @type {string | null} */ (null)),
-    dirty,
-    down,
-    isNewRow: seed.isNewRow ?? false,
-  };
+  return makeRowFromSeed(seed, signal, computed);
 }
 
-/** @param {Row} row @param {string | number} raw */
-function setCount(row, raw) {
-  const parsed = typeof raw === "number" ? raw : parseFloat(raw);
-  row.counted.value = Number.isNaN(parsed) ? row.recorded.value : Math.max(0, parsed);
-  row.failed.value = false;
-  row.failMsg.value = null;
-}
+// setCount, buildSaveItems, and reconcileResults are imported from take-stock-logic.js
+// and called directly. makeRow is wrapped above to inject the runtime's signal/computed.
 
 // ── CountRow component ───────────────────────────────────────────────────────────
 
@@ -312,12 +294,7 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
 
   saving.value = true;
   toast.value = "";
-  const items = dirty.map((r) => ({
-    productId: r.productId,
-    countedValue: r.counted.value,
-    countedUnitId: r.unitId.value,
-    reason: r.reason.value,
-  }));
+  const items = buildSaveItems(dirty);
 
   try {
     const resp = await postJson(saveUrl, { items }, token);
@@ -327,22 +304,7 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
     }
 
     const data = await resp.json();
-    const byId = new Map(rows.map((r) => [r.productId, r]));
-    let saved = 0, failed = 0;
-    for (const result of data.results ?? []) {
-      const row = byId.get(result.productId);
-      if (!row) continue;
-      if (result.isSuccess) {
-        row.recorded.value = row.counted.value;
-        row.failed.value = false;
-        row.failMsg.value = null;
-        saved++;
-      } else {
-        row.failed.value = true;
-        row.failMsg.value = result.error ?? "Failed to save";
-        failed++;
-      }
-    }
+    const { saved, failed } = reconcileResults(rows, data.results ?? []);
 
     toast.value =
       failed === 0
