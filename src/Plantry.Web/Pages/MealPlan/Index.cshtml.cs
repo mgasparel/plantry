@@ -1335,11 +1335,6 @@ public sealed class IndexModel(
         DishKind Kind, Guid ItemId, string Name, int Servings, int Ordinal,
         int? FulfillmentPercent = null, decimal? CostPerServing = null, bool HasPhoto = false);
 
-    /// <summary>A recipe row in the dish-search dropdown, enriched with live fulfillment/cost + photo flag.</summary>
-    public sealed record RecipeHitVm(
-        Guid RecipeId, string Name, int DefaultServings,
-        int? FulfillmentPercent, decimal? CostPerServing, bool HasPhoto);
-
     public sealed record CellFragmentVm(
         DateOnly Date,
         MealSlotId SlotId,
