@@ -24,6 +24,7 @@
 
 import { render, html, signal, computed, batch } from "./runtime.js";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
+import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBody } from "./intake-review-logic.js";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -162,58 +163,18 @@ import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
  */
 
 // ── Line factory ─────────────────────────────────────────────────────────────
+//
+// makeLine, lineSection, isUnmatched, and buildSaveLineBody are pure transforms
+// that live in intake-review-logic.js (imported above) so they can be unit-tested
+// with `node --test` without browser globals. The island calls them by passing
+// the real `signal` factory from runtime.js.
 
 /**
  * @param {{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null}} seed
  * @returns {LineState}
  */
 function makeLine(seed) {
-  const { line, prefill, alternatives } = seed;
-  const effectivePrice = line.price ?? line.suggestedPrice;
-  return {
-    lineId: line.lineId,
-    receiptText: line.receiptText,
-    confidence: line.confidence,
-    status: signal(line.status),
-    isNewProduct: line.isNewProduct,
-    newProductName: line.newProductName,
-    price: signal(typeof effectivePrice === "number" ? effectivePrice : null),
-    suggestedPrice: signal(typeof line.suggestedPrice === "number" ? line.suggestedPrice : null),
-    saving: signal(false),
-    error: signal(/** @type {string|null} */ (null)),
-    // Matched (Pending+High) rows start closed — user clicks toggle to expand.
-    // Unmatched (Pending+Low/None) rows start open — they need immediate attention.
-    drawerOpen: signal(line.status === "Pending" && line.confidence !== "High" && line.productId === null && !line.isNewProduct),
-    searchOpen: signal(false),
-    createNew: signal(line.isNewProduct),
-    draftProductId: signal(prefill.productId ?? ""),
-    draftProductName: signal(prefill.productName ?? ""),
-    draftSkuId: signal(prefill.skuId ?? ""),
-    draftQty: signal(prefill.quantity != null ? String(prefill.quantity) : ""),
-    draftUnitId: signal(prefill.unitId ?? ""),
-    draftLocationId: signal(prefill.locationId ?? ""),
-    draftExpiry: signal(prefill.expiry ?? ""),
-    draftExpiryMode: signal(prefill.expiry ? "has" : "never"),
-    draftPrice: signal(prefill.price != null ? String(prefill.price) : ""),
-    draftNewName: signal(line.newProductName ?? ""),
-    draftNewCategoryId: signal(line.newProductCategoryId ?? ""),
-    alternatives: alternatives ?? null,
-  };
-}
-
-// ── Derived-state helpers ─────────────────────────────────────────────────────
-
-/** @param {LineState} ls @returns {"needs" | "ready" | "skipped"} */
-function lineSection(ls) {
-  const s = ls.status.value;
-  if (s === "Dismissed") return "skipped";
-  if (s === "Confirmed" || s === "Committed") return "ready";
-  return "needs";
-}
-
-/** @param {LineState} ls @returns {boolean} */
-function isUnmatched(ls) {
-  return ls.status.value === "Pending" && ls.confidence !== "High";
+  return makeLineFromSeed(seed, signal);
 }
 
 // ── ProductSearch component ──────────────────────────────────────────────────
@@ -381,19 +342,7 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
     ls.saving.value = true;
     ls.error.value = null;
 
-    const body = {
-      lineId: ls.lineId,
-      createNew: ls.createNew.value,
-      productId: ls.createNew.value ? null : (ls.draftProductId.value || null),
-      skuId: ls.createNew.value ? null : (ls.draftSkuId.value || null),
-      newProductName: ls.createNew.value ? ls.draftNewName.value.trim() : null,
-      newProductCategoryId: ls.createNew.value ? (ls.draftNewCategoryId.value || null) : null,
-      quantity: qty,
-      unitId: ls.draftUnitId.value || null,
-      locationId: ls.draftLocationId.value || null,
-      expiryDate: ls.draftExpiryMode.value === "has" && ls.draftExpiry.value ? ls.draftExpiry.value : null,
-      price: ls.draftPrice.value ? parseFloat(ls.draftPrice.value) : null,
-    };
+    const body = buildSaveLineBody(ls);
 
     try {
       const resp = await postJson(saveLineUrl, body, token);

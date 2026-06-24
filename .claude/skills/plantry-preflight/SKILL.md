@@ -60,6 +60,14 @@ same report; a failing stage is the last thing written to it. This mirrors
      **FAILED — tests**, not a pass: a written-but-unexecuted test verifies nothing.
      Record it as such with the reason, and stop. Start Docker / fix the fixture and
      re-run rather than reporting a green gate over a skipped suite.
+   - **Stage 2b — Island JS tests (ADR-020 amended 2026-06-24).** After `dotnet
+     test` passes, run `node --test src/Plantry.Web/wwwroot/js/islands/__tests__/**/*.test.js`
+     (or equivalently `npm test`) from the solution root. No `npm install` is needed
+     — there are zero dependencies; `node --test` runs directly. Capture the pass
+     count summary (`tests N / pass N / fail N`). If any test fails or zero tests
+     execute: write the report with status **FAILED — tests (JS)** and stop. Include
+     the node output verbatim. This suite is part of the gate as of the rig landing
+     in bead plantry-2zvm.11; skipping it is not a valid option.
    - If everything passes (every suite executed, zero failures), record the summary
      and continue.
 
@@ -131,7 +139,8 @@ Status: PASS | FAIL
 
 ## 2. Tests
 Status: PASS | FAIL | SKIPPED (not run — build failed)
-- Per project: pass/fail/skipped counts
+- Per project (dotnet): pass/fail/skipped counts
+- Island JS (`node --test`): tests N / pass N / fail N
 - Failing tests (if any): test name, project, failure message/assertion, stack trace excerpt
 
 ## 3. Code review
