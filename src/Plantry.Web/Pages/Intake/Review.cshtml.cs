@@ -266,43 +266,28 @@ public sealed class ReviewModel(
 
         // Products — include defaults so the island can fill empty unit/location/expiry
         // on product re-selection (Boundary judgment call 2: form-filling from held data = UI, allowed).
-        var products = reference.Products.Select(p => new
-        {
-            id = p.Id.ToString(),
-            name = p.Name,
-            defaultUnitCode = p.DefaultUnitCode,
-            defaultUnitId = p.DefaultUnitId.ToString(),
-            defaultLocationId = p.DefaultLocationId?.ToString(),
-            skus = p.Skus.Select(s => new { id = s.Id.ToString(), label = s.Label }).ToList(),
-            defaults = new
-            {
-                unitId = p.DefaultUnitId.ToString(),
-                locationId = p.DefaultLocationId?.ToString(),
-                expiry = p.DefaultDueDays is { } n ? today.AddDays(n).ToString("yyyy-MM-dd") : (string?)null,
-            },
-            categoryId = p.CategoryId?.ToString(),
-            categoryHue = p.CategoryHue,
-        });
+        var products = reference.Products.Select(p => new ProductHydration(
+            Id: p.Id.ToString(),
+            Name: p.Name,
+            DefaultUnitCode: p.DefaultUnitCode,
+            DefaultUnitId: p.DefaultUnitId.ToString(),
+            DefaultLocationId: p.DefaultLocationId?.ToString(),
+            Skus: p.Skus.Select(s => new SkuOption(s.Id.ToString(), s.Label)).ToList(),
+            Defaults: new ProductDefaults(
+                UnitId: p.DefaultUnitId.ToString(),
+                LocationId: p.DefaultLocationId?.ToString(),
+                Expiry: p.DefaultDueDays is { } n ? today.AddDays(n).ToString("yyyy-MM-dd") : null),
+            CategoryId: p.CategoryId?.ToString(),
+            CategoryHue: p.CategoryHue)).ToList();
 
-        var units = reference.Units.Select(u => new
-        {
-            id = u.Id.ToString(),
-            code = u.Code,
-            name = u.Name,
-        });
+        var units = reference.Units
+            .Select(u => new UnitHydration(u.Id.ToString(), u.Code, u.Name)).ToList();
 
-        var locations = reference.Locations.Select(l => new
-        {
-            id = l.Id.ToString(),
-            name = l.Name,
-        });
+        var locations = reference.Locations
+            .Select(l => new LocationHydration(l.Id.ToString(), l.Name)).ToList();
 
-        var categories = reference.Categories.Select(c => new
-        {
-            id = c.Id.ToString(),
-            name = c.Name,
-            hue = c.Hue,
-        });
+        var categories = reference.Categories
+            .Select(c => new CategoryHydration(c.Id.ToString(), c.Name, c.Hue)).ToList();
 
         var unitCodeById = reference.Units.ToDictionary(u => u.Id, u => u.Code);
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
@@ -329,84 +314,68 @@ public sealed class ReviewModel(
                 ? locName : null;
 
             // Alternatives: only resolved catalog entries, 2+ required
-            object? alternatives = null;
+            IReadOnlyList<AlternativeHydration>? alternatives = null;
             if (l.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts)
             {
                 var resolved = alts
                     .Where(a => a.ProductId is { } p && productNameById.ContainsKey(p))
-                    .Select((a, i) => new
-                    {
-                        productId = a.ProductId!.Value.ToString(),
-                        productName = productNameById.TryGetValue(a.ProductId!.Value, out var n) ? n : a.ProductName,
-                        confidence = a.Confidence,
-                    })
+                    .Select(a => new AlternativeHydration(
+                        ProductId: a.ProductId!.Value.ToString(),
+                        ProductName: productNameById.TryGetValue(a.ProductId!.Value, out var n) ? n : a.ProductName,
+                        Confidence: a.Confidence))
                     .ToList();
                 if (resolved.Count >= ImportLine.MinAlternativesForSuggestion)
                     alternatives = resolved;
             }
 
-            var effectivePrice = l.Price ?? l.SuggestedPrice;
+            return new LineHydration(
+                Line: new LineSeed(
+                    LineId: l.LineId.ToString(),
+                    LineNo: l.LineNo,
+                    ReceiptText: l.ReceiptText,
+                    Confidence: l.SuggestedConfidence.ToString(),
+                    Status: l.Status.ToString(),
+                    ProductId: l.ProductId?.ToString(),
+                    SkuId: l.SkuId?.ToString(),
+                    Quantity: l.Quantity,
+                    UnitId: l.UnitId?.ToString(),
+                    LocationId: l.LocationId?.ToString(),
+                    ExpiryDate: l.ExpiryDate?.ToString("yyyy-MM-dd"),
+                    Price: l.Price,
+                    IsNewProduct: l.IsNewProduct,
+                    NewProductName: l.NewProductName,
+                    NewProductCategoryId: l.NewProductCategoryId?.ToString(),
+                    SuggestedPrice: l.SuggestedPrice),
+                Prefill: new PrefillData(
+                    ProductId: prefillProductId?.ToString(),
+                    ProductName: prefillProductName,
+                    Quantity: prefillQty,
+                    UnitId: prefillUnitId?.ToString(),
+                    LocationId: prefillLocationId?.ToString(),
+                    LocationName: prefillLocationName,
+                    Price: prefillPrice,
+                    Expiry: prefillExpiry?.ToString("yyyy-MM-dd"),
+                    SkuId: l.SkuId?.ToString()),
+                Alternatives: alternatives);
+        }).ToList();
 
-            return new
-            {
-                line = new
-                {
-                    lineId = l.LineId.ToString(),
-                    lineNo = l.LineNo,
-                    receiptText = l.ReceiptText,
-                    confidence = l.SuggestedConfidence.ToString(),
-                    status = l.Status.ToString(),
-                    productId = l.ProductId?.ToString(),
-                    skuId = l.SkuId?.ToString(),
-                    quantity = l.Quantity,
-                    unitId = l.UnitId?.ToString(),
-                    locationId = l.LocationId?.ToString(),
-                    expiryDate = l.ExpiryDate?.ToString("yyyy-MM-dd"),
-                    price = l.Price,
-                    isNewProduct = l.IsNewProduct,
-                    newProductName = l.NewProductName,
-                    newProductCategoryId = l.NewProductCategoryId?.ToString(),
-                    suggestedPrice = l.SuggestedPrice,
-                },
-                prefill = new
-                {
-                    productId = prefillProductId?.ToString(),
-                    productName = prefillProductName,
-                    quantity = prefillQty,
-                    unitId = prefillUnitId?.ToString(),
-                    locationId = prefillLocationId?.ToString(),
-                    locationName = prefillLocationName,
-                    price = prefillPrice,
-                    expiry = prefillExpiry?.ToString("yyyy-MM-dd"),
-                    skuId = l.SkuId?.ToString(),
-                },
-                alternatives,
-            };
-        });
+        var hydration = new SessionHydration(
+            SessionId: Session.SessionId.ToString(),
+            MerchantText: string.IsNullOrWhiteSpace(Session.MerchantText) ? "Receipt" : Session.MerchantText,
+            SessionDate: Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture),
+            Today: today.ToString("yyyy-MM-dd"),
+            CommitUrl: Url.Page("./Review", "Commit", new { Id })!,
+            DiscardUrl: Url.Page("./Review", "Discard", new { Id })!,
+            SaveLineUrl: Url.Page("./Review", "SaveLine", new { Id })!,
+            DismissLineUrl: Url.Page("./Review", "DismissLine", new { Id })!,
+            RestoreLineUrl: Url.Page("./Review", "RestoreLine", new { Id })!,
+            Products: products,
+            Units: units,
+            Locations: locations,
+            Categories: categories,
+            Lines: lines);
 
-        var hydration = new
-        {
-            sessionId = Session.SessionId.ToString(),
-            merchantText = string.IsNullOrWhiteSpace(Session.MerchantText) ? "Receipt" : Session.MerchantText,
-            sessionDate = Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture),
-            today = today.ToString("yyyy-MM-dd"),
-            commitUrl = Url.Page("./Review", "Commit", new { Id })!,
-            discardUrl = Url.Page("./Review", "Discard", new { Id })!,
-            saveLineUrl = Url.Page("./Review", "SaveLine", new { Id })!,
-            dismissLineUrl = Url.Page("./Review", "DismissLine", new { Id })!,
-            restoreLineUrl = Url.Page("./Review", "RestoreLine", new { Id })!,
-            products,
-            units,
-            locations,
-            categories,
-            lines,
-        };
-
-        return JsonSerializer.Serialize(hydration, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = JsonIgnoreCondition.Never,
-        });
+        return JsonSerializer.Serialize(hydration, IntakeHydrationJson.Options);
     }
 
     private IActionResult JsonError(string message) =>

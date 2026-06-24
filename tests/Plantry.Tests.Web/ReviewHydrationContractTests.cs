@@ -1,0 +1,116 @@
+using System.Text.Json;
+using Plantry.Web.Pages.Intake;
+
+namespace Plantry.Tests.Web;
+
+/// <summary>
+/// Consumer-contract test for the Intake review island's hydration payload (plantry-eoj5 Phase B).
+///
+/// The server emits this shape (Review.cshtml.cs::BuildHydrationJson → the named DTOs in
+/// ReviewHydration.cs) and the island parses it by hand against a JSDoc @typedef block
+/// (intake-review.js). No compiler spans that seam. This test pins the EXACT camelCase key set at
+/// every nesting level, so dropping or renaming a field the island reads fails here — loudly,
+/// server-side — instead of surfacing as `undefined` in the browser.
+///
+/// Complements ReviewFragmentSnapshotTests, which pins VALUES from the live endpoint: this pins the
+/// full key SURFACE deterministically, including shapes the integration fixture leaves empty (skus).
+/// Serialization uses the same <see cref="IntakeHydrationJson.Options"/> the page emits with.
+/// </summary>
+public sealed class ReviewHydrationContractTests
+{
+    private static JsonElement Serialize(SessionHydration h) =>
+        JsonDocument.Parse(JsonSerializer.Serialize(h, IntakeHydrationJson.Options)).RootElement;
+
+    /// <summary>Asserts an object's property-name set is EXACTLY <paramref name="expected"/> — catches
+    /// both a dropped field (island reads `undefined`) and an unexpected extra (typedef gone stale).
+    /// Deterministic because the payload serializes with DefaultIgnoreCondition.Never (all keys emitted).</summary>
+    private static void AssertKeys(JsonElement obj, params string[] expected)
+    {
+        Assert.Equal(JsonValueKind.Object, obj.ValueKind);
+        var actual = obj.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal).ToArray(), actual);
+    }
+
+    /// <summary>A fully-populated payload — every nested shape present (a product with a sku, a line
+    /// with a prefill and an alternative) so the key assertions cover the whole contract surface.</summary>
+    private static SessionHydration Sample() => new(
+        SessionId: "s1",
+        MerchantText: "Receipt",
+        SessionDate: "Mon Jun 15, 2026",
+        Today: "2026-06-15",
+        CommitUrl: "/Intake/Review/1?handler=Commit",
+        DiscardUrl: "/Intake/Review/1?handler=Discard",
+        SaveLineUrl: "/Intake/Review/1?handler=SaveLine",
+        DismissLineUrl: "/Intake/Review/1?handler=DismissLine",
+        RestoreLineUrl: "/Intake/Review/1?handler=RestoreLine",
+        Products:
+        [
+            new ProductHydration(
+                Id: "p1", Name: "Milk", DefaultUnitCode: "L", DefaultUnitId: "u1",
+                DefaultLocationId: "loc1",
+                Skus: [new SkuOption("sku1", "2L carton")],
+                Defaults: new ProductDefaults(UnitId: "u1", LocationId: "loc1", Expiry: "2026-06-22"),
+                CategoryId: "cat1", CategoryHue: 200),
+        ],
+        Units: [new UnitHydration("u1", "L", "Litre")],
+        Locations: [new LocationHydration("loc1", "Fridge")],
+        Categories: [new CategoryHydration("cat1", "Dairy", 200)],
+        Lines:
+        [
+            new LineHydration(
+                Line: new LineSeed(
+                    LineId: "l1", LineNo: 1, ReceiptText: "WHOLE MILK 2L", Confidence: "High",
+                    Status: "Pending", ProductId: "p1", SkuId: "sku1", Quantity: 2m, UnitId: "u1",
+                    LocationId: "loc1", ExpiryDate: "2026-06-22", Price: 3.99m, IsNewProduct: false,
+                    NewProductName: null, NewProductCategoryId: null, SuggestedPrice: 3.99m),
+                Prefill: new PrefillData(
+                    ProductId: "p1", ProductName: "Milk", Quantity: 2m, UnitId: "u1", LocationId: "loc1",
+                    LocationName: "Fridge", Price: 3.99m, Expiry: "2026-06-22", SkuId: "sku1"),
+                Alternatives: [new AlternativeHydration("p2", "Cheddar, Sharp", 0.72m)]),
+        ]);
+
+    [Fact]
+    public void Root_has_exact_island_key_set()
+    {
+        AssertKeys(Serialize(Sample()),
+            "sessionId", "merchantText", "sessionDate", "today",
+            "commitUrl", "discardUrl", "saveLineUrl", "dismissLineUrl", "restoreLineUrl",
+            "products", "units", "locations", "categories", "lines");
+    }
+
+    [Fact]
+    public void Product_and_nested_shapes_have_exact_keys()
+    {
+        var product = Serialize(Sample()).GetProperty("products")[0];
+        AssertKeys(product,
+            "id", "name", "defaultUnitCode", "defaultUnitId", "defaultLocationId",
+            "skus", "defaults", "categoryId", "categoryHue");
+        AssertKeys(product.GetProperty("defaults"), "unitId", "locationId", "expiry");
+        AssertKeys(product.GetProperty("skus")[0], "id", "label");
+    }
+
+    [Fact]
+    public void Reference_collections_have_exact_keys()
+    {
+        var root = Serialize(Sample());
+        AssertKeys(root.GetProperty("units")[0], "id", "code", "name");
+        AssertKeys(root.GetProperty("locations")[0], "id", "name");
+        AssertKeys(root.GetProperty("categories")[0], "id", "name", "hue");
+    }
+
+    [Fact]
+    public void Line_prefill_and_alternative_have_exact_keys()
+    {
+        var item = Serialize(Sample()).GetProperty("lines")[0];
+        AssertKeys(item, "line", "prefill", "alternatives");
+        AssertKeys(item.GetProperty("line"),
+            "lineId", "lineNo", "receiptText", "confidence", "status",
+            "productId", "skuId", "quantity", "unitId", "locationId",
+            "expiryDate", "price", "isNewProduct", "newProductName",
+            "newProductCategoryId", "suggestedPrice");
+        AssertKeys(item.GetProperty("prefill"),
+            "productId", "productName", "quantity", "unitId", "locationId",
+            "locationName", "price", "expiry", "skuId");
+        AssertKeys(item.GetProperty("alternatives")[0], "productId", "productName", "confidence");
+    }
+}
