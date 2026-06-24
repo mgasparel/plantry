@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Pages.MealPlan;
 
 namespace Plantry.Tests.Web.MealPlanning;
@@ -20,16 +21,6 @@ public sealed class MealPlanHydrationContractTests
 {
     private static JsonElement Serialize(IslandHydrationVm h) =>
         JsonDocument.Parse(JsonSerializer.Serialize(h, MealPlanHydrationJson.Options)).RootElement;
-
-    /// <summary>Asserts an object's property-name set is EXACTLY <paramref name="expected"/> — catches
-    /// both a dropped field (island reads <c>undefined</c>) and an unexpected extra (typedef gone stale).
-    /// Deterministic because the payload serializes with DefaultIgnoreCondition.Never (all keys emitted).</summary>
-    private static void AssertKeys(JsonElement obj, params string[] expected)
-    {
-        Assert.Equal(JsonValueKind.Object, obj.ValueKind);
-        var actual = obj.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
-        Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal).ToArray(), actual);
-    }
 
     /// <summary>A fully-populated payload — every nested shape present so the key assertions
     /// cover the whole contract surface cross-checked against meal-planner.js @typedef blocks.</summary>
@@ -53,7 +44,7 @@ public sealed class MealPlanHydrationContractTests
     {
         // Cross-checked against @typedef IslandHydration in meal-planner.js:
         //   assignUrl, clearUrl, rollupUrl, editorJsonUrl, searchJsonUrl, members
-        AssertKeys(Serialize(Sample()),
+        HydrationContract.AssertKeys(Serialize(Sample()),
             "assignUrl", "clearUrl", "rollupUrl", "editorJsonUrl", "searchJsonUrl", "members");
     }
 
@@ -63,7 +54,7 @@ public sealed class MealPlanHydrationContractTests
         // Cross-checked against @typedef MemberInfo in meal-planner.js:
         //   userId, displayName, initials, colorIndex
         var member = Serialize(Sample()).GetProperty("members")[0];
-        AssertKeys(member, "userId", "displayName", "initials", "colorIndex");
+        HydrationContract.AssertKeys(member, "userId", "displayName", "initials", "colorIndex");
     }
 
     /// <summary>

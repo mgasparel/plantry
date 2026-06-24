@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Pages.Pantry.TakeStock;
 
 namespace Plantry.Tests.Web.TakeStock;
@@ -20,16 +21,6 @@ public sealed class TakeStockHydrationContractTests
 {
     private static JsonElement SerializeRow(IslandRowVm row) =>
         JsonDocument.Parse(JsonSerializer.Serialize(row, TakeStockHydrationJson.Options)).RootElement;
-
-    /// <summary>Asserts an object's property-name set is EXACTLY <paramref name="expected"/> — catches
-    /// both a dropped field (island reads <c>undefined</c>) and an unexpected extra (typedef gone stale).
-    /// Deterministic because the payload serializes with DefaultIgnoreCondition.Never (all keys emitted).</summary>
-    private static void AssertKeys(JsonElement obj, params string[] expected)
-    {
-        Assert.Equal(JsonValueKind.Object, obj.ValueKind);
-        var actual = obj.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
-        Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal).ToArray(), actual);
-    }
 
     /// <summary>A fully-populated row — supportedUnits present with one entry — so the key assertions
     /// cover the whole contract surface cross-checked against take-stock.js @typedef blocks.</summary>
@@ -53,7 +44,7 @@ public sealed class TakeStockHydrationContractTests
     {
         // Cross-checked against @typedef RowSeed in take-stock.js:
         //   productId, productName, recorded, unitCode, unitId, hasActiveStock, lotsUrl, supportedUnits
-        AssertKeys(SerializeRow(Sample()),
+        HydrationContract.AssertKeys(SerializeRow(Sample()),
             "productId", "productName", "recorded", "unitCode", "unitId",
             "hasActiveStock", "lotsUrl", "supportedUnits");
     }
@@ -63,7 +54,7 @@ public sealed class TakeStockHydrationContractTests
     {
         // Cross-checked against @typedef {{ unitId: string, code: string }} UnitOption in take-stock.js
         var unit = SerializeRow(Sample()).GetProperty("supportedUnits")[0];
-        AssertKeys(unit, "unitId", "code");
+        HydrationContract.AssertKeys(unit, "unitId", "code");
     }
 
     /// <summary>

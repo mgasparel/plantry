@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Pages.Intake;
 
 namespace Plantry.Tests.Web;
@@ -20,16 +21,6 @@ public sealed class ReviewHydrationContractTests
 {
     private static JsonElement Serialize(SessionHydration h) =>
         JsonDocument.Parse(JsonSerializer.Serialize(h, IntakeHydrationJson.Options)).RootElement;
-
-    /// <summary>Asserts an object's property-name set is EXACTLY <paramref name="expected"/> — catches
-    /// both a dropped field (island reads `undefined`) and an unexpected extra (typedef gone stale).
-    /// Deterministic because the payload serializes with DefaultIgnoreCondition.Never (all keys emitted).</summary>
-    private static void AssertKeys(JsonElement obj, params string[] expected)
-    {
-        Assert.Equal(JsonValueKind.Object, obj.ValueKind);
-        var actual = obj.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
-        Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal).ToArray(), actual);
-    }
 
     /// <summary>A fully-populated payload — every nested shape present (a product with a sku, a line
     /// with a prefill and an alternative) so the key assertions cover the whole contract surface.</summary>
@@ -72,7 +63,7 @@ public sealed class ReviewHydrationContractTests
     [Fact]
     public void Root_has_exact_island_key_set()
     {
-        AssertKeys(Serialize(Sample()),
+        HydrationContract.AssertKeys(Serialize(Sample()),
             "sessionId", "merchantText", "sessionDate", "today",
             "commitUrl", "discardUrl", "saveLineUrl", "dismissLineUrl", "restoreLineUrl",
             "products", "units", "locations", "categories", "lines");
@@ -82,35 +73,35 @@ public sealed class ReviewHydrationContractTests
     public void Product_and_nested_shapes_have_exact_keys()
     {
         var product = Serialize(Sample()).GetProperty("products")[0];
-        AssertKeys(product,
+        HydrationContract.AssertKeys(product,
             "id", "name", "defaultUnitCode", "defaultUnitId", "defaultLocationId",
             "skus", "defaults", "categoryId", "categoryHue");
-        AssertKeys(product.GetProperty("defaults"), "unitId", "locationId", "expiry");
-        AssertKeys(product.GetProperty("skus")[0], "id", "label");
+        HydrationContract.AssertKeys(product.GetProperty("defaults"), "unitId", "locationId", "expiry");
+        HydrationContract.AssertKeys(product.GetProperty("skus")[0], "id", "label");
     }
 
     [Fact]
     public void Reference_collections_have_exact_keys()
     {
         var root = Serialize(Sample());
-        AssertKeys(root.GetProperty("units")[0], "id", "code", "name");
-        AssertKeys(root.GetProperty("locations")[0], "id", "name");
-        AssertKeys(root.GetProperty("categories")[0], "id", "name", "hue");
+        HydrationContract.AssertKeys(root.GetProperty("units")[0], "id", "code", "name");
+        HydrationContract.AssertKeys(root.GetProperty("locations")[0], "id", "name");
+        HydrationContract.AssertKeys(root.GetProperty("categories")[0], "id", "name", "hue");
     }
 
     [Fact]
     public void Line_prefill_and_alternative_have_exact_keys()
     {
         var item = Serialize(Sample()).GetProperty("lines")[0];
-        AssertKeys(item, "line", "prefill", "alternatives");
-        AssertKeys(item.GetProperty("line"),
+        HydrationContract.AssertKeys(item, "line", "prefill", "alternatives");
+        HydrationContract.AssertKeys(item.GetProperty("line"),
             "lineId", "lineNo", "receiptText", "confidence", "status",
             "productId", "skuId", "quantity", "unitId", "locationId",
             "expiryDate", "price", "isNewProduct", "newProductName",
             "newProductCategoryId", "suggestedPrice");
-        AssertKeys(item.GetProperty("prefill"),
+        HydrationContract.AssertKeys(item.GetProperty("prefill"),
             "productId", "productName", "quantity", "unitId", "locationId",
             "locationName", "price", "expiry", "skuId");
-        AssertKeys(item.GetProperty("alternatives")[0], "productId", "productName", "confidence");
+        HydrationContract.AssertKeys(item.GetProperty("alternatives")[0], "productId", "productName", "confidence");
     }
 }
