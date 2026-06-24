@@ -26,6 +26,7 @@
 
 import { render, html, signal, computed, effect, useSignal, useComputed, useRef } from "./runtime.js";
 import { readAntiforgeryToken, postJson } from "./helpers.js";
+import { lvl, money, dishMeta } from "./meal-planner-logic.js";
 
 // ── Type documentation ────────────────────────────────────────────────────────
 
@@ -96,25 +97,7 @@ import { readAntiforgeryToken, postJson } from "./helpers.js";
  */
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** @param {number|null} p @returns {"hi"|"mid"|"lo"} */
-function lvl(p) {
-  if (p === null) return "lo";
-  return p >= 80 ? "hi" : p >= 50 ? "mid" : "lo";
-}
-
-/** @param {number} n @returns {string} */
-function money(n) {
-  return "$" + n.toFixed(2);
-}
-
-/** @param {DishDraft} d @returns {string} */
-function dishMeta(d) {
-  if (d.fulfillment === null) return "pantry item";
-  let s = d.fulfillment + "% in pantry";
-  if (d.costPerServing !== null) s += " · " + money(d.costPerServing * (d.servings || 1));
-  return s;
-}
+// lvl, money, dishMeta are imported from ./meal-planner-logic.js (bead plantry-2zvm.12).
 
 /**
  * Apply a cell mutation result to the live DOM.
