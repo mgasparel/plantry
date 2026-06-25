@@ -1026,36 +1026,61 @@ public sealed class IndexModel(
         GhostEnrichments = [];
         if (PendingProposals.Count == 0) return;
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-
         foreach (var (key, proposal) in PendingProposals)
         {
-            if (proposal.Dishes.Count == 0) continue;
-            try
-            {
-                var sid = proposal.MealSlotId;
-                var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(proposal.Date), clock);
-                var dishSpecs = proposal.Dishes.OrderBy(x => x.Ordinal)
-                    .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
-                    .ToList();
-                tempPlan.AssignMeal(proposal.Date, sid, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
-                var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == proposal.Date && m.MealSlotId == sid);
-                if (tempMeal is null) continue;
-
-                var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
-                var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
-                GhostEnrichments[key] = new MealFulfillmentVm(
-                    fulfillment.FulfillmentPercent,
-                    fulfillment.HasExpiringIngredients,
-                    mealCost.Amount,
-                    mealCost.Completeness == CostCompleteness.Partial);
-            }
-            catch
-            {
-                // Enrichment is best-effort — degrade gracefully
-            }
+            var enrichment = await BuildGhostEnrichmentAsync(householdId, proposal, ct);
+            if (enrichment is not null) GhostEnrichments[key] = enrichment;
         }
+    }
+
+    /// <summary>
+    /// Rolls up a pending AI proposal into display fulfillment + cost (a "ghost" cell) WITHOUT
+    /// persisting: builds a transient meal from the proposal's dishes and runs the same
+    /// fulfillment/costing services the committed-meal path uses (ADR-013 §4/§5, ADR-020 §7 — the
+    /// math stays server-side). Best-effort: returns null on an empty proposal or any roll-up
+    /// failure. Single source of truth for the three places that need ghost enrichment
+    /// (LoadGhostEnrichmentsAsync, CellMutationJsonAsync, CellFragmentAsync).
+    /// </summary>
+    private async Task<MealFulfillmentVm?> BuildGhostEnrichmentAsync(
+        HouseholdId householdId, ProposedMeal pending, CancellationToken ct)
+    {
+        if (pending.Dishes.Count == 0) return null;
+        try
+        {
+            var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(pending.Date), clock);
+            var dishSpecs = pending.Dishes.OrderBy(x => x.Ordinal)
+                .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
+                .ToList();
+            tempPlan.AssignMeal(pending.Date, pending.MealSlotId, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
+            var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == pending.Date && m.MealSlotId == pending.MealSlotId);
+            if (tempMeal is null) return null;
+
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
+            var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
+            return new MealFulfillmentVm(
+                fulfillment.FulfillmentPercent, fulfillment.HasExpiringIngredients,
+                mealCost.Amount, mealCost.Completeness == CostCompleteness.Partial);
+        }
+        catch
+        {
+            // Enrichment is best-effort — degrade gracefully if roll-up fails.
+            return null;
+        }
+    }
+
+    /// <summary>Resolves a pending proposal's dish recipe names for ghost-cell display (the cell
+    /// fragment must resolve these the same way _WeekGrid does inline).</summary>
+    private async Task<IReadOnlyList<string>> ResolveGhostDishNamesAsync(ProposedMeal pending, CancellationToken ct)
+    {
+        var names = new List<string>(pending.Dishes.Count);
+        foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
+        {
+            var r = await recipeReader.GetByIdAsync(d.RecipeId, ct);
+            names.Add(r?.Name ?? "Unknown recipe");
+        }
+        return names;
     }
 
     /// <summary>
@@ -1077,36 +1102,8 @@ public sealed class IndexModel(
         MealFulfillmentVm? ghostEnrichment = null;
         if (pending is not null)
         {
-            var names = new List<string>(pending.Dishes.Count);
-            foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
-            {
-                var r = await recipeReader.GetByIdAsync(d.RecipeId, ct);
-                names.Add(r?.Name ?? "Unknown recipe");
-            }
-            ghostDishNames = names;
-
-            if (pending.Dishes.Count > 0)
-            {
-                try
-                {
-                    var sid = slotId;
-                    var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(date), clock);
-                    var dishSpecs = pending.Dishes.OrderBy(x => x.Ordinal)
-                        .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings)).ToList();
-                    tempPlan.AssignMeal(date, sid, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
-                    var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == date && m.MealSlotId == sid);
-                    if (tempMeal is not null)
-                    {
-                        var today = DateOnly.FromDateTime(DateTime.Today);
-                        var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
-                        var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
-                        ghostEnrichment = new MealFulfillmentVm(
-                            fulfillment.FulfillmentPercent, fulfillment.HasExpiringIngredients,
-                            mealCost.Amount, mealCost.Completeness == CostCompleteness.Partial);
-                    }
-                }
-                catch { /* Ghost enrichment is best-effort */ }
-            }
+            ghostDishNames = await ResolveGhostDishNamesAsync(pending, ct);
+            ghostEnrichment = await BuildGhostEnrichmentAsync(householdId, pending, ct);
         }
 
         var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning,
@@ -1116,11 +1113,10 @@ public sealed class IndexModel(
         var railVm = new PlanRailVm(Insights, PendingCount, Oob: false);
         var barNavVm = BuildPlanBarNavVm(Oob: false);
 
+        // plan-rail-reopen is rendered inside the _PlanRail partial — no separate render needed.
         var cellHtml = await RenderPartialToStringAsync("_MealCell", cellVm, ct);
         var railHtml = await RenderPartialToStringAsync("_PlanRail", railVm, ct);
         var barNavHtml = await RenderPartialToStringAsync("_PlanBarNav", barNavVm, ct);
-        var reopenVm = new PlanRailVm(Insights, PendingCount, Oob: false);
-        // plan-rail-reopen is inside _PlanRail partial output — no separate render needed
 
         return new JsonResult(new { cellHtml, railHtml, barNavHtml, error = (string?)null });
     }
@@ -1191,51 +1187,15 @@ public sealed class IndexModel(
         var slot = Slots.FirstOrDefault(s => s.Id == slotId);
         var pending = PendingProposals.GetValueOrDefault(key);
 
-        // Resolve ghost cell recipe names for the cell fragment (fix: was using literal "Recipe").
-        // _WeekGrid resolves these inline via ResolveRecipeName; the cell fragment must do the same.
+        // Ghost-cell recipe names + rolled-up fulfillment/cost for any pending AI proposal.
+        // _WeekGrid resolves names inline via ResolveRecipeName; the cell fragment must match, and
+        // the roll-up reuses the shared best-effort helper (same transient-meal pattern as commits).
         IReadOnlyList<string>? ghostDishNames = null;
         MealFulfillmentVm? ghostEnrichment = null;
         if (pending is not null)
         {
-            var names = new List<string>(pending.Dishes.Count);
-            foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
-            {
-                var r = await recipeReader.GetByIdAsync(d.RecipeId, ct);
-                names.Add(r?.Name ?? "Unknown recipe");
-            }
-            ghostDishNames = names;
-
-            // Compute rolled-up fulfillment % and cost for the ghost cell (P3-6b, ADR-013 §4/§5).
-            // Reuses P3-4 roll-ups: build a transient meal from the proposal's dishes, run through
-            // fulfillmentService + costingService. No DB write — same rollup pattern.
-            if (pending.Dishes.Count > 0)
-            {
-                try
-                {
-                    var sid = slotId;
-                    var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(date), clock);
-                    var dishSpecs = pending.Dishes.OrderBy(x => x.Ordinal)
-                        .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
-                        .ToList();
-                    tempPlan.AssignMeal(date, sid, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
-                    var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == date && m.MealSlotId == sid);
-                    if (tempMeal is not null)
-                    {
-                        var today = DateOnly.FromDateTime(DateTime.Today);
-                        var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
-                        var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
-                        ghostEnrichment = new MealFulfillmentVm(
-                            fulfillment.FulfillmentPercent,
-                            fulfillment.HasExpiringIngredients,
-                            mealCost.Amount,
-                            mealCost.Completeness == CostCompleteness.Partial);
-                    }
-                }
-                catch
-                {
-                    // Ghost enrichment is best-effort — degrade gracefully if roll-up fails
-                }
-            }
+            ghostDishNames = await ResolveGhostDishNamesAsync(pending, ct);
+            ghostEnrichment = await BuildGhostEnrichmentAsync(householdId, pending, ct);
         }
 
         // Return the cell fragment plus out-of-band refreshes for both the insights rail and
