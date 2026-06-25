@@ -289,6 +289,78 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
         Assert.Null(error.GetString());
     }
 
+    // ── JSON endpoint: SaveLine server-side validation (server is authoritative, ADR §3) ──────
+    // The island mirrors these checks client-side for UX, but the server re-validates every field
+    // and is the source of truth. Validation rejections come back as 200 { error } (the island
+    // reads the body on non-ok), in the order quantity → unit → location → product/new-product.
+
+    [Fact]
+    public async Task SaveLine_missing_unit_returns_choose_a_unit_error()
+    {
+        using var f = new ReviewFragmentFactory();
+        var root = await PostSaveLineAsync(f, new
+        {
+            lineId = FirstLineId(f), createNew = false, productId = ReviewSessionFixture.MilkProductId,
+            quantity = 2m, unitId = (Guid?)null, locationId = ReviewSessionFixture.FridgeLocationId,
+        });
+        AssertErrorContains(root, "unit");
+    }
+
+    [Fact]
+    public async Task SaveLine_missing_location_returns_choose_a_location_error()
+    {
+        using var f = new ReviewFragmentFactory();
+        var root = await PostSaveLineAsync(f, new
+        {
+            lineId = FirstLineId(f), createNew = false, productId = ReviewSessionFixture.MilkProductId,
+            quantity = 2m, unitId = ReviewSessionFixture.LitreUnitId, locationId = (Guid?)null,
+        });
+        AssertErrorContains(root, "location");
+    }
+
+    [Fact]
+    public async Task SaveLine_existing_without_product_returns_choose_a_product_error()
+    {
+        using var f = new ReviewFragmentFactory();
+        var root = await PostSaveLineAsync(f, new
+        {
+            lineId = FirstLineId(f), createNew = false, productId = (Guid?)null,
+            quantity = 2m, unitId = ReviewSessionFixture.LitreUnitId, locationId = ReviewSessionFixture.FridgeLocationId,
+        });
+        AssertErrorContains(root, "product");
+    }
+
+    [Fact]
+    public async Task SaveLine_createNew_without_name_or_category_returns_error()
+    {
+        using var f = new ReviewFragmentFactory();
+        var root = await PostSaveLineAsync(f, new
+        {
+            lineId = FirstLineId(f), createNew = true, newProductName = (string?)null, newProductCategoryId = (Guid?)null,
+            quantity = 1m, unitId = ReviewSessionFixture.EachUnitId, locationId = ReviewSessionFixture.FridgeLocationId,
+        });
+        AssertErrorContains(root, "category");
+    }
+
+    [Fact]
+    public async Task SaveLine_createNew_valid_confirms_as_new_product()
+    {
+        // Exercises the ConfirmLineAsNewCommand path (the existing success test only covers ResolveLine).
+        using var f = new ReviewFragmentFactory();
+        var root = await PostSaveLineAsync(f, new
+        {
+            lineId = FirstLineId(f), createNew = true,
+            productId = (Guid?)null, skuId = (Guid?)null,
+            newProductName = "Brand New Item", newProductCategoryId = ReviewSessionFixture.DairyCategoryId,
+            quantity = 1m, unitId = ReviewSessionFixture.EachUnitId, locationId = ReviewSessionFixture.FridgeLocationId,
+            expiryDate = (string?)null, price = (decimal?)null,
+        });
+        Assert.Equal("Confirmed", root.GetProperty("status").GetString());
+        Assert.True(root.GetProperty("isNewProduct").GetBoolean());
+        Assert.Equal("Brand New Item", root.GetProperty("newProductName").GetString());
+        Assert.Null(root.GetProperty("error").GetString());
+    }
+
     // ── JSON endpoint: Commit returns redirectUrl ─────────────────────────────────────────────
 
     [Fact]
@@ -319,6 +391,33 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────
+
+    private static Guid FirstLineId(ReviewFragmentFactory f) => f.SessionA.Lines.First().Id.Value;
+
+    /// <summary>GETs the page for a token, POSTs a SaveLine JSON body, asserts 200, returns the parsed root.</summary>
+    private static async Task<JsonElement> PostSaveLineAsync(ReviewFragmentFactory factory, object payload)
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, ReviewSessionFixture.HouseholdAId.ToString());
+        var pageHtml = await (await client.GetAsync($"/Intake/Review/{factory.SessionAId}")).Content.ReadAsStringAsync();
+        var token = AntiforgeryToken(pageHtml);
+
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/Intake/Review/{factory.SessionAId}?handler=SaveLine");
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        request.Headers.Add("RequestVerificationToken", token);
+
+        var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+    }
+
+    private static void AssertErrorContains(JsonElement root, string fragment)
+    {
+        Assert.True(root.TryGetProperty("error", out var error), "Response must carry an 'error' field.");
+        var msg = error.GetString();
+        Assert.False(string.IsNullOrEmpty(msg), "Error message must not be empty.");
+        Assert.Contains(fragment, msg!, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>Pulls the antiforgery request token out of a rendered page.</summary>
     private static string AntiforgeryToken(string html)
