@@ -78,7 +78,6 @@
  * @property {boolean} isNewProduct
  * @property {string|null} newProductName
  * @property {SignalLike<number|null>} price
- * @property {SignalLike<number|null>} suggestedPrice
  * @property {SignalLike<boolean>} saving
  * @property {SignalLike<string|null>} error
  * @property {SignalLike<boolean>} drawerOpen
@@ -130,7 +129,6 @@ export function makeLine(seed, signalFn) {
     isNewProduct: line.isNewProduct,
     newProductName: line.newProductName,
     price: signalFn(typeof effectivePrice === "number" ? effectivePrice : null),
-    suggestedPrice: signalFn(typeof line.suggestedPrice === "number" ? line.suggestedPrice : null),
     saving: signalFn(false),
     error: signalFn(/** @type {string|null} */ (null)),
     // Matched (Pending+High) rows start closed; user clicks toggle to expand.

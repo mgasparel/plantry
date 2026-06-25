@@ -269,16 +269,11 @@ public sealed class ReviewModel(
         var products = reference.Products.Select(p => new ProductHydration(
             Id: p.Id.ToString(),
             Name: p.Name,
-            DefaultUnitCode: p.DefaultUnitCode,
-            DefaultUnitId: p.DefaultUnitId.ToString(),
-            DefaultLocationId: p.DefaultLocationId?.ToString(),
             Skus: p.Skus.Select(s => new SkuOption(s.Id.ToString(), s.Label)).ToList(),
             Defaults: new ProductDefaults(
                 UnitId: p.DefaultUnitId.ToString(),
                 LocationId: p.DefaultLocationId?.ToString(),
-                Expiry: p.DefaultDueDays is { } n ? today.AddDays(n).ToString("yyyy-MM-dd") : null),
-            CategoryId: p.CategoryId?.ToString(),
-            CategoryHue: p.CategoryHue)).ToList();
+                Expiry: p.DefaultDueDays is { } n ? today.AddDays(n).ToString("yyyy-MM-dd") : null))).ToList();
 
         var units = reference.Units
             .Select(u => new UnitHydration(u.Id.ToString(), u.Code, u.Name)).ToList();
@@ -289,13 +284,11 @@ public sealed class ReviewModel(
         var categories = reference.Categories
             .Select(c => new CategoryHydration(c.Id.ToString(), c.Name, c.Hue)).ToList();
 
-        var unitCodeById = reference.Units.ToDictionary(u => u.Id, u => u.Code);
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
         var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
         var productDefaultLocationById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultLocationId);
         var productDefaultUnitById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultUnitId);
         var productDefaultDueDaysById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultDueDays);
-        var locationNameById = reference.Locations.ToDictionary(l => l.Id, l => l.Name);
 
         var skusByProductId = reference.Products
             .Where(p => p.Skus.Count > 0)
@@ -309,9 +302,6 @@ public sealed class ReviewModel(
             var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry) =
                 ReviewRowModel.ComputePrefill(l, unitIdByCode, productNameById, productDefaultLocationById,
                     productDefaultUnitById, productDefaultDueDaysById, today);
-
-            var prefillLocationName = prefillLocationId is { } locId && locationNameById.TryGetValue(locId, out var locName)
-                ? locName : null;
 
             // Alternatives: only resolved catalog entries, 2+ required
             IReadOnlyList<AlternativeHydration>? alternatives = null;
@@ -331,7 +321,6 @@ public sealed class ReviewModel(
             return new LineHydration(
                 Line: new LineSeed(
                     LineId: l.LineId.ToString(),
-                    LineNo: l.LineNo,
                     ReceiptText: l.ReceiptText,
                     Confidence: l.SuggestedConfidence.ToString(),
                     Status: l.Status.ToString(),
@@ -352,7 +341,6 @@ public sealed class ReviewModel(
                     Quantity: prefillQty,
                     UnitId: prefillUnitId?.ToString(),
                     LocationId: prefillLocationId?.ToString(),
-                    LocationName: prefillLocationName,
                     Price: prefillPrice,
                     Expiry: prefillExpiry?.ToString("yyyy-MM-dd"),
                     SkuId: l.SkuId?.ToString()),
@@ -381,12 +369,10 @@ public sealed class ReviewModel(
     private IActionResult JsonError(string message) =>
         new JsonResult(new { error = message }) { StatusCode = 200 };
 
-    private async Task<T?> ReadJsonBodyAsync<T>(CancellationToken ct)
-    {
-        Request.EnableBuffering();
-        return await JsonSerializer.DeserializeAsync<T>(Request.Body,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
-    }
+    private static readonly JsonSerializerOptions JsonBodyOptions = new() { PropertyNameCaseInsensitive = true };
+
+    private async Task<T?> ReadJsonBodyAsync<T>(CancellationToken ct) =>
+        await JsonSerializer.DeserializeAsync<T>(Request.Body, JsonBodyOptions, ct);
 
 }
 

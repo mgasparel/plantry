@@ -38,13 +38,8 @@ public sealed record SessionHydration(
 public sealed record ProductHydration(
     string Id,
     string Name,
-    string DefaultUnitCode,
-    string DefaultUnitId,
-    string? DefaultLocationId,
     IReadOnlyList<SkuOption> Skus,
-    ProductDefaults Defaults,
-    string? CategoryId,
-    int? CategoryHue);
+    ProductDefaults Defaults);
 
 /// <summary>The unit/location/expiry an island fills into empty fields when a product is selected.</summary>
 public sealed record ProductDefaults(
@@ -81,7 +76,6 @@ public sealed record LineHydration(
 /// <summary>The persisted line state the island hydrates a row from.</summary>
 public sealed record LineSeed(
     string LineId,
-    int LineNo,
     string ReceiptText,
     string Confidence,
     string Status,
@@ -105,7 +99,6 @@ public sealed record PrefillData(
     decimal? Quantity,
     string? UnitId,
     string? LocationId,
-    string? LocationName,
     decimal? Price,
     string? Expiry,
     string? SkuId);

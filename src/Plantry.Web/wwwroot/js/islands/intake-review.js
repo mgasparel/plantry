@@ -35,7 +35,6 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
  * @property {number|null} quantity
  * @property {string|null} unitId
  * @property {string|null} locationId
- * @property {string|null} locationName
  * @property {number|null} price
  * @property {string|null} expiry  ISO date string yyyy-MM-dd or null
  * @property {string|null} skuId
@@ -44,7 +43,6 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
 /**
  * @typedef {Object} LineSeed
  * @property {string} lineId
- * @property {number} lineNo
  * @property {string} receiptText
  * @property {string} confidence   "High" | "Low" | "None"
  * @property {string} status       "Pending" | "Confirmed" | "Dismissed" | "Committed"
@@ -78,13 +76,8 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
  * @typedef {Object} ProductHydration
  * @property {string} id
  * @property {string} name
- * @property {string} defaultUnitCode
- * @property {string} defaultUnitId
- * @property {string|null} defaultLocationId
  * @property {SkuOption[]} skus
  * @property {ProductDefaults} defaults
- * @property {string|null} categoryId
- * @property {number|null} categoryHue
  */
 
 /**

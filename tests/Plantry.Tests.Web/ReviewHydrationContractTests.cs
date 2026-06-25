@@ -37,11 +37,9 @@ public sealed class ReviewHydrationContractTests
         Products:
         [
             new ProductHydration(
-                Id: "p1", Name: "Milk", DefaultUnitCode: "L", DefaultUnitId: "u1",
-                DefaultLocationId: "loc1",
+                Id: "p1", Name: "Milk",
                 Skus: [new SkuOption("sku1", "2L carton")],
-                Defaults: new ProductDefaults(UnitId: "u1", LocationId: "loc1", Expiry: "2026-06-22"),
-                CategoryId: "cat1", CategoryHue: 200),
+                Defaults: new ProductDefaults(UnitId: "u1", LocationId: "loc1", Expiry: "2026-06-22")),
         ],
         Units: [new UnitHydration("u1", "L", "Litre")],
         Locations: [new LocationHydration("loc1", "Fridge")],
@@ -50,13 +48,13 @@ public sealed class ReviewHydrationContractTests
         [
             new LineHydration(
                 Line: new LineSeed(
-                    LineId: "l1", LineNo: 1, ReceiptText: "WHOLE MILK 2L", Confidence: "High",
+                    LineId: "l1", ReceiptText: "WHOLE MILK 2L", Confidence: "High",
                     Status: "Pending", ProductId: "p1", SkuId: "sku1", Quantity: 2m, UnitId: "u1",
                     LocationId: "loc1", ExpiryDate: "2026-06-22", Price: 3.99m, IsNewProduct: false,
                     NewProductName: null, NewProductCategoryId: null, SuggestedPrice: 3.99m),
                 Prefill: new PrefillData(
                     ProductId: "p1", ProductName: "Milk", Quantity: 2m, UnitId: "u1", LocationId: "loc1",
-                    LocationName: "Fridge", Price: 3.99m, Expiry: "2026-06-22", SkuId: "sku1"),
+                    Price: 3.99m, Expiry: "2026-06-22", SkuId: "sku1"),
                 Alternatives: [new AlternativeHydration("p2", "Cheddar, Sharp", 0.72m)]),
         ]);
 
@@ -73,9 +71,7 @@ public sealed class ReviewHydrationContractTests
     public void Product_and_nested_shapes_have_exact_keys()
     {
         var product = Serialize(Sample()).GetProperty("products")[0];
-        HydrationContract.AssertKeys(product,
-            "id", "name", "defaultUnitCode", "defaultUnitId", "defaultLocationId",
-            "skus", "defaults", "categoryId", "categoryHue");
+        HydrationContract.AssertKeys(product, "id", "name", "skus", "defaults");
         HydrationContract.AssertKeys(product.GetProperty("defaults"), "unitId", "locationId", "expiry");
         HydrationContract.AssertKeys(product.GetProperty("skus")[0], "id", "label");
     }
@@ -95,13 +91,13 @@ public sealed class ReviewHydrationContractTests
         var item = Serialize(Sample()).GetProperty("lines")[0];
         HydrationContract.AssertKeys(item, "line", "prefill", "alternatives");
         HydrationContract.AssertKeys(item.GetProperty("line"),
-            "lineId", "lineNo", "receiptText", "confidence", "status",
+            "lineId", "receiptText", "confidence", "status",
             "productId", "skuId", "quantity", "unitId", "locationId",
             "expiryDate", "price", "isNewProduct", "newProductName",
             "newProductCategoryId", "suggestedPrice");
         HydrationContract.AssertKeys(item.GetProperty("prefill"),
             "productId", "productName", "quantity", "unitId", "locationId",
-            "locationName", "price", "expiry", "skuId");
+            "price", "expiry", "skuId");
         HydrationContract.AssertKeys(item.GetProperty("alternatives")[0], "productId", "productName", "confidence");
     }
 }
