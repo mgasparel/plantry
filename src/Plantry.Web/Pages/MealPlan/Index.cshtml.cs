@@ -577,7 +577,6 @@ public sealed class IndexModel(
         var currentAtt = vm.AttendeesOverride ?? defaultAtt;
         var isOverridden = vm.AttendeesOverride is not null;
         var isNote = vm.Note is not null;
-        var cellKey = slot.Id.Value.ToString("N") + "-" + date;
 
         // Build server-rendered initial rollup HTML (only for existing dish meals)
         string? initialRollupHtml = null;
@@ -600,34 +599,35 @@ public sealed class IndexModel(
         var dow = parsedDate.DayOfWeek.ToString()[..3];
         var monthDay = parsedDate.ToString("MMM d");
 
-        return new JsonResult(new
-        {
-            dateStr = date,
-            slotIdStr = slot.Id.Value.ToString("D"),
-            slotLabel = slot.Label,
-            cellKey,
-            mealId = vm.MealId?.ToString("D"),
-            isEditing = vm.IsEditing,
-            mode = isNote ? "note" : "dishes",
-            note = vm.Note ?? "",
-            dishes = vm.Dishes.Select(d => new
-            {
-                kind = d.Kind.ToString().ToLower(),
-                itemId = d.ItemId.ToString("D"),
-                name = d.Name,
-                servings = d.Servings,
-                fulfillment = (object?)d.FulfillmentPercent,
-                costPerServing = (object?)d.CostPerServing,
-                hasPhoto = d.HasPhoto,
-            }),
-            att = currentAtt.Select(x => x.ToString("D")),
-            defaultAtt = defaultAtt.Select(x => x.ToString("D")),
-            attOverridden = isOverridden,
-            initialRollupHtml,
-            dateDowLabel = dow,
-            dateMonthDay = monthDay,
-            isToday = parsedDate == today2,
-        });
+        var dishHydration = vm.Dishes
+            .Select(d => new EditorDishHydrationVm(
+                d.Kind.ToString().ToLower(),
+                d.ItemId.ToString("D"),
+                d.Name,
+                d.Servings,
+                d.FulfillmentPercent,
+                d.CostPerServing,
+                d.HasPhoto))
+            .ToList();
+
+        var payload = new MealEditorHydrationVm(
+            DateStr: date,
+            SlotIdStr: slot.Id.Value.ToString("D"),
+            SlotLabel: slot.Label,
+            MealId: vm.MealId?.ToString("D"),
+            IsEditing: vm.IsEditing,
+            Mode: isNote ? "note" : "dishes",
+            Note: vm.Note ?? "",
+            Dishes: dishHydration,
+            Att: currentAtt.Select(x => x.ToString("D")).ToList(),
+            DefaultAtt: defaultAtt.Select(x => x.ToString("D")).ToList(),
+            AttOverridden: isOverridden,
+            InitialRollupHtml: initialRollupHtml,
+            DateDowLabel: dow,
+            DateMonthDay: monthDay,
+            IsToday: parsedDate == today2);
+
+        return new JsonResult(payload, MealPlanHydrationJson.Options);
     }
 
     /// <summary>

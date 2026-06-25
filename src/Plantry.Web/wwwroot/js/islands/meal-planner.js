@@ -46,7 +46,6 @@ import { lvl, money, dishMeta } from "./meal-planner-logic.js";
  * @property {string} dateStr
  * @property {string} slotIdStr
  * @property {string} slotLabel
- * @property {string} cellKey         format: "{slotGuid:N}-{dateStr}"
  * @property {string|null} mealId     GUID string when editing, null when adding
  * @property {boolean} isEditing
  * @property {"dishes"|"note"} mode
@@ -56,6 +55,9 @@ import { lvl, money, dishMeta } from "./meal-planner-logic.js";
  * @property {string[]} defaultAtt    slot default attendee IDs
  * @property {boolean} attOverridden
  * @property {string|null} initialRollupHtml  server-rendered initial rollup for existing meal
+ * @property {string} dateDowLabel    e.g. "Mon" — editor header day-of-week
+ * @property {string} dateMonthDay    e.g. "Jun 1" — editor header date
+ * @property {boolean} isToday
  */
 
 /**

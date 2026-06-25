@@ -20,10 +20,11 @@ namespace Plantry.Tests.Web;
 /// name-sets are equal. Failure messages name the diff (missing / extra keys) so the
 /// next agent can fix it mechanically.
 ///
-/// Scope: hydration typedefs ONLY. Island-internal types (LineState with Signal fields,
-/// Row, DishDraft, EditorState, CellMutationResult, SearchResultDish) are never looked at
-/// because the test is driven from the DTO side — if a C# type has no mapping entry here,
-/// it is out of scope.
+/// Scope: server→island hydration typedefs. Each is driven from the C# DTO side — a type
+/// with no mapping entry here is out of scope. The Meal Planner editor payload (EditorState /
+/// DishDraft) IS covered now that it has named DTOs (MealEditorHydrationVm / EditorDishHydrationVm).
+/// Genuinely island-internal types (LineState with Signal fields, Row, CellMutationResult,
+/// SearchResultDish) are not — they never cross the wire.
 /// </summary>
 public sealed class IslandTypedefEquivalenceTests
 {
@@ -432,6 +433,36 @@ public sealed class IslandTypedefEquivalenceTests
             "MemberInfo",
             GetDtoWireKeys(typeof(IslandMemberVm)),
             ParseTypedefKeys(js, "MemberInfo"));
+    }
+
+    /// <summary>
+    /// MealEditorHydrationVm (C# name, GET ?handler=EditorJson payload) ↔ EditorState (@typedef).
+    /// This is the editor seam that previously drifted (typedef was missing the three date fields
+    /// and declared a dead cellKey) while the payload was an anonymous object the compiler couldn't
+    /// guard. Now named + pinned here.
+    /// </summary>
+    [Fact]
+    public void MealPlan_MealEditorHydrationVm_typedef_matches_dto()
+    {
+        var js = File.ReadAllText(IslandPath("meal-planner.js"));
+        AssertEquivalent(
+            "EditorState",
+            GetDtoWireKeys(typeof(MealEditorHydrationVm)),
+            ParseTypedefKeys(js, "EditorState"));
+    }
+
+    /// <summary>
+    /// EditorDishHydrationVm (C# name, the dishes[] element of the EditorJson payload) ↔ DishDraft
+    /// (@typedef). The island consumes wire dishes straight as draft state, so the shapes must match.
+    /// </summary>
+    [Fact]
+    public void MealPlan_EditorDishHydrationVm_typedef_matches_dto()
+    {
+        var js = File.ReadAllText(IslandPath("meal-planner.js"));
+        AssertEquivalent(
+            "DishDraft",
+            GetDtoWireKeys(typeof(EditorDishHydrationVm)),
+            ParseTypedefKeys(js, "DishDraft"));
     }
 
     // ─── Tests: Take Stock (take-stock.js) ───────────────────────────────────

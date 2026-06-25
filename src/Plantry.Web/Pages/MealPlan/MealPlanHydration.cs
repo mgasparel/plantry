@@ -32,6 +32,40 @@ public sealed record IslandMemberVm(
     string Initials,
     int ColorIndex);
 
+/// <summary>The editor-island hydration payload returned by GET <c>?handler=EditorJson</c>. The
+/// island reads this into its <c>EditorState</c> typedef. Named (not an anonymous object) so the
+/// compiler guards the field names and the typedef-equivalence test pins the shape — this is the
+/// editor seam that previously drifted from its typedef (plantry-2zvm island review).</summary>
+public sealed record MealEditorHydrationVm(
+    string DateStr,
+    string SlotIdStr,
+    string SlotLabel,
+    string? MealId,
+    bool IsEditing,
+    string Mode,
+    string Note,
+    IReadOnlyList<EditorDishHydrationVm> Dishes,
+    IReadOnlyList<string> Att,
+    IReadOnlyList<string> DefaultAtt,
+    bool AttOverridden,
+    string? InitialRollupHtml,
+    string DateDowLabel,
+    string DateMonthDay,
+    bool IsToday);
+
+/// <summary>A single dish in the editor hydration payload — matches the island's <c>DishDraft</c>
+/// typedef 1:1 (the island consumes these straight as draft state). Display-only fields
+/// (<c>Fulfillment</c>/<c>CostPerServing</c>) are server-computed; no domain math runs client-side
+/// (ADR-020 §7).</summary>
+public sealed record EditorDishHydrationVm(
+    string Kind,
+    string ItemId,
+    string Name,
+    int Servings,
+    int? Fulfillment,
+    decimal? CostPerServing,
+    bool HasPhoto);
+
 /// <summary>The exact serializer options the Meal Planner page emits hydration with. Shared so the
 /// consumer-contract test (plantry-eoj5 Phase B) pins the same camelCase / always-emit policy
 /// the island parses against — the only thing spanning the otherwise compiler-less seam.</summary>
