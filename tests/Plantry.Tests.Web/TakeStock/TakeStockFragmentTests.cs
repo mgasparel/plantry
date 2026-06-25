@@ -88,9 +88,8 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
         Assert.Contains("ts-walk-root", html);
-        Assert.Contains("ts-walk-data", html);
-        // Hydration array is empty.
-        Assert.Contains("[]", html);
+        // The hydration script specifically holds an empty array (not a stray "[]" elsewhere in markup).
+        Assert.Matches(@"id=""ts-walk-data"">\[\]</script>", html);
     }
 
     [Fact(DisplayName = "GET /pantry/take-stock/{locationId} includes island hydration JSON (was: Alpine initialiser)")]

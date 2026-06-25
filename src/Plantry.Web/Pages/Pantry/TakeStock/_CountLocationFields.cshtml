@@ -11,12 +11,10 @@
     from the route. No location picker is needed here.
 
     Model access: this partial is rendered without an explicit model by the shared sheet partial.
-    The enclosing Walk page model is accessible via ViewContext.ViewData.Model. Unit options
-    are also passed via ViewData["TakeStockUnitOptions"] set in the Walk page's GET handler.
+    The enclosing Walk page model (carrying UnitOptions) is reached via ViewContext.ViewData.Model.
 *@
 @{
-    var unitOptions = ViewData["TakeStockUnitOptions"] as IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>
-                   ?? (ViewContext.ViewData.Model as Plantry.Web.Pages.Pantry.TakeStock.WalkModel)?.UnitOptions
+    var unitOptions = (ViewContext.ViewData.Model as Plantry.Web.Pages.Pantry.TakeStock.WalkModel)?.UnitOptions
                    ?? [];
 }
 

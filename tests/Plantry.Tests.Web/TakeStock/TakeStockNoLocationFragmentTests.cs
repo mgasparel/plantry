@@ -94,7 +94,9 @@ public sealed class TakeStockNoLocationFragmentTests : IClassFixture<TakeStockNo
         var resp = await client.GetAsync("/pantry/take-stock");
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.DoesNotContain("needs filing", html);
+        // The entry text is "need filing" (matched by the positive test above); asserting the
+        // typo'd "needs filing" here could never fail. Use the real text so this guards anything.
+        Assert.DoesNotContain("need filing", html);
     }
 
     // ── L2/L4: POST Save — count + location → lot + default set ──────────────

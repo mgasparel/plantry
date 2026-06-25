@@ -20,9 +20,7 @@
 <div id="ts-sheet-host"
      x-data="takeStockSheetBridge()"
      x-on:ts-open-add.window="openAdd()"
-     x-on:pick-product="selectProduct(draft, $event.detail)"
-     x-on:collapse-lots.window="collapseLotsFromAlpine($event.detail.productId)"
-     x-on:lots-saved.window="lotsDidSave($event.detail.productId)">
+     x-on:pick-product="selectProduct(draft, $event.detail)">
     @* TrackStock=false: count lives in the island, not in the sheet's qty/unit fields. *@
     <partial name="Shared/_ProductSearchCreateSheet"
              model='new ProductSearchCreateSheetViewModel
@@ -135,12 +133,6 @@ function takeStockSheetBridge() {
             }));
             this.sheetOpen = false;
         },
-
-        // ── Lot panel seam (relays Alpine events to island seam only when needed) ──
-        // The island directly listens for collapse-lots / lots-saved on window, so
-        // these methods are thin passthroughs kept here for symmetry.
-        collapseLotsFromAlpine(productId) { /* handled by island's window listener */ },
-        lotsDidSave(productId)             { /* handled by island's window listener */ },
     };
 }
 
