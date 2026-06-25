@@ -180,6 +180,37 @@ function makeLine(seed) {
 // ── ProductSearch component ──────────────────────────────────────────────────
 
 /**
+/**
+ * Posts a save-line body and applies the result to the line's signals. Shared by the drawer
+ * Save and the row quick-confirm so there is ONE submit path: on failure it sets the error and
+ * reopens the drawer; on success it clears the error and calls onSaved; it always clears
+ * `saving` in finally. (Callers own validation + body construction via buildSaveLineBody.)
+ * @param {LineState} ls
+ * @param {object} body
+ * @param {string} saveLineUrl
+ * @param {string} token
+ * @param {(ls: LineState, data: any) => void} onSaved
+ */
+async function submitSaveLine(ls, body, saveLineUrl, token, onSaved) {
+  try {
+    const resp = await postJson(saveLineUrl, body, token);
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      ls.error.value = data.error ?? `Save failed (${resp.status})`;
+      ls.drawerOpen.value = true;
+    } else {
+      ls.error.value = null;
+      onSaved(ls, data);
+    }
+  } catch {
+    ls.error.value = "Network error — please try again.";
+    ls.drawerOpen.value = true;
+  } finally {
+    ls.saving.value = false;
+  }
+}
+
+/**
  * @param {{
  *   ls: LineState,
  *   products: ProductHydration[],
@@ -341,25 +372,7 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
 
     ls.saving.value = true;
     ls.error.value = null;
-
-    const body = buildSaveLineBody(ls);
-
-    try {
-      const resp = await postJson(saveLineUrl, body, token);
-      const data = await resp.json();
-      if (!resp.ok || data.error) {
-        ls.error.value = data.error ?? `Save failed (${resp.status})`;
-        ls.drawerOpen.value = true;
-      } else {
-        ls.error.value = null;
-        onSaved(ls, data);
-      }
-    } catch {
-      ls.error.value = "Network error — please try again.";
-      ls.drawerOpen.value = true;
-    } finally {
-      ls.saving.value = false;
-    }
+    await submitSaveLine(ls, buildSaveLineBody(ls), saveLineUrl, token, onSaved);
   }
 
   async function handleDismiss() {
@@ -676,35 +689,9 @@ function ReviewRow({ ls, products, units, locations, categories, token, saveLine
     if (ls.saving.value) return;
     ls.saving.value = true;
     ls.error.value = null;
-    const body = {
-      lineId: ls.lineId,
-      createNew: false,
-      productId: ls.draftProductId.value,
-      skuId: ls.draftSkuId.value || null,
-      newProductName: null,
-      newProductCategoryId: null,
-      quantity: parseFloat(ls.draftQty.value),
-      unitId: ls.draftUnitId.value,
-      locationId: ls.draftLocationId.value,
-      expiryDate: ls.draftExpiryMode.value === "has" && ls.draftExpiry.value ? ls.draftExpiry.value : null,
-      price: ls.draftPrice.value ? parseFloat(ls.draftPrice.value) : null,
-    };
-    try {
-      const resp = await postJson(saveLineUrl, body, token);
-      const data = await resp.json();
-      if (!resp.ok || data.error) {
-        ls.error.value = data.error ?? `Save failed (${resp.status})`;
-        ls.drawerOpen.value = true;
-      } else {
-        ls.error.value = null;
-        onSaved(ls, data);
-      }
-    } catch {
-      ls.error.value = "Network error — please try again.";
-      ls.drawerOpen.value = true;
-    } finally {
-      ls.saving.value = false;
-    }
+    // Quick-confirm a matched line as-is — same single payload builder + submit path as the drawer
+    // (createNew is false here, so buildSaveLineBody produces the confirm-existing body).
+    await submitSaveLine(ls, buildSaveLineBody(ls), saveLineUrl, token, onSaved);
   }
 
   async function handleRestore() {
@@ -883,15 +870,15 @@ function App({ lines, products, units, locations, categories, token, session, fi
   const confirmedCount = computed(() =>
     lines.value.filter((l) => l.status.value === "Confirmed" || l.status.value === "Committed").length
   );
-  const committableCount = computed(() =>
-    lines.value.filter((l) => l.status.value !== "Dismissed").length
-  );
   const confirmedValue = computed(() =>
     lines.value
       .filter((l) => l.status.value === "Confirmed" || l.status.value === "Committed")
       .reduce((sum, l) => sum + (l.price.value ?? 0), 0)
   );
-  const remaining = computed(() => Math.max(0, committableCount.value - confirmedCount.value));
+  // "to resolve" must derive from the SAME primitive the commit gate uses (needsCount), so the
+  // displayed count and the disabled-button state can never disagree (they previously came from
+  // two different definitions of "done" — committableCount - confirmedCount vs needsCount).
+  const remaining = computed(() => needsCount.value);
 
   // Receipt total: non-dismissed lines
   const receiptTotal = computed(() =>
