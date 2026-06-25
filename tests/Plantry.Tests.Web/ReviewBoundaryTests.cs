@@ -362,6 +362,9 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
     }
 
     // ── JSON endpoint: Commit returns redirectUrl ─────────────────────────────────────────────
+    // Note: the Commit happy path is covered at the INTEGRATION layer (IntakeCommitTests) — it
+    // writes products/stock/prices across bounded contexts and needs a real DB, which the WAF
+    // review factory deliberately fakes. A WAF commit test fails on DB connect; not duplicated here.
 
     [Fact]
     public async Task Discard_returns_json_with_redirect_url()

@@ -459,6 +459,46 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.Equal(250m, data.CountedValue);
     }
 
+    [Fact(DisplayName = "POST AddItem success response carries the exact island-consumed key set (contract)")]
+    public async Task Post_AddItem_Success_Response_HasExactKeySet()
+    {
+        // The island injects a new row straight from this JSON shape. Unlike the hydration DTO it is
+        // an anonymous object with no compiler/typedef guard, so a server-side rename of (say) unitId
+        // would silently break inline-add. Pin the exact key set — the one island wire shape that
+        // otherwise had no contract test.
+        var client = AuthClient();
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name = "Contract Probe Item",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue = 100m,
+            countedUnitId = TakeStockFixture.GramUnitId,
+        };
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        var keys = root.EnumerateObject().Select(p => p.Name).OrderBy(n => n).ToArray();
+        Assert.Equal(
+            new[] { "countedValue", "isSuccess", "productId", "productName", "unitCode", "unitId" },
+            keys);
+    }
+
     [Fact(DisplayName = "POST AddItem with duplicate name returns Catalog error inline (J5)")]
     public async Task Post_AddItem_DuplicateName_ReturnsErrorInline()
     {
