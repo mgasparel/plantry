@@ -185,6 +185,33 @@ export function isUnmatched(ls) {
   return ls.status.value === "Pending" && ls.confidence !== "High";
 }
 
+// ── commitBarCounts ───────────────────────────────────────────────────────────
+
+/**
+ * Pure commit-bar arithmetic over an array of line sections. Single source of truth for the
+ * counts the commit bar shows AND the commit gate: `remaining` (the bar's "N to resolve") and
+ * `canCommit` both derive from `needsCount`, so the displayed count and the disabled-button
+ * state can never disagree (they previously came from two different definitions of "done").
+ * @param {("needs"|"ready"|"skipped")[]} sections — lineSection(ls) for each line
+ * @returns {{ needsCount: number, readyCount: number, skippedCount: number, totalItems: number,
+ *             canCommit: boolean, remaining: number, progressPct: number }}
+ */
+export function commitBarCounts(sections) {
+  const needsCount = sections.filter((s) => s === "needs").length;
+  const readyCount = sections.filter((s) => s === "ready").length;
+  const skippedCount = sections.filter((s) => s === "skipped").length;
+  const totalItems = needsCount + readyCount;
+  return {
+    needsCount,
+    readyCount,
+    skippedCount,
+    totalItems,
+    canCommit: needsCount === 0 && totalItems > 0,
+    remaining: needsCount,
+    progressPct: totalItems > 0 ? Math.round((readyCount / totalItems) * 100) : 100,
+  };
+}
+
 // ── buildSaveLineBody ─────────────────────────────────────────────────────────
 
 /**

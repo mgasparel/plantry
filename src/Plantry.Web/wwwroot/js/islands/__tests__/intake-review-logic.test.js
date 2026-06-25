@@ -17,6 +17,7 @@ import {
   lineSection,
   isUnmatched,
   buildSaveLineBody,
+  commitBarCounts,
 } from "../intake-review-logic.js";
 
 // ── test helpers ─────────────────────────────────────────────────────────────
@@ -469,5 +470,52 @@ describe("isUnmatched", () => {
   it("returns false for Committed", () => {
     const ls = makeState({ status: "Committed", confidence: "Low" });
     assert.equal(isUnmatched(ls), false);
+  });
+});
+
+// ── commitBarCounts ─────────────────────────────────────────────────────────
+
+describe("commitBarCounts", () => {
+  it("counts each section and totalItems = needs + ready (skipped excluded)", () => {
+    const r = commitBarCounts(["needs", "ready", "ready", "skipped"]);
+    assert.equal(r.needsCount, 1);
+    assert.equal(r.readyCount, 2);
+    assert.equal(r.skippedCount, 1);
+    assert.equal(r.totalItems, 3);
+  });
+
+  it("remaining equals needsCount — the gate and the displayed count share one primitive", () => {
+    for (const sections of [
+      [],
+      ["needs"],
+      ["needs", "needs", "ready"],
+      ["ready", "ready", "skipped"],
+      ["needs", "ready", "skipped", "needs"],
+    ]) {
+      const r = commitBarCounts(sections);
+      assert.equal(r.remaining, r.needsCount, JSON.stringify(sections));
+    }
+  });
+
+  it("canCommit only when nothing needs resolving AND there is something to commit", () => {
+    assert.equal(commitBarCounts(["ready", "ready"]).canCommit, true);
+    assert.equal(commitBarCounts(["needs", "ready"]).canCommit, false);
+    // all skipped → nothing to commit
+    assert.equal(commitBarCounts(["skipped", "skipped"]).canCommit, false);
+    // empty → nothing to commit
+    assert.equal(commitBarCounts([]).canCommit, false);
+  });
+
+  it("progressPct is ready/total, and 100 when there is nothing to do", () => {
+    assert.equal(commitBarCounts(["ready", "ready", "needs", "needs"]).progressPct, 50);
+    assert.equal(commitBarCounts(["ready", "ready", "ready"]).progressPct, 100);
+    assert.equal(commitBarCounts(["skipped"]).progressPct, 100); // totalItems 0
+    assert.equal(commitBarCounts([]).progressPct, 100);
+  });
+
+  it("a skipped line never counts toward remaining or blocks commit", () => {
+    const r = commitBarCounts(["ready", "skipped", "skipped"]);
+    assert.equal(r.remaining, 0);
+    assert.equal(r.canCommit, true);
   });
 });

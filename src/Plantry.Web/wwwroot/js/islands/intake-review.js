@@ -24,7 +24,7 @@
 
 import { render, html, signal, computed, batch } from "./runtime.js";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBody } from "./intake-review-logic.js";
+import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBody, commitBarCounts } from "./intake-review-logic.js";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -849,15 +849,16 @@ function ReviewRow({ ls, products, units, locations, categories, token, saveLine
 function App({ lines, products, units, locations, categories, token, session, filter, alert, onSaved, onDismissed, onRestored, onCommit, onDiscard }) {
   const allLines = lines.value;
 
-  // Derived chip counts
-  const needsCount = computed(() => lines.value.filter((l) => lineSection(l) === "needs").length);
-  const readyCount = computed(() => lines.value.filter((l) => lineSection(l) === "ready").length);
-  const skippedCount = computed(() => lines.value.filter((l) => lineSection(l) === "skipped").length);
-  const totalItems = computed(() => needsCount.value + readyCount.value);
-
-  // Derived progress
-  const canCommit = computed(() => needsCount.value === 0 && totalItems.value > 0);
-  const progressPct = computed(() => totalItems.value > 0 ? Math.round(readyCount.value / totalItems.value * 100) : 100);
+  // Commit-bar arithmetic — one pure source of truth (commitBarCounts in logic.js), so the
+  // displayed "to resolve" count and the commit gate can't diverge. Per-value computeds keep the
+  // existing call sites unchanged.
+  const bar = computed(() => commitBarCounts(lines.value.map(lineSection)));
+  const needsCount = computed(() => bar.value.needsCount);
+  const readyCount = computed(() => bar.value.readyCount);
+  const skippedCount = computed(() => bar.value.skippedCount);
+  const totalItems = computed(() => bar.value.totalItems);
+  const canCommit = computed(() => bar.value.canCommit);
+  const progressPct = computed(() => bar.value.progressPct);
 
   // Commit bar: count + value of confirmed+committed non-dismissed lines
   const confirmedCount = computed(() =>
@@ -868,10 +869,7 @@ function App({ lines, products, units, locations, categories, token, session, fi
       .filter((l) => l.status.value === "Confirmed" || l.status.value === "Committed")
       .reduce((sum, l) => sum + (l.price.value ?? 0), 0)
   );
-  // "to resolve" must derive from the SAME primitive the commit gate uses (needsCount), so the
-  // displayed count and the disabled-button state can never disagree (they previously came from
-  // two different definitions of "done" — committableCount - confirmedCount vs needsCount).
-  const remaining = computed(() => needsCount.value);
+  const remaining = computed(() => bar.value.remaining);
 
   // Receipt total: non-dismissed lines
   const receiptTotal = computed(() =>
