@@ -9,9 +9,9 @@
 // Imports the island logic module directly as ESM; no browser globals needed
 // (the logic functions are pure transforms of their arguments).
 //
-// save() is NOT tested here: it calls postJson (network I/O) and is inseparable
-// from the fetch lifecycle. buildSaveItems and reconcileResults — the two pure
-// sub-steps extracted from save() — are tested below.
+// save() itself is NOT tested here: it calls postJson (network I/O) and is inseparable
+// from the fetch lifecycle. Its pure sub-steps — buildSaveItems, reconcileResults, and
+// saveStatusMessage (the status/toast wording) — are tested below.
 // Full save behaviour is covered by the Playwright E2E suite.
 
 import { describe, it } from "node:test";
@@ -22,6 +22,7 @@ import {
   makeRow,
   buildSaveItems,
   reconcileResults,
+  saveStatusMessage,
 } from "../take-stock-logic.js";
 
 // Import the vendored reactive runtime so dirty/down computed tests exercise
@@ -498,5 +499,40 @@ describe("reconcileResults", () => {
     ]);
     assert.equal(saved, 0);
     assert.equal(failed, 2);
+  });
+});
+
+// ── saveStatusMessage ─────────────────────────────────────────────────────────
+
+describe("saveStatusMessage", () => {
+  it("transport failure reports the status code", () => {
+    assert.equal(
+      saveStatusMessage({ ok: false, status: 503 }),
+      "Save failed (503) — please try again",
+    );
+  });
+
+  it("all saved: singular vs plural wording", () => {
+    assert.equal(saveStatusMessage({ ok: true, saved: 1, failed: 0 }), "1 item updated");
+    assert.equal(saveStatusMessage({ ok: true, saved: 3, failed: 0 }), "3 items updated");
+  });
+
+  it("all failed reports a retry message", () => {
+    assert.equal(
+      saveStatusMessage({ ok: true, saved: 0, failed: 2 }),
+      "Save failed — please try again",
+    );
+  });
+
+  it("partial success names both counts and points at the highlighted rows", () => {
+    assert.equal(
+      saveStatusMessage({ ok: true, saved: 2, failed: 1 }),
+      "2 saved, 1 failed — retry the highlighted rows",
+    );
+  });
+
+  it("ok with zero saved and zero failed (no results) is not a failure message", () => {
+    // failed === 0 branch → "0 items updated" rather than the all-failed wording.
+    assert.equal(saveStatusMessage({ ok: true, saved: 0, failed: 0 }), "0 items updated");
   });
 });

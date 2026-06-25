@@ -222,3 +222,20 @@ export function reconcileResults(rows, results) {
   }
   return { saved, failed };
 }
+
+// ── saveStatusMessage ─────────────────────────────────────────────────────────
+
+/**
+ * Pure status/toast text for a save outcome — the four branches the save() flow reaches:
+ * transport failure (!ok), all-saved, all-failed, and partial success. Extracted so the
+ * partial-success and all-failed wording (previously only reachable via the live fetch path)
+ * is unit-tested.
+ * @param {{ ok: boolean, status?: number, saved?: number, failed?: number }} outcome
+ * @returns {string}
+ */
+export function saveStatusMessage({ ok, status, saved = 0, failed = 0 }) {
+  if (!ok) return `Save failed (${status}) — please try again`;
+  if (failed === 0) return saved === 1 ? "1 item updated" : `${saved} items updated`;
+  if (saved === 0) return "Save failed — please try again";
+  return `${saved} saved, ${failed} failed — retry the highlighted rows`;
+}

@@ -29,7 +29,7 @@
 
 import { render, html, signal, computed } from "./runtime.js";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults } from "./take-stock-logic.js";
+import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage } from "./take-stock-logic.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -299,18 +299,13 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
   try {
     const resp = await postJson(saveUrl, { items }, token);
     if (!resp.ok) {
-      toast.value = `Save failed (${resp.status}) — please try again`;
+      toast.value = saveStatusMessage({ ok: false, status: resp.status });
       return;
     }
 
     const data = await resp.json();
     const { saved, failed } = reconcileResults(rows, data.results ?? []);
-
-    toast.value =
-      failed === 0
-        ? saved === 1 ? "1 item updated" : `${saved} items updated`
-        : saved === 0 ? "Save failed — please try again"
-        : `${saved} saved, ${failed} failed — retry the highlighted rows`;
+    toast.value = saveStatusMessage({ ok: true, saved, failed });
   } catch {
     toast.value = "Network error — please try again";
   } finally {
