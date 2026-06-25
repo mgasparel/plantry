@@ -12,11 +12,9 @@
      draggable="true"
      ondragstart="onDragStart(event, '@meal.MealId.ToString("D")', '@Model.DateIso', '@Model.SlotId.Value')">
 
-    @* Edit pencil *@
+    @* Edit pencil — calls the meal-planner island bridge (plantry-2zvm.4: Preact island port) *@
     <button class="mc-edit"
-            hx-get="/MealPlan?handler=Editor&date=@Model.DateIso&slotId=@Model.SlotId.Value&mealId=@meal.MealId"
-            hx-target="#meal-editor-dialog"
-            hx-swap="innerHTML"
+            onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@Model.DateIso', '@Model.SlotId.Value', '@meal.MealId.ToString("D")')"
             aria-label="Edit meal">
         <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
     </button>

@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using AngleSharp.Html.Parser;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -63,7 +65,7 @@ public sealed class InsightsRailFragmentTests : IClassFixture<InsightsRailFragme
         Assert.Equal(calloutCount.ToString(), badge!.TextContent.Trim());
     }
 
-    [Fact(DisplayName = "FIX 1: POST Assign re-emits the insights rail out-of-band (recompute on every change)")]
+    [Fact(DisplayName = "FIX 1: POST AssignJson recomputes the insights rail on every change (railHtml key)")]
     public async Task Assign_Reemits_Rail_OutOfBand()
     {
         var client = CreateClient();
@@ -73,30 +75,29 @@ public sealed class InsightsRailFragmentTests : IClassFixture<InsightsRailFragme
         var token = ExtractAntiforgeryToken(pageHtml);
 
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
-        var form = new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            new KeyValuePair<string, string>("mode", "note"),
-            new KeyValuePair<string, string>("note", "Takeout"),
-        });
+        var payload = new { date = "2026-06-01", slotId = slot.Id.Value, mode = "note", note = "Takeout" };
+        var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        content.Headers.Add("RequestVerificationToken", token);
+        content.Headers.Add("X-Requested-With", "XMLHttpRequest");
 
-        var response = await client.PostAsync($"/MealPlan?handler=Assign&date=2026-06-01&slotId={slot.Id.Value:D}", form);
+        var response = await client.PostAsync("/MealPlan?handler=AssignJson", content);
         response.EnsureSuccessStatusCode();
-        var fragment = await response.Content.ReadAsStringAsync();
-
-        var doc = new HtmlParser().ParseDocument(fragment);
+        var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        var cellHtml = root.GetProperty("cellHtml").GetString() ?? "";
+        var railHtml = root.GetProperty("railHtml").GetString() ?? "";
 
         // The mutated cell is the main swap target …
-        Assert.Contains("mcell", fragment);
+        Assert.Contains("mcell", cellHtml);
 
-        // … and the rail rides along — the ADR-013 contract, asserted through the SAME shared
-        // primitive Intake's ReviewBoundaryTests uses, so "a mutation carries its derived-view
-        // projection" is one enforced rule across features, not a per-feature reinvention.
-        OobContract.AssertCarriesProjections(fragment, "plan-rail");
+        // … and the rail rides along in its own JSON key — the ADR-013 contract, asserted through
+        // the SAME shared primitive Intake's ReviewBoundaryTests uses, so "a mutation carries its
+        // derived-view projection" is one enforced rule across features, not a per-feature reinvention.
+        // (The island swaps railHtml into #plan-rail on every mutation; the inline/OOB grid path is
+        // covered separately by FullGridSwap_Carries_Rail_Projection.)
+        OobContract.AssertCarriesProjections(railHtml, "plan-rail");
 
-        // Cell-swap path specifics: the rail arrives out-of-band and carries fresh insight content.
-        var rail = doc.QuerySelector("#plan-rail");
-        Assert.Equal("true", rail!.GetAttribute("hx-swap-oob"));
+        // The recomputed rail carries fresh insight content.
+        var doc = new HtmlParser().ParseDocument(railHtml);
         Assert.NotNull(doc.QuerySelector("#plan-rail .callout[data-tone='warn']"));
     }
 

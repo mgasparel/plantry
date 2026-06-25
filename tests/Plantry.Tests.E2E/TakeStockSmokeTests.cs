@@ -387,25 +387,14 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await Assertions.Expect(page.Locator(".ts-rows")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await Assertions.Expect(page.Locator(".nm-text", new() { HasText = productName })).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
-            // ── Change count to 300 via direct Alpine state mutation ──────────────
-            // FillAsync alone does not reliably trigger Alpine's @input handler in Playwright
-            // Chromium (the synthetic input event from CDP may not be seen by Alpine's listener
-            // in the same tick). Wait for Alpine to initialise the component, then call
-            // setCount() via Alpine.$data() — the authoritative way to drive Alpine from E2E.
+            // ── Change count to 300 via the island's test seam ───────────────────
+            // The Preact island exposes window.__takeStockIsland.setCount() for E2E use,
+            // replacing the previous Alpine.$data() pattern (bead plantry-2zvm.2).
             await page.WaitForFunctionAsync(@"
-                () => {
-                    const el = document.querySelector('[x-data]');
-                    const data = el && window.Alpine && window.Alpine.$data(el);
-                    return data && typeof data.setCount === 'function';
-                }
+                () => typeof window.__takeStockIsland?.setCountByIndex === 'function'
             ");
             await page.EvaluateAsync(@"
-                () => {
-                    const el = document.querySelector('[x-data]');
-                    const data = window.Alpine.$data(el);
-                    const firstPid = Object.keys(data.rows)[0];
-                    data.setCount(firstPid, 300);
-                }
+                () => { window.__takeStockIsland.setCountByIndex(0, 300); }
             ");
 
             // Save bar appears when the row is dirty (proves Alpine working-set client).
@@ -513,23 +502,20 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             Assert.NotNull(kgUnitId);
             Assert.NotEqual(string.Empty, kgUnitId);
 
-            // ── Wait for Alpine, then set count=1 in kg via Alpine $data ─────────
+            // ── Wait for island, then set count=1 in kg via the island test seam ──
+            // The Preact island exposes window.__takeStockIsland replacing the old Alpine.$data()
+            // pattern (bead plantry-2zvm.2). setUnitId + setCountByIndex are the seam API.
             await page.WaitForFunctionAsync(@"
-                () => {
-                    const el = document.querySelector('[x-data]');
-                    const data = el && window.Alpine && window.Alpine.$data(el);
-                    return data && typeof data.setCount === 'function';
-                }
+                () => typeof window.__takeStockIsland?.setCountByIndex === 'function'
             ");
             await page.EvaluateAsync($@"
                 (kgUnitId) => {{
-                    const el = document.querySelector('[x-data]');
-                    const data = window.Alpine.$data(el);
-                    const firstPid = Object.keys(data.rows)[0];
-                    // Switch the unit to kg before setting the count so the payload carries the new unitId.
-                    data.rows[firstPid].unitId = kgUnitId;
+                    const ids = window.__takeStockIsland.getProductIds();
+                    const firstPid = ids[0];
+                    // Switch unit to kg before counting so the POST payload carries the new unitId.
+                    window.__takeStockIsland.setUnitId(firstPid, kgUnitId);
                     // Set count to 1 (= 1 kg; expect 1000 g in Pantry after Save).
-                    data.setCount(firstPid, 1);
+                    window.__takeStockIsland.setCount(firstPid, 1);
                 }}
             ", kgUnitId);
 

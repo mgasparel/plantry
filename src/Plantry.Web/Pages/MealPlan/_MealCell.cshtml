@@ -48,9 +48,7 @@
                 meal, dateIso, Model.SlotId, Model.Members))
         }
         <button class="add-meal"
-                hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId"
-                hx-target="#meal-editor-dialog"
-                hx-swap="innerHTML"
+                onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@dateIso', '@slotId', null)"
                 title="Add another meal to this slot"
                 aria-label="Add another meal">
             <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
@@ -76,9 +74,7 @@
         </div>
         <div class="conflict-acts">
             <button class="conflict-cta conflict-cta--primary"
-                    hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId"
-                    hx-target="#meal-editor-dialog"
-                    hx-swap="innerHTML">
+                    onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@dateIso', '@slotId', null)">
                 Add a dish by hand
             </button>
             <a href="/Settings/MealSlots" class="conflict-cta conflict-cta--secondary">
@@ -106,9 +102,7 @@
     {
         <div class="empty-acts">
             <button class="empty-add"
-                    hx-get="/MealPlan?handler=Editor&date=@dateIso&slotId=@slotId"
-                    hx-target="#meal-editor-dialog"
-                    hx-swap="innerHTML"
+                    onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@dateIso', '@slotId', null)"
                     aria-label="Add meal">
                 <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
             </button>

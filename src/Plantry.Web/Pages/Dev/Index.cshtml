@@ -1202,3 +1202,160 @@ new ProductSearchCreateSheetViewModel
 {{!-- label:    trigger glyph + aria-label, default ""?"" --}}
 {{!-- title:    optional bold first line inside the panel --}}")</code></pre>
 </section>
+
+@*
+    ── ADR-020 §1: Reactive islands — pattern documentation ────────────────────────────────────────
+    Establishes WHEN to use an island vs htmx+Alpine, and documents the mounting convention that all
+    three island ports (Take Stock, Intake review, Meal Planner) compose from. (bead plantry-2zvm)
+*@
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Islands — reactive client surfaces (ADR-020)</h2>
+    </div>
+    <p>
+        A <strong>reactive island</strong> is a Preact component tree that mounts on a single DOM
+        node, hydrates from server-emitted JSON, and dies on navigation. Islands exist for exactly
+        <strong>three enumerated surfaces</strong> (ADR-020 §1) — Take Stock, Intake review, Meal
+        Planner — where draft collections, derived aggregates, and out-of-tree interactions have
+        defeated the htmx + Alpine model. Everything else stays htmx + Alpine (ADR-005).
+    </p>
+    <p>
+        <strong>Decision rule — island vs htmx + Alpine:</strong>
+    </p>
+    <ul>
+        <li><strong>Use an island</strong> when: the surface has a draft collection whose derived
+            aggregates (totals, progress, save-bar counts) must stay in sync after local mutation
+            without a server round-trip; or when multiple out-of-tree components need to react to
+            the same piece of state; or when htmx + Alpine has already required hand-rolling a
+            reactive primitive (manual dirty bookkeeping, <code>_x_dataStack</code> DOM-walks,
+            debounced rollup POSTs). These conditions are currently true only on the three surfaces
+            named above. Adding a fourth requires meeting the same bar and amending ADR-020.</li>
+        <li><strong>Use htmx + Alpine</strong> for everything else — lists, CRUD, detail pages,
+            search, filters, settings. A new page does <em>not</em> default to an island.</li>
+    </ul>
+    <p>
+        <strong>Boundary (ADR-020 §2 / §7):</strong> islands hold UI / draft state only — ephemeral
+        field values, open/closed drawers, selected-but-unsaved rows, and derived display values that
+        are pure functions of state the island already holds. The server owns every domain concern
+        (persistence, fulfillment, cost, unit semantics, validation-as-truth). If an island ever
+        computes fulfillment, cost, or any catalog rule client-side, ADR-020 §7's tripwire applies.
+    </p>
+
+    <h3 style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Mounting convention</h3>
+    <p>All three islands follow the same mounting pattern:</p>
+    <ol>
+        <li>
+            <strong>Island source:</strong> one file under
+            <code>wwwroot/js/islands/</code> (e.g. <code>take-stock.js</code>), importing from the shared
+            runtime (<code>./runtime.js</code>) and helpers (<code>./helpers.js</code>).
+            All vendor imports resolve by relative path — no import map.
+        </li>
+        <li>
+            <strong>Hydration payload:</strong> the server emits a
+            <code>&lt;script type="application/json" id="..."&gt;</code> element containing the
+            typed JSON the island needs for first paint. Read it with
+            <code>readHydration(id)</code> from <code>helpers.js</code>.
+        </li>
+        <li>
+            <strong>Antiforgery token:</strong> include <code>@@Html.AntiForgeryToken()</code> on
+            the page; the island reads it with <code>readAntiforgeryToken()</code> from
+            <code>helpers.js</code>, then passes the token to <code>postJson()</code> for every
+            mutation POST.
+        </li>
+        <li>
+            <strong>Mount point:</strong> an empty <code>&lt;div id="..."&gt;&lt;/div&gt;</code>.
+        </li>
+        <li>
+            <strong>Script:</strong> a <code>&lt;script type="module"&gt;</code> in
+            <code>@@section Scripts</code> that imports the island's <code>mount*()</code> export
+            and calls it with the root element and the parsed hydration payload.
+        </li>
+    </ol>
+
+    <pre class="code-sample"><code>@(@"@* 1. Hydration payload — typed JSON, server-emitted *@
+<script type=""application/json"" id=""my-island-data"">@Html.Raw(Model.IslandJson)</script>
+
+@* 2. Antiforgery token (needed for mutation POSTs) *@
+@Html.AntiForgeryToken()
+
+@* 3. Mount point *@
+<div id=""my-island-root""></div>
+
+@* 4. Module script in @@section Scripts *@
+@section Scripts {
+    <script type=""module"">
+        import { mountMyIsland } from '/js/islands/my-island.js';
+        import { readHydration, readAntiforgeryToken } from '/js/islands/helpers.js';
+
+        const root  = document.getElementById('my-island-root');
+        const data  = readHydration('my-island-data');
+        const token = readAntiforgeryToken();
+        if (root && data) mountMyIsland(root, { ...data, saveUrl: '@Url.Page(""./MyPage"", ""Save"")', token });
+    </script>
+}")</code></pre>
+
+    <h3 style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Shared modules</h3>
+    <p>
+        Two shared modules live alongside the islands — import from these instead of
+        repeating the boilerplate inline:
+    </p>
+    <ul>
+        <li>
+            <code>islands/runtime.js</code> — re-exports <code>{ h, render, Fragment, html, signal, computed, effect }</code>
+            from the vendored Preact + htm + signals files. <code>html</code> is pre-bound
+            (<code>htm.bind(h)</code>) so islands import one module, not three.
+        </li>
+        <li>
+            <code>islands/helpers.js</code> — exports three functions:
+            <code>readHydration(id)</code> (parse the JSON hydration blob),
+            <code>readAntiforgeryToken()</code> (read the hidden CSRF input),
+            <code>postJson(url, body, token)</code> (fetch + standard island headers:
+            <code>Content-Type: application/json</code>,
+            <code>RequestVerificationToken</code>,
+            <code>X-Requested-With: XMLHttpRequest</code>).
+        </li>
+    </ul>
+
+    <pre class="code-sample"><code>@(@"// In your island file:
+import { h, render, html, signal, computed } from './runtime.js';
+import { readHydration, readAntiforgeryToken, postJson } from './helpers.js';
+
+// In the mount script:
+const data  = readHydration('my-island-data');  // → T | null
+const token = readAntiforgeryToken();            // → string (warns if absent)
+
+// Sending a mutation POST:
+const resp = await postJson(saveUrl, { items }, token);
+if (!resp.ok) { /* handle */ }")</code></pre>
+
+    <h3 style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Production islands</h3>
+    <p>
+        All three islands are live in production and serve as canonical implementation references.
+        Each demonstrates the complete mounting convention end-to-end.
+    </p>
+    <ul>
+        <li>
+            <strong>Take Stock</strong> — <code>wwwroot/js/islands/take-stock.js</code>.
+            Signal-derived dirty/down/delta state, save-bar, per-row reconciliation, the
+            <code>postJson</code> round-trip against the production walk-save endpoint.
+            Mounted on <code>Pages/Inventory/Walk.cshtml</code>.
+        </li>
+        <li>
+            <strong>Intake review</strong> — <code>wwwroot/js/islands/intake-review.js</code>.
+            Full review-form with product search, chip suggestions, row-level edit drawers,
+            and commit-bar. Mounted on <code>Pages/Intake/Review.cshtml</code>.
+        </li>
+        <li>
+            <strong>Meal Planner editor</strong> — <code>wwwroot/js/islands/meal-planner.js</code>.
+            Modal editor with dish-list, attendee overrides, live rollup, and note-mode.
+            Mounted on <code>Pages/MealPlan/Index.cshtml</code>.
+        </li>
+    </ul>
+    <p>
+        <strong>No npm, no bundler, no import map</strong> (ADR-020 §6). The file that runs is the
+        file you read. Type-checking works in-editor with zero install via <code>jsconfig.json</code>
+        + <code>// @@ts-check</code> + JSDoc. The only sanctioned path to a build step is esbuild —
+        an amendment to ADR-020, not a silent change.
+    </p>
+</section>

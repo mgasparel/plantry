@@ -49,8 +49,11 @@ public sealed class WalkModel(
 
     public IReadOnlyList<TakeStockLocationProductRow> Rows { get; private set; } = [];
 
-    /// <summary>JSON initialiser for the Alpine working set — one entry per row, keyed by product id.</summary>
-    public string AlpineRowsJson { get; private set; } = "{}";
+    /// <summary>
+    /// JSON hydration array for the Preact island — the island renders the whole row (product name,
+    /// recorded quantity display, supported units, lots URL) plus the mutable draft state.
+    /// </summary>
+    public string IslandRowsJson { get; private set; } = "[]";
 
     /// <summary>Unit options for the inline-add sheet's unit selector.</summary>
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
@@ -317,7 +320,7 @@ public sealed class WalkModel(
         var locations = await reader.ListLocationsAsync(ct);
         LocationName = locations.FirstOrDefault(l => l.LocationId == LocationId)?.LocationName;
         Rows = await reader.ListLocationRowsAsync(LocationId, ct);
-        AlpineRowsJson = BuildAlpineRowsJson(Rows);
+        IslandRowsJson = BuildIslandRowsJson(Rows);
 
         // Load unit options for the inline-add sheet (P4-7).
         var units = await unitRepository.ListAsync(ct);
@@ -327,24 +330,28 @@ public sealed class WalkModel(
             .ToList();
     }
 
-    private static string BuildAlpineRowsJson(IReadOnlyList<TakeStockLocationProductRow> rows)
+    /// <summary>
+    /// Builds the richer hydration JSON array for the Preact island. The island renders the whole
+    /// row (product name, recorded, supported units, lots URL) so the payload must carry those fields
+    /// in addition to the mutable draft state (counted / unitId / reason) that the Alpine version held.
+    /// </summary>
+    private string BuildIslandRowsJson(IReadOnlyList<TakeStockLocationProductRow> rows)
     {
-        var dict = rows.ToDictionary(
-            r => r.ProductId.ToString(),
-            r => new AlpineRow(
-                r.RecordedQuantity,
-                r.RecordedQuantity,
-                r.DisplayUnitCode,
-                r.DisplayUnitId,
-                "Correction",
-                false,
-                false,
-                null,
-                r.SupportedUnits?
-                    .Select(u => new AlpineUnitOption(u.UnitId, u.Code))
-                    .ToList() ?? []));
+        var list = rows.Select(r => new IslandRowVm(
+            r.ProductId,
+            r.ProductName,
+            r.RecordedQuantity,
+            r.DisplayUnitCode,
+            r.DisplayUnitId,
+            r.HasActiveStock,
+            // lotsUrl is resolved server-side so the island never constructs URLs.
+            // The handler remains the sole owner of its own routing.
+            Url.Page("./Walk", "Lots", new { locationId = LocationId, productId = r.ProductId }) ?? "",
+            r.SupportedUnits?
+                .Select(u => new UnitOptionVm(u.UnitId, u.Code))
+                .ToList() ?? []));
 
-        return JsonSerializer.Serialize(dict, JsonOptions);
+        return JsonSerializer.Serialize(list, TakeStockHydrationJson.Options);
     }
 
     private static StockReason ParseReason(string? reason) => reason switch
@@ -354,7 +361,11 @@ public sealed class WalkModel(
         _           => StockReason.Correction,
     };
 
-    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    // Defensive parse: under [Authorize] the NameIdentifier claim is always present, but a missing/
+    // malformed claim degrades to Guid.Empty (the same "no principal" sentinel the household id uses)
+    // rather than throwing a 500.
+    private Guid CurrentUserId =>
+        Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -363,21 +374,6 @@ public sealed class WalkModel(
     };
 
     // ── DTOs ──────────────────────────────────────────────────────────────────
-
-    private sealed record AlpineRow(
-        [property: JsonPropertyName("recorded")]       decimal                    Recorded,
-        [property: JsonPropertyName("counted")]        decimal                    Counted,
-        [property: JsonPropertyName("unitCode")]       string                     UnitCode,
-        [property: JsonPropertyName("unitId")]         Guid                       UnitId,
-        [property: JsonPropertyName("reason")]         string                     Reason,
-        [property: JsonPropertyName("dirty")]          bool                       Dirty,
-        [property: JsonPropertyName("failed")]         bool                       Failed,
-        [property: JsonPropertyName("failMsg")]        string?                    FailMsg,
-        [property: JsonPropertyName("supportedUnits")] List<AlpineUnitOption>     SupportedUnits);
-
-    private sealed record AlpineUnitOption(
-        [property: JsonPropertyName("unitId")] Guid   UnitId,
-        [property: JsonPropertyName("code")]   string Code);
 
     private sealed class SaveRequest
     {

@@ -147,7 +147,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await Assertions.Expect(unmatchedRow.Locator(".import-row__confirmed-flag")).ToBeVisibleAsync();
 
             // ── Commit — both lines confirmed, so the Commit button is enabled ──
-            // The OOB commit-bar swap (hx-swap-oob) updates the bar after each row confirmation, so
+            // The island recomputes the commit-bar state client-side after each row confirmation, so
             // the button should be enabled without a reload once both lines are confirmed.
             var commitButton = page.Locator(".commit-bar button:has-text('Add to pantry')");
             await Assertions.Expect(commitButton).ToBeEnabledAsync();

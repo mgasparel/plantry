@@ -76,7 +76,7 @@ public sealed class SampleReceiptParser : IReceiptParser
                 : null;
 
             // Resolve alternative candidate ids by name (same approach as the primary suggestion).
-            // Alternatives without a matching catalog id are still included — the ReviewRowModel.From
+            // Alternatives without a matching catalog id are still included — the island's
             // resolver will filter candidates whose id cannot be verified against the household catalog.
             List<ParsedAlternative>? alternatives = null;
             if (l.AlternativeNames is { Length: >= 2 } altNames)

@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -95,39 +97,6 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
         Assert.Contains("slot-band", html);
     }
 
-    // ── Editor fragment ───────────────────────────────────────────────────────
-
-    [Fact(DisplayName = "GET /MealPlan?handler=Editor returns editor partial for a known slot")]
-    public async Task Get_EditorHandler_Returns_Editor_Partial()
-    {
-        var client = CreateClient();
-        AddHouseholdHeader(client);
-
-        // Use the first active slot (Breakfast) from the shared fixture config
-        var slotId = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First().Id.Value;
-        var date = "2026-06-01"; // A Monday
-
-        var response = await client.GetAsync($"/MealPlan?handler=Editor&date={date}&slotId={slotId:D}");
-
-        response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
-
-        Assert.Contains("ed-head", html);
-        Assert.Contains("Breakfast", html);
-    }
-
-    [Fact(DisplayName = "GET /MealPlan?handler=Editor returns 404 for unknown slotId")]
-    public async Task Get_EditorHandler_Returns_404_ForUnknownSlot()
-    {
-        var client = CreateClient();
-        AddHouseholdHeader(client);
-
-        var unknownSlotId = Guid.NewGuid();
-        var response = await client.GetAsync($"/MealPlan?handler=Editor&date=2026-06-01&slotId={unknownSlotId:D}");
-
-        Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
-    }
-
     // ── No slots empty state ──────────────────────────────────────────────────
 
     [Fact(DisplayName = "GET /MealPlan with no slots shows configure message")]
@@ -143,22 +112,6 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
 
         Assert.Contains("No meal slots are configured", html);
         Assert.Contains("Configure meal slots", html);
-    }
-
-    // ── Search fragment ───────────────────────────────────────────────────────
-
-    [Fact(DisplayName = "GET /MealPlan?handler=Search returns dish results partial")]
-    public async Task Get_SearchHandler_Returns_Dish_Results()
-    {
-        var client = CreateClient();
-        AddHouseholdHeader(client);
-
-        var response = await client.GetAsync("/MealPlan?handler=Search&q=pasta");
-
-        response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
-
-        Assert.Contains("Pasta Bolognese", html);
     }
 
     // ── MP-O8: multi-meal cell rendering ─────────────────────────────────────
@@ -191,8 +144,8 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
     public async Task AssignToFilledCell_Fragment_Still_Has_AddMealButton()
     {
         // The bug: _WeekGrid rendered an "Add meal" button on a filled cell, but the
-        // _MealCell *fragment* (what htmx swaps back after an assign) did not — so the
-        // button vanished after the first add. This drives the fragment path directly.
+        // _MealCell *fragment* (the cellHtml the island swaps back after an assign) did not —
+        // so the button vanished after the first add. This drives the cellHtml path directly.
         await using var factory = new MultiMealCellFragmentFactory();
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, WeekGridFixture.HouseholdId.ToString());
@@ -202,27 +155,27 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
         var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
         var token = ExtractAntiforgeryToken(pageHtml);
 
+        // After island port (plantry-2zvm.4): add-meal buttons call openEditor() not hx-get.
         var cell = System.Text.RegularExpressions.Regex.Match(
             pageHtml,
-            "class=\"add-meal\"[^>]*hx-get=\"/MealPlan\\?handler=Editor&date=([^&]+)&slotId=([^\"]+)\"");
-        Assert.True(cell.Success, "Expected an add-meal button with an Editor hx-get on the seeded cell.");
+            "class=\"add-meal\"[^>]*onclick=\"[^\"]*openEditor\\('([^']+)',\\s*'([^']+)',\\s*null\\)");
+        Assert.True(cell.Success, "Expected an add-meal button with openEditor onclick on the seeded cell.");
         var date = cell.Groups[1].Value;
         var slotId = cell.Groups[2].Value;
 
-        var form = new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            new KeyValuePair<string, string>("mode", "note"),
-            new KeyValuePair<string, string>("note", "RegressionStackNote"),
-        });
+        var payload = new { date, slotId, mode = "note", note = "RegressionStackNote" };
+        var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        content.Headers.Add("RequestVerificationToken", token);
+        content.Headers.Add("X-Requested-With", "XMLHttpRequest");
 
-        var response = await client.PostAsync($"/MealPlan?handler=Assign&date={date}&slotId={slotId}", form);
+        var response = await client.PostAsync("/MealPlan?handler=AssignJson", content);
         response.EnsureSuccessStatusCode();
-        var fragment = await response.Content.ReadAsStringAsync();
+        var cellHtml = JsonDocument.Parse(await response.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("cellHtml").GetString() ?? "";
 
         // The returned cell fragment is filled, so it must still offer the add-meal affordance.
-        Assert.Contains("meal-card", fragment);
-        Assert.Contains("add-meal", fragment);
+        Assert.Contains("meal-card", cellHtml);
+        Assert.Contains("add-meal", cellHtml);
     }
 
     private static string ExtractAntiforgeryToken(string html)
@@ -249,8 +202,8 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
 
 // ── Dish servings alignment test ──────────────────────────────────────────────
 // Verifies that mixed recipe+product dish assignments preserve per-dish servings
-// (the dishKinds/dishItemIds/dishServings index-aligned form arrays are parsed
-// correctly by BuildDishSpecs, regardless of the order kinds appear).
+// (the JSON dishes array posted to ?handler=AssignJson is parsed by
+// BuildDishSpecsFromJson, mapping each dish's servings to the right item).
 //
 // Uses a capturing WAF variant with a CapturingMealPlanRepo so we can inspect
 // what DishSpecs were passed through to AssignDishesAsync.
@@ -258,7 +211,7 @@ public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactor
 [Collection(nameof(DishServingsCollection))]
 public sealed class DishServingsAlignmentTests(DishServingsFactory factory)
 {
-    [Fact(DisplayName = "POST Assign with mixed recipe+product dishes preserves per-dish servings")]
+    [Fact(DisplayName = "POST AssignJson with mixed recipe+product dishes preserves per-dish servings")]
     public async Task Assign_MixedDishes_ServingsAreIndexAligned()
     {
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -272,21 +225,24 @@ public sealed class DishServingsAlignmentTests(DishServingsFactory factory)
         var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
         var token = ExtractAntiforgeryToken(pageHtml);
 
-        var form = new FormUrlEncodedContent(new[]
+        var payload = new
         {
-            new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            new KeyValuePair<string, string>("mode", "dishes"),
-            // dish 0: recipe, 3 servings
-            new KeyValuePair<string, string>("dishKinds", "recipe"),
-            new KeyValuePair<string, string>("dishItemIds", recipeId.ToString("D")),
-            new KeyValuePair<string, string>("dishServings", "3"),
-            // dish 1: product, 7 servings
-            new KeyValuePair<string, string>("dishKinds", "product"),
-            new KeyValuePair<string, string>("dishItemIds", productId.ToString("D")),
-            new KeyValuePair<string, string>("dishServings", "7"),
-        });
+            date = "2026-06-01",
+            slotId = slot.Id.Value,
+            mode = "dishes",
+            dishes = new[]
+            {
+                // dish 0: recipe, 3 servings
+                new { kind = "recipe", itemId = recipeId, servings = 3 },
+                // dish 1: product, 7 servings
+                new { kind = "product", itemId = productId, servings = 7 },
+            },
+        };
+        var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        content.Headers.Add("RequestVerificationToken", token);
+        content.Headers.Add("X-Requested-With", "XMLHttpRequest");
 
-        var response = await client.PostAsync($"/MealPlan?handler=Assign&date=2026-06-01&slotId={slot.Id.Value:D}", form);
+        var response = await client.PostAsync("/MealPlan?handler=AssignJson", content);
         response.EnsureSuccessStatusCode();
 
         var stored = factory.CapturingRepo.Stored;
@@ -711,7 +667,7 @@ internal sealed class FakeProductReader(IReadOnlyList<MealPlanProductReadModel> 
 [Collection(nameof(HardStanceWarningCollection))]
 public sealed class HardStanceWarningSurfacingTests(HardStanceWarningFactory factory)
 {
-    [Fact(DisplayName = "POST Assign with Restricted-tag recipe includes ed-warn in cell fragment")]
+    [Fact(DisplayName = "POST AssignJson with Restricted-tag recipe includes ed-warn in cell fragment")]
     public async Task Assign_WithRestrictedTag_CellFragment_Contains_EdWarn()
     {
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -724,25 +680,28 @@ public sealed class HardStanceWarningSurfacingTests(HardStanceWarningFactory fac
         var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
         var token = ExtractAntiforgeryToken(pageHtml);
 
-        var form = new FormUrlEncodedContent(new[]
+        var payload = new
         {
-            new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            new KeyValuePair<string, string>("mode", "dishes"),
-            new KeyValuePair<string, string>("dishKinds", "recipe"),
-            new KeyValuePair<string, string>("dishItemIds", recipeId.ToString("D")),
-            new KeyValuePair<string, string>("dishServings", "2"),
+            date = "2026-06-01",
+            slotId = slot.Id.Value,
+            mode = "dishes",
+            dishes = new[] { new { kind = "recipe", itemId = recipeId, servings = 2 } },
             // Force the attendee with the Restricted preference into the effective attendees
-            new KeyValuePair<string, string>("attendeesOverride", HardStanceWarningFixture.AttendeeUserId.ToString("D")),
-            new KeyValuePair<string, string>("attendeesOverridden", "true"),
-        });
+            att = new[] { HardStanceWarningFixture.AttendeeUserId },
+            attendeesOverridden = true,
+        };
+        var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        content.Headers.Add("RequestVerificationToken", token);
+        content.Headers.Add("X-Requested-With", "XMLHttpRequest");
 
-        var response = await client.PostAsync($"/MealPlan?handler=Assign&date=2026-06-01&slotId={slot.Id.Value:D}", form);
+        var response = await client.PostAsync("/MealPlan?handler=AssignJson", content);
         response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync();
+        var cellHtml = JsonDocument.Parse(await response.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("cellHtml").GetString() ?? "";
 
         // The cell fragment must include the dietary warning banner
-        Assert.Contains("ed-warn", html);
-        Assert.Contains("Restricted", html);
+        Assert.Contains("ed-warn", cellHtml);
+        Assert.Contains("Restricted", cellHtml);
     }
 
     private static string ExtractAntiforgeryToken(string html)

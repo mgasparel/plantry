@@ -103,14 +103,15 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             await RegisterAndGoToMealPlan(page, uniqueEmail, password);
 
             // Get slot/date for the first TWO cells (Monday and Tuesday of the same slot)
+            // After island port (plantry-2zvm.4): empty-add uses onclick instead of hx-get
             var emptyAdds = page.Locator(".empty-add");
-            var firstHxGet = await emptyAdds.Nth(0).GetAttributeAsync("hx-get");
-            var secondHxGet = await emptyAdds.Nth(1).GetAttributeAsync("hx-get");
-            Assert.NotNull(firstHxGet);
-            Assert.NotNull(secondHxGet);
+            var firstOnclick = await emptyAdds.Nth(0).GetAttributeAsync("onclick");
+            var secondOnclick = await emptyAdds.Nth(1).GetAttributeAsync("onclick");
+            Assert.NotNull(firstOnclick);
+            Assert.NotNull(secondOnclick);
 
-            var (fromDate, fromSlotId) = ParseCellFromHxGet(firstHxGet!);
-            var (toDate, toSlotId) = ParseCellFromHxGet(secondHxGet!);
+            var (fromDate, fromSlotId) = ParseCellFromOpenEditorOnclick(firstOnclick!);
+            var (toDate, toSlotId) = ParseCellFromOpenEditorOnclick(secondOnclick!);
 
             var token = await GetAntiforgeryTokenAsync(page);
 
@@ -178,14 +179,15 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
 
             await RegisterAndGoToMealPlan(page, uniqueEmail, password);
 
+            // After island port (plantry-2zvm.4): empty-add uses onclick instead of hx-get
             var emptyAdds = page.Locator(".empty-add");
-            var firstHxGet = await emptyAdds.Nth(0).GetAttributeAsync("hx-get");
-            var secondHxGet = await emptyAdds.Nth(1).GetAttributeAsync("hx-get");
-            Assert.NotNull(firstHxGet);
-            Assert.NotNull(secondHxGet);
+            var firstOnclick3 = await emptyAdds.Nth(0).GetAttributeAsync("onclick");
+            var secondOnclick3 = await emptyAdds.Nth(1).GetAttributeAsync("onclick");
+            Assert.NotNull(firstOnclick3);
+            Assert.NotNull(secondOnclick3);
 
-            var (dateA, slotA) = ParseCellFromHxGet(firstHxGet!);
-            var (dateB, slotB) = ParseCellFromHxGet(secondHxGet!);
+            var (dateA, slotA) = ParseCellFromOpenEditorOnclick(firstOnclick3!);
+            var (dateB, slotB) = ParseCellFromOpenEditorOnclick(secondOnclick3!);
 
             // Assign Takeout to A (Monday)
             var token = await GetAntiforgeryTokenAsync(page);
@@ -275,17 +277,23 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             var mealId = await ExtractMealIdFromCardAsync(page);
             Assert.False(string.IsNullOrEmpty(mealId), "Expected a meal card with a mealId after assign.");
 
-            // Clear by mealId (MP-O8: clear targets a specific meal, not a whole cell)
+            // Clear by mealId (MP-O8: clear targets a specific meal, not a whole cell).
+            // Production path: the island POSTs JSON to ClearJson.
             token = await GetAntiforgeryTokenAsync(page);
-            var clearUrl = $"{BaseUrl}/MealPlan?handler=Clear&date={date}&slotId={slotId}&mealId={mealId}";
+            var clearUrl = $"{BaseUrl}/MealPlan?handler=ClearJson";
             var clearStatus = await page.EvaluateAsync<int>(@"
                 async (args) => {
                     const r = await fetch(args.url, {
                         method: 'POST',
-                        headers: { 'RequestVerificationToken': args.token, 'HX-Request': 'true' }
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': args.token,
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({ date: args.date, slotId: args.slotId, mealId: args.mealId })
                     });
                     return r.status;
-                }", new { url = clearUrl, token });
+                }", new { url = clearUrl, date, slotId, mealId, token });
             Assert.Equal(200, clearStatus);
 
             // Reload → cell is empty
@@ -355,10 +363,11 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             Assert.NotEqual(initialWeekLabel, nextWeekLabel);
 
             // Confirm the grid reflects next week: first empty-add date should be +7
-            var nextHxGet = await page.Locator(".empty-add").First.GetAttributeAsync("hx-get");
-            if (nextHxGet != null)
+            // After island port (plantry-2zvm.4): empty-add uses onclick instead of hx-get
+            var nextOnclick = await page.Locator(".empty-add").First.GetAttributeAsync("onclick");
+            if (nextOnclick != null)
             {
-                var (nextDate, _) = ParseCellFromHxGet(nextHxGet);
+                var (nextDate, _) = ParseCellFromOpenEditorOnclick(nextOnclick);
                 var nextMondayDate = DateOnly.Parse(nextDate);
                 Assert.Equal(7, nextMondayDate.DayNumber - thisMondayDate.DayNumber);
             }
@@ -384,16 +393,16 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
         }
     }
 
-    // ── Journey 6: Dish assign via Alpine editor (fetch path) ───────────────
+    // ── Journey 6: Dish assign via JSON island endpoint (fetch path) ───────────────
     // Validates:
-    //   (a) The Save button POSTs via fetch+params.toString() (not Object.fromEntries)
-    //       so repeated keys (dishKinds × N dishes, attendeesOverride × M members)
-    //       are preserved and BuildDishSpecs receives the full multi-dish payload.
-    //   (b) Verifies the editor fragment uses the Alpine.data() component registration
-    //       (mealEditor) and carries the ed-rollup server-swap container — confirming
-    //       the ADR-013 §5 refactor: JS logic extracted to meal-editor.js, no inline
-    //       attribute-string handlers. The old inline _x_dataStack reference has moved
-    //       to the external meal-editor.js bridge; it is no longer in the fragment HTML.
+    //   (a) The island Save button posts JSON to ?handler=AssignJson so repeated
+    //       dishes are preserved in the JSON dishes array and BuildDishSpecsFromJson
+    //       receives the full multi-dish payload.
+    //   (b) Verifies the page uses the Preact island (meal-planner-island-root) and
+    //       no longer embeds the Alpine mealEditor() component registration — the
+    //       island replaces the old fragment-based Alpine editor (plantry-2zvm.4).
+    //   (c) GET EditorJson returns island hydration JSON (not HTML) — the island
+    //       fetches hydration on openEditor() and renders the editor client-side.
 
     [Fact(DisplayName = "Assign two-dish meal via POST → reload → meal card appears (fetch preserves repeated keys)")]
     public async Task TwoDishAssign_ViaFetch_MealCardAppearsOnReload()
@@ -415,51 +424,60 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             // ── Extract first empty cell info ─────────────────────────────────────
             var (date, slotId) = await GetFirstCellInfoAsync(page);
 
-            // ── (b) Verify editor HTML uses Alpine.data() component, no inline attribute-string handlers ──
-            // plantry-cyj: JS logic extracted to meal-editor.js (Alpine.data('mealEditor', ...)).
-            // The editor fragment carries the mealEditor() init and the ed-rollup server-swap
-            // container (ADR-013 §4/§5 rollup projection). The old inline _x_dataStack reference
-            // has moved to the external bridge in meal-editor.js; the fragment itself is clean.
-            var editorUrl = $"{BaseUrl}/MealPlan?handler=Editor&date={date}&slotId={slotId}";
-            var editorHtml = await page.EvaluateAsync<string>(@"
-                async (url) => {
-                    const r = await fetch(url, { headers: { 'HX-Request': 'true' } });
-                    return r.ok ? await r.text() : '';
-                }", editorUrl);
-            Assert.Contains("mealEditor(", editorHtml);      // Alpine.data() component registration
-            Assert.Contains("ed-rollup-", editorHtml);       // server-swap rollup container (ADR-013 §4)
-            Assert.DoesNotContain("get roll()", editorHtml); // old client-side rollup formula must be gone
-            Assert.DoesNotContain(".__x", editorHtml);       // Alpine v2 accessor — must not be present
+            // ── (b) Verify page carries Preact island, no Alpine mealEditor() ─────
+            // plantry-2zvm.4: the editor is now a Preact island; the page must have
+            // the island mount point and NOT embed the old Alpine mealEditor() component.
+            var pageHtml = await page.ContentAsync();
+            Assert.Contains("meal-planner-island-root", pageHtml);   // island mount point
+            Assert.DoesNotContain("mealEditor(", pageHtml);           // Alpine component gone
+            Assert.DoesNotContain("get roll()", pageHtml);            // old client-side rollup formula gone
 
-            // ── (a) POST two recipe dishes via fetch+params.toString() ────────────
-            // This mimics the Save button's inline fetch (FIX 2). Repeated keys are
-            // preserved by URLSearchParams.toString(), unlike Object.fromEntries.
+            // ── (c) GET EditorJson returns island hydration JSON ──────────────────
+            // The island calls this endpoint on openEditor(); it returns JSON (not HTML).
+            var editorJsonUrl = $"{BaseUrl}/MealPlan?handler=EditorJson&date={date}&slotId={slotId}";
+            var editorJsonText = await page.EvaluateAsync<string>(@"
+                async (url) => {
+                    const r = await fetch(url);
+                    return r.ok ? await r.text() : '';
+                }", editorJsonUrl);
+            Assert.NotEmpty(editorJsonText);
+            var editorJson = System.Text.Json.JsonDocument.Parse(editorJsonText);
+            Assert.True(editorJson.RootElement.TryGetProperty("slotLabel", out _), "EditorJson missing slotLabel");
+            Assert.True(editorJson.RootElement.TryGetProperty("mode", out _), "EditorJson missing mode");
+
+            // ── (a) POST two recipe dishes via JSON fetch to ?handler=AssignJson ──
+            // After island port (plantry-2zvm.4): the production save path POSTs JSON to
+            // AssignJson (not form-encoded to Assign). The JSON array eliminates the
+            // Object.fromEntries key-collapse bug; this test confirms both dishes survive.
             var token = await GetAntiforgeryTokenAsync(page);
-            var assignUrl = $"{BaseUrl}/MealPlan?handler=Assign&date={date}&slotId={slotId}";
+            var assignJsonUrl = $"{BaseUrl}/MealPlan?handler=AssignJson";
             var assignResult = await page.EvaluateAsync<string>(@"
                 async (args) => {
-                    const params = new URLSearchParams();
-                    params.append('mode', 'dishes');
-                    // dish 0
-                    params.append('dishKinds', 'recipe');
-                    params.append('dishItemIds', '00000000-0000-0000-0000-000000000099');
-                    params.append('dishServings', '2');
-                    // dish 1
-                    params.append('dishKinds', 'recipe');
-                    params.append('dishItemIds', '00000000-0000-0000-0000-0000000000aa');
-                    params.append('dishServings', '3');
+                    const body = JSON.stringify({
+                        mode: 'dishes',
+                        note: null,
+                        dishes: [
+                            { kind: 'recipe', itemId: '00000000-0000-0000-0000-000000000099', servings: 2 },
+                            { kind: 'recipe', itemId: '00000000-0000-0000-0000-0000000000aa', servings: 3 }
+                        ],
+                        att: null,
+                        attendeesOverridden: false,
+                        mealId: null,
+                        date: args.date,
+                        slotId: args.slotId
+                    });
                     const r = await fetch(args.url, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Content-Type': 'application/json',
                             'RequestVerificationToken': args.token,
-                            'HX-Request': 'true'
+                            'X-Requested-With': 'XMLHttpRequest'
                         },
-                        body: params.toString()
+                        body
                     });
-                    const body = await r.text();
-                    return r.status + '|' + body.substring(0, 500);
-                }", new { url = assignUrl, token });
+                    const respBody = await r.text();
+                    return r.status + '|' + respBody.substring(0, 500);
+                }", new { url = assignJsonUrl, date, slotId, token });
             var parts = assignResult.Split('|', 2);
             Assert.Equal("200", parts[0]);
 
@@ -474,6 +492,97 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
         finally
         {
             await context.Tracing.StopAsync(new() { Path = "trace-wkgrid-dish-add.zip" });
+        }
+    }
+
+    // ── Journey 7: Rendered island editor — note via UI + remove ─────────────────
+    // The critic FIX requirement (pass 1): at least one E2E journey that drives the
+    // rendered Preact island editor (open modal → interact → Save → applyMutationResult).
+    // This covers the historically-fragile Save button path without requiring seeded recipes.
+    // Uses the note-mode path: click .empty-add → island opens → switch to note mode →
+    // pick preset → Save → cell shows .meal-card.note → open again → Remove meal → cell empty.
+
+    [Fact(DisplayName = "Island editor: open via click → note preset → Save → meal card → Remove meal → cell empty")]
+    public async Task IslandEditor_NoteViaUI_MealCardAndRemovePath()
+    {
+        var uniqueEmail = $"e2e-island-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            await RegisterAndGoToMealPlan(page, uniqueEmail, password);
+
+            // ── Wait for island to mount ──────────────────────────────────────────
+            // The <script type="module"> runs after DOMContentLoaded. networkidle ensures
+            // all deferred + module scripts have executed before we interact.
+            await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+            var islandMounted = await page.EvaluateAsync<bool>("() => !!window.__mealPlannerIsland");
+            Assert.True(islandMounted, "meal-planner island did not mount: window.__mealPlannerIsland not set");
+
+            // ── Open editor by clicking the first .empty-add button ───────────────
+            // Onclick: window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor(date, slotId, null)
+            // openEditor() GETs ?handler=EditorJson, sets editorState signal, sets modalOpen=true.
+            await page.Locator(".empty-add").First.ClickAsync();
+
+            // Dialog renders after EditorJson fetch resolves.
+            var dialog = page.Locator("#meal-editor-dialog");
+            await Assertions.Expect(dialog).ToBeVisibleAsync(new() { Timeout = 15_000 });
+
+            // ── Switch to note mode via the toggle ────────────────────────────────
+            // MealEditor now uses useSignal() (hook-stable) for draft state — re-renders work.
+            var noteToggle = dialog.Locator(".ed-note-toggle button");
+            await Assertions.Expect(noteToggle).ToBeVisibleAsync(new() { Timeout = 10_000 });
+            await noteToggle.ClickAsync();
+
+            // After toggle click, note chips appear (useSignal-driven Preact re-render).
+            var chips = dialog.Locator(".ed-note-chips");
+            await Assertions.Expect(chips).ToBeVisibleAsync(new() { Timeout = 10_000 });
+
+            // ── Click the "Takeout" preset chip ──────────────────────────────────
+            // Chip click sets note.value → canSave becomes true → Save button enabled.
+            var takeoutChip = chips.Locator("button", new() { HasText = "Takeout" });
+            await takeoutChip.ClickAsync();
+
+            // ── Click Save meal ───────────────────────────────────────────────────
+            var saveBtn = dialog.Locator("button.btn--primary", new() { HasText = "Save meal" });
+            await Assertions.Expect(saveBtn).ToBeEnabledAsync(new() { Timeout = 5_000 });
+            await saveBtn.ClickAsync();
+
+            // Island closes dialog (modalOpen = false) and applyMutationResult() swaps the cell.
+            await Assertions.Expect(dialog).ToBeHiddenAsync(new() { Timeout = 10_000 });
+
+            // Cell now shows a note meal card without a full page reload.
+            var noteCard = page.Locator(".meal-card.note");
+            await Assertions.Expect(noteCard).ToBeVisibleAsync(new() { Timeout = 10_000 });
+            await Assertions.Expect(noteCard.Locator(".note-txt")).ToContainTextAsync("Takeout");
+
+            // ── Open the cell again for edit and Remove meal ──────────────────────
+            // .mc-edit calls openEditor with a real mealId (isEditing = true path).
+            var mcEdit = page.Locator(".mc-edit").First;
+            await Assertions.Expect(mcEdit).ToBeVisibleAsync();
+            await mcEdit.ClickAsync();
+
+            await Assertions.Expect(dialog).ToBeVisibleAsync(new() { Timeout = 15_000 });
+
+            // Remove meal button appears when isEditing = true (mealId is non-null).
+            var removeBtn = dialog.Locator("button.txt-btn.danger", new() { HasText = "Remove meal" });
+            await Assertions.Expect(removeBtn).ToBeVisibleAsync(new() { Timeout = 5_000 });
+            await removeBtn.ClickAsync();
+
+            // Dialog closes, cell returns to empty state.
+            await Assertions.Expect(dialog).ToBeHiddenAsync(new() { Timeout = 10_000 });
+            await Assertions.Expect(page.Locator(".meal-card")).ToHaveCountAsync(0, new() { Timeout = 5_000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-wkgrid-island-ui.zip" });
         }
     }
 
@@ -495,11 +604,27 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
         await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
     }
 
+    /// <summary>
+    /// Extracts date and slotId from the first empty-add button.
+    /// After the Preact island port (plantry-2zvm.4), empty-add buttons use onclick to call
+    /// window.__mealPlannerIsland.openEditor(date, slotId, null) instead of hx-get.
+    /// </summary>
     private static async Task<(string date, string slotId)> GetFirstCellInfoAsync(IPage page)
     {
-        var hxGet = await page.Locator(".empty-add").First.GetAttributeAsync("hx-get");
-        Assert.NotNull(hxGet);
-        return ParseCellFromHxGet(hxGet!);
+        var onclick = await page.Locator(".empty-add").First.GetAttributeAsync("onclick");
+        Assert.NotNull(onclick);
+        return ParseCellFromOpenEditorOnclick(onclick!);
+    }
+
+    /// <summary>
+    /// Parses date and slotId from onclick="...openEditor('date', 'slotId', null)".
+    /// </summary>
+    private static (string date, string slotId) ParseCellFromOpenEditorOnclick(string onclick)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(onclick,
+            @"openEditor\('([^']+)',\s*'([^']+)',\s*null\)");
+        Assert.True(m.Success, $"Could not parse openEditor from onclick: {onclick}");
+        return (m.Groups[1].Value, m.Groups[2].Value);
     }
 
     private static (string date, string slotId) ParseCellFromHxGet(string hxGet)
@@ -530,22 +655,31 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
 
     private async Task<int> PostAssignNoteAsync(IPage page, string date, string slotId, string note, string token)
     {
-        var assignUrl = $"{BaseUrl}/MealPlan?handler=Assign&date={date}&slotId={slotId}";
+        // Posts to the island's production save path (AssignJson, JSON body) — the same
+        // endpoint the rendered editor's Save button uses.
+        var assignUrl = $"{BaseUrl}/MealPlan?handler=AssignJson";
         return await page.EvaluateAsync<int>(@"
             async (args) => {
-                const body = new URLSearchParams();
-                body.append('mode', 'note');
-                body.append('note', args.note);
+                const body = JSON.stringify({
+                    mode: 'note',
+                    note: args.note,
+                    dishes: [],
+                    att: null,
+                    attendeesOverridden: false,
+                    mealId: null,
+                    date: args.date,
+                    slotId: args.slotId
+                });
                 const r = await fetch(args.url, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Content-Type': 'application/json',
                         'RequestVerificationToken': args.token,
-                        'HX-Request': 'true'
+                        'X-Requested-With': 'XMLHttpRequest'
                     },
-                    body: body.toString()
+                    body
                 });
                 return r.status;
-            }", new { url = assignUrl, note, token });
+            }", new { url = assignUrl, note, date, slotId, token });
     }
 }

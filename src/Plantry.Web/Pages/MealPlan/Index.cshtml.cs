@@ -2,6 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.Mvc.ViewEngines;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
@@ -10,6 +14,7 @@ using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Http;
+using System.Text.Json;
 
 namespace Plantry.Web.Pages.MealPlan;
 
@@ -123,12 +128,33 @@ public sealed class IndexModel(
             HttpContext.Session.Set("_ps", [0x01]);
     }
 
+    /// <summary>
+    /// Island hydration JSON embedded in the page for the meal-planner island.
+    /// Contains endpoint URLs + household member data. Set by OnGetAsync.
+    /// </summary>
+    public string IslandHydrationJson { get; private set; } = "null";
+
     // ── GET ───────────────────────────────────────────────────────────────────
 
     public async Task<IActionResult> OnGetAsync(string? week = null, CancellationToken ct = default)
     {
         await LoadWeekAsync(week, ct);
+        IslandHydrationJson = BuildIslandHydrationJson();
         return Page();
+    }
+
+    private string BuildIslandHydrationJson()
+    {
+        var members = Members.Select((m, i) => new IslandMemberVm(
+            m.UserId.ToString("D"), m.DisplayName, m.Initials, i % 8)).ToList();
+        var vm = new IslandHydrationVm(
+            AssignUrl: "/MealPlan?handler=AssignJson",
+            ClearUrl: "/MealPlan?handler=ClearJson",
+            RollupUrl: "/MealPlan?handler=RollupJson",
+            EditorJsonUrl: "/MealPlan?handler=EditorJson",
+            SearchJsonUrl: "/MealPlan?handler=SearchJson",
+            Members: members);
+        return JsonSerializer.Serialize(vm, MealPlanHydrationJson.Options);
     }
 
     // htmx fragment — returns the week grid partial + OOB plan-bar nav so the command
@@ -138,152 +164,6 @@ public sealed class IndexModel(
     {
         await LoadWeekAsync(week, ct);
         return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
-    }
-
-    // ── Editor fragment — GET ─────────────────────────────────────────────────
-
-    public async Task<IActionResult> OnGetEditorAsync(
-        string date, Guid slotId, Guid? mealId = null, CancellationToken ct = default)
-    {
-        if (!DateOnly.TryParse(date, out var parsedDate))
-            return BadRequest();
-
-        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var slot = await GetSlotAsync(householdId, MealSlotId.From(slotId), ct);
-        if (slot is null) return NotFound();
-
-        Members = (await memberReader.ListMembersAsync(ct)).ToList();
-
-        // If editing an existing meal, load it
-        MealEditorVm? vm = null;
-        if (mealId.HasValue)
-        {
-            var plan = await mealPlanRepo.FindByWeekAsync(
-                householdId, DomainMealPlan.NormalizeToMonday(parsedDate), ct);
-
-            var meal = plan?.PlannedMeals.FirstOrDefault(m => m.Id.Value == mealId.Value);
-            if (meal is not null)
-            {
-                // Resolve dish names + live fulfillment/cost so an existing meal opens in the editor
-                // with the same per-dish "% in pantry · $cost" the prototype shows.
-                var today = DateOnly.FromDateTime(DateTime.Today);
-                var dishes = new List<EditorDishVm>();
-                foreach (var d in meal.PlannedDishes.OrderBy(d => d.Ordinal))
-                {
-                    if (d.RecipeId.HasValue)
-                    {
-                        var r = await recipeReader.GetByIdAsync(d.RecipeId.Value, ct);
-                        var enr = await recipeReader.GetEnrichmentAsync(d.RecipeId.Value, d.Servings, today, ct);
-                        decimal? costPerServing = enr?.TotalCost is { } total && d.Servings > 0
-                            ? total / d.Servings
-                            : null;
-                        dishes.Add(new EditorDishVm(
-                            DishKind.Recipe, d.RecipeId.Value, r?.Name ?? "Unknown recipe", d.Servings, d.Ordinal,
-                            enr?.FulfillmentPercent, costPerServing, r?.HasPhoto ?? false));
-                    }
-                    else if (d.ProductId.HasValue)
-                    {
-                        var names = await catalogReader.ResolveNamesAsync([d.ProductId.Value], ct);
-                        var name = names.GetValueOrDefault(d.ProductId.Value, "Unknown product");
-                        dishes.Add(new EditorDishVm(DishKind.Product, d.ProductId.Value, name, d.Servings, d.Ordinal));
-                    }
-                }
-
-                // Compute initial rollup for dish-based meals so the editor footer is
-                // meaningful on open — mirrors what the deleted client 'roll' getter did
-                // (ADR-013 §4/§5: rollup is now a server projection, never client formula).
-                int? initFulfillment = null;
-                decimal? initCost = null;
-                bool initCostPartial = false;
-                if (meal.Note is null && meal.PlannedDishes.Count > 0)
-                {
-                    var initFulfillmentResult = await fulfillmentService.RollUpMealAsync(meal, today, ct);
-                    var initCostResult = await costingService.RollUpMealAsync(meal, ct);
-                    initFulfillment = initFulfillmentResult.FulfillmentPercent;
-                    initCost = initCostResult.Amount;
-                    initCostPartial = initCostResult.Completeness == CostCompleteness.Partial;
-                }
-
-                vm = new MealEditorVm(
-                    meal.Id.Value,
-                    parsedDate,
-                    slot.Label,
-                    slot.DefaultAttendees,
-                    meal.AttendeesOverride,
-                    meal.Note,
-                    dishes,
-                    IsEditing: true,
-                    InitialFulfillmentPercent: initFulfillment,
-                    InitialTotalCost: initCost,
-                    InitialCostIsPartial: initCostPartial);
-            }
-        }
-
-        vm ??= new MealEditorVm(
-            null, parsedDate, slot.Label, slot.DefaultAttendees,
-            null, null, [], IsEditing: false);
-
-        return Partial("_MealEditor", new EditorPageModel(vm, Members, slot));
-    }
-
-    // ── Assign meal POST ─────────────────────────────────────────────────────
-
-    public async Task<IActionResult> OnPostAssignAsync(
-        string date, Guid slotId,
-        [FromForm] string mode,
-        [FromForm] string? note,
-        [FromForm] List<string>? dishKinds,
-        [FromForm] List<Guid>? dishItemIds,
-        [FromForm] List<int>? dishServings,
-        [FromForm] List<Guid>? attendeesOverride,
-        [FromForm] bool attendeesOverridden = false,
-        [FromForm] Guid? mealId = null,
-        CancellationToken ct = default)
-    {
-        if (!DateOnly.TryParse(date, out var parsedDate))
-            return BadRequest();
-
-        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var userId = await GetCurrentUserIdAsync(ct);
-        var sid = MealSlotId.From(slotId);
-        var mid = mealId.HasValue ? PlannedMealId.From(mealId.Value) : (PlannedMealId?)null;
-
-        List<Guid>? overrideList = attendeesOverridden ? attendeesOverride ?? [] : null;
-
-        string? hardStanceWarning = null;
-        if (mode == "note")
-        {
-            if (string.IsNullOrWhiteSpace(note)) return BadRequest("Note is required.");
-            var noteResult = await assignService.AssignNoteAsync(householdId, parsedDate, sid, note!, overrideList, userId, mid, ct);
-            hardStanceWarning = noteResult.HardStanceWarning;
-        }
-        else
-        {
-            // Build dishes from three index-aligned arrays (kind, itemId, servings) so that
-            // servings are never mis-mapped when a meal mixes recipe and product dishes.
-            var specs = BuildDishSpecs(dishKinds, dishItemIds, dishServings);
-            if (specs.Count == 0) return BadRequest("At least one dish is required.");
-            var dishResult = await assignService.AssignDishesAsync(householdId, parsedDate, sid, specs, overrideList, userId, mid, ct);
-            hardStanceWarning = dishResult.HardStanceWarning;
-        }
-
-        // Return the updated cell fragment, including any dietary warning so the UI can display it
-        return await CellFragmentAsync(householdId, parsedDate, sid, hardStanceWarning, ct);
-    }
-
-    // ── Clear meal POST ──────────────────────────────────────────────────────
-
-    public async Task<IActionResult> OnPostClearAsync(
-        string date, Guid slotId, Guid mealId, CancellationToken ct = default)
-    {
-        if (!DateOnly.TryParse(date, out var parsedDate))
-            return BadRequest();
-
-        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var sid = MealSlotId.From(slotId);
-        await assignService.ClearMealAsync(householdId, parsedDate, PlannedMealId.From(mealId), ct);
-
-        return await CellFragmentAsync(householdId, parsedDate, sid, ct);
     }
 
     // ── Move meal POST ───────────────────────────────────────────────────────
@@ -624,88 +504,310 @@ public sealed class IndexModel(
         return new JsonResult(new { itemsAdded = result.ItemsAdded });
     }
 
-    // ── Editor rollup POST ───────────────────────────────────────────────────
-    // ADR-013 §4/§5: the rollup footer (fulfillment %, est. cost) is a server projection.
-    // The Alpine mealEditor component calls this after every dish-list mutation and swaps
-    // the _EditorRollup fragment into #ed-rollup-{slotIdStr}. No client-side formula exists.
-    //
-    // A transient in-memory PlannedMeal is assembled from the draft dish specs via
-    // MealPlan.AssignMeal on an ephemeral plan aggregate — no SaveChangesAsync means
-    // no persistence side effects. The existing services compute via the real port adapters.
+    // ── Island JSON endpoints (ADR-015 amendment: island data endpoints return JSON) ──
 
-    public async Task<IActionResult> OnPostRollupAsync(
-        string date, Guid slotId,
-        [FromForm] string mode,
-        [FromForm] List<string>? dishKinds,
-        [FromForm] List<Guid>? dishItemIds,
-        [FromForm] List<int>? dishServings,
-        CancellationToken ct = default)
+    /// <summary>
+    /// Returns the editor hydration JSON for the meal-planner island.
+    /// Called by window.__mealPlannerIsland.openEditor() when a cell or card triggers the editor.
+    /// Returns editor state as JSON for the meal-planner island.
+    /// </summary>
+    public async Task<IActionResult> OnGetEditorJsonAsync(
+        string date, Guid slotId, Guid? mealId = null, CancellationToken ct = default)
     {
         if (!DateOnly.TryParse(date, out var parsedDate))
             return BadRequest();
 
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var slot = await GetSlotAsync(householdId, MealSlotId.From(slotId), ct);
+        if (slot is null) return NotFound();
 
-        if (mode == "note")
+        Members = (await memberReader.ListMembersAsync(ct)).ToList();
+
+        MealEditorVm? vm = null;
+        if (mealId.HasValue)
         {
-            return Partial("_EditorRollup", new EditorRollupVm(IsNote: true, HasDishes: false));
+            var plan = await mealPlanRepo.FindByWeekAsync(
+                householdId, DomainMealPlan.NormalizeToMonday(parsedDate), ct);
+
+            var meal = plan?.PlannedMeals.FirstOrDefault(m => m.Id.Value == mealId.Value);
+            if (meal is not null)
+            {
+                var today = DateOnly.FromDateTime(DateTime.Today);
+                var dishes = new List<EditorDishVm>();
+                foreach (var d in meal.PlannedDishes.OrderBy(d => d.Ordinal))
+                {
+                    if (d.RecipeId.HasValue)
+                    {
+                        var r = await recipeReader.GetByIdAsync(d.RecipeId.Value, ct);
+                        var enr = await recipeReader.GetEnrichmentAsync(d.RecipeId.Value, d.Servings, today, ct);
+                        decimal? costPerServing = enr?.TotalCost is { } total && d.Servings > 0 ? total / d.Servings : null;
+                        dishes.Add(new EditorDishVm(DishKind.Recipe, d.RecipeId.Value, r?.Name ?? "Unknown recipe",
+                            d.Servings, d.Ordinal, enr?.FulfillmentPercent, costPerServing, r?.HasPhoto ?? false));
+                    }
+                    else if (d.ProductId.HasValue)
+                    {
+                        var names = await catalogReader.ResolveNamesAsync([d.ProductId.Value], ct);
+                        dishes.Add(new EditorDishVm(DishKind.Product, d.ProductId.Value,
+                            names.GetValueOrDefault(d.ProductId.Value, "Unknown product"), d.Servings, d.Ordinal));
+                    }
+                }
+
+                int? initFulfillment = null;
+                decimal? initCost = null;
+                bool initCostPartial = false;
+                if (meal.Note is null && meal.PlannedDishes.Count > 0)
+                {
+                    var initFulfillmentResult = await fulfillmentService.RollUpMealAsync(meal, today, ct);
+                    var initCostResult = await costingService.RollUpMealAsync(meal, ct);
+                    initFulfillment = initFulfillmentResult.FulfillmentPercent;
+                    initCost = initCostResult.Amount;
+                    initCostPartial = initCostResult.Completeness == CostCompleteness.Partial;
+                }
+
+                vm = new MealEditorVm(meal.Id.Value, parsedDate, slot.Label, slot.DefaultAttendees,
+                    meal.AttendeesOverride, meal.Note, dishes, IsEditing: true,
+                    InitialFulfillmentPercent: initFulfillment, InitialTotalCost: initCost, InitialCostIsPartial: initCostPartial);
+            }
         }
 
-        var specs = BuildDishSpecs(dishKinds, dishItemIds, dishServings);
+        vm ??= new MealEditorVm(null, parsedDate, slot.Label, slot.DefaultAttendees,
+            null, null, [], IsEditing: false);
+
+        var defaultAtt = slot.DefaultAttendees;
+        var currentAtt = vm.AttendeesOverride ?? defaultAtt;
+        var isOverridden = vm.AttendeesOverride is not null;
+        var isNote = vm.Note is not null;
+
+        // Build server-rendered initial rollup HTML (only for existing dish meals)
+        string? initialRollupHtml = null;
+        if (!isNote && vm.Dishes.Count > 0 && vm.InitialFulfillmentPercent.HasValue)
+        {
+            var rollupVm = new EditorRollupVm(
+                IsNote: false, HasDishes: true,
+                FulfillmentPercent: vm.InitialFulfillmentPercent,
+                TotalCost: vm.InitialTotalCost,
+                CostIsPartial: vm.InitialCostIsPartial);
+            initialRollupHtml = await RenderPartialToStringAsync("_EditorRollup", rollupVm, ct);
+        }
+        else if (isNote)
+        {
+            var rollupVm = new EditorRollupVm(IsNote: true, HasDishes: false);
+            initialRollupHtml = await RenderPartialToStringAsync("_EditorRollup", rollupVm, ct);
+        }
+
+        var today2 = DateOnly.FromDateTime(DateTime.Today);
+        var dow = parsedDate.DayOfWeek.ToString()[..3];
+        var monthDay = parsedDate.ToString("MMM d");
+
+        var dishHydration = vm.Dishes
+            .Select(d => new EditorDishHydrationVm(
+                d.Kind.ToString().ToLower(),
+                d.ItemId.ToString("D"),
+                d.Name,
+                d.Servings,
+                d.FulfillmentPercent,
+                d.CostPerServing,
+                d.HasPhoto))
+            .ToList();
+
+        var payload = new MealEditorHydrationVm(
+            DateStr: date,
+            SlotIdStr: slot.Id.Value.ToString("D"),
+            SlotLabel: slot.Label,
+            MealId: vm.MealId?.ToString("D"),
+            IsEditing: vm.IsEditing,
+            Mode: isNote ? "note" : "dishes",
+            Note: vm.Note ?? "",
+            Dishes: dishHydration,
+            Att: currentAtt.Select(x => x.ToString("D")).ToList(),
+            DefaultAtt: defaultAtt.Select(x => x.ToString("D")).ToList(),
+            AttOverridden: isOverridden,
+            InitialRollupHtml: initialRollupHtml,
+            DateDowLabel: dow,
+            DateMonthDay: monthDay,
+            IsToday: parsedDate == today2);
+
+        return new JsonResult(payload, MealPlanHydrationJson.Options);
+    }
+
+    /// <summary>
+    /// Assign a meal from the island editor (JSON body → JSON cell+rail+bar response).
+    /// ADR-015 amendment: island data endpoints return JSON.
+    /// The response JSON carries cellHtml, railHtml, barNavHtml — the island swaps them
+    /// into the live DOM, preserving the ADR-013 OOB contract (rail recomputes on every mutation).
+    /// </summary>
+    public async Task<IActionResult> OnPostAssignJsonAsync(CancellationToken ct = default)
+    {
+        AssignJsonInput? input;
+        try
+        {
+            input = await JsonSerializer.DeserializeAsync<AssignJsonInput>(
+                Request.Body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
+        }
+        catch { return new JsonResult(new { error = "Invalid request body." }) { StatusCode = 400 }; }
+
+        if (input is null) return new JsonResult(new { error = "Invalid request body." }) { StatusCode = 400 };
+        if (!DateOnly.TryParse(input.Date, out var parsedDate))
+            return new JsonResult(new { error = "Invalid date." }) { StatusCode = 400 };
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var userId = await GetCurrentUserIdAsync(ct);
+        var sid = MealSlotId.From(input.SlotId);
+        var mid = input.MealId.HasValue ? PlannedMealId.From(input.MealId.Value) : (PlannedMealId?)null;
+
+        List<Guid>? overrideList = input.AttendeesOverridden ? input.Att : null;
+
+        string? hardStanceWarning = null;
+        if (input.Mode == "note")
+        {
+            if (string.IsNullOrWhiteSpace(input.Note))
+                return new JsonResult(new { error = "Note is required." }) { StatusCode = 400 };
+            var noteResult = await assignService.AssignNoteAsync(householdId, parsedDate, sid, input.Note!, overrideList, userId, mid, ct);
+            hardStanceWarning = noteResult.HardStanceWarning;
+        }
+        else
+        {
+            var specs = BuildDishSpecsFromJson(input.Dishes);
+            if (specs.Count == 0)
+                return new JsonResult(new { error = "At least one dish is required." }) { StatusCode = 400 };
+            var dishResult = await assignService.AssignDishesAsync(householdId, parsedDate, sid, specs, overrideList, userId, mid, ct);
+            hardStanceWarning = dishResult.HardStanceWarning;
+        }
+
+        return await CellMutationJsonAsync(householdId, parsedDate, sid, hardStanceWarning, ct);
+    }
+
+    /// <summary>
+    /// Clear a meal from the island editor (JSON body → JSON cell+rail+bar response).
+    /// ADR-015 amendment: island data endpoints return JSON.
+    /// </summary>
+    public async Task<IActionResult> OnPostClearJsonAsync(CancellationToken ct = default)
+    {
+        ClearJsonInput? input;
+        try
+        {
+            input = await JsonSerializer.DeserializeAsync<ClearJsonInput>(
+                Request.Body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
+        }
+        catch { return new JsonResult(new { error = "Invalid request body." }) { StatusCode = 400 }; }
+
+        if (input is null || !DateOnly.TryParse(input.Date, out var parsedDate))
+            return new JsonResult(new { error = "Invalid request body." }) { StatusCode = 400 };
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(input.SlotId);
+        await assignService.ClearMealAsync(householdId, parsedDate, PlannedMealId.From(input.MealId), ct);
+
+        return await CellMutationJsonAsync(householdId, parsedDate, sid, null, ct);
+    }
+
+    /// <summary>
+    /// Rollup projection for the island editor (JSON body → JSON { html } response).
+    /// ADR-013 §4/§5, ADR-020 §7: fulfillment/cost is a server projection.
+    /// The island posts the draft dish list here on every change and renders the returned HTML
+    /// into the rollup container. No client-side formula.
+    /// </summary>
+    public async Task<IActionResult> OnPostRollupJsonAsync(CancellationToken ct = default)
+    {
+        RollupJsonInput? input;
+        try
+        {
+            input = await JsonSerializer.DeserializeAsync<RollupJsonInput>(
+                Request.Body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
+        }
+        catch { return new JsonResult(new { error = "Invalid request body." }) { StatusCode = 400 }; }
+
+        if (input is null) return new JsonResult(new { error = "Invalid request body." }) { StatusCode = 400 };
+
+        if (input.Mode == "note")
+        {
+            var html = await RenderPartialToStringAsync("_EditorRollup",
+                new EditorRollupVm(IsNote: true, HasDishes: false), ct);
+            return new JsonResult(new { html });
+        }
+
+        var specs = BuildDishSpecsFromJson(input.Dishes);
         if (specs.Count == 0)
         {
-            return Partial("_EditorRollup", new EditorRollupVm(IsNote: false, HasDishes: false));
+            var html = await RenderPartialToStringAsync("_EditorRollup",
+                new EditorRollupVm(IsNote: false, HasDishes: false), ct);
+            return new JsonResult(new { html });
         }
 
         // Build a transient in-memory meal for rollup projection only.
-        // MealPlan.AssignMeal is the only entry point that creates a PlannedMeal
-        // (CreateWithDishes is internal). No SaveChangesAsync → no DB write.
-        var sid = MealSlotId.From(slotId);
-        var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(parsedDate), clock);
-        tempPlan.AssignMeal(parsedDate, sid, specs, null, "rollup-preview", Guid.Empty, clock);
-        var meal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == parsedDate && m.MealSlotId == sid);
+        // No SaveChangesAsync → no DB write.
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        // Use today as date for the rollup (not date-specific since we just need fulfillment)
+        var rollupDate = today;
+        var rollupSid = MealSlotId.From(Guid.NewGuid()); // ephemeral slot id — rollup only
+        var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(rollupDate), clock);
+        tempPlan.AssignMeal(rollupDate, rollupSid, specs, null, "rollup-preview", Guid.Empty, clock);
+        var meal = tempPlan.PlannedMeals.FirstOrDefault(m => m.MealSlotId == rollupSid);
 
         if (meal is null)
         {
-            return Partial("_EditorRollup", new EditorRollupVm(IsNote: false, HasDishes: true));
+            var html = await RenderPartialToStringAsync("_EditorRollup",
+                new EditorRollupVm(IsNote: false, HasDishes: true), ct);
+            return new JsonResult(new { html });
         }
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
         var fulfillment = await fulfillmentService.RollUpMealAsync(meal, today, ct);
         var mealCost = await costingService.RollUpMealAsync(meal, ct);
 
-        return Partial("_EditorRollup", new EditorRollupVm(
-            IsNote: false,
-            HasDishes: true,
-            FulfillmentPercent: fulfillment.FulfillmentPercent,
-            TotalCost: mealCost.Amount,
-            CostIsPartial: mealCost.Completeness == CostCompleteness.Partial));
+        var resultHtml = await RenderPartialToStringAsync("_EditorRollup",
+            new EditorRollupVm(
+                IsNote: false, HasDishes: true,
+                FulfillmentPercent: fulfillment.FulfillmentPercent,
+                TotalCost: mealCost.Amount,
+                CostIsPartial: mealCost.Completeness == CostCompleteness.Partial), ct);
+        return new JsonResult(new { html = resultHtml });
     }
 
-    // ── Search fragments ─────────────────────────────────────────────────────
-
-    public async Task<IActionResult> OnGetSearchAsync(string q, CancellationToken ct = default)
+    /// <summary>
+    /// Dish search for the island editor — returns JSON results rendered in-component by the island.
+    /// </summary>
+    public async Task<IActionResult> OnGetSearchJsonAsync(string q, CancellationToken ct = default)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
         var recipes = await recipeReader.SearchAsync(q, 6, ct);
 
-        // Enrich each recipe hit with live fulfillment + per-serving cost so the picker can show
-        // "{pct}% in pantry · $cost" exactly like the prototype (PL.recipeStock). MealPlanning
-        // borrows Recipes' computations — it never recomputes them (domain-model §1).
-        var hits = new List<RecipeHitVm>(recipes.Count);
+        var hits = new List<object>(recipes.Count);
         foreach (var r in recipes)
         {
             var enr = await recipeReader.GetEnrichmentAsync(r.RecipeId, r.DefaultServings, today, ct);
             decimal? costPerServing = enr?.TotalCost is { } total && r.DefaultServings > 0
-                ? total / r.DefaultServings
-                : null;
-            hits.Add(new RecipeHitVm(
-                r.RecipeId, r.Name, r.DefaultServings,
-                enr?.FulfillmentPercent, costPerServing, r.HasPhoto));
+                ? total / r.DefaultServings : null;
+            hits.Add(new
+            {
+                kind = "recipe",
+                itemId = r.RecipeId.ToString("D"),
+                name = r.Name,
+                defaultServings = r.DefaultServings,
+                fulfillmentPercent = (object?)enr?.FulfillmentPercent,
+                costPerServing = (object?)costPerServing,
+                hasPhoto = r.HasPhoto,
+                photoUrl = r.HasPhoto ? $"/Recipes/Details?id={r.RecipeId}&handler=Photo" : null,
+            });
         }
 
         var products = await catalogReader.SearchAsync(q, 5, ct);
-        return Partial("_DishSearch", new DishSearchVm(q, hits, products));
+        foreach (var p in products)
+        {
+            hits.Add(new
+            {
+                kind = "product",
+                itemId = p.ProductId.ToString("D"),
+                name = p.Name,
+                defaultServings = 1,
+                fulfillmentPercent = (object?)null,
+                costPerServing = (object?)null,
+                hasPhoto = false,
+                photoUrl = (object?)null,
+            });
+        }
+
+        return new JsonResult(new { hits });
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -924,36 +1026,154 @@ public sealed class IndexModel(
         GhostEnrichments = [];
         if (PendingProposals.Count == 0) return;
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-
         foreach (var (key, proposal) in PendingProposals)
         {
-            if (proposal.Dishes.Count == 0) continue;
-            try
-            {
-                var sid = proposal.MealSlotId;
-                var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(proposal.Date), clock);
-                var dishSpecs = proposal.Dishes.OrderBy(x => x.Ordinal)
-                    .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
-                    .ToList();
-                tempPlan.AssignMeal(proposal.Date, sid, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
-                var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == proposal.Date && m.MealSlotId == sid);
-                if (tempMeal is null) continue;
-
-                var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
-                var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
-                GhostEnrichments[key] = new MealFulfillmentVm(
-                    fulfillment.FulfillmentPercent,
-                    fulfillment.HasExpiringIngredients,
-                    mealCost.Amount,
-                    mealCost.Completeness == CostCompleteness.Partial);
-            }
-            catch
-            {
-                // Enrichment is best-effort — degrade gracefully
-            }
+            var enrichment = await BuildGhostEnrichmentAsync(householdId, proposal, ct);
+            if (enrichment is not null) GhostEnrichments[key] = enrichment;
         }
+    }
+
+    /// <summary>
+    /// Rolls up a pending AI proposal into display fulfillment + cost (a "ghost" cell) WITHOUT
+    /// persisting: builds a transient meal from the proposal's dishes and runs the same
+    /// fulfillment/costing services the committed-meal path uses (ADR-013 §4/§5, ADR-020 §7 — the
+    /// math stays server-side). Best-effort: returns null on an empty proposal or any roll-up
+    /// failure. Single source of truth for the three places that need ghost enrichment
+    /// (LoadGhostEnrichmentsAsync, CellMutationJsonAsync, CellFragmentAsync).
+    /// </summary>
+    private async Task<MealFulfillmentVm?> BuildGhostEnrichmentAsync(
+        HouseholdId householdId, ProposedMeal pending, CancellationToken ct)
+    {
+        if (pending.Dishes.Count == 0) return null;
+        try
+        {
+            var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(pending.Date), clock);
+            var dishSpecs = pending.Dishes.OrderBy(x => x.Ordinal)
+                .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
+                .ToList();
+            tempPlan.AssignMeal(pending.Date, pending.MealSlotId, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
+            var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == pending.Date && m.MealSlotId == pending.MealSlotId);
+            if (tempMeal is null) return null;
+
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
+            var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
+            return new MealFulfillmentVm(
+                fulfillment.FulfillmentPercent, fulfillment.HasExpiringIngredients,
+                mealCost.Amount, mealCost.Completeness == CostCompleteness.Partial);
+        }
+        catch
+        {
+            // Enrichment is best-effort — degrade gracefully if roll-up fails.
+            return null;
+        }
+    }
+
+    /// <summary>Resolves a pending proposal's dish recipe names for ghost-cell display (the cell
+    /// fragment must resolve these the same way _WeekGrid does inline).</summary>
+    private async Task<IReadOnlyList<string>> ResolveGhostDishNamesAsync(ProposedMeal pending, CancellationToken ct)
+    {
+        var names = new List<string>(pending.Dishes.Count);
+        foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
+        {
+            var r = await recipeReader.GetByIdAsync(d.RecipeId, ct);
+            names.Add(r?.Name ?? "Unknown recipe");
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// Renders a cell mutation result as JSON for the island JSON endpoints (AssignJson/ClearJson).
+    /// The response carries cellHtml + railHtml + barNavHtml so the island can swap each
+    /// fragment into the live DOM, preserving the ADR-013 OOB contract (rail recomputes on
+    /// every mutation). Equivalent to CellFragmentAsync but returns JSON instead of HTML.
+    /// </summary>
+    private async Task<IActionResult> CellMutationJsonAsync(
+        HouseholdId householdId, DateOnly date, MealSlotId slotId, string? hardStanceWarning, CancellationToken ct)
+    {
+        await LoadWeekAsync(DomainMealPlan.NormalizeToMonday(date).ToString("yyyy-MM-dd"), ct);
+        var key = CellKey(date, slotId);
+        var meals = MealsByCell.GetValueOrDefault(key) ?? [];
+        var slot = Slots.FirstOrDefault(s => s.Id == slotId);
+        var pending = PendingProposals.GetValueOrDefault(key);
+
+        IReadOnlyList<string>? ghostDishNames = null;
+        MealFulfillmentVm? ghostEnrichment = null;
+        if (pending is not null)
+        {
+            ghostDishNames = await ResolveGhostDishNamesAsync(pending, ct);
+            ghostEnrichment = await BuildGhostEnrichmentAsync(householdId, pending, ct);
+        }
+
+        var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning,
+            pending, ghostDishNames, ghostEnrichment,
+            IsHardConflict: ConflictCells.ContainsKey(key),
+            UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key));
+        var railVm = new PlanRailVm(Insights, PendingCount, Oob: false);
+        var barNavVm = BuildPlanBarNavVm(Oob: false);
+
+        // plan-rail-reopen is rendered inside the _PlanRail partial — no separate render needed.
+        var cellHtml = await RenderPartialToStringAsync("_MealCell", cellVm, ct);
+        var railHtml = await RenderPartialToStringAsync("_PlanRail", railVm, ct);
+        var barNavHtml = await RenderPartialToStringAsync("_PlanBarNav", barNavVm, ct);
+
+        return new JsonResult(new { cellHtml, railHtml, barNavHtml, error = (string?)null });
+    }
+
+    /// <summary>
+    /// Renders a Razor partial view to a string. Used by the island JSON endpoints to encode
+    /// HTML fragments in JSON. The fragments are applied to the live DOM by the island.
+    /// </summary>
+    private async Task<string> RenderPartialToStringAsync<TModel>(
+        string viewName, TModel model, CancellationToken ct = default)
+    {
+        var serviceProvider = HttpContext.RequestServices;
+        var viewEngine = serviceProvider.GetRequiredService<ICompositeViewEngine>();
+        var tempDataProvider = serviceProvider.GetRequiredService<ITempDataProvider>();
+
+        var actionContext = new Microsoft.AspNetCore.Mvc.ActionContext(
+            HttpContext,
+            RouteData,
+            PageContext.ActionDescriptor,
+            ModelState);
+
+        var viewResult = viewEngine.FindView(actionContext, viewName, isMainPage: false);
+        if (!viewResult.Success)
+            throw new InvalidOperationException($"Could not find partial view '{viewName}'.");
+
+        var viewData = new ViewDataDictionary<TModel>(
+            new EmptyModelMetadataProvider(), ModelState)
+        {
+            Model = model
+        };
+        var tempData = new TempDataDictionary(HttpContext, tempDataProvider);
+
+        await using var writer = new System.IO.StringWriter();
+        var viewContext = new ViewContext(
+            actionContext,
+            viewResult.View,
+            viewData,
+            tempData,
+            writer,
+            new HtmlHelperOptions());
+
+        await viewResult.View.RenderAsync(viewContext);
+        return writer.ToString();
+    }
+
+    /// <summary>
+    /// Builds DishSpec list from a JSON dish array (island JSON endpoint format).
+    /// JSON carries a typed array of (kind, itemId, servings) objects, so per-dish
+    /// servings can never be mis-mapped the way repeated form keys could collapse.
+    /// </summary>
+    private static List<DishSpec> BuildDishSpecsFromJson(List<DishJsonItem>? dishes)
+    {
+        if (dishes is null || dishes.Count == 0) return [];
+        return dishes.Select(d => new DishSpec(
+            d.Kind.Equals("recipe", StringComparison.OrdinalIgnoreCase) ? DishKind.Recipe : DishKind.Product,
+            d.ItemId,
+            Math.Max(1, d.Servings))).ToList();
     }
 
     private async Task<IActionResult> CellFragmentAsync(HouseholdId householdId, DateOnly date, MealSlotId slotId, CancellationToken ct)
@@ -967,51 +1187,15 @@ public sealed class IndexModel(
         var slot = Slots.FirstOrDefault(s => s.Id == slotId);
         var pending = PendingProposals.GetValueOrDefault(key);
 
-        // Resolve ghost cell recipe names for the cell fragment (fix: was using literal "Recipe").
-        // _WeekGrid resolves these inline via ResolveRecipeName; the cell fragment must do the same.
+        // Ghost-cell recipe names + rolled-up fulfillment/cost for any pending AI proposal.
+        // _WeekGrid resolves names inline via ResolveRecipeName; the cell fragment must match, and
+        // the roll-up reuses the shared best-effort helper (same transient-meal pattern as commits).
         IReadOnlyList<string>? ghostDishNames = null;
         MealFulfillmentVm? ghostEnrichment = null;
         if (pending is not null)
         {
-            var names = new List<string>(pending.Dishes.Count);
-            foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
-            {
-                var r = await recipeReader.GetByIdAsync(d.RecipeId, ct);
-                names.Add(r?.Name ?? "Unknown recipe");
-            }
-            ghostDishNames = names;
-
-            // Compute rolled-up fulfillment % and cost for the ghost cell (P3-6b, ADR-013 §4/§5).
-            // Reuses P3-4 roll-ups: build a transient meal from the proposal's dishes, run through
-            // fulfillmentService + costingService. No DB write — same pattern as OnPostRollupAsync.
-            if (pending.Dishes.Count > 0)
-            {
-                try
-                {
-                    var sid = slotId;
-                    var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(date), clock);
-                    var dishSpecs = pending.Dishes.OrderBy(x => x.Ordinal)
-                        .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
-                        .ToList();
-                    tempPlan.AssignMeal(date, sid, dishSpecs, null, "rollup-ghost", Guid.Empty, clock);
-                    var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == date && m.MealSlotId == sid);
-                    if (tempMeal is not null)
-                    {
-                        var today = DateOnly.FromDateTime(DateTime.Today);
-                        var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
-                        var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
-                        ghostEnrichment = new MealFulfillmentVm(
-                            fulfillment.FulfillmentPercent,
-                            fulfillment.HasExpiringIngredients,
-                            mealCost.Amount,
-                            mealCost.Completeness == CostCompleteness.Partial);
-                    }
-                }
-                catch
-                {
-                    // Ghost enrichment is best-effort — degrade gracefully if roll-up fails
-                }
-            }
+            ghostDishNames = await ResolveGhostDishNamesAsync(pending, ct);
+            ghostEnrichment = await BuildGhostEnrichmentAsync(householdId, pending, ct);
         }
 
         // Return the cell fragment plus out-of-band refreshes for both the insights rail and
@@ -1045,28 +1229,6 @@ public sealed class IndexModel(
     {
         var user = await userManager.GetUserAsync(User);
         return user is not null ? Guid.Parse(user.Id) : Guid.Empty;
-    }
-
-    /// <summary>
-    /// Builds DishSpec list from three index-aligned form arrays (kinds, itemIds, servings).
-    /// The three arrays are emitted in display order by the editor, so index i of each array
-    /// always refers to the same dish — servings can never be mis-mapped across kind groups.
-    /// </summary>
-    private static List<DishSpec> BuildDishSpecs(
-        List<string>? kinds, List<Guid>? itemIds, List<int>? servings)
-    {
-        if (kinds is null || itemIds is null) return [];
-        var count = Math.Min(kinds.Count, itemIds.Count);
-        var specs = new List<DishSpec>(count);
-        for (int i = 0; i < count; i++)
-        {
-            var kind = kinds[i].Equals("recipe", StringComparison.OrdinalIgnoreCase)
-                ? DishKind.Recipe
-                : DishKind.Product;
-            var sv = servings != null && i < servings.Count ? servings[i] : 1;
-            specs.Add(new DishSpec(kind, itemIds[i], Math.Max(1, sv)));
-        }
-        return specs;
     }
 
     public static string CellKey(DateOnly date, MealSlotId slotId) => $"{date:yyyy-MM-dd}_{slotId.Value:N}";
@@ -1133,12 +1295,6 @@ public sealed class IndexModel(
         DishKind Kind, Guid ItemId, string Name, int Servings, int Ordinal,
         int? FulfillmentPercent = null, decimal? CostPerServing = null, bool HasPhoto = false);
 
-    /// <summary>A recipe row in the dish-search dropdown, enriched with live fulfillment/cost + photo flag.</summary>
-    public sealed record RecipeHitVm(
-        Guid RecipeId, string Name, int DefaultServings,
-        int? FulfillmentPercent, decimal? CostPerServing, bool HasPhoto);
-
-    public sealed record EditorPageModel(MealEditorVm Vm, List<HouseholdMember> Members, MealSlot Slot);
     public sealed record CellFragmentVm(
         DateOnly Date,
         MealSlotId SlotId,
@@ -1204,11 +1360,9 @@ public sealed class IndexModel(
         decimal? WeekTotalCost,
         bool WeekCostIsPartial,
         bool Oob = false);
-    public sealed record DishSearchVm(string Query, IReadOnlyList<RecipeHitVm> Recipes, IReadOnlyList<MealPlanProductReadModel> Products);
-
     /// <summary>
     /// View model for the editor rollup footer (_EditorRollup.cshtml) — ADR-013 §4/§5.
-    /// Returned by OnPostRollupAsync; swapped into #ed-rollup-{slotIdStr} by the Alpine component.
+    /// Returned by OnPostRollupJsonAsync; the island parses the JSON and injects the HTML.
     /// The rollup is a server-computed projection; no client-side formula exists.
     /// </summary>
     public sealed record EditorRollupVm(
@@ -1230,4 +1384,44 @@ public sealed class IndexModel(
         ProposedMeal Proposal,
         IReadOnlyList<string> DishNames,
         MealFulfillmentVm? GhostEnrichment = null);
+
+    // ── Island JSON endpoint input models (ADR-015 amendment) ─────────────────
+
+    /// <summary>A single dish item in a JSON island request (kind + itemId + servings).</summary>
+    public sealed class DishJsonItem
+    {
+        public string Kind { get; set; } = "recipe";
+        public Guid ItemId { get; set; }
+        public int Servings { get; set; } = 1;
+    }
+
+    /// <summary>JSON body for POST AssignJson — the island editor save action.</summary>
+    public sealed class AssignJsonInput
+    {
+        public string Date { get; set; } = "";
+        public Guid SlotId { get; set; }
+        public string Mode { get; set; } = "dishes";
+        public string? Note { get; set; }
+        public List<DishJsonItem>? Dishes { get; set; }
+        public List<Guid>? Att { get; set; }
+        public bool AttendeesOverridden { get; set; }
+        public Guid? MealId { get; set; }
+    }
+
+    /// <summary>JSON body for POST ClearJson — the island editor remove-meal action.</summary>
+    public sealed class ClearJsonInput
+    {
+        public string Date { get; set; } = "";
+        public Guid SlotId { get; set; }
+        public Guid MealId { get; set; }
+    }
+
+    /// <summary>JSON body for POST RollupJson — the island editor rollup projection request.</summary>
+    public sealed class RollupJsonInput
+    {
+        public string Mode { get; set; } = "dishes";
+        public List<DishJsonItem>? Dishes { get; set; }
+    }
+
+    // IslandHydrationVm and IslandMemberVm are defined in MealPlanHydration.cs (plantry-eoj5 Phase A).
 }

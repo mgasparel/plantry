@@ -1,0 +1,20 @@
+{
+  "// purpose": "Editor-native type-checking for the buildless islands (ADR-020 §6). No install, no build — VS Code's bundled TypeScript reads this. `paths` maps the bare ESM specifiers to the curated ambient declarations so JSDoc + // @ts-check resolve fully against vendored runtime that ships no usable .d.ts.",
+  "compilerOptions": {
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "module": "esnext",
+    "target": "es2022",
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "preact": ["./vendor/vendor.d.ts"],
+      "@preact/signals": ["./vendor/vendor.d.ts"],
+      "@preact/signals-core": ["./vendor/vendor.d.ts"],
+      "htm": ["./vendor/vendor.d.ts"]
+    }
+  },
+  "include": ["runtime.js", "helpers.js", "take-stock.js", "intake-review.js", "meal-planner.js", "vendor/vendor.d.ts"]
+}
