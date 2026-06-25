@@ -45,7 +45,6 @@ function sig(v) {
 function lineSeed(overrides = {}) {
   return {
     lineId: "line-1",
-    lineNo: 1,
     receiptText: "Whole Milk 2L",
     confidence: "High",
     status: "Pending",
@@ -77,7 +76,6 @@ function prefill(overrides = {}) {
     quantity: 1,
     unitId: "unit-L",
     locationId: "loc-fridge",
-    locationName: "Fridge",
     price: 3.99,
     expiry: null,
     skuId: null,

@@ -86,7 +86,6 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
         var root = doc.RootElement;
 
         // Session header
-        Assert.True(root.TryGetProperty("sessionId", out _), "Hydration must include sessionId.");
         Assert.True(root.TryGetProperty("merchantText", out _), "Hydration must include merchantText.");
         Assert.True(root.TryGetProperty("today", out _), "Hydration must include today.");
 

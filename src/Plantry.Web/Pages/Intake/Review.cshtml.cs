@@ -348,7 +348,6 @@ public sealed class ReviewModel(
         }).ToList();
 
         var hydration = new SessionHydration(
-            SessionId: Session.SessionId.ToString(),
             MerchantText: string.IsNullOrWhiteSpace(Session.MerchantText) ? "Receipt" : Session.MerchantText,
             SessionDate: Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture),
             Today: today.ToString("yyyy-MM-dd"),

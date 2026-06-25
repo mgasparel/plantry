@@ -27,7 +27,6 @@
  * @property {number|null} quantity
  * @property {string|null} unitId
  * @property {string|null} locationId
- * @property {string|null} locationName
  * @property {number|null} price
  * @property {string|null} expiry  ISO date string yyyy-MM-dd or null
  * @property {string|null} skuId
@@ -36,7 +35,6 @@
 /**
  * @typedef {Object} LineSeed
  * @property {string} lineId
- * @property {number} lineNo
  * @property {string} receiptText
  * @property {string} confidence   "High" | "Low" | "None"
  * @property {string} status       "Pending" | "Confirmed" | "Dismissed" | "Committed"

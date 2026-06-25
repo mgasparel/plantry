@@ -109,7 +109,6 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
 
 /**
  * @typedef {Object} SessionHydration
- * @property {string} sessionId
  * @property {string} merchantText
  * @property {string} sessionDate
  * @property {string} today        ISO date string yyyy-MM-dd
@@ -317,13 +316,12 @@ function ProductSearch({ ls, products, listboxId }) {
  *   token: string,
  *   saveLineUrl: string,
  *   dismissLineUrl: string,
- *   sessionId: string,
  *   today: string,
  *   onSaved: (ls: LineState, data: object) => void,
  *   onDismissed: (ls: LineState) => void,
  * }} props
  */
-function ReviewDrawer({ ls, products, units, locations, categories, token, saveLineUrl, dismissLineUrl, sessionId, today, onSaved, onDismissed }) {
+function ReviewDrawer({ ls, products, units, locations, categories, token, saveLineUrl, dismissLineUrl, today, onSaved, onDismissed }) {
   const listboxId = `edit-product-${ls.lineId}-listbox`;
 
   const locationDisplay = computed(() => {
@@ -595,7 +593,6 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
  *   saveLineUrl: string,
  *   dismissLineUrl: string,
  *   restoreLineUrl: string,
- *   sessionId: string,
  *   today: string,
  *   filter: import("@preact/signals").Signal<string>,
  *   onSaved: (ls: LineState, data: object) => void,
@@ -603,7 +600,7 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
  *   onRestored: (ls: LineState) => void,
  * }} props
  */
-function ReviewRow({ ls, products, units, locations, categories, token, saveLineUrl, dismissLineUrl, restoreLineUrl, sessionId, today, filter, onSaved, onDismissed, onRestored }) {
+function ReviewRow({ ls, products, units, locations, categories, token, saveLineUrl, dismissLineUrl, restoreLineUrl, today, filter, onSaved, onDismissed, onRestored }) {
   const section = computed(() => lineSection(ls));
   const visible = computed(() => {
     const f = filter.value;
@@ -815,7 +812,6 @@ function ReviewRow({ ls, products, units, locations, categories, token, saveLine
               token=${token}
               saveLineUrl=${saveLineUrl}
               dismissLineUrl=${dismissLineUrl}
-              sessionId=${sessionId}
               today=${today}
               onSaved=${onSaved}
               onDismissed=${onDismissed} />
@@ -983,7 +979,7 @@ function App({ lines, products, units, locations, categories, token, session, fi
                   products=${products} units=${units} locations=${locations} categories=${categories}
                   token=${token} saveLineUrl=${session.saveLineUrl}
                   dismissLineUrl=${session.dismissLineUrl} restoreLineUrl=${session.restoreLineUrl}
-                  sessionId=${session.sessionId} today=${session.today}
+                  today=${session.today}
                   filter=${filter}
                   onSaved=${onSaved} onDismissed=${onDismissed} onRestored=${onRestored} />
               `)}
@@ -998,7 +994,7 @@ function App({ lines, products, units, locations, categories, token, session, fi
                   products=${products} units=${units} locations=${locations} categories=${categories}
                   token=${token} saveLineUrl=${session.saveLineUrl}
                   dismissLineUrl=${session.dismissLineUrl} restoreLineUrl=${session.restoreLineUrl}
-                  sessionId=${session.sessionId} today=${session.today}
+                  today=${session.today}
                   filter=${filter}
                   onSaved=${onSaved} onDismissed=${onDismissed} onRestored=${onRestored} />
               `)}
@@ -1013,7 +1009,7 @@ function App({ lines, products, units, locations, categories, token, session, fi
                   products=${products} units=${units} locations=${locations} categories=${categories}
                   token=${token} saveLineUrl=${session.saveLineUrl}
                   dismissLineUrl=${session.dismissLineUrl} restoreLineUrl=${session.restoreLineUrl}
-                  sessionId=${session.sessionId} today=${session.today}
+                  today=${session.today}
                   filter=${filter}
                   onSaved=${onSaved} onDismissed=${onDismissed} onRestored=${onRestored} />
               `)}

@@ -18,7 +18,6 @@ namespace Plantry.Web.Pages.Intake;
 /// <summary>Top-level hydration blob emitted into the Review page's
 /// <c>&lt;script type="application/json" id="review-island-data"&gt;</c> tag.</summary>
 public sealed record SessionHydration(
-    string SessionId,
     string MerchantText,
     string SessionDate,
     string Today,

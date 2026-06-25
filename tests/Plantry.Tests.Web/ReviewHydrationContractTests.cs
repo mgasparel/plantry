@@ -25,7 +25,6 @@ public sealed class ReviewHydrationContractTests
     /// <summary>A fully-populated payload — every nested shape present (a product with a sku, a line
     /// with a prefill and an alternative) so the key assertions cover the whole contract surface.</summary>
     private static SessionHydration Sample() => new(
-        SessionId: "s1",
         MerchantText: "Receipt",
         SessionDate: "Mon Jun 15, 2026",
         Today: "2026-06-15",
@@ -62,7 +61,7 @@ public sealed class ReviewHydrationContractTests
     public void Root_has_exact_island_key_set()
     {
         HydrationContract.AssertKeys(Serialize(Sample()),
-            "sessionId", "merchantText", "sessionDate", "today",
+            "merchantText", "sessionDate", "today",
             "commitUrl", "discardUrl", "saveLineUrl", "dismissLineUrl", "restoreLineUrl",
             "products", "units", "locations", "categories", "lines");
     }
