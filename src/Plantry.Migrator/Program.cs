@@ -70,12 +70,27 @@ try
     await MigrateAsync<MealPlanningDbContext>(
         ownerConnStr, "Plantry.MealPlanning.Infrastructure");
 
+    // Open one owner connection for the remaining DDL steps.
+    await using var conn = new NpgsqlConnection(ownerConnStr);
+    await conn.OpenAsync();
+
+    // Enable pg_stat_statements so the extension view is queryable immediately after
+    // a fresh stack up — no manual psql step required by the operator.
+    // shared_preload_libraries=pg_stat_statements is set in the postgres container
+    // command in both compose stacks; this idempotent CREATE EXTENSION wires up
+    // the schema-level view so app_user (and the owner) can query it.
+    // See docs/Operations/query-performance.md for the investigation workflow.
+    Console.WriteLine("Enabling pg_stat_statements extension…");
+    await using (var extCmd = conn.CreateCommand())
+    {
+        extCmd.CommandText = "CREATE EXTENSION IF NOT EXISTS pg_stat_statements";
+        await extCmd.ExecuteNonQueryAsync();
+    }
+
     // Reconcile app_user password. The initial Identity migration creates the role with a
     // hardcoded literal ('app_user_password'). If the operator configures a different
     // Database:AppUserPassword the role must be updated here so the web runtime can connect.
     Console.WriteLine("Reconciling app_user password…");
-    await using var conn = new NpgsqlConnection(ownerConnStr);
-    await conn.OpenAsync();
     await using var cmd = conn.CreateCommand();
     // Use format string — parameterized DDL is not supported by Postgres.
     // The password value comes from trusted operator config, not user input.

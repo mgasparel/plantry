@@ -37,6 +37,23 @@ services:
       POSTGRES_DB: plantrydb
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Enable pg_stat_statements for query-performance visibility and log slow queries.
+    # -c shared_preload_libraries loads pg_stat_statements at startup (requires a postgres
+    # restart to change; a fresh volume picks it up automatically on first init).
+    # -c log_min_duration_statement emits a LOG line for any query that exceeds the
+    # threshold (in ms); default 1000 ms. Set to 0 to log all queries (high-volume —
+    # use only briefly for investigations; restore the default afterwards).
+    # The migrator runs CREATE EXTENSION IF NOT EXISTS pg_stat_statements automatically,
+    # so the extension view is queryable as soon as the stack is up — no manual step needed.
+    # See docs/Operations/query-performance.md for the full investigation workflow.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "pg_stat_statements.track=all"
+      - "-c"
+      - "log_min_duration_statement=${PGCONFIG_LOG_MIN_DURATION_STATEMENT:-1000}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
