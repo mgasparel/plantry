@@ -55,6 +55,10 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
+                    // Domain operation metrics: plantry.intake.sessions_committed,
+                    // plantry.inventory.stock_consumed, plantry.inventory.low_stock_events,
+                    // plantry.recipes.cooked. Emitted via DomainTelemetry counters.
+                    .AddMeter("Plantry.Domain")
                     // AI pipeline metrics: ai.parse.confidence histogram (receipt parse confidence
                     // scores per line — high=1.0, low=0.5, none=0.0). Emitted by GeminiReceiptParser
                     // via AiTelemetry.ParseConfidence.

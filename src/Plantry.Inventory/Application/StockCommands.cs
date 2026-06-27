@@ -193,6 +193,15 @@ public sealed class ConsumeStockCommand(
 
             await stocks.SaveChangesAsync(innerCt);
 
+            DomainTelemetry.StockConsumed.Add(1);
+
+            // Emit a low-stock event when the consume drops on-hand to or below the threshold.
+            // Uses the raw sum of active-lot quantities (accurate for single-unit products, the
+            // common case; mixed-unit stocks are approximate — see DomainTelemetry.LowStockEvents).
+            var onHand = stock.Entries.Where(e => e.IsActive).Sum(e => e.Quantity);
+            if (stock.IsRunningLow(onHand))
+                DomainTelemetry.LowStockEvents.Add(1);
+
             logger?.LogInformation(
                 "Stock consumed for product {ProductId}. Reason: {Reason}, SourceType: {SourceType}, Amount: {Amount}.",
                 productId, reason, sourceType, amount);

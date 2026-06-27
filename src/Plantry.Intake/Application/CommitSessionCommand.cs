@@ -100,6 +100,7 @@ public sealed class CommitSessionCommand(
 
         await sessions.SaveChangesAsync(ct);
 
+        DomainTelemetry.IntakeSessionsCommitted.Add(1);
         logger.LogInformation(
             "Import session {SessionId} committed successfully.",
             sessionId.Value);

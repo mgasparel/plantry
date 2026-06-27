@@ -234,6 +234,8 @@ public sealed class CookRecipe(
 
         await eventDispatcher.DispatchAsync([cookedEvent], ct);
 
+        DomainTelemetry.RecipesCooked.Add(1);
+
         var shortedCount = lineResults.Count(l => l.ShortfallAmount == l.RequestedQuantity);
         logger.LogInformation(
             "Recipe cooked. CookEventId: {CookEventId}, RecipeId: {RecipeId}, Servings: {Servings}, Lines: {LineCount}, Shorted: {ShortedCount}.",
