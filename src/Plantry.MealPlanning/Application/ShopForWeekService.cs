@@ -54,9 +54,9 @@ public sealed class ShopForWeekService(
                     foreach (var ing in ingredients)
                     {
                         if (missing.TryGetValue(ing.ProductId, out var existing))
-                            missing[ing.ProductId] = (existing.Qty + ing.RequiredQuantity, existing.UnitId);
+                            missing[ing.ProductId] = (existing.Qty + ing.Quantity, existing.UnitId);
                         else
-                            missing[ing.ProductId] = (ing.RequiredQuantity, ing.UnitId);
+                            missing[ing.ProductId] = (ing.Quantity, ing.UnitId);
                     }
                 }
                 else if (dish.ProductId.HasValue)

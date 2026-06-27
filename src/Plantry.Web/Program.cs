@@ -50,10 +50,43 @@ builder.AddServiceDefaults();
 // SetApplicationName keeps the purpose string stable across image rebuilds so an existing
 // ring remains valid. The /keys path matches the dp_keys volume mount in docker-compose.yml
 // and docker-compose.prod.yml; for local dev the directory is created on first startup.
-builder.Services.AddDataProtection()
+//
+// ProtectKeysWithCertificate encrypts the XML key ring at rest so the keys cannot be used
+// even if the dp_keys volume is exfiltrated.  The PFX is generated once by the dp-cert-init
+// one-shot service on first start and stored in the dp_certs volume (/certs/dp.pfx).
+// DP_CERT_PASSWORD (required in production) is the decryption passphrase.
+// In non-production environments the certificate and encryption are skipped so local dev
+// and the test host work without any extra setup.
+var dpBuilder = builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(
         builder.Configuration["DataProtection:KeyPath"] ?? "/keys"))
     .SetApplicationName("Plantry");
+
+var certPath = builder.Configuration["DataProtection:CertPath"] ?? "/certs/dp.pfx";
+var certPassword = builder.Configuration["DataProtection:CertPassword"]
+    ?? builder.Configuration["DP_CERT_PASSWORD"];
+
+// In Production, fail loudly if the cert or password is absent — a silent skip would boot
+// with an unencrypted key ring and suppress neither the XmlKeyManager[35] warning nor the
+// actual security gap.  Non-Production (local dev / test host) skips encryption gracefully
+// so neither requires any extra setup.  Mirrors the Database:AppUserPassword guard above.
+if (builder.Environment.IsProduction()
+    && (string.IsNullOrWhiteSpace(certPassword) || !File.Exists(certPath)))
+{
+    throw new InvalidOperationException(
+        $"DataProtection certificate is required in Production but was not available " +
+        $"(certPath='{certPath}' exists={File.Exists(certPath)}, " +
+        $"password set={!string.IsNullOrWhiteSpace(certPassword)}). " +
+        "Set DP_CERT_PASSWORD and ensure dp-cert-init has run.");
+}
+
+if (!string.IsNullOrWhiteSpace(certPassword) && File.Exists(certPath))
+{
+    var dpCert = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12FromFile(
+        certPath, certPassword,
+        System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.EphemeralKeySet);
+    dpBuilder.ProtectKeysWithCertificate(dpCert);
+}
 
 // Session support — required for IPendingProposalStore store keys (P3-6a).
 // Uses in-process distributed memory cache (single-server; no Redis needed for Phase 3).

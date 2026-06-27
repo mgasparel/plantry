@@ -74,6 +74,58 @@ public sealed class AddStockCommand(
 }
 
 /// <summary>
+/// Sets or clears the per-household, per-product low stock threshold and persists the change.
+/// Mirrors the load-or-start pattern from <see cref="AddStockCommand"/>: a household can set a
+/// threshold before any lot exists, so a missing root is started fresh and saved via
+/// <see cref="IProductStockRepository.TryAddAndSaveAsync"/>; if the insert races, reload and apply again.
+/// </summary>
+public sealed class SetLowStockThresholdCommand(
+    Guid productId,
+    decimal? threshold,
+    IProductStockRepository stocks,
+    ICatalogReadFacade catalog,
+    IClock clock,
+    ITenantContext tenant)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var product = await catalog.FindProductAsync(productId, ct);
+        if (product is null)
+            return Error.Custom("Inventory.UnknownProduct", "The selected product does not exist.");
+        if (!product.CanHoldStock)
+            return Error.Custom("Inventory.ProductCannotHoldStock", "A parent product cannot hold stock directly; choose a variant.");
+
+        var household = HouseholdId.From(householdId);
+        var stock = await stocks.FindAsync(household, productId, ct);
+        var isNew = stock is null;
+        stock ??= ProductStock.Start(household, productId, clock);
+
+        stock.SetLowStockThreshold(threshold, clock);
+
+        if (isNew)
+        {
+            if (!await stocks.TryAddAndSaveAsync(stock, ct))
+            {
+                // Concurrent first-intake race: another request won the root insert.
+                // Reload and re-apply the threshold to the existing root.
+                stock = (await stocks.FindAsync(household, productId, ct))!;
+                stock.SetLowStockThreshold(threshold, clock);
+                await stocks.SaveChangesAsync(ct);
+            }
+        }
+        else
+        {
+            await stocks.SaveChangesAsync(ct);
+        }
+
+        return Result.Success();
+    }
+}
+
+/// <summary>
 /// The single consumption entry point for the UI (SPEC §1c/§1d) — used (<c>Consumed</c>), wasted
 /// (<c>Discarded</c>), or manually corrected (<c>Correction</c>). Resolves the product's converter
 /// through the <see cref="IProductConversionProvider"/> port, loads the root under a row lock, and

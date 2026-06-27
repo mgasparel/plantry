@@ -143,27 +143,13 @@ public sealed class RecipeReadModelAdapter(
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
-        var scale = (decimal)servings / recipe.DefaultServings;
 
-        var missing = new List<RecipeMissingIngredient>();
-        foreach (var line in fulfillment.Lines)
-        {
-            if (line.Status is not (IngredientStatus.Missing or IngredientStatus.Low))
-                continue;
+        // Delegate to the shared shortfall calculator (Missing + Low, shortfall = scaledRequired − available)
+        // so this path and AddMissingToShoppingList (J5) cannot diverge.
+        var shortfallLines = RecipeShortfallCalculator.Compute(recipe, fulfillment, servings);
 
-            // Find the corresponding ingredient to get product/unit/quantity.
-            var ingredient = recipe.Ingredients.FirstOrDefault(i => i.Id == line.IngredientId);
-            if (ingredient?.Quantity is null || ingredient.UnitId is null)
-                continue; // untracked staple or malformed — skip
-
-            // Compute the required quantity at planned servings, minus what's already available.
-            var required = ingredient.Quantity.Value * scale;
-            var available = line.AvailableQuantity ?? 0m;
-            var needed = Math.Max(0m, required - available);
-            if (needed > 0m)
-                missing.Add(new RecipeMissingIngredient(ingredient.ProductId, needed, ingredient.UnitId.Value));
-        }
-
-        return missing;
+        return shortfallLines
+            .Select(s => new RecipeMissingIngredient(s.ProductId, s.ShortfallQuantity, s.UnitId))
+            .ToList();
     }
 }

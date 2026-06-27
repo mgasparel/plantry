@@ -30,6 +30,9 @@ public sealed class DetailModel(
     [BindProperty]
     public ConsumeInputModel Input { get; set; } = new();
 
+    [BindProperty]
+    public ThresholdInputModel ThresholdInput { get; set; } = new();
+
     public sealed class ConsumeInputModel
     {
         [Required(ErrorMessage = "Enter an amount.")]
@@ -43,6 +46,12 @@ public sealed class DetailModel(
         public StockReason Reason { get; set; } = StockReason.Consumed;
 
         public Guid? TargetEntryId { get; set; }
+    }
+
+    public sealed class ThresholdInputModel
+    {
+        [Range(0, double.MaxValue, ErrorMessage = "Threshold must be zero or greater.")]
+        public decimal? Threshold { get; set; }
     }
 
     public async Task<IActionResult> OnGetAsync(Guid id)
@@ -105,6 +114,43 @@ public sealed class DetailModel(
         if (Detail is null) return NotFound();
         var notice = result.IsFailure ? result.Error.Description : null;
         return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice));
+    }
+
+    public async Task<IActionResult> OnGetThresholdSheetAsync(Guid id)
+    {
+        ProductId = id;
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+
+        ThresholdInput = new ThresholdInputModel { Threshold = Detail.LowStockThreshold };
+        return Partial("_SetThresholdSheet", this);
+    }
+
+    public async Task<IActionResult> OnPostSetThresholdAsync(Guid id)
+    {
+        ProductId = id;
+
+        if (!ModelState.IsValid)
+        {
+            Detail = await queries.FindDetailAsync(id);
+            if (Detail is null) return NotFound();
+            return Partial("_SetThresholdSheet", this);
+        }
+
+        var result = await new SetLowStockThresholdCommand(
+            id, ThresholdInput.Threshold, stocks, catalog, clock, tenant).ExecuteAsync();
+
+        if (result.IsFailure)
+        {
+            ModelState.AddModelError(string.Empty, result.Error.Description);
+            Detail = await queries.FindDetailAsync(id);
+            if (Detail is null) return NotFound();
+            return Partial("_SetThresholdSheet", this);
+        }
+
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null));
     }
 
     private Task<Plantry.SharedKernel.Result<ConsumeOutcome>> Run(

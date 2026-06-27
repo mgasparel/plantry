@@ -35,12 +35,15 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     public bool IsRunningLow(decimal onHand) =>
         LowStockThreshold is { } t && t > 0m && onHand <= t;
 
-    /// <summary>Sets or clears the low stock threshold for this product in this household.</summary>
-    public void SetLowStockThreshold(decimal? threshold)
+    /// <summary>Sets or clears the low stock threshold for this product in this household, and bumps
+    /// <see cref="UpdatedAt"/> to the clock's current instant — matching the house style of
+    /// <see cref="AddStock"/> and <see cref="Consume"/>.</summary>
+    public void SetLowStockThreshold(decimal? threshold, IClock clock)
     {
         if (threshold < 0m)
             throw new ArgumentOutOfRangeException(nameof(threshold), "Low stock threshold must be non-negative.");
         LowStockThreshold = threshold;
+        UpdatedAt = clock.UtcNow;
     }
 
     private readonly List<StockEntry> _entries = [];
