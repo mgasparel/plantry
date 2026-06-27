@@ -49,6 +49,73 @@ stale.
 - `ROLLUP_MAX_CHILDREN = 8` — at this many children a rollup auto-seals and a fresh one opens.
 - `MAX_CI_FIX_ATTEMPTS = 3` — ci-fix-worker dispatches per epic PR before parking.
 
+---
+
+## Epic authoring rules
+
+These rules govern how children in a curated epic must be structured. Violating them
+causes the loop to deadlock silently and the epic to never drain.
+
+### No `blocks` dependencies between batch siblings
+
+**Rule: children in a batched epic MUST NOT carry `blocks` (or `depends-on`) deps on
+their siblings.**
+
+Why: the batch model keeps children `OPEN` with only a `staged` label until the entire
+epic flushes. `bd ready` treats a dependency as satisfied only when the blocking issue
+is **closed** — a `staged` label does not satisfy it. The result is a permanent deadlock:
+
+1. Only dependency-free children are ever `ready`.
+2. The loop implements + stages one; it stays `OPEN` (batch semantics).
+3. Its dependents are still blocked — `bd ready` never surfaces them.
+4. The epic can never reach 100% staged → never flushes → children never close → deadlock.
+
+**Use priority to express ordering instead.** The epic branch already provides
+code-availability ordering: each child branches off `epic/<id>` and sees every prior
+sibling's commit. If child B logically follows child A, assign A a higher priority (lower
+number) so the loop picks it first. No `blocks` dep is needed.
+
+```bash
+# Express "B depends on A" by giving A higher priority:
+bd update <child-A-id> --priority 1   # implement first
+bd update <child-B-id> --priority 2   # implement after A is staged
+```
+
+### Sweep / cleanup children belong as post-epic follow-ups, not batch siblings
+
+A "sweep" child (dead-code removal, final cleanup, doc update) that runs against the
+**merged** code cannot be a batch sibling — it would need all peers closed before it is
+meaningful, recreating the same deadlock. Instead, **file it as a follow-up issue after
+the epic PR merges**, either manually or via `bd create` in the post-merge batch-close
+step. The batch-close loop is the right place to create these because at that point the
+merged code is available and the follow-up can be filed and immediately claimed:
+
+```bash
+# After confirming MERGED (Step 5-5), before closing children:
+bd create --title="<sweep task>" --description="Follow-up sweep after epic <epic-id> merged to main." \
+  --type=task --priority=<p>
+```
+
+### Detecting the deadlock during a manual run
+
+If you find the loop stuck (epic has staged children but `bd ready` shows no further
+children of that epic), check for sibling `blocks` deps:
+
+```bash
+bd show <epic-id>          # see all children and their status
+bd blocked                 # see which children are blocked and by what
+bd show <blocked-child-id> # confirm the blocker is a staged (still-open) sibling
+```
+
+If the blocker is staged, remove the dep and let priority drive ordering:
+
+```bash
+bd dep remove <blocked-child-id> <staged-sibling-id>
+bd update <blocked-child-id> --priority <appropriate-priority>
+```
+
+---
+
 ## Invocation
 
 ```
@@ -377,3 +444,7 @@ Log `PARKED: epic <epic-id> — ci-failed (exhausted)`; return to Step 1.
   Worktrees and branches are preserved on any park.
 - **The worst failure mode is idle**, not a broken `main`. A crash mid-loop leaves staged
   children on their epic branch and any armed epic PR open — nothing is lost.
+- **`staged` does not satisfy `bd ready` block-checks.** A `staged` child is still
+  OPEN; `bd ready` only clears a dependency when the blocker is CLOSED. Never author
+  sibling `blocks` deps in a batched epic — they create a deadlock the loop cannot
+  recover from. Use priority for ordering; see the "Epic authoring rules" section above.
