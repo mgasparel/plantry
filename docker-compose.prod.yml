@@ -106,6 +106,8 @@ services:
         condition: service_completed_successfully
       dp-cert-init:
         condition: service_completed_successfully
+      lgtm:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD};GssEncMode=disable"
@@ -116,6 +118,10 @@ services:
       # the dp-cert-init one-shot service and mounted from the dp_certs volume.
       # Must match DP_CERT_PASSWORD in .env.
       DP_CERT_PASSWORD: ${DP_CERT_PASSWORD}
+      # Observability — OTLP export to the bundled lgtm sidecar.
+      # ServiceDefaults auto-enables the OTLP exporter when this is set.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
     volumes:
       # Persist the ASP.NET Core DataProtection key ring so auth cookies and
       # antiforgery tokens survive container recreation on update.  Without
@@ -161,6 +167,41 @@ services:
       - caddy_config:/config
     environment:
       DOMAIN: ${DOMAIN}
+
+  # ── LGTM (OTel Collector + Loki + Tempo + Prometheus + Grafana) ───────────
+  # All-in-one observability backend.  Receives OTLP from plantry-web and exposes
+  # a Grafana UI on port 3000 — bound to localhost only.  Access via SSH tunnel:
+  #   ssh -L 3000:127.0.0.1:3000 your-host
+  # then open http://localhost:3000.  Credentials: admin / GF_SECURITY_ADMIN_PASSWORD.
+  # Documented by Grafana as suited for single-node use; acceptable for a
+  # single-household VPS (ADR-016).  Upgrade path if outgrown: SigNoz or Uptrace.
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    restart: unless-stopped
+    environment:
+      # Grafana admin password — set GF_SECURITY_ADMIN_PASSWORD in .env.
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      # Retention — pass CLI flags through to the bundled daemons.
+      # Bare LOKI_RETENTION_PERIOD / PROMETHEUS_RETENTION_TIME are not recognised
+      # by grafana/otel-lgtm; the *_EXTRA_ARGS mechanism is the supported path.
+      LOKI_EXTRA_ARGS: "--limits.retention-period=${LOKI_RETENTION_PERIOD:-744h}"
+      PROMETHEUS_EXTRA_ARGS: "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}"
+      # Tempo: block-retention is not exposed as a CLI flag in the bundled version;
+      # the built-in default applies. Revisit when otel-lgtm exposes a TEMPO_EXTRA_ARGS knob.
+    ports:
+      # Bound to localhost only — not exposed to the internet.  Access via SSH tunnel.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - lgtm_data:/data
+    healthcheck:
+      # curl-minimal is present in the grafana/otel-lgtm image (wget is not).
+      # -sf: -s silent, -f fail on HTTP error → exit 1 on non-2xx.
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   # ── Backup (scheduled pg_dump) ────────────────────────────────────────────
   # Runs pg_dump on a cron schedule inside a sidecar container that shares the
@@ -239,3 +280,4 @@ volumes:
   caddy_config:
   dp_keys:
   dp_certs:
+  lgtm_data:

@@ -233,9 +233,10 @@ jobs:
       - name: Bundle self-host assets
         run: |
           mkdir -p /tmp/plantry-selfhost
-          cp deploy/docker-compose.yml       /tmp/plantry-selfhost/docker-compose.yml
-          cp deploy/docker-compose.caddy.yml /tmp/plantry-selfhost/docker-compose.caddy.yml
-          cp deploy/.env.example             /tmp/plantry-selfhost/.env.example
+          cp deploy/docker-compose.yml              /tmp/plantry-selfhost/docker-compose.yml
+          cp deploy/docker-compose.caddy.yml        /tmp/plantry-selfhost/docker-compose.caddy.yml
+          cp deploy/docker-compose.observability.yml /tmp/plantry-selfhost/docker-compose.observability.yml
+          cp deploy/.env.example                    /tmp/plantry-selfhost/.env.example
           cd /tmp
           zip -r "plantry-selfhost-${{ steps.version.outputs.version }}.zip" plantry-selfhost/
           echo "ASSET_ZIP=/tmp/plantry-selfhost-${{ steps.version.outputs.version }}.zip" >> "$GITHUB_ENV"
@@ -255,6 +256,7 @@ jobs:
             ${{ env.ASSET_ZIP }}
             deploy/docker-compose.yml
             deploy/docker-compose.caddy.yml
+            deploy/docker-compose.observability.yml
             deploy/.env.example
 
   # ── Stage 3: Deploy to the production host (folded in from the retired cd.yml) ─
