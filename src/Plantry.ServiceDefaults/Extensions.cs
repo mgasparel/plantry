@@ -61,7 +61,18 @@ public static class Extensions
                 tracing.AddAspNetCoreInstrumentation()
                     // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
                     //.AddGrpcClientInstrumentation()
-                    .AddHttpClientInstrumentation();
+                    .AddHttpClientInstrumentation()
+                    // EF Core DB spans: command duration + db.statement. db.statement carries
+                    // the generated SQL with parameter placeholders only ($1, @p0) — EF does not
+                    // inline literal parameter values unless EnableSensitiveDataLogging is set
+                    // (it is not). Raw parameter values would additionally require the experimental
+                    // env var OTEL_DOTNET_EXPERIMENTAL_EFCORE_ENABLE_TRACE_DB_QUERY_PARAMETERS,
+                    // which is left unset, satisfying the no-PII-in-spans guardrail (Gate 9).
+                    .AddEntityFrameworkCoreInstrumentation()
+                    // Npgsql emits spans via its own ActivitySource ("Npgsql") since v5.
+                    // Registering the source here causes those spans to appear nested under
+                    // the EF Core command span, giving the full wire-level waterfall.
+                    .AddSource("Npgsql");
             });
 
         builder.AddOpenTelemetryExporters();
