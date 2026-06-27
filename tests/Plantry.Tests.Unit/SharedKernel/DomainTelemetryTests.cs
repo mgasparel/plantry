@@ -19,7 +19,13 @@ namespace Plantry.Tests.Unit.SharedKernel;
 /// record counter deltas, then exercises each instrumented command to verify the expected
 /// counter increments. Mirrors the pattern from <c>AiTelemetryTests</c>.
 /// </para>
+/// <para>
+/// Serialised (non-parallel) within the collection: the global <c>MeterListener</c> captures
+/// all meter events process-wide, so concurrently running tests that also exercise the same
+/// counters would produce spurious increments and flaky assertions.
+/// </para>
 /// </summary>
+[Collection("DomainMeterListenerTests")]
 public sealed class DomainTelemetryTests
 {
     // ── Meter / counter name contracts ──────────────────────────────────────────────────────────

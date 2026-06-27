@@ -12,6 +12,13 @@ namespace Plantry.Tests.Unit.Recipes.Application;
 /// Uses fakes for IInventoryConsumer, ICatalogProductReader, ICookEventRepository, and IDomainEventDispatcher.
 /// Does NOT re-test FEFO/lot-selection logic — that is covered by the Inventory Consume tests.
 /// </summary>
+/// <remarks>
+/// Serialised in "DomainMeterListenerTests": executing CookRecipe increments the global
+/// plantry.recipes.cooked meter counter. DomainTelemetryTests subscribes a process-wide
+/// MeterListener and asserts exact delta counts — running in parallel with this class would
+/// cause a spurious +1 on that delta and a flaky assertion.
+/// </remarks>
+[Collection("DomainMeterListenerTests")]
 public sealed class CookRecipeTests
 {
     private static readonly IClock Clock = SystemClock.Instance;

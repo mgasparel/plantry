@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -130,6 +131,26 @@ public static class Extensions
         app.MapHealthChecks("/alive", new HealthCheckOptions
         {
             Predicate = r => r.Tags.Contains("live")
+        });
+
+        // /ready probes DB connectivity via the "ready"-tagged check. Exposed unconditionally
+        // (safe to expose in production) because the response writer emits ONLY "Healthy"/"Unhealthy"
+        // text with the matching HTTP status code — no check names, durations, or exception detail.
+        // Use for external uptime monitoring and post-deploy smoke checks. Container healthchecks
+        // stay on /alive (liveness) so a DB blip does NOT mark the container unhealthy or trigger
+        // restart loops for DB-independent pages.
+        app.MapHealthChecks("/ready", new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("ready"),
+            ResponseWriter = static async (context, report) =>
+            {
+                // Emit only "Healthy"/"Unhealthy" — no check names, durations, or exception detail.
+                // This is what makes public production exposure safe (unlike /health, which leaks all
+                // check detail and stays dev-only).
+                context.Response.ContentType = "text/plain; charset=utf-8";
+                await context.Response.WriteAsync(
+                    report.Status == HealthStatus.Healthy ? "Healthy" : "Unhealthy");
+            }
         });
 
         if (app.Environment.IsDevelopment())

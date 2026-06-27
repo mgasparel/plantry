@@ -78,8 +78,9 @@ docker compose -f docker-compose.prod.yml run --rm migrator
 # 4. roll the web service to the new image
 docker compose -f docker-compose.prod.yml up -d plantry-web
 
-# 5. smoke check
+# 5. smoke checks — /alive (liveness) then /ready (DB connectivity)
 curl -fsS https://<host>/alive
+curl -fsS https://<host>/ready
 ```
 
 If step 3 exits non-zero, **stop** — the schema is unchanged and the old web
@@ -87,12 +88,27 @@ container is still serving. Investigate before proceeding.
 
 ## Health checks
 
-`MapDefaultEndpoints` only maps `/health` and `/alive` in **Development**
-(`ServiceDefaults/Extensions.cs`). For production probing, map `/alive`
-unconditionally (it is just the liveness self-check) and keep the fuller
-`/health` gated or bound to an internal interface. The Compose healthcheck and
-the post-deploy smoke step both target `/alive`. **This change is a prerequisite —
-see the rollout plan.**
+Three endpoints are mapped by `MapDefaultEndpoints` (`ServiceDefaults/Extensions.cs`):
+
+| Endpoint | Tags | Environment | Purpose | Body |
+|---|---|---|---|---|
+| `/alive` | `live` | All (unconditional) | Liveness — self-check, always passes | `Healthy` |
+| `/ready` | `ready` | All (unconditional) | Readiness — DB connectivity probe (`CanConnectAsync`) | `Healthy` or `Unhealthy` |
+| `/health` | all | Development only | Full diagnostic detail with check names and durations | JSON |
+
+**Container healthchecks target `/alive` (liveness), not `/ready` (readiness).** A transient DB
+blip must not mark the web container unhealthy, trigger restart loops, or take Caddy down for
+DB-independent pages (e.g. the landing and login pages). Readiness is informational.
+
+**`/ready` is safe for public exposure** because the response writer emits only `Healthy` or
+`Unhealthy` text — no check names, durations, or DB exception detail. Use it for:
+- Post-deploy smoke checks (fails loudly if the new container cannot reach the DB).
+- External uptime monitoring to alert on DB outages.
+- The OTLP observability backend (ess9.6).
+
+The post-deploy smoke step in `release.yml` checks both `/alive` (liveness) and `/ready` (DB
+connectivity) so a deploy where the new container cannot reach the database fails loudly before
+Caddy begins serving real traffic.
 
 ## Rollback
 

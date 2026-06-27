@@ -334,3 +334,30 @@ jobs:
 
           echo "ERROR: smoke check failed after 5 attempts — $URL did not return 2xx"
           exit 1
+
+      # /ready validates DB connectivity from the new container — a deploy where the container
+      # cannot reach the DB fails loudly here rather than silently serving 503s.
+      # Informational probe: /ready returns "Healthy"/"Unhealthy" text (no per-check detail).
+      - name: Smoke check /ready
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          HOST="${{ secrets.DEPLOY_DOMAIN }}"
+          URL="https://${HOST}/ready"
+
+          echo "==> Smoke-checking DB readiness at $URL (version $VERSION)"
+
+          for attempt in 1 2 3 4 5; do
+            echo "  Attempt $attempt/5..."
+            if curl --fail --silent --show-error --max-time 10 "$URL"; then
+              echo ""
+              echo "==> Readiness check passed"
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              echo "  Not ready yet, waiting 10s..."
+              sleep 10
+            fi
+          done
+
+          echo "ERROR: readiness check failed after 5 attempts — $URL did not return 2xx (DB unreachable)"
+          exit 1
