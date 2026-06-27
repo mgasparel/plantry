@@ -54,7 +54,11 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    // AI pipeline metrics: ai.parse.confidence histogram (receipt parse confidence
+                    // scores per line — high=1.0, low=0.5, none=0.0). Emitted by GeminiReceiptParser
+                    // via AiTelemetry.ParseConfidence.
+                    .AddMeter("Plantry.AI");
             })
             .WithTracing(tracing =>
             {
@@ -72,7 +76,12 @@ public static class Extensions
                     // Npgsql emits spans via its own ActivitySource ("Npgsql") since v5.
                     // Registering the source here causes those spans to appear nested under
                     // the EF Core command span, giving the full wire-level waterfall.
-                    .AddSource("Npgsql");
+                    .AddSource("Npgsql")
+                    // AI pipeline spans: receipt_parse (GeminiReceiptParser) and
+                    // meal_plan_propose (MealPlannerAiService). Both carry ai.model and
+                    // ai.usage.input_tokens / ai.usage.output_tokens attributes.
+                    // Error-status spans + LogError fire on failure, timeout, or empty response.
+                    .AddSource("Plantry.AI");
             });
 
         builder.AddOpenTelemetryExporters();
