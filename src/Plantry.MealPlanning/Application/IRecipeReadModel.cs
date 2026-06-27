@@ -92,6 +92,9 @@ public sealed record RecipeDishEnrichment(
 /// Untracked staples are never included (C12 — always satisfied).
 /// </summary>
 /// <param name="ProductId">Soft ref → catalog.product (DM-3).</param>
-/// <param name="RequiredQuantity">Scaled required quantity at the requested servings.</param>
+/// <param name="Quantity">
+/// Shortfall quantity — max(0, scaledRequired − available) — what the household still needs to buy.
+/// For Missing lines (zero available) this equals the full scaled required quantity.
+/// </param>
 /// <param name="UnitId">Soft ref → catalog.unit (DM-3).</param>
-public sealed record RecipeMissingIngredient(Guid ProductId, decimal RequiredQuantity, Guid UnitId);
+public sealed record RecipeMissingIngredient(Guid ProductId, decimal Quantity, Guid UnitId);

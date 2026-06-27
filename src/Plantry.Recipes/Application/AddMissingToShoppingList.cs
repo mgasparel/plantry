@@ -15,17 +15,17 @@ namespace Plantry.Recipes.Application;
 ///   <item>Loads the recipe aggregate.</item>
 ///   <item>Computes a FRESH <see cref="FulfillmentResult"/> at the desired serving count via
 ///     <see cref="FulfillmentService"/> (never reuses a cached result).</item>
-///   <item>Takes only the <see cref="IngredientStatus.Missing"/> lines.</item>
-///   <item>Excludes untracked staples (status <see cref="IngredientStatus.Untracked"/>  —
-///     they are always satisfied by definition, C12 / recipes-journeys.md J5 edge case).</item>
-///   <item>Scales each ingredient's required quantity by
-///     <c>desiredServings / recipe.DefaultServings</c>.</item>
+///   <item>Takes Missing AND Low lines (not InStock or Untracked — C12 / recipes-journeys.md J5).</item>
+///   <item>Emits the per-line shortfall (scaled required minus available) — what the household
+///     still needs to buy. For Missing lines available is 0, so shortfall equals the full scaled
+///     quantity. Uses <see cref="RecipeShortfallCalculator"/> so the logic is shared with the
+///     ShopForWeek path (J6) and cannot drift.</item>
 ///   <item>Calls <see cref="IShoppingListWriter.AddItemsAsync"/> with those lines,
 ///     <c>source = "recipe"</c>, and <c>sourceRef = recipeId</c>.</item>
 /// </list>
 /// </para>
 /// <para>Merge/no-dup logic is Shopping's concern (DM-18, shopping.md resolved call 5) — this
-/// service passes all missing lines without pre-filtering for existing shopping-list entries.
+/// service passes all shortfall lines without pre-filtering for existing shopping-list entries.
 /// </para>
 /// </summary>
 public sealed class AddMissingToShoppingList(
@@ -59,35 +59,13 @@ public sealed class AddMissingToShoppingList(
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var fulfillment = await fulfillmentService.ComputeAsync(recipe, desiredServings, today, ct);
 
-        var scale = (decimal)desiredServings / recipe.DefaultServings;
+        // Compute shortfall lines (Missing + Low, shortfall = scaledRequired − available)
+        // via the shared calculator so J5 and J6 cannot diverge.
+        var shortfallLines = RecipeShortfallCalculator.Compute(recipe, fulfillment, desiredServings);
 
-        // Index ingredient lines by IngredientId so we can look up Quantity and UnitId.
-        var ingredientIndex = recipe.Ingredients
-            .ToDictionary(i => i.Id);
-
-        var itemsToAdd = new List<ShoppingItem>();
-
-        foreach (var line in fulfillment.Lines)
-        {
-            // Only Missing lines (excludes InStock, Low, and Untracked — C12 / J5 edge case).
-            if (line.Status != IngredientStatus.Missing)
-                continue;
-
-            if (!ingredientIndex.TryGetValue(line.IngredientId, out var ingredient))
-                continue; // defensive: should not happen if FulfillmentService and Recipe are consistent
-
-            // Untracked staples have null Quantity/UnitId (R5) — skip (C12).
-            // FulfillmentService classifies them as Untracked, not Missing, but guard here for safety.
-            if (ingredient.Quantity is null || ingredient.UnitId is null)
-                continue;
-
-            var scaledQuantity = ingredient.Quantity.Value * scale;
-
-            itemsToAdd.Add(new ShoppingItem(
-                ProductId: ingredient.ProductId,
-                Quantity: scaledQuantity,
-                UnitId: ingredient.UnitId.Value));
-        }
+        var itemsToAdd = shortfallLines
+            .Select(s => new ShoppingItem(ProductId: s.ProductId, Quantity: s.ShortfallQuantity, UnitId: s.UnitId))
+            .ToList();
 
         if (itemsToAdd.Count == 0)
             return new AddMissingResult.NothingMissing();
@@ -109,7 +87,7 @@ public abstract record AddMissingResult
     /// <param name="ItemCount">Number of missing-ingredient lines dispatched to Shopping.</param>
     public sealed record Added(int ItemCount) : AddMissingResult;
 
-    /// <summary>All tracked ingredients are in stock or low; nothing was Missing.</summary>
+    /// <summary>No tracked ingredient has a positive shortfall (all are InStock, or Low with sufficient stock to cover the need, or Untracked).</summary>
     public sealed record NothingMissing : AddMissingResult;
 
     /// <summary>The recipe does not exist in this household.</summary>

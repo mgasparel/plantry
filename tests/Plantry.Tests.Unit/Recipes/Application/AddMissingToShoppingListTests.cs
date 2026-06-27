@@ -14,7 +14,8 @@ namespace Plantry.Tests.Unit.Recipes.Application;
 ///
 /// Covers:
 /// <list type="bullet">
-///   <item>Only Missing lines (not InStock, not Low, not Untracked) are forwarded.</item>
+///   <item>Missing AND Low lines are forwarded (not InStock, not Untracked).</item>
+///   <item>Quantities emitted are the shortfall (scaledRequired − available), not the full quantity.</item>
 ///   <item>Untracked staples (null Quantity/UnitId) are excluded even when cataloged as tracked
 ///     (defensive guard — FulfillmentService classifies them as Untracked, not Missing).</item>
 ///   <item>Quantities are scaled to the displayed serving count.</item>
@@ -151,23 +152,23 @@ public sealed class AddMissingToShoppingListTests
         Assert.Empty(h.Writer.Calls);
     }
 
-    // ── Only Missing lines forwarded (not InStock, not Low, not Untracked) ───
+    // ── Missing AND Low lines forwarded; InStock and Untracked are excluded ───
 
-    [Fact(DisplayName = "Only Missing lines are forwarded; InStock and Low are excluded")]
-    public async Task Only_Missing_Lines_Are_Forwarded()
+    [Fact(DisplayName = "Missing AND Low lines are forwarded; InStock and Untracked are excluded")]
+    public async Task Missing_And_Low_Lines_Are_Forwarded()
     {
         var h = BuildHarness();
         var unitId = Guid.CreateVersion7();
 
-        // InStock product: 500g available, needs 100g
+        // InStock product: 500g available, needs 100g — not forwarded
         var inStockProduct = h.Catalog.AddTracked(unitId, "InStock Product");
         h.Stock.Add(inStockProduct.Id, 500m, unitId);
 
-        // Low product: 50g available, needs 100g (Low = 0 < available < required)
+        // Low product: 50g available, needs 100g → shortfall = 50g
         var lowProduct = h.Catalog.AddTracked(unitId, "Low Product");
         h.Stock.Add(lowProduct.Id, 50m, unitId);
 
-        // Missing product: 0 available
+        // Missing product: 0 available → shortfall = 100g (full scaled quantity)
         var missingProduct = h.Catalog.AddTracked(unitId, "Missing Product");
         // (no stock added → Missing)
 
@@ -183,13 +184,20 @@ public sealed class AddMissingToShoppingListTests
         var result = await h.Service.ExecuteAsync(recipe.Id, desiredServings: 4);
 
         var added = Assert.IsType<AddMissingResult.Added>(result);
-        Assert.Equal(1, added.ItemCount);
+        Assert.Equal(2, added.ItemCount); // Low + Missing both forwarded
 
         var call = Assert.Single(h.Writer.Calls);
-        var item = Assert.Single(call.Items);
-        Assert.Equal(missingProduct.Id, item.ProductId);
-        Assert.Equal(100m, item.Quantity); // no scaling (4/4 = 1)
-        Assert.Equal(unitId, item.UnitId);
+        Assert.Equal(2, call.Items.Count);
+
+        // Low line: shortfall = 100 - 50 = 50
+        var lowItem = call.Items.Single(i => i.ProductId == lowProduct.Id);
+        Assert.Equal(50m, lowItem.Quantity);
+        Assert.Equal(unitId, lowItem.UnitId);
+
+        // Missing line: shortfall = 100 - 0 = 100 (full required)
+        var missingItem = call.Items.Single(i => i.ProductId == missingProduct.Id);
+        Assert.Equal(100m, missingItem.Quantity);
+        Assert.Equal(unitId, missingItem.UnitId);
     }
 
     // ── Untracked staples excluded (C12) ─────────────────────────────────────
