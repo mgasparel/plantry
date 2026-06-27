@@ -15,10 +15,16 @@ public sealed class ProductStockLowStockThresholdTests
     private static readonly Guid Location = Guid.NewGuid();
     private static readonly Guid User = Guid.NewGuid();
 
-    private static ProductStock Stock()
+    private static (ProductStock Stock, MutableClock Clock) StockWithClock()
     {
         var clock = new MutableClock();
-        return ProductStock.Start(Household, Product, clock);
+        return (ProductStock.Start(Household, Product, clock), clock);
+    }
+
+    private static ProductStock Stock()
+    {
+        var (stock, _) = StockWithClock();
+        return stock;
     }
 
     // ── null / zero threshold ──────────────────────────────────────────────
@@ -36,8 +42,8 @@ public sealed class ProductStockLowStockThresholdTests
     [Fact(DisplayName = "IsRunningLow is false when threshold is explicitly set to zero")]
     public void IsRunningLow_False_When_Threshold_Is_Zero()
     {
-        var stock = Stock();
-        stock.SetLowStockThreshold(0m);
+        var (stock, clock) = StockWithClock();
+        stock.SetLowStockThreshold(0m, clock);
 
         Assert.False(stock.IsRunningLow(0m));
         Assert.False(stock.IsRunningLow(100m));
@@ -46,9 +52,9 @@ public sealed class ProductStockLowStockThresholdTests
     [Fact(DisplayName = "IsRunningLow is false when threshold is cleared (set to null)")]
     public void IsRunningLow_False_When_Threshold_Cleared()
     {
-        var stock = Stock();
-        stock.SetLowStockThreshold(5m); // set first
-        stock.SetLowStockThreshold(null);  // then clear
+        var (stock, clock) = StockWithClock();
+        stock.SetLowStockThreshold(5m, clock); // set first
+        stock.SetLowStockThreshold(null, clock);  // then clear
 
         Assert.False(stock.IsRunningLow(1m));
     }
@@ -58,8 +64,8 @@ public sealed class ProductStockLowStockThresholdTests
     [Fact(DisplayName = "IsRunningLow is true when onHand equals the threshold")]
     public void IsRunningLow_True_When_OnHand_Equals_Threshold()
     {
-        var stock = Stock();
-        stock.SetLowStockThreshold(5m);
+        var (stock, clock) = StockWithClock();
+        stock.SetLowStockThreshold(5m, clock);
 
         Assert.True(stock.IsRunningLow(5m));
     }
@@ -67,8 +73,8 @@ public sealed class ProductStockLowStockThresholdTests
     [Fact(DisplayName = "IsRunningLow is true when onHand is less than the threshold")]
     public void IsRunningLow_True_When_OnHand_Below_Threshold()
     {
-        var stock = Stock();
-        stock.SetLowStockThreshold(10m);
+        var (stock, clock) = StockWithClock();
+        stock.SetLowStockThreshold(10m, clock);
 
         Assert.True(stock.IsRunningLow(3m));
         Assert.True(stock.IsRunningLow(0m));
@@ -79,8 +85,8 @@ public sealed class ProductStockLowStockThresholdTests
     [Fact(DisplayName = "IsRunningLow is false when onHand exceeds the threshold")]
     public void IsRunningLow_False_When_OnHand_Above_Threshold()
     {
-        var stock = Stock();
-        stock.SetLowStockThreshold(5m);
+        var (stock, clock) = StockWithClock();
+        stock.SetLowStockThreshold(5m, clock);
 
         Assert.False(stock.IsRunningLow(5.001m));
         Assert.False(stock.IsRunningLow(100m));
@@ -91,8 +97,8 @@ public sealed class ProductStockLowStockThresholdTests
     [Fact(DisplayName = "SetLowStockThreshold stores the value on LowStockThreshold")]
     public void SetLowStockThreshold_Persists_Value()
     {
-        var stock = Stock();
-        stock.SetLowStockThreshold(3.5m);
+        var (stock, clock) = StockWithClock();
+        stock.SetLowStockThreshold(3.5m, clock);
 
         Assert.Equal(3.5m, stock.LowStockThreshold);
     }
@@ -100,9 +106,9 @@ public sealed class ProductStockLowStockThresholdTests
     [Fact(DisplayName = "SetLowStockThreshold rejects a negative threshold")]
     public void SetLowStockThreshold_Rejects_Negative_Value()
     {
-        var stock = Stock();
+        var (stock, clock) = StockWithClock();
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => stock.SetLowStockThreshold(-1m));
+        Assert.Throws<ArgumentOutOfRangeException>(() => stock.SetLowStockThreshold(-1m, clock));
     }
 
     [Fact(DisplayName = "LowStockThreshold is null by default (no threshold configured)")]
@@ -111,5 +117,20 @@ public sealed class ProductStockLowStockThresholdTests
         var stock = Stock();
 
         Assert.Null(stock.LowStockThreshold);
+    }
+
+    // ── UpdatedAt bump ────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "SetLowStockThreshold bumps UpdatedAt to clock.UtcNow")]
+    public void SetLowStockThreshold_Bumps_UpdatedAt()
+    {
+        var (stock, clock) = StockWithClock();
+        var createdAt = stock.CreatedAt;
+
+        clock.Advance(TimeSpan.FromHours(1));
+        stock.SetLowStockThreshold(5m, clock);
+
+        Assert.Equal(clock.UtcNow, stock.UpdatedAt);
+        Assert.True(stock.UpdatedAt > createdAt);
     }
 }

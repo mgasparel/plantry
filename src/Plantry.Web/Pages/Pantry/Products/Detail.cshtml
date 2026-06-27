@@ -13,11 +13,18 @@
             <p id="product-total" class="pantry-detail__total">@Model.Detail.TotalQuantity.ToString("0.###") @Model.Detail.DisplayUnitCode in stock</p>
         </div>
     </div>
-    <button type="button" class="btn btn--primary"
-            hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id = Model.ProductId })"
-            hx-target="#sheet-host" hx-swap="innerHTML">
-        Consume
-    </button>
+    <div style="display: flex; gap: var(--space-2)">
+        <button type="button" class="btn btn--ghost"
+                hx-get="@Url.Page("./Detail", "ThresholdSheet", new { id = Model.ProductId })"
+                hx-target="#sheet-host" hx-swap="innerHTML">
+            Set alert
+        </button>
+        <button type="button" class="btn btn--primary"
+                hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id = Model.ProductId })"
+                hx-target="#sheet-host" hx-swap="innerHTML">
+            Consume
+        </button>
+    </div>
 </div>
 
 <partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null)" />

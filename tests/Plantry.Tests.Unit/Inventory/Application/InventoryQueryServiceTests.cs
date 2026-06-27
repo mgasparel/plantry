@@ -231,7 +231,7 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(4m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m); // 4 ≤ 5 → running low
+        stock.SetLowStockThreshold(5m, Clock); // 4 ≤ 5 → running low
         stocks.Items.Add(stock);
 
         var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
@@ -247,7 +247,7 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(10m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m); // 10 > 5 → not running low
+        stock.SetLowStockThreshold(5m, Clock); // 10 > 5 → not running low
         stocks.Items.Add(stock);
 
         var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
@@ -281,7 +281,7 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(5m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m); // exactly at threshold → running low
+        stock.SetLowStockThreshold(5m, Clock); // exactly at threshold → running low
         stocks.Items.Add(stock);
 
         var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).FindDetailAsync(_productId);

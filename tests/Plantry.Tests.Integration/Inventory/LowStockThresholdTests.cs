@@ -41,7 +41,7 @@ public sealed class LowStockThresholdTests(PostgresFixture db) : IAsyncLifetime
         {
             var stock = ProductStock.Start(_householdA, _productId, SystemClock.Instance);
             stock.AddStock(10m, _unitId, _locationId, _userId, SystemClock.Instance);
-            stock.SetLowStockThreshold(3.5m);
+            stock.SetLowStockThreshold(3.5m, SystemClock.Instance);
             await ctx.ProductStocks.AddAsync(stock);
             await ctx.SaveChangesAsync();
         }
@@ -79,7 +79,7 @@ public sealed class LowStockThresholdTests(PostgresFixture db) : IAsyncLifetime
         {
             var stock = ProductStock.Start(_householdA, _productId, SystemClock.Instance);
             stock.AddStock(5m, _unitId, _locationId, _userId, SystemClock.Instance);
-            stock.SetLowStockThreshold(5m); // 5 ≤ 5 → running low
+            stock.SetLowStockThreshold(5m, SystemClock.Instance); // 5 ≤ 5 → running low
             await ctx.ProductStocks.AddAsync(stock);
             await ctx.SaveChangesAsync();
         }
@@ -105,7 +105,7 @@ public sealed class LowStockThresholdTests(PostgresFixture db) : IAsyncLifetime
         {
             var stockA = ProductStock.Start(_householdA, sharedProductId, SystemClock.Instance);
             stockA.AddStock(1m, _unitId, _locationId, _userId, SystemClock.Instance);
-            stockA.SetLowStockThreshold(10m);
+            stockA.SetLowStockThreshold(10m, SystemClock.Instance);
             await ctxA.ProductStocks.AddAsync(stockA);
             await ctxA.SaveChangesAsync();
         }
@@ -115,7 +115,7 @@ public sealed class LowStockThresholdTests(PostgresFixture db) : IAsyncLifetime
         {
             var stockB = ProductStock.Start(_householdB, sharedProductId, SystemClock.Instance);
             stockB.AddStock(1m, _unitId, _locationId, _userId, SystemClock.Instance);
-            stockB.SetLowStockThreshold(99m);
+            stockB.SetLowStockThreshold(99m, SystemClock.Instance);
             await ctxB.ProductStocks.AddAsync(stockB);
             await ctxB.SaveChangesAsync();
         }
@@ -140,7 +140,7 @@ public sealed class LowStockThresholdTests(PostgresFixture db) : IAsyncLifetime
         {
             var stock = ProductStock.Start(_householdA, _productId, SystemClock.Instance);
             stock.AddStock(3m, _unitId, _locationId, _userId, SystemClock.Instance);
-            stock.SetLowStockThreshold(5m);
+            stock.SetLowStockThreshold(5m, SystemClock.Instance);
             await ctx.ProductStocks.AddAsync(stock);
             await ctx.SaveChangesAsync();
         }
