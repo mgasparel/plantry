@@ -81,22 +81,25 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
     }
 
     /// <summary>
-    /// Returns the first unchecked item matching the product, or null. Used by P2-Sb to implement
-    /// the duplicate-merge primitive (shopping.md resolved call 5).
+    /// Returns the first unchecked item matching the product, or null. Used by
+    /// <see cref="Plantry.Shopping.Application.AddItemCommand"/> to implement the
+    /// reconcile-on-duplicate primitive (plantry-wxho / shopping.md resolved call 5).
     /// </summary>
     public ShoppingListItem? FindUncheckedByProduct(Guid productId) =>
         _items.FirstOrDefault(i => i.ProductId == productId && !i.IsChecked);
 
     /// <summary>
-    /// Merges an incoming quantity into an existing unchecked product line in place
-    /// (shopping.md resolved call 5 — duplicate-product merge path). The item must
-    /// already belong to this list; use <see cref="FindUncheckedByProduct"/> first.
+    /// Increments the quantity of an existing unchecked product line by <paramref name="delta"/> in place.
+    /// The caller (<see cref="Plantry.Shopping.Application.AddItemCommand"/>) is responsible for
+    /// computing the reconcile delta: <c>delta = max(0, shortfall − alreadyOnList)</c> so the list
+    /// always tops up to the need rather than stacking (plantry-wxho).
+    /// The item must already belong to this list; use <see cref="FindUncheckedByProduct"/> first.
     /// </summary>
-    public void MergeItem(ShoppingListItem existing, decimal? incomingQuantity, Guid? incomingUnitId, IClock clock)
+    public void MergeItem(ShoppingListItem existing, decimal? delta, Guid? incomingUnitId, IClock clock)
     {
         if (!_items.Contains(existing))
             throw new InvalidOperationException($"Item {existing.Id} does not belong to list {Id}.");
-        existing.MergeFrom(incomingQuantity, incomingUnitId, clock);
+        existing.MergeFrom(delta, incomingUnitId, clock);
         UpdatedAt = clock.UtcNow;
     }
 

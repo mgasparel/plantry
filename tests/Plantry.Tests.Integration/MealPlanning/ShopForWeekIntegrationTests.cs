@@ -19,9 +19,10 @@ namespace Plantry.Tests.Integration.MealPlanning;
 ///
 /// Covers:
 /// - L3-a: missing recipe ingredient is written to the shopping list with source=meal_plan.
-/// - L3-b: running ShopForWeek twice merges quantities (no duplicate rows) per the
-///         Shopping merge rule (AddItemCommand, intentionalDuplicate=false, keyed on
-///         ProductId &amp;&amp; !IsChecked).
+/// - L3-b: running ShopForWeek twice is idempotent — the Shopping reconcile rule
+///         (plantry-wxho) yields toAdd = max(0, shortfall − alreadyOnList) = 0 for an
+///         unchanged shortfall, so no quantity inflation (AddItemCommand, intentionalDuplicate=false,
+///         keyed on ProductId &amp;&amp; !IsChecked).
 /// - L3-c: fully-stocked week adds nothing (0 items returned, list unchanged).
 /// </summary>
 [Collection(nameof(PostgresCollection))]
@@ -81,10 +82,10 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, item.Source);
     }
 
-    // ── L3-b: running ShopForWeek twice merges quantities (no duplicates) ────
+    // ── L3-b: running ShopForWeek twice is idempotent (no duplicate lines, no inflated qty) ────
 
-    [Fact(DisplayName = "L3-b — ShopForWeek called twice merges into one row (no duplicate lines)")]
-    public async Task ShopForWeek_CalledTwice_MergesQuantity()
+    [Fact(DisplayName = "L3-b — ShopForWeek called twice is idempotent: one row, quantity unchanged (plantry-wxho)")]
+    public async Task ShopForWeek_CalledTwice_IsIdempotent()
     {
         // Seed a plan with a recipe dish missing 1.5 units of the product.
         await SeedMealPlanAsync(MakeSingleRecipePlan(servings: 2));
@@ -96,21 +97,29 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
 
         var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter);
 
-        // First shop
+        // First shop — 1.5 units written to the list
         var r1 = await svc.ExecuteAsync(_household, Monday);
         Assert.Equal(1, r1.ItemsAdded);
 
-        // Second shop — same product, same quantity (still missing)
+        // Verify first add wrote 1.5
+        await using (var shopCtx = NewShoppingDb())
+        {
+            var list = await shopCtx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var item = Assert.Single(list.Items);
+            Assert.Equal(1.5m, item.Quantity);
+        }
+
+        // Second shop — same product, same shortfall (still missing): reconcile → no-op
         var (mealPlanRepo2, shopWriter2) = BuildAdapters();
         var svc2 = new ShopForWeekService(mealPlanRepo2, recipeReader, stockReader, shopWriter2);
         var r2 = await svc2.ExecuteAsync(_household, Monday);
         Assert.Equal(1, r2.ItemsAdded);
 
-        // Reload — must be exactly ONE row, with merged quantity (1.5 + 1.5 = 3.0)
-        await using var shopCtx = NewShoppingDb();
-        var list = await shopCtx.ShoppingLists.Include(l => l.Items).FirstAsync();
-        var item = Assert.Single(list.Items);  // NOT two rows
-        Assert.Equal(3.0m, item.Quantity);     // merged, not duplicated
+        // Reload — must be exactly ONE row, with quantity = 1.5 (idempotent, not doubled to 3.0)
+        await using var shopCtx2 = NewShoppingDb();
+        var list2 = await shopCtx2.ShoppingLists.Include(l => l.Items).FirstAsync();
+        var item2 = Assert.Single(list2.Items);  // NOT two rows
+        Assert.Equal(1.5m, item2.Quantity);       // idempotent — not inflated to 3.0
     }
 
     // ── L3-c: fully-stocked week — nothing added ─────────────────────────────

@@ -15,8 +15,9 @@ namespace Plantry.Tests.Integration.Shopping;
 /// against the real ShoppingDbContext + Postgres schema (shopping.md resolved calls 4/5,
 /// SPEC §3b/§3c/§3e, DM-18).
 ///
-/// Focus: merge rule against real persistence — proves that after SaveAsync the aggregate
-/// is reloaded from the DB with the merged quantity (not two separate rows).
+/// Focus: reconcile rule against real persistence (plantry-wxho) — proves that after SaveAsync
+/// the aggregate is reloaded from the DB with the reconciled quantity (not two separate rows,
+/// and not inflated by additive stacking).
 /// </summary>
 [Collection(nameof(PostgresCollection))]
 public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyncLifetime
@@ -42,13 +43,10 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
 
     // ── Merge rule against real DB ────────────────────────────────────────────
 
-    [Fact(DisplayName = "L3 — merge: adding the same product twice merges into one DB row with summed quantity")]
-    public async Task AddItem_SameProduct_MergesIntoOneDbRow()
+    [Fact(DisplayName = "L3 — reconcile: adding a larger shortfall tops up the existing row to the shortfall quantity")]
+    public async Task AddItem_SameProduct_ReconcilesToShortfall()
     {
-        var tenant = new TenantContext();
-        tenant.Set(_household.Value);
-
-        // First add — 2 units
+        // First add — 2 units on the list
         await using (var ctx = NewShoppingDb())
         {
             var repo = new ShoppingListRepository(ctx);
@@ -68,24 +66,66 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
             Assert.Equal(2m, list.Items[0].Quantity);
         }
 
-        // Second add — 3 units — should merge
+        // Second add — shortfall is 5 units — should top up to 5 (toAdd = 5-2 = 3), not stack to 7
         await using (var ctx = NewShoppingDb())
         {
             var repo = new ShoppingListRepository(ctx);
             var cmd = new AddItemCommand(
-                _product1, null, 3m, _unitId, null,
+                _product1, null, 5m, _unitId, null,
                 ItemSource.Manual, null, false,
                 repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, new SimpleTenantContext(_household.Value));
             var r = await cmd.ExecuteAsync();
             Assert.True(r.IsSuccess);
         }
 
-        // Reload and confirm still one row with qty = 5
+        // Reload and confirm still one row with qty = 5 (topped up, not stacked)
         await using (var ctx = NewShoppingDb())
         {
             var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
             Assert.Single(list.Items);               // NOT two rows
-            Assert.Equal(5m, list.Items[0].Quantity); // merged quantity
+            Assert.Equal(5m, list.Items[0].Quantity); // topped up to shortfall, not 2+5=7
+        }
+    }
+
+    [Fact(DisplayName = "L3 — reconcile idempotent: adding the same shortfall twice leaves one DB row with unchanged quantity")]
+    public async Task AddItem_SameShortfallTwice_IsIdempotentInDb()
+    {
+        // First add — 3 units shortfall
+        await using (var ctx = NewShoppingDb())
+        {
+            var repo = new ShoppingListRepository(ctx);
+            var cmd = new AddItemCommand(
+                _product1, null, 3m, _unitId, null,
+                ItemSource.Recipe, null, false,
+                repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, new SimpleTenantContext(_household.Value));
+            Assert.True((await cmd.ExecuteAsync()).IsSuccess);
+        }
+
+        // Reload and assert qty = 3
+        await using (var ctx = NewShoppingDb())
+        {
+            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            Assert.Single(list.Items);
+            Assert.Equal(3m, list.Items[0].Quantity);
+        }
+
+        // Second add — same shortfall of 3 — no-op (already covered)
+        await using (var ctx = NewShoppingDb())
+        {
+            var repo = new ShoppingListRepository(ctx);
+            var cmd = new AddItemCommand(
+                _product1, null, 3m, _unitId, null,
+                ItemSource.Recipe, null, false,
+                repo, NullShoppingCatalogReader.Instance, SystemClock.Instance, new SimpleTenantContext(_household.Value));
+            Assert.True((await cmd.ExecuteAsync()).IsSuccess);
+        }
+
+        // Reload and confirm still one row with qty = 3 (unchanged)
+        await using (var ctx = NewShoppingDb())
+        {
+            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            Assert.Single(list.Items);
+            Assert.Equal(3m, list.Items[0].Quantity); // idempotent — not doubled to 6
         }
     }
 

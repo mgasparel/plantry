@@ -16,8 +16,8 @@ namespace Plantry.Tests.Integration.Recipes;
 /// <summary>
 /// L3 integration test proving the <see cref="ShoppingListWriterAdapter"/> wiring (P2-4a):
 /// calling AddItemsAsync routes through Shopping's real add-item path, stamps source=recipe +
-/// source_ref=recipeId, and applies the merge rule (shopping.md resolved call 5) — adding the same
-/// missing product twice increments the quantity rather than creating a second row.
+/// source_ref=recipeId, and applies the reconcile rule (plantry-wxho) — adding the same
+/// missing product twice is idempotent rather than inflating the quantity.
 /// </summary>
 [Collection(nameof(PostgresCollection))]
 public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncLifetime
@@ -61,40 +61,84 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         Assert.Equal(_recipeId, item.SourceRef);
     }
 
-    // ── Merge rule (DM-18 / shopping.md resolved call 5) ──────────────────────
+    // ── Reconcile rule (plantry-wxho) — idempotent add-missing ──────────────
 
-    [Fact(DisplayName = "L3 — merge: adding the same missing product twice increments, not duplicates")]
-    public async Task AddItems_SameMissingProduct_Twice_Merges()
+    [Fact(DisplayName = "L3 — reconcile: adding the same recipe shortfall twice leaves one row with unchanged quantity")]
+    public async Task AddItems_SameShortfallTwice_IsIdempotent()
     {
         var adapter = BuildAdapter();
 
-        // First call — 2 units of product1
-        await adapter.AddItemsAsync(
-            [new ShoppingItem(_product1, 2m, _unitId)],
-            source: "recipe",
-            sourceRef: _recipeId);
-
-        // Verify one row exists
-        await using (var ctx = NewShoppingDb())
-        {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
-            Assert.Single(list.Items);
-            Assert.Equal(2m, list.Items[0].Quantity);
-        }
-
-        // Second call — 3 more units of product1 — should merge into the same row
+        // First call — shortfall of 3 units of product1
         await adapter.AddItemsAsync(
             [new ShoppingItem(_product1, 3m, _unitId)],
             source: "recipe",
             sourceRef: _recipeId);
 
-        // Confirm still one row with quantity = 5 (2+3)
+        // Verify one row exists with qty = 3
+        await using (var ctx = NewShoppingDb())
+        {
+            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            Assert.Single(list.Items);
+            Assert.Equal(3m, list.Items[0].Quantity);
+        }
+
+        // Second call — same shortfall of 3 — already covered, no-op
+        await adapter.AddItemsAsync(
+            [new ShoppingItem(_product1, 3m, _unitId)],
+            source: "recipe",
+            sourceRef: _recipeId);
+
+        // Confirm still one row with quantity = 3 (idempotent, not doubled to 6)
         await using (var ctx = NewShoppingDb())
         {
             var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
             Assert.Single(list.Items);              // NOT two rows
-            Assert.Equal(5m, list.Items[0].Quantity); // merged sum
+            Assert.Equal(3m, list.Items[0].Quantity); // unchanged — idempotent
             Assert.Equal(ItemSource.Recipe, list.Items[0].Source);
+        }
+    }
+
+    [Fact(DisplayName = "L3 — reconcile: larger shortfall tops up the existing row; smaller shortfall is a no-op")]
+    public async Task AddItems_ReconcilesBothLargerAndSmallerShortfall()
+    {
+        var adapter = BuildAdapter();
+
+        // First call — 2 units on the list
+        await adapter.AddItemsAsync(
+            [new ShoppingItem(_product1, 2m, _unitId)],
+            source: "recipe",
+            sourceRef: _recipeId);
+
+        await using (var ctx = NewShoppingDb())
+        {
+            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            Assert.Equal(2m, list.Items[0].Quantity);
+        }
+
+        // Second call — shortfall grows to 5 — tops up to 5 (toAdd = 3)
+        await adapter.AddItemsAsync(
+            [new ShoppingItem(_product1, 5m, _unitId)],
+            source: "recipe",
+            sourceRef: _recipeId);
+
+        await using (var ctx = NewShoppingDb())
+        {
+            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            Assert.Single(list.Items);
+            Assert.Equal(5m, list.Items[0].Quantity); // topped up, not stacked to 7
+        }
+
+        // Third call — shortfall now only 1 — list already exceeds it, no-op
+        await adapter.AddItemsAsync(
+            [new ShoppingItem(_product1, 1m, _unitId)],
+            source: "recipe",
+            sourceRef: _recipeId);
+
+        await using (var ctx = NewShoppingDb())
+        {
+            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            Assert.Single(list.Items);
+            Assert.Equal(5m, list.Items[0].Quantity); // still 5, not reduced
         }
     }
 

@@ -8,15 +8,19 @@ namespace Plantry.Shopping.Application;
 /// <summary>
 /// Adds a single item to the household's shopping list (SPEC §3b, shopping.md resolved calls 4/5).
 ///
-/// <para><b>Product-backed items (productId set):</b> the MERGE rule applies — if an unchecked
-/// item for the same product already exists, the incoming quantity is merged into it rather than
-/// inserting a duplicate.  Set <paramref name="intentionalDuplicate"/> to <c>true</c> to bypass
-/// the merge and force a second line (e.g. buying the same product from two different stores).
+/// <para><b>Product-backed items (productId set):</b> the RECONCILE rule applies — if an unchecked
+/// item for the same product already exists, the incoming quantity is reconciled against the current
+/// list quantity so that the list always tops up to the shortfall rather than stacking (plantry-wxho).
+/// Formula: <c>toAdd = max(0, incoming − alreadyOnList)</c>. A second add of the same shortfall is a
+/// no-op because the deficit is already covered. This makes recipe/meal-plan "add missing" calls
+/// fully idempotent within a stable stock+list state.
+/// Set <paramref name="intentionalDuplicate"/> to <c>true</c> to bypass the reconcile entirely and
+/// force a second line (e.g. buying the same product from two different stores).
 /// There is no DB unique constraint; the constraint is entirely app-layer intent.</para>
 ///
 /// <para><b>Unit mismatch on merge (plantry-xw6):</b> when the existing and incoming units differ,
 /// the command attempts to convert the incoming quantity to the existing item's unit via
-/// <paramref name="catalogReader"/>. If conversion succeeds the merged sum is expressed in the
+/// <paramref name="catalogReader"/>. If conversion succeeds the reconcile delta is computed in the
 /// existing unit. If conversion is not possible (cross-dimension with no product conversion, or
 /// exactly one side has no unit) a second line is inserted instead of silently summing meaningless
 /// quantities.</para>
@@ -25,9 +29,6 @@ namespace Plantry.Shopping.Application;
 ///
 /// <para>Exactly one of <paramref name="productId"/> / <paramref name="freeText"/> must be set;
 /// the DB CHECK backs this up but it is enforced at the application layer first.</para>
-///
-/// <para>This merge primitive is the shared seam P2-4 will reuse when bulk-adding from a recipe
-/// (source=recipe path added in P2-4 via a separate bulk overload).</para>
 /// </summary>
 public sealed class AddItemCommand(
     Guid? productId,
@@ -63,8 +64,10 @@ public sealed class AddItemCommand(
 
         if (productId.HasValue)
         {
-            // Apply merge rule: if an unchecked item for this product already exists and the
-            // caller has not flagged this as an intentional second add, merge quantities.
+            // Reconcile rule (plantry-wxho): if an unchecked item for this product already exists
+            // and the caller has not flagged this as an intentional second add, reconcile against
+            // the quantity already on the list so that the list tops up to the need rather than
+            // stacking. toAdd = max(0, incoming − alreadyOnList).
             if (!intentionalDuplicate)
             {
                 var existing = list.FindUncheckedByProduct(productId.Value);
@@ -72,16 +75,16 @@ public sealed class AddItemCommand(
                 {
                     // Determine whether the units are compatible for merging.
                     // Policy (plantry-xw6):
-                    //   1. Units match (or both null) → merge by summing in the existing unit.
+                    //   1. Units match (or both null) → reconcile in the existing unit.
                     //   2. Units differ, both non-null, conversion exists → convert incoming to
-                    //      existing unit, then merge (sum) in that unit.
+                    //      existing unit, then reconcile in that unit.
                     //   3. Units differ, both non-null, no conversion → insert a second line.
                     //   4. Exactly one side has a unit (null vs. non-null) → insert a second line.
                     bool unitsCompatible = existing.UnitId == unitId; // covers both-null and equal case
 
                     if (!unitsCompatible)
                     {
-                        // Both units must be non-null and convertible for a merge to proceed.
+                        // Both units must be non-null and convertible for a reconcile to proceed.
                         if (existing.UnitId.HasValue && unitId.HasValue && quantity.HasValue)
                         {
                             var converted = await catalogReader.TryConvertAsync(
@@ -89,8 +92,15 @@ public sealed class AddItemCommand(
 
                             if (converted.HasValue)
                             {
-                                // Conversion succeeded: merge using the converted amount in the existing unit.
-                                list.MergeItem(existing, converted.Value, existing.UnitId, clock);
+                                // Conversion succeeded: reconcile using the converted amount in the existing unit.
+                                // toAdd = max(0, convertedIncoming − alreadyOnList)
+                                var toAddConverted = ComputeToAdd(converted.Value, existing.Quantity);
+                                if (toAddConverted <= 0m)
+                                {
+                                    // Already at or above the need — no-op (idempotent).
+                                    return existing.Id;
+                                }
+                                list.MergeItem(existing, toAddConverted, existing.UnitId, clock);
                                 await repository.SaveAsync(ct);
                                 return existing.Id;
                             }
@@ -100,8 +110,15 @@ public sealed class AddItemCommand(
                     }
                     else
                     {
-                        // Units match (or both null): merge by summing as before.
-                        list.MergeItem(existing, quantity, unitId, clock);
+                        // Units match (or both null): reconcile — bump only the delta needed to
+                        // reach the incoming shortfall (toAdd = max(0, incoming − alreadyOnList)).
+                        var toAdd = ComputeToAdd(quantity, existing.Quantity);
+                        if (toAdd <= 0m)
+                        {
+                            // Already at or above the need — no-op (idempotent).
+                            return existing.Id;
+                        }
+                        list.MergeItem(existing, toAdd, unitId, clock);
                         await repository.SaveAsync(ct);
                         return existing.Id;
                     }
@@ -118,6 +135,18 @@ public sealed class AddItemCommand(
 
         await repository.SaveAsync(ct);
         return item.Id;
+    }
+
+    /// <summary>
+    /// Computes the reconcile delta: max(0, incoming − alreadyOnList).
+    /// Returns 0 when either value is null (nothing to add when the shortfall has no quantity).
+    /// </summary>
+    private static decimal ComputeToAdd(decimal? incoming, decimal? alreadyOnList)
+    {
+        if (!incoming.HasValue)
+            return 0m;
+        var already = alreadyOnList ?? 0m;
+        return Math.Max(0m, incoming.Value - already);
     }
 }
 
