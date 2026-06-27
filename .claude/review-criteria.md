@@ -204,6 +204,56 @@ A judgment call — raise as advisory unless egregious:
 - Watch for drift toward what Plantry deliberately isn't: meal-kit/subscription model,
   social/sharing features, or dependency on barcode scanning / external product databases.
 
+## Gate 9 — Observability
+
+New code in handlers, application services, and domain event handlers must carry adequate
+instrumentation. The rules below apply to **new code only**; retrofitting existing
+uninstrumented code is a DEFER (file a bead, don't expand the diff).
+
+- **Structured logging via `ILogger<T>`, injected — never `Console.Write*`.**
+  Any class that logs must receive `ILogger<T>` through its constructor. Direct console
+  writes are a violation even in one-off or "diagnostic" paths.
+- **Log happy-path domain operations at `LogInformation`.**
+  Key operations must emit a structured log on their successful path:
+  - Intake: import session committed
+  - Inventory: stock consumed (including reason and source type)
+  - AI pipeline: parse started, parse completed (model, token counts if available)
+  - Meal planning: meal plan generated
+  - Any other handler or application-service method introduced by the diff that
+    represents a meaningful domain state change
+- **Log all exception and failure paths at `LogWarning` or `LogError`.**
+  Re-throwing or catching an exception without logging is a violation. The log entry must
+  include the exception object (so the stack trace is captured) and enough structured
+  parameters to identify the operation and entity. Swallowing exceptions silently is a
+  correctness defect, not just an observability gap.
+- **Custom `ActivitySource` spans for AI model calls.**
+  Every call that invokes a language model via `ChatClient` (or any wrapper around it)
+  must be wrapped in an `ActivitySource.StartActivity(...)` span, started before the call
+  and stopped (via `using` or explicit `Stop`/`Dispose`) after it. AI calls are latency-
+  sensitive, expensive, and the most likely failure point — they must be individually
+  traceable. An AI call with no enclosing span is a FIX.
+- **No PII or secrets in log message parameters.**
+  Household names, user emails, API keys, passwords, and receipt raw text must not appear
+  as structured log parameters. Log the entity ID or a redacted sentinel instead. A log
+  statement that captures a raw email or API key is a security defect (Gate 1 + Gate 9).
+- **Do not read observability signals back from the framework in unit tests.**
+  Unit tests must not assert on log output by intercepting `ILogger` calls (e.g. via
+  `Mock<ILogger<T>>` + `Verify`) unless testing log behavior is the *explicit, stated goal*
+  of the test. Using log assertions as a proxy for "did this code path execute" is a test-
+  design smell — assert on return values or domain state instead. When log output must be
+  verified, use integration tests with a captured log sink, not unit-test mocks.
+
+**Default tier for Gate 9:**
+
+| Scenario | Tier |
+|----------|------|
+| New handler/service/domain-event-handler introduced by the diff with no `ILogger<T>` injection and no logging | **FIX** |
+| New AI model call (`ChatClient` invocation) with no enclosing `ActivitySource` span | **FIX** |
+| Exception path (catch or re-throw) with no `LogWarning`/`LogError` | **FIX** |
+| PII or secret value in a log message parameter | **FIX** (Gate 1 + Gate 9) |
+| Existing, pre-diff code that is uninstrumented and untouched by the diff | **DEFER** — file a bead; do not expand the diff |
+| Unit test asserting on `ILogger` calls as a side-effect proxy | **FIX** (unless the test is explicitly about log output) |
+
 ---
 
 ## Action tiers
@@ -291,6 +341,8 @@ finding actually lands.
 | 6 — UI library drift, divergent Razor/CSS or island widgets, missing contract test for a new island surface | **FIX or DEFER** per the boundary (cheap & in-scope → FIX; needs a new shared component or JS test infra → DEFER) |
 | 7 | **FIX** — persistence contract violations cause correctness bugs |
 | 8 | **DEFER or NOTE** — product-alignment judgment; FIX only if egregious and in-scope |
+| 9 — new handler/service with no `ILogger<T>`, new AI call with no `ActivitySource` span, exception path with no `LogWarning`/`LogError`, PII in log parameters | **FIX** |
+| 9 — existing uninstrumented code untouched by the diff | **DEFER** — file a bead; do not expand the diff |
 
 ### Calibration anchor
 
