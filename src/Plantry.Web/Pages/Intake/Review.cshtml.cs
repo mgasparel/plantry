@@ -45,7 +45,8 @@ public sealed class ReviewModel(
     IAddStockPort addStock,
     IRecordPricePort recordPrice,
     IClock clock,
-    ITenantContext tenant) : PageModel
+    ITenantContext tenant,
+    ILogger<CommitSessionCommand> commitLogger) : PageModel
 {
     /// <summary>Session id from the route; bound on GET and carried on every POST via the URL.</summary>
     [BindProperty(SupportsGet = true)]
@@ -209,7 +210,7 @@ public sealed class ReviewModel(
             return JsonError("Unauthorized.");
 
         var result = await new CommitSessionCommand(
-            ImportSessionId.From(Id), sessions, createProduct, addStock, recordPrice, clock, tenant)
+            ImportSessionId.From(Id), sessions, createProduct, addStock, recordPrice, clock, tenant, commitLogger)
             .ExecuteAsync(ct);
 
         if (result.IsFailure)

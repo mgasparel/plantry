@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
@@ -27,7 +28,8 @@ public sealed class CommitSessionCommandTests
     private CommitSessionCommand Commit(
         ImportSession session, FakeImportSessionRepository repo,
         FakeCreateProductPort create, FakeAddStockPort add, FakeRecordPricePort price) =>
-        new(session.Id, repo, create, add, price, Clock, new FakeTenantContext(_household));
+        new(session.Id, repo, create, add, price, Clock, new FakeTenantContext(_household),
+            NullLogger<CommitSessionCommand>.Instance);
 
     [Fact]
     public async Task Commits_A_Confirmed_Existing_Product_Line_With_Stock_And_Price()
@@ -170,7 +172,7 @@ public sealed class CommitSessionCommandTests
 
         var cmd = new CommitSessionCommand(
             session.Id, repo, new FakeCreateProductPort(), new FakeAddStockPort(), new FakeRecordPricePort(),
-            Clock, new FakeTenantContext(null));
+            Clock, new FakeTenantContext(null), NullLogger<CommitSessionCommand>.Instance);
         var result = await cmd.ExecuteAsync();
 
         Assert.True(result.IsFailure);

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Recipes.Application;
@@ -22,7 +23,8 @@ public sealed class InventoryConsumerAdapter(
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
-    ITenantContext tenant) : IInventoryConsumer
+    ITenantContext tenant,
+    ILogger<ConsumeStockCommand> consumeLogger) : IInventoryConsumer
 {
     public async Task<ConsumeResult> ConsumeAsync(
         Guid productId,
@@ -53,7 +55,8 @@ public sealed class InventoryConsumerAdapter(
             clock,
             tenant,
             StockSourceType.Cook,
-            sourceLineRef: sourceLineRef);
+            sourceLineRef: sourceLineRef,
+            logger: consumeLogger);
 
         var result = await command.ExecuteAsync(ct);
 

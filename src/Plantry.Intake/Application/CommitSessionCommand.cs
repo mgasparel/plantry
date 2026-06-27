@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -25,7 +26,8 @@ public sealed class CommitSessionCommand(
     IAddStockPort addStock,
     IRecordPricePort recordPrice,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<CommitSessionCommand> logger)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -81,14 +83,27 @@ public sealed class CommitSessionCommand(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            logger.LogError(ex,
+                "Import session {SessionId} commit failed mid-batch.",
+                sessionId.Value);
             return Error.Custom("Intake.CommitFailed", ex.Message);
         }
 
         var sessionMark = session.MarkCommitted(clock.UtcNow);
         if (sessionMark.IsFailure)
+        {
+            logger.LogWarning(
+                "Import session {SessionId} could not be marked committed: {ErrorCode}.",
+                sessionId.Value, sessionMark.Error.Code);
             return sessionMark.Error;
+        }
 
         await sessions.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "Import session {SessionId} committed successfully.",
+            sessionId.Value);
+
         return Result.Success();
     }
 }

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.Intake.Application;
@@ -99,7 +100,8 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
             new PriceObservationRepository(pricingDb), new UnitPriceCalculatorAdapter(units), tenant);
 
         var command = new CommitSessionCommand(
-            sessionId, new ImportSessionRepository(intakeDb), createProduct, addStock, recordPrice, Clock, tenant);
+            sessionId, new ImportSessionRepository(intakeDb), createProduct, addStock, recordPrice, Clock, tenant,
+            NullLogger<CommitSessionCommand>.Instance);
 
         var result = await command.ExecuteAsync();
 

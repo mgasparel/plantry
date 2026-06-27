@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Inventory.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -150,7 +151,8 @@ public sealed class ConsumeStockCommand(
     IClock clock,
     ITenantContext tenant,
     StockSourceType sourceType = StockSourceType.Manual,
-    Guid? sourceLineRef = null)
+    Guid? sourceLineRef = null,
+    ILogger<ConsumeStockCommand>? logger = null)
 {
     public async Task<Result<ConsumeOutcome>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -167,7 +169,12 @@ public sealed class ConsumeStockCommand(
         {
             var stock = await stocks.FindForUpdateAsync(household, productId, innerCt);
             if (stock is null)
+            {
+                logger?.LogWarning(
+                    "Consume failed — no stock record for product {ProductId}. Reason: {Reason}, SourceType: {SourceType}.",
+                    productId, reason, sourceType);
                 return Result<ConsumeOutcome>.Failure(Error.Custom("Inventory.NoStock", "There is no stock for this product."));
+            }
 
             var outcome = stock.Consume(
                 amount, unitId, reason, converter, userId, clock,
@@ -177,9 +184,19 @@ public sealed class ConsumeStockCommand(
                 sourceLineRef: sourceLineRef);
 
             if (outcome.IsFailure)
+            {
+                logger?.LogWarning(
+                    "Consume planning pass failed for product {ProductId}. Reason: {Reason}, SourceType: {SourceType}, Error: {ErrorCode}.",
+                    productId, reason, sourceType, outcome.Error.Code);
                 return outcome; // nothing mutated (planning pass failed) — commits as a no-op
+            }
 
             await stocks.SaveChangesAsync(innerCt);
+
+            logger?.LogInformation(
+                "Stock consumed for product {ProductId}. Reason: {Reason}, SourceType: {SourceType}, Amount: {Amount}.",
+                productId, reason, sourceType, amount);
+
             return outcome;
         }, ct);
     }

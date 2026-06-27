@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -38,7 +39,8 @@ public sealed class CookRecipeTests
         var dispatcher = new FakeDomainEventDispatcher();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
         var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant);
-        var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, Clock, tenant, reconciler);
+        var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, Clock, tenant, reconciler,
+            NullLogger<CookRecipe>.Instance);
         return new Harness
         {
             Recipes = recipes,

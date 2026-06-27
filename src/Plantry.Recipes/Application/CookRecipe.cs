@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -41,12 +42,16 @@ public sealed class CookRecipe(
     IDomainEventDispatcher eventDispatcher,
     IClock clock,
     ITenantContext tenant,
-    ReconcilePendingCooks reconciler)
+    ReconcilePendingCooks reconciler,
+    ILogger<CookRecipe> logger)
 {
     public async Task<CookRecipeResult> ExecuteAsync(CookRecipeCommand command, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdGuid)
+        {
+            logger.LogWarning("Cook rejected — no authenticated household.");
             return new CookRecipeResult.Invalid(Error.Unauthorized);
+        }
         var household = HouseholdId.From(householdGuid);
 
         // ── Opportunistic reconciliation (292c) ──────────────────────────────────
@@ -60,12 +65,20 @@ public sealed class CookRecipe(
         catch { /* reconciliation is best-effort; do not block the new cook */ }
 
         if (command.DesiredServings < 1)
+        {
+            logger.LogWarning(
+                "Cook rejected for recipe {RecipeId} — invalid servings {DesiredServings}.",
+                command.RecipeId.Value, command.DesiredServings);
             return new CookRecipeResult.Invalid(
                 Error.Custom("Recipes.InvalidServings", "Desired servings must be at least 1."));
+        }
 
         var recipe = await recipes.GetByIdAsync(command.RecipeId, ct);
         if (recipe is null)
+        {
+            logger.LogWarning("Cook failed — recipe {RecipeId} not found.", command.RecipeId.Value);
             return new CookRecipeResult.Invalid(Error.NotFound);
+        }
 
         // ── ServingsScale ────────────────────────────────────────────────────────
         var scale = (decimal)command.DesiredServings / recipe.DefaultServings;
@@ -220,6 +233,11 @@ public sealed class CookRecipe(
             cookEvent.CookedAt);
 
         await eventDispatcher.DispatchAsync([cookedEvent], ct);
+
+        var shortedCount = lineResults.Count(l => l.ShortfallAmount == l.RequestedQuantity);
+        logger.LogInformation(
+            "Recipe cooked. CookEventId: {CookEventId}, RecipeId: {RecipeId}, Servings: {Servings}, Lines: {LineCount}, Shorted: {ShortedCount}.",
+            cookEvent.Id.Value, recipe.Id.Value, servingsCooked, lineResults.Count, shortedCount);
 
         return new CookRecipeResult.Cooked(cookEvent.Id, servingsCooked, lineResults);
     }

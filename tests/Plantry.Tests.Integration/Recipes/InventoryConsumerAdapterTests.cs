@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
+using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
 using Plantry.Recipes.Application;
@@ -194,7 +196,8 @@ public sealed class InventoryConsumerAdapterTests(PostgresFixture db) : IAsyncLi
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
         var stocks = new ProductStockRepository(invDb);
         var tenant = new TestTenant(_household.Value);
-        return new InventoryConsumerAdapter(stocks, conversions, Clock, tenant);
+        return new InventoryConsumerAdapter(stocks, conversions, Clock, tenant,
+            NullLogger<ConsumeStockCommand>.Instance);
     }
 
     private InventoryDbContext NewInventoryDb()

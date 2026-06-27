@@ -20,7 +20,8 @@ public sealed class DetailModel(
     ICatalogReadFacade catalog,
     IUnitRepository units,
     IClock clock,
-    ITenantContext tenant) : PageModel
+    ITenantContext tenant,
+    ILogger<ConsumeStockCommand> consumeLogger) : PageModel
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
@@ -157,7 +158,7 @@ public sealed class DetailModel(
         Guid id, decimal amount, Guid unitId, StockReason reason, Guid? targetEntryId) =>
         new ConsumeStockCommand(
             id, amount, unitId, reason, CurrentUserId, targetEntryId, sourceRef: null,
-            stocks, conversions, clock, tenant).ExecuteAsync();
+            stocks, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
 
     private async Task<IActionResult> ReloadSheetAsync(Guid id)
     {
