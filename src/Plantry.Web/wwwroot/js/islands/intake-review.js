@@ -304,6 +304,123 @@ function ProductSearch({ ls, products, listboxId }) {
   `;
 }
 
+// ── AlternativesStrip component ──────────────────────────────────────────────
+//
+// "Did you mean" suggestion bar — shown when a line has alternatives and the
+// user has not yet switched to "create new". Selecting an alternative fills the
+// product/name/sku drafts; the ranking label ("best" / "N%") comes from the
+// hydration confidence score.
+
+/**
+ * @param {{
+ *   ls: LineState,
+ * }} props
+ */
+function AlternativesStrip({ ls }) {
+  if (!ls.alternatives || ls.createNew.value) return null;
+  return html`
+    <div class="match-suggest">
+      <div class="match-suggest__label">
+        Did you mean — <span>several products share this name</span>
+      </div>
+      <div class="suggest-opts">
+        ${ls.alternatives.map((alt, i) => {
+          const rankLabel = i === 0 ? "best" : `${Math.round(alt.confidence * 100)}%`;
+          const selected = ls.draftProductId.value === alt.productId;
+          return html`
+            <button key=${alt.productId} type="button"
+                    class=${"suggest-opt" + (selected ? " sel" : "")}
+                    onClick=${() => {
+                      ls.draftProductId.value = alt.productId;
+                      ls.draftProductName.value = alt.productName;
+                      ls.draftSkuId.value = "";
+                    }}>
+              ${selected && html`<svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>`}
+              ${alt.productName}
+              <span class="rk">${rankLabel}</span>
+            </button>
+          `;
+        })}
+      </div>
+    </div>
+  `;
+}
+
+// ── ExpiryPriceFields component ───────────────────────────────────────────────
+//
+// The expiry/date cluster (date input + Date|Never segmented control) together
+// with the optional price field. These three fields form the "when did it expire
+// and what did it cost" metadata cluster and always appear or disappear as a
+// unit relative to priceReadOnly — extracting them makes ReviewDrawer's grid
+// easier to scan.
+
+/**
+ * @param {{
+ *   ls: LineState,
+ *   units: UnitHydration[],
+ *   today: string,
+ *   priceReadOnly: boolean,
+ * }} props
+ */
+function ExpiryPriceFields({ ls, units, today, priceReadOnly }) {
+  return html`
+    <div class="form-grid__field">
+      <label class="form-grid__field__label">Expires</label>
+      <div class="form-grid__field__control">
+        <div class="expiry-field">
+          ${ls.draftExpiryMode.value === "has" && html`
+            <input type="date" class="field__input expiry-field__date"
+                   name="Edit.ExpiryDate"
+                   value=${ls.draftExpiry}
+                   onInput=${(/** @type {InputEvent} */ e) => { ls.draftExpiry.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
+          `}
+          <div class="seg-ctrl" role="group" aria-label="Expiry">
+            <label class="seg-ctrl__item">
+              <input type="radio" name=${`expiry-mode-${ls.lineId}`} value="has"
+                     checked=${ls.draftExpiryMode.value === "has"}
+                     onChange=${() => {
+                       ls.draftExpiryMode.value = "has";
+                       if (!ls.draftExpiry.value) ls.draftExpiry.value = today;
+                     }} />
+              <span>Date</span>
+            </label>
+            <label class="seg-ctrl__item">
+              <input type="radio" name=${`expiry-mode-${ls.lineId}`} value="never"
+                     checked=${ls.draftExpiryMode.value === "never"}
+                     onChange=${() => { ls.draftExpiryMode.value = "never"; }} />
+              <span>Never</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-grid__field" style=${`grid-column: ${priceReadOnly ? "span 4" : "span 2"}`}>
+      <label class="form-grid__field__label">Unit</label>
+      <div class="form-grid__field__control">
+        <select class="field__input" name="Edit.UnitId"
+                value=${ls.draftUnitId}
+                onChange=${(/** @type {Event} */ e) => { ls.draftUnitId.value = /** @type {HTMLSelectElement} */ (e.target).value; }}>
+          <option value="">— Unit —</option>
+          ${units.map((u) => html`<option key=${u.id} value=${u.id}>${u.code} — ${u.name}</option>`)}
+        </select>
+      </div>
+    </div>
+
+    ${!priceReadOnly && html`
+      <div class="form-grid__field" style="grid-column: span 2">
+        <label class="form-grid__field__label">Price (optional)</label>
+        <div class="form-grid__field__control">
+          <input class="field__input" type="number" step="any" min="0"
+                 name="Edit.Price"
+                 value=${ls.draftPrice}
+                 onInput=${(/** @type {InputEvent} */ e) => { ls.draftPrice.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
+        </div>
+      </div>
+    `}
+  `;
+}
+
 // ── ReviewDrawer component ──────────────────────────────────────────────────
 
 /**
@@ -396,32 +513,7 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
         </div>
       `}
       <form onSubmit=${handleSave}>
-        ${/* Did you mean strip */ ls.alternatives && !ls.createNew.value && html`
-          <div class="match-suggest">
-            <div class="match-suggest__label">
-              Did you mean — <span>several products share this name</span>
-            </div>
-            <div class="suggest-opts">
-              ${ls.alternatives.map((alt, i) => {
-                const rankLabel = i === 0 ? "best" : `${Math.round(alt.confidence * 100)}%`;
-                const selected = ls.draftProductId.value === alt.productId;
-                return html`
-                  <button key=${alt.productId} type="button"
-                          class=${"suggest-opt" + (selected ? " sel" : "")}
-                          onClick=${() => {
-                            ls.draftProductId.value = alt.productId;
-                            ls.draftProductName.value = alt.productName;
-                            ls.draftSkuId.value = "";
-                          }}>
-                    ${selected && html`<svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>`}
-                    ${alt.productName}
-                    <span class="rk">${rankLabel}</span>
-                  </button>
-                `;
-              })}
-            </div>
-          </div>
-        `}
+        <${AlternativesStrip} ls=${ls} />
 
         <div class="import-row__edit-grid">
           <${ProductSearch} ls=${ls} products=${products} listboxId=${listboxId} />
@@ -501,60 +593,7 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
             </div>
           </div>
 
-          <div class="form-grid__field">
-            <label class="form-grid__field__label">Expires</label>
-            <div class="form-grid__field__control">
-              <div class="expiry-field">
-                ${ls.draftExpiryMode.value === "has" && html`
-                  <input type="date" class="field__input expiry-field__date"
-                         name="Edit.ExpiryDate"
-                         value=${ls.draftExpiry}
-                         onInput=${(/** @type {InputEvent} */ e) => { ls.draftExpiry.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
-                `}
-                <div class="seg-ctrl" role="group" aria-label="Expiry">
-                  <label class="seg-ctrl__item">
-                    <input type="radio" name=${`expiry-mode-${ls.lineId}`} value="has"
-                           checked=${ls.draftExpiryMode.value === "has"}
-                           onChange=${() => {
-                             ls.draftExpiryMode.value = "has";
-                             if (!ls.draftExpiry.value) ls.draftExpiry.value = today;
-                           }} />
-                    <span>Date</span>
-                  </label>
-                  <label class="seg-ctrl__item">
-                    <input type="radio" name=${`expiry-mode-${ls.lineId}`} value="never"
-                           checked=${ls.draftExpiryMode.value === "never"}
-                           onChange=${() => { ls.draftExpiryMode.value = "never"; }} />
-                    <span>Never</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-grid__field" style=${`grid-column: ${priceReadOnly ? "span 4" : "span 2"}`}>
-            <label class="form-grid__field__label">Unit</label>
-            <div class="form-grid__field__control">
-              <select class="field__input" name="Edit.UnitId"
-                      value=${ls.draftUnitId}
-                      onChange=${(/** @type {Event} */ e) => { ls.draftUnitId.value = /** @type {HTMLSelectElement} */ (e.target).value; }}>
-                <option value="">— Unit —</option>
-                ${units.map((u) => html`<option key=${u.id} value=${u.id}>${u.code} — ${u.name}</option>`)}
-              </select>
-            </div>
-          </div>
-
-          ${!priceReadOnly && html`
-            <div class="form-grid__field" style="grid-column: span 2">
-              <label class="form-grid__field__label">Price (optional)</label>
-              <div class="form-grid__field__control">
-                <input class="field__input" type="number" step="any" min="0"
-                       name="Edit.Price"
-                       value=${ls.draftPrice}
-                       onInput=${(/** @type {InputEvent} */ e) => { ls.draftPrice.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
-              </div>
-            </div>
-          `}
+          <${ExpiryPriceFields} ls=${ls} units=${units} today=${today} priceReadOnly=${priceReadOnly} />
         </div>
 
         <div class="import-row__edit-foot">
