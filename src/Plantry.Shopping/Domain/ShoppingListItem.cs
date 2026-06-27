@@ -159,19 +159,20 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     }
 
     /// <summary>
-    /// Merges an incoming duplicate-product add into this existing unchecked item:
-    /// increments Quantity by <paramref name="incomingQuantity"/> when both are non-null,
-    /// replaces when only incoming is non-null, and leaves it unchanged when incoming is null.
+    /// Increments the quantity of this item by <paramref name="delta"/> (the reconcile delta
+    /// computed by the caller as <c>max(0, shortfall − alreadyOnList)</c>).
+    /// When <paramref name="delta"/> is non-null: adds to Quantity when present, sets it when null.
+    /// When <paramref name="delta"/> is null: quantity unchanged.
     /// Also adopts the incoming unitId if provided and the current item has none.
-    /// Called exclusively by <see cref="ShoppingList.MergeItem"/> (shopping.md resolved call 5).
+    /// Called exclusively by <see cref="ShoppingList.MergeItem"/> (plantry-wxho / shopping.md resolved call 5).
     /// </summary>
-    internal void MergeFrom(decimal? incomingQuantity, Guid? incomingUnitId, IClock clock)
+    internal void MergeFrom(decimal? delta, Guid? incomingUnitId, IClock clock)
     {
-        if (incomingQuantity.HasValue)
+        if (delta.HasValue)
         {
             Quantity = Quantity.HasValue
-                ? Quantity.Value + incomingQuantity.Value
-                : incomingQuantity.Value;
+                ? Quantity.Value + delta.Value
+                : delta.Value;
         }
 
         if (incomingUnitId.HasValue && UnitId is null)

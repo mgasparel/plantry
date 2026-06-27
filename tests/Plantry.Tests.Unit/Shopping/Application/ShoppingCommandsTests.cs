@@ -59,26 +59,82 @@ public sealed class ShoppingCommandsTests
     private ClearCheckedCommand ClearChecked(FakeShoppingListRepository repo) =>
         new(repo, Clock, new FakeTenantContext(_household));
 
-    // ── AddItemCommand — merge rule ───────────────────────────────────────────
+    // ── AddItemCommand — reconcile rule (plantry-wxho) ────────────────────────
 
-    [Fact(DisplayName = "AddItem — product already on list unchecked: merges quantity, no new item")]
-    public async Task AddItem_ProductAlreadyUnchecked_MergesQuantity()
+    [Fact(DisplayName = "AddItem — product already on list unchecked: reconciles (tops up to shortfall), no new item")]
+    public async Task AddItem_ProductAlreadyUnchecked_ReconcilesToShortfall()
     {
         var (repo, list) = SeedList();
 
-        // First add: 2 units of product1
+        // First add: 2 units of product1 (e.g. manual add)
         var first = await AddProduct(repo, _product1, qty: 2m).ExecuteAsync();
         Assert.True(first.IsSuccess);
         Assert.Single(list.Items);
         Assert.Equal(2m, list.Items[0].Quantity);
 
-        // Second add: 3 units of product1 — should MERGE, not insert
-        var second = await AddProduct(repo, _product1, qty: 3m).ExecuteAsync();
+        // Second add: shortfall is 5 units — tops up from 2 to 5 (adds 3), not stacks to 7.
+        var second = await AddProduct(repo, _product1, qty: 5m).ExecuteAsync();
 
         Assert.True(second.IsSuccess);
         Assert.Single(list.Items);                        // still one item
-        Assert.Equal(5m, list.Items[0].Quantity);         // incremented
+        Assert.Equal(5m, list.Items[0].Quantity);         // topped up to the shortfall
         Assert.Equal(first.Value, second.Value);          // same item ID returned
+    }
+
+    [Fact(DisplayName = "AddItem — same product added twice with identical shortfall: idempotent (no-op on second add)")]
+    public async Task AddItem_SameShortfallTwice_IsIdempotent()
+    {
+        var (repo, list) = SeedList();
+
+        // First add: shortfall of 3 units
+        var first = await AddProduct(repo, _product1, qty: 3m).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+        Assert.Equal(3m, list.Items[0].Quantity);
+
+        // Second add: same shortfall of 3 units — no change, already covered
+        var second = await AddProduct(repo, _product1, qty: 3m).ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Single(list.Items);
+        Assert.Equal(3m, list.Items[0].Quantity);         // unchanged — idempotent
+        Assert.Equal(first.Value, second.Value);          // same item ID returned
+    }
+
+    [Fact(DisplayName = "AddItem — shortfall smaller than amount already on list: no-op (list not reduced)")]
+    public async Task AddItem_ShortfallSmallerThanExisting_IsNoOp()
+    {
+        var (repo, list) = SeedList();
+
+        // First add: 5 units already on list
+        var first = await AddProduct(repo, _product1, qty: 5m).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+
+        // Incoming shortfall is only 2 — already satisfied, no change
+        var second = await AddProduct(repo, _product1, qty: 2m).ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Single(list.Items);
+        Assert.Equal(5m, list.Items[0].Quantity);         // not reduced — list stays at 5
+        Assert.Equal(first.Value, second.Value);
+    }
+
+    [Fact(DisplayName = "AddItem — manual 2 on list + recipe shortfall of 5 yields 5, not 7 (top-up model)")]
+    public async Task AddItem_ManualPlusRecipeShortfall_TopsUpToShortfall()
+    {
+        var (repo, list) = SeedList();
+
+        // Manual add: 2 units
+        var first = await AddProduct(repo, _product1, qty: 2m).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+        Assert.Equal(2m, list.Items[0].Quantity);
+
+        // Recipe shortfall: 5 units needed — list should top up to 5 (toAdd = 5-2 = 3)
+        var second = await AddProduct(repo, _product1, qty: 5m).ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Single(list.Items);
+        Assert.Equal(5m, list.Items[0].Quantity); // 5, not 7
+        Assert.Equal(first.Value, second.Value);
     }
 
     [Fact(DisplayName = "AddItem — intentional-dup flag bypasses merge and inserts second line")]
@@ -400,8 +456,8 @@ public sealed class ShoppingCommandsTests
 
     // ── AddItemCommand — unit-mismatch merge policy (plantry-xw6) ────────────
 
-    [Fact(DisplayName = "AddItem — same units: merges by summing as before (regression guard)")]
-    public async Task AddItem_SameUnits_MergesBySum()
+    [Fact(DisplayName = "AddItem — same units, incoming shortfall larger: tops up to the shortfall")]
+    public async Task AddItem_SameUnits_TopsUpToShortfall()
     {
         var (repo, list) = SeedList();
         var unitA = Guid.CreateVersion7();
@@ -410,40 +466,85 @@ public sealed class ShoppingCommandsTests
         var first = await AddProduct(repo, _product1, qty: 2m, unitId: unitA).ExecuteAsync();
         Assert.True(first.IsSuccess);
 
-        // Second add: 3 × unitA — same unit, should merge to 5
-        var second = await AddProduct(repo, _product1, qty: 3m, unitId: unitA).ExecuteAsync();
+        // Second add: shortfall is 5 × unitA — tops up to 5 (toAdd = 5-2 = 3)
+        var second = await AddProduct(repo, _product1, qty: 5m, unitId: unitA).ExecuteAsync();
 
         Assert.True(second.IsSuccess);
         Assert.Single(list.Items);
-        Assert.Equal(5m, list.Items[0].Quantity);
+        Assert.Equal(5m, list.Items[0].Quantity);   // topped up to the shortfall
         Assert.Equal(unitA, list.Items[0].UnitId);
         Assert.Equal(first.Value, second.Value); // same item returned
     }
 
-    [Fact(DisplayName = "AddItem — convertible unit mismatch (e.g. g→kg): merges with converted total in existing unit")]
-    public async Task AddItem_ConvertibleMismatch_MergesWithConvertedTotal()
+    [Fact(DisplayName = "AddItem — same units, same shortfall twice: idempotent (no quantity change)")]
+    public async Task AddItem_SameUnits_SameShortfallTwice_IsIdempotent()
+    {
+        var (repo, list) = SeedList();
+        var unitA = Guid.CreateVersion7();
+
+        // First add: 3 × unitA
+        var first = await AddProduct(repo, _product1, qty: 3m, unitId: unitA).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+        Assert.Equal(3m, list.Items[0].Quantity);
+
+        // Second add: same shortfall of 3 — already covered, no-op
+        var second = await AddProduct(repo, _product1, qty: 3m, unitId: unitA).ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Single(list.Items);
+        Assert.Equal(3m, list.Items[0].Quantity);   // unchanged
+        Assert.Equal(first.Value, second.Value);
+    }
+
+    [Fact(DisplayName = "AddItem — convertible unit mismatch: reconciles in existing unit (tops up to converted shortfall)")]
+    public async Task AddItem_ConvertibleMismatch_ReconcilesToConvertedShortfall()
     {
         var (repo, list) = SeedList();
         var unitKg = Guid.CreateVersion7(); // existing unit
         var unitG = Guid.CreateVersion7();  // incoming unit
 
-        // Register: 500 g of product1 → 0.5 kg
+        // Register: 2000 g of product1 → 2.0 kg
         var catalogReader = new FakeShoppingCatalogReader();
-        catalogReader.RegisterConversion(fromUnitId: unitG, toUnitId: unitKg, productId: _product1, convertedAmount: 0.5m);
+        catalogReader.RegisterConversion(fromUnitId: unitG, toUnitId: unitKg, productId: _product1, convertedAmount: 2.0m);
 
         // First add: 1 kg (existing item in kg)
         var first = await AddProduct(repo, _product1, qty: 1m, unitId: unitKg, catalogReader: catalogReader).ExecuteAsync();
         Assert.True(first.IsSuccess);
         Assert.Single(list.Items);
+        Assert.Equal(1m, list.Items[0].Quantity);
 
-        // Second add: 500 g — should be converted to 0.5 kg and merged → 1.5 kg total
-        var second = await AddProduct(repo, _product1, qty: 500m, unitId: unitG, catalogReader: catalogReader).ExecuteAsync();
+        // Second add: 2000 g shortfall — converts to 2.0 kg; toAdd = max(0, 2.0-1.0) = 1.0 kg
+        var second = await AddProduct(repo, _product1, qty: 2000m, unitId: unitG, catalogReader: catalogReader).ExecuteAsync();
 
         Assert.True(second.IsSuccess);
         Assert.Single(list.Items);                    // still one item
-        Assert.Equal(1.5m, list.Items[0].Quantity);   // 1 kg + 0.5 kg converted
+        Assert.Equal(2.0m, list.Items[0].Quantity);   // topped up to 2 kg (1 + 1 toAdd)
         Assert.Equal(unitKg, list.Items[0].UnitId);   // expressed in existing (kg) unit
         Assert.Equal(first.Value, second.Value);      // same item ID
+    }
+
+    [Fact(DisplayName = "AddItem — convertible unit mismatch, shortfall already covered: no-op")]
+    public async Task AddItem_ConvertibleMismatch_ShortfallAlreadyCovered_IsNoOp()
+    {
+        var (repo, list) = SeedList();
+        var unitKg = Guid.CreateVersion7();
+        var unitG = Guid.CreateVersion7();
+
+        // Register: 500 g → 0.5 kg
+        var catalogReader = new FakeShoppingCatalogReader();
+        catalogReader.RegisterConversion(fromUnitId: unitG, toUnitId: unitKg, productId: _product1, convertedAmount: 0.5m);
+
+        // First add: 2 kg already on list
+        var first = await AddProduct(repo, _product1, qty: 2m, unitId: unitKg, catalogReader: catalogReader).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+
+        // Second add: 500 g shortfall → converts to 0.5 kg; toAdd = max(0, 0.5-2.0) = 0 → no-op
+        var second = await AddProduct(repo, _product1, qty: 500m, unitId: unitG, catalogReader: catalogReader).ExecuteAsync();
+
+        Assert.True(second.IsSuccess);
+        Assert.Single(list.Items);
+        Assert.Equal(2m, list.Items[0].Quantity);   // unchanged
+        Assert.Equal(first.Value, second.Value);
     }
 
     [Fact(DisplayName = "AddItem — unconvertible unit mismatch (cross-dimension, no product conversion): inserts second line")]
