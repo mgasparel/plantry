@@ -1,7 +1,9 @@
 using System.ClientModel;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
@@ -18,14 +20,26 @@ namespace Plantry.MealPlanning.Infrastructure;
 /// The AI is an untrusted external function (ADR-007): output is a proposal, never a write.
 /// Any API or parse failure is a soft failure — returns an empty list, never throws.
 /// The <see cref="MapResponse"/> static method is extracted for testability against recorded fixtures.
+///
+/// Observability (Gate 9): each call is wrapped in an <see cref="Activity"/> span
+/// (<c>meal_plan_propose</c>) with <c>ai.model</c>, <c>ai.usage.input_tokens</c>, and
+/// <c>ai.usage.output_tokens</c> attributes. Failures set the span to
+/// <see cref="ActivityStatusCode.Error"/> and emit a <c>LogError</c>. No slot content, user ids,
+/// or API key is written to any log or span attribute.
 /// </summary>
 public sealed class MealPlannerAiService : IMealPlanner
 {
     private readonly ChatClient _chat;
+    private readonly string _modelId;
+    private readonly ILogger<MealPlannerAiService> _logger;
 
-    public MealPlannerAiService(IOptions<AiOptions> options)
+    public MealPlannerAiService(
+        IOptions<AiOptions> options,
+        ILogger<MealPlannerAiService> logger)
     {
+        _logger = logger;
         var ai = options.Value;
+        _modelId = ai.Model;
         var clientOptions = new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) };
         _chat = new OpenAIClient(new ApiKeyCredential(ai.ApiKey), clientOptions)
             .GetChatClient(ai.Model);
@@ -66,6 +80,17 @@ public sealed class MealPlannerAiService : IMealPlanner
     {
         if (slotsContext.Count == 0) return [];
 
+        // Gate 9: span wraps the full AI call (latency-sensitive, most likely failure point).
+        // Attributes: model id and token usage only — no slot content, user ids, or API key.
+        using var activity = AiTelemetry.ActivitySource.StartActivity("meal_plan_propose");
+        activity?.SetTag("ai.model", _modelId);
+        activity?.SetTag("ai.meal_plan.slot_count", slotsContext.Count);
+
+        var sw = Stopwatch.StartNew();
+        _logger.LogInformation(
+            "AI meal plan proposal starting. Model: {Model}, Slots: {SlotCount}.",
+            _modelId, slotsContext.Count);
+
         try
         {
             var userMessage = BuildUserMessage(slotsContext, weights);
@@ -73,11 +98,36 @@ public sealed class MealPlannerAiService : IMealPlanner
                 [new SystemChatMessage(SystemPrompt), new UserChatMessage(userMessage)],
                 cancellationToken: ct);
 
-            return MapResponse(response.Value.Content[0].Text, slotsContext);
+            var completion = response.Value;
+            RecordTokenUsage(activity, completion.Usage);
+
+            var rawText = completion.Content.Count > 0 ? completion.Content[0].Text : null;
+
+            // Gate 9: empty response is a soft failure but must surface as an error span + log.
+            if (string.IsNullOrWhiteSpace(rawText))
+            {
+                activity?.SetStatus(ActivityStatusCode.Error, "AI returned an empty response.");
+                _logger.LogError(
+                    "AI meal plan proposal returned an empty response. Model: {Model}, ElapsedMs: {ElapsedMs}.",
+                    _modelId, sw.ElapsedMilliseconds);
+                return [];
+            }
+
+            var proposals = MapResponse(rawText, slotsContext);
+
+            sw.Stop();
+            _logger.LogInformation(
+                "AI meal plan proposal completed. Model: {Model}, Slots: {SlotCount}, Proposals: {ProposalCount}, ElapsedMs: {ElapsedMs}.",
+                _modelId, slotsContext.Count, proposals.Count, sw.ElapsedMilliseconds);
+
+            return proposals;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Soft failure: log but return empty (never throw into the page)
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            _logger.LogError(ex,
+                "AI meal plan proposal failed with exception. Model: {Model}, ElapsedMs: {ElapsedMs}.",
+                _modelId, sw.ElapsedMilliseconds);
             return [];
         }
     }
@@ -207,4 +257,11 @@ public sealed class MealPlannerAiService : IMealPlanner
 
     private static int? GetInt(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var v) ? v : null;
+
+    private static void RecordTokenUsage(Activity? activity, ChatTokenUsage? usage)
+    {
+        if (usage is null || activity is null) return;
+        activity.SetTag("ai.usage.input_tokens", usage.InputTokenCount);
+        activity.SetTag("ai.usage.output_tokens", usage.OutputTokenCount);
+    }
 }

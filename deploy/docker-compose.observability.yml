@@ -1,0 +1,88 @@
+# docker-compose.observability.yml — Optional observability overlay for Plantry
+#
+# Adds a self-contained grafana/otel-lgtm stack (OTel Collector + Loki + Tempo +
+# Prometheus + Grafana) as an opt-in overlay.  When active it receives OTLP signals
+# from plantry-web and provides a Grafana UI for querying traces, metrics, and logs.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+#
+# Grafana is available at http://127.0.0.1:3000 (localhost-only — NOT exposed to the
+# internet).  To reach it from your workstation over SSH:
+#   ssh -L 3000:127.0.0.1:3000 your-host
+# then open http://localhost:3000 in your browser.
+#
+# Default credentials (change via GF_SECURITY_ADMIN_PASSWORD in .env):
+#   user: admin
+#   pass: set GF_SECURITY_ADMIN_PASSWORD in .env (no default accepted)
+#
+# Footprint: ~0.5-1 GB RAM + an lgtm_data volume on the host.
+# Retention: configure LOKI_RETENTION_PERIOD and PROMETHEUS_RETENTION_TIME in .env
+# (interpolated into LOKI_EXTRA_ARGS / PROMETHEUS_EXTRA_ARGS — see .env.example).
+# Tempo block-retention is not exposed via CLI in the bundled otel-lgtm image; its
+# built-in default applies. See .env.example for details.
+#
+# Alternative — point at a SaaS OTLP endpoint instead of this container:
+#   Do NOT use this overlay.  Instead set OTEL_EXPORTER_OTLP_ENDPOINT and
+#   OTEL_EXPORTER_OTLP_HEADERS in .env and add them to plantry-web in a local
+#   override (or set them on the host before docker compose up -d).
+#   See docs/Operations/self-hosting.md — Observability section.
+
+services:
+
+  # ── Plantry Web (OTLP wiring) ─────────────────────────────────────────────
+  # Adds the OTEL_* env vars so plantry-web emits OTLP signals to the lgtm
+  # sidecar.  ServiceDefaults already auto-enables the OTLP exporter when
+  # OTEL_EXPORTER_OTLP_ENDPOINT is set — no app code change required.
+  plantry-web:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    depends_on:
+      lgtm:
+        condition: service_healthy
+
+  # ── LGTM (OTel Collector + Loki + Tempo + Prometheus + Grafana) ───────────
+  # Single-binary all-in-one observability stack from Grafana Labs.
+  # Receives OTLP via HTTP on port 4318 (grpc on 4317 is also accepted but
+  # unused here — http/protobuf avoids an extra gRPC dependency in the web app).
+  # Grafana listens on 3000 — bound to localhost only (security: never expose
+  # a raw, potentially unauthenticated Grafana port to the internet).
+  # Documented by Grafana as suited for single-node / development use; acceptable
+  # for a single-household VPS (ADR-016).  Upgrade path if outgrown: SigNoz or
+  # Uptrace (ClickHouse-backed, production-grade, heavier).
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    restart: unless-stopped
+    environment:
+      # Grafana admin password — REQUIRED. No default is accepted; set this in .env.
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      # Retention bounds — keep disk usage finite on a shared VPS.
+      # These pass CLI flags through to the bundled daemons (the correct mechanism
+      # for grafana/otel-lgtm; bare LOKI_RETENTION_PERIOD etc. are not recognised).
+      LOKI_EXTRA_ARGS: "--limits.retention-period=${LOKI_RETENTION_PERIOD:-744h}"
+      PROMETHEUS_EXTRA_ARGS: "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}"
+      # Note: Tempo retention in otel-lgtm is controlled by its built-in block
+      # retention config.  OTEL_TEMPO_RETENTION is documented in .env.example as
+      # a user-facing label only; pass it as TEMPO_EXTRA_ARGS if the bundled Tempo
+      # version supports --block-retention (v2.x does not expose this as a flag —
+      # the default retention of the bundled version applies until otel-lgtm exposes
+      # a supported knob or is upgraded to a version that does).
+    ports:
+      # Bind Grafana to localhost only — routing through Caddy or an SSH tunnel
+      # is required to reach it from outside the host.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - lgtm_data:/data
+    healthcheck:
+      # curl-minimal is present in the grafana/otel-lgtm image (wget is not).
+      # -sf: -s silent, -f fail on HTTP error → exit 1 on non-2xx.
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  lgtm_data:

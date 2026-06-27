@@ -42,6 +42,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
+// DB readiness check: a single lightweight CanConnectAsync probe on the Identity context
+// (representative of the shared database). Tagged "ready" so /ready reports Healthy/Unhealthy
+// without leaking check names or exception detail. Not per-context: all contexts share one
+// database, so one probe gives the full DB-connectivity signal at 1x probe cost (not 8x).
+// Container healthcheck stays on /alive (liveness) — a DB blip must not trigger restarts.
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<PlantryIdentityDbContext>("db", tags: ["ready"]);
+
 // Persist the DataProtection key ring to a fixed path mounted as a named Docker volume.
 // Without explicit PersistKeysToFileSystem, ASP.NET Core falls back to the home-relative
 // default ($HOME/.aspnet/DataProtection-Keys) and always logs warning [60] — even when

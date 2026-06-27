@@ -136,6 +136,94 @@ effectively never needed. If you must rotate:
   then pin the previous version. The project's policy is forward-fix, not rollback.
 - **Don't skip the backup on releases whose notes flag a destructive migration.**
 
+## Observability (optional)
+
+Plantry emits traces, metrics, and logs via OpenTelemetry.  OTLP export is
+dormant unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set — so the default stack is
+unchanged for operators who do not need it.
+
+There are two paths: bundle a self-contained stack on the same host, or point
+at an external SaaS endpoint.
+
+### Option A — Bundled grafana/otel-lgtm sidecar
+
+`docker-compose.observability.yml` adds a single `grafana/otel-lgtm` container
+(OTel Collector + Loki + Tempo + Prometheus + Grafana) and wires
+`OTEL_EXPORTER_OTLP_ENDPOINT` on `plantry-web`.  No app code change is needed —
+`ServiceDefaults` auto-enables the OTLP exporter when the env var is present.
+
+**Requirements:**
+
+- Add to `.env`:
+  ```
+  GF_SECURITY_ADMIN_PASSWORD=<strong random password>
+  ```
+- **Never expose port 3000 directly to the internet.**  The overlay binds
+  Grafana to `127.0.0.1:3000` (localhost only).  Access it through an SSH
+  tunnel:
+  ```bash
+  ssh -L 3000:127.0.0.1:3000 your-host
+  ```
+  then open `http://localhost:3000` in your browser.  Credentials:
+  `admin` / your `GF_SECURITY_ADMIN_PASSWORD`.
+
+**Start with the overlay:**
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.observability.yml \
+  up -d
+```
+
+**Footprint:** ~0.5–1 GB RAM + an `lgtm_data` volume.  Configure retention to
+bound disk use (defaults: Loki ~31 days, Prometheus 30 days):
+
+```
+LOKI_RETENTION_PERIOD=744h       # Loki: hours or days (e.g. 744h ≈ 31d)
+PROMETHEUS_RETENTION_TIME=30d    # Prometheus: days or weeks (e.g. 30d, 4w)
+```
+
+These are interpolated into the `LOKI_EXTRA_ARGS` and `PROMETHEUS_EXTRA_ARGS`
+environment variables that `grafana/otel-lgtm` passes to the bundled daemons.
+Setting them directly (e.g. `LOKI_RETENTION_PERIOD=744h` without `EXTRA_ARGS`)
+has no effect — the compose file handles the translation.
+
+Tempo block-retention is not exposed as a CLI flag in the bundled
+`grafana/otel-lgtm` image; the image's built-in default retention applies.  If
+you need explicit Tempo retention control, switch to a standalone Tempo
+deployment or a SaaS backend (Option B).
+
+**Upgrade path:** `grafana/otel-lgtm` is a single-binary all-in-one suited for
+a single-household VPS.  If you outgrow it, switch to
+[SigNoz](https://signoz.io/) or [Uptrace](https://uptrace.dev/) (both
+ClickHouse-backed, production-grade, heavier) and switch to Option B below.
+
+### Option B — SaaS OTLP endpoint
+
+If you have a Grafana Cloud, Honeycomb, or similar account, skip
+`docker-compose.observability.yml` entirely and set these variables instead
+(for a self-managed deployment, export them before `docker compose up -d` or
+add them to the `plantry-web` environment in a local override file):
+
+```
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.your-provider.com
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer your-ingest-token
+```
+
+`ServiceDefaults` picks these up automatically.  No `lgtm` container is
+started; no extra volume is created.
+
+### Security note
+
+No PII or secrets are included in the exported signals — trace attributes,
+metric labels, and log fields are scoped to request/response metadata and
+performance counters.  If you add custom instrumentation, follow the same
+guardrail: never include user content, passwords, or household-identifying
+data in spans or log lines that the OTLP backend persists.
+
+---
+
 ## When Plantry goes public
 
 The OSS publish surface is now in place:

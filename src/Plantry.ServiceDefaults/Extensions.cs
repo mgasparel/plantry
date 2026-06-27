@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -54,14 +55,38 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    // Domain operation metrics: plantry.intake.sessions_committed,
+                    // plantry.inventory.stock_consumed, plantry.inventory.low_stock_events,
+                    // plantry.recipes.cooked. Emitted via DomainTelemetry counters.
+                    .AddMeter("Plantry.Domain")
+                    // AI pipeline metrics: ai.parse.confidence histogram (receipt parse confidence
+                    // scores per line — high=1.0, low=0.5, none=0.0). Emitted by GeminiReceiptParser
+                    // via AiTelemetry.ParseConfidence.
+                    .AddMeter("Plantry.AI");
             })
             .WithTracing(tracing =>
             {
                 tracing.AddAspNetCoreInstrumentation()
                     // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
                     //.AddGrpcClientInstrumentation()
-                    .AddHttpClientInstrumentation();
+                    .AddHttpClientInstrumentation()
+                    // EF Core DB spans: command duration + db.statement. db.statement carries
+                    // the generated SQL with parameter placeholders only ($1, @p0) — EF does not
+                    // inline literal parameter values unless EnableSensitiveDataLogging is set
+                    // (it is not). Raw parameter values would additionally require the experimental
+                    // env var OTEL_DOTNET_EXPERIMENTAL_EFCORE_ENABLE_TRACE_DB_QUERY_PARAMETERS,
+                    // which is left unset, satisfying the no-PII-in-spans guardrail (Gate 9).
+                    .AddEntityFrameworkCoreInstrumentation()
+                    // Npgsql emits spans via its own ActivitySource ("Npgsql") since v5.
+                    // Registering the source here causes those spans to appear nested under
+                    // the EF Core command span, giving the full wire-level waterfall.
+                    .AddSource("Npgsql")
+                    // AI pipeline spans: receipt_parse (GeminiReceiptParser) and
+                    // meal_plan_propose (MealPlannerAiService). Both carry ai.model and
+                    // ai.usage.input_tokens / ai.usage.output_tokens attributes.
+                    // Error-status spans + LogError fire on failure, timeout, or empty response.
+                    .AddSource("Plantry.AI");
             });
 
         builder.AddOpenTelemetryExporters();
@@ -106,6 +131,26 @@ public static class Extensions
         app.MapHealthChecks("/alive", new HealthCheckOptions
         {
             Predicate = r => r.Tags.Contains("live")
+        });
+
+        // /ready probes DB connectivity via the "ready"-tagged check. Exposed unconditionally
+        // (safe to expose in production) because the response writer emits ONLY "Healthy"/"Unhealthy"
+        // text with the matching HTTP status code — no check names, durations, or exception detail.
+        // Use for external uptime monitoring and post-deploy smoke checks. Container healthchecks
+        // stay on /alive (liveness) so a DB blip does NOT mark the container unhealthy or trigger
+        // restart loops for DB-independent pages.
+        app.MapHealthChecks("/ready", new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("ready"),
+            ResponseWriter = static async (context, report) =>
+            {
+                // Emit only "Healthy"/"Unhealthy" — no check names, durations, or exception detail.
+                // This is what makes public production exposure safe (unlike /health, which leaks all
+                // check detail and stays dev-only).
+                context.Response.ContentType = "text/plain; charset=utf-8";
+                await context.Response.WriteAsync(
+                    report.Status == HealthStatus.Healthy ? "Healthy" : "Unhealthy");
+            }
         });
 
         if (app.Environment.IsDevelopment())

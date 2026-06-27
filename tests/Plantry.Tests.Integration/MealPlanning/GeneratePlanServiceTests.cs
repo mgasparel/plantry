@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.MealPlanning.Infrastructure;
@@ -43,7 +44,8 @@ public sealed class GeneratePlanServiceTests
         var fakeTagReader = tagReader ?? new NullTagReader();
 
         var generateService = new GeneratePlanService(
-            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, fakeTagReader);
+            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, fakeTagReader,
+            NullLogger<GeneratePlanService>.Instance);
 
         var acceptService = new AcceptProposalService(
             mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, Clock);

@@ -37,6 +37,23 @@ services:
       POSTGRES_DB: plantrydb
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Enable pg_stat_statements for query-performance visibility and log slow queries.
+    # -c shared_preload_libraries loads pg_stat_statements at startup (requires a postgres
+    # restart to change; a fresh volume picks it up automatically on first init).
+    # -c log_min_duration_statement emits a LOG line for any query that exceeds the
+    # threshold (in ms); default 1000 ms. Set to 0 to log all queries (high-volume —
+    # use only briefly for investigations; restore the default afterwards).
+    # The migrator runs CREATE EXTENSION IF NOT EXISTS pg_stat_statements automatically,
+    # so the extension view is queryable as soon as the stack is up — no manual step needed.
+    # See docs/Operations/query-performance.md for the full investigation workflow.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "pg_stat_statements.track=all"
+      - "-c"
+      - "log_min_duration_statement=${PGCONFIG_LOG_MIN_DURATION_STATEMENT:-1000}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -115,6 +132,25 @@ services:
       # If you use the bundled Caddy overlay (docker-compose.caddy.yml), remove
       # or comment this ports block so Caddy is the only ingress.
       - "${HTTP_PORT:-8080}:8080"
+    healthcheck:
+      # Parity with docker-compose.prod.yml: probe /alive (liveness) so self-hosters
+      # get the same liveness gate prod uses. /alive checks only the "live"-tagged check
+      # (a self-check that always passes), so a DB blip never marks the container unhealthy
+      # or blocks a reverse proxy that depends on service_healthy.
+      # Uses bash's /dev/tcp pseudo-device — present in the mcr.microsoft.com/dotnet/aspnet
+      # runtime image without requiring curl or wget.
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - |
+          exec 3<>/dev/tcp/localhost/8080 &&
+          printf 'GET /alive HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          head -1 <&3 | grep -q '200'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD};GssEncMode=disable"

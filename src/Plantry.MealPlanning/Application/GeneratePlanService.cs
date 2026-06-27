@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -24,7 +25,8 @@ public sealed class GeneratePlanService(
     IRecipeReadModel recipeReader,
     IPendingProposalStore proposalStore,
     MealConstraintResolver constraintResolver,
-    ITagReader tagReader)
+    ITagReader tagReader,
+    ILogger<GeneratePlanService> logger)
 {
     /// <summary>
     /// Finds all empty cells in the given week (or just <paramref name="scopeDate"/> if provided),
@@ -51,7 +53,12 @@ public sealed class GeneratePlanService(
         // 2. Load slot config, find active slots
         var slotConfig = await slotConfigRepo.FindByHouseholdAsync(householdId, ct);
         if (slotConfig is null)
+        {
+            logger.LogWarning(
+                "Meal plan generation skipped for household {HouseholdId}, week {WeekStart} — no slot configuration.",
+                householdId.Value, monday);
             return new GeneratePlanResult(0, 0, [], []);
+        }
 
         var activeSlots = slotConfig.Slots
             .Where(s => s.IsActive)
@@ -59,7 +66,12 @@ public sealed class GeneratePlanService(
             .ToList();
 
         if (activeSlots.Count == 0)
+        {
+            logger.LogWarning(
+                "Meal plan generation skipped for household {HouseholdId}, week {WeekStart} — no active meal slots.",
+                householdId.Value, monday);
             return new GeneratePlanResult(0, 0, [], []);
+        }
 
         // 3. Load all household member preferences
         var allPrefs = new List<UserPreference>();
@@ -209,6 +221,11 @@ public sealed class GeneratePlanService(
 
         // 10. Write validated proposals to the pending store
         await proposalStore.SetAsync(storeKey, validatedProposals, ct);
+
+        logger.LogInformation(
+            "Meal plan generated for household {HouseholdId}, week {WeekStart}. Proposed: {ProposedCount}, Unfilled: {UnfilledCount}, Conflicts: {ConflictCount}, Unfulfillable: {UnfulfillableCount}.",
+            householdId.Value, monday, validatedProposals.Count, unfilledCount,
+            hardConflictCells.Count, unfulfillableCells.Count);
 
         return new GeneratePlanResult(
             ProposedCount: validatedProposals.Count,
