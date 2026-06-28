@@ -225,6 +225,7 @@ builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
             sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
             sp.GetRequiredService<DomainEventDispatchInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
+builder.Services.AddScoped<PendingReviewQuery>();
 
 // Recipes context (Phase 2). P2-1 adds domain behaviour, EF child-collection mapping, and the
 // IRecipeRepository; P2-3a adds ICookEventRepository; later P2 steps add application services.

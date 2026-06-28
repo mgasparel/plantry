@@ -74,6 +74,14 @@
         </div>
     }
 
+    @* Review banner stack — intake sessions in Ready status (SPEC Page 0 §0b, plantry-yb6).
+       Renders nothing when there are no pending sessions. Sits between the header and the
+       two-column board so it is prominent without disrupting the grid layout. *@
+    @if (!Model.IsColdStart && Model.PendingReviewBanners.Count > 0)
+    {
+        <partial name="_ReviewBannerStack" model="Model" />
+    }
+
     @* Two-column board: main column (meals) + right rail (widgets) *@
     @if (!Model.IsColdStart)
     {

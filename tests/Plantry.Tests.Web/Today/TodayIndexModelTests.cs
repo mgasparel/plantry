@@ -1,4 +1,5 @@
 using Plantry.Identity.Domain;
+using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
@@ -175,6 +176,7 @@ public sealed class TodayIndexModelTests
     {
         var tenant = new FakeStaticTenantContext(TestHousehold.Value);
         var stockRepo = new FakeProductStockRepository(hasStock);
+        var sessionRepo = new FakeSessionRepository(hasPendingIntake);
         var inventoryQueries = new InventoryQueryService(
             stockRepo,
             new FakeEmptyCatalogReadFacade(),
@@ -185,7 +187,8 @@ public sealed class TodayIndexModelTests
             new FakeHouseholdRepository("Test Household"),
             stockRepo,
             new FakeRecipeRepository(hasRecipes),
-            new FakeSessionRepository(hasPendingIntake),
+            sessionRepo,
+            new PendingReviewQuery(sessionRepo),
             inventoryQueries,
             BuildEmptyBrowseQuery(tenant),
             FixedClock,
@@ -199,11 +202,13 @@ public sealed class TodayIndexModelTests
         // hasStock=true so IsColdStart=false and the widget reaches the populated/all-clear branch
         var stockRepo = new FakeProductStockRepository(hasStock: true);
         var inventoryQueries = new FakeInventoryQueryService(items, tenant);
+        var sessionRepo = new FakeSessionRepository(hasPendingIntake: false);
         return new IndexModel(
             new FakeHouseholdRepository("Test Household"),
             stockRepo,
             new FakeRecipeRepository(hasRecipes: true),
-            new FakeSessionRepository(hasPendingIntake: false),
+            sessionRepo,
+            new PendingReviewQuery(sessionRepo),
             inventoryQueries,
             BuildEmptyBrowseQuery(tenant),
             FixedClock,
@@ -412,6 +417,7 @@ public sealed class ExpiringWidgetModelTests
     {
         var tenant = new FakeStaticTenantContext2(TestHousehold.Value);
         var stockRepo = new FakeStockRepo(hasStock);
+        var sessionRepo = new FakeSessionRepo2(hasPendingIntake);
         var inventoryQueries = expiringSoon is null
             ? new InventoryQueryService(
                 stockRepo,
@@ -424,7 +430,8 @@ public sealed class ExpiringWidgetModelTests
             new FakeHouseholdRepo2("Test Household"),
             stockRepo,
             new FakeRecipeRepo2(hasRecipes),
-            new FakeSessionRepo2(hasPendingIntake),
+            sessionRepo,
+            new PendingReviewQuery(sessionRepo),
             inventoryQueries,
             BuildEmptyBrowseQuery2(tenant),
             FixedClock,
@@ -658,5 +665,109 @@ public sealed class ExpiringWidgetModelTests
     {
         public Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
             Task.FromResult(Result<decimal>.Success(amount));
+    }
+}
+
+// ── BuildBannerSub unit tests ─────────────────────────────────────────────────
+
+/// <summary>
+/// Unit tests for <see cref="IndexModel.BuildBannerSub"/> — the relative-time formatter used
+/// by the review-banner stack subtitle (plantry-yb6).
+///
+/// <c>BuildBannerSub</c> is <c>internal static</c> in <c>Plantry.Web</c>; <c>Plantry.Tests.Web</c>
+/// has <c>InternalsVisibleTo</c> access, so it can be called directly without any I/O.
+/// </summary>
+public sealed class BuildBannerSubTests
+{
+    // Reference timestamp shared across all cases.
+    private static readonly DateTimeOffset Now = new(2026, 6, 20, 12, 0, 0, TimeSpan.Zero);
+    private static readonly ImportSessionId AnyId = ImportSessionId.New();
+
+    private static PendingReviewRow RowWithAge(TimeSpan age) =>
+        new(AnyId, "Test Store", Now - age, ItemCount: 2, Amount: null);
+
+    // ── "just now" ───────────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "BuildBannerSub — age < 1 minute → 'just now'")]
+    public void BannerSub_AgeUnderOneMinute_JustNow()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromSeconds(45)), Now);
+        Assert.Equal("Forwarded by email · just now", result);
+    }
+
+    [Fact(DisplayName = "BuildBannerSub — age = 0 → 'just now'")]
+    public void BannerSub_AgeZero_JustNow()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.Zero), Now);
+        Assert.Equal("Forwarded by email · just now", result);
+    }
+
+    // ── minutes branch ───────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "BuildBannerSub — age = 1 minute → '1 minute ago' (singular)")]
+    public void BannerSub_OneMinute_SingularMinute()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromMinutes(1)), Now);
+        Assert.Equal("Forwarded by email · 1 minute ago", result);
+    }
+
+    [Fact(DisplayName = "BuildBannerSub — age = 5 minutes → '5 minutes ago' (plural)")]
+    public void BannerSub_FiveMinutes_PluralMinutes()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromMinutes(5)), Now);
+        Assert.Equal("Forwarded by email · 5 minutes ago", result);
+    }
+
+    [Fact(DisplayName = "BuildBannerSub — age = 59 minutes → minutes branch (not hours)")]
+    public void BannerSub_FiftyNineMinutes_StillMinutesBranch()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromMinutes(59)), Now);
+        Assert.Equal("Forwarded by email · 59 minutes ago", result);
+    }
+
+    // ── hours branch ──────────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "BuildBannerSub — age = 60 minutes → '1 hour ago' (crossover to hours branch)")]
+    public void BannerSub_SixtyMinutes_OneHourAgo()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromMinutes(60)), Now);
+        Assert.Equal("Forwarded by email · 1 hour ago", result);
+    }
+
+    [Fact(DisplayName = "BuildBannerSub — age = 1 hour → '1 hour ago' (singular)")]
+    public void BannerSub_OneHour_SingularHour()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromHours(1)), Now);
+        Assert.Equal("Forwarded by email · 1 hour ago", result);
+    }
+
+    [Fact(DisplayName = "BuildBannerSub — age = 3 hours → '3 hours ago' (plural)")]
+    public void BannerSub_ThreeHours_PluralHours()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromHours(3)), Now);
+        Assert.Equal("Forwarded by email · 3 hours ago", result);
+    }
+
+    [Fact(DisplayName = "BuildBannerSub — age = 23 hours → hours branch (not days)")]
+    public void BannerSub_TwentyThreeHours_StillHoursBranch()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromHours(23)), Now);
+        Assert.Equal("Forwarded by email · 23 hours ago", result);
+    }
+
+    // ── days branch ───────────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "BuildBannerSub — age = 1 day → '1 day ago' (singular)")]
+    public void BannerSub_OneDay_SingularDay()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromDays(1)), Now);
+        Assert.Equal("Forwarded by email · 1 day ago", result);
+    }
+
+    [Fact(DisplayName = "BuildBannerSub — age = 2 days → '2 days ago' (plural)")]
+    public void BannerSub_TwoDays_PluralDays()
+    {
+        var result = IndexModel.BuildBannerSub(RowWithAge(TimeSpan.FromDays(2)), Now);
+        Assert.Equal("Forwarded by email · 2 days ago", result);
     }
 }

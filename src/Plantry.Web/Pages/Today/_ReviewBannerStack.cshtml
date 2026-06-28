@@ -1,0 +1,56 @@
+@using Plantry.Web.Pages.Today
+@model IndexModel
+
+@* Review banner stack for the Today page (SPEC Page 0 §0b, plantry-yb6).
+   Renders nothing (no chrome) when there are no pending review sessions.
+   Each banner is dismissible per session using Alpine.js client-side state — the banner
+   reappears on next load if the session is still in Ready status, matching the spec's intent.
+   The stack is keyed by Kind so Phase-5 deal banners (plantry-bpw) drop in as additional
+   rows without restructuring this partial. *@
+
+@if (Model.PendingReviewBanners.Count == 0)
+{
+    @* Empty — render nothing at all (no chrome) per spec. *@
+    return;
+}
+
+<div class="today-banner-stack"
+     x-data="{ dismissed: [] }">
+    @foreach (var banner in Model.PendingReviewBanners)
+    {
+        <div class="today-banner today-banner--@banner.Kind"
+             id="today-banner-@banner.SessionId"
+             x-show="!dismissed.includes('@banner.SessionId')"
+             x-transition:leave="today-banner--leaving"
+             x-transition:leave-start="opacity: 1"
+             x-transition:leave-end="opacity: 0">
+            <div class="today-banner__ico">
+                @if (banner.Kind == "intake")
+                {
+                    <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg>
+                }
+                else
+                {
+                    <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
+                }
+            </div>
+            <div class="today-banner__body">
+                <div class="today-banner__title">@banner.Title</div>
+                @if (!string.IsNullOrEmpty(banner.Sub))
+                {
+                    <div class="today-banner__sub">@banner.Sub</div>
+                }
+            </div>
+            <div class="today-banner__act">
+                <a class="btn btn--soft btn--sm today-banner__review" href="@banner.ActionUrl">
+                    Review
+                    <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                </a>
+                <button class="today-banner__dismiss"
+                        type="button"
+                        aria-label="Dismiss"
+                        @@click="dismissed = [...dismissed, '@banner.SessionId']">&times;</button>
+            </div>
+        </div>
+    }
+</div>
