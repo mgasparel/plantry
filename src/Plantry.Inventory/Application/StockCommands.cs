@@ -25,7 +25,8 @@ public sealed class AddStockCommand(
     ICatalogReadFacade catalog,
     IClock clock,
     ITenantContext tenant,
-    StockSourceType sourceType = StockSourceType.Manual)
+    StockSourceType sourceType = StockSourceType.Manual,
+    ILogger<AddStockCommand>? logger = null)
 {
     public async Task<Result<StockEntryId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -33,13 +34,25 @@ public sealed class AddStockCommand(
             return Error.Unauthorized;
 
         if (quantity <= 0m)
+        {
+            logger?.LogWarning(
+                "AddStock rejected — invalid quantity {Quantity} for product {ProductId}.",
+                quantity, productId);
             return Error.Custom("Inventory.InvalidQuantity", "Quantity must be greater than zero.");
+        }
 
         var product = await catalog.FindProductAsync(productId, ct);
         if (product is null)
+        {
+            logger?.LogWarning("AddStock failed — product {ProductId} not found.", productId);
             return Error.Custom("Inventory.UnknownProduct", "The selected product does not exist.");
+        }
         if (!product.CanHoldStock)
+        {
+            logger?.LogWarning(
+                "AddStock failed — product {ProductId} cannot hold stock directly (is a parent).", productId);
             return Error.Custom("Inventory.ProductCannotHoldStock", "A parent product cannot hold stock directly; choose a variant.");
+        }
 
         var household = HouseholdId.From(householdId);
         var stock = await stocks.FindAsync(household, productId, ct);
@@ -70,6 +83,10 @@ public sealed class AddStockCommand(
             await stocks.SaveChangesAsync(ct);
         }
 
+        logger?.LogInformation(
+            "Stock added for product {ProductId}. Quantity: {Quantity}, SourceType: {SourceType}, EntryId: {EntryId}.",
+            productId, quantity, sourceType, entry.Id.Value);
+
         return entry.Id;
     }
 }
@@ -86,7 +103,8 @@ public sealed class SetLowStockThresholdCommand(
     IProductStockRepository stocks,
     ICatalogReadFacade catalog,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<SetLowStockThresholdCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -95,9 +113,16 @@ public sealed class SetLowStockThresholdCommand(
 
         var product = await catalog.FindProductAsync(productId, ct);
         if (product is null)
+        {
+            logger?.LogWarning("SetLowStockThreshold failed — product {ProductId} not found.", productId);
             return Error.Custom("Inventory.UnknownProduct", "The selected product does not exist.");
+        }
         if (!product.CanHoldStock)
+        {
+            logger?.LogWarning(
+                "SetLowStockThreshold failed — product {ProductId} cannot hold stock directly (is a parent).", productId);
             return Error.Custom("Inventory.ProductCannotHoldStock", "A parent product cannot hold stock directly; choose a variant.");
+        }
 
         var household = HouseholdId.From(householdId);
         var stock = await stocks.FindAsync(household, productId, ct);
@@ -121,6 +146,10 @@ public sealed class SetLowStockThresholdCommand(
         {
             await stocks.SaveChangesAsync(ct);
         }
+
+        logger?.LogInformation(
+            "Low-stock threshold set for product {ProductId}. Threshold: {Threshold}.",
+            productId, threshold);
 
         return Result.Success();
     }

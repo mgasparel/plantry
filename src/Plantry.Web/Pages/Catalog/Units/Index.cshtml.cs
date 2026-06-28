@@ -9,7 +9,7 @@ using Plantry.SharedKernel.Tenancy;
 namespace Plantry.Web.Pages.Catalog.Units;
 
 [Authorize]
-public sealed class IndexModel(IUnitRepository units, ITenantContext tenant) : PageModel
+public sealed class IndexModel(IUnitRepository units, ITenantContext tenant, ILogger<CreateUnitCommand> createUnitLogger) : PageModel
 {
     public IReadOnlyList<Unit> Units { get; private set; } = [];
 
@@ -44,7 +44,7 @@ public sealed class IndexModel(IUnitRepository units, ITenantContext tenant) : P
             return Page();
         }
 
-        var cmd = new CreateUnitCommand(Input.Code, Input.Name, Input.Dimension, Input.FactorToBase, isBase: false, units, tenant);
+        var cmd = new CreateUnitCommand(Input.Code, Input.Name, Input.Dimension, Input.FactorToBase, isBase: false, units, tenant, createUnitLogger);
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)
         {

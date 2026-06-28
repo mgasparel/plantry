@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -42,7 +43,8 @@ public sealed class AddItemCommand(
     IShoppingListRepository repository,
     IShoppingCatalogReader catalogReader,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<AddItemCommand>? logger = null)
 {
     public async Task<Result<ShoppingListItemId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -58,7 +60,10 @@ public sealed class AddItemCommand(
 
         var list = await repository.GetForHouseholdAsync(household, ct);
         if (list is null)
+        {
+            logger?.LogWarning("AddItem failed — no shopping list found for household {HouseholdId}.", householdId);
             return Error.Custom("Shopping.NoList", "No shopping list found for this household.");
+        }
 
         ShoppingListItem item;
 
@@ -160,7 +165,8 @@ public sealed class CheckOffCommand(
     Guid userId,
     IShoppingListRepository repository,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<CheckOffCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -174,14 +180,18 @@ public sealed class CheckOffCommand(
         // Tenant guard — the EF query filter already enforces this, but we assert it explicitly
         // for clarity (mirrors the pattern in other command handlers).
         if (list.HouseholdId != HouseholdId.From(householdId))
+        {
+            logger?.LogWarning("CheckOff rejected — list {ListId} does not belong to household {HouseholdId}.", listId.Value, householdId);
             return Error.Unauthorized;
+        }
 
         try
         {
             list.CheckOff(itemId, userId, clock);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            logger?.LogWarning(ex, "CheckOff failed — item {ItemId} not found on list {ListId}.", itemId.Value, listId.Value);
             return Error.NotFound;
         }
 
@@ -199,7 +209,8 @@ public sealed class UncheckItemCommand(
     ShoppingListItemId itemId,
     IShoppingListRepository repository,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<UncheckItemCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -212,14 +223,18 @@ public sealed class UncheckItemCommand(
 
         // Tenant guard — defense-in-depth alongside EF query filter.
         if (list.HouseholdId != HouseholdId.From(householdId))
+        {
+            logger?.LogWarning("UncheckItem rejected — list {ListId} does not belong to household {HouseholdId}.", listId.Value, householdId);
             return Error.Unauthorized;
+        }
 
         try
         {
             list.UncheckItem(itemId, clock);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            logger?.LogWarning(ex, "UncheckItem failed — item {ItemId} not found on list {ListId}.", itemId.Value, listId.Value);
             return Error.NotFound;
         }
 
@@ -237,7 +252,8 @@ public sealed class DeleteItemCommand(
     ShoppingListItemId itemId,
     IShoppingListRepository repository,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<DeleteItemCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -250,14 +266,18 @@ public sealed class DeleteItemCommand(
 
         // Tenant guard — defense-in-depth alongside EF query filter.
         if (list.HouseholdId != HouseholdId.From(householdId))
+        {
+            logger?.LogWarning("DeleteItem rejected — list {ListId} does not belong to household {HouseholdId}.", listId.Value, householdId);
             return Error.Unauthorized;
+        }
 
         try
         {
             list.RemoveItem(itemId, clock);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            logger?.LogWarning(ex, "DeleteItem failed — item {ItemId} not found on list {ListId}.", itemId.Value, listId.Value);
             return Error.NotFound;
         }
 
@@ -279,7 +299,8 @@ public sealed class EditQuantityCommand(
     Guid? unitId,
     IShoppingListRepository repository,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<EditQuantityCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -292,14 +313,18 @@ public sealed class EditQuantityCommand(
 
         // Tenant guard — defense-in-depth alongside EF query filter.
         if (list.HouseholdId != HouseholdId.From(householdId))
+        {
+            logger?.LogWarning("EditQuantity rejected — list {ListId} does not belong to household {HouseholdId}.", listId.Value, householdId);
             return Error.Unauthorized;
+        }
 
         try
         {
             list.EditItemQuantity(itemId, quantity, unitId, clock);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            logger?.LogWarning(ex, "EditQuantity failed — item {ItemId} not found on list {ListId}.", itemId.Value, listId.Value);
             return Error.NotFound;
         }
 
@@ -318,7 +343,8 @@ public sealed class SetNoteCommand(
     string? note,
     IShoppingListRepository repository,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<SetNoteCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -331,14 +357,18 @@ public sealed class SetNoteCommand(
 
         // Tenant guard — defense-in-depth alongside EF query filter.
         if (list.HouseholdId != HouseholdId.From(householdId))
+        {
+            logger?.LogWarning("SetNote rejected — list {ListId} does not belong to household {HouseholdId}.", listId.Value, householdId);
             return Error.Unauthorized;
+        }
 
         try
         {
             list.SetItemNote(itemId, note, clock);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            logger?.LogWarning(ex, "SetNote failed — item {ItemId} not found on list {ListId}.", itemId.Value, listId.Value);
             return Error.NotFound;
         }
 
@@ -359,7 +389,8 @@ public sealed class SetCategoryCommand(
     Guid? categoryId,
     IShoppingListRepository repository,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<SetCategoryCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -372,14 +403,18 @@ public sealed class SetCategoryCommand(
 
         // Tenant guard — defense-in-depth alongside EF query filter.
         if (list.HouseholdId != HouseholdId.From(householdId))
+        {
+            logger?.LogWarning("SetCategory rejected — list {ListId} does not belong to household {HouseholdId}.", listId.Value, householdId);
             return Error.Unauthorized;
+        }
 
         try
         {
             list.SetItemCategory(itemId, categoryId, clock);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            logger?.LogWarning(ex, "SetCategory failed — item {ItemId} not found on list {ListId}.", itemId.Value, listId.Value);
             return Error.NotFound;
         }
 
@@ -395,7 +430,8 @@ public sealed class SetCategoryCommand(
 public sealed class ClearCheckedCommand(
     IShoppingListRepository repository,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<ClearCheckedCommand>? logger = null)
 {
     public async Task<Result<int>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -406,11 +442,17 @@ public sealed class ClearCheckedCommand(
 
         var list = await repository.GetForHouseholdAsync(household, ct);
         if (list is null)
+        {
+            logger?.LogWarning("ClearChecked failed — no shopping list found for household {HouseholdId}.", householdId);
             return Error.Custom("Shopping.NoList", "No shopping list found for this household.");
+        }
 
         var cleared = list.ClearChecked(clock);
         if (cleared.Count > 0)
+        {
             await repository.SaveAsync(ct);
+            logger?.LogInformation("Cleared {ClearedCount} checked items from shopping list for household {HouseholdId}.", cleared.Count, householdId);
+        }
 
         return cleared.Count;
     }

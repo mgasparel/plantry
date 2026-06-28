@@ -23,7 +23,15 @@ public sealed class IndexModel(
     IShoppingPantryReader pantry,
     IShoppingListRepository repository,
     IClock clock,
-    ITenantContext tenant) : PageModel
+    ITenantContext tenant,
+    ILogger<AddItemCommand> addItemLogger,
+    ILogger<CheckOffCommand> checkOffLogger,
+    ILogger<UncheckItemCommand> uncheckLogger,
+    ILogger<DeleteItemCommand> deleteLogger,
+    ILogger<EditQuantityCommand> editQuantityLogger,
+    ILogger<SetNoteCommand> setNoteLogger,
+    ILogger<SetCategoryCommand> setCategoryLogger,
+    ILogger<ClearCheckedCommand> clearCheckedLogger) : PageModel
 {
     // ── View state ────────────────────────────────────────────────────────────
 
@@ -156,7 +164,8 @@ public sealed class IndexModel(
                 repository: repository,
                 catalogReader: catalog,
                 clock: clock,
-                tenant: tenant)
+                tenant: tenant,
+                logger: addItemLogger)
             : new AddItemCommand(
                 productId: null,
                 freeText: Input.FreeText!.Trim(),
@@ -169,7 +178,8 @@ public sealed class IndexModel(
                 repository: repository,
                 catalogReader: catalog,
                 clock: clock,
-                tenant: tenant);
+                tenant: tenant,
+                logger: addItemLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)
@@ -220,7 +230,8 @@ public sealed class IndexModel(
             userId: CurrentUserId,
             repository: repository,
             clock: clock,
-            tenant: tenant);
+            tenant: tenant,
+            logger: checkOffLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
@@ -247,7 +258,8 @@ public sealed class IndexModel(
             itemId: ShoppingListItemId.From(itemId),
             repository: repository,
             clock: clock,
-            tenant: tenant);
+            tenant: tenant,
+            logger: uncheckLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
@@ -275,7 +287,8 @@ public sealed class IndexModel(
             itemId: ShoppingListItemId.From(itemId),
             repository: repository,
             clock: clock,
-            tenant: tenant);
+            tenant: tenant,
+            logger: deleteLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
@@ -304,7 +317,8 @@ public sealed class IndexModel(
             unitId: unitId,
             repository: repository,
             clock: clock,
-            tenant: tenant);
+            tenant: tenant,
+            logger: editQuantityLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
@@ -331,7 +345,8 @@ public sealed class IndexModel(
             note: note,
             repository: repository,
             clock: clock,
-            tenant: tenant);
+            tenant: tenant,
+            logger: setNoteLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
@@ -359,7 +374,8 @@ public sealed class IndexModel(
             categoryId: categoryId,
             repository: repository,
             clock: clock,
-            tenant: tenant);
+            tenant: tenant,
+            logger: setCategoryLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure && result.Error != Plantry.SharedKernel.Error.NotFound)
@@ -384,7 +400,8 @@ public sealed class IndexModel(
         var cmd = new ClearCheckedCommand(
             repository: repository,
             clock: clock,
-            tenant: tenant);
+            tenant: tenant,
+            logger: clearCheckedLogger);
 
         await cmd.ExecuteAsync();
 

@@ -48,7 +48,8 @@ public sealed class GeneratePlanServiceTests
             NullLogger<GeneratePlanService>.Instance);
 
         var acceptService = new AcceptProposalService(
-            mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, Clock);
+            mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, Clock,
+            NullLogger<AcceptProposalService>.Instance);
 
         return (generateService, acceptService, store, mealPlanRepo, slotConfigRepo);
     }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
@@ -17,7 +18,7 @@ public sealed class ManageSlotsServiceTests
     private static ManageSlotsService BuildService(
         FakeMealSlotConfigRepository repo,
         FakeSlotsMemberReader? reader = null)
-        => new(repo, reader ?? new FakeSlotsMemberReader(), Clock);
+        => new(repo, reader ?? new FakeSlotsMemberReader(), Clock, NullLogger<ManageSlotsService>.Instance);
 
     // ── GetSlotsAsync ─────────────────────────────────────────────────────────
 

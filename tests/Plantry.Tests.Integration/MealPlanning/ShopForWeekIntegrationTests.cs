@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.MealPlanning.Infrastructure;
@@ -68,7 +69,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
             [new RecipeMissingIngredient(_productId, 1.5m, _unitId)]);
         var stockReader = new NullMealPlanStockReader();
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter);
+        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
         var result = await svc.ExecuteAsync(_household, Monday);
 
         Assert.Equal(1, result.ItemsAdded);
@@ -95,7 +96,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
             [new RecipeMissingIngredient(_productId, 1.5m, _unitId)]);
         var stockReader = new NullMealPlanStockReader();
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter);
+        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
 
         // First shop — 1.5 units written to the list
         var r1 = await svc.ExecuteAsync(_household, Monday);
@@ -111,7 +112,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
 
         // Second shop — same product, same shortfall (still missing): reconcile → no-op
         var (mealPlanRepo2, shopWriter2) = BuildAdapters();
-        var svc2 = new ShopForWeekService(mealPlanRepo2, recipeReader, stockReader, shopWriter2);
+        var svc2 = new ShopForWeekService(mealPlanRepo2, recipeReader, stockReader, shopWriter2, NullLogger<ShopForWeekService>.Instance);
         var r2 = await svc2.ExecuteAsync(_household, Monday);
         Assert.Equal(1, r2.ItemsAdded);
 
@@ -134,7 +135,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         var recipeReader = new FakeMissingReader(_recipeId, []);
         var stockReader = new NullMealPlanStockReader();
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter);
+        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
         var result = await svc.ExecuteAsync(_household, Monday);
 
         Assert.Equal(0, result.ItemsAdded);
@@ -162,7 +163,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         // returns 0 available + the real DefaultUnitId (was null before fix, causing Guid.Empty drop).
         var stockReader = new ZeroStockReader(_productId, _unitId);
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter);
+        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
         var result = await svc.ExecuteAsync(_household, Monday);
 
         Assert.Equal(1, result.ItemsAdded);

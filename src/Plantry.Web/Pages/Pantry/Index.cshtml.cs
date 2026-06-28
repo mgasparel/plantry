@@ -26,7 +26,8 @@ public sealed class IndexModel(
     ICategoryRepository categories,
     ILocationRepository locations,
     IClock clock,
-    ITenantContext tenant) : PageModel
+    ITenantContext tenant,
+    ILogger<AddStockCommand> addStockLogger) : PageModel
 {
     public DataGridViewModel PantryGrid { get; private set; } = null!;
 
@@ -117,7 +118,7 @@ public sealed class IndexModel(
         var cmd = new AddStockCommand(
             Input.ProductId!.Value, Input.Quantity!.Value, Input.UnitId!.Value, Input.LocationId!.Value,
             CurrentUserId, skuId: null, expiryDate: expiry, purchasedAt: Today(),
-            stocks, catalog, clock, tenant);
+            stocks, catalog, clock, tenant, logger: addStockLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)

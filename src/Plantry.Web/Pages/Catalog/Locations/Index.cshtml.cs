@@ -10,7 +10,11 @@ using Plantry.SharedKernel.Tenancy;
 namespace Plantry.Web.Pages.Catalog.Locations;
 
 [Authorize]
-public sealed class IndexModel(ILocationRepository locations, ITenantContext tenant, IClock clock) : PageModel
+public sealed class IndexModel(
+    ILocationRepository locations,
+    ITenantContext tenant,
+    IClock clock,
+    ILogger<CreateLocationCommand> createLocationLogger) : PageModel
 {
     public IReadOnlyList<Location> Locations { get; private set; } = [];
 
@@ -37,7 +41,7 @@ public sealed class IndexModel(ILocationRepository locations, ITenantContext ten
             return Page();
         }
 
-        var cmd = new CreateLocationCommand(Input.Name, Input.Type, locations, tenant);
+        var cmd = new CreateLocationCommand(Input.Name, Input.Type, locations, tenant, createLocationLogger);
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)
         {

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -26,7 +27,7 @@ public sealed class ManageTagsServiceTests
     {
         var tags = new FakeTagRepository();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
-        var service = new ManageTagsService(tags, Clock, tenant);
+        var service = new ManageTagsService(tags, Clock, tenant, NullLogger<ManageTagsService>.Instance);
         return new Harness { Tags = tags, Service = service };
     }
 

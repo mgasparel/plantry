@@ -10,7 +10,12 @@ using Plantry.SharedKernel.Tenancy;
 namespace Plantry.Web.Pages.Catalog.Categories;
 
 [Authorize]
-public sealed class IndexModel(ICategoryRepository categories, ITenantContext tenant, IClock clock) : PageModel
+public sealed class IndexModel(
+    ICategoryRepository categories,
+    ITenantContext tenant,
+    IClock clock,
+    ILogger<CreateCategoryCommand> createCategoryLogger,
+    ILogger<UpdateCategoryCommand> updateCategoryLogger) : PageModel
 {
     public IReadOnlyList<Category> Categories { get; private set; } = [];
 
@@ -44,7 +49,7 @@ public sealed class IndexModel(ICategoryRepository categories, ITenantContext te
         var existing = await categories.ListActiveAsync();
         var nextSortOrder = existing.Count == 0 ? 0 : existing.Max(c => c.SortOrder) + 10;
 
-        var cmd = new CreateCategoryCommand(Input.Name, Input.DefaultDueDays, nextSortOrder, categories, tenant);
+        var cmd = new CreateCategoryCommand(Input.Name, Input.DefaultDueDays, nextSortOrder, categories, tenant, createCategoryLogger);
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)
         {
@@ -64,7 +69,7 @@ public sealed class IndexModel(ICategoryRepository categories, ITenantContext te
             return Page();
         }
 
-        var cmd = new UpdateCategoryCommand(CategoryId.From(id), Input.Name, Input.DefaultDueDays, Input.SortOrder, categories);
+        var cmd = new UpdateCategoryCommand(CategoryId.From(id), Input.Name, Input.DefaultDueDays, Input.SortOrder, categories, updateCategoryLogger);
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)
         {

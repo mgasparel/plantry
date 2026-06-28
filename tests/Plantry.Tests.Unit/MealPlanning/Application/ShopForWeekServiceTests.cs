@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
@@ -199,7 +200,8 @@ public sealed class ShopForWeekServiceTests
             repo ?? new FakeMealPlanRepository(),
             recipeReader ?? new FakeMissingIngredientsReader(Guid.Empty, []),
             stockReader ?? new FakeStockReaderForShop(null),
-            writer ?? new FakeShoppingWriter());
+            writer ?? new FakeShoppingWriter(),
+            NullLogger<ShopForWeekService>.Instance);
 }
 
 // ── test doubles ──────────────────────────────────────────────────────────────

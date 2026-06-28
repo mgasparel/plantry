@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
@@ -23,7 +24,7 @@ public sealed class SetPlanningSettingsServiceTests
     {
         settingsRepo = new FakePlanningSettingsRepo();
         overrideRepo = new FakeWeekOverrideRepo();
-        return new SetPlanningSettingsService(settingsRepo, overrideRepo);
+        return new SetPlanningSettingsService(settingsRepo, overrideRepo, NullLogger<SetPlanningSettingsService>.Instance);
     }
 
     // ── Per-week override: create ─────────────────────────────────────────────

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -14,7 +15,8 @@ namespace Plantry.Recipes.Application;
 public sealed class ManageTagsService(
     ITagRepository tags,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<ManageTagsService> logger)
 {
     // ── Queries ──────────────────────────────────────────────────────────────────────────────────
 
@@ -40,14 +42,21 @@ public sealed class ManageTagsService(
         var household = RequireHousehold();
         var trimmed = name?.Trim() ?? string.Empty;
         if (string.IsNullOrEmpty(trimmed))
+        {
+            logger.LogWarning("CreateTag rejected — name is blank.");
             return ManageTagResult.Invalid("Name must not be blank.");
+        }
 
         if (await tags.FindByNameAsync(household, trimmed, ct) is not null)
+        {
+            logger.LogWarning("CreateTag rejected — tag name '{TagName}' already exists.", trimmed);
             return ManageTagResult.Conflict($"A tag named '{trimmed}' already exists.");
+        }
 
         var tag = Tag.Create(household, trimmed, category, clock);
         await tags.AddAsync(tag, ct);
         await tags.SaveChangesAsync(ct);
+        logger.LogInformation("Tag '{TagName}' created with id {TagId}.", trimmed, tag.Id.Value);
         return ManageTagResult.Ok(tag.Id);
     }
 
@@ -62,19 +71,30 @@ public sealed class ManageTagsService(
         var household = RequireHousehold();
         var trimmed = name?.Trim() ?? string.Empty;
         if (string.IsNullOrEmpty(trimmed))
+        {
+            logger.LogWarning("RenameTag rejected — name is blank for tag {TagId}.", tagId.Value);
             return ManageTagResult.Invalid("Name must not be blank.");
+        }
 
         var tag = await tags.GetByIdAsync(tagId, ct);
         if (tag is null)
+        {
+            logger.LogWarning("RenameTag failed — tag {TagId} not found.", tagId.Value);
             return ManageTagResult.NotFound();
+        }
 
         // Uniqueness: only reject if another tag (not this one) owns the name.
         var existing = await tags.FindByNameAsync(household, trimmed, ct);
         if (existing is not null && existing.Id != tagId)
+        {
+            logger.LogWarning(
+                "RenameTag rejected — tag name '{TagName}' already exists for tag {TagId}.", trimmed, tagId.Value);
             return ManageTagResult.Conflict($"A tag named '{trimmed}' already exists.");
+        }
 
         tag.Rename(trimmed, clock);
         await tags.SaveChangesAsync(ct);
+        logger.LogInformation("Tag {TagId} renamed to '{TagName}'.", tagId.Value, trimmed);
         return ManageTagResult.Ok(tagId);
     }
 
@@ -83,7 +103,10 @@ public sealed class ManageTagsService(
     {
         var tag = await tags.GetByIdAsync(tagId, ct);
         if (tag is null)
+        {
+            logger.LogWarning("SetTagCategory failed — tag {TagId} not found.", tagId.Value);
             return ManageTagResult.NotFound();
+        }
 
         tag.SetCategory(category, clock);
         await tags.SaveChangesAsync(ct);
@@ -99,10 +122,14 @@ public sealed class ManageTagsService(
     {
         var tag = await tags.GetByIdAsync(tagId, ct);
         if (tag is null)
+        {
+            logger.LogWarning("ArchiveTag failed — tag {TagId} not found.", tagId.Value);
             return ManageTagResult.NotFound();
+        }
 
         tag.Archive(clock);
         await tags.SaveChangesAsync(ct);
+        logger.LogInformation("Tag {TagId} archived.", tagId.Value);
         return ManageTagResult.Ok(tagId);
     }
 
@@ -114,10 +141,14 @@ public sealed class ManageTagsService(
     {
         var tag = await tags.GetByIdAsync(tagId, ct);
         if (tag is null)
+        {
+            logger.LogWarning("UnarchiveTag failed — tag {TagId} not found.", tagId.Value);
             return ManageTagResult.NotFound();
+        }
 
         tag.Unarchive(clock);
         await tags.SaveChangesAsync(ct);
+        logger.LogInformation("Tag {TagId} unarchived.", tagId.Value);
         return ManageTagResult.Ok(tagId);
     }
 

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -16,7 +17,8 @@ public sealed class AcceptProposalService(
     IRecipeReadModel recipeReader,
     IPendingProposalStore proposalStore,
     MealConstraintResolver constraintResolver,
-    IClock clock)
+    IClock clock,
+    ILogger<AcceptProposalService> logger)
 {
     /// <summary>
     /// Accepts all pending proposals for a week. Re-validates each proposal (trust boundary).
@@ -48,7 +50,12 @@ public sealed class AcceptProposalService(
             if (result.IsValid && result.ValidatedProposal is not null)
                 validatedProposals.Add(result.ValidatedProposal);
             else
+            {
+                logger.LogWarning(
+                    "Proposal re-validation failed for cell {Date}/{SlotId} — recipe may have been removed.",
+                    proposal.Date, proposal.MealSlotId.Value);
                 rejected++;
+            }
         }
 
         int accepted = 0;
@@ -60,6 +67,9 @@ public sealed class AcceptProposalService(
         }
 
         await proposalStore.ClearAsync(storeKey, ct);
+        logger.LogInformation(
+            "AcceptAll completed for week {WeekStart}. Accepted: {Accepted}, Rejected: {Rejected}.",
+            weekStart, accepted, rejected);
         return new AcceptResult(accepted, rejected);
     }
 
@@ -87,6 +97,9 @@ public sealed class AcceptProposalService(
         var result = ProposalAcl.Validate(proposal, candidates, constraints);
         if (!result.IsValid || result.ValidatedProposal is null)
         {
+            logger.LogWarning(
+                "AcceptCell re-validation failed for cell {Date}/{SlotId} — recipe may have been removed.",
+                date, slotId.Value);
             await proposalStore.RemoveAsync(storeKey, date, slotId, ct);
             return new AcceptCellResult(Accepted: false, Reason: "Proposal failed re-validation (recipe may have been removed).");
         }
@@ -97,6 +110,8 @@ public sealed class AcceptProposalService(
         await mealPlanRepo.SaveChangesAsync(ct);
 
         await proposalStore.RemoveAsync(storeKey, date, slotId, ct);
+        logger.LogInformation(
+            "Proposal accepted for cell {Date}/{SlotId}.", date, slotId.Value);
         return new AcceptCellResult(Accepted: true, Reason: null);
     }
 

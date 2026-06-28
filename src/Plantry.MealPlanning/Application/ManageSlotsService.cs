@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -12,7 +13,8 @@ namespace Plantry.MealPlanning.Application;
 public sealed class ManageSlotsService(
     IMealSlotConfigRepository repository,
     IHouseholdMemberReader memberReader,
-    IClock clock)
+    IClock clock,
+    ILogger<ManageSlotsService> logger)
 {
     /// <summary>Returns the slot config for the household, or null if none exists yet.</summary>
     public Task<MealSlotConfig?> GetSlotsAsync(HouseholdId householdId, CancellationToken ct = default)
@@ -34,6 +36,7 @@ public sealed class ManageSlotsService(
 
         config.AddSlot(label, clock);
         await repository.SaveChangesAsync(ct);
+        logger.LogInformation("Meal slot '{Label}' added for household {HouseholdId}.", label, householdId.Value);
     }
 
     /// <summary>Renames an active slot.</summary>
@@ -46,6 +49,7 @@ public sealed class ManageSlotsService(
         var config = await RequireConfigAsync(householdId, ct);
         config.RenameSlot(slotId, newLabel, clock);
         await repository.SaveChangesAsync(ct);
+        logger.LogInformation("Meal slot {SlotId} renamed for household {HouseholdId}.", slotId.Value, householdId.Value);
     }
 
     /// <summary>Reorders active slots to match the supplied ordered list of IDs.</summary>
@@ -57,6 +61,7 @@ public sealed class ManageSlotsService(
         var config = await RequireConfigAsync(householdId, ct);
         config.ReorderSlots(orderedIds, clock);
         await repository.SaveChangesAsync(ct);
+        logger.LogInformation("Meal slots reordered for household {HouseholdId}.", householdId.Value);
     }
 
     /// <summary>Sets the default attendees on an active slot.</summary>
@@ -69,6 +74,7 @@ public sealed class ManageSlotsService(
         var config = await RequireConfigAsync(householdId, ct);
         config.SetDefaultAttendees(slotId, memberIds, clock);
         await repository.SaveChangesAsync(ct);
+        logger.LogInformation("Default attendees set for meal slot {SlotId} in household {HouseholdId}.", slotId.Value, householdId.Value);
     }
 
     /// <summary>Soft-archives an active slot; renumbers remaining active ordinals.</summary>
@@ -80,14 +86,21 @@ public sealed class ManageSlotsService(
         var config = await RequireConfigAsync(householdId, ct);
         config.ArchiveSlot(slotId, clock);
         await repository.SaveChangesAsync(ct);
+        logger.LogInformation("Meal slot {SlotId} archived for household {HouseholdId}.", slotId.Value, householdId.Value);
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private async Task<MealSlotConfig> RequireConfigAsync(HouseholdId householdId, CancellationToken ct)
     {
-        return await repository.FindByHouseholdAsync(householdId, ct)
-            ?? throw new InvalidOperationException(
+        var config = await repository.FindByHouseholdAsync(householdId, ct);
+        if (config is null)
+        {
+            logger.LogWarning(
+                "RequireConfig failed — no meal slot config for household {HouseholdId}.", householdId.Value);
+            throw new InvalidOperationException(
                 $"No meal slot config found for household '{householdId}'.");
+        }
+        return config;
     }
 }

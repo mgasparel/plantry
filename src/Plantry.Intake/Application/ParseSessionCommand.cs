@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -22,7 +23,8 @@ public sealed class ParseSessionCommand(
     IReceiptParser parser,
     ICatalogHintProvider hints,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<ParseSessionCommand>? logger = null)
 {
     public async Task<Result<ImportSessionId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -46,6 +48,9 @@ public sealed class ParseSessionCommand(
 
         if (parse.HasError)
         {
+            logger?.LogWarning(
+                "Receipt parse failed for session {SessionId}: {ParseError}.",
+                session.Id.Value, parse.ErrorMessage);
             session.MarkParsingFailed(parse.ErrorMessage!);
             await sessions.SaveChangesAsync(ct);
             return session.Id;
@@ -63,6 +68,9 @@ public sealed class ParseSessionCommand(
 
         session.MarkReady(parse.MerchantText, clock.UtcNow);
         await sessions.SaveChangesAsync(ct);
+        logger?.LogInformation(
+            "Receipt parsed successfully. Session {SessionId} is Ready with {LineCount} line(s).",
+            session.Id.Value, parse.Lines.Count);
         return session.Id;
     }
 

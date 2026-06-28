@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Migration.Grocy;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
@@ -49,7 +50,7 @@ public sealed class RecipeCommitServiceTests
             var converter = new FakeUnitConverter();
             var writer    = new FakeCatalogWriter(Products, converter);
             var tenant    = new FakeTenantContext(authenticated ? HouseholdGuid : (Guid?)null);
-            var author    = new AuthorRecipe(Recipes, tags, Products, writer, converter, Clock, tenant);
+            var author    = new AuthorRecipe(Recipes, tags, Products, writer, converter, Clock, tenant, NullLogger<AuthorRecipe>.Instance);
 
             Service = new RecipeCommitService(author, Recipes, Clock, tenant);
         }

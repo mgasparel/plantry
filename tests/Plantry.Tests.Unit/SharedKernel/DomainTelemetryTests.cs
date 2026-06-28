@@ -364,7 +364,7 @@ public sealed class DomainTelemetryTests
         var products = new MetricsTestCatalogProductReader();
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant);
+        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
 
         products.AddTracked(productId, unitId);
 
@@ -397,7 +397,7 @@ public sealed class DomainTelemetryTests
         var products = new MetricsTestCatalogProductReader();
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant);
+        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
 
         var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, clock, tenant, reconciler,
             NullLogger<CookRecipe>.Instance);

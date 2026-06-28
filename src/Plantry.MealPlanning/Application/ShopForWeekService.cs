@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 
@@ -16,7 +17,8 @@ public sealed class ShopForWeekService(
     IMealPlanRepository mealPlanRepo,
     IRecipeReadModel recipeReader,
     IMealPlanStockReader stockReader,
-    IMealPlanShoppingWriter shoppingWriter)
+    IMealPlanShoppingWriter shoppingWriter,
+    ILogger<ShopForWeekService> logger)
 {
     /// <summary>
     /// Collects all missing items for the week and adds them to the shopping list.
@@ -95,6 +97,10 @@ public sealed class ShopForWeekService(
             .ToList();
 
         await shoppingWriter.AddItemsAsync(items, source: "meal_plan", sourceRef: plan.Id.Value, ct);
+
+        logger.LogInformation(
+            "ShopForWeek added {ItemCount} missing product line(s) to shopping list for week {WeekStart}.",
+            items.Count, weekStart);
 
         return new ShopForWeekResult(items.Count);
     }
