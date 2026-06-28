@@ -43,7 +43,8 @@ public sealed class IndexModel(
     Plantry.Recipes.Domain.CostingService recipesCostingService,
     ITenantContext tenant,
     UserManager<AppUser> userManager,
-    IClock clock) : PageModel
+    IClock clock,
+    ILogger<IndexModel> logger) : PageModel
 {
     public DateOnly WeekStart { get; private set; }
     public DateOnly PrevWeekStart { get; private set; }
@@ -1199,7 +1200,7 @@ public sealed class IndexModel(
     /// Computes ghost-cell enrichment from the pre-loaded bag (pure, no IO).
     /// Best-effort: returns null on an empty proposal or when no recipe facts are in the bag.
     /// </summary>
-    private static MealFulfillmentVm? BuildGhostEnrichmentFromBag(
+    private MealFulfillmentVm? BuildGhostEnrichmentFromBag(
         WeekBagEnricher enricher, ProposedMeal pending, DateOnly today)
     {
         if (pending.Dishes.Count == 0) return null;
@@ -1239,9 +1240,13 @@ public sealed class IndexModel(
             var costIsPartial = anyPartial || (anyPriced && anyUnpriced);
             return new MealFulfillmentVm(avgFulfill, hasExpiring, totalCost, costIsPartial);
         }
-        catch
+        catch (Exception ex)
         {
             // Enrichment is best-effort — degrade gracefully if computation fails.
+            logger.LogWarning(ex,
+                "Ghost enrichment (bag path) failed for household {HouseholdId}, recipes {RecipeIds}; degrading to no-overlay",
+                tenant.HouseholdId,
+                string.Join(",", pending.Dishes.Select(d => d.RecipeId)));
             return null;
         }
     }
@@ -1274,9 +1279,13 @@ public sealed class IndexModel(
                 fulfillment.FulfillmentPercent, fulfillment.HasExpiringIngredients,
                 mealCost.Amount, mealCost.Completeness == CostCompleteness.Partial);
         }
-        catch
+        catch (Exception ex)
         {
             // Enrichment is best-effort — degrade gracefully if roll-up fails.
+            logger.LogWarning(ex,
+                "Ghost enrichment (async path) failed for household {HouseholdId}, recipes {RecipeIds}; degrading to no-overlay",
+                householdId,
+                string.Join(",", pending.Dishes.Select(d => d.RecipeId)));
             return null;
         }
     }
