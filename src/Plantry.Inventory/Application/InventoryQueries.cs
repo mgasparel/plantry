@@ -218,7 +218,9 @@ public sealed class InventoryQueryService(
             : (activeLots.Sum(l => l.Quantity), "?"); // mixed incompatible units — honest but rare
     }
 
-    private static decimal SumInDisplayUnit(IEnumerable<StockEntry> lots, Guid displayUnitId, IQuantityConverter converter)
+    /// <summary>Shared with <see cref="ConsumeStockCommand"/> — both paths must agree on the on-hand
+    /// sum so the low-stock counter and the pantry UI always agree on the running-low state.</summary>
+    internal static decimal SumInDisplayUnit(IEnumerable<StockEntry> lots, Guid displayUnitId, IQuantityConverter converter)
     {
         var total = 0m;
         foreach (var lot in lots)

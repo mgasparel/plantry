@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Catalog.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -10,7 +11,8 @@ public sealed class CreateCategoryCommand(
     int? defaultDueDays,
     int sortOrder,
     ICategoryRepository categories,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<CreateCategoryCommand>? logger = null)
 {
     public async Task<Result<CategoryId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -18,12 +20,16 @@ public sealed class CreateCategoryCommand(
             return Error.Unauthorized;
 
         if (await categories.FindByNameAsync(name.Trim(), ct) is not null)
+        {
+            logger?.LogWarning("CreateCategory rejected — duplicate category name {CategoryName}.", name);
             return Error.Custom("Catalog.DuplicateCategoryName", $"A category named '{name}' already exists.");
+        }
 
         var category = Category.Create(HouseholdId.From(householdId), name, defaultDueDays, sortOrder);
         await categories.AddAsync(category, ct);
         await categories.SaveChangesAsync(ct);
 
+        logger?.LogInformation("Category {CategoryId} created with name {CategoryName}.", category.Id.Value, name);
         return category.Id;
     }
 }
@@ -33,22 +39,31 @@ public sealed class UpdateCategoryCommand(
     string name,
     int? defaultDueDays,
     int sortOrder,
-    ICategoryRepository categories)
+    ICategoryRepository categories,
+    ILogger<UpdateCategoryCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
         var category = await categories.FindAsync(id, ct);
-        if (category is null) return Error.NotFound;
+        if (category is null)
+        {
+            logger?.LogWarning("UpdateCategory failed — category {CategoryId} not found.", id.Value);
+            return Error.NotFound;
+        }
 
         var existing = await categories.FindByNameAsync(name.Trim(), ct);
         if (existing is not null && existing.Id != id)
+        {
+            logger?.LogWarning("UpdateCategory {CategoryId} rejected — duplicate category name {CategoryName}.", id.Value, name);
             return Error.Custom("Catalog.DuplicateCategoryName", $"A category named '{name}' already exists.");
+        }
 
         category.Rename(name);
         category.SetDefaultDueDays(defaultDueDays);
         category.SetSortOrder(sortOrder);
         await categories.SaveChangesAsync(ct);
 
+        logger?.LogInformation("Category {CategoryId} updated.", id.Value);
         return Result.Success();
     }
 }
@@ -83,30 +98,40 @@ public sealed class ReorderCategoriesCommand(IReadOnlyList<CategoryId> orderedId
 /// Soft-deletes a category (Gate 6). Reference data is archived, never hard-deleted, so products
 /// holding the (FK-less) <c>category_id</c> keep resolving to a name.
 /// </summary>
-public sealed class ArchiveCategoryCommand(CategoryId id, ICategoryRepository categories, IClock clock)
+public sealed class ArchiveCategoryCommand(CategoryId id, ICategoryRepository categories, IClock clock, ILogger<ArchiveCategoryCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
         var category = await categories.FindAsync(id, ct);
-        if (category is null) return Error.NotFound;
+        if (category is null)
+        {
+            logger?.LogWarning("ArchiveCategory failed — category {CategoryId} not found.", id.Value);
+            return Error.NotFound;
+        }
 
         category.Archive(clock);
         await categories.SaveChangesAsync(ct);
 
+        logger?.LogInformation("Category {CategoryId} archived.", id.Value);
         return Result.Success();
     }
 }
 
-public sealed class UnarchiveCategoryCommand(CategoryId id, ICategoryRepository categories)
+public sealed class UnarchiveCategoryCommand(CategoryId id, ICategoryRepository categories, ILogger<UnarchiveCategoryCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
         var category = await categories.FindAsync(id, ct);
-        if (category is null) return Error.NotFound;
+        if (category is null)
+        {
+            logger?.LogWarning("UnarchiveCategory failed — category {CategoryId} not found.", id.Value);
+            return Error.NotFound;
+        }
 
         category.Unarchive();
         await categories.SaveChangesAsync(ct);
 
+        logger?.LogInformation("Category {CategoryId} unarchived.", id.Value);
         return Result.Success();
     }
 }

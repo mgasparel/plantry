@@ -15,6 +15,8 @@ using Plantry.Web.Recipes;
 using Xunit;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
 using InventoryProductStock = Plantry.Inventory.Domain.ProductStock;
+using CatalogCategoryRepository = Plantry.Catalog.Infrastructure.CategoryRepository;
+using CatalogLocationRepository = Plantry.Catalog.Infrastructure.LocationRepository;
 
 namespace Plantry.Tests.Integration.Recipes;
 
@@ -193,10 +195,13 @@ public sealed class InventoryConsumerAdapterTests(PostgresFixture db) : IAsyncLi
         var catDb = NewCatalogDb();
         var productRepo = new Plantry.Catalog.Infrastructure.ProductRepository(catDb);
         var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catDb);
+        var categoryRepo = new CatalogCategoryRepository(catDb);
+        var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
+        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo);
         var stocks = new ProductStockRepository(invDb);
         var tenant = new TestTenant(_household.Value);
-        return new InventoryConsumerAdapter(stocks, conversions, Clock, tenant,
+        return new InventoryConsumerAdapter(stocks, catalog, conversions, Clock, tenant,
             NullLogger<ConsumeStockCommand>.Instance);
     }
 

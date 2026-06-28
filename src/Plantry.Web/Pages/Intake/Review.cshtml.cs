@@ -46,7 +46,12 @@ public sealed class ReviewModel(
     IRecordPricePort recordPrice,
     IClock clock,
     ITenantContext tenant,
-    ILogger<CommitSessionCommand> commitLogger) : PageModel
+    ILogger<CommitSessionCommand> commitLogger,
+    ILogger<DiscardSessionCommand> discardLogger,
+    ILogger<DismissLineCommand> dismissLogger,
+    ILogger<ResolveLineCommand> resolveLogger,
+    ILogger<ConfirmLineAsNewCommand> confirmAsNewLogger,
+    ILogger<RestoreLineCommand> restoreLogger) : PageModel
 {
     /// <summary>Session id from the route; bound on GET and carried on every POST via the URL.</summary>
     [BindProperty(SupportsGet = true)]
@@ -132,7 +137,7 @@ public sealed class ReviewModel(
                 edit.NewProductName!, edit.NewProductCategoryId!.Value,
                 quantity, unitId, locationId,
                 edit.ExpiryDate, edit.Price,
-                sessions, tenant).ExecuteAsync(ct);
+                sessions, tenant, confirmAsNewLogger).ExecuteAsync(ct);
         }
         else
         {
@@ -144,7 +149,7 @@ public sealed class ReviewModel(
                 edit.ProductId!.Value, skuId: edit.SkuId,
                 quantity, unitId, locationId,
                 edit.ExpiryDate, edit.Price,
-                sessions, tenant).ExecuteAsync(ct);
+                sessions, tenant, resolveLogger).ExecuteAsync(ct);
         }
 
         if (result.IsFailure)
@@ -178,7 +183,7 @@ public sealed class ReviewModel(
 
         var id = ImportLineId.From(lineId);
         var result = await new DismissLineCommand(
-            ImportSessionId.From(Id), id, sessions, tenant).ExecuteAsync(ct);
+            ImportSessionId.From(Id), id, sessions, tenant, dismissLogger).ExecuteAsync(ct);
 
         if (result.IsFailure)
             return JsonError(result.Error.Description);
@@ -194,7 +199,7 @@ public sealed class ReviewModel(
 
         var id = ImportLineId.From(lineId);
         var result = await new RestoreLineCommand(
-            ImportSessionId.From(Id), id, sessions, tenant).ExecuteAsync(ct);
+            ImportSessionId.From(Id), id, sessions, tenant, restoreLogger).ExecuteAsync(ct);
 
         if (result.IsFailure)
             return JsonError(result.Error.Description);
@@ -229,7 +234,7 @@ public sealed class ReviewModel(
             return JsonError("Unauthorized.");
 
         var result = await new DiscardSessionCommand(
-            ImportSessionId.From(Id), sessions, tenant).ExecuteAsync(ct);
+            ImportSessionId.From(Id), sessions, tenant, discardLogger).ExecuteAsync(ct);
 
         if (result.IsFailure)
             return JsonError(result.Error.Description);

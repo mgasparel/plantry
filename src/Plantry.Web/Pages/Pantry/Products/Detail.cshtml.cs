@@ -21,7 +21,8 @@ public sealed class DetailModel(
     IUnitRepository units,
     IClock clock,
     ITenantContext tenant,
-    ILogger<ConsumeStockCommand> consumeLogger) : PageModel
+    ILogger<ConsumeStockCommand> consumeLogger,
+    ILogger<SetLowStockThresholdCommand> thresholdLogger) : PageModel
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
@@ -139,7 +140,7 @@ public sealed class DetailModel(
         }
 
         var result = await new SetLowStockThresholdCommand(
-            id, ThresholdInput.Threshold, stocks, catalog, clock, tenant).ExecuteAsync();
+            id, ThresholdInput.Threshold, stocks, catalog, clock, tenant, thresholdLogger).ExecuteAsync();
 
         if (result.IsFailure)
         {
@@ -158,7 +159,7 @@ public sealed class DetailModel(
         Guid id, decimal amount, Guid unitId, StockReason reason, Guid? targetEntryId) =>
         new ConsumeStockCommand(
             id, amount, unitId, reason, CurrentUserId, targetEntryId, sourceRef: null,
-            stocks, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
+            stocks, catalog, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
 
     private async Task<IActionResult> ReloadSheetAsync(Guid id)
     {

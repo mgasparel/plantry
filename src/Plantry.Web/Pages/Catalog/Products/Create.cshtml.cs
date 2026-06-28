@@ -17,7 +17,8 @@ public sealed class CreateModel(
     ICategoryRepository categories,
     ILocationRepository locations,
     IClock clock,
-    ITenantContext tenant) : PageModel
+    ITenantContext tenant,
+    ILogger<CreateProductCommand> createProductLogger) : PageModel
 {
     [BindProperty]
     public InputModel Input { get; set; } = new();
@@ -55,7 +56,7 @@ public sealed class CreateModel(
 
         var cmd = new CreateProductCommand(
             Input.Name, Input.DefaultUnitId!.Value, Input.CategoryId, Input.DefaultLocationId,
-            products, units, categories, locations, clock, tenant);
+            products, units, categories, locations, clock, tenant, logger: createProductLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)

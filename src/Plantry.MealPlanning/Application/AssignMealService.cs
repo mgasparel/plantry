@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -21,7 +22,8 @@ public sealed class AssignMealService(
     IRecipeReadModel recipeReader,
     IMealPlanCatalogProductReader catalogReader,
     MealConstraintResolver constraintResolver,
-    IClock clock)
+    IClock clock,
+    ILogger<AssignMealService> logger)
 {
     /// <summary>
     /// Assigns a dish-based meal to a cell.
@@ -43,8 +45,13 @@ public sealed class AssignMealService(
         {
             var exists = await catalogReader.ExistsAsync(dish.ItemId, ct);
             if (!exists)
+            {
+                logger.LogWarning(
+                    "AssignDishes failed — product {ProductId} does not exist in catalog for slot {SlotId} on {Date}.",
+                    dish.ItemId, slotId.Value, date);
                 throw new InvalidOperationException(
                     $"Product {dish.ItemId} does not exist in the catalog.");
+            }
         }
 
         var plan = await mealPlanRepo.FindOrCreateAsync(householdId, MealPlan.NormalizeToMonday(date), clock, ct);
@@ -81,6 +88,14 @@ public sealed class AssignMealService(
 
         var result = plan.AssignMeal(date, slotId, dishes, attendeesOverride, "manual", createdBy, clock, warning, mealId);
         await mealPlanRepo.SaveChangesAsync(ct);
+        if (warning is not null)
+            logger.LogWarning(
+                "Meal assigned with dietary constraint warning for slot {SlotId} on {Date}: {Warning}.",
+                slotId.Value, date, warning);
+        else
+            logger.LogInformation(
+                "Meal assigned to slot {SlotId} on {Date}. Dishes: {DishCount}.",
+                slotId.Value, date, dishes.Count);
         return result;
     }
 

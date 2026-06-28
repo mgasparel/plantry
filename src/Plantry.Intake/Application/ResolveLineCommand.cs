@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
@@ -22,7 +23,8 @@ public sealed class ResolveLineCommand(
     DateOnly? expiryDate,
     decimal? price,
     IImportSessionRepository sessions,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<ResolveLineCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -31,19 +33,32 @@ public sealed class ResolveLineCommand(
 
         var session = await sessions.FindAsync(sessionId, ct);
         if (session is null)
+        {
+            logger?.LogWarning("ResolveLine failed — session {SessionId} not found.", sessionId.Value);
             return Error.NotFound;
+        }
         if (session.Status != ImportStatus.Ready)
+        {
+            logger?.LogWarning("ResolveLine failed — session {SessionId} is not Ready (status: {Status}).", sessionId.Value, session.Status);
             return Error.Custom("Intake.SessionNotReady", $"Cannot edit a session in status '{session.Status}'.");
+        }
 
         var line = session.Lines.SingleOrDefault(l => l.Id == lineId);
         if (line is null)
+        {
+            logger?.LogWarning("ResolveLine failed — line {LineId} not found in session {SessionId}.", lineId.Value, sessionId.Value);
             return Error.NotFound;
+        }
 
         var resolve = line.Confirm(productId, skuId, quantity, unitId, locationId, expiryDate, price);
         if (resolve.IsFailure)
+        {
+            logger?.LogWarning("ResolveLine failed for line {LineId} in session {SessionId}: {ErrorCode}.", lineId.Value, sessionId.Value, resolve.Error.Code);
             return resolve.Error;
+        }
 
         await sessions.SaveChangesAsync(ct);
+        logger?.LogInformation("Import line {LineId} confirmed for session {SessionId}.", lineId.Value, sessionId.Value);
         return Result.Success();
     }
 }

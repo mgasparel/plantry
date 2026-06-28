@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -28,7 +29,8 @@ public sealed class AuthorRecipe(
     ICatalogWriter catalogWriter,
     IUnitConverter unitConverter,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<AuthorRecipe> logger)
 {
     public async Task<AuthorRecipeResult> ExecuteAsync(AuthorRecipeCommand command, CancellationToken ct = default)
     {
@@ -113,7 +115,12 @@ public sealed class AuthorRecipe(
         }
 
         if (missing.Count > 0)
+        {
+            logger.LogWarning(
+                "AuthorRecipe for '{RecipeName}' requires {ConversionCount} unit conversion(s) before saving.",
+                name, missing.Count);
             return new AuthorRecipeResult.NeedsConversion(missing);
+        }
 
         // ── Tag resolution — resolve each submitted TagId to an existing household tag; drop unknowns ──
         // The picker posts closed-vocabulary TagIds; no minting occurs. Unknown/foreign ids are dropped
@@ -180,6 +187,9 @@ public sealed class AuthorRecipe(
         }
 
         await recipes.SaveChangesAsync(ct);
+        logger.LogInformation(
+            "Recipe '{RecipeName}' {Action} with id {RecipeId}.",
+            name, existing is null ? "created" : "updated", recipe.Id.Value);
         return new AuthorRecipeResult.Saved(recipe.Id);
     }
 

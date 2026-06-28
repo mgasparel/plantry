@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
@@ -12,7 +13,8 @@ namespace Plantry.Intake.Application;
 public sealed class DiscardSessionCommand(
     ImportSessionId sessionId,
     IImportSessionRepository sessions,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<DiscardSessionCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -25,9 +27,15 @@ public sealed class DiscardSessionCommand(
 
         var discard = session.Discard();
         if (discard.IsFailure)
+        {
+            logger?.LogWarning(
+                "DiscardSession failed for session {SessionId}: {ErrorCode}.",
+                sessionId.Value, discard.Error.Code);
             return discard.Error;
+        }
 
         await sessions.SaveChangesAsync(ct);
+        logger?.LogInformation("Import session {SessionId} discarded.", sessionId.Value);
         return Result.Success();
     }
 }

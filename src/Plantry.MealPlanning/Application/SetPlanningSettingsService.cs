@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 
@@ -11,7 +12,8 @@ namespace Plantry.MealPlanning.Application;
 /// </summary>
 public sealed class SetPlanningSettingsService(
     IHouseholdPlanningSettingsRepository settingsRepo,
-    IWeekPlanningOverrideRepository overrideRepo)
+    IWeekPlanningOverrideRepository overrideRepo,
+    ILogger<SetPlanningSettingsService> logger)
 {
     /// <summary>
     /// Upserts a per-week override for the given household and week.
@@ -39,6 +41,9 @@ public sealed class SetPlanningSettingsService(
                 await overrideRepo.AddAsync(newOverride, ct);
                 await overrideRepo.SaveChangesAsync(ct);
 
+                logger.LogInformation(
+                    "Planning settings created for household {HouseholdId}, week {WeekStart}.",
+                    householdId.Value, weekStart.Value);
                 return PlanningSettingsResolver.Resolve(settings, newOverride);
             }
             else
@@ -46,6 +51,9 @@ public sealed class SetPlanningSettingsService(
                 existing.Set(budget, weights);
                 await overrideRepo.SaveChangesAsync(ct);
 
+                logger.LogInformation(
+                    "Planning settings updated for household {HouseholdId}, week {WeekStart}.",
+                    householdId.Value, weekStart.Value);
                 return PlanningSettingsResolver.Resolve(settings, existing);
             }
         }
@@ -64,6 +72,8 @@ public sealed class SetPlanningSettingsService(
             }
 
             await settingsRepo.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "Default planning settings updated for household {HouseholdId}.", householdId.Value);
             return PlanningSettingsResolver.Resolve(settings, weekOverride: null);
         }
     }

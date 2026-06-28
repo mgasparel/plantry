@@ -25,7 +25,8 @@ public sealed class UploadModel(
     IReceiptParser parser,
     ICatalogHintProvider hints,
     IClock clock,
-    ITenantContext tenant) : PageModel
+    ITenantContext tenant,
+    ILogger<ParseSessionCommand> parseLogger) : PageModel
 {
     public IReadOnlyList<RecentIntakeRow> RecentIntakes { get; private set; } = [];
     public bool AiAvailable => parser is not DisabledReceiptParser;
@@ -68,7 +69,7 @@ public sealed class UploadModel(
 
         var cmd = new ParseSessionCommand(
             sampleBytes, "image/jpeg", CurrentUserId,
-            sessions, parser, hints, clock, tenant);
+            sessions, parser, hints, clock, tenant, parseLogger);
 
         var result = await cmd.ExecuteAsync(ct);
         if (result.IsFailure)
@@ -113,7 +114,7 @@ public sealed class UploadModel(
 
         var cmd = new ParseSessionCommand(
             imageBytes, Receipt.ContentType, CurrentUserId,
-            sessions, parser, hints, clock, tenant);
+            sessions, parser, hints, clock, tenant, parseLogger);
 
         var result = await cmd.ExecuteAsync(ct);
         if (result.IsFailure)

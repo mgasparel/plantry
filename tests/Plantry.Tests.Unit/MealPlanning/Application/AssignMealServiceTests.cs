@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
@@ -32,7 +33,8 @@ public sealed class AssignMealServiceTests
             recipeReader ?? new FakeRecipeReadModel(),
             catalogReader ?? new FakeCatalogProductReader(),
             new MealConstraintResolver(),
-            Clock);
+            Clock,
+            NullLogger<AssignMealService>.Instance);
     }
 
     private static DishSpec RecipeDish() => new(DishKind.Recipe, Guid.NewGuid(), 2);
@@ -143,7 +145,7 @@ public sealed class MoveMealServiceTests
     private static readonly Guid UserId = Guid.NewGuid();
 
     private static MoveMealService BuildService(FakeMealPlanRepository repo)
-        => new(repo, Clock);
+        => new(repo, Clock, NullLogger<MoveMealService>.Instance);
 
     private static DishSpec RecipeDish() => new(DishKind.Recipe, Guid.NewGuid(), 2);
 

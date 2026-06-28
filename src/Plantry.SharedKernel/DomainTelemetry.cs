@@ -62,10 +62,10 @@ public static class DomainTelemetry
     /// low-stock threshold. Fires at most once per consume operation per product. Query as
     /// <c>plantry.inventory.low_stock_events</c>.
     /// <para>
-    /// <strong>Note:</strong> the check uses a raw sum of active-lot quantities in their stored
-    /// units, which is accurate when all lots share the product's display unit (the common case).
-    /// Mixed-unit stocks may over- or under-count; a precision alarm belongs in a dedicated
-    /// service. This counter is a best-effort operational signal.
+    /// Active lots are converted to the product's display unit via
+    /// <c>IProductConversionProvider</c> before comparing against the threshold, mirroring the
+    /// pantry-list read path. This ensures accurate firing for mixed-unit stocks (e.g. lots
+    /// stored in g, threshold configured in kg).
     /// </para>
     /// </summary>
     public static readonly Counter<long> LowStockEvents =

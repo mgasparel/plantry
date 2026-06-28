@@ -25,7 +25,8 @@ public sealed class AddStockCommand(
     ICatalogReadFacade catalog,
     IClock clock,
     ITenantContext tenant,
-    StockSourceType sourceType = StockSourceType.Manual)
+    StockSourceType sourceType = StockSourceType.Manual,
+    ILogger<AddStockCommand>? logger = null)
 {
     public async Task<Result<StockEntryId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -33,13 +34,25 @@ public sealed class AddStockCommand(
             return Error.Unauthorized;
 
         if (quantity <= 0m)
+        {
+            logger?.LogWarning(
+                "AddStock rejected — invalid quantity {Quantity} for product {ProductId}.",
+                quantity, productId);
             return Error.Custom("Inventory.InvalidQuantity", "Quantity must be greater than zero.");
+        }
 
         var product = await catalog.FindProductAsync(productId, ct);
         if (product is null)
+        {
+            logger?.LogWarning("AddStock failed — product {ProductId} not found.", productId);
             return Error.Custom("Inventory.UnknownProduct", "The selected product does not exist.");
+        }
         if (!product.CanHoldStock)
+        {
+            logger?.LogWarning(
+                "AddStock failed — product {ProductId} cannot hold stock directly (is a parent).", productId);
             return Error.Custom("Inventory.ProductCannotHoldStock", "A parent product cannot hold stock directly; choose a variant.");
+        }
 
         var household = HouseholdId.From(householdId);
         var stock = await stocks.FindAsync(household, productId, ct);
@@ -70,6 +83,10 @@ public sealed class AddStockCommand(
             await stocks.SaveChangesAsync(ct);
         }
 
+        logger?.LogInformation(
+            "Stock added for product {ProductId}. Quantity: {Quantity}, SourceType: {SourceType}, EntryId: {EntryId}.",
+            productId, quantity, sourceType, entry.Id.Value);
+
         return entry.Id;
     }
 }
@@ -86,7 +103,8 @@ public sealed class SetLowStockThresholdCommand(
     IProductStockRepository stocks,
     ICatalogReadFacade catalog,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<SetLowStockThresholdCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -95,9 +113,16 @@ public sealed class SetLowStockThresholdCommand(
 
         var product = await catalog.FindProductAsync(productId, ct);
         if (product is null)
+        {
+            logger?.LogWarning("SetLowStockThreshold failed — product {ProductId} not found.", productId);
             return Error.Custom("Inventory.UnknownProduct", "The selected product does not exist.");
+        }
         if (!product.CanHoldStock)
+        {
+            logger?.LogWarning(
+                "SetLowStockThreshold failed — product {ProductId} cannot hold stock directly (is a parent).", productId);
             return Error.Custom("Inventory.ProductCannotHoldStock", "A parent product cannot hold stock directly; choose a variant.");
+        }
 
         var household = HouseholdId.From(householdId);
         var stock = await stocks.FindAsync(household, productId, ct);
@@ -122,6 +147,10 @@ public sealed class SetLowStockThresholdCommand(
             await stocks.SaveChangesAsync(ct);
         }
 
+        logger?.LogInformation(
+            "Low-stock threshold set for product {ProductId}. Threshold: {Threshold}.",
+            productId, threshold);
+
         return Result.Success();
     }
 }
@@ -132,6 +161,10 @@ public sealed class SetLowStockThresholdCommand(
 /// through the <see cref="IProductConversionProvider"/> port, loads the root under a row lock, and
 /// runs <see cref="ProductStock.Consume"/> inside a transaction so the lock serializes concurrent
 /// consumes (DM-13). Returns the <see cref="ConsumeOutcome"/> so the UI can surface any shortfall.
+///
+/// The post-save low-stock check converts active lots to the product's display unit (via
+/// <see cref="ICatalogReadFacade.FindProductAsync"/> + <see cref="IProductConversionProvider"/>)
+/// before calling <see cref="ProductStock.IsRunningLow"/>, mirroring the pantry-list read path.
 ///
 /// <paramref name="sourceLineRef"/> is the per-consume-operation idempotency token (plantry-292a).
 /// When supplied, a re-driven consume with the same token is a no-op — the repository row-lock plus
@@ -147,6 +180,7 @@ public sealed class ConsumeStockCommand(
     Guid? targetEntryId,
     Guid? sourceRef,
     IProductStockRepository stocks,
+    ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
     IClock clock,
     ITenantContext tenant,
@@ -162,6 +196,10 @@ public sealed class ConsumeStockCommand(
         if (!reason.IsRemoval())
             return Error.Custom("Inventory.InvalidConsumeReason", "Consume cannot record a Purchase; use AddStock.");
 
+        // Resolve the product's default display unit (for the low-stock check below) and the
+        // converter before entering the row-lock transaction, so the catalog read does not run
+        // under the Inventory row lock.
+        var product = await catalog.FindProductAsync(productId, ct);
         var converter = await conversions.ForProductAsync(productId, ct);
         var household = HouseholdId.From(householdId);
 
@@ -196,9 +234,25 @@ public sealed class ConsumeStockCommand(
             DomainTelemetry.StockConsumed.Add(1);
 
             // Emit a low-stock event when the consume drops on-hand to or below the threshold.
-            // Uses the raw sum of active-lot quantities (accurate for single-unit products, the
-            // common case; mixed-unit stocks are approximate — see DomainTelemetry.LowStockEvents).
-            var onHand = stock.Entries.Where(e => e.IsActive).Sum(e => e.Quantity);
+            // Mirrors the InventoryQueryService read path (DisplayQuantity): convert active lots
+            // to the product's display unit via IProductConversionProvider before calling
+            // IsRunningLow. Falls back to a raw sum when (a) the product is unknown or (b)
+            // conversion yields zero for a non-empty lot set (incompatible units — e.g. "ea"
+            // lots on a "g" product), mirroring DisplayQuantity's own incompatible-unit fallback
+            // so the counter always agrees with the displayed on-hand state.
+            // Uses the shared InventoryQueryService.SumInDisplayUnit helper (both paths must agree).
+            var activeLots = stock.Entries.Where(e => e.IsActive).ToList();
+            decimal onHand;
+            if (product is not null)
+            {
+                onHand = InventoryQueryService.SumInDisplayUnit(activeLots, product.DefaultUnitId, converter);
+                if (onHand == 0m && activeLots.Count > 0)
+                    onHand = activeLots.Sum(e => e.Quantity); // conversion failed entirely — mirror DisplayQuantity's fallback
+            }
+            else
+            {
+                onHand = activeLots.Sum(e => e.Quantity);
+            }
             if (stock.IsRunningLow(onHand))
                 DomainTelemetry.LowStockEvents.Add(1);
 

@@ -38,7 +38,8 @@ public sealed class WalkModel(
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
-    ITenantContext tenant) : PageModel
+    ITenantContext tenant,
+    ILogger<WalkModel> logger) : PageModel
 {
     // ── Read model ────────────────────────────────────────────────────────────
 
@@ -135,7 +136,12 @@ public sealed class WalkModel(
         var result = await cmd.ExecuteAsync(ct);
 
         if (result.IsFailure)
+        {
+            logger.LogWarning(
+                "AddCountedItem failed for product '{ProductName}' at location {LocationId}: {ErrorCode}.",
+                payload.Name.Trim(), LocationId, result.Error.Code);
             return new JsonResult(new { isSuccess = false, error = result.Error.Description });
+        }
 
         var productId = result.Value;
 
@@ -228,7 +234,11 @@ public sealed class WalkModel(
             var result = await cmd.ExecuteAsync(ct);
 
             if (result.IsFailure)
+            {
+                logger.LogWarning(
+                    "SaveCounts failed at location {LocationId}: {ErrorCode}.", LocationId, result.Error.Code);
                 return StatusCode(500, new { error = result.Error.Description });
+            }
 
             perRowResults.AddRange(result.Value.Select(r => (object)new
             {
@@ -297,11 +307,21 @@ public sealed class WalkModel(
         var result = await cmd.ExecuteAsync(ct);
 
         if (result.IsFailure)
+        {
+            logger.LogWarning(
+                "SaveLotAdjustments failed for product {ProductId} at location {LocationId}: {ErrorCode}.",
+                productId, LocationId, result.Error.Code);
             return StatusCode(500, new { error = result.Error.Description });
+        }
 
         var outcome = result.Value;
         if (!outcome.IsSuccess && outcome.Results.Count == 0)
+        {
+            logger.LogWarning(
+                "SaveLotAdjustments batch-level failure for product {ProductId} at location {LocationId}: {ErrorCode}.",
+                productId, LocationId, outcome.FailureReason?.Code);
             return StatusCode(500, new { error = outcome.FailureReason?.Description });
+        }
 
         var responseItems = outcome.Results.Select(r => new
         {

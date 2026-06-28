@@ -17,7 +17,11 @@ public sealed class DetailModel(
     ICategoryRepository categories,
     ILocationRepository locations,
     ProductQueryService queries,
-    IClock clock) : PageModel
+    IClock clock,
+    ILogger<UpdateProductCommand> updateProductLogger,
+    ILogger<AddSkuCommand> addSkuLogger,
+    ILogger<AddConversionCommand> addConversionLogger,
+    ILogger<MakeVariantCommand> makeVariantLogger) : PageModel
 {
     public ProductId Id { get; private set; }
     public ProductDetail? Product { get; private set; }
@@ -123,7 +127,8 @@ public sealed class DetailModel(
         var cmd = new UpdateProductCommand(
             Id, Input.Name, Input.DefaultUnitId!.Value, Input.CategoryId, Input.DefaultLocationId,
             Input.DefaultDueDays, Input.DefaultDueDaysAfterOpening, Input.DefaultDueDaysAfterFreezing,
-            Input.DefaultDueDaysAfterThawing, products, units, categories, locations, clock);
+            Input.DefaultDueDaysAfterThawing, products, units, categories, locations, clock,
+            logger: updateProductLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)
@@ -142,7 +147,7 @@ public sealed class DetailModel(
         SkuInput = input;
         if (!ModelState.IsValid) return await ReloadAsync();
 
-        var cmd = new AddSkuCommand(Id, SkuInput.Label, SkuInput.SizeQuantity, SkuInput.SizeUnitId, products, units, clock);
+        var cmd = new AddSkuCommand(Id, SkuInput.Label, SkuInput.SizeQuantity, SkuInput.SizeUnitId, products, units, clock, addSkuLogger);
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
 
@@ -163,7 +168,7 @@ public sealed class DetailModel(
 
         var cmd = new AddConversionCommand(
             Id, ConversionInput.FromUnitId!.Value, ConversionInput.ToUnitId!.Value, ConversionInput.Factor,
-            products, units, clock);
+            products, units, clock, addConversionLogger);
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
 
@@ -182,7 +187,7 @@ public sealed class DetailModel(
         VariantInput = input;
         if (!ModelState.IsValid) return await ReloadAsync();
 
-        var cmd = new MakeVariantCommand(Id, ProductId.From(VariantInput.ParentProductId!.Value), products, clock);
+        var cmd = new MakeVariantCommand(Id, ProductId.From(VariantInput.ParentProductId!.Value), products, clock, makeVariantLogger);
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
 

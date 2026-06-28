@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Catalog.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
@@ -11,7 +12,8 @@ public sealed class CreateUnitCommand(
     decimal factorToBase,
     bool isBase,
     IUnitRepository units,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<CreateUnitCommand>? logger = null)
 {
     public async Task<Result<UnitId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -19,12 +21,16 @@ public sealed class CreateUnitCommand(
             return Error.Unauthorized;
 
         if (await units.FindByCodeAsync(code.Trim(), ct) is not null)
+        {
+            logger?.LogWarning("CreateUnit rejected — duplicate unit code {UnitCode}.", code);
             return Error.Custom("Catalog.DuplicateUnitCode", $"A unit with code '{code}' already exists.");
+        }
 
         var unit = Unit.Create(HouseholdId.From(householdId), code, name, dimension, factorToBase, isBase);
         await units.AddAsync(unit, ct);
         await units.SaveChangesAsync(ct);
 
+        logger?.LogInformation("Unit {UnitId} created with code {UnitCode}.", unit.Id.Value, code);
         return unit.Id;
     }
 }

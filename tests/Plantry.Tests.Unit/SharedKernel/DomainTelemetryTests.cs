@@ -192,7 +192,7 @@ public sealed class DomainTelemetryTests
 
         var cmd = new ConsumeStockCommand(
             productId, 30m, unitId, InventoryDomain.StockReason.Consumed, Guid.CreateVersion7(), null, null,
-            stocks, new MetricsTestConversionProvider(), SystemClock.Instance,
+            stocks, new MetricsTestCatalogReadFacade(), new MetricsTestConversionProvider(), SystemClock.Instance,
             new MetricsTestTenantContext(household));
 
         var before = meter.Read("plantry.inventory.stock_consumed");
@@ -254,6 +254,97 @@ public sealed class DomainTelemetryTests
         Assert.Equal(before, after);
     }
 
+    [Fact]
+    public async Task ConsumeStock_Increments_LowStockEvents_Using_DisplayUnit_Conversion_For_Mixed_Unit_Stocks()
+    {
+        using var meter = new DomainMeterListener();
+
+        // Mixed-unit scenario: lot stored in "g" (gramUnitId), threshold configured in "kg"
+        // (kgUnitId, which is the product's DefaultUnitId/display unit).
+        // Conversion factor: 1 g = 0.001 kg (i.e. multiply by 0.001 to go from g → kg).
+        // Stock = 30 000 g = 30 kg; threshold = 25 kg; consume 10 000 g (10 kg) → 20 kg ≤ 25 kg → event fires.
+        var clock = SystemClock.Instance;
+        var household = Guid.NewGuid();
+        var productId = Guid.CreateVersion7();
+        var gramUnitId = Guid.CreateVersion7();  // lot unit
+        var kgUnitId = Guid.CreateVersion7();    // display unit (DefaultUnitId)
+        var locationId = Guid.CreateVersion7();
+        var userId = Guid.CreateVersion7();
+
+        var stocks = new MetricsTestStockRepository();
+        var stock = InventoryDomain.ProductStock.Start(HouseholdId.From(household), productId, clock);
+        stock.AddStock(30_000m, gramUnitId, locationId, userId, clock);
+        stock.SetLowStockThreshold(25m, clock); // threshold in kg
+        stocks.Items.Add(stock);
+        stocks.HouseholdId = household;
+
+        var factors = new Dictionary<(Guid From, Guid To), decimal>
+        {
+            [(gramUnitId, kgUnitId)] = 0.001m,  // g → kg
+            [(kgUnitId, gramUnitId)] = 1000m,    // kg → g (for the consume itself)
+        };
+        // The consume is in gramUnitId → kgUnitId conversion not needed for the consume itself (same unit).
+        // Consume amount 10 000 g in gramUnitId, so converter only needs identity for that direction.
+        var converter = new MetricsTestFactorConverter(gramUnitId, kgUnitId, 0.001m);
+
+        var catalog = new MetricsTestCatalogReadFacade(productId, kgUnitId); // display unit = kg
+        var cmd = new ConsumeStockCommand(
+            productId, 10_000m, gramUnitId, InventoryDomain.StockReason.Consumed,
+            Guid.CreateVersion7(), null, null,
+            stocks, catalog, new MetricsTestSingleFactorConversionProvider(converter),
+            SystemClock.Instance, new MetricsTestTenantContext(household));
+
+        var before = meter.Read("plantry.inventory.low_stock_events");
+        await cmd.ExecuteAsync();
+        var after = meter.Read("plantry.inventory.low_stock_events");
+
+        // 30 000 g − 10 000 g = 20 000 g = 20 kg ≤ 25 kg → event must fire.
+        Assert.Equal(before + 1, after);
+    }
+
+    [Fact]
+    public async Task ConsumeStock_Uses_RawSum_Fallback_For_Incompatible_Unit_Stocks_Matching_ReadPath()
+    {
+        using var meter = new DomainMeterListener();
+
+        // Incompatible-unit scenario: lots in "ea" (eaUnitId), product's DefaultUnitId is "g" (gUnitId).
+        // No conversion factor between ea and g — SumInDisplayUnit returns 0.
+        // The DisplayQuantity fallback on the read path uses the raw sum (5 ea) in this case.
+        // With threshold = 3 ea, the raw sum 5 ea > 3 → no event.
+        // Without the fallback, onHand=0 ≤ 3 and the counter would over-fire.
+        var clock = SystemClock.Instance;
+        var household = Guid.NewGuid();
+        var productId = Guid.CreateVersion7();
+        var eaUnitId = Guid.CreateVersion7();   // lot unit (incompatible with display unit)
+        var gUnitId = Guid.CreateVersion7();    // display unit (DefaultUnitId) — no conversion to ea
+        var locationId = Guid.CreateVersion7();
+        var userId = Guid.CreateVersion7();
+
+        var stocks = new MetricsTestStockRepository();
+        var stock = InventoryDomain.ProductStock.Start(HouseholdId.From(household), productId, clock);
+        stock.AddStock(5m, eaUnitId, locationId, userId, clock);
+        stock.SetLowStockThreshold(3m, clock); // threshold in display unit (g/ea-equivalent)
+        stocks.Items.Add(stock);
+        stocks.HouseholdId = household;
+
+        // Converter with no ea→g factor — SumInDisplayUnit returns 0 for ea lots.
+        var unconvertibleConverter = new MetricsTestFactorConverter(Guid.Empty, Guid.Empty, 1m); // never matches
+
+        var catalog = new MetricsTestCatalogReadFacade(productId, gUnitId); // display unit = g
+        var cmd = new ConsumeStockCommand(
+            productId, 0.001m, eaUnitId, InventoryDomain.StockReason.Consumed,
+            Guid.CreateVersion7(), null, null,
+            stocks, catalog, new MetricsTestSingleFactorConversionProvider(unconvertibleConverter),
+            SystemClock.Instance, new MetricsTestTenantContext(household));
+
+        var before = meter.Read("plantry.inventory.low_stock_events");
+        await cmd.ExecuteAsync();
+        var after = meter.Read("plantry.inventory.low_stock_events");
+
+        // 5 ea − 0.001 ea ≈ 5 ea raw sum > 3 threshold → no event (matches read path; no over-fire).
+        Assert.Equal(before, after);
+    }
+
     // ── CookRecipe emits RecipesCooked ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -273,7 +364,7 @@ public sealed class DomainTelemetryTests
         var products = new MetricsTestCatalogProductReader();
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant);
+        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
 
         products.AddTracked(productId, unitId);
 
@@ -306,7 +397,7 @@ public sealed class DomainTelemetryTests
         var products = new MetricsTestCatalogProductReader();
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant);
+        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
 
         var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, clock, tenant, reconciler,
             NullLogger<CookRecipe>.Instance);
@@ -343,8 +434,8 @@ public sealed class DomainTelemetryTests
     private static ConsumeStockCommand BuildConsumeCommand(
         MetricsTestStockRepository stocks, Guid productId, Guid unitId, decimal amount) =>
         new(productId, amount, unitId, InventoryDomain.StockReason.Consumed, Guid.CreateVersion7(), null, null,
-            stocks, new MetricsTestConversionProvider(), SystemClock.Instance,
-            new MetricsTestTenantContext(stocks.HouseholdId));
+            stocks, new MetricsTestCatalogReadFacade(productId, unitId), new MetricsTestConversionProvider(),
+            SystemClock.Instance, new MetricsTestTenantContext(stocks.HouseholdId));
 }
 
 // ── Shared tenant context ────────────────────────────────────────────────────────────────────────
@@ -428,6 +519,32 @@ internal sealed class MetricsTestStockRepository : InventoryDomain.IProductStock
 
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) =>
         await work(ct);
+}
+
+internal sealed class MetricsTestCatalogReadFacade : ICatalogReadFacade
+{
+    private readonly CatalogProductInfo? _product;
+
+    /// <summary>Returns an empty catalog (product lookup returns null — triggers the fallback raw-sum path).</summary>
+    public MetricsTestCatalogReadFacade() { }
+
+    /// <summary>Returns a single product entry so the display-unit conversion path is exercised.</summary>
+    public MetricsTestCatalogReadFacade(Guid productId, Guid defaultUnitId)
+    {
+        _product = new CatalogProductInfo(productId, "Test Product", null, defaultUnitId, "u", CanHoldStock: true);
+    }
+
+    public Task<CatalogProductInfo?> FindProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult(_product?.Id == productId ? _product : null);
+
+    public Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogProductInfo>>(_product is not null ? [_product] : []);
+
+    public Task<IReadOnlyDictionary<Guid, string>> GetUnitCodesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+    public Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 }
 
 internal sealed class MetricsTestConversionProvider : IProductConversionProvider
@@ -517,4 +634,22 @@ internal sealed class MetricsTestDomainEventDispatcher : IDomainEventDispatcher
 {
     public Task DispatchAsync(IEnumerable<IDomainEvent> events, CancellationToken ct = default) =>
         Task.CompletedTask;
+}
+
+/// <summary>Converter that applies a single configured factor for one unit pair; identity otherwise.</summary>
+internal sealed class MetricsTestFactorConverter(Guid fromId, Guid toId, decimal factor) : InventoryDomain.IQuantityConverter
+{
+    public Result<decimal> Convert(decimal amount, Guid fromUnitId, Guid toUnitId)
+    {
+        if (fromUnitId == toUnitId) return amount;
+        if (fromUnitId == fromId && toUnitId == toId) return amount * factor;
+        return Error.Custom("Test.Unresolvable", $"no conversion from {fromUnitId} to {toUnitId}");
+    }
+}
+
+/// <summary>Hands the same pre-built converter to every product — for single-product tests.</summary>
+internal sealed class MetricsTestSingleFactorConversionProvider(InventoryDomain.IQuantityConverter converter) : IProductConversionProvider
+{
+    public Task<InventoryDomain.IQuantityConverter> ForProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult(converter);
 }

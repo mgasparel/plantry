@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel.Tenancy;
 
@@ -35,7 +36,8 @@ namespace Plantry.Recipes.Application;
 public sealed class ReconcilePendingCooks(
     ICookEventRepository cookEvents,
     IInventoryConsumer consumer,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<ReconcilePendingCooks> logger)
 {
     /// <summary>
     /// Re-drives all Pending consume lines for the current household, transitioning each to
@@ -55,6 +57,10 @@ public sealed class ReconcilePendingCooks(
         var events = await cookEvents.ListWithPendingLinesAsync(ct);
         if (events.Count == 0)
             return new ReconcileResult(0);
+
+        logger.LogInformation(
+            "ReconcilePendingCooks found {CookEventCount} cook event(s) with pending lines.",
+            events.Count);
 
         var reconciledCount = 0;
 
@@ -90,6 +96,9 @@ public sealed class ReconcilePendingCooks(
                 {
                     // Product has no stock record — fully short. Mark Shorted so this line
                     // is not re-attempted on the next reconciliation pass.
+                    logger.LogWarning(
+                        "Reconcile line {LineId} for cook {CookEventId} shorted — product {ProductId} has no stock record.",
+                        line.Id.Value, cookEvent.Id.Value, line.ProductId);
                     line.MarkShorted();
                 }
 
@@ -99,6 +108,10 @@ public sealed class ReconcilePendingCooks(
             // Persist the status transitions for this CookEvent in one SaveChanges call.
             await cookEvents.SaveChangesAsync(ct);
         }
+
+        if (reconciledCount > 0)
+            logger.LogInformation(
+                "ReconcilePendingCooks resolved {ReconciledCount} pending line(s).", reconciledCount);
 
         return new ReconcileResult(reconciledCount);
     }

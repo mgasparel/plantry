@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Catalog.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -16,7 +17,8 @@ public sealed class CreateProductCommand(
     ILocationRepository locations,
     IClock clock,
     ITenantContext tenant,
-    bool trackStock = true)
+    bool trackStock = true,
+    ILogger<CreateProductCommand>? logger = null)
 {
     public async Task<Result<ProductId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -25,10 +27,16 @@ public sealed class CreateProductCommand(
 
         var crossRefError = await ValidateCrossReferencesAsync(defaultUnitId, categoryId, defaultLocationId, units, categories, locations, ct);
         if (crossRefError is not null)
+        {
+            logger?.LogWarning("CreateProduct rejected — cross-reference validation failed: {ErrorCode}.", crossRefError.Code);
             return crossRefError;
+        }
 
         if (await products.FindByNameAsync(name.Trim(), ct) is not null)
+        {
+            logger?.LogWarning("CreateProduct rejected — duplicate product name {ProductName}.", name);
             return Error.Custom("Catalog.DuplicateProductName", $"A product named '{name}' already exists.");
+        }
 
         var product = Product.Create(HouseholdId.From(householdId), name, UnitId.From(defaultUnitId), clock, trackStock);
         if (categoryId is { } catId) product.SetCategory(CategoryId.From(catId), clock);
@@ -37,6 +45,7 @@ public sealed class CreateProductCommand(
         await products.AddAsync(product, ct);
         await products.SaveChangesAsync(ct);
 
+        logger?.LogInformation("Product {ProductId} created with name {ProductName}.", product.Id.Value, name);
         return product.Id;
     }
 
@@ -72,21 +81,32 @@ public sealed class UpdateProductCommand(
     IUnitRepository units,
     ICategoryRepository categories,
     ILocationRepository locations,
-    IClock clock)
+    IClock clock,
+    ILogger<UpdateProductCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
         var product = await products.FindAsync(id, ct);
-        if (product is null) return Error.NotFound;
+        if (product is null)
+        {
+            logger?.LogWarning("UpdateProduct failed — product {ProductId} not found.", id.Value);
+            return Error.NotFound;
+        }
 
         var crossRefError = await CreateProductCommand.ValidateCrossReferencesAsync(
             defaultUnitId, categoryId, defaultLocationId, units, categories, locations, ct);
         if (crossRefError is not null)
+        {
+            logger?.LogWarning("UpdateProduct {ProductId} rejected — cross-reference validation failed: {ErrorCode}.", id.Value, crossRefError.Code);
             return crossRefError;
+        }
 
         var existing = await products.FindByNameAsync(name.Trim(), ct);
         if (existing is not null && existing.Id != id)
+        {
+            logger?.LogWarning("UpdateProduct {ProductId} rejected — duplicate product name {ProductName}.", id.Value, name);
             return Error.Custom("Catalog.DuplicateProductName", $"A product named '{name}' already exists.");
+        }
 
         product.Rename(name, clock);
         product.SetDefaultUnit(UnitId.From(defaultUnitId), clock);
@@ -101,6 +121,7 @@ public sealed class UpdateProductCommand(
         }
 
         await products.SaveChangesAsync(ct);
+        logger?.LogInformation("Product {ProductId} updated.", id.Value);
         return Result.Success();
     }
 }
@@ -140,19 +161,28 @@ public sealed class AddSkuCommand(
     Guid? sizeUnitId,
     IProductRepository products,
     IUnitRepository units,
-    IClock clock)
+    IClock clock,
+    ILogger<AddSkuCommand>? logger = null)
 {
     public async Task<Result<ProductSkuId>> ExecuteAsync(CancellationToken ct = default)
     {
         var product = await products.FindAsync(productId, ct);
-        if (product is null) return Error.NotFound;
+        if (product is null)
+        {
+            logger?.LogWarning("AddSku failed — product {ProductId} not found.", productId.Value);
+            return Error.NotFound;
+        }
 
         if (sizeUnitId is { } unitId && await units.FindAsync(UnitId.From(unitId), ct) is null)
+        {
+            logger?.LogWarning("AddSku rejected for product {ProductId} — unknown size unit {UnitId}.", productId.Value, unitId);
             return Error.Custom("Catalog.UnknownUnit", "The selected size unit does not exist.");
+        }
 
         var sku = product.AddSku(label, sizeQuantity, sizeUnitId is { } u ? UnitId.From(u) : null, clock);
         await products.SaveChangesAsync(ct);
 
+        logger?.LogInformation("SKU {SkuId} added to product {ProductId}.", sku.Id.Value, productId.Value);
         return sku.Id;
     }
 }
@@ -178,21 +208,30 @@ public sealed class AddConversionCommand(
     decimal factor,
     IProductRepository products,
     IUnitRepository units,
-    IClock clock)
+    IClock clock,
+    ILogger<AddConversionCommand>? logger = null)
 {
     public async Task<Result<ProductConversionId>> ExecuteAsync(CancellationToken ct = default)
     {
         var product = await products.FindAsync(productId, ct);
-        if (product is null) return Error.NotFound;
+        if (product is null)
+        {
+            logger?.LogWarning("AddConversion failed — product {ProductId} not found.", productId.Value);
+            return Error.NotFound;
+        }
 
         if (await units.FindAsync(UnitId.From(fromUnitId), ct) is null
             || await units.FindAsync(UnitId.From(toUnitId), ct) is null)
         {
+            logger?.LogWarning("AddConversion rejected for product {ProductId} — one or both units not found ({FromUnitId}, {ToUnitId}).", productId.Value, fromUnitId, toUnitId);
             return Error.Custom("Catalog.UnknownUnit", "Both units must exist in this household.");
         }
 
         if (fromUnitId == toUnitId)
+        {
+            logger?.LogWarning("AddConversion rejected for product {ProductId} — from-unit and to-unit are the same ({UnitId}).", productId.Value, fromUnitId);
             return Error.Custom("Catalog.InvalidConversion", "A conversion's from-unit and to-unit must differ.");
+        }
 
         var conversion = product.AddConversion(UnitId.From(fromUnitId), UnitId.From(toUnitId), factor, clock);
 
@@ -204,6 +243,7 @@ public sealed class AddConversionCommand(
 
         await products.SaveChangesAsync(ct);
 
+        logger?.LogInformation("Conversion {ConversionId} added to product {ProductId}.", conversion.Id.Value, productId.Value);
         return conversion.Id;
     }
 }
@@ -265,19 +305,28 @@ public sealed class SetDefaultLocationCommand(
     Guid locationId,
     IProductRepository products,
     ILocationRepository locations,
-    IClock clock)
+    IClock clock,
+    ILogger<SetDefaultLocationCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
         var product = await products.FindAsync(productId, ct);
-        if (product is null) return Error.NotFound;
+        if (product is null)
+        {
+            logger?.LogWarning("SetDefaultLocation failed — product {ProductId} not found.", productId.Value);
+            return Error.NotFound;
+        }
 
         if (await locations.FindAsync(LocationId.From(locationId), ct) is null)
+        {
+            logger?.LogWarning("SetDefaultLocation rejected for product {ProductId} — location {LocationId} not found.", productId.Value, locationId);
             return Error.Custom("Catalog.UnknownLocation", "The selected default location does not exist.");
+        }
 
         product.SetDefaultLocation(LocationId.From(locationId), clock);
         await products.SaveChangesAsync(ct);
 
+        logger?.LogInformation("Default location {LocationId} set for product {ProductId}.", locationId, productId.Value);
         return Result.Success();
     }
 }
@@ -291,28 +340,43 @@ public sealed class MakeVariantCommand(
     ProductId productId,
     ProductId parentId,
     IProductRepository products,
-    IClock clock)
+    IClock clock,
+    ILogger<MakeVariantCommand>? logger = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
         var product = await products.FindAsync(productId, ct);
-        if (product is null) return Error.NotFound;
+        if (product is null)
+        {
+            logger?.LogWarning("MakeVariant failed — product {ProductId} not found.", productId.Value);
+            return Error.NotFound;
+        }
 
         var parent = await products.FindAsync(parentId, ct);
         if (parent is null)
+        {
+            logger?.LogWarning("MakeVariant failed — parent product {ParentId} not found.", parentId.Value);
             return Error.Custom("Catalog.UnknownParentProduct", "The selected parent product does not exist.");
+        }
 
         if (parent.IsVariant)
+        {
+            logger?.LogWarning("MakeVariant rejected — parent {ParentId} is itself a variant (max depth 1).", parentId.Value);
             return Error.Custom("Catalog.MaxVariantDepthExceeded", "A variant cannot itself become a parent (max depth 1).");
+        }
 
         if (product.IsParent)
+        {
+            logger?.LogWarning("MakeVariant rejected — product {ProductId} is already a parent (max depth 1).", productId.Value);
             return Error.Custom("Catalog.MaxVariantDepthExceeded", "A parent product cannot itself become a variant (max depth 1).");
+        }
 
         product.MakeVariantOf(parentId, clock);
         parent.SetHasVariants(true, clock);
         product.InheritFrom(parent, clock);
 
         await products.SaveChangesAsync(ct);
+        logger?.LogInformation("Product {ProductId} attached as variant of {ParentId}.", productId.Value, parentId.Value);
         return Result.Success();
     }
 }
