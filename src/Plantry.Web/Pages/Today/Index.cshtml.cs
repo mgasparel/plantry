@@ -4,6 +4,7 @@ using Plantry.Identity.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Intake.Domain;
+using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -18,6 +19,7 @@ public sealed class IndexModel(
     IRecipeRepository recipes,
     IImportSessionRepository sessions,
     InventoryQueryService inventoryQueries,
+    BrowseRecipesQuery browseRecipes,
     IClock clock,
     ITenantContext tenant) : PageModel
 {
@@ -52,6 +54,17 @@ public sealed class IndexModel(
     public IReadOnlyList<ExpiringSoonItem> ExpiringSoon { get; private set; } = [];
 
     /// <summary>
+    /// Up to 3 cook-now recipe picks for the meals band (SPEC Page 0 §0c, plantry-81g).
+    /// Sorted by expiring-ingredient first (use-it-up angle), then by fulfillment percentage
+    /// descending. Empty when <see cref="IsColdStart"/> is true or the household has no recipes.
+    /// Null when the query has not yet been executed (before <see cref="OnGetAsync"/> completes).
+    /// </summary>
+    public IReadOnlyList<RecipeBrowseRow> CookNowPicks { get; private set; } = [];
+
+    /// <summary>Number of cook-now picks to display on the Today page.</summary>
+    internal const int CookNowPickCount = 3;
+
+    /// <summary>
     /// True when the expiring-soon badge should render in the urgent tone (at least one item
     /// with 0 or 1 day remaining, including expired lots).
     /// </summary>
@@ -81,7 +94,10 @@ public sealed class IndexModel(
             ShowTakeStockCta = !hasStock;
 
             if (!IsColdStart)
+            {
                 ExpiringSoon = await inventoryQueries.ExpiringSoonAsync(ct);
+                CookNowPicks = await LoadCookNowPicksAsync(ct);
+            }
         }
         else
         {
@@ -90,6 +106,32 @@ public sealed class IndexModel(
             ShowTakeStockCta = true;
         }
     }
+
+    /// <summary>
+    /// Loads the cook-now recipe picks for the Today meals band.
+    /// Runs the full <see cref="BrowseRecipesQuery"/> (all recipes, fulfillment sort), then picks
+    /// the top <see cref="CookNowPickCount"/> rows sorted by:
+    ///   1. HasIngredientExpiringSoon descending (use-it-up angle — expiring picks first)
+    ///   2. FulfillmentPct descending (most cookable first within each tier)
+    /// </summary>
+    private async Task<IReadOnlyList<RecipeBrowseRow>> LoadCookNowPicksAsync(CancellationToken ct)
+    {
+        var result = await browseRecipes.ExecuteAsync(new BrowseRecipesFilter(), ct);
+        return SelectCookNowPicks(result.Rows, CookNowPickCount);
+    }
+
+    /// <summary>
+    /// Applies the cook-now pick selection logic: expiring-ingredient recipes first (use-it-up),
+    /// then fulfillment percentage descending, capped at <paramref name="maxPicks"/>.
+    /// Extracted as a static helper for deterministic unit testing without database access.
+    /// </summary>
+    internal static IReadOnlyList<RecipeBrowseRow> SelectCookNowPicks(
+        IReadOnlyList<RecipeBrowseRow> rows, int maxPicks = CookNowPickCount) =>
+        rows
+            .OrderByDescending(r => r.HasIngredientExpiringSoon)
+            .ThenByDescending(r => r.FulfillmentPct)
+            .Take(maxPicks)
+            .ToList();
 
     /// <summary>Returns a greeting appropriate to the local hour.</summary>
     internal static string BuildGreeting(int hour, string householdName)

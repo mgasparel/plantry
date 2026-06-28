@@ -4936,12 +4936,6 @@ button.sadd svg { width: 13px; height: 13px; }
   display: grid; grid-template-columns: 1fr 348px; gap: 24px; align-items: start;
 }
 
-/* ---- meals column placeholder -------------------------------------------- */
-.today-meals__empty {
-  background: var(--color-surface); border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md); padding: 32px 24px; text-align: center;
-  color: var(--color-text-muted); font-size: 14px;
-}
 
 /* ---- right rail ---------------------------------------------------------- */
 .today-rail { display: flex; flex-direction: column; gap: 18px; }
@@ -5090,6 +5084,87 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .today-welcome__step:hover .today-welcome__step-chev { color: var(--color-accent); transform: translateX(2px); }
 
+/* ---- cook-now picks band (plantry-81g) ------------------------------------ */
+.today-meals-band { }
+
+/* Empty state for the picks band (no recipes yet) */
+.today-meals__empty {
+  background: var(--color-surface); border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md); padding: 32px 24px; text-align: center;
+}
+.today-meals__empty-actions {
+  display: flex; gap: 10px; justify-content: center; margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+/* Pick card list */
+.today-picks { display: flex; flex-direction: column; gap: 12px; }
+
+/* Individual pick card */
+.today-pick {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 14px 16px; overflow: hidden;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.today-pick:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
+  box-shadow: var(--shadow-card);
+}
+
+/* Photo thumb */
+.today-pick__photo {
+  width: 64px; height: 64px; border-radius: var(--radius-sm); flex: none;
+  overflow: hidden; background: var(--color-surface-2);
+}
+.today-pick__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.today-pick__photo--placeholder {
+  display: grid; place-items: center; color: var(--color-text-faint);
+}
+.today-pick__photo--placeholder .icon { width: 28px; height: 28px; }
+
+/* Body: name + meta + hint */
+.today-pick__body { flex: 1; min-width: 0; }
+
+.today-pick__name {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.today-pick__namelink {
+  font-size: 15px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--color-text); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch;
+}
+.today-pick__namelink:hover { color: var(--color-accent); text-decoration: none; }
+
+.today-pick__badge {
+  flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px;
+  border-radius: var(--radius-full); white-space: nowrap;
+}
+.today-pick__badge--soon { background: var(--color-warning-bg); color: var(--color-warning); }
+
+.today-pick__meta {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--color-text-faint); margin-bottom: 5px;
+}
+.today-pick__meta .icon { width: 13px; height: 13px; }
+.today-pick__meta-dot {
+  width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-faint); flex: none;
+}
+.today-pick__meta-item { display: flex; align-items: center; gap: 4px; }
+
+.today-pick__hint {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12.5px; font-weight: 600;
+}
+.today-pick__hint .icon { width: 13px; height: 13px; }
+.today-pick__hint--ready { color: var(--color-success); }
+.today-pick__hint--shop  { color: var(--color-text-muted); }
+
+/* Cook action */
+.today-pick__actions { flex: none; }
+.today-pick__cook { }
+
 /* ---- responsive collapse ------------------------------------------------- */
 @media (max-width: 1000px) {
   .today-grid { grid-template-columns: 1fr; }
@@ -5098,6 +5173,9 @@ button.sadd svg { width: 13px; height: 13px; }
   .today-welcome { grid-template-columns: 1fr; }
   .today-welcome__art { border-right: none; border-bottom: 1px solid var(--color-border); padding: 26px; }
   .today-welcome__logo { max-width: 180px; }
+  .today-pick { flex-wrap: wrap; }
+  .today-pick__actions { width: 100%; }
+  .today-pick__cook { width: 100%; justify-content: center; }
 }
 
 /* ── Page header (reusable back-link + title strip, e.g. walk pages) ───────── */

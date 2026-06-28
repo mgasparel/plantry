@@ -79,17 +79,9 @@
     {
         <div class="today-grid">
             <div class="today-meals">
-                @* Meals band — populated by sibling ticket plantry-81g *@
-                <div class="today-section-head">
-                    <h2>Today's meals</h2>
-                    <div class="today-section-head__spacer"></div>
-                    <a class="today-linkbtn today-linkbtn--accent" href="/MealPlan">
-                        <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Open weekly plan
-                    </a>
-                </div>
-                <div class="today-meals__empty">
-                    <p>Today's meal picks are coming soon.</p>
-                </div>
+                @* Meals band — Phase-2 cook-now picks (plantry-81g).
+                   Phase-3 (plantry-zp7) will swap the partial for planned-meals without a layout change. *@
+                <partial name="_CookNowPicks" model="Model" />
             </div>
 
             <div class="today-rail">

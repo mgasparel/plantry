@@ -2,6 +2,7 @@ using Plantry.Identity.Domain;
 using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
+using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -150,6 +151,25 @@ public sealed class TodayIndexModelTests
     private static readonly IClock FixedClock =
         new FakeClock(new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero));
 
+    /// <summary>
+    /// Builds a minimal <see cref="BrowseRecipesQuery"/> backed by empty in-memory fakes
+    /// so the existing tests (which don't test cook-now picks) still compile and run.
+    /// Returns an empty browse result, resulting in <see cref="IndexModel.CookNowPicks"/> = [].
+    /// </summary>
+    private static BrowseRecipesQuery BuildEmptyBrowseQuery(ITenantContext tenant)
+    {
+        var recipeRepo = new FakeRecipeRepository(hasRecipes: false);
+        var tagRepo = new FakeEmptyTagRepository();
+        var fulfillment = new FulfillmentService(
+            new FakeEmptyStockReader(),
+            new FakeEmptyCatalogProductReader(),
+            new FakeIdentityUnitConverter());
+        var costing = new CostingService(
+            new FakeEmptyPriceReader(),
+            new FakeIdentityUnitConverter());
+        return new BrowseRecipesQuery(recipeRepo, tagRepo, fulfillment, costing, tenant);
+    }
+
     private static IndexModel BuildModel(bool hasStock, bool hasRecipes, bool hasPendingIntake,
         IReadOnlyList<ExpiringSoonItem>? expiringSoon = null)
     {
@@ -167,6 +187,7 @@ public sealed class TodayIndexModelTests
             new FakeRecipeRepository(hasRecipes),
             new FakeSessionRepository(hasPendingIntake),
             inventoryQueries,
+            BuildEmptyBrowseQuery(tenant),
             FixedClock,
             tenant);
     }
@@ -184,6 +205,7 @@ public sealed class TodayIndexModelTests
             new FakeRecipeRepository(hasRecipes: true),
             new FakeSessionRepository(hasPendingIntake: false),
             inventoryQueries,
+            BuildEmptyBrowseQuery(tenant),
             FixedClock,
             tenant);
     }
@@ -217,13 +239,13 @@ public sealed class TodayIndexModelTests
             Task.FromResult(hasStock);
 
         // Unused by IndexModel:
-        public Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
-            Task.FromResult(new List<ProductStock>());
-        public Task<ProductStock?> FindForUpdateAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
-        public Task<ProductStock?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
-        public Task<ProductStock?> FindWithHistoryAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
-        public Task AddAsync(ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<bool> TryAddAndSaveAsync(ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<Inventory.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(new List<Inventory.Domain.ProductStock>());
+        public Task<Inventory.Domain.ProductStock?> FindForUpdateAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
+        public Task<Inventory.Domain.ProductStock?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
+        public Task<Inventory.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
+        public Task AddAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> TryAddAndSaveAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) => work(ct);
     }
@@ -302,6 +324,57 @@ public sealed class TodayIndexModelTests
         public override Task<IReadOnlyList<ExpiringSoonItem>> ExpiringSoonAsync(CancellationToken ct = default) =>
             Task.FromResult(items);
     }
+
+    // ── Fakes for BrowseRecipesQuery (used by BuildEmptyBrowseQuery) ──────────
+
+    private sealed class FakeEmptyTagRepository : ITagRepository
+    {
+        public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<Tag>>([]);
+        public Task<Tag?> FindByNameAsync(HouseholdId h, string name, CancellationToken ct = default) => Task.FromResult<Tag?>(null);
+        public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) => Task.FromResult<Tag?>(null);
+        public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(IReadOnlyList<TagId> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<TagId, string>>(new Dictionary<TagId, string>());
+        public Task AddAsync(Tag tag, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeEmptyStockReader : IInventoryStockReader
+    {
+        public Task<Recipes.Application.ProductStock?> FindStockAsync(Guid id, CancellationToken ct = default) =>
+            Task.FromResult<Recipes.Application.ProductStock?>(null);
+        public Task<IReadOnlyDictionary<Guid, Recipes.Application.ProductStock>> FindStockBatchAsync(
+            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, Recipes.Application.ProductStock>>(
+                new Dictionary<Guid, Recipes.Application.ProductStock>());
+    }
+
+    private sealed class FakeEmptyCatalogProductReader : ICatalogProductReader
+    {
+        public Task<CatalogProduct?> FindAsync(Guid id, CancellationToken ct = default) => Task.FromResult<CatalogProduct?>(null);
+        public Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(string q, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogProductCandidate>>([]);
+        public Task<IReadOnlyDictionary<Guid, CatalogProductSummary>> ResolveSummariesAsync(
+            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, CatalogProductSummary>>(new Dictionary<Guid, CatalogProductSummary>());
+        public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+        public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+    }
+
+    private sealed class FakeEmptyPriceReader : IPriceReader
+    {
+        public Task<PricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult<PricePoint?>(null);
+    }
+
+    private sealed class FakeIdentityUnitConverter : IUnitConverter
+    {
+        public Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
+            Task.FromResult(Result<decimal>.Success(amount));
+    }
 }
 
 // ── Widget state tests (L4 — model-level) ──────────────────────────────────────────
@@ -318,6 +391,20 @@ public sealed class ExpiringWidgetModelTests
     private static readonly IClock FixedClock =
         new FakeClock2(new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero));
     private static readonly DateOnly Today = new(2026, 6, 18);
+
+    private static BrowseRecipesQuery BuildEmptyBrowseQuery2(ITenantContext tenant)
+    {
+        var recipeRepo = new FakeRecipeRepo2(hasRecipes: false);
+        var tagRepo = new FakeEmptyTagRepo2();
+        var fulfillment = new FulfillmentService(
+            new FakeEmptyStockReader2(),
+            new FakeEmptyCatalogProductReader2(),
+            new FakeIdentityUnitConverter2());
+        var costing = new CostingService(
+            new FakeEmptyPriceReader2(),
+            new FakeIdentityUnitConverter2());
+        return new BrowseRecipesQuery(recipeRepo, tagRepo, fulfillment, costing, tenant);
+    }
 
     private IndexModel BuildModel(
         bool hasStock, bool hasRecipes, bool hasPendingIntake,
@@ -339,6 +426,7 @@ public sealed class ExpiringWidgetModelTests
             new FakeRecipeRepo2(hasRecipes),
             new FakeSessionRepo2(hasPendingIntake),
             inventoryQueries,
+            BuildEmptyBrowseQuery2(tenant),
             FixedClock,
             tenant);
     }
@@ -451,13 +539,13 @@ public sealed class ExpiringWidgetModelTests
     {
         public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
             Task.FromResult(hasStock);
-        public Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
-            Task.FromResult(new List<ProductStock>());
-        public Task<ProductStock?> FindForUpdateAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
-        public Task<ProductStock?> FindAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
-        public Task<ProductStock?> FindWithHistoryAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<ProductStock?>(null);
-        public Task AddAsync(ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<bool> TryAddAndSaveAsync(ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<Inventory.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(new List<Inventory.Domain.ProductStock>());
+        public Task<Inventory.Domain.ProductStock?> FindForUpdateAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
+        public Task<Inventory.Domain.ProductStock?> FindAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
+        public Task<Inventory.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
+        public Task AddAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> TryAddAndSaveAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) => work(ct);
     }
@@ -519,5 +607,56 @@ public sealed class ExpiringWidgetModelTests
     {
         public override Task<IReadOnlyList<ExpiringSoonItem>> ExpiringSoonAsync(CancellationToken ct = default) =>
             Task.FromResult(items);
+    }
+
+    // ── Fakes for BrowseRecipesQuery (used by BuildEmptyBrowseQuery2) ─────────
+
+    private sealed class FakeEmptyTagRepo2 : ITagRepository
+    {
+        public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<Tag>>([]);
+        public Task<Tag?> FindByNameAsync(HouseholdId h, string name, CancellationToken ct = default) => Task.FromResult<Tag?>(null);
+        public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) => Task.FromResult<Tag?>(null);
+        public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(IReadOnlyList<TagId> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<TagId, string>>(new Dictionary<TagId, string>());
+        public Task AddAsync(Tag tag, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeEmptyStockReader2 : IInventoryStockReader
+    {
+        public Task<Recipes.Application.ProductStock?> FindStockAsync(Guid id, CancellationToken ct = default) =>
+            Task.FromResult<Recipes.Application.ProductStock?>(null);
+        public Task<IReadOnlyDictionary<Guid, Recipes.Application.ProductStock>> FindStockBatchAsync(
+            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, Recipes.Application.ProductStock>>(
+                new Dictionary<Guid, Recipes.Application.ProductStock>());
+    }
+
+    private sealed class FakeEmptyCatalogProductReader2 : ICatalogProductReader
+    {
+        public Task<CatalogProduct?> FindAsync(Guid id, CancellationToken ct = default) => Task.FromResult<CatalogProduct?>(null);
+        public Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(string q, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogProductCandidate>>([]);
+        public Task<IReadOnlyDictionary<Guid, CatalogProductSummary>> ResolveSummariesAsync(
+            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, CatalogProductSummary>>(new Dictionary<Guid, CatalogProductSummary>());
+        public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+        public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+    }
+
+    private sealed class FakeEmptyPriceReader2 : IPriceReader
+    {
+        public Task<PricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult<PricePoint?>(null);
+    }
+
+    private sealed class FakeIdentityUnitConverter2 : IUnitConverter
+    {
+        public Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
+            Task.FromResult(Result<decimal>.Success(amount));
     }
 }
