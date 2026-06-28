@@ -110,7 +110,15 @@ public sealed class CookRecipe(
         var cookEventResult = CookEvent.Record(
             recipe.Id, household, servingsCooked, command.UserId, clock);
         if (cookEventResult.IsFailure)
+        {
+            // Defensive guard: CookEvent.Record only fails on servingsCooked < 1, which
+            // DesiredServings is already validated against above — so reaching here means an
+            // invariant drifted (or Record grew a new failure mode). Log at Error, not Warning.
+            logger.LogError(
+                "Cook failed for recipe {RecipeId} — CookEvent.Record rejected unexpectedly: {ErrorCode}.",
+                command.RecipeId.Value, cookEventResult.Error.Code);
             return new CookRecipeResult.Invalid(cookEventResult.Error);
+        }
 
         var cookEvent = cookEventResult.Value;
 
