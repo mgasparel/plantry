@@ -298,6 +298,17 @@ builder.Services.AddScoped<ShopForWeekService>();
 builder.Services.AddScoped<IMealPlanExpiringStockReader, MealPlanExpiringStockReaderAdapter>();
 builder.Services.AddScoped<PlanInsightsService>();
 
+// Meal Planning — ADR-021 cross-schema read model (plantry-nz3u.1).
+// MealPlanWeekReadModel loads all raw inputs for a week's meals in a small, flat set of
+// raw SQL queries over an RLS-armed Npgsql connection. Lives in Plantry.Web (the composition
+// root) and injects the app_user connection string directly — no EF context, no per-context
+// HasQueryFilter — relying solely on Postgres RLS policies (ADR-008) for tenant isolation.
+// Registered as Scoped so the ITenantContext is request-scoped and consistent with EF contexts.
+builder.Services.AddScoped<IMealPlanWeekReadModel>(sp =>
+    new MealPlanWeekReadModel(
+        appUserConnStr,
+        sp.GetRequiredService<ITenantContext>()));
+
 // Meal Planning — P3-6a AI generate plan (plantry-o0z).
 // GeneratePlanService orchestrates slot discovery, constraint resolution, candidate loading,
 // IMealPlanner call (untrusted), ProposalAcl validation, and IPendingProposalStore staging.

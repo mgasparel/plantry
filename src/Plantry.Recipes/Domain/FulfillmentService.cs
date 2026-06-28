@@ -1,4 +1,5 @@
 using Plantry.Recipes.Application;
+using Plantry.SharedKernel;
 
 namespace Plantry.Recipes.Domain;
 
@@ -97,6 +98,145 @@ public sealed class FulfillmentService(
 
         var overall = BuildOverall(lines);
         return new FulfillmentResult(overall, lines);
+    }
+
+    /// <summary>
+    /// Pure overload: computes the <see cref="FulfillmentResult"/> for <paramref name="recipe"/>
+    /// at <paramref name="desiredServings"/> using <b>only</b> the data already loaded by the caller.
+    /// Issues zero further round-trips (ADR-021 rule 1: SQL fetches data, C# keeps the math).
+    ///
+    /// The <paramref name="converter"/> delegate must resolve quantities between units without
+    /// any IO — it is the caller's responsibility to have pre-loaded units and product conversions.
+    /// On conversion failure the variant contributes zero (same partial-visibility rule as the
+    /// async path).
+    /// </summary>
+    /// <param name="recipe">The recipe to evaluate.</param>
+    /// <param name="desiredServings">Target serving count (may differ from <c>recipe.DefaultServings</c>).</param>
+    /// <param name="today">Reference date for expiry-soon classification (J1/J3).</param>
+    /// <param name="catalogById">Pre-loaded product facts keyed by product id — must include all
+    /// distinct product ids referenced by <paramref name="recipe"/> plus variant children of any
+    /// parent product.</param>
+    /// <param name="stockById">Pre-loaded stock snapshots keyed by product id — includes variant
+    /// children; products with no active stock are absent (treated as zero).</param>
+    /// <param name="converter">Sync unit conversion delegate: (productId, amount, fromUnitId, toUnitId) → Result.</param>
+    public FulfillmentResult Compute(
+        Recipe recipe,
+        int desiredServings,
+        DateOnly today,
+        IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
+        IReadOnlyDictionary<Guid, ProductStock> stockById,
+        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter)
+    {
+        var scale = (decimal)desiredServings / recipe.DefaultServings;
+
+        var lines = new List<IngredientFulfillment>(recipe.Ingredients.Count);
+        foreach (var ingredient in recipe.Ingredients)
+        {
+            var fulfillment = ComputeIngredientPure(ingredient, scale, catalogById, stockById, today, converter);
+            lines.Add(fulfillment);
+        }
+
+        var overall = BuildOverall(lines);
+        return new FulfillmentResult(overall, lines);
+    }
+
+    private static IngredientFulfillment ComputeIngredientPure(
+        Ingredient ingredient,
+        decimal scale,
+        IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
+        IReadOnlyDictionary<Guid, ProductStock> stockById,
+        DateOnly today,
+        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter)
+    {
+        // If we can't resolve the product from catalog, treat as Missing.
+        if (!catalogById.TryGetValue(ingredient.ProductId, out var catalogProduct))
+        {
+            return new IngredientFulfillment(
+                ingredient.Id, IngredientStatus.Missing, null, null);
+        }
+
+        // Untracked staples are always satisfied (C12).
+        if (!catalogProduct.TrackStock)
+        {
+            return new IngredientFulfillment(
+                ingredient.Id, IngredientStatus.Untracked, null, null);
+        }
+
+        // Null quantity/unit means untracked staple ("to taste") — defensive (R5).
+        if (ingredient.Quantity is null || ingredient.UnitId is null)
+        {
+            return new IngredientFulfillment(
+                ingredient.Id, IngredientStatus.Untracked, null, null);
+        }
+
+        var scaledRequired = ingredient.Quantity.Value * scale;
+
+        decimal totalAvailableInIngredientUnit = 0m;
+        DateOnly? soonestExpiry = null;
+
+        if (catalogProduct.IsParent)
+        {
+            // Sum stock across all non-archived variant children (DM-19 rollup).
+            foreach (var variantId in catalogProduct.VariantProductIds)
+            {
+                if (!stockById.TryGetValue(variantId, out var variantStock))
+                    continue;
+
+                var converted = converter(
+                    variantId,
+                    variantStock.AvailableQuantity,
+                    variantStock.DefaultUnitId,
+                    ingredient.UnitId.Value);
+
+                if (converted.IsSuccess)
+                    totalAvailableInIngredientUnit += converted.Value;
+
+                if (variantStock.SoonestExpiry.HasValue)
+                {
+                    if (soonestExpiry is null || variantStock.SoonestExpiry.Value < soonestExpiry.Value)
+                        soonestExpiry = variantStock.SoonestExpiry;
+                }
+            }
+        }
+        else
+        {
+            // Leaf product: single stock record.
+            if (stockById.TryGetValue(ingredient.ProductId, out var stock))
+            {
+                var converted = converter(
+                    ingredient.ProductId,
+                    stock.AvailableQuantity,
+                    stock.DefaultUnitId,
+                    ingredient.UnitId.Value);
+
+                if (converted.IsSuccess)
+                    totalAvailableInIngredientUnit = converted.Value;
+
+                soonestExpiry = stock.SoonestExpiry;
+            }
+        }
+
+        IngredientStatus status;
+        if (totalAvailableInIngredientUnit <= 0m)
+            status = IngredientStatus.Missing;
+        else if (totalAvailableInIngredientUnit < scaledRequired)
+            status = IngredientStatus.Low;
+        else
+            status = IngredientStatus.InStock;
+
+        int? expiresWithinDays = null;
+        if (soonestExpiry.HasValue)
+        {
+            var daysUntilExpiry = soonestExpiry.Value.DayNumber - today.DayNumber;
+            if (daysUntilExpiry <= ExpiringSoonDays)
+                expiresWithinDays = daysUntilExpiry;
+        }
+
+        return new IngredientFulfillment(
+            ingredient.Id,
+            status,
+            expiresWithinDays,
+            totalAvailableInIngredientUnit > 0m ? totalAvailableInIngredientUnit : null);
     }
 
     private async Task<IngredientFulfillment> ComputeIngredientAsync(

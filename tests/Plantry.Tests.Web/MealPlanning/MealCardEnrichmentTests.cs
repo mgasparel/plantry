@@ -11,7 +11,9 @@ using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
+using Plantry.Tests.Web.MealPlanning;
 using Plantry.Tests.Web.Preferences;
+using Plantry.Web.MealPlanning;
 using Xunit;
 using SharedSystemClock = Plantry.SharedKernel.Domain.SystemClock;
 
@@ -160,6 +162,13 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
                 EnrichmentFixture.RecipeId,
                 new RecipeDishEnrichment(_fulfillmentPct, _totalCost, false, _useExpiring)));
 
+            // ADR-021 week read model: provide a bag pre-populated with recipe/stock/price data
+            // that makes the pure FulfillmentService.Compute / CostingService.Compute overloads
+            // produce exactly (_fulfillmentPct, _totalCost, _useExpiring) without touching the DB.
+            services.RemoveAll<IMealPlanWeekReadModel>();
+            services.AddSingleton<IMealPlanWeekReadModel>(
+                new FakeEnrichmentWeekReadModel(_useExpiring, _fulfillmentPct, _totalCost));
+
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FakeCatalogProductReaderW(existsResult: true));
 
@@ -283,6 +292,157 @@ internal static class EnrichmentFixture
     private static readonly HouseholdId HhId = SharedKernel.HouseholdId.From(HouseholdId);
     public static readonly MealSlotConfig SlotConfig = MealSlotConfig.CreateWithDefaults(HhId, SharedSystemClock.Instance);
     public static readonly MealSlotId SlotId = SlotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First().Id;
+}
+
+/// <summary>
+/// IMealPlanWeekReadModel fake that returns a pre-built WeekBag with deterministic recipe,
+/// ingredient, product, stock, and price data so the pure FulfillmentService.Compute /
+/// CostingService.Compute overloads produce exactly the enrichment values the test needs.
+///
+/// Layout for 80 % / $12.50 / hasExpiring=true (5 tracked ingredients, 4 in stock, 1 missing):
+///   - 5 ingredients × $2.50 unit-price each → $12.50 total cost (all priced → CostIsPartial=false)
+///   - product1 stock has SoonestExpiry = today+2 → HasExpiringIngredients=true
+///
+/// Layout for 100 % / $8.00 / hasExpiring=false (2 tracked ingredients, both in stock):
+///   - 2 ingredients × $4.00 unit-price each → $8.00 total cost
+/// </summary>
+internal sealed class FakeEnrichmentWeekReadModel(bool useExpiring, int fulfillmentPct, decimal totalCost)
+    : IMealPlanWeekReadModel
+{
+    // Stable IDs shared by all builders.
+    private static readonly Guid UnitId = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
+
+    // product ids used in the 80% scenario
+    private static readonly Guid Prod1 = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000001");
+    private static readonly Guid Prod2 = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid Prod3 = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000003");
+    private static readonly Guid Prod4 = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000004");
+    private static readonly Guid Prod5 = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000005");
+
+    // ingredient ids
+    private static readonly Guid Ing1 = Guid.Parse("cccccccc-0000-0000-0000-000000000001");
+    private static readonly Guid Ing2 = Guid.Parse("cccccccc-0000-0000-0000-000000000002");
+    private static readonly Guid Ing3 = Guid.Parse("cccccccc-0000-0000-0000-000000000003");
+    private static readonly Guid Ing4 = Guid.Parse("cccccccc-0000-0000-0000-000000000004");
+    private static readonly Guid Ing5 = Guid.Parse("cccccccc-0000-0000-0000-000000000005");
+
+    public Task<WeekBag> LoadAsync(
+        IReadOnlyList<Guid> recipeIds,
+        IReadOnlyList<Guid> productIds,
+        CancellationToken ct = default)
+        => Task.FromResult(BuildBag());
+
+    private WeekBag BuildBag()
+    {
+        // The unit "ea" — a simple count unit, base unit (FactorToBase=null, IsBase=true).
+        // Since ingredient unit = stock unit = price unit, the converter always returns identity.
+        var unitFact = new UnitFact(UnitId, "ea", "Each", "count", null, IsBase: true);
+        var units = new Dictionary<Guid, UnitFact> { [UnitId] = unitFact };
+
+        // Recipe: defaultServings=2 matches the meal plan fixture (servings=2).
+        // scale = desiredServings / defaultServings = 2/2 = 1.0 — all quantities are net.
+        var recipeFact = new RecipeFact(EnrichmentFixture.RecipeId, "Test Recipe", 2);
+        var recipes = new Dictionary<Guid, RecipeFact> { [EnrichmentFixture.RecipeId] = recipeFact };
+
+        // Build ingredients, products, stock, prices based on the desired enrichment scenario.
+        List<IngredientFact> ingredients;
+        Dictionary<Guid, ProductFact> productsDict;
+        Dictionary<Guid, StockFact> stockDict;
+        Dictionary<Guid, PriceFact> priceDict;
+
+        if (fulfillmentPct == 80)
+        {
+            // 5 tracked ingredients, 4 in stock, 1 missing → 4/5 = 80 %.
+            // All 5 priced at $2.50 each (scale=1, qty=1) → $12.50 total, CostIsPartial=false.
+            var unitPrice = totalCost / 5m; // $2.50 per ingredient
+            ingredients =
+            [
+                new(Ing1, EnrichmentFixture.RecipeId, Prod1, 1m, UnitId, 0),
+                new(Ing2, EnrichmentFixture.RecipeId, Prod2, 1m, UnitId, 1),
+                new(Ing3, EnrichmentFixture.RecipeId, Prod3, 1m, UnitId, 2),
+                new(Ing4, EnrichmentFixture.RecipeId, Prod4, 1m, UnitId, 3),
+                new(Ing5, EnrichmentFixture.RecipeId, Prod5, 1m, UnitId, 4),
+            ];
+            productsDict = new()
+            {
+                [Prod1] = MakeProduct(Prod1, "Prod1"),
+                [Prod2] = MakeProduct(Prod2, "Prod2"),
+                [Prod3] = MakeProduct(Prod3, "Prod3"),
+                [Prod4] = MakeProduct(Prod4, "Prod4"),
+                [Prod5] = MakeProduct(Prod5, "Prod5"),
+            };
+            // prod5 has no stock → Missing.
+            var expiry = useExpiring ? DateOnly.FromDateTime(DateTime.Today.AddDays(2)) : (DateOnly?)null;
+            stockDict = new()
+            {
+                // prod1: in stock with an imminent expiry (within 4 days) when useExpiring=true.
+                [Prod1] = new StockFact(Prod1, [new StockLotFact(Prod1, UnitId, 2m)], expiry),
+                [Prod2] = new StockFact(Prod2, [new StockLotFact(Prod2, UnitId, 2m)], null),
+                [Prod3] = new StockFact(Prod3, [new StockLotFact(Prod3, UnitId, 2m)], null),
+                [Prod4] = new StockFact(Prod4, [new StockLotFact(Prod4, UnitId, 2m)], null),
+                // Prod5 intentionally absent → Missing.
+            };
+            priceDict = new()
+            {
+                [Prod1] = MakePrice(Prod1, unitPrice),
+                [Prod2] = MakePrice(Prod2, unitPrice),
+                [Prod3] = MakePrice(Prod3, unitPrice),
+                [Prod4] = MakePrice(Prod4, unitPrice),
+                [Prod5] = MakePrice(Prod5, unitPrice),
+            };
+        }
+        else
+        {
+            // fulfillmentPct == 100: 2 tracked ingredients, both in stock, no expiring.
+            // Priced at totalCost/2 each → totalCost total, CostIsPartial=false.
+            var unitPrice = totalCost / 2m;
+            ingredients =
+            [
+                new(Ing1, EnrichmentFixture.RecipeId, Prod1, 1m, UnitId, 0),
+                new(Ing2, EnrichmentFixture.RecipeId, Prod2, 1m, UnitId, 1),
+            ];
+            productsDict = new()
+            {
+                [Prod1] = MakeProduct(Prod1, "Prod1"),
+                [Prod2] = MakeProduct(Prod2, "Prod2"),
+            };
+            stockDict = new()
+            {
+                [Prod1] = new StockFact(Prod1, [new StockLotFact(Prod1, UnitId, 2m)], null),
+                [Prod2] = new StockFact(Prod2, [new StockLotFact(Prod2, UnitId, 2m)], null),
+            };
+            priceDict = new()
+            {
+                [Prod1] = MakePrice(Prod1, unitPrice),
+                [Prod2] = MakePrice(Prod2, unitPrice),
+            };
+        }
+
+        var ingredientsByRecipe = new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+        {
+            [EnrichmentFixture.RecipeId] = ingredients,
+        };
+
+        return new WeekBag(
+            recipes,
+            ingredientsByRecipe,
+            productsDict,
+            new Dictionary<Guid, IReadOnlyList<ConversionFact>>(), // no cross-dim conversions needed
+            units,
+            stockDict,
+            priceDict);
+    }
+
+    private static ProductFact MakeProduct(Guid id, string name) =>
+        new(id, name, TrackStock: true, DefaultUnitId: UnitId, ParentProductId: null,
+            HasVariants: false, Archived: false, VariantProductIds: []);
+
+    /// <summary>
+    /// Price observation: price=unitPrice, quantity=1, unitId=UnitId, UnitPrice=unitPrice.
+    /// Since UnitPrice is set, CostingService uses it directly without dividing Price/Quantity.
+    /// </summary>
+    private static PriceFact MakePrice(Guid productId, decimal unitPrice) =>
+        new(productId, unitPrice, 1m, UnitId, unitPrice, DateTime.UtcNow.AddDays(-1));
 }
 
 // NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).
