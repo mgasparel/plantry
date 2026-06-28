@@ -4,6 +4,20 @@ using Plantry.SharedKernel.Tenancy;
 namespace Plantry.Web.MealPlanning;
 
 /// <summary>
+/// Contract for the page-wide cross-schema read model for the Meal Planner week page (ADR-021).
+/// Extracted as an interface so the test harness can replace the real SQL implementation with
+/// an in-memory fake without spawning a live database connection.
+/// </summary>
+public interface IMealPlanWeekReadModel
+{
+    /// <inheritdoc cref="MealPlanWeekReadModel.LoadAsync"/>
+    Task<WeekBag> LoadAsync(
+        IReadOnlyList<Guid> recipeIds,
+        IReadOnlyList<Guid> productIds,
+        CancellationToken ct = default);
+}
+
+/// <summary>
 /// Page-wide cross-schema read model for the Meal Planner week page (ADR-021).
 ///
 /// Loads all raw inputs for a week's meals in a small, flat set of queries whose count is
@@ -22,7 +36,7 @@ namespace Plantry.Web.MealPlanning;
 /// </summary>
 public sealed class MealPlanWeekReadModel(
     string connectionString,
-    ITenantContext tenant)
+    ITenantContext tenant) : IMealPlanWeekReadModel
 {
     /// <summary>
     /// Loads the full week's raw inputs for a given set of recipe and product ids gathered

@@ -12,6 +12,7 @@ using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.Preferences;
+using Plantry.Web.MealPlanning;
 using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
@@ -411,6 +412,10 @@ public sealed class TwoProposalRegenerateFactory : WebApplicationFactory<Program
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
 
+            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
+            services.RemoveAll<IMealPlanWeekReadModel>();
+            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
+
             services.RemoveAll<PlanFulfillmentService>();
             services.AddScoped<PlanFulfillmentService>();
             services.RemoveAll<PlanCostingService>();
@@ -501,6 +506,10 @@ public sealed class RegenerateCellFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+
+            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
+            services.RemoveAll<IMealPlanWeekReadModel>();
+            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
 
             services.RemoveAll<PlanFulfillmentService>();
             services.AddScoped<PlanFulfillmentService>();

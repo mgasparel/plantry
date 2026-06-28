@@ -304,7 +304,7 @@ builder.Services.AddScoped<PlanInsightsService>();
 // root) and injects the app_user connection string directly — no EF context, no per-context
 // HasQueryFilter — relying solely on Postgres RLS policies (ADR-008) for tenant isolation.
 // Registered as Scoped so the ITenantContext is request-scoped and consistent with EF contexts.
-builder.Services.AddScoped<MealPlanWeekReadModel>(sp =>
+builder.Services.AddScoped<IMealPlanWeekReadModel>(sp =>
     new MealPlanWeekReadModel(
         appUserConnStr,
         sp.GetRequiredService<ITenantContext>()));

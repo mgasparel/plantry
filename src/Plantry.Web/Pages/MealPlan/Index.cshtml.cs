@@ -15,6 +15,7 @@ using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
+using Plantry.Web.MealPlanning;
 
 namespace Plantry.Web.Pages.MealPlan;
 
@@ -37,6 +38,9 @@ public sealed class IndexModel(
     SetPlanningSettingsService setPlanningSettingsService,
     IHouseholdPlanningSettingsRepository planningSettingsRepo,
     IWeekPlanningOverrideRepository weekOverrideRepo,
+    IMealPlanWeekReadModel weekReadModel,
+    Plantry.Recipes.Domain.FulfillmentService recipesFulfillmentService,
+    Plantry.Recipes.Domain.CostingService recipesCostingService,
     ITenantContext tenant,
     UserManager<AppUser> userManager,
     IClock clock) : PageModel
@@ -47,6 +51,13 @@ public sealed class IndexModel(
     public DateOnly ThisWeekStart { get; private set; }
     public string WeekLabel { get; private set; } = "";
     public bool HasSlots { get; private set; }
+
+    /// <summary>
+    /// Recipe name cache populated from the WeekBag during LoadWeekAsync.
+    /// Used by <see cref="ResolveRecipeNameAsync"/> so _WeekGrid.cshtml ghost-cell name resolution
+    /// hits the in-memory bag instead of issuing per-recipe GetByIdAsync calls (ADR-021).
+    /// </summary>
+    private Dictionary<Guid, string> _recipeNameCache = [];
 
     /// <summary>True when there are empty cells in the current week (enables the Auto-fill button).</summary>
     public bool HasEmptyCells { get; private set; }
@@ -855,60 +866,192 @@ public sealed class IndexModel(
         // Runs on every request path (GET + all OOB refreshes) so WeekBudgetTarget is always populated.
         await LoadPlanningSettingsAsync(householdId, ct);
 
-        // Load planned meals for this week, enriched with live fulfillment and cost.
+        // Load planned meals for this week.
         DomainMealPlan? loadedPlan = null;
         if (HasSlots)
         {
-            var plan = await mealPlanRepo.FindByWeekAsync(householdId, WeekStart, ct);
-            loadedPlan = plan;
+            loadedPlan = await mealPlanRepo.FindByWeekAsync(householdId, WeekStart, ct);
+        }
 
-            if (plan is not null)
+        // Load pending AI proposals for this week from the store (needed before read model load
+        // so ghost-cell recipe IDs are included in the flat query).
+        await LoadPendingProposalsAsync(householdId, ct);
+
+        // ── ADR-021 flat read model load ──────────────────────────────────────
+        // Gather all distinct recipe/product IDs from both planned meals AND pending proposals
+        // so the read model can load everything in a single pass.
+        var recipeIds = new HashSet<Guid>();
+        var productIds = new HashSet<Guid>();
+
+        if (loadedPlan is not null)
+        {
+            foreach (var meal in loadedPlan.PlannedMeals)
+            foreach (var dish in meal.PlannedDishes)
             {
-                // Compute week-level cost roll-up for the budget chip.
-                var weekCost = await costingService.RollUpWeekAsync(plan, ct);
-                WeekTotalCost = weekCost.Amount;
-                WeekCostIsPartial = weekCost.Completeness == CostCompleteness.Partial;
+                if (dish.RecipeId.HasValue) recipeIds.Add(dish.RecipeId.Value);
+                else if (dish.ProductId.HasValue) productIds.Add(dish.ProductId.Value);
+            }
+        }
 
-                foreach (var meal in plan.PlannedMeals.OrderBy(m => m.Ordinal))
+        foreach (var proposal in PendingProposals.Values)
+        foreach (var dish in proposal.Dishes)
+        {
+            recipeIds.Add(dish.RecipeId);
+        }
+
+        var bag = await weekReadModel.LoadAsync(recipeIds.ToList(), productIds.ToList(), ct);
+        var enricher = new WeekBagEnricher(bag, recipesFulfillmentService, recipesCostingService, clock);
+
+        // Populate recipe name cache so _WeekGrid.cshtml ghost-cell name resolution
+        // uses the in-memory bag instead of per-recipe GetByIdAsync calls (ADR-021).
+        _recipeNameCache = bag.Recipes.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name);
+
+        // ── Enrich planned meals and build MealsByCell ────────────────────────
+        if (loadedPlan is not null)
+        {
+            // Accumulate per-meal cost to derive week total by summation (no separate RollUpWeekAsync).
+            decimal weekCostTotal = 0m;
+            bool weekCostAnyPriced = false;
+            bool weekCostAnyPartial = false;
+            bool weekCostAnyUnpriced = false;
+
+            foreach (var meal in loadedPlan.PlannedMeals.OrderBy(m => m.Ordinal))
+            {
+                var key = CellKey(meal.Date, meal.MealSlotId);
+                if (!MealsByCell.TryGetValue(key, out var list))
                 {
-                    var key = CellKey(meal.Date, meal.MealSlotId);
-                    if (!MealsByCell.TryGetValue(key, out var list))
-                    {
-                        list = [];
-                        MealsByCell[key] = list;
-                    }
+                    list = [];
+                    MealsByCell[key] = list;
+                }
 
-                    // Resolve names for dishes
-                    var dishNames = new List<string>();
-                    foreach (var d in meal.PlannedDishes.OrderBy(x => x.Ordinal))
+                // Resolve dish names in ordinal order.
+                // Recipe names come from the in-memory bag (no DB call).
+                // Product dish names are batch-resolved via catalogReader (product dishes are
+                // rare and not on the O(meals×dishes×ingredients) hot path).
+                var productDishIds = meal.PlannedDishes
+                    .Where(d => d.ProductId.HasValue)
+                    .Select(d => d.ProductId!.Value)
+                    .Distinct()
+                    .ToList();
+
+                IReadOnlyDictionary<Guid, string> productNames =
+                    productDishIds.Count > 0
+                        ? await catalogReader.ResolveNamesAsync(productDishIds, ct)
+                        : new Dictionary<Guid, string>();
+
+                var dishNames = meal.PlannedDishes
+                    .OrderBy(d => d.Ordinal)
+                    .Select(d =>
                     {
                         if (d.RecipeId.HasValue)
-                        {
-                            var r = await recipeReader.GetByIdAsync(d.RecipeId.Value, ct);
-                            dishNames.Add(r?.Name ?? "Unknown recipe");
-                        }
-                        else if (d.ProductId.HasValue)
-                        {
-                            var names = await catalogReader.ResolveNamesAsync([d.ProductId.Value], ct);
-                            dishNames.Add(names.GetValueOrDefault(d.ProductId.Value, "Unknown product"));
-                        }
-                    }
+                            return enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
+                        if (d.ProductId.HasValue)
+                            return productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product");
+                        return "Unknown";
+                    })
+                    .ToList();
 
-                    // Compute per-meal fulfillment and cost enrichment.
-                    MealFulfillmentVm? enrichment = null;
-                    if (meal.Note is null && meal.PlannedDishes.Count > 0)
+                // Compute per-meal fulfillment and cost enrichment using the bag enricher
+                // (memoized per (recipeId, servings) — a recipe appearing in multiple cells
+                // is computed exactly once).
+                MealFulfillmentVm? enrichment = null;
+                if (meal.Note is null && meal.PlannedDishes.Count > 0)
+                {
+                    int totalFulfillmentPct = 0;
+                    bool hasExpiring = false;
+                    decimal? mealCostAmount = null;
+                    bool mealCostPartial = false;
+                    bool mealAnyPriced = false;
+                    bool mealAnyUnpriced = false;
+
+                    foreach (var dish in meal.PlannedDishes)
                     {
-                        var fulfillment = await fulfillmentService.RollUpMealAsync(meal, today, ct);
-                        var mealCost = await costingService.RollUpMealAsync(meal, ct);
-                        enrichment = new MealFulfillmentVm(
-                            fulfillment.FulfillmentPercent,
-                            fulfillment.HasExpiringIngredients,
-                            mealCost.Amount,
-                            mealCost.Completeness == CostCompleteness.Partial);
+                        if (dish.RecipeId.HasValue)
+                        {
+                            var dishEnr = enricher.Enrich(dish.RecipeId.Value, dish.Servings, today);
+                            if (dishEnr is not null)
+                            {
+                                totalFulfillmentPct += dishEnr.FulfillmentPercent;
+                                if (dishEnr.HasExpiringIngredients) hasExpiring = true;
+                                if (dishEnr.TotalCost.HasValue)
+                                {
+                                    mealCostAmount = (mealCostAmount ?? 0m) + dishEnr.TotalCost.Value;
+                                    mealAnyPriced = true;
+                                    if (dishEnr.CostIsPartial) mealCostPartial = true;
+                                }
+                                else
+                                {
+                                    mealAnyUnpriced = true;
+                                }
+                            }
+                            else
+                            {
+                                // Recipe not in bag (archived?) — treat as 0% / unpriced.
+                                mealAnyUnpriced = true;
+                            }
+                        }
+                        else if (dish.ProductId.HasValue)
+                        {
+                            // Product dishes: fulfillment via existing MealPlanStockReader path;
+                            // cost via existing MealPlanPriceReader path. These are rare —
+                            // not on the high-fan-out recipe path — so port calls are acceptable.
+                            var singleDishMeal = MakeSingleDishMeal(householdId, meal.Date, meal.MealSlotId, dish);
+                            if (singleDishMeal is not null)
+                            {
+                                var dishFulfillment = await fulfillmentService.RollUpMealAsync(singleDishMeal, today, ct);
+                                var dishCost = await costingService.RollUpMealAsync(singleDishMeal, ct);
+
+                                totalFulfillmentPct += dishFulfillment.FulfillmentPercent;
+                                if (dishFulfillment.HasExpiringIngredients) hasExpiring = true;
+                                if (dishCost.Amount.HasValue)
+                                {
+                                    mealCostAmount = (mealCostAmount ?? 0m) + dishCost.Amount.Value;
+                                    mealAnyPriced = true;
+                                    if (dishCost.Completeness == CostCompleteness.Partial) mealCostPartial = true;
+                                }
+                                else
+                                {
+                                    mealAnyUnpriced = true;
+                                }
+                            }
+                            else
+                            {
+                                mealAnyUnpriced = true;
+                            }
+                        }
                     }
 
-                    list.Add(new MealCellVm(meal.Id.Value, meal.Note, dishNames, meal.AttendeesOverride ?? [], enrichment));
+                    int dishCount = meal.PlannedDishes.Count;
+                    var mealFulfillPct = dishCount > 0 ? (int)Math.Round((double)totalFulfillmentPct / dishCount) : 0;
+
+                    enrichment = new MealFulfillmentVm(
+                        mealFulfillPct,
+                        hasExpiring,
+                        mealCostAmount,
+                        mealCostPartial || (mealAnyPriced && mealAnyUnpriced));
+
+                    // Accumulate into week cost totals.
+                    if (mealCostAmount.HasValue)
+                    {
+                        weekCostTotal += mealCostAmount.Value;
+                        weekCostAnyPriced = true;
+                        if (mealCostPartial || (mealAnyPriced && mealAnyUnpriced))
+                            weekCostAnyPartial = true;
+                    }
+                    else if (dishCount > 0 && meal.Note is null)
+                    {
+                        weekCostAnyUnpriced = true;
+                    }
                 }
+
+                list.Add(new MealCellVm(meal.Id.Value, meal.Note, dishNames, meal.AttendeesOverride ?? [], enrichment));
+            }
+
+            // Derive week total from summed per-meal results (no separate RollUpWeekAsync pass).
+            if (weekCostAnyPriced)
+            {
+                WeekTotalCost = weekCostTotal;
+                WeekCostIsPartial = weekCostAnyPartial || (weekCostAnyPriced && weekCostAnyUnpriced);
             }
         }
 
@@ -929,14 +1072,31 @@ public sealed class IndexModel(
             HasEmptyCells = emptyCells > 0;
         }
 
-        // Load pending AI proposals for this week from the store
-        await LoadPendingProposalsAsync(householdId, ct);
-
-        // Compute rolled-up fulfillment/cost for all ghost cells (P3-6b enriched ghost cells).
-        // Uses P3-4 roll-up services; builds transient meals from proposals — no DB write.
-        await LoadGhostEnrichmentsAsync(ct);
+        // Compute rolled-up fulfillment/cost for all ghost cells (P3-6b enriched ghost cells)
+        // using the same enricher (memoized — shared with committed-meal enrichment above).
+        await LoadGhostEnrichmentsAsync(enricher, ct);
 
         await BuildInsightsAsync(loadedPlan, emptyCells, ct);
+    }
+
+    /// <summary>
+    /// Builds a single-dish transient PlannedMeal for product-dish fulfillment/cost
+    /// computation via the existing port-backed services. Product dishes are rare (not on the
+    /// recipe×ingredient hot path), so a port call per product dish is acceptable.
+    /// Returns null when the aggregate does not produce a meal (should not occur in practice).
+    /// </summary>
+    private PlannedMeal? MakeSingleDishMeal(
+        HouseholdId householdId,
+        DateOnly date,
+        MealSlotId slotId,
+        PlannedDish dish)
+    {
+        var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(date), clock);
+        var spec = dish.ProductId.HasValue
+            ? new DishSpec(DishKind.Product, dish.ProductId.Value, dish.Servings)
+            : new DishSpec(DishKind.Recipe, dish.RecipeId!.Value, dish.Servings);
+        tempPlan.AssignMeal(date, slotId, [spec], null, "rollup-single-dish", Guid.Empty, clock);
+        return tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == date && m.MealSlotId == slotId);
     }
 
     /// <summary>
@@ -1017,30 +1177,81 @@ public sealed class IndexModel(
     }
 
     /// <summary>
-    /// Computes rolled-up fulfillment/cost for all pending ghost cells (P3-6b, ADR-013 §4/§5).
-    /// Builds transient PlannedMeal objects from proposal dishes and runs through the P3-4 services.
+    /// Computes rolled-up fulfillment/cost for all pending ghost cells (P3-6b, ADR-013 §4/§5)
+    /// using the pre-loaded <paramref name="enricher"/> (no further DB round-trips per ghost cell).
     /// Best-effort: failures are silently swallowed so a broken enrichment never hides the ghost cell.
     /// </summary>
-    private async Task LoadGhostEnrichmentsAsync(CancellationToken ct)
+    private Task LoadGhostEnrichmentsAsync(WeekBagEnricher enricher, CancellationToken ct)
     {
         GhostEnrichments = [];
-        if (PendingProposals.Count == 0) return;
+        if (PendingProposals.Count == 0) return Task.CompletedTask;
 
-        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var today = DateOnly.FromDateTime(DateTime.Today);
         foreach (var (key, proposal) in PendingProposals)
         {
-            var enrichment = await BuildGhostEnrichmentAsync(householdId, proposal, ct);
+            var enrichment = BuildGhostEnrichmentFromBag(enricher, proposal, today);
             if (enrichment is not null) GhostEnrichments[key] = enrichment;
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Computes ghost-cell enrichment from the pre-loaded bag (pure, no IO).
+    /// Best-effort: returns null on an empty proposal or when no recipe facts are in the bag.
+    /// </summary>
+    private static MealFulfillmentVm? BuildGhostEnrichmentFromBag(
+        WeekBagEnricher enricher, ProposedMeal pending, DateOnly today)
+    {
+        if (pending.Dishes.Count == 0) return null;
+        try
+        {
+            int totalFulfillPct = 0;
+            bool hasExpiring = false;
+            decimal? totalCost = null;
+            bool anyPartial = false;
+            bool anyPriced = false;
+            bool anyUnpriced = false;
+
+            foreach (var dish in pending.Dishes)
+            {
+                var enr = enricher.Enrich(dish.RecipeId, dish.Servings, today);
+                if (enr is null) continue;
+
+                totalFulfillPct += enr.FulfillmentPercent;
+                if (enr.HasExpiringIngredients) hasExpiring = true;
+                if (enr.TotalCost.HasValue)
+                {
+                    totalCost = (totalCost ?? 0m) + enr.TotalCost.Value;
+                    anyPriced = true;
+                    if (enr.CostIsPartial) anyPartial = true;
+                }
+                else
+                {
+                    anyUnpriced = true;
+                }
+            }
+
+            var dishCount = pending.Dishes.Count;
+            var avgFulfill = dishCount > 0 ? (int)Math.Round((double)totalFulfillPct / dishCount) : 0;
+
+            // Mirrors MealCost.Aggregate: partial when any dish has a partial cost OR when
+            // some dishes are priced and others are not (under-estimate of the true total).
+            var costIsPartial = anyPartial || (anyPriced && anyUnpriced);
+            return new MealFulfillmentVm(avgFulfill, hasExpiring, totalCost, costIsPartial);
+        }
+        catch
+        {
+            // Enrichment is best-effort — degrade gracefully if computation fails.
+            return null;
         }
     }
 
     /// <summary>
-    /// Rolls up a pending AI proposal into display fulfillment + cost (a "ghost" cell) WITHOUT
-    /// persisting: builds a transient meal from the proposal's dishes and runs the same
-    /// fulfillment/costing services the committed-meal path uses (ADR-013 §4/§5, ADR-020 §7 — the
-    /// math stays server-side). Best-effort: returns null on an empty proposal or any roll-up
-    /// failure. Single source of truth for the three places that need ghost enrichment
-    /// (LoadGhostEnrichmentsAsync, CellMutationJsonAsync, CellFragmentAsync).
+    /// Computes ghost-cell enrichment using the port-backed services (fallback path for
+    /// CellMutationJsonAsync / CellFragmentAsync which may not have a bag enricher available).
+    /// Builds a transient meal from the proposal's dishes and runs the P3-4 services.
+    /// Best-effort: returns null on an empty proposal or any roll-up failure.
+    /// Single source of truth for the three places that need ghost enrichment from the old path.
     /// </summary>
     private async Task<MealFulfillmentVm?> BuildGhostEnrichmentAsync(
         HouseholdId householdId, ProposedMeal pending, CancellationToken ct)
@@ -1235,10 +1446,16 @@ public sealed class IndexModel(
 
     /// <summary>
     /// Used by _WeekGrid.cshtml to resolve a recipe name for ghost cell display.
-    /// Delegates to the IndexModel's recipeReader (held as a field via DI).
+    /// Returns from the in-memory bag cache when available (ADR-021); falls back to
+    /// <see cref="IRecipeReadModel.GetByIdAsync"/> for any recipe not in the cache
+    /// (e.g. if the grid renders before LoadWeekAsync is called, which should not happen in practice).
     /// </summary>
     public async Task<string> ResolveRecipeNameAsync(Guid recipeId)
     {
+        if (_recipeNameCache.TryGetValue(recipeId, out var cachedName))
+            return cachedName;
+
+        // Fallback: recipe not in bag (should not occur for meals loaded this request).
         var r = await recipeReader.GetByIdAsync(recipeId);
         return r?.Name ?? "Unknown recipe";
     }

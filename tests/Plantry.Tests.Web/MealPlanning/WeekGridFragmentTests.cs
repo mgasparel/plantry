@@ -14,6 +14,7 @@ using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.Preferences;
+using Plantry.Web.MealPlanning;
 using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
@@ -326,6 +327,10 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
 
+            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
+            services.RemoveAll<IMealPlanWeekReadModel>();
+            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
+
             services.RemoveAll<PlanFulfillmentService>();
             services.AddScoped<PlanFulfillmentService>();
             services.RemoveAll<PlanCostingService>();
@@ -467,6 +472,10 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+
+            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
+            services.RemoveAll<IMealPlanWeekReadModel>();
+            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
 
             services.RemoveAll<PlanFulfillmentService>();
             services.AddScoped<PlanFulfillmentService>();
@@ -776,6 +785,10 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
 
+            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
+            services.RemoveAll<IMealPlanWeekReadModel>();
+            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
+
             services.RemoveAll<PlanFulfillmentService>();
             services.AddScoped<PlanFulfillmentService>();
             services.RemoveAll<PlanCostingService>();
@@ -930,3 +943,21 @@ internal sealed class NullWeekOverrideRepo : IWeekPlanningOverrideRepository
 }
 
 // NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).
+
+// ── ADR-021 null stub (returns an empty WeekBag for WAF factories that don't test the read model) ──
+
+internal sealed class NullWeekReadModel : IMealPlanWeekReadModel
+{
+    public Task<WeekBag> LoadAsync(
+        IReadOnlyList<Guid> recipeIds,
+        IReadOnlyList<Guid> productIds,
+        CancellationToken ct = default)
+        => Task.FromResult(new WeekBag(
+            new Dictionary<Guid, RecipeFact>(),
+            new Dictionary<Guid, IReadOnlyList<IngredientFact>>(),
+            new Dictionary<Guid, ProductFact>(),
+            new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            new Dictionary<Guid, UnitFact>(),
+            new Dictionary<Guid, StockFact>(),
+            new Dictionary<Guid, PriceFact>()));
+}
