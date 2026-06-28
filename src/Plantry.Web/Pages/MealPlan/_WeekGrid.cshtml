@@ -99,7 +99,10 @@ else
     @* Insights rail (+ floating reopen tab) — extracted to _PlanRail so the identical markup
        can be re-emitted out-of-band after a cell-targeted mutation. Inline here it carries no
        hx-swap-oob (Oob defaults false). *@
-    @await Html.PartialAsync("_PlanRail", new Plantry.Web.Pages.MealPlan.IndexModel.PlanRailVm(Model.Insights, Model.PendingCount))
+    @await Html.PartialAsync("_PlanRail", new Plantry.Web.Pages.MealPlan.IndexModel.PlanRailVm(
+        Model.Insights, Model.PendingCount,
+        ConfirmedWeekCost: Model.WeekTotalCost, ConfirmedCostIsPartial: Model.WeekCostIsPartial,
+        ProjectedWeekCost: Model.ProjectedWeekCost, ProjectedCostIsPartial: Model.ProjectedWeekCostIsPartial))
 
     @* Pending bar — visible when there are staged AI suggestions *@
     @if (Model.PendingCount > 0)
