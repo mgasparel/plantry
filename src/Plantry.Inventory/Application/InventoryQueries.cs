@@ -53,6 +53,23 @@ public sealed record StockJournalRow(
     StockSourceType? SourceType,
     DateTimeOffset OccurredAt);
 
+/// <summary>
+/// One row in the expiring-soon widget on the Today page (SPEC Page 0 §0d).
+/// Products ordered soonest-first; expired lots lead. DaysLeft is 0 for same-day and positive
+/// for future dates; IsExpired true when the soonest lot is already past today.
+/// </summary>
+public sealed record ExpiringSoonItem(
+    Guid ProductId,
+    string Name,
+    decimal TotalQuantity,
+    string DisplayUnitCode,
+    /// <summary>Location sub-line, e.g. "Pantry" or "Multiple". Null when no location set.</summary>
+    string? LocationDisplay,
+    DateOnly SoonestExpiry,
+    /// <summary>Days until SoonestExpiry, 0 for same-day, positive for future; expired items have DaysLeft = 0 and IsExpired = true.</summary>
+    int DaysLeft,
+    bool IsExpired);
+
 /// <summary>The product detail read model: live lots plus recent journal history.</summary>
 public sealed record ProductStockDetail(
     Guid ProductId,
@@ -77,7 +94,7 @@ public sealed record ProductStockDetail(
 /// consume path uses; a lot whose unit cannot convert contributes 0 to the display total but is still
 /// counted and dated — the authoritative fail-loud path is <see cref="ProductStock.Consume"/>.
 /// </summary>
-public sealed class InventoryQueryService(
+public class InventoryQueryService(
     IProductStockRepository stocks,
     ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
@@ -86,6 +103,9 @@ public sealed class InventoryQueryService(
 {
     /// <summary>Lots expiring within this many days of today render as <see cref="ExpiryTone.Soon"/> (SPEC §1d default).</summary>
     public const int ExpiringSoonDays = 7;
+
+    /// <summary>Maximum number of rows returned by <see cref="ExpiringSoonAsync"/> (top-N soonest-first).</summary>
+    public const int ExpiringSoonMaxItems = 10;
 
     public async Task<IReadOnlyList<PantryListItem>> ListPantryAsync(CancellationToken ct = default)
     {
@@ -138,6 +158,70 @@ public sealed class InventoryQueryService(
 
         return items
             .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Returns up to <see cref="ExpiringSoonMaxItems"/> products with active lots whose soonest expiry
+    /// is within the next <see cref="ExpiringSoonDays"/> days (or already past), ordered soonest-first
+    /// (expired first, then by date ascending). Only products with at least one dated lot are included.
+    /// Household-scoped via the tenant context.
+    /// </summary>
+    public virtual async Task<IReadOnlyList<ExpiringSoonItem>> ExpiringSoonAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return [];
+        var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdId), ct);
+        var productsById = (await catalog.ListProductsAsync(ct)).ToDictionary(p => p.Id);
+        var locationNames = await catalog.GetLocationNamesAsync(ct);
+        var unitCodes = await catalog.GetUnitCodesAsync(ct);
+        var today = Today();
+        var windowEnd = today.AddDays(ExpiringSoonDays);
+
+        var convertersByProduct = await conversions.ForProductsAsync(allStock.Select(s => s.ProductId), ct);
+
+        var items = new List<ExpiringSoonItem>();
+        foreach (var stock in allStock)
+        {
+            var activeLots = stock.ActiveLotsFefo().ToList();
+            if (activeLots.Count == 0) continue;
+
+            if (!productsById.TryGetValue(stock.ProductId, out var product))
+                continue;
+
+            // Only include products with at least one dated lot in/past the expiry window
+            var soonest = activeLots.Where(l => l.ExpiryDate is not null).Min(l => l.ExpiryDate);
+            if (soonest is null) continue;
+            if (soonest > windowEnd) continue; // beyond the window — skip
+
+            var converter = convertersByProduct[stock.ProductId];
+            var (total, displayUnitCode) = DisplayQuantity(activeLots, product.DefaultUnitId, product.DefaultUnitCode, converter, unitCodes);
+
+            var distinctLocations = activeLots.Select(l => l.LocationId).Distinct().ToList();
+            var locationDisplay = distinctLocations.Count switch
+            {
+                0 => null,
+                1 => locationNames.GetValueOrDefault(distinctLocations[0]),
+                _ => "Multiple",
+            };
+
+            var isExpired = soonest.Value < today;
+            var daysLeft = isExpired ? 0 : (soonest.Value.ToDateTime(TimeOnly.MinValue) - today.ToDateTime(TimeOnly.MinValue)).Days;
+
+            items.Add(new ExpiringSoonItem(
+                stock.ProductId,
+                product.Name,
+                total,
+                displayUnitCode,
+                locationDisplay,
+                soonest.Value,
+                daysLeft,
+                isExpired));
+        }
+
+        return items
+            .OrderBy(i => i.SoonestExpiry)
+            .Take(ExpiringSoonMaxItems)
             .ToList();
     }
 

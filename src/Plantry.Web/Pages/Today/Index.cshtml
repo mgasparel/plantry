@@ -74,22 +74,22 @@
         </div>
     }
 
+    @* Review banner stack — intake sessions in Ready status (SPEC Page 0 §0b, plantry-yb6).
+       Renders nothing when there are no pending sessions. Sits between the header and the
+       two-column board so it is prominent without disrupting the grid layout. *@
+    @if (!Model.IsColdStart && Model.PendingReviewBanners.Count > 0)
+    {
+        <partial name="_ReviewBannerStack" model="Model" />
+    }
+
     @* Two-column board: main column (meals) + right rail (widgets) *@
     @if (!Model.IsColdStart)
     {
         <div class="today-grid">
             <div class="today-meals">
-                @* Meals band — populated by sibling ticket plantry-81g *@
-                <div class="today-section-head">
-                    <h2>Today's meals</h2>
-                    <div class="today-section-head__spacer"></div>
-                    <a class="today-linkbtn today-linkbtn--accent" href="/MealPlan">
-                        <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Open weekly plan
-                    </a>
-                </div>
-                <div class="today-meals__empty">
-                    <p>Today's meal picks are coming soon.</p>
-                </div>
+                @* Meals band — Phase-3 planned meals (plantry-zp7).
+                   Replaced the Phase-2 cook-now picks (plantry-81g) without a layout change. *@
+                <partial name="_PlannedMealsBand" model="Model" />
             </div>
 
             <div class="today-rail">
@@ -108,27 +108,8 @@
                         </div>
                     </div>
                 }
-                @* Expiring-soon widget — populated by sibling ticket plantry-81x *@
-                <div class="today-widget">
-                    <div class="today-widget__head">
-                        <h3>Expiring soon</h3>
-                        <div class="today-widget__spacer"></div>
-                        <span class="today-count-badge today-count-badge--calm">0</span>
-                    </div>
-                    <div class="today-widget__empty">
-                        <div class="today-we-mark">
-                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-                        </div>
-                        <div class="today-we-title">Nothing expiring this week</div>
-                        <div class="today-we-sub">Your pantry's in good shape. We'll flag anything within 7 days of turning.</div>
-                    </div>
-                    <div class="today-widget__foot">
-                        <a href="/Pantry">
-                            Open pantry
-                            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-                        </a>
-                    </div>
-                </div>
+                @* Expiring-soon widget (plantry-81x) *@
+                <partial name="_ExpiringWidget" model="Model" />
             </div>
         </div>
     }

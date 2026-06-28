@@ -4936,12 +4936,6 @@ button.sadd svg { width: 13px; height: 13px; }
   display: grid; grid-template-columns: 1fr 348px; gap: 24px; align-items: start;
 }
 
-/* ---- meals column placeholder -------------------------------------------- */
-.today-meals__empty {
-  background: var(--color-surface); border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md); padding: 32px 24px; text-align: center;
-  color: var(--color-text-muted); font-size: 14px;
-}
 
 /* ---- right rail ---------------------------------------------------------- */
 .today-rail { display: flex; flex-direction: column; gap: 18px; }
@@ -4989,6 +4983,44 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .today-widget__foot a:hover { background: var(--color-surface-2); color: var(--color-accent); text-decoration: none; }
 .today-widget__foot a .icon { width: 15px; height: 15px; }
+
+/* ---- widget header meta label (e.g. "next 7 days") ----------------------- */
+.today-widget__meta { font-size: 13px; color: var(--color-text-faint); font-weight: 500; }
+
+/* ---- onboard empty-state mark (primary-toned, matches proto) ------------- */
+.today-we-mark--onboard { background: var(--color-accent-subtle); color: var(--color-accent); }
+.today-we--onboard .today-we-mark { background: var(--color-accent-subtle); color: var(--color-accent); }
+
+/* ---- expiring-soon list -------------------------------------------------- */
+.today-exp-list { padding: 2px 8px 8px; }
+.today-exp-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 9px;
+  border-radius: var(--radius-sm); transition: background var(--transition-fast);
+}
+.today-exp-row + .today-exp-row { border-top: 1px solid var(--color-border); }
+.today-exp-row:hover { background: var(--color-surface-2); }
+
+.today-exp-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+}
+.today-exp-dot--urgent { background: var(--color-danger); }
+.today-exp-dot--soon   { background: var(--color-warning); }
+.today-exp-dot--ok     { background: var(--color-text-faint); }
+
+.today-exp-main { flex: 1; min-width: 0; }
+.today-exp-name {
+  font-size: 14px; font-weight: 600; letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.today-exp-sub { font-size: 11.5px; color: var(--color-text-faint); margin-top: 1px; }
+
+.today-exp-when {
+  flex: none; font-size: 12px; font-weight: 700; white-space: nowrap;
+  padding: 4px 10px; border-radius: var(--radius-full); font-variant-numeric: tabular-nums;
+}
+.today-exp-when--urgent { background: var(--color-danger-bg); color: var(--color-danger); }
+.today-exp-when--soon   { background: var(--color-warning-bg); color: var(--color-warning); }
+.today-exp-when--ok     { background: var(--color-surface-2); color: var(--color-text-muted); }
 
 /* Take Stock CTA widget — shown when the pantry is empty (J6/P4-9) */
 .today-widget__body { padding: 16px 17px 20px; }
@@ -5052,6 +5084,282 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .today-welcome__step:hover .today-welcome__step-chev { color: var(--color-accent); transform: translateX(2px); }
 
+/* ---- review banner stack (plantry-yb6) ------------------------------------ */
+/* Stacked between the greeting header and the two-column board.
+   Renders nothing when empty (no chrome). Each banner is dismissible client-side via Alpine. */
+.today-banner-stack {
+  display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;
+}
+@keyframes today-banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+.today-banner {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px 14px 15px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-sm);
+  animation: today-banner-in .28s cubic-bezier(.4,0,.2,1);
+}
+.today-banner--leaving { transition: opacity .15s ease; }
+/* Intake banner: accent left-border (matches proto .banner.intake) */
+.today-banner--intake {
+  border-left: 3px solid var(--color-accent);
+}
+/* Deal banner (Phase-5 placeholder — border toned differently from intake) */
+.today-banner--deal {
+  border-left: 3px solid var(--color-warning);
+}
+/* Icon container */
+.today-banner__ico {
+  width: 40px; height: 40px; border-radius: var(--radius-sm); flex: none;
+  display: grid; place-items: center;
+}
+.today-banner--intake .today-banner__ico {
+  background: var(--color-accent-subtle); color: var(--color-accent);
+}
+.today-banner--deal .today-banner__ico {
+  background: var(--color-warning-bg); color: var(--color-warning);
+}
+.today-banner__ico .icon { width: 21px; height: 21px; }
+/* Body */
+.today-banner__body { flex: 1; min-width: 0; }
+.today-banner__title {
+  font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.35;
+}
+.today-banner__sub {
+  font-size: 12.5px; color: var(--color-text-faint); margin-top: 2px;
+}
+/* Actions */
+.today-banner__act { display: flex; align-items: center; gap: 4px; flex: none; }
+.today-banner__review { display: inline-flex; align-items: center; gap: 5px; }
+.today-banner__review .icon { width: 14px; height: 14px; }
+.today-banner__dismiss {
+  width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none;
+  display: grid; place-items: center;
+  border: none; background: none; color: var(--color-text-faint); cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.today-banner__dismiss:hover { background: var(--color-surface-2); color: var(--color-text); }
+.today-banner__dismiss .icon { width: 16px; height: 16px; }
+
+/* ---- cook-now picks band (plantry-81g) ------------------------------------ */
+.today-meals-band { }
+
+/* Empty state for the picks band (no recipes yet) */
+.today-meals__empty {
+  background: var(--color-surface); border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md); padding: 32px 24px; text-align: center;
+}
+.today-meals__empty-actions {
+  display: flex; gap: 10px; justify-content: center; margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+/* Pick card list */
+.today-picks { display: flex; flex-direction: column; gap: 12px; }
+
+/* Individual pick card */
+.today-pick {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 14px 16px; overflow: hidden;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.today-pick:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
+  box-shadow: var(--shadow-card);
+}
+
+/* Photo thumb */
+.today-pick__photo {
+  width: 64px; height: 64px; border-radius: var(--radius-sm); flex: none;
+  overflow: hidden; background: var(--color-surface-2);
+}
+.today-pick__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.today-pick__photo--placeholder {
+  display: grid; place-items: center; color: var(--color-text-faint);
+}
+.today-pick__photo--placeholder .icon { width: 28px; height: 28px; }
+
+/* Body: name + meta + hint */
+.today-pick__body { flex: 1; min-width: 0; }
+
+.today-pick__name {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.today-pick__namelink {
+  font-size: 15px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--color-text); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch;
+}
+.today-pick__namelink:hover { color: var(--color-accent); text-decoration: none; }
+
+.today-pick__badge {
+  flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px;
+  border-radius: var(--radius-full); white-space: nowrap;
+}
+.today-pick__badge--soon { background: var(--color-warning-bg); color: var(--color-warning); }
+
+.today-pick__meta {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--color-text-faint); margin-bottom: 5px;
+}
+.today-pick__meta .icon { width: 13px; height: 13px; }
+.today-pick__meta-dot {
+  width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-faint); flex: none;
+}
+.today-pick__meta-item { display: flex; align-items: center; gap: 4px; }
+
+.today-pick__hint {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12.5px; font-weight: 600;
+}
+.today-pick__hint .icon { width: 13px; height: 13px; }
+.today-pick__hint--ready { color: var(--color-success); }
+.today-pick__hint--shop  { color: var(--color-text-muted); }
+
+/* Cook action */
+.today-pick__actions { flex: none; }
+.today-pick__cook { }
+
+/* ── Phase-3 planned-meals band (plantry-zp7) ────────────────────────────── */
+
+/* Section header meta ("1/3 planned") */
+.today-section-head__meta {
+  font-size: 13px; color: var(--color-text-muted); font-weight: 500; white-space: nowrap;
+}
+
+/* Slot list */
+.today-meal-slots { display: flex; flex-direction: column; gap: 13px; }
+
+/* Individual slot card */
+.today-meal-slot {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); overflow: hidden;
+  transition: border-color .14s, box-shadow .14s;
+}
+.today-meal-slot--planned { box-shadow: var(--shadow-card); }
+.today-meal-slot--empty {
+  background: color-mix(in srgb, var(--color-surface) 50%, transparent);
+  border-style: dashed; border-color: var(--color-border-strong);
+}
+.today-meal-slot__main { display: flex; align-items: center; gap: 16px; padding: 14px; }
+.today-meal-slot--empty .today-meal-slot__main { padding: 16px 16px 16px 14px; }
+
+/* Photo column */
+.today-meal-photo {
+  width: 78px; height: 78px; border-radius: 11px; flex: none; overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.05);
+}
+.today-meal-photo__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.today-meal-photo--placeholder {
+  display: grid; place-items: center; background: var(--color-surface-2);
+  color: var(--color-text-faint);
+}
+.today-meal-photo--placeholder .icon { width: 28px; height: 28px; }
+.today-meal-photo--note {
+  display: grid; place-items: center; background: var(--color-surface-2);
+  color: var(--color-text-faint);
+}
+.today-meal-photo--note .icon { width: 24px; height: 24px; opacity: .65; }
+
+/* Empty-slot placeholder column */
+.today-meal-empty-mark {
+  width: 78px; height: 78px; border-radius: 11px; flex: none;
+  display: grid; place-items: center; color: var(--color-text-faint);
+  background: var(--color-surface-2); border: 1px dashed var(--color-border-strong);
+}
+.today-meal-empty-mark .icon { width: 24px; height: 24px; opacity: .65; }
+
+/* Identity column */
+.today-meal-id { flex: 1; min-width: 0; }
+
+/* Slot label (e.g. "Breakfast") */
+.today-slot-label {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-weight: 700; color: var(--color-text-faint);
+}
+
+/* "Use soon" badge */
+.today-meal-badge {
+  display: inline-block; padding: 2px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+}
+.today-meal-badge--soon { background: var(--color-warning-bg); color: var(--color-warning); }
+
+/* Recipe / meal name */
+.today-meal-name {
+  font-size: 17px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.today-meal-name--note { color: var(--color-text-muted); font-style: italic; font-weight: 500; }
+.today-meal-namelink { color: inherit; }
+.today-meal-namelink:hover { color: var(--color-accent); text-decoration: none; }
+
+/* Multiple-dish list */
+.today-meal-dishes { font-size: 12.5px; color: var(--color-text-muted); margin-top: 3px; }
+
+/* Meta row (cook time · servings · attendees) */
+.today-meal-meta {
+  display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap;
+  font-size: 12.5px; color: var(--color-text-muted); font-weight: 500;
+}
+.today-meal-meta-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.today-meal-meta-item .icon { width: 13px; height: 13px; opacity: .8; }
+.today-meal-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-faint); }
+
+/* Attendee avatars inside meta */
+.today-meal-att { display: inline-flex; align-items: center; white-space: nowrap; }
+.today-meal-att .pl-av { box-shadow: 0 0 0 2px var(--color-surface); }
+.today-meal-att .pl-av + .pl-av { margin-left: -5px; }
+
+/* Empty slot text */
+.today-meal-empty-txt { flex: 1; min-width: 0; }
+.today-meal-et { font-size: 14.5px; color: var(--color-text-muted); font-weight: 600; margin-top: 4px; }
+.today-meal-es { font-size: 12.5px; color: var(--color-text-faint); margin-top: 2px; }
+
+/* Plan affordance on empty slot */
+.today-meal-slot__plan { flex: none; }
+
+/* Cook CTA on planned slot */
+.today-meal-slot__cook { flex: none; }
+
+/* Fulfillment hint strip */
+.today-meal-hint {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 16px; border-top: 1px solid var(--color-border);
+  font-size: 12.5px; font-weight: 600;
+}
+.today-meal-hint .icon { width: 15px; height: 15px; flex: none; }
+.today-meal-hint--ready { background: var(--color-success-bg); color: var(--color-success); }
+.today-meal-hint--shop  { background: var(--color-warning-bg); color: var(--color-warning); }
+
+/* "Every meal planned" day-summary card */
+.today-day-summary {
+  display: flex; align-items: center; gap: 13px; margin-top: 16px;
+  padding: 14px 16px; border-radius: var(--radius);
+  background: var(--color-success-bg);
+  border: 1px solid color-mix(in srgb, var(--color-success) 25%, transparent);
+}
+.today-day-summary__ico {
+  width: 34px; height: 34px; border-radius: 9px; flex: none;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-success);
+}
+.today-day-summary__ico .icon { width: 18px; height: 18px; }
+.today-day-summary__txt { flex: 1; min-width: 0; }
+.today-day-summary__title {
+  font-size: 14px; font-weight: 700; color: var(--color-success); letter-spacing: -0.01em;
+}
+.today-day-summary__sub {
+  font-size: 12.5px; color: color-mix(in srgb, var(--color-success) 70%, var(--color-text-muted));
+  margin-top: 1px;
+}
+
 /* ---- responsive collapse ------------------------------------------------- */
 @media (max-width: 1000px) {
   .today-grid { grid-template-columns: 1fr; }
@@ -5060,6 +5368,12 @@ button.sadd svg { width: 13px; height: 13px; }
   .today-welcome { grid-template-columns: 1fr; }
   .today-welcome__art { border-right: none; border-bottom: 1px solid var(--color-border); padding: 26px; }
   .today-welcome__logo { max-width: 180px; }
+  .today-pick { flex-wrap: wrap; }
+  .today-pick__actions { width: 100%; }
+  .today-pick__cook { width: 100%; justify-content: center; }
+  .today-meal-slot__main { gap: 12px; }
+  .today-meal-photo, .today-meal-empty-mark { width: 64px; height: 64px; }
+  .today-meal-slot__cook { display: none; } /* surfaced via the fulfillment hint on small screens */
 }
 
 /* ── Page header (reusable back-link + title strip, e.g. walk pages) ───────── */

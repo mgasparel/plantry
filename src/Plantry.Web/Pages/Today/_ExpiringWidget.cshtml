@@ -1,0 +1,109 @@
+@using Plantry.Web.Pages.Today
+@model IndexModel
+
+@* Expiring-soon widget for the Today right rail (SPEC Page 0 §0d, plantry-81x).
+   Three states:
+   - Onboard (IsColdStart): no tracked stock yet — guide user to add groceries.
+   - All-clear: stock exists but nothing is expiring this week.
+   - Populated: one or more products expiring within 7 days or already expired. *@
+
+@if (Model.IsColdStart)
+{
+    @* Onboard empty state — no stock at all *@
+    <div class="today-widget today-exp-widget">
+        <div class="today-widget__head">
+            <h3>Expiring soon</h3>
+            <div class="today-widget__spacer"></div>
+            <span class="today-count-badge today-count-badge--calm">0</span>
+        </div>
+        <div class="today-widget__empty today-we--onboard">
+            <div class="today-we-mark today-we-mark--onboard">
+                <svg class="icon" aria-hidden="true"><use href="#i-box" /></svg>
+            </div>
+            <div class="today-we-title">Nothing to track yet</div>
+            <div class="today-we-sub">
+                Add groceries and Plantry watches the clock — items nearing their date show up here.
+            </div>
+        </div>
+        <div class="today-widget__foot">
+            <a href="/pantry/take-stock">
+                Add groceries
+                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+            </a>
+        </div>
+    </div>
+}
+else if (!Model.ExpiringSoon.Any())
+{
+    @* All-clear state — stock exists but nothing is expiring soon *@
+    <div class="today-widget today-exp-widget">
+        <div class="today-widget__head">
+            <h3>Expiring soon</h3>
+            <div class="today-widget__spacer"></div>
+            <span class="today-count-badge today-count-badge--calm">0</span>
+        </div>
+        <div class="today-widget__empty">
+            <div class="today-we-mark">
+                <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            </div>
+            <div class="today-we-title">Nothing expiring this week</div>
+            <div class="today-we-sub">
+                Your pantry's in good shape. We'll flag anything within 7 days of turning.
+            </div>
+        </div>
+        <div class="today-widget__foot">
+            <a href="/Pantry">
+                Open pantry
+                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+            </a>
+        </div>
+    </div>
+}
+else
+{
+    @* Populated state — one or more expiring or expired items *@
+    <div class="today-widget today-exp-widget">
+        <div class="today-widget__head">
+            <h3>Expiring soon</h3>
+            <span class="today-widget__meta">next 7 days</span>
+            <div class="today-widget__spacer"></div>
+            <span class="today-count-badge @(Model.ExpiringUrgent ? "" : "today-count-badge--calm")">@Model.ExpiringSoon.Count</span>
+        </div>
+        <div class="today-exp-list">
+            @foreach (var item in Model.ExpiringSoon)
+            {
+                var whenClass = item.IsExpired || item.DaysLeft <= 1 ? "today-exp-when--urgent"
+                              : item.DaysLeft <= 3 ? "today-exp-when--soon"
+                              : "today-exp-when--ok";
+                var whenLabel = item.IsExpired ? "Expired"
+                              : item.DaysLeft == 0 ? "Today"
+                              : item.DaysLeft == 1 ? "Tomorrow"
+                              : $"{item.DaysLeft} days";
+                var dotClass = item.IsExpired || item.DaysLeft <= 1 ? "today-exp-dot--urgent"
+                             : item.DaysLeft <= 3 ? "today-exp-dot--soon"
+                             : "today-exp-dot--ok";
+                <div class="today-exp-row">
+                    <span class="today-exp-dot @dotClass"></span>
+                    <div class="today-exp-main">
+                        <div class="today-exp-name">@item.Name</div>
+                        @if (!string.IsNullOrEmpty(item.LocationDisplay))
+                        {
+                            <div class="today-exp-sub">@($"{item.TotalQuantity:0.###} {item.DisplayUnitCode}") · @item.LocationDisplay</div>
+                        }
+                        else
+                        {
+                            <div class="today-exp-sub">@($"{item.TotalQuantity:0.###} {item.DisplayUnitCode}")</div>
+                        }
+                    </div>
+                    <span class="today-exp-when @whenClass">@whenLabel</span>
+                </div>
+            }
+        </div>
+        <div class="today-widget__foot">
+            <a href="/Pantry">
+                Review all in pantry
+                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+            </a>
+        </div>
+    </div>
+}
