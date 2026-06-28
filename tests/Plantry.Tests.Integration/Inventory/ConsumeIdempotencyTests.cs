@@ -11,6 +11,8 @@ using Plantry.Web.Inventory;
 using Xunit;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
 using InventoryProductStock = Plantry.Inventory.Domain.ProductStock;
+using CatalogCategoryRepository = Plantry.Catalog.Infrastructure.CategoryRepository;
+using CatalogLocationRepository = Plantry.Catalog.Infrastructure.LocationRepository;
 
 namespace Plantry.Tests.Integration.Inventory;
 
@@ -203,7 +205,10 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
         await using var catDb = NewCatalogDb();
         var productRepo = new Plantry.Catalog.Infrastructure.ProductRepository(catDb);
         var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catDb);
+        var categoryRepo = new CatalogCategoryRepository(catDb);
+        var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
+        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo);
         var stocks = new ProductStockRepository(invDb);
         var tenant = new TestTenant(_household.Value);
 
@@ -212,7 +217,7 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
             StockReason.Consumed, _userId,
             targetEntryId: null,
             sourceRef: cookEventId,
-            stocks, conversions, Clock, tenant,
+            stocks, catalog, conversions, Clock, tenant,
             StockSourceType.Cook,
             sourceLineRef: sourceLineRef);
 
@@ -226,7 +231,10 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
         await using var catDb = NewCatalogDb();
         var productRepo = new Plantry.Catalog.Infrastructure.ProductRepository(catDb);
         var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catDb);
+        var categoryRepo = new CatalogCategoryRepository(catDb);
+        var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
+        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo);
         var stocks = new ProductStockRepository(invDb);
         var tenant = new TestTenant(_household.Value);
 
@@ -235,7 +243,7 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
             _productId, amount, _unitId,
             StockReason.Consumed, _userId,
             targetEntryId: null, sourceRef: null,
-            stocks, conversions, Clock, tenant);
+            stocks, catalog, conversions, Clock, tenant);
 
         var result = await command.ExecuteAsync();
         Assert.True(result.IsSuccess, $"Consume failed: {result.Error?.Description}");

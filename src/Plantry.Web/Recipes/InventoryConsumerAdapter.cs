@@ -21,6 +21,7 @@ namespace Plantry.Web.Recipes;
 /// </summary>
 public sealed class InventoryConsumerAdapter(
     IProductStockRepository stocks,
+    ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
     IClock clock,
     ITenantContext tenant,
@@ -51,6 +52,7 @@ public sealed class InventoryConsumerAdapter(
             targetEntryId: null,
             sourceRef: cookEventId,
             stocks,
+            catalog,
             conversions,
             clock,
             tenant,

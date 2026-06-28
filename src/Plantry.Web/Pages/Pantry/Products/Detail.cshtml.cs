@@ -158,7 +158,7 @@ public sealed class DetailModel(
         Guid id, decimal amount, Guid unitId, StockReason reason, Guid? targetEntryId) =>
         new ConsumeStockCommand(
             id, amount, unitId, reason, CurrentUserId, targetEntryId, sourceRef: null,
-            stocks, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
+            stocks, catalog, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
 
     private async Task<IActionResult> ReloadSheetAsync(Guid id)
     {

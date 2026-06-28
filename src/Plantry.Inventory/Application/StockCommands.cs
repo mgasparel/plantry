@@ -133,6 +133,10 @@ public sealed class SetLowStockThresholdCommand(
 /// runs <see cref="ProductStock.Consume"/> inside a transaction so the lock serializes concurrent
 /// consumes (DM-13). Returns the <see cref="ConsumeOutcome"/> so the UI can surface any shortfall.
 ///
+/// The post-save low-stock check converts active lots to the product's display unit (via
+/// <see cref="ICatalogReadFacade.FindProductAsync"/> + <see cref="IProductConversionProvider"/>)
+/// before calling <see cref="ProductStock.IsRunningLow"/>, mirroring the pantry-list read path.
+///
 /// <paramref name="sourceLineRef"/> is the per-consume-operation idempotency token (plantry-292a).
 /// When supplied, a re-driven consume with the same token is a no-op — the repository row-lock plus
 /// the aggregate's journal scan guarantee this is safe to call multiple times from the cook adapter.
@@ -147,6 +151,7 @@ public sealed class ConsumeStockCommand(
     Guid? targetEntryId,
     Guid? sourceRef,
     IProductStockRepository stocks,
+    ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
     IClock clock,
     ITenantContext tenant,
@@ -162,6 +167,10 @@ public sealed class ConsumeStockCommand(
         if (!reason.IsRemoval())
             return Error.Custom("Inventory.InvalidConsumeReason", "Consume cannot record a Purchase; use AddStock.");
 
+        // Resolve the product's default display unit (for the low-stock check below) and the
+        // converter before entering the row-lock transaction, so the catalog read does not run
+        // under the Inventory row lock.
+        var product = await catalog.FindProductAsync(productId, ct);
         var converter = await conversions.ForProductAsync(productId, ct);
         var household = HouseholdId.From(householdId);
 
@@ -196,9 +205,25 @@ public sealed class ConsumeStockCommand(
             DomainTelemetry.StockConsumed.Add(1);
 
             // Emit a low-stock event when the consume drops on-hand to or below the threshold.
-            // Uses the raw sum of active-lot quantities (accurate for single-unit products, the
-            // common case; mixed-unit stocks are approximate — see DomainTelemetry.LowStockEvents).
-            var onHand = stock.Entries.Where(e => e.IsActive).Sum(e => e.Quantity);
+            // Mirrors the InventoryQueryService read path (DisplayQuantity): convert active lots
+            // to the product's display unit via IProductConversionProvider before calling
+            // IsRunningLow. Falls back to a raw sum when (a) the product is unknown or (b)
+            // conversion yields zero for a non-empty lot set (incompatible units — e.g. "ea"
+            // lots on a "g" product), mirroring DisplayQuantity's own incompatible-unit fallback
+            // so the counter always agrees with the displayed on-hand state.
+            // Uses the shared InventoryQueryService.SumInDisplayUnit helper (both paths must agree).
+            var activeLots = stock.Entries.Where(e => e.IsActive).ToList();
+            decimal onHand;
+            if (product is not null)
+            {
+                onHand = InventoryQueryService.SumInDisplayUnit(activeLots, product.DefaultUnitId, converter);
+                if (onHand == 0m && activeLots.Count > 0)
+                    onHand = activeLots.Sum(e => e.Quantity); // conversion failed entirely — mirror DisplayQuantity's fallback
+            }
+            else
+            {
+                onHand = activeLots.Sum(e => e.Quantity);
+            }
             if (stock.IsRunningLow(onHand))
                 DomainTelemetry.LowStockEvents.Add(1);
 
