@@ -9,6 +9,8 @@ using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
+using Plantry.MealPlanning.Application;
+using Plantry.MealPlanning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -89,6 +91,10 @@ public sealed class TodayReviewBannerOneFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<ICatalogWriter>();
             services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+
+            // ── MealPlanning seams (plantry-zp7) — Today page now loads planned meals ─
+            // Null stubs: these banner tests only exercise the banner stack, not the meals band.
+            TodayMealPlanningStubs.RegisterNull(services);
         });
     }
 }
@@ -156,6 +162,9 @@ public sealed class TodayReviewBannerManyFactory : WebApplicationFactory<Program
 
             services.RemoveAll<ICatalogWriter>();
             services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+
+            // ── MealPlanning seams (plantry-zp7) ─────────────────────────────
+            TodayMealPlanningStubs.RegisterNull(services);
         });
     }
 }
@@ -222,6 +231,9 @@ public sealed class TodayReviewBannerNoneFactory : WebApplicationFactory<Program
 
             services.RemoveAll<ICatalogWriter>();
             services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+
+            // ── MealPlanning seams (plantry-zp7) ─────────────────────────────
+            TodayMealPlanningStubs.RegisterNull(services);
         });
     }
 }

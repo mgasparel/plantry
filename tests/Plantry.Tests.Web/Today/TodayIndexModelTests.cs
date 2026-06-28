@@ -3,6 +3,8 @@ using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
+using Plantry.MealPlanning.Application;
+using Plantry.MealPlanning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -152,25 +154,6 @@ public sealed class TodayIndexModelTests
     private static readonly IClock FixedClock =
         new FakeClock(new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero));
 
-    /// <summary>
-    /// Builds a minimal <see cref="BrowseRecipesQuery"/> backed by empty in-memory fakes
-    /// so the existing tests (which don't test cook-now picks) still compile and run.
-    /// Returns an empty browse result, resulting in <see cref="IndexModel.CookNowPicks"/> = [].
-    /// </summary>
-    private static BrowseRecipesQuery BuildEmptyBrowseQuery(ITenantContext tenant)
-    {
-        var recipeRepo = new FakeRecipeRepository(hasRecipes: false);
-        var tagRepo = new FakeEmptyTagRepository();
-        var fulfillment = new FulfillmentService(
-            new FakeEmptyStockReader(),
-            new FakeEmptyCatalogProductReader(),
-            new FakeIdentityUnitConverter());
-        var costing = new CostingService(
-            new FakeEmptyPriceReader(),
-            new FakeIdentityUnitConverter());
-        return new BrowseRecipesQuery(recipeRepo, tagRepo, fulfillment, costing, tenant);
-    }
-
     private static IndexModel BuildModel(bool hasStock, bool hasRecipes, bool hasPendingIntake,
         IReadOnlyList<ExpiringSoonItem>? expiringSoon = null)
     {
@@ -183,37 +166,33 @@ public sealed class TodayIndexModelTests
             new FakeNullConversionProvider(),
             FixedClock,
             expiringSoon is null ? tenant : new FakeStaticTenantContext(TestHousehold.Value));
+
+        // Minimal stubs for the MealPlanning seams introduced by plantry-zp7.
+        // These tests only exercise IsColdStart / BuildGreeting / ShowTakeStockCta, so the
+        // MealPlanning stubs simply return "no plan / no slots" without touching the DB.
+        var mealPlanRepo = new NullMealPlanRepo();
+        var slotConfigRepo = new NullSlotConfigRepo();
+        var recipeReadModel = new NullRecipeReadModelStub();
+        var fulfillmentService = BuildNullFulfillmentService();
+
         return new IndexModel(
             new FakeHouseholdRepository("Test Household"),
             stockRepo,
-            new FakeRecipeRepository(hasRecipes),
             sessionRepo,
             new PendingReviewQuery(sessionRepo),
             inventoryQueries,
-            BuildEmptyBrowseQuery(tenant),
+            mealPlanRepo,
+            slotConfigRepo,
+            fulfillmentService,
+            recipeReadModel,
+            new FakeRecipeRepository(hasRecipes),
+            new NullMemberReader(),
             FixedClock,
             tenant);
     }
 
-    /// <summary>Builds a model pre-populated with a known expiring-soon list for widget state tests.</summary>
-    private static IndexModel BuildModelWithExpiring(IReadOnlyList<ExpiringSoonItem> items)
-    {
-        var tenant = new FakeStaticTenantContext(TestHousehold.Value);
-        // hasStock=true so IsColdStart=false and the widget reaches the populated/all-clear branch
-        var stockRepo = new FakeProductStockRepository(hasStock: true);
-        var inventoryQueries = new FakeInventoryQueryService(items, tenant);
-        var sessionRepo = new FakeSessionRepository(hasPendingIntake: false);
-        return new IndexModel(
-            new FakeHouseholdRepository("Test Household"),
-            stockRepo,
-            new FakeRecipeRepository(hasRecipes: true),
-            sessionRepo,
-            new PendingReviewQuery(sessionRepo),
-            inventoryQueries,
-            BuildEmptyBrowseQuery(tenant),
-            FixedClock,
-            tenant);
-    }
+    private static PlanFulfillmentService BuildNullFulfillmentService() =>
+        new PlanFulfillmentService(new NullRecipeReadModelStub(), new NullMealPlanStockReader());
 
     // ── Fakes -----------------------------------------------------------------
 
@@ -313,72 +292,52 @@ public sealed class TodayIndexModelTests
         }
     }
 
-    /// <summary>
-    /// Wraps <see cref="InventoryQueryService"/> but overrides ExpiringSoonAsync to return a
-    /// pre-canned list — avoids wiring up full catalog/stock fakes for widget state tests.
-    /// </summary>
-    private sealed class FakeInventoryQueryService(
-        IReadOnlyList<ExpiringSoonItem> items, ITenantContext tenant)
-        : InventoryQueryService(
-            new FakeProductStockRepository(hasStock: true),
-            new FakeEmptyCatalogReadFacade(),
-            new FakeNullConversionProvider(),
-            new FakeClock(new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero)),
-            tenant)
+    /// <summary>Null meal plan repo — returns no plan (simulates no meal plan created yet).</summary>
+    private sealed class NullMealPlanRepo : IMealPlanRepository
     {
-        public override Task<IReadOnlyList<ExpiringSoonItem>> ExpiringSoonAsync(CancellationToken ct = default) =>
-            Task.FromResult(items);
-    }
-
-    // ── Fakes for BrowseRecipesQuery (used by BuildEmptyBrowseQuery) ──────────
-
-    private sealed class FakeEmptyTagRepository : ITagRepository
-    {
-        public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<Tag>>([]);
-        public Task<Tag?> FindByNameAsync(HouseholdId h, string name, CancellationToken ct = default) => Task.FromResult<Tag?>(null);
-        public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) => Task.FromResult<Tag?>(null);
-        public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(IReadOnlyList<TagId> ids, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<TagId, string>>(new Dictionary<TagId, string>());
-        public Task AddAsync(Tag tag, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
+            => Task.FromResult<MealPlan?>(null);
+        public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
+            => Task.FromResult(MealPlan.Start(householdId, weekStart, clock));
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    private sealed class FakeEmptyStockReader : IInventoryStockReader
+    /// <summary>Null slot config repo — returns no config (slot band will be empty).</summary>
+    private sealed class NullSlotConfigRepo : IMealSlotConfigRepository
     {
-        public Task<Recipes.Application.ProductStock?> FindStockAsync(Guid id, CancellationToken ct = default) =>
-            Task.FromResult<Recipes.Application.ProductStock?>(null);
-        public Task<IReadOnlyDictionary<Guid, Recipes.Application.ProductStock>> FindStockBatchAsync(
-            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<Guid, Recipes.Application.ProductStock>>(
-                new Dictionary<Guid, Recipes.Application.ProductStock>());
+        public Task<MealSlotConfig?> FindByHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
+            => Task.FromResult<MealSlotConfig?>(null);
+        public Task AddAsync(MealSlotConfig config, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    private sealed class FakeEmptyCatalogProductReader : ICatalogProductReader
+    /// <summary>Null recipe read model stub for PlanFulfillmentService (no meals to enrich).</summary>
+    private sealed class NullRecipeReadModelStub : IRecipeReadModel
     {
-        public Task<CatalogProduct?> FindAsync(Guid id, CancellationToken ct = default) => Task.FromResult<CatalogProduct?>(null);
-        public Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(string q, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<CatalogProductCandidate>>([]);
-        public Task<IReadOnlyDictionary<Guid, CatalogProductSummary>> ResolveSummariesAsync(
-            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<Guid, CatalogProductSummary>>(new Dictionary<Guid, CatalogProductSummary>());
-        public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
-            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
-        public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+        public Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
+            => Task.FromResult<RecipeReadModel?>(null);
+        public Task<IReadOnlyList<RecipeReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<RecipeReadModel>>([]);
+        public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid recipeId, int servings, DateOnly today, CancellationToken ct = default)
+            => Task.FromResult<RecipeDishEnrichment?>(null);
+        public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+        public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+            => Task.FromResult(false);
     }
 
-    private sealed class FakeEmptyPriceReader : IPriceReader
+    /// <summary>Null stock reader for PlanFulfillmentService.</summary>
+    private sealed class NullMealPlanStockReader : IMealPlanStockReader
     {
-        public Task<PricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default) =>
-            Task.FromResult<PricePoint?>(null);
+        public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
+            => Task.FromResult<MealPlanProductStock?>(null);
     }
 
-    private sealed class FakeIdentityUnitConverter : IUnitConverter
+    /// <summary>Null member reader — returns empty list (no attendee avatars in model tests).</summary>
+    private sealed class NullMemberReader : IHouseholdMemberReader
     {
-        public Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
-            Task.FromResult(Result<decimal>.Success(amount));
+        public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<HouseholdMember>>([]);
     }
 }
 
@@ -397,20 +356,6 @@ public sealed class ExpiringWidgetModelTests
         new FakeClock2(new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero));
     private static readonly DateOnly Today = new(2026, 6, 18);
 
-    private static BrowseRecipesQuery BuildEmptyBrowseQuery2(ITenantContext tenant)
-    {
-        var recipeRepo = new FakeRecipeRepo2(hasRecipes: false);
-        var tagRepo = new FakeEmptyTagRepo2();
-        var fulfillment = new FulfillmentService(
-            new FakeEmptyStockReader2(),
-            new FakeEmptyCatalogProductReader2(),
-            new FakeIdentityUnitConverter2());
-        var costing = new CostingService(
-            new FakeEmptyPriceReader2(),
-            new FakeIdentityUnitConverter2());
-        return new BrowseRecipesQuery(recipeRepo, tagRepo, fulfillment, costing, tenant);
-    }
-
     private IndexModel BuildModel(
         bool hasStock, bool hasRecipes, bool hasPendingIntake,
         IReadOnlyList<ExpiringSoonItem>? expiringSoon = null)
@@ -426,14 +371,24 @@ public sealed class ExpiringWidgetModelTests
                 FixedClock,
                 tenant)
             : (InventoryQueryService)new FakeInventoryQueryService2(expiringSoon, tenant);
+
+        var mealPlanRepo = new NullMealPlanRepo2();
+        var slotConfigRepo = new NullSlotConfigRepo2();
+        var recipeReadModel = new NullRecipeReadModelStub2();
+        var fulfillmentService = new PlanFulfillmentService(recipeReadModel, new NullMealPlanStockReader2());
+
         return new IndexModel(
             new FakeHouseholdRepo2("Test Household"),
             stockRepo,
-            new FakeRecipeRepo2(hasRecipes),
             sessionRepo,
             new PendingReviewQuery(sessionRepo),
             inventoryQueries,
-            BuildEmptyBrowseQuery2(tenant),
+            mealPlanRepo,
+            slotConfigRepo,
+            fulfillmentService,
+            recipeReadModel,
+            new FakeRecipeRepo2(hasRecipes),
+            new NullMemberReader2(),
             FixedClock,
             tenant);
     }
@@ -616,55 +571,47 @@ public sealed class ExpiringWidgetModelTests
             Task.FromResult(items);
     }
 
-    // ── Fakes for BrowseRecipesQuery (used by BuildEmptyBrowseQuery2) ─────────
-
-    private sealed class FakeEmptyTagRepo2 : ITagRepository
+    private sealed class NullMealPlanRepo2 : IMealPlanRepository
     {
-        public Task<IReadOnlyList<Tag>> ListAllAsync(bool activeOnly = false, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<Tag>>([]);
-        public Task<Tag?> FindByNameAsync(HouseholdId h, string name, CancellationToken ct = default) => Task.FromResult<Tag?>(null);
-        public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) => Task.FromResult<Tag?>(null);
-        public Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(IReadOnlyList<TagId> ids, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<TagId, string>>(new Dictionary<TagId, string>());
-        public Task AddAsync(Tag tag, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
+            => Task.FromResult<MealPlan?>(null);
+        public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
+            => Task.FromResult(MealPlan.Start(householdId, weekStart, clock));
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    private sealed class FakeEmptyStockReader2 : IInventoryStockReader
+    private sealed class NullSlotConfigRepo2 : IMealSlotConfigRepository
     {
-        public Task<Recipes.Application.ProductStock?> FindStockAsync(Guid id, CancellationToken ct = default) =>
-            Task.FromResult<Recipes.Application.ProductStock?>(null);
-        public Task<IReadOnlyDictionary<Guid, Recipes.Application.ProductStock>> FindStockBatchAsync(
-            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<Guid, Recipes.Application.ProductStock>>(
-                new Dictionary<Guid, Recipes.Application.ProductStock>());
+        public Task<MealSlotConfig?> FindByHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
+            => Task.FromResult<MealSlotConfig?>(null);
+        public Task AddAsync(MealSlotConfig config, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    private sealed class FakeEmptyCatalogProductReader2 : ICatalogProductReader
+    private sealed class NullRecipeReadModelStub2 : IRecipeReadModel
     {
-        public Task<CatalogProduct?> FindAsync(Guid id, CancellationToken ct = default) => Task.FromResult<CatalogProduct?>(null);
-        public Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(string q, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<CatalogProductCandidate>>([]);
-        public Task<IReadOnlyDictionary<Guid, CatalogProductSummary>> ResolveSummariesAsync(
-            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<Guid, CatalogProductSummary>>(new Dictionary<Guid, CatalogProductSummary>());
-        public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
-            IReadOnlyList<Guid> ids, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
-        public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+        public Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
+            => Task.FromResult<RecipeReadModel?>(null);
+        public Task<IReadOnlyList<RecipeReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<RecipeReadModel>>([]);
+        public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid recipeId, int servings, DateOnly today, CancellationToken ct = default)
+            => Task.FromResult<RecipeDishEnrichment?>(null);
+        public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+        public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+            => Task.FromResult(false);
     }
 
-    private sealed class FakeEmptyPriceReader2 : IPriceReader
+    private sealed class NullMealPlanStockReader2 : IMealPlanStockReader
     {
-        public Task<PricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default) =>
-            Task.FromResult<PricePoint?>(null);
+        public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
+            => Task.FromResult<MealPlanProductStock?>(null);
     }
 
-    private sealed class FakeIdentityUnitConverter2 : IUnitConverter
+    private sealed class NullMemberReader2 : IHouseholdMemberReader
     {
-        public Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
-            Task.FromResult(Result<decimal>.Success(amount));
+        public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<HouseholdMember>>([]);
     }
 }
 

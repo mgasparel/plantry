@@ -1,0 +1,220 @@
+@using Plantry.Web.Pages.Today
+@using Plantry.MealPlanning.Application
+@model IndexModel
+
+@* Today's planned meals band — Phase-3 (SPEC Page 0 §0c, plantry-zp7).
+   Replaces the Phase-2 cook-now picks partial (_CookNowPicks) without a layout change.
+   Each active meal slot renders as a card: planned (recipe/note info + fulfillment hint + Cook CTA)
+   or empty ("Nothing planned yet" + Plan a meal affordance -> /MealPlan).
+   Section meta shows X/Y planned + Open weekly plan link -> /MealPlan.
+   When all slots are planned, a day-summary card is shown below the slot list. *@
+
+<div id="today-meals-band" class="today-meals-band">
+    <div class="today-section-head">
+        <h2>Today's meals</h2>
+        @{
+            var plannedCount = Model.PlannedMealsToday.Count(s => s.IsPlanned);
+            var totalCount   = Model.PlannedMealsToday.Count;
+        }
+        <span class="today-section-head__meta">@plannedCount/@totalCount planned</span>
+        <div class="today-section-head__spacer"></div>
+        <a class="today-linkbtn today-linkbtn--accent" href="/MealPlan">
+            <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Open weekly plan
+        </a>
+    </div>
+
+    @if (!Model.PlannedMealsToday.Any())
+    {
+        @* No active slots configured — prompt to configure meal planning. *@
+        <div class="today-meals__empty">
+            <div class="today-we-mark today-we-mark--onboard">
+                <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg>
+            </div>
+            <div class="today-we-title">No meal slots set up</div>
+            <div class="today-we-sub">
+                Set up your meal slots in Settings to start planning your day.
+            </div>
+            <div class="today-meals__empty-actions">
+                <a class="btn btn--primary" href="/Settings/MealSlots">Set up meal slots</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="today-meal-slots">
+            @foreach (var slot in Model.PlannedMealsToday)
+            {
+                if (!slot.IsPlanned)
+                {
+                    @* Empty slot — Nothing planned yet + Plan a meal affordance *@
+                    <div class="today-meal-slot today-meal-slot--empty">
+                        <div class="today-meal-slot__main">
+                            <div class="today-meal-empty-mark">
+                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                            </div>
+                            <div class="today-meal-empty-txt">
+                                <div class="today-slot-label">@slot.SlotLabel</div>
+                                <div class="today-meal-et">Nothing planned yet</div>
+                                <div class="today-meal-es">Pick a recipe that fits what's in your kitchen.</div>
+                            </div>
+                            <a class="btn btn--ghost btn--sm today-meal-slot__plan" href="/MealPlan">
+                                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Plan a meal
+                            </a>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    @* Planned slot — slot label, photo, dish name(s), meta, attendees, hint, Cook CTA *@
+                    var hintReady = slot.IsFullyCookable;
+                    var cookUrl = slot.RecipeId.HasValue ? $"/Recipes/{slot.RecipeId}/Cook" : "/MealPlan";
+                    <div class="today-meal-slot today-meal-slot--planned">
+                        <div class="today-meal-slot__main">
+                            @if (slot.Note is not null)
+                            {
+                                @* Note-based meal: no photo, just the note text *@
+                                <div class="today-meal-photo today-meal-photo--placeholder today-meal-photo--note">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg>
+                                </div>
+                            }
+                            else if (slot.HasPhoto && slot.RecipeId.HasValue)
+                            {
+                                <div class="today-meal-photo">
+                                    <img src="/Recipes/@(slot.RecipeId)?handler=Photo"
+                                         alt="@(slot.RecipeName ?? slot.DishNames.FirstOrDefault() ?? "")"
+                                         class="today-meal-photo__img"
+                                         loading="lazy" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="today-meal-photo today-meal-photo--placeholder">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+                                </div>
+                            }
+
+                            <div class="today-meal-id">
+                                <div class="today-slot-label">
+                                    @slot.SlotLabel
+                                    @if (slot.HasExpiringIngredients)
+                                    {
+                                        <span class="today-meal-badge today-meal-badge--soon">Use soon</span>
+                                    }
+                                </div>
+
+                                @if (slot.Note is not null)
+                                {
+                                    <div class="today-meal-name today-meal-name--note">@slot.Note</div>
+                                }
+                                else
+                                {
+                                    <div class="today-meal-name">
+                                        @if (slot.RecipeId.HasValue)
+                                        {
+                                            <a href="/Recipes/@slot.RecipeId" class="today-meal-namelink">@(slot.RecipeName ?? "Unknown recipe")</a>
+                                        }
+                                        else
+                                        {
+                                            @(slot.DishNames.FirstOrDefault() ?? "Planned meal")
+                                        }
+                                    </div>
+                                    @if (slot.DishNames.Count > 1)
+                                    {
+                                        <div class="today-meal-dishes">
+                                            @string.Join(" + ", slot.DishNames)
+                                        </div>
+                                    }
+                                }
+
+                                <div class="today-meal-meta">
+                                    @if (slot.CookTimeMinutes.HasValue)
+                                    {
+                                        <span class="today-meal-meta-item">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                                            @(slot.CookTimeMinutes >= 60
+                                                ? $"{slot.CookTimeMinutes / 60}h {slot.CookTimeMinutes % 60}m"
+                                                : $"{slot.CookTimeMinutes}m")
+                                        </span>
+                                        <span class="today-meal-meta-dot"></span>
+                                    }
+                                    @if (slot.Servings > 0 && slot.Note is null)
+                                    {
+                                        <span class="today-meal-meta-item">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-servings" /></svg>
+                                            @slot.Servings serving@(slot.Servings == 1 ? "" : "s")
+                                        </span>
+                                    }
+                                    @if (slot.EffectiveAttendees.Count > 0)
+                                    {
+                                        <span class="today-meal-meta-dot"></span>
+                                        <span class="today-meal-att">
+                                            @foreach (var uid in slot.EffectiveAttendees.Take(3))
+                                            {
+                                                var member = Model.Members.FirstOrDefault(m => m.UserId == uid);
+                                                if (member is not null)
+                                                {
+                                                    <span class="pl-av"
+                                                          data-av-color="@(Model.Members.IndexOf(member) % 8)"
+                                                          style="width:18px;height:18px;font-size:7px;"
+                                                          title="@member.DisplayName">@member.Initials</span>
+                                                }
+                                            }
+                                            @if (slot.EffectiveAttendees.Count > 3)
+                                            {
+                                                <span class="pl-av" style="width:18px;height:18px;font-size:7px;" title="More attendees">+@(slot.EffectiveAttendees.Count - 3)</span>
+                                            }
+                                        </span>
+                                    }
+                                </div>
+                            </div>
+
+                            @if (slot.Note is null)
+                            {
+                                <a class="btn btn--cook btn--sm today-meal-slot__cook" href="@cookUrl">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+                                    Cook
+                                </a>
+                            }
+                            else
+                            {
+                                <a class="btn btn--secondary btn--sm today-meal-slot__plan" href="/MealPlan">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg>
+                                    View plan
+                                </a>
+                            }
+                        </div>
+
+                        @if (slot.Note is null)
+                        {
+                            <div class="today-meal-hint @(hintReady ? "today-meal-hint--ready" : "today-meal-hint--shop")">
+                                @if (hintReady)
+                                {
+                                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                    <span>Everything's in your kitchen — ready to cook</span>
+                                }
+                                else
+                                {
+                                    <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>
+                                    <span>Ingredients to pick up first</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+
+        @if (Model.AllMealsPlanned)
+        {
+            <div class="today-day-summary">
+                <div class="today-day-summary__ico">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                </div>
+                <div class="today-day-summary__txt">
+                    <div class="today-day-summary__title">Every meal's planned — nice.</div>
+                    <div class="today-day-summary__sub">All meal slots are on the calendar for today.</div>
+                </div>
+            </div>
+        }
+    }
+</div>

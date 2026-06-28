@@ -1,7 +1,11 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Domain;
 using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
+using Plantry.MealPlanning.Application;
+using Plantry.MealPlanning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -199,5 +203,88 @@ public sealed class FakeTodayConversionProvider : IProductConversionProvider
     private sealed class IdentityConverter : IQuantityConverter
     {
         public Result<decimal> Convert(decimal amount, Guid fromUnitId, Guid toUnitId) => amount;
+    }
+}
+
+// ── MealPlanning stubs for Today page L4 tests (plantry-zp7) ─────────────────
+
+/// <summary>
+/// Helper that registers null MealPlanning stubs into a <see cref="IServiceCollection"/>
+/// for Today-page WAF factories. Used by all Today-page L4 factories so that the
+/// Phase-3 planned-meals band does not attempt real DB calls.
+/// <para>
+/// "Null" stubs: slot config returns null (no slots → empty slot list rendered),
+/// meal plan repo returns null (no plan → all slots empty), recipe read model
+/// returns null, stock reader returns null.
+/// </para>
+/// </summary>
+internal static class TodayMealPlanningStubs
+{
+    /// <summary>
+    /// Registers null stubs for all MealPlanning seams the Today IndexModel uses.
+    /// Results in an empty planned-meals band (no slot config → band renders "No meal slots set up").
+    /// </summary>
+    public static void RegisterNull(IServiceCollection services)
+    {
+        services.RemoveAll<IMealPlanRepository>();
+        services.AddSingleton<IMealPlanRepository>(new NullTodayMealPlanRepo());
+
+        services.RemoveAll<IMealSlotConfigRepository>();
+        services.AddSingleton<IMealSlotConfigRepository>(new NullTodaySlotConfigRepo());
+
+        // IRecipeReadModel is also used by MealPlan editor page — only replace for Today tests
+        // if the factory is solely for Today. Do a conditional replace so the service
+        // retains whatever the factory previously set (or use RemoveAll to be safe).
+        services.RemoveAll<IRecipeReadModel>();
+        services.AddSingleton<IRecipeReadModel>(new NullTodayRecipeReadModel());
+
+        services.RemoveAll<IMealPlanStockReader>();
+        services.AddSingleton<IMealPlanStockReader>(new NullTodayMealPlanStockReader());
+
+        services.RemoveAll<IHouseholdMemberReader>();
+        services.AddSingleton<IHouseholdMemberReader>(new NullTodayMemberReader());
+    }
+
+    private sealed class NullTodayMealPlanRepo : IMealPlanRepository
+    {
+        public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
+            => Task.FromResult<MealPlan?>(null);
+        public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
+            => Task.FromResult(MealPlan.Start(householdId, weekStart, clock));
+        public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class NullTodaySlotConfigRepo : IMealSlotConfigRepository
+    {
+        public Task<MealSlotConfig?> FindByHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
+            => Task.FromResult<MealSlotConfig?>(null);
+        public Task AddAsync(MealSlotConfig config, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class NullTodayRecipeReadModel : IRecipeReadModel
+    {
+        public Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
+            => Task.FromResult<RecipeReadModel?>(null);
+        public Task<IReadOnlyList<RecipeReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<RecipeReadModel>>([]);
+        public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid recipeId, int servings, DateOnly today, CancellationToken ct = default)
+            => Task.FromResult<RecipeDishEnrichment?>(null);
+        public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+        public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+            => Task.FromResult(false);
+    }
+
+    private sealed class NullTodayMealPlanStockReader : IMealPlanStockReader
+    {
+        public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
+            => Task.FromResult<MealPlanProductStock?>(null);
+    }
+
+    private sealed class NullTodayMemberReader : IHouseholdMemberReader
+    {
+        public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<HouseholdMember>>([]);
     }
 }

@@ -5,7 +5,8 @@ using Plantry.Intake.Application;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Intake.Domain;
-using Plantry.Recipes.Application;
+using Plantry.MealPlanning.Application;
+using Plantry.MealPlanning.Domain;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -35,15 +36,53 @@ public sealed record ReviewBannerItem(
     string ActionUrl,
     DateTimeOffset CreatedAt);
 
+/// <summary>
+/// View model for a single meal slot in the Today planned-meals band (plantry-zp7).
+/// Represents either a planned meal or an empty slot for the current date.
+/// </summary>
+/// <param name="SlotId">The meal slot's stable ID.</param>
+/// <param name="SlotLabel">Display label, e.g. "Breakfast".</param>
+/// <param name="IsPlanned">True when the slot has at least one planned meal today.</param>
+/// <param name="RecipeId">Primary recipe id when the first (or only) dish is a recipe; null for note meals or product-only meals.</param>
+/// <param name="RecipeName">Display name of the primary recipe; null when not a recipe meal.</param>
+/// <param name="HasPhoto">True when the primary recipe has a stored photo.</param>
+/// <param name="DishNames">All dish names in the meal (for display when there are multiple dishes).</param>
+/// <param name="Note">Free-text note when the meal is note-based; null otherwise.</param>
+/// <param name="CookTimeMinutes">Cook time for the primary recipe; null when unknown or no recipe.</param>
+/// <param name="Servings">Servings from the first planned dish.</param>
+/// <param name="EffectiveAttendees">Resolved attendee user IDs (override ?? slot default).</param>
+/// <param name="IsFullyCookable">True when fulfillment pct == 100 (all ingredients in stock).</param>
+/// <param name="MealId">The planned meal's ID (for linking to the planner).</param>
+/// <param name="HasExpiringIngredients">True when any ingredient has stock expiring within 4 days ("Use soon" flag).</param>
+public sealed record PlannedMealSlotVm(
+    MealSlotId SlotId,
+    string SlotLabel,
+    bool IsPlanned,
+    Guid? RecipeId,
+    string? RecipeName,
+    bool HasPhoto,
+    IReadOnlyList<string> DishNames,
+    string? Note,
+    int? CookTimeMinutes,
+    int Servings,
+    IReadOnlyList<Guid> EffectiveAttendees,
+    bool IsFullyCookable,
+    Guid MealId,
+    bool HasExpiringIngredients);
+
 [Authorize]
 public sealed class IndexModel(
     IHouseholdRepository households,
     IProductStockRepository stocks,
-    IRecipeRepository recipes,
     IImportSessionRepository sessions,
     PendingReviewQuery pendingReview,
     InventoryQueryService inventoryQueries,
-    BrowseRecipesQuery browseRecipes,
+    IMealPlanRepository mealPlanRepo,
+    IMealSlotConfigRepository slotConfigRepo,
+    PlanFulfillmentService planFulfillmentService,
+    IRecipeReadModel recipeReadModel,
+    IRecipeRepository recipeRepo,
+    IHouseholdMemberReader memberReader,
     IClock clock,
     ITenantContext tenant) : PageModel
 {
@@ -78,12 +117,26 @@ public sealed class IndexModel(
     public IReadOnlyList<ExpiringSoonItem> ExpiringSoon { get; private set; } = [];
 
     /// <summary>
-    /// Up to 3 cook-now recipe picks for the meals band (SPEC Page 0 §0c, plantry-81g).
-    /// Sorted by expiring-ingredient first (use-it-up angle), then by fulfillment percentage
-    /// descending. Empty when <see cref="IsColdStart"/> is true or the household has no recipes.
-    /// Null when the query has not yet been executed (before <see cref="OnGetAsync"/> completes).
+    /// Today's planned meal slots (one per active slot, in ordinal order) for the
+    /// Phase-3 meals band (SPEC Page 0 §0c, plantry-zp7). Each slot is either planned
+    /// (with recipe/dish/note info + fulfillment hint) or empty (showing a "Plan a meal" affordance).
+    /// Empty list when <see cref="IsColdStart"/> is true or the household has no active meal slots.
     /// </summary>
-    public IReadOnlyList<RecipeBrowseRow> CookNowPicks { get; private set; } = [];
+    public IReadOnlyList<PlannedMealSlotVm> PlannedMealsToday { get; private set; } = [];
+
+    /// <summary>
+    /// True when every active meal slot has a planned meal today — triggers the
+    /// "Every meal's planned" summary card in the meals band.
+    /// </summary>
+    public bool AllMealsPlanned => PlannedMealsToday.Count > 0 && PlannedMealsToday.All(s => s.IsPlanned);
+
+    /// <summary>
+    /// Household members for attendee avatar rendering in the meals band.
+    /// Loaded once during <see cref="OnGetAsync"/> and consumed by <c>_PlannedMealsBand.cshtml</c>.
+    /// Uses the <c>pl-av</c> avatar pattern (plenish.css §attendees) — each avatar gets a stable
+    /// colour slot by index mod 8 so the same member always renders in the same hue.
+    /// </summary>
+    public List<HouseholdMember> Members { get; private set; } = [];
 
     /// <summary>
     /// Intake sessions in <c>Ready</c> status for this household — each becomes a dismissible
@@ -93,9 +146,6 @@ public sealed class IndexModel(
     /// adds deal-review banners as a new kind without restructuring this list or the partial.
     /// </summary>
     public IReadOnlyList<ReviewBannerItem> PendingReviewBanners { get; private set; } = [];
-
-    /// <summary>Number of cook-now picks to display on the Today page.</summary>
-    internal const int CookNowPickCount = 3;
 
     /// <summary>
     /// True when the expiring-soon badge should render in the urgent tone (at least one item
@@ -120,7 +170,7 @@ public sealed class IndexModel(
             Greeting = BuildGreeting(now.LocalDateTime.Hour, HouseholdName);
 
             var hasStock = await stocks.AnyForHouseholdAsync(houseId, ct);
-            var hasRecipes = await recipes.AnyForHouseholdAsync(houseId, ct);
+            var hasRecipes = await recipeRepo.AnyForHouseholdAsync(houseId, ct);
             var hasPendingIntake = await sessions.HasPendingAsync(houseId, ct);
 
             IsColdStart = !hasStock && !hasRecipes && !hasPendingIntake;
@@ -129,7 +179,8 @@ public sealed class IndexModel(
             if (!IsColdStart)
             {
                 ExpiringSoon = await inventoryQueries.ExpiringSoonAsync(ct);
-                CookNowPicks = await LoadCookNowPicksAsync(ct);
+                Members = (await memberReader.ListMembersAsync(ct)).ToList();
+                PlannedMealsToday = await LoadPlannedMealsTodayAsync(houseId, now, ct);
                 PendingReviewBanners = await LoadReviewBannersAsync(houseId, ct);
             }
         }
@@ -142,16 +193,152 @@ public sealed class IndexModel(
     }
 
     /// <summary>
-    /// Loads the cook-now recipe picks for the Today meals band.
-    /// Runs the full <see cref="BrowseRecipesQuery"/> (all recipes, fulfillment sort), then picks
-    /// the top <see cref="CookNowPickCount"/> rows sorted by:
-    ///   1. HasIngredientExpiringSoon descending (use-it-up angle — expiring picks first)
-    ///   2. FulfillmentPct descending (most cookable first within each tier)
+    /// Loads today's planned meal slots for the meals band (plantry-zp7).
+    /// Reads the MealPlan for today's week from the repository, then for each active
+    /// slot (in ordinal order) produces a <see cref="PlannedMealSlotVm"/>: either a
+    /// populated slot (planned meal + P3-4 fulfillment roll-up) or an empty-slot sentinel.
     /// </summary>
-    private async Task<IReadOnlyList<RecipeBrowseRow>> LoadCookNowPicksAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<PlannedMealSlotVm>> LoadPlannedMealsTodayAsync(
+        HouseholdId householdId,
+        DateTimeOffset now,
+        CancellationToken ct)
     {
-        var result = await browseRecipes.ExecuteAsync(new BrowseRecipesFilter(), ct);
-        return SelectCookNowPicks(result.Rows, CookNowPickCount);
+        var today = DateOnly.FromDateTime(now.LocalDateTime);
+
+        // Load slot config — defines the active slot vocabulary for this household.
+        var slotConfig = await slotConfigRepo.FindByHouseholdAsync(householdId, ct);
+        if (slotConfig is null)
+            return [];
+
+        var activeSlots = slotConfig.Slots
+            .Where(s => s.IsActive)
+            .OrderBy(s => s.Ordinal)
+            .ToList();
+
+        if (activeSlots.Count == 0)
+            return [];
+
+        // Load this week's plan (null = no plan created yet → all slots are empty).
+        // Use fully-qualified name: Plantry.Web.Pages.MealPlan is a conflicting namespace.
+        var weekStart = Plantry.MealPlanning.Domain.MealPlan.NormalizeToMonday(today);
+        var plan = await mealPlanRepo.FindByWeekAsync(householdId, weekStart, ct);
+
+        var result = new List<PlannedMealSlotVm>(activeSlots.Count);
+
+        foreach (var slot in activeSlots)
+        {
+            // Get the first planned meal in this cell (by ordinal) — the band shows one per slot.
+            var mealsInCell = plan?.MealsInCell(today, slot.Id)
+                .OrderBy(m => m.Ordinal)
+                .ToList() ?? [];
+
+            var meal = mealsInCell.FirstOrDefault();
+
+            if (meal is null)
+            {
+                // Empty slot — no meal planned yet.
+                result.Add(new PlannedMealSlotVm(
+                    SlotId: slot.Id,
+                    SlotLabel: slot.Label,
+                    IsPlanned: false,
+                    RecipeId: null,
+                    RecipeName: null,
+                    HasPhoto: false,
+                    DishNames: [],
+                    Note: null,
+                    CookTimeMinutes: null,
+                    Servings: 0,
+                    EffectiveAttendees: slot.DefaultAttendees,
+                    IsFullyCookable: false,
+                    MealId: Guid.Empty,
+                    HasExpiringIngredients: false));
+                continue;
+            }
+
+            // Compute enrichment (P3-4 roll-up) for dish-based meals.
+            MealFulfillment fulfillment = MealFulfillment.None;
+            if (meal.Note is null && meal.PlannedDishes.Count > 0)
+            {
+                fulfillment = await planFulfillmentService.RollUpMealAsync(meal, today, ct);
+            }
+
+            // Resolve dish display information.
+            Guid? primaryRecipeId = null;
+            string? primaryRecipeName = null;
+            bool hasPhoto = false;
+            int? cookTimeMinutes = null;
+            int servings = 0;
+            var dishNames = new List<string>();
+
+            if (meal.Note is not null)
+            {
+                // Note-based meal: no recipe, just display the note text.
+                dishNames.Add(meal.Note);
+                servings = 1;
+            }
+            else
+            {
+                var orderedDishes = meal.PlannedDishes.OrderBy(d => d.Ordinal).ToList();
+                servings = orderedDishes.FirstOrDefault()?.Servings ?? 0;
+
+                // Build dish name list from dish recipe IDs (best-effort; null recipe = "Unknown recipe").
+                // Primary recipe = first recipe dish (by ordinal).
+                foreach (var dish in orderedDishes)
+                {
+                    if (dish.RecipeId.HasValue)
+                    {
+                        // Use IRecipeReadModel (MealPlanning ACL port) for name + HasPhoto — it's the
+                        // established cross-context seam for MealPlanning→Recipes lookups.
+                        var recipeModel = await recipeReadModel.GetByIdAsync(dish.RecipeId.Value, ct);
+                        var name = recipeModel?.Name ?? "Unknown recipe";
+                        dishNames.Add(name);
+
+                        if (!primaryRecipeId.HasValue)
+                        {
+                            primaryRecipeId = dish.RecipeId.Value;
+                            primaryRecipeName = name;
+                            hasPhoto = recipeModel?.HasPhoto ?? false;
+
+                            // CookTimeMinutes is not in IRecipeReadModel; load from the Recipes domain
+                            // repository (composition root has full access — ADR-021 §3).
+                            if (recipeModel is not null)
+                            {
+                                var recipeEntity = await recipeRepo.GetByIdAsync(
+                                    RecipeId.From(dish.RecipeId.Value), ct);
+                                cookTimeMinutes = recipeEntity?.CookTimeMinutes;
+                            }
+                        }
+                    }
+                    else if (dish.ProductId.HasValue)
+                    {
+                        // Product-dish: display a generic label (catalog name resolution is expensive;
+                        // the meal plan editor already resolved these — not re-loaded here).
+                        dishNames.Add("Product dish");
+                    }
+                }
+            }
+
+            // Effective attendees: override ?? slot default.
+            var effectiveAttendees = (IReadOnlyList<Guid>)(meal.AttendeesOverride ?? slot.DefaultAttendees);
+
+            result.Add(new PlannedMealSlotVm(
+                SlotId: slot.Id,
+                SlotLabel: slot.Label,
+                IsPlanned: true,
+                RecipeId: primaryRecipeId,
+                RecipeName: primaryRecipeName,
+                HasPhoto: hasPhoto,
+                DishNames: dishNames,
+                Note: meal.Note,
+                CookTimeMinutes: cookTimeMinutes,
+                Servings: servings,
+                EffectiveAttendees: effectiveAttendees,
+                IsFullyCookable: fulfillment.FulfillmentPercent == 100,
+                MealId: meal.Id.Value,
+                HasExpiringIngredients: fulfillment.HasExpiringIngredients));
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -197,19 +384,6 @@ public sealed class IndexModel(
 
         return $"Forwarded by email · {relTime}";
     }
-
-    /// <summary>
-    /// Applies the cook-now pick selection logic: expiring-ingredient recipes first (use-it-up),
-    /// then fulfillment percentage descending, capped at <paramref name="maxPicks"/>.
-    /// Extracted as a static helper for deterministic unit testing without database access.
-    /// </summary>
-    internal static IReadOnlyList<RecipeBrowseRow> SelectCookNowPicks(
-        IReadOnlyList<RecipeBrowseRow> rows, int maxPicks = CookNowPickCount) =>
-        rows
-            .OrderByDescending(r => r.HasIngredientExpiringSoon)
-            .ThenByDescending(r => r.FulfillmentPct)
-            .Take(maxPicks)
-            .ToList();
 
     /// <summary>Returns a greeting appropriate to the local hour.</summary>
     internal static string BuildGreeting(int hour, string householdName)
