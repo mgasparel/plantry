@@ -106,6 +106,18 @@ public sealed class IndexModel(
     public bool WeekCostIsPartial { get; private set; }
 
     /// <summary>
+    /// Projected week cost = confirmed + sum of pending ghost costs (plantry-5lp).
+    /// Null when neither confirmed meals nor pending proposals have any pricing data.
+    /// </summary>
+    public decimal? ProjectedWeekCost { get; private set; }
+
+    /// <summary>
+    /// True when the projected cost is an under-estimate (some priced cells, others unpriced
+    /// or some ghost cells unpriced/partially priced). Renders the "~$" partial prefix (plantry-5lp).
+    /// </summary>
+    public bool ProjectedWeekCostIsPartial { get; private set; }
+
+    /// <summary>
     /// Resolved weekly budget target for the viewed week (persisted household setting + per-week override).
     /// Loaded on every request path (GET + all OOB refreshes) by LoadWeekAsync so insights survive
     /// reloads and cell operations. Null = no target = over-budget insight suppressed.
@@ -1077,6 +1089,31 @@ public sealed class IndexModel(
         // using the same enricher (memoized — shared with committed-meal enrichment above).
         await LoadGhostEnrichmentsAsync(enricher, ct);
 
+        // Compute projected week cost = confirmed + sum of pending ghost costs (plantry-5lp).
+        // Runs AFTER LoadGhostEnrichmentsAsync so GhostEnrichments is fully populated.
+        {
+            decimal sum = WeekTotalCost ?? 0m;
+            bool anyConfirmed = WeekTotalCost.HasValue;
+            bool projectedPartial = WeekCostIsPartial;
+            bool anyPending = false;
+            foreach (var g in GhostEnrichments.Values)
+            {
+                if (g.TotalCost.HasValue)
+                {
+                    sum += g.TotalCost.Value;
+                    anyPending = true;
+                    if (g.CostIsPartial) projectedPartial = true;
+                }
+                else
+                {
+                    // An unpriced pending cell makes the projection an under-estimate.
+                    projectedPartial = true;
+                }
+            }
+            ProjectedWeekCost = (anyConfirmed || anyPending) ? sum : (decimal?)null;
+            ProjectedWeekCostIsPartial = projectedPartial && ProjectedWeekCost.HasValue;
+        }
+
         await BuildInsightsAsync(loadedPlan, emptyCells, ct);
     }
 
@@ -1426,18 +1463,26 @@ public sealed class IndexModel(
         var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment,
             IsHardConflict: ConflictCells.ContainsKey(key),
             UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key));
-        var railVm = new PlanRailVm(Insights, PendingCount, Oob: true);
+        var railVm = new PlanRailVm(Insights, PendingCount, Oob: true,
+            ConfirmedWeekCost: WeekTotalCost, ConfirmedCostIsPartial: WeekCostIsPartial,
+            ProjectedWeekCost: ProjectedWeekCost, ProjectedCostIsPartial: ProjectedWeekCostIsPartial);
         var barNavVm = BuildPlanBarNavVm(Oob: true);
         return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm, barNavVm));
     }
 
     /// <summary>
     /// Builds the plan-bar nav view model from the currently-loaded week state.
-    /// Must be called after LoadWeekAsync so WeekStart, HasEmptyCells, etc. are set.
+    /// Must be called after LoadWeekAsync so WeekStart, HasEmptyCells, ProjectedWeekCost, etc. are set.
     /// </summary>
     private PlanBarNavVm BuildPlanBarNavVm(bool Oob) => new(
         WeekStart, PrevWeekStart, NextWeekStart, ThisWeekStart,
-        WeekLabel, HasEmptyCells, WeekTotalCost, WeekCostIsPartial, Oob);
+        WeekLabel, HasEmptyCells, WeekTotalCost, WeekCostIsPartial, Oob,
+        ProjectedWeekCost: ProjectedWeekCost,
+        ProjectedWeekCostIsPartial: ProjectedWeekCostIsPartial,
+        PendingCount: PendingCount,
+        WeekBudgetTarget: WeekBudgetTarget,
+        ConfirmedOverBudget: WeekBudgetTarget.HasValue && WeekTotalCost > WeekBudgetTarget,
+        ProjectedOverBudget: WeekBudgetTarget.HasValue && ProjectedWeekCost > WeekBudgetTarget);
 
     private async Task<MealSlot?> GetSlotAsync(HouseholdId householdId, MealSlotId slotId, CancellationToken ct)
     {
@@ -1550,7 +1595,18 @@ public sealed class IndexModel(
     /// on a full grid swap, and out-of-band (<paramref name="Oob"/> = true) alongside a cell
     /// fragment so the rail recomputes on EVERY plan change — see <c>_PlanRail.cshtml</c>.
     /// </summary>
-    public sealed record PlanRailVm(IReadOnlyList<InsightCallout> Insights, int PendingCount, bool Oob = false);
+    /// <param name="ConfirmedWeekCost">Confirmed week cost (plantry-5lp — shown in the rail toggle callout).</param>
+    /// <param name="ConfirmedCostIsPartial">True when the confirmed figure is a partial estimate.</param>
+    /// <param name="ProjectedWeekCost">Confirmed + pending ghost costs (plantry-5lp — shown in the rail toggle callout).</param>
+    /// <param name="ProjectedCostIsPartial">True when the projected figure is a partial estimate.</param>
+    public sealed record PlanRailVm(
+        IReadOnlyList<InsightCallout> Insights,
+        int PendingCount,
+        bool Oob = false,
+        decimal? ConfirmedWeekCost = null,
+        bool ConfirmedCostIsPartial = false,
+        decimal? ProjectedWeekCost = null,
+        bool ProjectedCostIsPartial = false);
 
     /// <summary>
     /// Combines a single cell fragment with an out-of-band rail refresh and an out-of-band
@@ -1576,6 +1632,12 @@ public sealed class IndexModel(
     /// When <paramref name="Oob"/> is true the partial renders with hx-swap-oob so htmx replaces
     /// the live bar elements in place; when false it renders inline on first page load.
     /// </summary>
+    /// <param name="ProjectedWeekCost">Confirmed + pending ghost costs (plantry-5lp).</param>
+    /// <param name="ProjectedWeekCostIsPartial">True when the projected figure is a partial estimate.</param>
+    /// <param name="PendingCount">Number of pending AI proposals (drives toggle rendering in the chip).</param>
+    /// <param name="WeekBudgetTarget">Resolved weekly budget target (plantry-gx34 inline budget).</param>
+    /// <param name="ConfirmedOverBudget">True when confirmed cost exceeds the budget target (plantry-gx34).</param>
+    /// <param name="ProjectedOverBudget">True when projected cost exceeds the budget target (plantry-gx34).</param>
     public sealed record PlanBarNavVm(
         DateOnly WeekStart,
         DateOnly PrevWeekStart,
@@ -1585,7 +1647,13 @@ public sealed class IndexModel(
         bool HasEmptyCells,
         decimal? WeekTotalCost,
         bool WeekCostIsPartial,
-        bool Oob = false);
+        bool Oob = false,
+        decimal? ProjectedWeekCost = null,
+        bool ProjectedWeekCostIsPartial = false,
+        int PendingCount = 0,
+        decimal? WeekBudgetTarget = null,
+        bool ConfirmedOverBudget = false,
+        bool ProjectedOverBudget = false);
     /// <summary>
     /// View model for the editor rollup footer (_EditorRollup.cshtml) — ADR-013 §4/§5.
     /// Returned by OnPostRollupJsonAsync; the island parses the JSON and injects the HTML.

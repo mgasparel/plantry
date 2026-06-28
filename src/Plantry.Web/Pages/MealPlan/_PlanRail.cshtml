@@ -4,6 +4,20 @@
     // hx-swap-oob so htmx replaces the live rail + reopen tab in place. When rendered inline
     // inside _WeekGrid (full grid swap / first load) they are plain children of .plan-body-inner.
     var oob = Model.Oob ? "true" : null;
+
+    // plantry-5lp: compute display strings for the rail's alternate-figure toggle callout.
+    // Each body shows the OPPOSITE figure to whatever the chip displays.
+    string confirmedDisplay;
+    if (Model.ConfirmedWeekCost.HasValue)
+        confirmedDisplay = (Model.ConfirmedCostIsPartial ? "~$" : "$") + Model.ConfirmedWeekCost.Value.ToString("F2");
+    else
+        confirmedDisplay = "not yet estimated";
+
+    string projectedDisplay;
+    if (Model.ProjectedWeekCost.HasValue)
+        projectedDisplay = (Model.ProjectedCostIsPartial ? "~$" : "$") + Model.ProjectedWeekCost.Value.ToString("F2");
+    else
+        projectedDisplay = "not yet estimated";
 }
 
 @* Insights rail — advisory callouts derived from the planned week (P3-5).
@@ -39,7 +53,11 @@
     else
     {
         <div class="rail-scroll">
-            @* Pending-suggestions info callout (P3-6 pending-aware input — dashed border) *@
+            @* Pending-suggestions info callout (P3-6 pending-aware input — dashed border).
+               plantry-5lp: two x-show bodies bound to costMode on the .plan-main ancestor.
+               Each body shows the ALTERNATE figure to whatever the chip currently displays,
+               plus a plain-language hint to toggle. The b4h "not included in the cost total"
+               sentence is replaced by this toggle-aware wording. *@
             @if (Model.PendingCount > 0)
             {
                 <div class="callout" data-tone="info" style="border-style:dashed">
@@ -48,7 +66,8 @@
                     </span>
                     <div>
                         <div class="co-title">Previewing @Model.PendingCount suggestion@(Model.PendingCount == 1 ? "" : "s")</div>
-                        <div class="co-body">Pending suggestions shown in dashed cells are not included in the cost total. Accept or discard to lock them in.</div>
+                        <div class="co-body" x-show="costMode === 'projected'">Your confirmed total — planned meals only — is <b>@confirmedDisplay</b> / wk. Tap the weekly cost at the top to switch.</div>
+                        <div class="co-body" x-show="costMode === 'confirmed'" x-cloak>With these @Model.PendingCount suggestion@(Model.PendingCount == 1 ? "" : "s") accepted, your week would be <b>@projectedDisplay</b> / wk. Tap the weekly cost at the top to switch.</div>
                     </div>
                 </div>
             }

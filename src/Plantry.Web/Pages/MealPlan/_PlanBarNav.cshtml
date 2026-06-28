@@ -6,15 +6,38 @@
     // When rendered inline on a full GET (Oob=false) they are plain children of .plan-bar.
     var oob = Model.Oob ? "true" : null;
 
-    string weekCostDisplay;
+    // Confirmed cost display (current, unchanged semantics)
+    string confirmedDisplay;
     if (Model.WeekTotalCost.HasValue)
     {
-        weekCostDisplay = (Model.WeekCostIsPartial ? "~$" : "$") + Model.WeekTotalCost.Value.ToString("F2");
+        confirmedDisplay = (Model.WeekCostIsPartial ? "~$" : "$") + Model.WeekTotalCost.Value.ToString("F2");
     }
     else
     {
-        weekCostDisplay = "—";
+        confirmedDisplay = "—";
     }
+
+    // Projected cost display (confirmed + pending ghost costs — plantry-5lp)
+    string projectedDisplay;
+    if (Model.ProjectedWeekCost.HasValue)
+    {
+        projectedDisplay = (Model.ProjectedWeekCostIsPartial ? "~$" : "$") + Model.ProjectedWeekCost.Value.ToString("F2");
+    }
+    else
+    {
+        projectedDisplay = confirmedDisplay;
+    }
+
+    // Budget display — shown inline after the cost when WeekBudgetTarget is set (plantry-gx34)
+    string? budgetDisplay = null;
+    if (Model.WeekBudgetTarget.HasValue)
+    {
+        budgetDisplay = "$" + Model.WeekBudgetTarget.Value.ToString("F2");
+    }
+
+    // Alpine literals for the :class binding (emitted as boolean literals, not C# booleans)
+    var confirmedOverBudgetLiteral = Model.ConfirmedOverBudget ? "true" : "false";
+    var projectedOverBudgetLiteral = Model.ProjectedOverBudget ? "true" : "false";
 }
 
 @* Week nav: prev/next buttons + week label + This-week button.
@@ -45,11 +68,36 @@
 </nav>
 
 @* Budget chip — re-emitted OOB so the cost reflects the navigated week after a grid swap,
-   and so the cost updates after a cell mutation fills or clears a costed meal. *@
-<span id="plan-cost-chip" class="budget-chip" title="Estimated weekly grocery cost based on planned meals" hx-swap-oob="@oob">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
-    <b>@weekCostDisplay</b> / wk
-</span>
+   and so the cost updates after a cell mutation fills or clears a costed meal.
+   plantry-5lp: when pending suggestions exist, the chip toggles between Projected and Confirmed
+   cost modes. The toggle state lives on the stable .plan-main ancestor (x-data="{ costMode: 'projected' }"),
+   so it survives OOB swaps of this element. Both spans are always rendered; Alpine x-show picks the visible one.
+   plantry-gx34: when WeekBudgetTarget is set, the budget is shown inline after the cost. *@
+@if (Model.PendingCount > 0)
+{
+    <span id="plan-cost-chip" class="budget-chip"
+          :class="{ over: costMode === 'projected' ? @projectedOverBudgetLiteral : @confirmedOverBudgetLiteral }"
+          role="button" tabindex="0" title="Tap to switch between projected and confirmed cost"
+          style="cursor:pointer"
+          @@click="costMode = costMode === 'projected' ? 'confirmed' : 'projected'"
+          @@keydown.enter="costMode = costMode === 'projected' ? 'confirmed' : 'projected'"
+          @@keydown.space.prevent="costMode = costMode === 'projected' ? 'confirmed' : 'projected'"
+          hx-swap-oob="@oob">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+        <span x-show="costMode === 'projected'"><b>@projectedDisplay</b>@(budgetDisplay is not null ? $" / {budgetDisplay}" : "") / wk · incl. suggestions</span>
+        <span x-show="costMode === 'confirmed'" x-cloak><b>@confirmedDisplay</b>@(budgetDisplay is not null ? $" / {budgetDisplay}" : "") / wk · confirmed</span>
+    </span>
+}
+else
+{
+    @* No pending suggestions: single unlabeled figure, no toggle (unchanged behaviour). *@
+    @* No-pending: static 'over' class iff ConfirmedOverBudget. *@
+    <span id="plan-cost-chip" class="budget-chip @(Model.ConfirmedOverBudget ? "over" : "")"
+          title="Estimated weekly grocery cost based on planned meals" hx-swap-oob="@oob">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+        <b>@confirmedDisplay</b>@(budgetDisplay is not null ? $" / {budgetDisplay}" : "") / wk
+    </span>
+}
 
 @* Auto-fill split button wrapper — re-emitted OOB so HasEmptyCells state tracks real grid
    state after a cell mutation fills or empties the last open cell.

@@ -6,7 +6,7 @@
     ViewData["ContentClass"] = "page-content--fluid";
 }
 
-<div class="plan-main">
+<div class="plan-main" x-data="{ costMode: 'projected' }">
     @* Command bar: week nav, This week, budget chip, auto-fill *@
     @* All dynamic pieces are in _PlanBarNav so they can be re-emitted OOB after htmx grid
        swaps and cell mutations. On first load (Oob=false) the partial renders inline here.
@@ -16,7 +16,13 @@
     <div class="plan-bar">
         @await Html.PartialAsync("_PlanBarNav", new Plantry.Web.Pages.MealPlan.IndexModel.PlanBarNavVm(
             Model.WeekStart, Model.PrevWeekStart, Model.NextWeekStart, Model.ThisWeekStart,
-            Model.WeekLabel, Model.HasEmptyCells, Model.WeekTotalCost, Model.WeekCostIsPartial, Oob: false))
+            Model.WeekLabel, Model.HasEmptyCells, Model.WeekTotalCost, Model.WeekCostIsPartial, Oob: false,
+            ProjectedWeekCost: Model.ProjectedWeekCost,
+            ProjectedWeekCostIsPartial: Model.ProjectedWeekCostIsPartial,
+            PendingCount: Model.PendingCount,
+            WeekBudgetTarget: Model.WeekBudgetTarget,
+            ConfirmedOverBudget: Model.WeekBudgetTarget.HasValue && Model.WeekTotalCost > Model.WeekBudgetTarget,
+            ProjectedOverBudget: Model.WeekBudgetTarget.HasValue && Model.ProjectedWeekCost > Model.WeekBudgetTarget))
         <div class="plan-bar-spacer"></div>
         @* planTune Alpine config: injected before _PlanBarNav uses it (the partial renders af-split
            which calls planTune(window.__planTuneCfg) on Alpine init). *@
