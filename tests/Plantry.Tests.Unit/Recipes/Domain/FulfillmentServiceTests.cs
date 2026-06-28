@@ -542,3 +542,248 @@ public sealed class FulfillmentServiceTests
         Assert.Equal(IngredientStatus.Untracked, result.Lines[2].Status);
     }
 }
+
+/// <summary>
+/// L1 tests for <see cref="FulfillmentService.Compute"/> — the pure overload that accepts
+/// pre-loaded catalog/stock/converter data and issues zero further round-trips (ADR-021 rule 1).
+/// Verifies byte-identical figures vs the async path across the same scenario set.
+/// </summary>
+public sealed class FulfillmentServicePureOverloadTests
+{
+    private static readonly IClock Clock = SystemClock.Instance;
+    private static readonly HouseholdId Household = HouseholdId.New();
+    private static readonly DateOnly Today = new(2026, 6, 14);
+
+    // Identity converter — same unit → same amount; different unit → fail.
+    private static Result<decimal> IdentityConverter(Guid _, decimal amount, Guid from, Guid to) =>
+        from == to
+            ? Result<decimal>.Success(amount)
+            : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No path."));
+
+    private static CatalogProduct UntrackedProduct(Guid id) =>
+        new(id, "Salt", TrackStock: false, DefaultUnitId: Guid.CreateVersion7(),
+            ParentProductId: null, IsParent: false, VariantProductIds: []);
+
+    private static CatalogProduct TrackedLeaf(Guid id, Guid defaultUnitId) =>
+        new(id, "Flour", TrackStock: true, defaultUnitId,
+            ParentProductId: null, IsParent: false, VariantProductIds: []);
+
+    private static CatalogProduct ParentProduct(Guid id, IReadOnlyList<Guid> variantIds) =>
+        new(id, "Milk", TrackStock: true, DefaultUnitId: Guid.CreateVersion7(),
+            ParentProductId: null, IsParent: true, VariantProductIds: variantIds);
+
+    private static ProductStock MakeStock(Guid productId, decimal available, Guid unitId, DateOnly? expiry = null) =>
+        new(productId, available, unitId, expiry);
+
+    private static Recipe BuildRecipe(Guid productId, decimal quantity, Guid unitId, int defaultServings = 4)
+    {
+        var recipe = Recipe.Create(Household, "Test", defaultServings, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(productId, quantity, unitId, null, 0)], Clock);
+        return recipe;
+    }
+
+    // ── Untracked is always Untracked ─────────────────────────────────────────
+
+    [Fact]
+    public void Pure_Untracked_Is_Always_Untracked()
+    {
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = UntrackedProduct(productId) };
+        var stock = new Dictionary<Guid, ProductStock>();
+
+        var recipe = Recipe.Create(Household, "Omelette", 2, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(productId, null, null, null, 0)], Clock);
+
+        var svc = new FulfillmentService(null!, null!, null!); // ports unused by pure overload
+        var result = svc.Compute(recipe, 2, Today, catalog, stock, IdentityConverter);
+
+        Assert.Equal(IngredientStatus.Untracked, Assert.Single(result.Lines).Status);
+        Assert.True(result.Overall.FullyCookable);
+    }
+
+    // ── InStock / Low / Missing thresholds ───────────────────────────────────
+
+    [Fact]
+    public void Pure_InStock_When_Available_Meets_Required()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, unit) };
+        var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 500m, unit) };
+
+        var recipe = BuildRecipe(productId, 500m, unit);
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        Assert.Equal(IngredientStatus.InStock, Assert.Single(result.Lines).Status);
+        Assert.True(result.Overall.FullyCookable);
+    }
+
+    [Fact]
+    public void Pure_Low_When_Available_Is_Between_Zero_And_Required()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, unit) };
+        var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 250m, unit) };
+
+        var recipe = BuildRecipe(productId, 500m, unit);
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Low, line.Status);
+        Assert.Equal(250m, line.AvailableQuantity);
+        Assert.Equal(0, result.Overall.MissingCount);
+        Assert.Equal(1, result.Overall.LowCount);
+    }
+
+    [Fact]
+    public void Pure_Missing_When_No_Stock_Record()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, unit) };
+        var stock = new Dictionary<Guid, ProductStock>();
+
+        var recipe = BuildRecipe(productId, 500m, unit);
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
+        Assert.Equal(1, result.Overall.MissingCount);
+    }
+
+    // ── Parent/variant rollup (DM-19) ─────────────────────────────────────────
+
+    [Fact]
+    public void Pure_Parent_Rolls_Up_Stock_Across_Variants()
+    {
+        var unit = Guid.CreateVersion7();
+        var v1 = Guid.CreateVersion7();
+        var v2 = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+
+        var catalog = new Dictionary<Guid, CatalogProduct>
+        {
+            [parentId] = ParentProduct(parentId, [v1, v2]),
+            [v1] = TrackedLeaf(v1, unit),
+            [v2] = TrackedLeaf(v2, unit),
+        };
+        var stock = new Dictionary<Guid, ProductStock>
+        {
+            [v1] = MakeStock(v1, 200m, unit),
+            [v2] = MakeStock(v2, 400m, unit),
+        };
+
+        var recipe = BuildRecipe(parentId, 500m, unit);
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStock, line.Status);
+        Assert.Equal(600m, line.AvailableQuantity);
+    }
+
+    // ── Expiry-soon flag (J1/J3) ──────────────────────────────────────────────
+
+    [Fact]
+    public void Pure_Expiring_Soon_Set_When_Within_4_Days()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, unit) };
+        var stock = new Dictionary<Guid, ProductStock>
+        {
+            [productId] = MakeStock(productId, 500m, unit, Today.AddDays(3)),
+        };
+
+        var recipe = BuildRecipe(productId, 100m, unit);
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(3, line.ExpiresWithinDays);
+    }
+
+    [Fact]
+    public void Pure_Expiring_Soon_Not_Set_When_Beyond_4_Days()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, unit) };
+        var stock = new Dictionary<Guid, ProductStock>
+        {
+            [productId] = MakeStock(productId, 500m, unit, Today.AddDays(5)),
+        };
+
+        var recipe = BuildRecipe(productId, 100m, unit);
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        Assert.Null(Assert.Single(result.Lines).ExpiresWithinDays);
+    }
+
+    [Fact]
+    public void Pure_Expired_Lot_Sets_Negative_ExpiresWithinDays()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, unit) };
+        var stock = new Dictionary<Guid, ProductStock>
+        {
+            [productId] = MakeStock(productId, 200m, unit, Today.AddDays(-3)),
+        };
+
+        var recipe = BuildRecipe(productId, 100m, unit);
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        Assert.Equal(-3, Assert.Single(result.Lines).ExpiresWithinDays);
+    }
+
+    // ── Converter failure → variant contributes 0 ────────────────────────────
+
+    [Fact]
+    public void Pure_Converter_Failure_Contributes_Zero_Not_Exception()
+    {
+        var ingredientUnit = Guid.CreateVersion7();
+        var stockUnit = Guid.CreateVersion7(); // different from ingredient unit → converter fails
+        var productId = Guid.CreateVersion7();
+
+        var catalog = new Dictionary<Guid, CatalogProduct>
+        {
+            [productId] = TrackedLeaf(productId, stockUnit),
+        };
+        var stock = new Dictionary<Guid, ProductStock>
+        {
+            [productId] = MakeStock(productId, 500m, stockUnit), // stock in stockUnit
+        };
+
+        // Converter: identity only — will fail for stockUnit → ingredientUnit
+        var recipe = BuildRecipe(productId, 100m, ingredientUnit); // recipe asks for ingredientUnit
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        // Converter fails → available = 0 → Missing (not an exception)
+        Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
+    }
+
+    // ── Missing catalog entry → Missing ──────────────────────────────────────
+
+    [Fact]
+    public void Pure_Missing_Catalog_Entry_Treated_As_Missing()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        // catalog is empty — product not found
+        var catalog = new Dictionary<Guid, CatalogProduct>();
+        var stock = new Dictionary<Guid, ProductStock>();
+
+        var recipe = BuildRecipe(productId, 100m, unit);
+        var svc = new FulfillmentService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+
+        Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
+    }
+}

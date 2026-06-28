@@ -1,4 +1,5 @@
 using Plantry.Recipes.Application;
+using Plantry.SharedKernel;
 
 namespace Plantry.Recipes.Domain;
 
@@ -121,6 +122,118 @@ public sealed class CostingService(IPriceReader priceReader, IUnitConverter unit
         }
 
         // Determine completeness and build result.
+        CostCompleteness completeness;
+        decimal? amount;
+
+        if (pricedCount == 0)
+        {
+            completeness = CostCompleteness.None;
+            amount = null;
+        }
+        else if (pricedCount == costableCount)
+        {
+            completeness = CostCompleteness.Full;
+            amount = runningTotal / desiredServings;
+        }
+        else
+        {
+            completeness = CostCompleteness.Partial;
+            amount = runningTotal / desiredServings;
+        }
+
+        return new CostPerServing(
+            amount,
+            completeness,
+            pricedCount,
+            costableCount,
+            missingPriceProductIds);
+    }
+
+    /// <summary>
+    /// Pure overload: computes the <see cref="CostPerServing"/> for <paramref name="recipe"/> scaled
+    /// to <paramref name="desiredServings"/> using <b>only</b> the data already loaded by the caller.
+    /// Issues zero further round-trips (ADR-021 rule 1: SQL fetches data, C# keeps the math).
+    ///
+    /// The <paramref name="converter"/> delegate must resolve quantities between units without any IO.
+    /// On conversion failure the ingredient is treated as un-priced (contributes to
+    /// <c>MissingPriceProductIds</c>), matching the async path's behaviour.
+    /// </summary>
+    /// <param name="recipe">The recipe to cost.</param>
+    /// <param name="desiredServings">Target serving count.</param>
+    /// <param name="priceById">Pre-loaded latest price observations keyed by product id.
+    /// Products absent from this dictionary are treated as un-priced.</param>
+    /// <param name="converter">Sync unit conversion delegate: (productId, amount, fromUnitId, toUnitId) → Result.</param>
+    public CostPerServing Compute(
+        Recipe recipe,
+        int desiredServings,
+        IReadOnlyDictionary<Guid, PricePoint> priceById,
+        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter)
+    {
+        var scale = (decimal)desiredServings / recipe.DefaultServings;
+
+        var costableCount = 0;
+        var pricedCount = 0;
+        var runningTotal = 0m;
+        var missingPriceProductIds = new List<Guid>();
+
+        foreach (var ingredient in recipe.Ingredients)
+        {
+            // Exclude untracked staples (null Quantity/UnitId → "to taste", no price by design).
+            if (ingredient.Quantity is null || ingredient.UnitId is null)
+                continue;
+
+            costableCount++;
+
+            if (!priceById.TryGetValue(ingredient.ProductId, out var pricePoint))
+            {
+                missingPriceProductIds.Add(ingredient.ProductId);
+                continue;
+            }
+
+            // Derive unit price (price per one unit of pricePoint.UnitId).
+            decimal unitPrice;
+            if (pricePoint.UnitPrice.HasValue)
+            {
+                unitPrice = pricePoint.UnitPrice.Value;
+            }
+            else if (pricePoint.Quantity > 0m)
+            {
+                unitPrice = pricePoint.Price / pricePoint.Quantity;
+            }
+            else
+            {
+                missingPriceProductIds.Add(ingredient.ProductId);
+                continue;
+            }
+
+            // Convert 1 priceUnit → ingredientUnit to get cost per ingredient-unit.
+            var conversionResult = converter(
+                ingredient.ProductId,
+                1m,
+                pricePoint.UnitId,
+                ingredient.UnitId.Value);
+
+            if (!conversionResult.IsSuccess)
+            {
+                missingPriceProductIds.Add(ingredient.ProductId);
+                continue;
+            }
+
+            var ingredientUnitsPerPriceUnit = conversionResult.Value;
+            if (ingredientUnitsPerPriceUnit <= 0m)
+            {
+                missingPriceProductIds.Add(ingredient.ProductId);
+                continue;
+            }
+
+            var costPerIngredientUnit = unitPrice / ingredientUnitsPerPriceUnit;
+            var scaledQuantity = ingredient.Quantity.Value * scale;
+            var lineCost = costPerIngredientUnit * scaledQuantity;
+
+            runningTotal += lineCost;
+            pricedCount++;
+        }
+
         CostCompleteness completeness;
         decimal? amount;
 

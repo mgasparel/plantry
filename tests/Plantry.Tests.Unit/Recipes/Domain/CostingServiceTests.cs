@@ -350,3 +350,193 @@ public sealed class CostingServiceTests
         Assert.Empty(result.MissingPriceProductIds);
     }
 }
+
+/// <summary>
+/// L1 tests for <see cref="CostingService.Compute"/> — the pure overload that accepts
+/// pre-loaded price/converter data and issues zero further round-trips (ADR-021 rule 1).
+/// Verifies byte-identical figures vs the async path across the same scenario set.
+/// </summary>
+public sealed class CostingServicePureOverloadTests
+{
+    private static readonly IClock Clock = SystemClock.Instance;
+    private static readonly HouseholdId Household = HouseholdId.New();
+
+    // Identity converter — same unit → same amount; different unit → fail.
+    private static Result<decimal> IdentityConverter(Guid _, decimal amount, Guid from, Guid to) =>
+        from == to
+            ? Result<decimal>.Success(amount)
+            : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No path."));
+
+    private static PricePoint MakePrice(Guid productId, decimal price, decimal qty, Guid unitId, decimal? unitPrice = null) =>
+        new(productId, price, qty, unitId, unitPrice);
+
+    private static Recipe BuildSingleIngredientRecipe(Guid productId, decimal quantity, Guid unitId, int defaultServings = 4)
+    {
+        var recipe = Recipe.Create(Household, "Test", defaultServings, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(productId, quantity, unitId, null, 0)], Clock);
+        return recipe;
+    }
+
+    // ── Full when all costable ingredients are priced ─────────────────────────
+
+    [Fact]
+    public void Pure_Full_When_All_Priced()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        // $2.00 for 500 units → $0.004/unit
+        var prices = new Dictionary<Guid, PricePoint>
+        {
+            [productId] = MakePrice(productId, 2.00m, 500m, unit),
+        };
+
+        // Recipe: 250 for 4 servings → cost = 250 × $0.004 = $1.00 / 4 = $0.25/serving
+        var recipe = BuildSingleIngredientRecipe(productId, 250m, unit, 4);
+        var svc = new CostingService(null!, null!); // ports unused by pure overload
+        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(0.25m, result.Amount!.Value, precision: 6);
+        Assert.Equal(1, result.PricedCount);
+        Assert.Equal(1, result.CostableCount);
+        Assert.Empty(result.MissingPriceProductIds);
+    }
+
+    [Fact]
+    public void Pure_Full_Uses_UnitPrice_When_Available()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        // UnitPrice: $0.005/unit; recipe: 200 for 4 servings → $1.00 total / 4 = $0.25/serving
+        var prices = new Dictionary<Guid, PricePoint>
+        {
+            [productId] = MakePrice(productId, 999m, 1m, unit, unitPrice: 0.005m),
+        };
+
+        var recipe = BuildSingleIngredientRecipe(productId, 200m, unit, 4);
+        var svc = new CostingService(null!, null!);
+        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(0.25m, result.Amount!.Value, precision: 6);
+    }
+
+    [Fact]
+    public void Pure_Full_Scales_With_DesiredServings()
+    {
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        // $1.00 for 100 → $0.01/unit; recipe: 100 at 2 default servings
+        // At 4 servings: scaled = 200, cost = $2.00, per serving = $0.50
+        var prices = new Dictionary<Guid, PricePoint>
+        {
+            [productId] = MakePrice(productId, 1.00m, 100m, unit),
+        };
+
+        var recipe = BuildSingleIngredientRecipe(productId, 100m, unit, 2);
+        var svc = new CostingService(null!, null!);
+        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+
+        Assert.Equal(0.50m, result.Amount!.Value, precision: 6);
+    }
+
+    // ── Partial when some priced ──────────────────────────────────────────────
+
+    [Fact]
+    public void Pure_Partial_When_Some_Ingredients_Have_No_Price()
+    {
+        var unit = Guid.CreateVersion7();
+        var flourId = Guid.CreateVersion7();
+        var sugarId = Guid.CreateVersion7(); // no price
+
+        var prices = new Dictionary<Guid, PricePoint>
+        {
+            [flourId] = MakePrice(flourId, 1.00m, 1000m, unit),
+        };
+
+        var recipe = Recipe.Create(Household, "Cake", 4, Clock).Value;
+        recipe.ReplaceIngredients([
+            new IngredientLine(flourId, 200m, unit, null, 0),
+            new IngredientLine(sugarId, 100m, unit, null, 1),
+        ], Clock);
+
+        var svc = new CostingService(null!, null!);
+        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+
+        Assert.Equal(CostCompleteness.Partial, result.Completeness);
+        Assert.Equal(1, result.PricedCount);
+        Assert.Equal(2, result.CostableCount);
+        Assert.Contains(sugarId, result.MissingPriceProductIds);
+    }
+
+    // ── None when nothing priced ──────────────────────────────────────────────
+
+    [Fact]
+    public void Pure_None_When_No_Costable_Ingredient_Has_Price()
+    {
+        var unit = Guid.CreateVersion7();
+        var flourId = Guid.CreateVersion7();
+        var prices = new Dictionary<Guid, PricePoint>(); // empty
+
+        var recipe = BuildSingleIngredientRecipe(flourId, 200m, unit, 4);
+        var svc = new CostingService(null!, null!);
+        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+
+        Assert.Equal(CostCompleteness.None, result.Completeness);
+        Assert.Null(result.Amount);
+        Assert.Equal(0, result.PricedCount);
+    }
+
+    // ── Untracked staple excluded ────────────────────────────────────────────
+
+    [Fact]
+    public void Pure_Untracked_Staple_Excluded_From_CostableCount()
+    {
+        var unit = Guid.CreateVersion7();
+        var flourId = Guid.CreateVersion7();
+        var saltId = Guid.CreateVersion7(); // untracked (null qty/unit)
+
+        var prices = new Dictionary<Guid, PricePoint>
+        {
+            [flourId] = MakePrice(flourId, 1.00m, 1000m, unit),
+        };
+
+        var recipe = Recipe.Create(Household, "Bread", 4, Clock).Value;
+        recipe.ReplaceIngredients([
+            new IngredientLine(flourId, 200m, unit, null, 0),
+            new IngredientLine(saltId, null, null, null, 1),
+        ], Clock);
+
+        var svc = new CostingService(null!, null!);
+        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(1, result.CostableCount);
+        Assert.Empty(result.MissingPriceProductIds);
+    }
+
+    // ── Converter failure → treated as un-priced ─────────────────────────────
+
+    [Fact]
+    public void Pure_Converter_Failure_Treats_Ingredient_As_Unpriced()
+    {
+        var priceUnit = Guid.CreateVersion7();
+        var ingredientUnit = Guid.CreateVersion7(); // different → converter fails
+        var productId = Guid.CreateVersion7();
+
+        var prices = new Dictionary<Guid, PricePoint>
+        {
+            // price is in priceUnit; ingredient is in ingredientUnit → conversion will fail
+            [productId] = MakePrice(productId, 1.00m, 100m, priceUnit),
+        };
+
+        var recipe = BuildSingleIngredientRecipe(productId, 100m, ingredientUnit, 4);
+        var svc = new CostingService(null!, null!);
+        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+
+        // Converter fails → treated as un-priced → None
+        Assert.Equal(CostCompleteness.None, result.Completeness);
+        Assert.Null(result.Amount);
+        Assert.Contains(productId, result.MissingPriceProductIds);
+    }
+}
