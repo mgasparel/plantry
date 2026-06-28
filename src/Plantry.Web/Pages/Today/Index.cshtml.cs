@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Identity.Domain;
+using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Intake.Domain;
 using Plantry.Recipes.Domain;
@@ -16,6 +17,7 @@ public sealed class IndexModel(
     IProductStockRepository stocks,
     IRecipeRepository recipes,
     IImportSessionRepository sessions,
+    InventoryQueryService inventoryQueries,
     IClock clock,
     ITenantContext tenant) : PageModel
 {
@@ -42,6 +44,19 @@ public sealed class IndexModel(
     /// </summary>
     public bool ShowTakeStockCta { get; private set; }
 
+    /// <summary>
+    /// Products expiring within the next <see cref="InventoryQueryService.ExpiringSoonDays"/> days
+    /// (or already expired), ordered soonest-first. Empty when <see cref="IsColdStart"/> is true
+    /// or the household has no stock nearing expiry.
+    /// </summary>
+    public IReadOnlyList<ExpiringSoonItem> ExpiringSoon { get; private set; } = [];
+
+    /// <summary>
+    /// True when the expiring-soon badge should render in the urgent tone (at least one item
+    /// with 0 or 1 day remaining, including expired lots).
+    /// </summary>
+    public bool ExpiringUrgent => ExpiringSoon.Any(x => x.DaysLeft <= 1);
+
     public async Task OnGetAsync(CancellationToken ct = default)
     {
         var now = clock.UtcNow;
@@ -64,6 +79,9 @@ public sealed class IndexModel(
 
             IsColdStart = !hasStock && !hasRecipes && !hasPendingIntake;
             ShowTakeStockCta = !hasStock;
+
+            if (!IsColdStart)
+                ExpiringSoon = await inventoryQueries.ExpiringSoonAsync(ct);
         }
         else
         {

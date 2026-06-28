@@ -108,27 +108,8 @@
                         </div>
                     </div>
                 }
-                @* Expiring-soon widget — populated by sibling ticket plantry-81x *@
-                <div class="today-widget">
-                    <div class="today-widget__head">
-                        <h3>Expiring soon</h3>
-                        <div class="today-widget__spacer"></div>
-                        <span class="today-count-badge today-count-badge--calm">0</span>
-                    </div>
-                    <div class="today-widget__empty">
-                        <div class="today-we-mark">
-                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-                        </div>
-                        <div class="today-we-title">Nothing expiring this week</div>
-                        <div class="today-we-sub">Your pantry's in good shape. We'll flag anything within 7 days of turning.</div>
-                    </div>
-                    <div class="today-widget__foot">
-                        <a href="/Pantry">
-                            Open pantry
-                            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-                        </a>
-                    </div>
-                </div>
+                @* Expiring-soon widget (plantry-81x) *@
+                <partial name="_ExpiringWidget" model="Model" />
             </div>
         </div>
     }
