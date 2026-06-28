@@ -1,0 +1,80 @@
+@model Plantry.Web.Pages.Settings.MealPlanningModel
+@using Plantry.MealPlanning.Domain
+@{
+    // Resolved weights to display (fall back to domain defaults so sliders are meaningful on first visit).
+    var weights = Model.DefaultWeights ?? PlanningWeights.Default;
+    var budget = Model.DefaultBudget ?? 0m;
+}
+
+@* ── Meal Planning defaults form ──────────────────────────────────────────── *@
+@* Rendered inline on GET and returned as the htmx swap target after a POST.
+   The form posts to ?handler=SetMealPlanningDefaults; the handler returns this same partial
+   so the inputs reflect the saved values (and the saved badge briefly appears). *@
+<form id="meal-planning-defaults-form"
+      hx-post="/Settings/MealPlanning?handler=SetMealPlanningDefaults"
+      hx-target="#meal-planning-defaults-form"
+      hx-swap="outerHTML"
+      hx-include="[name='wasteWeight'],[name='costWeight'],[name='varietyWeight'],[name='budget']">
+
+    @Html.AntiForgeryToken()
+
+    @if (Model.Saved)
+    {
+        <div class="tag-saved show" role="status" aria-live="polite" style="margin-bottom:14px;display:flex;align-items:center;gap:6px;color:var(--color-success);font-size:13px;font-weight:600">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+            Defaults saved
+        </div>
+    }
+
+    @* ── Planning priorities ─────────────────────────────────────────────────── *@
+    <div x-data="settingsTune(@budget, @weights.Waste, @weights.Cost, @weights.Variety)">
+        <div class="tune-sect-label" style="margin-bottom:10px">
+            Planning priorities
+            <span class="spacer"></span>
+            <button type="button" class="reset" @@click="reset()">Reset</button>
+        </div>
+
+        @foreach (var bucket in new[] {
+            new { Key = "waste",   Label = "Waste",   Color = "oklch(0.62 0.13 150)" },
+            new { Key = "cost",    Label = "Cost",     Color = "oklch(0.62 0.13 70)"  },
+            new { Key = "variety", Label = "Variety",  Color = "oklch(0.62 0.13 255)" }
+        })
+        {
+            <div class="wt-row">
+                <span class="wt-name">
+                    <span class="wt-dot" style="background:@bucket.Color"></span>
+                    @bucket.Label
+                </span>
+                <input type="range" min="0" max="100"
+                       :value="weights['@bucket.Key']"
+                       :style="'background:linear-gradient(90deg, @bucket.Color ' + weights['@bucket.Key'] + '%, var(--color-surface-2) ' + weights['@bucket.Key'] + '%)'"
+                       @@input="rebalance('@bucket.Key', $event.target.value)" />
+                <span class="wt-val" x-text="weights['@bucket.Key']"></span>
+            </div>
+        }
+
+        <div class="wt-stack">
+            <template x-for="m in buckets" :key="m.key">
+                <i :style="'width:' + weights[m.key] + '%;background:' + m.color"></i>
+            </template>
+        </div>
+
+        @* ── Budget target ────────────────────────────────────────────────────── *@
+        <div class="tune-sect-label" style="margin-bottom:10px">Budget target</div>
+        <div class="tune-budget" style="margin-bottom:20px">
+            <label>Weekly budget</label>
+            <div class="money-input">
+                <span>$</span>
+                <input type="number" min="0" step="5" x-model.number="budget" />
+            </div>
+        </div>
+
+        @* Hidden inputs carry the payload for the form POST *@
+        <input type="hidden" name="wasteWeight" :value="weights.waste" />
+        <input type="hidden" name="costWeight" :value="weights.cost" />
+        <input type="hidden" name="varietyWeight" :value="weights.variety" />
+        <input type="hidden" name="budget" :value="budget" />
+
+        <button type="submit" class="btn btn--primary">Save defaults</button>
+    </div>
+</form>

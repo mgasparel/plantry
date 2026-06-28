@@ -1,0 +1,83 @@
+@page
+@model Plantry.Web.Pages.Settings.MealPlanningModel
+@using Plantry.MealPlanning.Domain
+@{
+    ViewData["Title"] = "Meal planning defaults";
+}
+
+<div class="cfg-wrap" data-screen-label="Meal planning defaults">
+    <div class="cfg-head">
+        <div class="eyebrow">Household setup</div>
+        <h1>Meal planning defaults</h1>
+        <p>
+            Set the household&rsquo;s default weekly budget and planning priorities. The planner uses
+            these as the baseline for every week &mdash; you can override them per-week from the
+            planner&rsquo;s Tune popover without changing the defaults here.
+        </p>
+    </div>
+
+    @await Html.PartialAsync("Settings/_MealPlanningDefaults", Model)
+</div>
+
+@section Scripts {
+    <script>
+        // Alpine component for the settings-page tune sliders.
+        // Mirrors planTune() from meal-planner.js but wired to a form POST rather than
+        // htmx persistSettings() so it stays self-contained on the Settings page.
+        function settingsTune(initialBudget, initialWaste, initialCost, initialVariety) {
+            return {
+                budget: initialBudget || 0,
+                weights: {
+                    waste: initialWaste,
+                    cost: initialCost,
+                    variety: initialVariety
+                },
+                buckets: [
+                    { key: 'waste',   color: 'oklch(0.62 0.13 150)' },
+                    { key: 'cost',    color: 'oklch(0.62 0.13 70)'  },
+                    { key: 'variety', color: 'oklch(0.62 0.13 255)' }
+                ],
+                rebalance(key, rawVal) {
+                    const val = Math.max(0, Math.min(100, parseInt(rawVal, 10) || 0));
+                    const prev = this.weights[key];
+                    const delta = val - prev;
+                    if (delta === 0) return;
+                    this.weights[key] = val;
+
+                    // Distribute the delta proportionally across the other two buckets.
+                    const others = Object.keys(this.weights).filter(k => k !== key);
+                    const otherSum = others.reduce((s, k) => s + this.weights[k], 0);
+                    if (otherSum === 0) {
+                        // Edge case: both others are 0 — split evenly.
+                        const each = Math.round(-delta / others.length);
+                        others.forEach(k => { this.weights[k] = Math.max(0, each); });
+                    } else {
+                        let remainder = -delta;
+                        others.forEach((k, i) => {
+                            if (i === others.length - 1) {
+                                this.weights[k] = Math.max(0, this.weights[k] + remainder);
+                            } else {
+                                const share = Math.round(-delta * (this.weights[k] / otherSum));
+                                this.weights[k] = Math.max(0, this.weights[k] + share);
+                                remainder -= share;
+                            }
+                        });
+                    }
+                    // Clamp total to 100
+                    const total = Object.values(this.weights).reduce((s, v) => s + v, 0);
+                    if (total !== 100) {
+                        const diff = 100 - total;
+                        const adjust = others.find(k => this.weights[k] + diff >= 0) ?? key;
+                        this.weights[adjust] = Math.max(0, this.weights[adjust] + diff);
+                    }
+                },
+                reset() {
+                    this.weights.waste = @(PlanningWeights.Default.Waste);
+                    this.weights.cost = @(PlanningWeights.Default.Cost);
+                    this.weights.variety = @(PlanningWeights.Default.Variety);
+                    this.budget = 0;
+                }
+            };
+        }
+    </script>
+}
