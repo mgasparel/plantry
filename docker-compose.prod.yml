@@ -110,7 +110,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};GssEncMode=disable"
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Database__AppUserPassword: ${APP_USER_PASSWORD}
 
   # ── Plantry Web ───────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ services:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD};GssEncMode=disable"
+      ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD}"
       Database__AppUserPassword: ${APP_USER_PASSWORD}
       # Optional: omit to degrade AI features to a locked-feature UI (the app still runs).
       AI__ApiKey: ${AI_API_KEY:-}
