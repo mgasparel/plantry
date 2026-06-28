@@ -5463,6 +5463,30 @@ button.sadd svg { width: 13px; height: 13px; }
   .popover__content:hover { transform: none; }
 }
 
+/* ── Field hint — inline info trigger inside a label ───────────────────────── */
+/* When FieldTagHelper renders hint='...', the label becomes a flex row with    */
+/* the text on the left and the info trigger on the right, vertically centred.  */
+/* The .field-hint class lives on the label element; .field-hint__trigger is    */
+/* a composed popover trigger sized to match the label's line-height.           */
+.field-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* The popover trigger inside a label hint: use the SVG icon glyph, no text */
+.field-hint .popover__trigger {
+  width: 1rem;
+  height: 1rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 0;
+  flex-shrink: 0;
+}
+.field-hint .popover__trigger:hover { background: transparent; color: var(--color-accent); }
+.field-hint .popover__trigger svg { display: block; width: 1rem; height: 1rem; }
+
 /* ── Demo surface (component library) ──────────────────────────────────────── */
 /* Flex wrapper used on the Dev/Index component library page to display demos   */
 /* side-by-side with consistent padding and surface treatment.                  */

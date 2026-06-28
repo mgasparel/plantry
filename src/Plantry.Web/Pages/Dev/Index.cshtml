@@ -128,6 +128,78 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Form Hint (<code>hint</code> attribute on <code>&lt;field&gt;</code>)</h2>
+    </div>
+    <p>
+        A Form Hint is an inline circled-<em>i</em> info trigger rendered <strong>inside the
+        label</strong> of a <code>&lt;field&gt;</code> element. Add <code>hint="…"</code> to any
+        <code>&lt;field asp-for&gt;</code> to attach contextual help: <code>FieldTagHelper</code>
+        generates a <code>.field-hint</code> flex label containing the label text and a
+        <code>.popover</code> info trigger with <code>aria-describedby</code> wiring. The popover
+        primitive is reused verbatim — hover, keyboard focus, and touch all reveal the panel; no
+        per-field boilerplate is needed.
+    </p>
+    <p>
+        Works in both the horizontal <strong>field-row</strong> layout and the stacked
+        <strong>form-grid</strong> layout. The trigger is keyboard and touch reachable
+        (<code>type="button"</code>, <code>:focus-visible</code> ring) and screen-reader associated
+        via <code>aria-describedby</code> pointing to the content panel (<code>role="tooltip"</code>).
+    </p>
+
+    @* ── Field-row layout (horizontal label + control) *@
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">
+        Field-row layout
+    </h3>
+    <form method="post" class="form-stack" style="max-width: 32rem">
+        <field asp-for="FieldRowDemo.Name"
+               label="Product name"
+               hint="The full commercial name of the product, including brand and size (e.g. Whole milk, 2 L).">
+            <input asp-for="FieldRowDemo.Name" class="field__input" placeholder="e.g. Whole milk" />
+            <span asp-validation-for="FieldRowDemo.Name" class="field__error"></span>
+        </field>
+        <field asp-for="FieldRowDemo.Quantity"
+               label="Expiry date"
+               hint="Use the best-before or use-by date printed on the packaging. Leave blank if the product doesn't expire.">
+            <input asp-for="FieldRowDemo.Quantity" class="field__input" type="number" step="any" min="0" />
+            <span asp-validation-for="FieldRowDemo.Quantity" class="field__error"></span>
+        </field>
+    </form>
+
+    @* ── Stacked form-grid layout *@
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">
+        Form-grid layout (stacked)
+    </h3>
+    <div class="card" style="max-width: 36rem">
+        <div class="card__head">
+            <div><h3 class="card__head-title">Add stock</h3></div>
+        </div>
+        <div class="card__body">
+            <form method="post" class="form-grid">
+                <field asp-for="FormGridDemo.Name" stacked full
+                       hint="The full commercial name of the product, including brand and size.">
+                    <input asp-for="FormGridDemo.Name" class="field__input" placeholder="e.g. Whole milk" />
+                    <span asp-validation-for="FormGridDemo.Name" class="field__error"></span>
+                </field>
+                <field asp-for="FormGridDemo.Par" stacked
+                       label="Expiry date"
+                       hint="Use the best-before or use-by date printed on the packaging. Leave blank if the product doesn't expire.">
+                    <input asp-for="FormGridDemo.Par" class="field__input" type="date" />
+                    <span asp-validation-for="FormGridDemo.Par" class="field__error"></span>
+                </field>
+                <field asp-for="FormGridDemo.Unit" stacked>
+                    <select asp-for="FormGridDemo.Unit" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Select a unit —</option>
+                    </select>
+                </field>
+            </form>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<!-- Field-row (horizontal) -->\n<field asp-for=\"Input.ExpiryDate\"\n       hint=\"Use the best-before or use-by date printed on the packaging.\">\n    <input asp-for=\"Input.ExpiryDate\" class=\"field__input\" type=\"date\" />\n    <span asp-validation-for=\"Input.ExpiryDate\" class=\"field__error\"></span>\n</field>\n\n<!-- Stacked (form-grid) -->\n<field asp-for=\"Input.ExpiryDate\" stacked\n       hint=\"Use the best-before or use-by date printed on the packaging.\">\n    <input asp-for=\"Input.ExpiryDate\" class=\"field__input\" type=\"date\" />\n    <span asp-validation-for=\"Input.ExpiryDate\" class=\"field__error\"></span>\n</field>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Searchable select</h2>
     </div>
     <p>
