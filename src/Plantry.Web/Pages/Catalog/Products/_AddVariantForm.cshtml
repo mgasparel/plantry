@@ -1,0 +1,40 @@
+@using Plantry.Web.Pages.Catalog.Products
+@model Plantry.Web.Pages.Catalog.Products.DetailModel
+
+@*
+    Partial: Add a variant form.
+    Rendered on the product detail page for both parent and standalone products.
+    The containing page sets asp-page-handler="AddVariant" and asp-route-id.
+*@
+<form method="post" asp-page-handler="AddVariant" asp-route-id="@Model.Id.Value" class="form-stack">
+    <h4 class="form-stack__label">Add a variant</h4>
+    <div class="form-grid">
+        <field asp-for="AddVariantInput.Name" stacked full>
+            <input asp-for="AddVariantInput.Name" class="field__input" />
+            <span asp-validation-for="AddVariantInput.Name" class="field__error"></span>
+        </field>
+    </div>
+    <details>
+        <summary class="form-stack__disclosure-toggle">Override inherited defaults</summary>
+        <div class="form-grid">
+            <field asp-for="AddVariantInput.DefaultUnitId" stacked>
+                <select asp-for="AddVariantInput.DefaultUnitId" class="field__input" asp-items="Model.UnitOptions">
+                    <option value="">— Inherit from parent —</option>
+                </select>
+            </field>
+            <field asp-for="AddVariantInput.CategoryId" stacked>
+                <select asp-for="AddVariantInput.CategoryId" class="field__input" asp-items="Model.CategoryOptions">
+                    <option value="">— Inherit from parent —</option>
+                </select>
+            </field>
+            <field asp-for="AddVariantInput.DefaultLocationId" stacked full>
+                <select asp-for="AddVariantInput.DefaultLocationId" class="field__input" asp-items="Model.LocationOptions">
+                    <option value="">— Inherit from parent —</option>
+                </select>
+            </field>
+        </div>
+    </details>
+    <div>
+        <button type="submit" class="btn btn--primary">Add variant</button>
+    </div>
+</form>

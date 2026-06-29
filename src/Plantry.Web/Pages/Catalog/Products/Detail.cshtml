@@ -122,10 +122,12 @@
                     </li>
                 }
             </ul>
+            <partial name="_AddVariantForm" />
         }
         else
         {
             <p class="empty-state">Standalone product — not part of a parent/variant group.</p>
+            <partial name="_AddVariantForm" />
             <form method="post" asp-page-handler="MakeVariant" asp-route-id="@product.Id.Value" class="form-stack form-stack--row">
                 <div class="field field--inline">
                     <label asp-for="VariantInput.ParentProductId" class="field__label">Make a variant of</label>

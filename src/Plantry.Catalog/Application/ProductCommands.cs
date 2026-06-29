@@ -332,6 +332,87 @@ public sealed class SetDefaultLocationCommand(
 }
 
 /// <summary>
+/// Creates a new product as a variant of <paramref name="parentId"/> in a single atomic step,
+/// fusing what used to be three manual steps (create → configure → MakeVariant) into one.
+///
+/// The parent must exist, must not itself be a variant (depth-1 invariant), and must belong
+/// to the current tenant. All attributes not supplied by the caller are inherited from the parent
+/// so the user only needs to provide the variant's distinguishing name.
+///
+/// The stock-hold block (AC: "Add a variant" blocked when standalone already holds stock) is
+/// enforced by the caller (Detail page handler), which can cross into Inventory — this command
+/// stays within the Catalog bounded context.
+/// </summary>
+public sealed class CreateVariantCommand(
+    ProductId parentId,
+    string name,
+    Guid? unitOverride,
+    Guid? categoryOverride,
+    Guid? locationOverride,
+    IProductRepository products,
+    IUnitRepository units,
+    ICategoryRepository categories,
+    ILocationRepository locations,
+    IClock clock,
+    ITenantContext tenant,
+    ILogger<CreateVariantCommand>? logger = null)
+{
+    public async Task<Result<ProductId>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var parent = await products.FindAsync(parentId, ct);
+        if (parent is null)
+        {
+            logger?.LogWarning("CreateVariant rejected — parent product {ParentId} not found.", parentId.Value);
+            return Error.Custom("Catalog.UnknownParentProduct", "The selected parent product does not exist.");
+        }
+
+        if (parent.IsVariant)
+        {
+            logger?.LogWarning("CreateVariant rejected — parent {ParentId} is itself a variant (max depth 1).", parentId.Value);
+            return Error.Custom("Catalog.MaxVariantDepthExceeded", "A variant cannot itself become a parent (max depth 1).");
+        }
+
+        // Resolve effective attribute IDs, falling back to parent's values.
+        var effectiveUnitId = unitOverride ?? parent.DefaultUnitId.Value;
+        var effectiveCategoryId = categoryOverride ?? parent.CategoryId?.Value;
+        var effectiveLocationId = locationOverride ?? parent.DefaultLocationId?.Value;
+
+        var crossRefError = await CreateProductCommand.ValidateCrossReferencesAsync(
+            effectiveUnitId, effectiveCategoryId, effectiveLocationId, units, categories, locations, ct);
+        if (crossRefError is not null)
+        {
+            logger?.LogWarning("CreateVariant rejected — cross-reference validation failed: {ErrorCode}.", crossRefError.Code);
+            return crossRefError;
+        }
+
+        if (await products.FindByNameAsync(name.Trim(), ct) is not null)
+        {
+            logger?.LogWarning("CreateVariant rejected — duplicate product name {ProductName}.", name);
+            return Error.Custom("Catalog.DuplicateProductName", $"A product named '{name}' already exists.");
+        }
+
+        var variant = Product.Create(HouseholdId.From(householdId), name, UnitId.From(effectiveUnitId), clock, trackStock: true);
+        if (effectiveCategoryId is { } catId) variant.SetCategory(CategoryId.From(catId), clock);
+        if (effectiveLocationId is { } locId) variant.SetDefaultLocation(LocationId.From(locId), clock);
+
+        await products.AddAsync(variant, ct);
+        variant.MakeVariantOf(parentId, clock);
+        parent.SetHasVariants(true, clock);
+        variant.InheritFrom(parent, clock);
+
+        await products.SaveChangesAsync(ct);
+
+        logger?.LogInformation(
+            "Variant product {VariantId} created and attached to parent {ParentId}.",
+            variant.Id.Value, parentId.Value);
+        return variant.Id;
+    }
+}
+
+/// <summary>
 /// Attaches <paramref name="productId"/> as a variant of <paramref name="parentId"/>, enforcing
 /// the depth-1 invariant (catalog.md "max depth 1") — a check that needs both aggregates loaded,
 /// so it cannot live on <see cref="Product"/> alone.
