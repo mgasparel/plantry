@@ -5,8 +5,10 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
+using Plantry.Inventory.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Web.Pages.Catalog.Products;
 
@@ -16,12 +18,15 @@ public sealed class DetailModel(
     IUnitRepository units,
     ICategoryRepository categories,
     ILocationRepository locations,
+    IProductStockRepository stocks,
     ProductQueryService queries,
     IClock clock,
+    ITenantContext tenant,
     ILogger<UpdateProductCommand> updateProductLogger,
     ILogger<AddSkuCommand> addSkuLogger,
     ILogger<AddConversionCommand> addConversionLogger,
-    ILogger<MakeVariantCommand> makeVariantLogger) : PageModel
+    ILogger<MakeVariantCommand> makeVariantLogger,
+    ILogger<CreateVariantCommand> createVariantLogger) : PageModel
 {
     public ProductId Id { get; private set; }
     public ProductDetail? Product { get; private set; }
@@ -36,6 +41,7 @@ public sealed class DetailModel(
     public AddSkuInputModel SkuInput { get; set; } = new();
     public AddConversionInputModel ConversionInput { get; set; } = new();
     public MakeVariantInputModel VariantInput { get; set; } = new();
+    public AddVariantInputModel AddVariantInput { get; set; } = new();
 
     public sealed class InputModel
     {
@@ -106,6 +112,26 @@ public sealed class DetailModel(
         public Guid? ParentProductId { get; set; }
     }
 
+    /// <summary>Input for the inline "Add a variant" form on a parent or standalone product's detail page.</summary>
+    public sealed class AddVariantInputModel
+    {
+        [Required, MaxLength(200)]
+        [Display(Name = "Variant name")]
+        public string Name { get; set; } = string.Empty;
+
+        /// <summary>When null, inherits from parent.</summary>
+        [Display(Name = "Default unit override")]
+        public Guid? DefaultUnitId { get; set; }
+
+        /// <summary>When null, inherits from parent.</summary>
+        [Display(Name = "Category override")]
+        public Guid? CategoryId { get; set; }
+
+        /// <summary>When null, inherits from parent.</summary>
+        [Display(Name = "Default location override")]
+        public Guid? DefaultLocationId { get; set; }
+    }
+
     public async Task<IActionResult> OnGetAsync(Guid id)
     {
         Id = ProductId.From(id);
@@ -114,6 +140,7 @@ public sealed class DetailModel(
 
         var entity = await products.FindAsync(Id);
         PopulateInputFromEntity(entity!);
+        SeedAddVariantInput(entity!);
         await LoadOptionsAsync();
         return Page();
     }
@@ -194,6 +221,57 @@ public sealed class DetailModel(
         return RedirectToPage(new { id });
     }
 
+    /// <summary>
+    /// Handles the "Add a variant" form on a parent or standalone product's detail page.
+    /// For a standalone product, checks that no active stock is held before allowing it to become
+    /// a parent — stock migration is out of scope (inventory would be stranded under the parent).
+    /// </summary>
+    public async Task<IActionResult> OnPostAddVariantAsync(Guid id, [Bind(Prefix = "AddVariantInput")] AddVariantInputModel input)
+    {
+        Id = ProductId.From(id);
+        AddVariantInput = input;
+        if (!ModelState.IsValid) return await ReloadAsync();
+
+        // Gate: a standalone product that already holds stock cannot become a parent without
+        // migrating stock to a variant — out of scope. Check BEFORE calling the command.
+        var currentProduct = await products.FindAsync(Id, HttpContext.RequestAborted);
+        if (currentProduct is null) return NotFound();
+
+        if (!currentProduct.IsParent && !currentProduct.IsVariant)
+        {
+            // Standalone: check for active inventory lots.
+            if (tenant.HouseholdId is { } householdId)
+            {
+                var stock = await stocks.FindAsync(HouseholdId.From(householdId), Id.Value, HttpContext.RequestAborted);
+                if (stock is not null && stock.ActiveLotsFefo().Any())
+                {
+                    ModelState.AddModelError(string.Empty,
+                        "This product currently holds stock. Remove all stock lots before adding a variant (stock migration is not yet supported).");
+                    return await ReloadAsync();
+                }
+            }
+        }
+
+        var cmd = new CreateVariantCommand(
+            Id,
+            AddVariantInput.Name,
+            AddVariantInput.DefaultUnitId,
+            AddVariantInput.CategoryId,
+            AddVariantInput.DefaultLocationId,
+            products, units, categories, locations, clock, tenant, createVariantLogger);
+
+        var result = await cmd.ExecuteAsync();
+        if (result.IsFailure)
+        {
+            if (result.Error == Plantry.SharedKernel.Error.NotFound) return NotFound();
+            ModelState.AddModelError(string.Empty, result.Error.Description);
+            return await ReloadAsync();
+        }
+
+        // Redirect to the newly created variant so the user can see and further edit it.
+        return RedirectToPage(new { id = result.Value.Value });
+    }
+
     public async Task<IActionResult> OnPostDetachAsync(Guid id)
     {
         await new DetachProductFromParentCommand(ProductId.From(id), products, clock).ExecuteAsync();
@@ -223,14 +301,31 @@ public sealed class DetailModel(
         Product = await queries.FindDetailAsync(Id);
         if (Product is null) return NotFound();
 
+        var entity = await products.FindAsync(Id);
         if (!keepInput)
-        {
-            var entity = await products.FindAsync(Id);
             PopulateInputFromEntity(entity!);
-        }
+
+        // Always re-seed the add-variant name from the parent/this product so the field is
+        // populated on reload (e.g. validation error on another sub-form).
+        if (AddVariantInput.Name == string.Empty)
+            SeedAddVariantInput(entity!);
 
         await LoadOptionsAsync();
         return Page();
+    }
+
+    /// <summary>
+    /// Pre-seeds the "Add a variant" name field with the product's own name so the user only
+    /// needs to overtype what differs (the variant's distinguishing suffix/name).
+    /// For a parent product we seed from the parent itself so new siblings start from the same
+    /// name stem as existing siblings.
+    /// </summary>
+    private void SeedAddVariantInput(Plantry.Catalog.Domain.Product product)
+    {
+        AddVariantInput = new AddVariantInputModel
+        {
+            Name = product.Name,
+        };
     }
 
     private void PopulateInputFromEntity(Plantry.Catalog.Domain.Product product)
