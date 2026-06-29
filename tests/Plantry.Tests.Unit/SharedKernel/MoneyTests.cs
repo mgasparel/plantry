@@ -4,8 +4,6 @@ namespace Plantry.Tests.Unit.SharedKernel;
 
 public sealed class MoneyTests
 {
-    private static readonly Guid AnyUnit = Guid.NewGuid();
-
     [Fact]
     public void Constructor_Stores_MinorUnits_And_Uppercases_Currency()
     {
@@ -139,11 +137,10 @@ public sealed class MoneyTests
     }
 
     [Fact]
-    public void Equals_Different_ValueObject_Type_Returns_False()
+    public void Equals_Non_Money_Object_Returns_False()
     {
         var money = new Money(100, "GBP");
-        var qty = new Quantity(1m, Guid.NewGuid());
 
-        Assert.False(money.Equals(qty));
+        Assert.False(money.Equals("not-a-money"));
     }
 }
