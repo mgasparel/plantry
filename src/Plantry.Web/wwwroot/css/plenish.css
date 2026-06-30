@@ -1628,6 +1628,18 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 /* ── Intake review form (SPEC §2e) — two-column: scanned receipt left, lines right ─── */
+
+/* Island mount point: fill the flex column so the .review grid's flex:1/min-height:0
+   can anchor the scrollable .rev-list and pin the commit bar to the viewport bottom.
+   Without this, #review-island-root is a plain block div with no height constraint
+   and the flex/overflow chain inside .review never takes effect. */
+#review-island-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .review {
   display: grid;
   grid-template-columns: 22rem 1fr;
