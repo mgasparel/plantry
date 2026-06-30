@@ -1,4 +1,5 @@
 @model Plantry.Web.Pages.Shared.ProductSearchCreateSheetViewModel
+@using System.Text.Json
 
 @*
     Shared product search / create sheet — a self-contained bottom-drawer fragment for picking or
@@ -21,9 +22,9 @@
         The host's ExtraFieldsPartial slot is rendered in both views so count+location fields
         are retained unchanged across the swap (required by plantry-l92u single-submit).
         Siblings extend the create-view body:
-          plantry-40n6 adds Group (optional) + "＋ Create group" + variant preview line.
-          plantry-y53t adds the Defaults collapsible (Unit + Category).
-          plantry-l92u wires the "Create & count" submit path.
+          plantry-40n6 — Group (optional) + "＋ Create group {name}" + variant preview line (this).
+          plantry-y53t — wraps Unit + Category in a Defaults <details> collapsible.
+          plantry-l92u — "Create & count" submit wiring (backend + island event).
 
     ── Alpine contract ───────────────────────────────────────────────────────────────────────────────
     The host page's x-data must expose:
@@ -32,9 +33,30 @@
       editingIdx : null | number — null = adding, number = editing existing row
       draft      : object — working copy of the row being added/edited:
                      { productId, productName, isUntracked, newStapleName, newStapleUnit,
-                       qty, unitId, groupHeading, ... }
+                       qty, unitId, groupHeading,
+                       newGroupId,   ← '' = standalone or no selection; non-empty = join existing group
+                       newGroupName, ← '' = standalone; non-empty text = create new group or selection
+                       ... }
       closeSheet()  — called by Cancel / Escape / overlay click
       saveSheet()   — called by the Add/Save (search view) or Create/Create & count (create view) button
+
+    ── Group field (plantry-40n6) ────────────────────────────────────────────────────────────────────
+    Rendered when Model.GroupOptions is not null (null = context does not support group-aware create).
+    Three modes driven purely by (newGroupId, newGroupName):
+      Standalone  : both empty — product created without a group (CreateProductCommand).
+      New group   : newGroupId empty, newGroupName non-empty — creates group + this variant atomically
+                    (CreateGroupedProductCommand).  Affordance: "+ Create group '{name}'" in listbox.
+      Join group  : newGroupId non-empty — new product added as variant of the existing group
+                    (CreateVariantCommand).  Affordance: pick an existing group from the listbox.
+
+    The variant preview line below the Group field renders reactively:
+      standalone  → hidden
+      new group   → "Creates a new '{name}' group and adds '{product}' as its first variant."
+      join group  → "Adds '{product}' as a variant of the existing '{name}' group."
+
+    draft.newGroupId and draft.newGroupName are plain Alpine draft fields that the host's saveSheet()
+    reads. The combobox listbox is pure Alpine (no htmx) — groupOptions are serialised server-side
+    into the Alpine x-data and filtered client-side (group lists are small per household).
 
     ── Event contract ────────────────────────────────────────────────────────────────────────────────
     Inbound  — sheet-product-set (window): { detail: label string }
@@ -60,12 +82,22 @@
     Model.ShowGroupHeading  → false hides the Recipes-only "Group (optional)" field (Take Stock)
     Model.CreateLabel       → label for the persistent create affordance button
     Model.StapleNamePlaceholder → placeholder for the name input in create view
+    Model.GroupOptions      → null = hide group field; non-null = render group combobox
 
     ── Why x-show, not x-if ─────────────────────────────────────────────────────────────────────────
     The sheet stays in the DOM (x-show, not x-if) so the nested searchable-select inits once at
     page load and the htmx product-search binding is established before the sheet first opens.
     Using x-if would re-mount the widget on every open, losing focus and triggering redundant htmx setup.
 *@
+@{
+    // Serialise group options for Alpine. JsonSerializer.Serialize produces safe JSON; the result
+    // is emitted into an x-data attribute that Razor HTML-encodes — Alpine reads the attribute
+    // value after the browser decodes HTML entities, so &quot;/&amp; round-trip correctly.
+    // Do NOT use Html.Raw here; the HTML-encoding is required for the attribute context.
+    var groupOptionsJson = Model.GroupOptions is not null
+        ? JsonSerializer.Serialize(Model.GroupOptions.Select(g => new { id = g.Id, name = g.Name }).ToList())
+        : "null";
+}
 
 <div class="sheet" x-show="sheetOpen" x-cloak role="dialog" aria-modal="true"
      :aria-label="editingIdx === null ? 'Add @Model.Noun' : 'Edit @Model.Noun'"
@@ -193,14 +225,19 @@
 
         </div>
 
-        @* ════════════════ CREATE VIEW — scaffold ════════════════ *@
+        @* ════════════════ CREATE VIEW ════════════════ *@
         @*
-            plantry-nb4x delivers the shell: Name + Unit fields (promoted from the old
-            ingredient-row__staple section) + action bar.
-            Subsequent siblings extend in-place:
-              plantry-40n6 — Group (optional) + "＋ Create group {name}" + variant preview line.
-              plantry-y53t — wraps Unit + Category in a Defaults <details> collapsible.
-              plantry-l92u — "Create & count" submit wiring (backend + island event).
+            plantry-nb4x delivered the shell: Name + Unit fields + action bar.
+            plantry-40n6 (this) adds: Group (optional) combobox + variant preview line.
+            plantry-y53t will wrap Unit + Category in a Defaults <details> collapsible.
+            plantry-l92u will wire the "Create & count" submit path.
+
+            The group combobox Alpine component is scoped to its own x-data to avoid
+            polluting the host's draft namespace. It writes back to draft.newGroupId
+            and draft.newGroupName via $dispatch + the host's @create-group-set listener,
+            or directly as a nested Alpine scope that has access to $parent.draft.
+            We use direct parent-scope access (draft.newGroupId / draft.newGroupName)
+            since the group combobox x-data is a child scope of the host's x-data.
         *@
         <div x-show="sheetView === 'create'">
             <div class="form-grid">
@@ -213,6 +250,122 @@
                                autocomplete="off" />
                     </div>
                 </div>
+
+                @if (Model.GroupOptions is not null)
+                {
+                    @*
+                        ── Group combobox (plantry-40n6) ────────────────────────────────────────────────
+                        Unified combobox for the "Group" field in the create view. Three outcomes:
+                          1. User leaves it empty → standalone product (draft.newGroupId = '', newGroupName = '').
+                          2. User picks an existing group from the listbox → joins that group
+                             (draft.newGroupId = existing group's ProductId, newGroupName = group's name).
+                          3. User types a new name and picks "+ Create group '{name}'" → new group
+                             (draft.newGroupId = '', newGroupName = typed name).
+
+                        The listbox is scoped x-data with groupOptions injected from the server. The combobox
+                        writes draft.newGroupId and draft.newGroupName directly (child scope has access to
+                        $parent.draft via Alpine's scope chain). No htmx — group lists are small per household.
+
+                        The variant preview line below the field renders reactively based on the draft state.
+                    *@
+                    <div class="form-grid__field form-grid__field--full"
+                         x-data="{
+                             groupOptions: @groupOptionsJson,
+                             groupQuery: '',
+                             groupOpen: false,
+                             get filteredGroups() {
+                                 const q = this.groupQuery.trim().toLowerCase();
+                                 if (!q) return this.groupOptions;
+                                 return this.groupOptions.filter(g => g.name.toLowerCase().includes(q));
+                             },
+                             pickGroup(g) {
+                                 this.groupQuery    = g.name;
+                                 draft.newGroupId   = g.id;
+                                 draft.newGroupName = g.name;
+                                 this.groupOpen     = false;
+                             },
+                             pickCreateGroup() {
+                                 const name = this.groupQuery.trim();
+                                 draft.newGroupId   = '';
+                                 draft.newGroupName = name;
+                                 this.groupOpen     = false;
+                             },
+                             clearGroup() {
+                                 this.groupQuery    = '';
+                                 draft.newGroupId   = '';
+                                 draft.newGroupName = '';
+                             }
+                         }"
+                         @@click.outside="groupOpen = false">
+                        <label class="form-grid__field__label" for="create-product-group">
+                            Group <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span>
+                        </label>
+                        <div class="form-grid__field__control" style="position:relative">
+                            <input type="text" id="create-product-group" class="field__input"
+                                   placeholder="Type to search or create a group…"
+                                   x-model="groupQuery"
+                                   autocomplete="off"
+                                   @@focus="groupOpen = true"
+                                   @@input="groupOpen = true; draft.newGroupId = ''; draft.newGroupName = ''"
+                                   @@keydown.escape.stop="groupOpen = false; clearGroup()" />
+                            @*
+                                Listbox — shown when input is focused and either there are matches or the user
+                                has typed a non-empty query (to show the "+ Create group" affordance).
+                            *@
+                            <ul class="searchable-select__listbox" role="listbox"
+                                x-show="groupOpen && (filteredGroups.length > 0 || groupQuery.trim().length > 0)"
+                                x-cloak style="display:none">
+                                @* Existing groups matching the query *@
+                                <template x-for="g in filteredGroups" :key="g.id">
+                                    <li role="option" class="searchable-select__listbox-item"
+                                        @@click="pickGroup(g)"
+                                        x-text="g.name"></li>
+                                </template>
+                                @*
+                                    "+ Create group '{name}'" affordance — shown only when the user has typed
+                                    something that does not already exactly match an existing group name.
+                                *@
+                                <li role="option" class="searchable-select__listbox-item searchable-select__listbox-item--create"
+                                    x-show="groupQuery.trim().length > 0 && !groupOptions.some(g => g.name.toLowerCase() === groupQuery.trim().toLowerCase())"
+                                    @@click="pickCreateGroup()">
+                                    <span>+ Create group</span>
+                                    <span class="create-group-name" x-text="' “' + groupQuery.trim() + '”'"></span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        @*
+                            ── Variant preview line ──────────────────────────────────────────────────────
+                            Per DM-19 depth-1 variant grouping. Shown only when Group is non-empty.
+                            Three states:
+                              new group   (newGroupId empty, newGroupName non-empty)
+                                → "Creates a new '…' group and adds '…' as its first variant."
+                              join group  (newGroupId non-empty)
+                                → "Adds '…' as a variant of the existing '…' group."
+                              no group    (both empty) → hidden.
+                        *@
+                        <div class="create-group-preview"
+                             x-show="draft.newGroupName && draft.newGroupName.trim().length > 0"
+                             x-cloak>
+                            @* new-group path *@
+                            <p x-show="!draft.newGroupId" class="create-group-preview__text create-group-preview__text--new">
+                                <span>Creates a new </span>
+                                <strong x-text="'“' + (draft.newGroupName || '') + '”'"></strong>
+                                <span> group and adds </span>
+                                <strong x-text="'“' + ((draft.newStapleName || '').trim() || 'this product') + '”'"></strong>
+                                <span> as its first variant.</span>
+                            </p>
+                            @* join-existing-group path *@
+                            <p x-show="draft.newGroupId" class="create-group-preview__text create-group-preview__text--join">
+                                <span>Adds </span>
+                                <strong x-text="'“' + ((draft.newStapleName || '').trim() || 'this product') + '”'"></strong>
+                                <span> as a variant of the existing </span>
+                                <strong x-text="'“' + (draft.newGroupName || '') + '”'"></strong>
+                                <span> group.</span>
+                            </p>
+                        </div>
+                    </div>
+                }
 
                 @*
                     Unit (default for the new product). Bound to draft.newStapleUnit so the Recipes

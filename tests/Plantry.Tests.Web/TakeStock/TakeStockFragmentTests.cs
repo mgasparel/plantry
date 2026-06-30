@@ -867,6 +867,45 @@ public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? th
 }
 
 /// <summary>
+/// Fake <see cref="IProductRepository"/> for L4 fragment tests.
+/// Returns an empty catalog (no existing groups) so the create-view group combobox
+/// renders with an empty groupOptions list (plantry-40n6).
+/// </summary>
+public sealed class FakeTsProductRepository : IProductRepository
+{
+    private readonly List<Product> _items = [];
+    public IReadOnlyList<Product> Items => _items;
+
+    public Task<Product?> FindAsync(ProductId id, CancellationToken ct = default) =>
+        Task.FromResult(_items.SingleOrDefault(p => p.Id == id));
+
+    public Task<Product?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult(_items.SingleOrDefault(p =>
+            p.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    public Task<List<Product>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(_items.Where(p => p.ArchivedAt is null).ToList());
+
+    public Task<List<Product>> ListActiveWithSkusAsync(CancellationToken ct = default) =>
+        Task.FromResult(_items.Where(p => p.ArchivedAt is null).ToList());
+
+    public Task<List<Product>> ListWithConversionsAsync(
+        IEnumerable<ProductId> ids, CancellationToken ct = default) =>
+        Task.FromResult(_items.Where(p => ids.Contains(p.Id)).ToList());
+
+    public Task<List<Product>> ListVariantsAsync(ProductId parentId, CancellationToken ct = default) =>
+        Task.FromResult(_items.Where(p => p.ParentProductId == parentId).ToList());
+
+    public Task AddAsync(Product product, CancellationToken ct = default)
+    {
+        _items.Add(product);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
 /// Fake <see cref="IUnitRepository"/> for L4 fragment tests. Returns a single gram unit.
 /// </summary>
 public sealed class FakeTsUnitRepository : IUnitRepository
@@ -972,6 +1011,10 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
 
         services.RemoveAll<IUnitRepository>();
         services.AddSingleton<IUnitRepository, FakeTsUnitRepository>();
+
+        // plantry-40n6: group combobox — WalkModel now resolves IProductRepository to load group options.
+        services.RemoveAll<IProductRepository>();
+        services.AddSingleton<IProductRepository, FakeTsProductRepository>();
     }
 
     /// <summary>Creates an authenticated HTTP client for the given household.</summary>

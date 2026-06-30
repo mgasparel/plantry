@@ -12,6 +12,7 @@ using Plantry.Inventory.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Pages.Shared;
 
 namespace Plantry.Web.Pages.Pantry.TakeStock;
 
@@ -36,6 +37,7 @@ public sealed class WalkModel(
     ITakeStockReader reader,
     ITakeStockCatalogWriter catalogWriter,
     IUnitRepository unitRepository,
+    IProductRepository productRepository,
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
@@ -59,6 +61,13 @@ public sealed class WalkModel(
 
     /// <summary>Unit options for the inline-add sheet's unit selector.</summary>
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
+
+    /// <summary>
+    /// Existing group (parent) products for the group combobox in the create view (plantry-40n6).
+    /// Passed to <see cref="ProductSearchCreateSheetViewModel.GroupOptions"/> so the Alpine combobox
+    /// can filter client-side without an extra htmx round-trip.
+    /// </summary>
+    public IReadOnlyList<GroupOption> GroupOptions { get; private set; } = [];
 
     // ── GET ───────────────────────────────────────────────────────────────────
 
@@ -356,6 +365,15 @@ public sealed class WalkModel(
         UnitOptions = units
             .OrderBy(u => u.Code, StringComparer.OrdinalIgnoreCase)
             .Select(u => new SelectListItem(u.Code, u.Id.Value.ToString()))
+            .ToList();
+
+        // Load group options for the create-view Group combobox (plantry-40n6).
+        // Groups are active products with HasVariants = true. Filtered client-side in Alpine.
+        var allProducts = await productRepository.ListActiveAsync(ct);
+        GroupOptions = allProducts
+            .Where(p => p.IsParent)
+            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(p => new GroupOption(p.Id.Value.ToString(), p.Name))
             .ToList();
     }
 

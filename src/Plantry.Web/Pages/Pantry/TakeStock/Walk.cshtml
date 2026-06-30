@@ -28,6 +28,7 @@
     @* Noun/ShowGroupHeading/CreateLabel/StapleNamePlaceholder: context-aware overrides so the *@
     @* sheet reads "Add item" instead of "Add ingredient", hides the Recipes-only Group field, *@
     @* and uses neutral create-product wording (the action is tracked, not staple).            *@
+    @* GroupOptions: existing groups passed for the create-view Group combobox (plantry-40n6). *@
     <partial name="Shared/_ProductSearchCreateSheet"
              model='new ProductSearchCreateSheetViewModel
              {
@@ -40,6 +41,7 @@
                  CreateLabel           = "Create new product",
                  StapleNamePlaceholder = "Product name (e.g. Salt)",
                  ShowCreateAndCount    = true,
+                 GroupOptions          = Model.GroupOptions,
              }' />
 </div>
 
@@ -92,6 +94,7 @@ function takeStockSheetBridge() {
             this.sheetView = 'search';
             this.draft = { productId: '', productName: '', isUntracked: false,
                            newStapleName: null, newStapleUnit: '', groupHeading: '',
+                           newGroupId: '', newGroupName: '',
                            addCount: 1, addUnitId: '' };
             this.sheetOpen = true;
             this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: '' })));

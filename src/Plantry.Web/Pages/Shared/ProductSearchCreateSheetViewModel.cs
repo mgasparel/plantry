@@ -143,4 +143,29 @@ public sealed class ProductSearchCreateSheetViewModel
     /// opening count. Defaults to <c>false</c> (plain "Create" label for Recipes and other surfaces).
     /// </summary>
     public bool ShowCreateAndCount { get; init; } = false;
+
+    /// <summary>
+    /// Existing group products (active, <see cref="Plantry.Catalog.Domain.Product.IsParent"/> = true)
+    /// for the household, serialised as <c>[{ id, name }]</c> and embedded in the create-view's
+    /// Alpine data so the Group combobox can filter client-side without an extra htmx round-trip.
+    ///
+    /// <para>Each entry is a <see cref="GroupOption"/> with the group's <see cref="GroupOption.Id"/>
+    /// (string form of the <c>ProductId</c>) and <see cref="GroupOption.Name"/>.</para>
+    ///
+    /// <para>Leave empty (default) when the host does not need group-aware create (e.g. a future
+    /// context that does not support grouping). The create view hides the Group field when this list
+    /// is null.</para>
+    ///
+    /// <para>Null (the default) = don't render the group field at all. Empty list = render the field
+    /// with no existing groups (only the "create new group" option is shown).</para>
+    /// </summary>
+    public IReadOnlyList<GroupOption>? GroupOptions { get; init; } = null;
 }
+
+/// <summary>
+/// A single group (parent product) option for the create-view Group combobox
+/// (<see cref="ProductSearchCreateSheetViewModel.GroupOptions"/>).
+/// </summary>
+/// <param name="Id">String form of the group product's <c>ProductId</c>.</param>
+/// <param name="Name">Display name of the group product.</param>
+public sealed record GroupOption(string Id, string Name);
