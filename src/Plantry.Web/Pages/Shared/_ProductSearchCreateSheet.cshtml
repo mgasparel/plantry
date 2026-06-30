@@ -6,15 +6,35 @@
       - Recipes/Edit.cshtml  (ingredient add/edit — trackStock:true, qty+unit fields shown)
       - TakeStock walk pages (P4-7 inline add — trackStock depends on context, extra slot for count+location)
 
+    ── Two-view architecture (plantry-nb4x) ─────────────────────────────────────────────────────────
+    The sheet has two views, swapped in place via x-show — NOT a nested modal:
+
+      SEARCH VIEW  (sheetView !== 'create')
+        Product search input + htmx-driven listbox.
+        A persistent "＋ @Model.CreateLabel" affordance sits below the search input and is always
+        visible — it does not vanish when a product is selected (plantry-0zrc superseded).
+        Clicking it sets sheetView = 'create' and draft.newStapleName = '' in-place.
+
+      CREATE VIEW  (sheetView === 'create')
+        Full-panel second view of the same flyout, same panel, content swapped in place.
+        Header swaps to "@Model.CreateViewTitle" + "← Back to search" backlink.
+        The host's ExtraFieldsPartial slot is rendered in both views so count+location fields
+        are retained unchanged across the swap (required by plantry-l92u single-submit).
+        Siblings extend the create-view body:
+          plantry-40n6 adds Group (optional) + "＋ Create group" + variant preview line.
+          plantry-y53t adds the Defaults collapsible (Unit + Category).
+          plantry-l92u wires the "Create & count" submit path.
+
     ── Alpine contract ───────────────────────────────────────────────────────────────────────────────
     The host page's x-data must expose:
       sheetOpen  : bool — controls x-show on this fragment
+      sheetView  : 'search' | 'create' — which view is active (initialise to 'search' on sheet open)
       editingIdx : null | number — null = adding, number = editing existing row
       draft      : object — working copy of the row being added/edited:
                      { productId, productName, isUntracked, newStapleName, newStapleUnit,
                        qty, unitId, groupHeading, ... }
       closeSheet()  — called by Cancel / Escape / overlay click
-      saveSheet()   — called by the Add/Save button
+      saveSheet()   — called by the Add/Save (search view) or Create/Create & count (create view) button
 
     ── Event contract ────────────────────────────────────────────────────────────────────────────────
     Inbound  — sheet-product-set (window): { detail: label string }
@@ -28,14 +48,18 @@
     ── TrackStock / slot ──────────────────────────────────────────────────────────────────────────────
     Model.TrackStock = true  → qty + unit fields are shown for tracked products (Recipes).
     Model.TrackStock = false → qty + unit fields are never shown (Take Stock — count lives elsewhere).
-    Model.ExtraFieldsPartial → optional partial name rendered after the product picker section,
-                               before the action bar (e.g. Take Stock count + location fields, P4-7).
+    Model.ExtraFieldsPartial → optional partial name rendered ONCE between the two views and the
+                               action bar (e.g. Take Stock count + location fields, P4-7). Rendering
+                               it once (always in DOM, always visible) avoids duplicate-id collisions
+                               between the search and create views while preserving user-entered values
+                               across the view swap.
 
     ── Context-aware params ──────────────────────────────────────────────────────────────────────────
-    Model.Noun              → noun used in title / aria-label: "Add {Noun}" / "Edit {Noun}"
+    Model.Noun              → noun used in search-view title / aria-label: "Add {Noun}" / "Edit {Noun}"
+    Model.CreateViewTitle   → header title shown while in create view (default "New product")
     Model.ShowGroupHeading  → false hides the Recipes-only "Group (optional)" field (Take Stock)
-    Model.CreateLabel       → label for the inline create button (Take Stock uses "Create new product")
-    Model.StapleNamePlaceholder → placeholder in the name input in create mode
+    Model.CreateLabel       → label for the persistent create affordance button
+    Model.StapleNamePlaceholder → placeholder for the name input in create view
 
     ── Why x-show, not x-if ─────────────────────────────────────────────────────────────────────────
     The sheet stays in the DOM (x-show, not x-if) so the nested searchable-select inits once at
@@ -49,19 +73,31 @@
      @@keydown.escape="closeSheet()">
     <div class="sheet__overlay" @@click="closeSheet()"></div>
     <div class="sheet__panel">
+
+        @* ── Header — title + close; when in create view adds "← Back to search" ── *@
         <header class="sheet__header">
-            <h2 class="sheet__title" x-text="editingIdx === null ? 'Add @Model.Noun' : 'Edit @Model.Noun'"></h2>
+            @* Search-view title *@
+            <h2 class="sheet__title" x-show="sheetView !== 'create'"
+                x-text="editingIdx === null ? 'Add @Model.Noun' : 'Edit @Model.Noun'"></h2>
+            @* Create-view header: backlink + title (both rendered server-side to avoid layout flash) *@
+            <div class="sheet__header-create" x-show="sheetView === 'create'">
+                <button type="button" class="sheet__back"
+                        @@click="sheetView = 'search'; draft.newStapleName = null; draft.productId = ''; draft.newStapleUnit = ''"
+                        aria-label="Back to search">
+                    &#8592; Back to search
+                </button>
+                <h2 class="sheet__title">@Model.CreateViewTitle</h2>
+            </div>
             <button type="button" class="sheet__close" aria-label="Close" @@click="closeSheet()">&times;</button>
         </header>
 
-        <div class="form-grid">
-            @* ── Product — searchable-select or new-staple input ─────────────────────── *@
-            <div class="form-grid__field form-grid__field--full">
-                <label class="form-grid__field__label">Product</label>
-                <div class="form-grid__field__control">
-
-                    @* Product search mode (default) *@
-                    <div x-show="draft.newStapleName === null">
+        @* ════════════════ SEARCH VIEW ════════════════ *@
+        <div x-show="sheetView !== 'create'">
+            <div class="form-grid">
+                @* ── Product — searchable-select ──────────────────────────────── *@
+                <div class="form-grid__field form-grid__field--full">
+                    <label class="form-grid__field__label">Product</label>
+                    <div class="form-grid__field__control">
                         @*
                             htmx:afterSwap bubbles from the #prod-list-sheet <ul> to here (not the sibling
                             input), so 'open' is driven reactively from the result count — the popover shows
@@ -94,58 +130,100 @@
                             </ul>
                         </div>
                         @*
-                            Create button is confidence-driven per the design (plantry-hl4a §3):
-                            demoted (btn--ghost) when matches are showing (open = true, meaning the
-                            listbox has results above the 0.70 cutoff) — steering the user toward an
-                            existing product. Full strength (btn--primary ghost style not used here;
-                            btn--secondary is the "available but not primary" style) only when nothing
-                            clears the threshold (open = false). The btn--ghost class already carries
-                            the de-emphasized styling; no new CSS class is needed.
+                            Persistent create affordance — always visible; does NOT vanish when a product
+                            is selected (plantry-0zrc superseded). Clicking navigates the same flyout panel
+                            to the create view in-place (sheetView = 'create') — no nested modal, no new scrim.
+                            draft.newStapleName is initialised to '' (non-null) so the Recipes saveSheet
+                            path and TakeStock bridge both detect "create mode" via the existing null-check.
                         *@
-                        <div x-show="!draft.productId" style="margin-top:var(--space-2)">
+                        <div style="margin-top:var(--space-2)">
                             <button type="button"
-                                    :class="open ? 'btn btn--ghost btn--sm' : 'btn btn--secondary btn--sm'"
-                                    @@click="draft.newStapleName = ''">
+                                    class="btn btn--ghost btn--sm"
+                                    @@click="sheetView = 'create'; draft.newStapleName = draft.newStapleName ?? ''">
                                 + @Model.CreateLabel
                             </button>
                         </div>
                     </div>
-
-                    @* New staple / create mode (C12) — shown when user clicks the create button *@
-                    <div class="ingredient-row__staple" x-show="draft.newStapleName !== null">
-                        <input type="text" class="field__input" placeholder="@Model.StapleNamePlaceholder"
-                               x-model="draft.newStapleName" style="flex:1;min-width:8rem" />
-                        <select class="field__input" x-model="draft.newStapleUnit" style="min-width:5rem">
-                            <option value="">unit</option>
-                            @foreach (var u in Model.UnitOptions)
-                            {
-                                <option value="@u.Value">@u.Text</option>
-                            }
-                        </select>
-                        <button type="button" class="btn btn--ghost btn--sm"
-                                @@click="draft.newStapleName = null; draft.productId = ''; draft.newStapleUnit = ''">
-                            ← Search instead
-                        </button>
-                    </div>
                 </div>
+
+                @if (Model.TrackStock)
+                {
+                    @* Quantity — hidden when a create is in progress or product not yet picked *@
+                    <div class="form-grid__field" x-show="!draft.isUntracked && draft.productId">
+                        <label class="form-grid__field__label">Quantity</label>
+                        <div class="form-grid__field__control">
+                            <input type="number" class="field__input" step="any" min="0"
+                                   placeholder="e.g. 50" x-model="draft.qty" />
+                        </div>
+                    </div>
+
+                    @* Unit — hidden when product not yet picked *@
+                    <div class="form-grid__field" x-show="!draft.isUntracked && draft.productId">
+                        <label class="form-grid__field__label">Unit</label>
+                        <div class="form-grid__field__control">
+                            <select class="field__input" x-model="draft.unitId">
+                                <option value="">— Unit —</option>
+                                @foreach (var u in Model.UnitOptions)
+                                {
+                                    <option value="@u.Value">@u.Text</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                }
+
+                @*
+                    Group heading — Recipes-only concept (ingredient sections). Hidden for Take Stock.
+                    Gate: show for tracked rows (productId set) OR for staple/untracked rows
+                    (newStapleName !== null). Previously always-visible; the newStapleName check
+                    restores editability for staple rows that were previously always shown the field.
+                *@
+                @if (Model.ShowGroupHeading)
+                {
+                    <div class="form-grid__field form-grid__field--full"
+                         x-show="draft.productId || draft.newStapleName !== null">
+                        <label class="form-grid__field__label">Group (optional)</label>
+                        <div class="form-grid__field__control">
+                            <input type="text" class="field__input" placeholder="e.g. Sauce, Topping"
+                                   x-model="draft.groupHeading" />
+                        </div>
+                    </div>
+                }
             </div>
 
-            @if (Model.TrackStock)
-            {
-                @* Quantity — hidden for untracked / staple rows *@
-                <div class="form-grid__field" x-show="!draft.isUntracked && draft.newStapleName === null">
-                    <label class="form-grid__field__label">Quantity</label>
+        </div>
+
+        @* ════════════════ CREATE VIEW — scaffold ════════════════ *@
+        @*
+            plantry-nb4x delivers the shell: Name + Unit fields (promoted from the old
+            ingredient-row__staple section) + action bar.
+            Subsequent siblings extend in-place:
+              plantry-40n6 — Group (optional) + "＋ Create group {name}" + variant preview line.
+              plantry-y53t — wraps Unit + Category in a Defaults <details> collapsible.
+              plantry-l92u — "Create & count" submit wiring (backend + island event).
+        *@
+        <div x-show="sheetView === 'create'">
+            <div class="form-grid">
+                <div class="form-grid__field form-grid__field--full">
+                    <label class="form-grid__field__label" for="create-product-name">Name</label>
                     <div class="form-grid__field__control">
-                        <input type="number" class="field__input" step="any" min="0"
-                               placeholder="e.g. 50" x-model="draft.qty" />
+                        <input type="text" id="create-product-name" class="field__input"
+                               placeholder="@Model.StapleNamePlaceholder"
+                               x-model="draft.newStapleName"
+                               autocomplete="off" />
                     </div>
                 </div>
 
-                @* Unit — hidden for untracked / staple rows *@
-                <div class="form-grid__field" x-show="!draft.isUntracked && draft.newStapleName === null">
-                    <label class="form-grid__field__label">Unit</label>
+                @*
+                    Unit (default for the new product). Bound to draft.newStapleUnit so the Recipes
+                    hidden-input post (Input.Lines[n].NewStapleDefaultUnitId) and the TakeStock
+                    saveSheet() fallback both read it.  plantry-y53t will move this into a
+                    Defaults <details> collapsible together with Category.
+                *@
+                <div class="form-grid__field">
+                    <label class="form-grid__field__label" for="create-product-unit">Unit</label>
                     <div class="form-grid__field__control">
-                        <select class="field__input" x-model="draft.unitId">
+                        <select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
                             <option value="">— Unit —</option>
                             @foreach (var u in Model.UnitOptions)
                             {
@@ -154,33 +232,51 @@
                         </select>
                     </div>
                 </div>
-            }
-
-            @* Group heading — Recipes-only concept (ingredient sections). Hidden for Take Stock. *@
-            @if (Model.ShowGroupHeading)
-            {
-                <div class="form-grid__field form-grid__field--full">
-                    <label class="form-grid__field__label">Group (optional)</label>
-                    <div class="form-grid__field__control">
-                        <input type="text" class="field__input" placeholder="e.g. Sauce, Topping"
-                               x-model="draft.groupHeading" />
-                    </div>
-                </div>
-            }
+            </div>
         </div>
 
-        @* ── Host extra-fields slot ──────────────────────────────────────────────── *@
-        @* Rendered between the product picker and the action bar. Used by Take Stock (P4-7) *@
-        @* to inject count + location fields. Null = no extra markup.                       *@
+        @*
+            ── Host extra-fields slot — rendered ONCE, always in DOM ─────────────────────────────
+            Placed between the two view sections and the action bars so the user's count and location
+            values are retained as-is when switching between the search and create views (no re-mount,
+            no duplicate IDs). Rendering once also avoids Playwright strict-mode violations from
+            elements such as #add-count appearing twice in the DOM.
+        *@
         @if (Model.ExtraFieldsPartial is { } slot)
         {
             <partial name="@slot" />
         }
 
-        <div class="sheet__actions">
+        @*
+            ── Action bars — two bars, one visible at a time via x-show ──────────────────────────
+            Two separate action bars are needed because the primary button label differs:
+              search view  → "Add" / "Save"
+              create view  → "Create & count" (Take Stock, ShowCreateAndCount=true)
+                          OR "Create" (Recipes and other surfaces, ShowCreateAndCount=false)
+            Both bars remain in the DOM (x-show, not x-if) so Alpine bindings stay alive.
+            Tests use .First / .Last to explicitly select the desired button; strict mode only
+            fires for un-indexed locator calls that match multiple DOM nodes.
+
+            NOTE on encoding: The bare "&" in "Create & count" is inside an @if block (static text),
+            so Razor does NOT HTML-encode it automatically — `&` must be written as `&amp;` here.
+            This is intentional and NOT a double-encode: the outer @if expression uses Html.Raw
+            semantics for Razor literal text (it is not inside an @() expression).
+            To confirm: snapshots show `Create &amp; count` in the rendered HTML — correct for &.
+        *@
+        <div class="sheet__actions" x-show="sheetView !== 'create'">
             <button type="button" class="btn btn--primary" @@click="saveSheet()"
                     x-text="editingIdx === null ? 'Add' : 'Save'"></button>
             <button type="button" class="btn btn--ghost" @@click="closeSheet()">Cancel</button>
         </div>
+        <div class="sheet__actions" x-show="sheetView === 'create'">
+            <button type="button" class="btn btn--primary" @@click="saveSheet()">
+                @if (Model.ShowCreateAndCount) { <text>Create &amp; count</text> } else { <text>Create</text> }
+            </button>
+            <button type="button" class="btn btn--ghost"
+                    @@click="sheetView = 'search'; draft.newStapleName = null; draft.productId = ''; draft.newStapleUnit = ''">
+                Cancel
+            </button>
+        </div>
+
     </div>
 </div>

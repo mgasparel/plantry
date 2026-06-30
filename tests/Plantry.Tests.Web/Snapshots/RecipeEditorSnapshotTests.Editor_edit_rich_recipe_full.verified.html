@@ -26,6 +26,10 @@
 
          // Ingredient sheet (add / edit)
          sheetOpen: false,
+         // sheetView: 'search' | 'create' — drives the two-view swap in _ProductSearchCreateSheet
+         // (plantry-nb4x).  Recipes currently only uses the search view; plantry-orix wires the
+         // create-view path for the tracked-product create on this surface.
+         sheetView: 'search',
          editingIdx: null,
          draft: {},
          blankDraft() {
@@ -34,23 +38,24 @@
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '' };
          },
-         openAdd() { this.editingIdx = null; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
-         openEdit(idx) { this.editingIdx = idx; this.draft = JSON.parse(JSON.stringify(this.rows[idx])); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
+         openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
+         openEdit(idx) { this.editingIdx = idx; this.sheetView = 'search'; this.draft = JSON.parse(JSON.stringify(this.rows[idx])); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
          // The sheet stays mounted (x-show), so the nested searchableSelect inits once. Push the
          // current product label into its search box each time the sheet opens.
          _syncSearch(label) { this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: label || '' }))); },
-         closeSheet() { this.sheetOpen = false; },
+         closeSheet() { this.sheetView = 'search'; this.sheetOpen = false; },
          draftIsEmpty() {
              return !this.draft.productId &amp;&amp; !(this.draft.newStapleName &amp;&amp; this.draft.newStapleName.trim());
          },
          saveSheet() {
-             if (this.draftIsEmpty()) { this.sheetOpen = false; return; }
+             if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetOpen = false; return; }
              if (this.editingIdx === null) {
                  this.draft.ordinal = this._nextOrd++;
                  this.rows.push(JSON.parse(JSON.stringify(this.draft)));
              } else {
                  this.rows.splice(this.editingIdx, 1, JSON.parse(JSON.stringify(this.draft)));
              }
+             this.sheetView = 'search';
              this.sheetOpen = false;
          },
          unitLabel(id) { return this.unitCodes[id] || ''; },
@@ -283,58 +288,73 @@
 			<div class="sheet__overlay" @click="closeSheet()"></div>
 			<div class="sheet__panel">
 				<header class="sheet__header">
-					<h2 class="sheet__title" x-text="editingIdx === null ? 'Add ingredient' : 'Edit ingredient'"></h2>
+					<h2 class="sheet__title" x-show="sheetView !== 'create'" x-text="editingIdx === null ? 'Add ingredient' : 'Edit ingredient'"></h2>
+					<div class="sheet__header-create" x-show="sheetView === 'create'">
+						<button type="button" class="sheet__back" @click="sheetView = 'search'; draft.newStapleName = null; draft.productId = ''; draft.newStapleUnit = ''" aria-label="Back to search">
+							← Back to search
+						</button>
+						<h2 class="sheet__title">New product</h2>
+					</div>
 					<button type="button" class="sheet__close" aria-label="Close" @click="closeSheet()">×</button>
 				</header>
-				<div class="form-grid">
-					<div class="form-grid__field form-grid__field--full">
-						<label class="form-grid__field__label">Product</label>
-						<div class="form-grid__field__control">
-							<div x-show="draft.newStapleName === null">
+				<div x-show="sheetView !== 'create'">
+					<div class="form-grid">
+						<div class="form-grid__field form-grid__field--full">
+							<label class="form-grid__field__label">Product</label>
+							<div class="form-grid__field__control">
 								<div class="searchable-select" x-data="searchableSelect()" :data-initial-label="draft.productName" @sheet-product-set.window="query = $event.detail; open = false; highlighted = -1" @htmx:after-swap="open = ($event.target.children.length > 0)" @click.outside="open = false" @keydown.escape.stop="open = false">
 									<input type="text" class="field__input" role="combobox" autocomplete="off" placeholder="Search products…" x-model="query" :aria-expanded="open" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="(function(){ const li = $refs.listbox &amp;&amp; ($refs.listbox.querySelector('[aria-selected=true]') || $refs.listbox.querySelector('li')); if (li) li.click(); })()" name="q" id="prod-search-sheet" hx-get="/Recipes/New?handler=SearchProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#prod-list-sheet" hx-swap="innerHTML" hx-params="q">
 									<ul class="searchable-select__listbox" id="prod-list-sheet" role="listbox" x-ref="listbox" x-show="open" x-cloak="" style="display:none">
 									</ul>
 								</div>
-								<div x-show="!draft.productId" style="margin-top:var(--space-2)">
-									<button type="button" :class="open ? 'btn btn--ghost btn--sm' : 'btn btn--secondary btn--sm'" @click="draft.newStapleName = ''">
+								<div style="margin-top:var(--space-2)">
+									<button type="button" class="btn btn--ghost btn--sm" @click="sheetView = 'create'; draft.newStapleName = draft.newStapleName ?? ''">
 										+ Create as staple (untracked)
 									</button>
 								</div>
 							</div>
-							<div class="ingredient-row__staple" x-show="draft.newStapleName !== null">
-								<input type="text" class="field__input" placeholder="Staple name (e.g. Salt)" x-model="draft.newStapleName" style="flex:1;min-width:8rem">
-								<select class="field__input" x-model="draft.newStapleUnit" style="min-width:5rem">
-									<option value="">unit</option>
+						</div>
+						<div class="form-grid__field" x-show="!draft.isUntracked &amp;&amp; draft.productId">
+							<label class="form-grid__field__label">Quantity</label>
+							<div class="form-grid__field__control">
+								<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 50" x-model="draft.qty">
+							</div>
+						</div>
+						<div class="form-grid__field" x-show="!draft.isUntracked &amp;&amp; draft.productId">
+							<label class="form-grid__field__label">Unit</label>
+							<div class="form-grid__field__control">
+								<select class="field__input" x-model="draft.unitId">
+									<option value="">— Unit —</option>
 									<option value="Guid_4">g</option>
 									<option value="Guid_7">ea</option>
 								</select>
-								<button type="button" class="btn btn--ghost btn--sm" @click="draft.newStapleName = null; draft.productId = ''; draft.newStapleUnit = ''">
-									← Search instead
-								</button>
+							</div>
+						</div>
+						<div class="form-grid__field form-grid__field--full" x-show="draft.productId || draft.newStapleName !== null">
+							<label class="form-grid__field__label">Group (optional)</label>
+							<div class="form-grid__field__control">
+								<input type="text" class="field__input" placeholder="e.g. Sauce, Topping" x-model="draft.groupHeading">
 							</div>
 						</div>
 					</div>
-					<div class="form-grid__field" x-show="!draft.isUntracked &amp;&amp; draft.newStapleName === null">
-						<label class="form-grid__field__label">Quantity</label>
-						<div class="form-grid__field__control">
-							<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 50" x-model="draft.qty">
+				</div>
+				<div x-show="sheetView === 'create'">
+					<div class="form-grid">
+						<div class="form-grid__field form-grid__field--full">
+							<label class="form-grid__field__label" for="create-product-name">Name</label>
+							<div class="form-grid__field__control">
+								<input type="text" id="create-product-name" class="field__input" placeholder="Staple name (e.g. Salt)" x-model="draft.newStapleName" autocomplete="off">
+							</div>
 						</div>
-					</div>
-					<div class="form-grid__field" x-show="!draft.isUntracked &amp;&amp; draft.newStapleName === null">
-						<label class="form-grid__field__label">Unit</label>
-						<div class="form-grid__field__control">
-							<select class="field__input" x-model="draft.unitId">
-								<option value="">— Unit —</option>
-								<option value="Guid_4">g</option>
-								<option value="Guid_7">ea</option>
-							</select>
-						</div>
-					</div>
-					<div class="form-grid__field form-grid__field--full">
-						<label class="form-grid__field__label">Group (optional)</label>
-						<div class="form-grid__field__control">
-							<input type="text" class="field__input" placeholder="e.g. Sauce, Topping" x-model="draft.groupHeading">
+						<div class="form-grid__field">
+							<label class="form-grid__field__label" for="create-product-unit">Unit</label>
+							<div class="form-grid__field__control">
+								<select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
+									<option value="">— Unit —</option>
+									<option value="Guid_4">g</option>
+									<option value="Guid_7">ea</option>
+								</select>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -362,9 +382,17 @@
 							instead
 						</button>
 					</div></template>
-				<div class="sheet__actions">
+				<div class="sheet__actions" x-show="sheetView !== 'create'">
 					<button type="button" class="btn btn--primary" @click="saveSheet()" x-text="editingIdx === null ? 'Add' : 'Save'"></button>
 					<button type="button" class="btn btn--ghost" @click="closeSheet()">Cancel</button>
+				</div>
+				<div class="sheet__actions" x-show="sheetView === 'create'">
+					<button type="button" class="btn btn--primary" @click="saveSheet()">
+						Create
+					</button>
+					<button type="button" class="btn btn--ghost" @click="sheetView = 'search'; draft.newStapleName = null; draft.productId = ''; draft.newStapleUnit = ''">
+						Cancel
+					</button>
 				</div>
 			</div>
 		</div>

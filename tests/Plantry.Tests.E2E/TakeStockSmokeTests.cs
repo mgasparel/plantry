@@ -84,27 +84,37 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             var sheet = page.Locator(".sheet:has(.sheet__title:text-is('Add item')) .sheet__panel");
             await Assertions.Expect(sheet).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
 
-            // ── Switch to "Create new product" mode to type a new product name ──────
+            // ── Switch to "Create new product" create view (plantry-nb4x in-place view swap) ──
+            // The persistent "+ Create new product" affordance navigates the same panel to the
+            // create view (sheetView = 'create') — no new scrim or modal opens.
             var createStapleBtn = sheet.Locator("button:has-text('+ Create new product')");
             await Assertions.Expect(createStapleBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
             await createStapleBtn.ClickAsync();
 
-            // Staple name input should appear.
-            var stapleNameInput = sheet.Locator(".ingredient-row__staple input[type='text']");
+            // Name input should appear in the create view.
+            // After plantry-nb4x the create-view name input has id="create-product-name" (no longer
+            // the old .ingredient-row__staple structure).
+            var stapleNameInput = sheet.Locator("#create-product-name");
             await Assertions.Expect(stapleNameInput).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
             await stapleNameInput.FillAsync(productName);
 
-            // Select unit in the staple mode unit select (available when TrackStock=false uses newStapleUnit).
-            var stapleUnitSelect = sheet.Locator(".ingredient-row__staple select");
+            // Select the product default unit in the create-view unit select.
+            // After plantry-nb4x the unit select has id="create-product-unit" (no longer
+            // .ingredient-row__staple select). plantry-y53t will move this into a Defaults collapsible.
+            var stapleUnitSelect = sheet.Locator("#create-product-unit");
             await stapleUnitSelect.SelectOptionAsync(new SelectOptionValue { Label = "g" });
 
-            // Fill in the opening count in the extra-fields partial.
+            // Fill in the opening count in the extra-fields partial (unchanged — _CountLocationFields
+            // renders in both views so the count+location slot is retained across the view swap).
             var countInput = sheet.Locator("#add-count");
             await Assertions.Expect(countInput).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
             await countInput.FillAsync("150");
 
-            // ── Confirm add ───────────────────────────────────────────────────────
-            var addBtn = sheet.Locator("button.btn--primary");
+            // ── Confirm add — "Create & count" (create-view action bar) ──────────────
+            // The create-view's btn--primary is the second of two such buttons in the sheet DOM
+            // (the first is the search-view "Add" button, hidden via x-show). Use .Last to target
+            // the visible create-view button.
+            var addBtn = sheet.Locator("button.btn--primary").Last;
             await Assertions.Expect(addBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
             await addBtn.ClickAsync();
 
@@ -148,7 +158,8 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await countInputReuse.FillAsync("50");
 
             // Click Add — Path A: existing product → inject as dirty row, no server create.
-            var addBtnReuse = sheet.Locator("button.btn--primary");
+            // The sheet is in search view here; the search-view btn--primary is the first of two.
+            var addBtnReuse = sheet.Locator("button.btn--primary").First;
             await Assertions.Expect(addBtnReuse).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 5000 });
             await addBtnReuse.ClickAsync();
 

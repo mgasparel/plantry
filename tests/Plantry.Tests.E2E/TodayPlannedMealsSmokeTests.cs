@@ -87,12 +87,15 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             await page.ClickAsync("button:has-text('Add ingredient')");
             var ingSheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(ingSheet).ToBeVisibleAsync();
+            // Clicking the persistent create affordance navigates to the create view in-place (plantry-nb4x).
             await ingSheet.Locator("button:has-text('Create as staple')").ClickAsync();
             var nameInput = ingSheet.Locator("input[placeholder='Staple name (e.g. Salt)']");
             await Assertions.Expect(nameInput).ToBeVisibleAsync();
             await nameInput.FillAsync("Salt");
+            // The create-view unit select is the only visible select while in create view.
             await ingSheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
-            await ingSheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+            // Use .Last to target the create-view "Create" button (plantry-nb4x two-view scaffold).
+            await ingSheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");

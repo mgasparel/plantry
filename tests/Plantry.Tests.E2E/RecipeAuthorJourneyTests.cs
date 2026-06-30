@@ -104,10 +104,12 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         await option.ClickAsync();
 
         await sheet.Locator("input[type='number']").FillAsync(qty);
-        // `select:visible` resolves to the unit select — the staple-mode select is x-show hidden here.
+        // `select:visible` resolves to the unit select — the create-view select is x-show hidden here.
         await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
 
-        await sheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+        // The sheet has two .sheet__actions bars (search view + create view); use .First to target
+        // the search-view "Add" button without strict-mode violation (plantry-nb4x two-view scaffold).
+        await sheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
         await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
     }
 
@@ -121,13 +123,17 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         var sheet = page.Locator("#recipe-editor .sheet");
         await Assertions.Expect(sheet).ToBeVisibleAsync();
 
+        // Clicking the persistent create affordance navigates to the create view in-place (plantry-nb4x).
         await sheet.Locator("button:has-text('Create as staple')").ClickAsync();
         var nameInput = sheet.Locator("input[placeholder='Staple name (e.g. Salt)']");
         await Assertions.Expect(nameInput).ToBeVisibleAsync();
         await nameInput.FillAsync(stapleName);
+        // The create-view unit select (#create-product-unit) is the only visible select while in
+        // create view — the search-view selects are x-show hidden.
         await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
 
-        await sheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+        // Use .Last to target the create-view "Create" button (the search-view "Add" is .First).
+        await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
         await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
     }
 
@@ -296,7 +302,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             var qtyInput = editSheet.Locator("input[type='number']");
             await qtyInput.ClearAsync();
             await qtyInput.FillAsync("500");
-            await editSheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+            // Use .First to target the search-view "Save" button (avoids strict-mode violation from
+            // the create-view button also in DOM, plantry-nb4x two-view scaffold).
+            await editSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(editSheet).Not.ToBeVisibleAsync();
 
             // ── Submit ────────────────────────────────────────────────────────────

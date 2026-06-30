@@ -123,7 +123,8 @@ public sealed class RecipeCookJourneyTests(AppHostFixture appHost) : IAsyncLifet
             await ingOption.ClickAsync();
             await ingSheet.Locator("input[type='number']").FillAsync("200");
             await ingSheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = "g" });
-            await ingSheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+            // Use .First to target the search-view "Add" button (plantry-nb4x two-view scaffold).
+            await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");

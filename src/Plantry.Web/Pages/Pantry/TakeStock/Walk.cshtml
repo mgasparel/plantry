@@ -39,6 +39,7 @@
                  ShowGroupHeading      = false,
                  CreateLabel           = "Create new product",
                  StapleNamePlaceholder = "Product name (e.g. Salt)",
+                 ShowCreateAndCount    = true,
              }' />
 </div>
 
@@ -79,11 +80,16 @@ function takeStockSheetBridge() {
     return {
         // ── Shared sheet Alpine contract ─────────────────────────────────────
         sheetOpen: false,
+        // sheetView: 'search' | 'create' — drives the two-view swap in _ProductSearchCreateSheet
+        // (plantry-nb4x).  Always reset to 'search' when opening the sheet so the user lands on
+        // the search view; the create affordance button navigates in-place to 'create'.
+        sheetView: 'search',
         editingIdx: null,
         draft: {},
 
         openAdd() {
             this.editingIdx = null;
+            this.sheetView = 'search';
             this.draft = { productId: '', productName: '', isUntracked: false,
                            newStapleName: null, newStapleUnit: '', groupHeading: '',
                            addCount: 1, addUnitId: '' };
@@ -92,6 +98,7 @@ function takeStockSheetBridge() {
         },
 
         closeSheet() {
+            this.sheetView = 'search';
             this.sheetOpen = false;
         },
 
@@ -105,10 +112,12 @@ function takeStockSheetBridge() {
         },
 
         /// <summary>
-        /// saveSheet() — called by the shared sheet's Add button.
+        /// saveSheet() — called by the sheet's Add (search view) or Create/Create & count (create view) button.
         /// Dispatches ts-sheet-add to the island root with enough info for both paths.
         /// Path A: existing product (draft.productId set) → island injects dirty row.
-        /// Path B: new staple (draft.newStapleName set) → island POSTs /AddItem and injects saved row.
+        /// Path B: new product via create view (draft.newStapleName set) → island POSTs /AddItem
+        ///         and injects saved row. Full create-view wiring (unit from Defaults, group) is
+        ///         delivered by plantry-40n6, plantry-y53t, and plantry-l92u.
         /// </summary>
         saveSheet() {
             const islandRoot = document.getElementById('ts-walk-root');
@@ -124,13 +133,14 @@ function takeStockSheetBridge() {
                         addUnitId:   this.draft.addUnitId,
                     }
                 }));
+                this.sheetView = 'search';
                 this.sheetOpen = false;
                 return;
             }
 
             const name = (this.draft.newStapleName ?? '').trim();
             const unitId = this.draft.addUnitId || this.draft.newStapleUnit || '';
-            if (!name || !unitId) return; // stay open
+            if (!name || !unitId) return; // stay open — user must fill name and unit in create view
 
             islandRoot.dispatchEvent(new CustomEvent('ts-sheet-add', {
                 bubbles: false,
@@ -141,6 +151,7 @@ function takeStockSheetBridge() {
                     addUnitId:     unitId,
                 }
             }));
+            this.sheetView = 'search';
             this.sheetOpen = false;
         },
     };

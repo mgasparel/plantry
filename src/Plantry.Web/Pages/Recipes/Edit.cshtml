@@ -108,6 +108,10 @@
 
          // Ingredient sheet (add / edit)
          sheetOpen: false,
+         // sheetView: 'search' | 'create' — drives the two-view swap in _ProductSearchCreateSheet
+         // (plantry-nb4x).  Recipes currently only uses the search view; plantry-orix wires the
+         // create-view path for the tracked-product create on this surface.
+         sheetView: 'search',
          editingIdx: null,
          draft: {},
          blankDraft() {
@@ -116,23 +120,24 @@
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '' };
          },
-         openAdd() { this.editingIdx = null; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
-         openEdit(idx) { this.editingIdx = idx; this.draft = JSON.parse(JSON.stringify(this.rows[idx])); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
+         openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
+         openEdit(idx) { this.editingIdx = idx; this.sheetView = 'search'; this.draft = JSON.parse(JSON.stringify(this.rows[idx])); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
          // The sheet stays mounted (x-show), so the nested searchableSelect inits once. Push the
          // current product label into its search box each time the sheet opens.
          _syncSearch(label) { this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: label || '' }))); },
-         closeSheet() { this.sheetOpen = false; },
+         closeSheet() { this.sheetView = 'search'; this.sheetOpen = false; },
          draftIsEmpty() {
              return !this.draft.productId && !(this.draft.newStapleName && this.draft.newStapleName.trim());
          },
          saveSheet() {
-             if (this.draftIsEmpty()) { this.sheetOpen = false; return; }
+             if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetOpen = false; return; }
              if (this.editingIdx === null) {
                  this.draft.ordinal = this._nextOrd++;
                  this.rows.push(JSON.parse(JSON.stringify(this.draft)));
              } else {
                  this.rows.splice(this.editingIdx, 1, JSON.parse(JSON.stringify(this.draft)));
              }
+             this.sheetView = 'search';
              this.sheetOpen = false;
          },
          unitLabel(id) { return this.unitCodes[id] || ''; },
@@ -522,14 +527,6 @@
     .ingredient-row__summary:hover { color: var(--color-accent); }
     .ingredient-row__action { flex-shrink: 0; }
 
-    /* Inline new-staple editor inside the sheet. display lives in the class (not inline)
-       because x-show strips an inline `display` when it reveals the element. */
-    .ingredient-row__staple {
-        display: flex;
-        gap: var(--space-2);
-        align-items: center;
-        flex-wrap: wrap;
-    }
     .recipe-tag-editor:focus-within { border-color: var(--color-accent); }
     .tag-picker-option:hover { background: var(--color-surface-2) !important; }
 </style>
