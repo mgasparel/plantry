@@ -1,0 +1,59 @@
+@*
+    In-sheet unit-conversion prompt for the recipe ingredient editor (C10 early UX, plantry-c9s2).
+
+    Shown when the author picks a cross-dimension unit (e.g. "cup" for a product catalogued in "g"):
+    the Alpine $watch on draft.unitId detects the gap live via OnGetCheckConversionAsync and sets
+    draft.needsConversion = true. This partial renders the inline ask, styled as an informational prompt
+    (not an error).
+
+    Framing follows Option 1 (agreed in .preview/recipe-conversion-prompt-options.html):
+      "Plantry stocks {ProductName} in {defaultUnitCode}. How much is 1 {fromUnitCode}?"
+      1 {fromUnitCode} = [ input ] {defaultUnitCode}
+      Saved to your catalog — you only set this once, and every future recipe reuses it.
+      [Measure in {defaultUnitCode} instead]
+
+    Alpine contract (reads from the host's draft object):
+      draft.needsConversion     — controls x-if on the outer template (DOM is truly absent when false,
+                                   so strict-mode Playwright locators never find the hidden input)
+      draft.productName         — product display name (e.g. "Flour")
+      draft.unitId              — the chosen from-unit id
+      draft.defaultUnitId       — the product's default unit id
+      draft.defaultUnitCode     — the product's default unit code (e.g. "g")
+      draft.conversionFactor    — two-way bound to the factor input
+      unitLabel(id)             — host helper: unitId → code string (e.g. "cup")
+
+    Why x-if (template) not x-show:
+      - x-show renders the div but hides it with CSS. Playwright strict-mode locator("input[type='number']")
+        finds ALL DOM inputs including hidden ones, breaking existing E2E tests that expect exactly one
+        number input in the sheet.
+      - x-if on a <template> only inserts the child elements when truthy — the input is genuinely absent
+        from the DOM when draft.needsConversion is false, keeping the E2E locators unambiguous.
+
+    The "Measure in {default} instead" escape sets draft.unitId = draft.defaultUnitId, which clears
+    the $watch trigger and removes this block from the DOM.
+*@
+
+<template x-if="draft.needsConversion">
+    <div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)">
+        <p style="margin:0 0 var(--space-1);font-size:var(--font-size-sm)">
+            Plantry stocks <strong x-text="draft.productName"></strong> in <strong x-text="draft.defaultUnitCode"></strong>.
+            How much is 1 <span x-text="unitLabel(draft.unitId)"></span>?
+        </p>
+        <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);flex-wrap:wrap">
+            <span style="font-size:var(--font-size-sm)">1 <span x-text="unitLabel(draft.unitId)"></span> =</span>
+            <input type="number" class="field__input" step="any" min="0"
+                   placeholder="e.g. 120"
+                   x-model="draft.conversionFactor"
+                   style="width:8rem" />
+            <span style="font-size:var(--font-size-sm)" x-text="draft.defaultUnitCode"></span>
+        </div>
+        <p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+            Saved to your catalog — you only set this once, and every future recipe reuses it.
+        </p>
+        <button type="button"
+                class="btn btn--ghost btn--sm"
+                @@click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.conversionFactor = ''">
+            Measure in <span x-text="draft.defaultUnitCode"></span> instead
+        </button>
+    </div>
+</template>

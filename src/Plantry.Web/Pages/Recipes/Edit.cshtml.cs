@@ -1,4 +1,5 @@
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -33,7 +34,8 @@ public sealed class EditModel(
     ITagRepository tags,
     ICatalogProductReader products,
     IClock clock,
-    AuthorRecipe authorRecipe) : PageModel
+    AuthorRecipe authorRecipe,
+    IUnitConverter unitConverter) : PageModel
 {
     // ── Route ────────────────────────────────────────────────────────────────────
 
@@ -160,6 +162,14 @@ public sealed class EditModel(
         var hits = await products.SearchAsync(q.Trim(), ct);
         var enc = HtmlEncoder.Default;
 
+        // Resolve default unit codes in one batch so the pick-product event can carry
+        // defaultUnitCode alongside defaultUnit, enabling the in-sheet conversion prompt
+        // to display the unit label (e.g. "g") without an extra round-trip.
+        var defaultUnitIds = hits.Select(p => p.DefaultUnitId).Distinct().ToList();
+        var unitCodes = defaultUnitIds.Count > 0
+            ? await products.ResolveUnitCodesAsync(defaultUnitIds, ct)
+            : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
+
         // Emit ranked <li> markup. The ranking label (.rk span) mirrors Intake's AlternativesStrip
         // vocabulary (best / N%) for cross-feature consistency per the design (plantry-hl4a §3).
         // The product name is stored in data-name so the click handler can set query = data-name
@@ -170,9 +180,50 @@ public sealed class EditModel(
         var html = string.Join("", hits.Select((p, i) =>
         {
             var label = ProductNameMatcher.RankLabel(p.Score, isTopHit: i == 0);
-            return $$"""<li role="option" data-value="{{p.Id}}" data-name="{{enc.Encode(p.Name)}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+            var unitCode = unitCodes.GetValueOrDefault(p.DefaultUnitId, "");
+            return $$"""<li role="option" data-value="{{p.Id}}" data-name="{{enc.Encode(p.Name)}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" data-default-unit-code="{{enc.Encode(unitCode)}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit, defaultUnitCode: $el.dataset.defaultUnitCode})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
         }));
         return Content(html, "text/html");
+    }
+
+    // ── Conversion-gap check (live C10 pre-check) ────────────────────────────────
+
+    /// <summary>
+    /// Lightweight GET called by the Alpine <c>$watch</c> when the author picks a unit inside the add/edit
+    /// ingredient sheet. Returns whether a conversion path exists from <paramref name="fromUnitId"/> to the
+    /// product's default unit. Used to surface the in-sheet conversion prompt (C10 early UX) before the form
+    /// is submitted — the authoritative R7 check at POST time is unchanged.
+    ///
+    /// <para>Same-dimension pairs (e.g. g → kg) resolve via universal conversions and return
+    /// <c>needsConversion:false</c>. Cross-dimension or density gaps return <c>needsConversion:true</c>
+    /// with the product's default unit id and code so the client can render the prompt correctly.</para>
+    /// </summary>
+    public async Task<IActionResult> OnGetCheckConversionAsync(Guid productId, Guid fromUnitId, CancellationToken ct)
+    {
+        var product = await products.FindAsync(productId, ct);
+        if (product is null)
+            return new JsonResult(new { needsConversion = false });
+
+        var defaultUnitId = product.DefaultUnitId;
+
+        // Same unit — no conversion needed (shortcut before calling the converter).
+        if (fromUnitId == defaultUnitId)
+            return new JsonResult(new { needsConversion = false });
+
+        var path = await unitConverter.ConvertAsync(productId, 1m, fromUnitId, defaultUnitId, ct);
+        if (path.IsSuccess)
+            return new JsonResult(new { needsConversion = false });
+
+        // No path — resolve the default unit code for the prompt display.
+        var allUnits = await products.ListUnitsAsync(ct);
+        var defaultUnitCode = allUnits.FirstOrDefault(u => u.Id == defaultUnitId)?.Code ?? "";
+
+        return new JsonResult(new
+        {
+            needsConversion = true,
+            defaultUnitId = defaultUnitId.ToString(),
+            defaultUnitCode,
+        });
     }
 
     // ── POST — main save ─────────────────────────────────────────────────────────
