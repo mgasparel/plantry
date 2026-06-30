@@ -88,12 +88,31 @@
            Alpine's :value binding keeps it in sync whenever the servings stepper changes. *@
         <input type="hidden" id="rd-servings-input" name="servings" :value="servings" />
 
+        @* Add ALL tracked ingredients to shopping list — plantry-s1z.
+           Emits Source=Recipe + SourceRef=recipeId for every quantity-bearing ingredient,
+           merging duplicates via the per-source contribution model (plantry-9scq).
+           allAdded mirrors the missingAdded pattern — an Alpine flag flipped on 2xx response. *@
+        @if (totalTracked > 0)
+        {
+            <button type="button" class="btn btn--soft"
+                    hx-post="/Recipes/@recipeId?handler=AddAll"
+                    hx-include="#rd-servings-input"
+                    hx-swap="none"
+                    @@htmx:after-request="if ($event.detail.successful) allAdded = true"
+                    :disabled="allAdded">
+                <svg class="icon" aria-hidden="true" x-show="!allAdded"><use href="#i-cart" /></svg>
+                <svg class="icon" aria-hidden="true" x-show="allAdded" x-cloak><use href="#i-check" /></svg>
+                <span x-show="!allAdded">Add @totalTracked ingredient@(totalTracked == 1 ? "" : "s") to shopping list</span>
+                <span x-show="allAdded" x-cloak>Added</span>
+            </button>
+        }
+
         @* Add missing to shopping list — J5 step 6 (P2-4b). *@
         @if (missingCount > 0)
         {
             @* On success, flip to the "Added" confirm state. The flag lives in the
                #recipe-detail Alpine scope, so we bridge htmx's afterRequest event via an
-               Alpine listener (@@htmx:after-request) — NOT hx-on, which runs in global JS
+               alpine listener (@@htmx:after-request) — NOT hx-on, which runs in global JS
                scope and cannot see Alpine component state. Mirrors Intake/Upload.cshtml. *@
             <button type="button" class="btn btn--soft"
                     hx-post="/Recipes/@recipeId?handler=AddMissing"
@@ -105,13 +124,6 @@
                 <svg class="icon" aria-hidden="true" x-show="missingAdded" x-cloak><use href="#i-check" /></svg>
                 <span x-show="!missingAdded">Add @missingCount missing to shopping list</span>
                 <span x-show="missingAdded" x-cloak>Added</span>
-            </button>
-        }
-        else
-        {
-            <button type="button" class="btn btn--soft" disabled>
-                <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>
-                Nothing to add
             </button>
         }
         <a href="/Recipes/@recipeId/Edit" class="btn btn--secondary">

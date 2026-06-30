@@ -401,6 +401,11 @@ builder.Services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
 // scales quantities, and calls IShoppingListWriter.AddItems(source=recipe, source_ref=recipeId).
 builder.Services.AddScoped<AddMissingToShoppingList>();
 
+// Add-all-ingredients-to-shopping-list application service (plantry-s1z).
+// Emits ALL tracked (quantity-bearing) ingredients for a recipe with Source=Recipe+SourceRef=recipeId.
+// Distinct from AddMissingToShoppingList — does not filter by stock level.
+builder.Services.AddScoped<AddIngredientsToShoppingList>();
+
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 
 // Grocy import pipeline (plantry-zcw.1). GrocyClient (typed HttpClient) + ExtractCommand

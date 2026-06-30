@@ -20,7 +20,8 @@ public sealed class DetailsModel(
     ICatalogProductReader catalog,
     FulfillmentService fulfillmentService,
     CostingService costingService,
-    AddMissingToShoppingList addMissingService) : PageModel
+    AddMissingToShoppingList addMissingService,
+    AddIngredientsToShoppingList addAllService) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
@@ -160,6 +161,26 @@ public sealed class DetailsModel(
             AddMissingResult.Unauthorized   => Forbid(),
             AddMissingResult.Invalid        => BadRequest(),
             _                               => StatusCode(500),
+        };
+    }
+
+    /// <summary>
+    /// htmx POST handler for the "Add all ingredients to shopping list" button (plantry-s1z).
+    /// Calls <see cref="AddIngredientsToShoppingList"/> at <paramref name="servings"/>; on success
+    /// returns 200 OK (no body — the Alpine state flip is handled client-side via hx-on::after-request).
+    /// Returns 400 on invalid input, 403 on auth failure, 404 if the recipe was not found.
+    /// </summary>
+    public async Task<IActionResult> OnPostAddAllAsync(int servings, CancellationToken ct)
+    {
+        var result = await addAllService.ExecuteAsync(RecipeId.From(Id), servings, ct);
+        return result switch
+        {
+            AddIngredientsResult.Added          => new OkResult(),
+            AddIngredientsResult.NothingToAdd   => new OkResult(),  // idempotent — all ingredients are untracked staples
+            AddIngredientsResult.NotFound       => NotFound(),
+            AddIngredientsResult.Unauthorized   => Forbid(),
+            AddIngredientsResult.Invalid        => BadRequest(),
+            _                                   => StatusCode(500),
         };
     }
 
