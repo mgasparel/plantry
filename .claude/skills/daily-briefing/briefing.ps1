@@ -619,11 +619,25 @@ function Group-ByTheme {
         if (-not $groups.ContainsKey($t)) { $groups[$t] = New-Object System.Collections.Generic.List[object] }
         $groups[$t].Add($r)
     }
-    # Sort: largest count first, then alphabetical
-    $sorted = $groups.GetEnumerator() |
-        Sort-Object @{E={-$_.Value.Count}}, @{E={$_.Key}} |
-        ForEach-Object { [PSCustomObject]@{ theme = $_.Key; rows = @($_.Value) } }
-    return @($sorted)
+    # Sort: largest count first, then alphabetical.
+    # PS 5.1 quirk: @($list) fails on List[object] -- use .ToArray() instead.
+    # Also avoid DictionaryEntry after Sort-Object by materialising to PSObject first.
+    $tmpList = New-Object System.Collections.Generic.List[object]
+    foreach ($kv in $groups.GetEnumerator()) {
+        $o = New-Object PSObject
+        Add-Member -InputObject $o -MemberType NoteProperty -Name "theme" -Value ([string]$kv.Key)
+        Add-Member -InputObject $o -MemberType NoteProperty -Name "items" -Value $kv.Value
+        $tmpList.Add($o)
+    }
+    $tmpSorted = $tmpList | Sort-Object @{ E = { $_.items.Count }; Descending = $true }, @{ E = { $_.theme } }
+    $result = New-Object System.Collections.Generic.List[object]
+    foreach ($t in $tmpSorted) {
+        $g = New-Object PSObject
+        Add-Member -InputObject $g -MemberType NoteProperty -Name "theme" -Value $t.theme
+        Add-Member -InputObject $g -MemberType NoteProperty -Name "rows"  -Value $t.items.ToArray()
+        $result.Add($g)
+    }
+    return $result.ToArray()
 }
 
 $triageLeakGroups  = Group-ByTheme -rows $triageLeaks
@@ -1075,16 +1089,28 @@ $html = @'
 <div class="wrap">
   <header>
     <h1>Backlog</h1>
-    <div class="sub">Generated <span class="gen-ts"></span></div>
+    <div class="sub">Generated <span class="gen-ts"></span> &middot; full do-now / parked detail</div>
   </header>
 
-  <div class="placeholder">
-    <strong>Full do-now / parked detail</strong>
-    DB-5 child will render the complete ranked backlog here: do-now items,
-    parked/blocked items with reason codes, and suggested next actions.
-    <br>
-    (Placeholder &mdash; landing with DB-5: plantry-st0i3)
-  </div>
+  <!-- Leak-budget tally strip -->
+  <div class="kpis" id="backlog-kpis"></div>
+
+  <!-- Gate warning (untriaged issues) -->
+  <div id="backlog-gate"></div>
+
+  <!-- DO-NOW pool (leaks: bug + ux) grouped by theme -->
+  <section id="backlog-leaks-section">
+    <h2 id="backlog-leaks-heading">DO-NOW pool &mdash; bugs &amp; UX leaks</h2>
+    <p class="desc">Quality leaks that block MVP sign-off. Rank and pull these first. Drive to zero.</p>
+    <div id="backlog-leaks-content"></div>
+  </section>
+
+  <!-- PARKED pool (improvement + tech-debt) grouped by theme -->
+  <section id="backlog-parked-section">
+    <h2>PARKED pool &mdash; improvements &amp; tech-debt</h2>
+    <p class="desc">Investments deferred until the leak budget is clear. Spec or unblock to refill the queue.</p>
+    <div id="backlog-parked-content"></div>
+  </section>
 
 </div><!-- .wrap -->
 </div><!-- #tab-backlog -->
@@ -1609,6 +1635,145 @@ if (sg && sg.series && sg.series.length) {
     document.getElementById("sgChart").parentElement.innerHTML =
         '<p class="desc">No code-review / dogfood-labelled issues found.</p>';
 }
+
+// ---------------------------------------------------------------------------
+// BACKLOG tab: full do-now / parked detail (DB-5: plantry-st0i3)
+// Reads DATA.triage -- no re-query of bd. Mirrors triage/prep.py depth.
+// ---------------------------------------------------------------------------
+(function() {
+    var T = DATA.triage;
+    if (!T) { return; }
+
+    var b = T.budget || {};
+    var leakCount    = b.open_leaks   || 0;
+    var bugCount     = b.bugs         || 0;
+    var uxCount      = b.ux           || 0;
+    var impCount     = b.improvements || 0;
+    var tdCount      = b.tech_debt    || 0;
+    var totalParked  = impCount + tdCount;
+
+    // KPI strip: budget tally
+    var leakCls = leakCount > 0 ? " warn" : " ok";
+    var kpiCards = [
+        { v: leakCount,   l: "open leaks (bugs + ux)",       cls: leakCls },
+        { v: bugCount,    l: "bugs",                          cls: bugCount > 0 ? " warn" : "" },
+        { v: uxCount,     l: "ux issues",                     cls: uxCount > 0 ? " warn" : "" },
+        { v: T.totalOpen, l: "total open issues",             cls: "" },
+        { v: impCount,    l: "improvements (parked)",         cls: "" },
+        { v: tdCount,     l: "tech-debt (parked)",            cls: "" },
+    ];
+    document.getElementById("backlog-kpis").innerHTML = kpiCards.map(function(c) {
+        return '<div class="kpi' + c.cls + '"><div class="v">' + c.v + '</div><div class="l">' + c.l + '</div></div>';
+    }).join("");
+
+    // Update heading to reflect leak count
+    var lh = document.getElementById("backlog-leaks-heading");
+    if (lh) {
+        lh.innerHTML = 'DO-NOW pool &mdash; bugs &amp; UX leaks'
+            + ' <span style="font-size:14px;font-weight:400;color:var(--muted)">(' + leakCount + ' open)</span>';
+    }
+
+    // Gate warning
+    var gateEl = document.getElementById("backlog-gate");
+    if (gateEl && !T.gateOk && T.untriaged && T.untriaged.length > 0) {
+        var gHtml = '<div class="worklist-gate-warn">'
+            + '<strong>GATE: FAIL &mdash; ' + T.untriaged.length + ' of ' + T.totalOpen
+            + ' open issues untriaged &mdash; run groom first</strong>'
+            + 'The pools below are partial. These issues have no class: label:<ul>';
+        T.untriaged.forEach(function(u) {
+            gHtml += '<li>' + esc(u.id) + '  ' + esc((u.title || '').slice(0, 72)) + '</li>';
+        });
+        gHtml += '</ul></div>';
+        gateEl.innerHTML = gHtml;
+    }
+
+    // Leak-budget tally bar (summary line above the pool)
+    var budgetBarHtml = '<div class="worklist-budget">'
+        + '<span class="worklist-budget-pill ' + (leakCount > 0 ? 'pill-leak' : 'pill-zero') + '">'
+        + 'LEAK BUDGET: ' + leakCount + ' open'
+        + ' (' + bugCount + ' bug' + (bugCount === 1 ? '' : 's')
+        + ' / ' + uxCount + ' ux)'
+        + ' &mdash; drive to 0 for MVP'
+        + '</span>';
+    if (totalParked > 0) {
+        budgetBarHtml += '<span class="worklist-budget-pill">Parked: '
+            + impCount + ' improvement' + (impCount === 1 ? '' : 's')
+            + ' / ' + tdCount + ' tech-debt'
+            + '</span>';
+    }
+    budgetBarHtml += '</div>';
+
+    // Full row renderer with all flags (mirrors Briefing worklist but no truncation on title)
+    function renderFullRow(r) {
+        var clsCss = 'cls-' + (r.cls || '');
+        var flags = [];
+        if (r.ready) { flags.push('<span style="color:var(--accent)">ready</span>'); }
+        if (r.blocked_by && r.blocked_by.length) {
+            flags.push('<span class="wl-flag-warn">blocked by '
+                + r.blocked_by.map(function(id) {
+                    return '<code>' + esc(id) + '</code>';
+                }).join(', ')
+                + '</span>');
+        }
+        if (r.quick_win)  { flags.push('<span>quick-win</span>'); }
+        if (r.needs_spec) { flags.push('<span class="wl-flag-spec">[!] needs-spec (define first)</span>'); }
+        if (r.needs_split){ flags.push('<span class="wl-flag-spec">[!] needs-split (split first)</span>'); }
+        var flagsHtml = flags.length
+            ? '<span class="wl-flags">' + flags.join(' &nbsp;|&nbsp; ') + '</span>'
+            : '';
+        var prio = r.priority != null ? ' <span style="color:var(--muted);font-size:11px">P' + r.priority + '</span>' : '';
+        return '<li>'
+            + '<span class="wl-id">' + esc(r.id) + '</span>'
+            + '<span class="wl-cls ' + clsCss + '">' + esc(r.cls || '') + '</span>'
+            + '<span class="wl-title">' + esc(r.title || '') + prio + '</span>'
+            + flagsHtml
+            + '</li>';
+    }
+
+    // Group renderer: full list, no truncation
+    function renderFullGroups(groups, isLeak) {
+        if (!groups || groups.length === 0) {
+            return '<p class="worklist-empty">'
+                + (isLeak ? '(none &mdash; leak budget is zero)' : '(none)')
+                + '</p>';
+        }
+        var html = '';
+        groups.forEach(function(g) {
+            var rows = g.rows || [];
+            var readyCount   = rows.filter(function(r){ return r.ready; }).length;
+            var blockedCount = rows.filter(function(r){ return r.blocked_by && r.blocked_by.length; }).length;
+            var suffix = [];
+            if (readyCount)   { suffix.push('<span style="color:var(--accent)">' + readyCount + ' ready</span>'); }
+            if (blockedCount) { suffix.push('<span class="wl-flag-warn">' + blockedCount + ' blocked</span>'); }
+            var suffixHtml = suffix.length
+                ? ' &nbsp;<span style="font-size:11px;font-weight:400">' + suffix.join(' &nbsp;') + '</span>'
+                : '';
+            html += '<div class="worklist-theme-header">theme:' + esc(g.theme)
+                + ' <span>(' + rows.length
+                + (isLeak ? ' leak' + (rows.length === 1 ? '' : 's') : ' item' + (rows.length === 1 ? '' : 's'))
+                + ')</span>'
+                + suffixHtml
+                + '</div>';
+            html += '<ul class="worklist-list">';
+            rows.forEach(function(r) { html += renderFullRow(r); });
+            html += '</ul>';
+        });
+        return html;
+    }
+
+    // Render DO-NOW pool (leaks)
+    var leaksEl = document.getElementById("backlog-leaks-content");
+    if (leaksEl) {
+        leaksEl.innerHTML = budgetBarHtml
+            + renderFullGroups(T.leakGroups, true);
+    }
+
+    // Render PARKED pool
+    var parkedEl = document.getElementById("backlog-parked-content");
+    if (parkedEl) {
+        parkedEl.innerHTML = renderFullGroups(T.parkedGroups, false);
+    }
+})();
 </script>
 </body>
 </html>
