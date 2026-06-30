@@ -716,6 +716,49 @@ $html = @'
     font-size:12px; color:var(--wait); background:#2a1f0c; border-radius:6px;
     padding:6px 10px; margin-bottom:10px;
   }
+  /* ---------- runway gauge ---------- */
+  .runway-grid {
+    display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:18px;
+  }
+  .runway-stat { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .runway-stat .rv { font-size:22px; font-weight:600; letter-spacing:-0.02em; }
+  .runway-stat .rl { color:var(--muted); font-size:11px; margin-top:2px; }
+  .runway-stat.rv-warn .rv { color:var(--warn); }
+  .runway-stat.rv-ok   .rv { color:var(--accent); }
+  .runway-bar-wrap {
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+    padding:14px 16px; margin-bottom:14px;
+  }
+  .runway-bar-label {
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:12px; color:var(--muted); margin-bottom:7px;
+  }
+  .runway-bar-label .rb-val { font-size:18px; font-weight:600; color:var(--ink); letter-spacing:-0.02em; }
+  .runway-bar-track {
+    height:10px; background:var(--panel); border-radius:5px; overflow:hidden;
+  }
+  .runway-bar-fill {
+    height:100%; border-radius:5px;
+    transition:width .3s ease, background-color .3s ease;
+  }
+  .runway-bar-fill.rw-warn  { background:var(--warn); }
+  .runway-bar-fill.rw-amber { background:var(--wait); }
+  .runway-bar-fill.rw-ok    { background:var(--accent); }
+  .runway-action {
+    display:flex; align-items:flex-start; gap:10px;
+    padding:10px 14px; border-radius:8px; font-size:13px; margin-top:10px;
+  }
+  .runway-action.ra-warn  { background:#2e1e1e; border:1px solid #5a2020; color:var(--warn); }
+  .runway-action.ra-amber { background:#2a1f0c; border:1px solid #4a3010; color:var(--wait); }
+  .runway-action.ra-info  { background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
+  .runway-action .ra-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
+  .runway-action .ra-body { line-height:1.5; }
+  .runway-action .ra-title { font-weight:600; display:block; margin-bottom:2px; }
+  .runway-threshold-labels {
+    display:flex; justify-content:space-between;
+    font-size:10px; color:var(--muted); margin-top:5px; padding:0 1px;
+  }
+  .runway-note { font-size:11.5px; color:var(--muted); margin-top:12px; line-height:1.6; }
 </style>
 </head>
 <body>
@@ -750,16 +793,16 @@ $html = @'
     <div id="stall-content"></div>
   </section>
 
-  <!-- Runway gauge placeholder (DB-3 will fill) -->
-  <div class="placeholder" id="runway-placeholder">
-    <strong>Runway gauge</strong>
-    DB-3 child will render a visual runway gauge here
-    (ready-queue depth / consumption rate = days until factory starves).
-    <br>
-    (Placeholder &mdash; landing with DB-3: plantry-dge7u)
-    <br>
-    <span id="runway-preview"></span>
-  </div>
+  <!-- Runway gauge (DB-3: plantry-dge7u) -->
+  <section id="runway-section">
+    <h2>Runway &mdash; days until the factory starves</h2>
+    <p class="desc">
+      Ready-queue depth &divide; consumption rate = days of work queued up if the operator does nothing.
+      Below 3&thinsp;d is urgent; 3&ndash;7&thinsp;d is a warning; above 7&thinsp;d is comfortable.
+      Consumption rate uses a 14-day trailing window.
+    </p>
+    <div id="runway-content"></div>
+  </section>
 
   <!-- Replenishment worklist placeholder (DB-4 will fill) -->
   <div class="placeholder">
@@ -991,15 +1034,125 @@ if (fs && fs.count > 0) {
     }
 }
 
-// Runway preview text (raw numbers until DB-3 renders the gauge)
-var runwayEl = document.getElementById("runway-preview");
-if (runwayEl) {
-    var rMsg = "Ready depth: " + bk.readyDepth
-        + "  |  Consumption rate: " + bk.consumptionRate + " closes/day (trailing " + bk.trailingDays + "d)"
-        + "  |  Runway: " + (bk.runwayDays != null ? bk.runwayDays + " days" : "n/a");
-    runwayEl.textContent = rMsg;
-    runwayEl.style.cssText = "display:block;margin-top:8px;font-family:monospace;font-size:11px;color:var(--muted);";
-}
+// ---------------------------------------------------------------------------
+// Runway gauge (DB-3: plantry-dge7u)
+// Thresholds: < 3d = warn (red), 3-7d = amber, >= 7d = ok (green)
+// Edge cases: readyDepth==0 or consumptionRate==0 handled with specific copy.
+// ---------------------------------------------------------------------------
+(function() {
+    var rc = document.getElementById("runway-content");
+    if (!rc) { return; }
+
+    var rd  = bk.readyDepth;        // int
+    var cr  = bk.consumptionRate;   // float (closes/day, 14d trailing)
+    var rwd = bk.runwayDays;        // float | null
+    var td  = bk.trailingDays;
+
+    // Classify state
+    var state = "ok";    // "warn" | "amber" | "ok" | "no-rate" | "no-ready"
+    if (rd === 0)                     { state = "no-ready"; }
+    else if (cr === 0)                { state = "no-rate"; }
+    else if (rwd != null && rwd < 3)  { state = "warn"; }
+    else if (rwd != null && rwd < 7)  { state = "amber"; }
+    else                              { state = "ok"; }
+
+    // Format runway display value
+    var rwdDisplay = rwd != null ? rwd + "d" : "n/a";
+
+    // Stat card class by state
+    var rvCls = (state === "warn" || state === "no-ready") ? " rv-warn"
+              : (state === "amber")                        ? ""
+              : " rv-ok";
+
+    // Bar fill: cap at 100% for display; 10d = full bar
+    var CAP_DAYS = 10;
+    var barPct   = 0;
+    var barCls   = "rw-warn";
+    if (state === "ok" || state === "amber") {
+        barPct = Math.min(100, Math.round((rwd / CAP_DAYS) * 100));
+        barCls = state === "ok" ? "rw-ok" : "rw-amber";
+    } else if (state === "no-rate") {
+        // No consumption rate: treat bar as unknown -- show full muted bar
+        barPct = 100;
+        barCls = "rw-amber";
+    } else {
+        barPct = 0;
+        barCls = "rw-warn";
+    }
+
+    // Action banner
+    var actionHtml = "";
+    if (state === "no-ready") {
+        actionHtml = '<div class="runway-action ra-warn">'
+            + '<span class="ra-icon">!</span>'
+            + '<span class="ra-body"><span class="ra-title">Queue is empty &mdash; refill now</span>'
+            + 'There are no ready issues. The factory will stall on the next pull. '
+            + 'Promote issues to ready or groom new work immediately.</span></div>';
+    } else if (state === "no-rate") {
+        actionHtml = '<div class="runway-action ra-amber">'
+            + '<span class="ra-icon">?</span>'
+            + '<span class="ra-body"><span class="ra-title">Consumption rate unavailable</span>'
+            + 'No issues closed in the trailing ' + td + ' days &mdash; runway cannot be computed. '
+            + 'If the factory has been idle, verify the pipeline is running.</span></div>';
+    } else if (state === "warn") {
+        actionHtml = '<div class="runway-action ra-warn">'
+            + '<span class="ra-icon">!</span>'
+            + '<span class="ra-body"><span class="ra-title">Refill the queue &mdash; runway critical (' + rwdDisplay + ')</span>'
+            + 'At the current rate of ' + cr + ' closes/day the ready queue runs dry in under 3 days. '
+            + 'Promote, spec, or groom work now before the factory stalls.</span></div>';
+    } else if (state === "amber") {
+        actionHtml = '<div class="runway-action ra-amber">'
+            + '<span class="ra-icon">~</span>'
+            + '<span class="ra-body"><span class="ra-title">Queue low &mdash; consider replenishing (' + rwdDisplay + ')</span>'
+            + 'Runway is below 7 days. No immediate action required, but plan to groom '
+            + 'or promote work soon to stay ahead of the factory.</span></div>';
+    } else {
+        actionHtml = '<div class="runway-action ra-info">'
+            + '<span class="ra-icon">+</span>'
+            + '<span class="ra-body"><span class="ra-title">Queue healthy (' + rwdDisplay + ')</span>'
+            + 'More than 7 days of work queued at the current rate. No replenishment needed today.</span></div>';
+    }
+
+    var html = ''
+        + '<div class="runway-bar-wrap">'
+        + '  <div class="runway-bar-label">'
+        + '    <span>0</span>'
+        + '    <span class="rb-val">' + rwdDisplay + '</span>'
+        + '    <span>' + CAP_DAYS + 'd+</span>'
+        + '  </div>'
+        + '  <div class="runway-bar-track">'
+        + '    <div class="runway-bar-fill ' + barCls + '" style="width:' + barPct + '%"></div>'
+        + '  </div>'
+        + '  <div class="runway-threshold-labels">'
+        + '    <span>empty</span>'
+        + '    <span style="position:relative;left:' + Math.round((3/CAP_DAYS)*100) + '%">3d (warn)</span>'
+        + '    <span style="position:relative;left:' + Math.round((7/CAP_DAYS)*100) + '%">7d (ok)</span>'
+        + '    <span>10d+</span>'
+        + '  </div>'
+        + '</div>'
+        + '<div class="runway-grid">'
+        + '  <div class="runway-stat' + rvCls + '">'
+        + '    <div class="rv">' + rwdDisplay + '</div>'
+        + '    <div class="rl">runway</div>'
+        + '  </div>'
+        + '  <div class="runway-stat">'
+        + '    <div class="rv">' + rd + '</div>'
+        + '    <div class="rl">ready (depth)</div>'
+        + '  </div>'
+        + '  <div class="runway-stat">'
+        + '    <div class="rv">' + cr + '</div>'
+        + '    <div class="rl">closes/day (' + td + 'd trailing)</div>'
+        + '  </div>'
+        + '</div>'
+        + actionHtml
+        + '<div class="runway-note">'
+        + 'Runway = ready-queue depth &divide; consumption rate. '
+        + 'Consumption rate is closes-per-day averaged over the trailing ' + td + ' days. '
+        + 'Does not account for epics (containers) or issues currently in-progress.'
+        + '</div>';
+
+    rc.innerHTML = html;
+})();
 
 // ---------------------------------------------------------------------------
 // FLOW tab: mirrors flow-report charts exactly, reading from DATA.flow
