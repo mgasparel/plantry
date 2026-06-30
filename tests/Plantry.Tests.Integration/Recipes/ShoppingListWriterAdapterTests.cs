@@ -44,7 +44,7 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
 
     // ── Source stamping ────────────────────────────────────────────────────────
 
-    [Fact(DisplayName = "L3 — adapter writes items with source=recipe and source_ref=recipeId")]
+    [Fact(DisplayName = "L3 — adapter writes items with source=recipe and source_ref=recipeId (contribution model)")]
     public async Task Adapter_Stamps_RecipeSource_And_RecipeId()
     {
         var adapter = BuildAdapter();
@@ -53,12 +53,17 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         await adapter.AddItemsAsync(items, source: "recipe", sourceRef: _recipeId);
 
         await using var ctx = NewShoppingDb();
-        var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+        var list = await ctx.ShoppingLists
+            .Include(l => l.Items)
+            .ThenInclude(i => i.Contributions)
+            .FirstAsync();
         var item = Assert.Single(list.Items);
         Assert.Equal(_product1, item.ProductId);
         Assert.Equal(2m, item.Quantity);
-        Assert.Equal(ItemSource.Recipe, item.Source);
-        Assert.Equal(_recipeId, item.SourceRef);
+        // Source/SourceRef now live on the contribution (plantry-9scq).
+        var contrib = Assert.Single(item.Contributions);
+        Assert.Equal(ItemSource.Recipe, contrib.Source);
+        Assert.Equal(_recipeId, contrib.SourceRef);
     }
 
     // ── Reconcile rule (plantry-wxho) — idempotent add-missing ──────────────
@@ -77,7 +82,7 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         // Verify one row exists with qty = 3
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);
             Assert.Equal(3m, list.Items[0].Quantity);
         }
@@ -91,10 +96,15 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         // Confirm still one row with quantity = 3 (idempotent, not doubled to 6)
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists
+                .Include(l => l.Items)
+                .ThenInclude(i => i.Contributions)
+                .FirstAsync();
             Assert.Single(list.Items);              // NOT two rows
             Assert.Equal(3m, list.Items[0].Quantity); // unchanged — idempotent
-            Assert.Equal(ItemSource.Recipe, list.Items[0].Source);
+            // One contribution (same source/sourceRef → no new contribution was added).
+            var contrib = Assert.Single(list.Items[0].Contributions);
+            Assert.Equal(ItemSource.Recipe, contrib.Source);
         }
     }
 
@@ -111,7 +121,7 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
 
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Equal(2m, list.Items[0].Quantity);
         }
 
@@ -123,7 +133,7 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
 
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);
             Assert.Equal(5m, list.Items[0].Quantity); // topped up, not stacked to 7
         }
@@ -136,7 +146,7 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
 
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);
             Assert.Equal(5m, list.Items[0].Quantity); // still 5, not reduced
         }
@@ -157,10 +167,18 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         await adapter.AddItemsAsync(items, source: "recipe", sourceRef: _recipeId);
 
         await using var ctx = NewShoppingDb();
-        var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+        var list = await ctx.ShoppingLists
+            .Include(l => l.Items)
+            .ThenInclude(i => i.Contributions)
+            .FirstAsync();
         Assert.Equal(2, list.Items.Count);
-        Assert.All(list.Items, i => Assert.Equal(ItemSource.Recipe, i.Source));
-        Assert.All(list.Items, i => Assert.Equal(_recipeId, i.SourceRef));
+        // Source/SourceRef now on contributions (plantry-9scq).
+        Assert.All(list.Items, i =>
+        {
+            var contrib = Assert.Single(i.Contributions);
+            Assert.Equal(ItemSource.Recipe, contrib.Source);
+            Assert.Equal(_recipeId, contrib.SourceRef);
+        });
     }
 
     // ── Empty items is a no-op ────────────────────────────────────────────────

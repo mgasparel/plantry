@@ -43,9 +43,8 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
         new(ShoppingListId.New(), householdId, "Shopping List", clock.UtcNow);
 
     /// <summary>
-    /// Adds a catalog-backed item to the list. P2-Sb owns the merge-on-duplicate orchestration;
-    /// this primitive does a pure add. Use <see cref="FindUncheckedByProduct"/> to check for
-    /// an existing item first.
+    /// Adds a fresh catalog-backed item to the list and immediately adds the initial contribution.
+    /// Only called when no unchecked item for this product exists (or intentional duplicate).
     /// </summary>
     public ShoppingListItem AddItem(
         Guid productId,
@@ -56,15 +55,17 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
         Guid? sourceRef,
         IClock clock)
     {
-        var item = ShoppingListItem.ForProduct(
-            HouseholdId, Id, productId, quantity, unitId, note, source, sourceRef, clock);
+        var item = ShoppingListItem.ForProduct(HouseholdId, Id, productId, unitId, note, clock);
+        // Seed the first contribution for this item.
+        item.UpsertContribution(source, sourceRef, quantity, unitId, clock);
         _items.Add(item);
         UpdatedAt = clock.UtcNow;
         return item;
     }
 
     /// <summary>
-    /// Adds a free-text item to the list.
+    /// Adds a free-text item to the list. Free-text items are always inserted unconditionally;
+    /// they receive exactly one Manual contribution.
     /// </summary>
     public ShoppingListItem AddFreeTextItem(
         string freeText,
@@ -73,8 +74,7 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
         string? note,
         IClock clock)
     {
-        var item = ShoppingListItem.ForFreeText(
-            HouseholdId, Id, freeText, quantity, unitId, note, clock);
+        var item = ShoppingListItem.ForFreeText(HouseholdId, Id, freeText, quantity, unitId, note, clock);
         _items.Add(item);
         UpdatedAt = clock.UtcNow;
         return item;
@@ -83,23 +83,50 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
     /// <summary>
     /// Returns the first unchecked item matching the product, or null. Used by
     /// <see cref="Plantry.Shopping.Application.AddItemCommand"/> to implement the
-    /// reconcile-on-duplicate primitive (plantry-wxho / shopping.md resolved call 5).
+    /// per-source upsert when an existing item row exists for this product.
     /// </summary>
     public ShoppingListItem? FindUncheckedByProduct(Guid productId) =>
         _items.FirstOrDefault(i => i.ProductId == productId && !i.IsChecked);
 
     /// <summary>
-    /// Increments the quantity of an existing unchecked product line by <paramref name="delta"/> in place.
+    /// Upserts a per-source contribution on an existing item using (Source, SourceRef) as the match key.
+    ///
+    /// <para><b>New (Source, SourceRef) pair:</b> adds a new contribution with <paramref name="incomingQuantity"/>.</para>
+    /// <para><b>Existing key:</b> tops up that contribution by delta = max(0, incomingQuantity − current).
+    ///   A no-op when the need is already covered.</para>
+    ///
     /// The caller (<see cref="Plantry.Shopping.Application.AddItemCommand"/>) is responsible for
-    /// computing the reconcile delta: <c>delta = max(0, shortfall − alreadyOnList)</c> so the list
-    /// always tops up to the need rather than stacking (plantry-wxho).
-    /// The item must already belong to this list; use <see cref="FindUncheckedByProduct"/> first.
+    /// resolving unit compatibility before calling here — only same-unit adds reach this path;
+    /// unit-incompatible adds insert a second item row instead.
+    ///
+    /// Called exclusively by <see cref="Plantry.Shopping.Application.AddItemCommand"/> (plantry-9scq).
     /// </summary>
-    public void MergeItem(ShoppingListItem existing, decimal? delta, Guid? incomingUnitId, IClock clock)
+    public void UpsertContribution(
+        ShoppingListItem existing,
+        ItemSource source,
+        Guid? sourceRef,
+        decimal? incomingQuantity,
+        Guid? incomingUnitId,
+        IClock clock)
     {
         if (!_items.Contains(existing))
             throw new InvalidOperationException($"Item {existing.Id} does not belong to list {Id}.");
-        existing.MergeFrom(delta, incomingUnitId, clock);
+
+        var existingContrib = existing.FindContribution(source, sourceRef);
+        decimal? delta;
+        if (existingContrib is null)
+        {
+            // New source/sourceRef key — add a fresh contribution with the full incoming quantity.
+            delta = incomingQuantity;
+        }
+        else
+        {
+            // Existing key — compute per-source top-up delta:
+            // max(0, incoming − that source's current quantity).
+            delta = ComputeToAdd(incomingQuantity, existingContrib.Quantity);
+        }
+
+        existing.UpsertContribution(source, sourceRef, delta, incomingUnitId, clock);
         UpdatedAt = clock.UtcNow;
     }
 
@@ -187,5 +214,18 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
         if (cleared.Count > 0)
             UpdatedAt = clock.UtcNow;
         return cleared;
+    }
+
+    /// <summary>
+    /// Computes the per-source top-up delta: max(0, incoming − alreadyFromThisSource).
+    /// Returns null when incoming is null (nothing to add).
+    /// </summary>
+    private static decimal? ComputeToAdd(decimal? incoming, decimal? alreadyFromThisSource)
+    {
+        if (!incoming.HasValue)
+            return null;
+        var already = alreadyFromThisSource ?? 0m;
+        var delta = incoming.Value - already;
+        return delta > 0m ? delta : (decimal?)null;
     }
 }

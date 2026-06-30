@@ -246,8 +246,10 @@ public sealed class ShopForWeekSmokeTests(AppHostFixture appHost) : IAsyncLifeti
         await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            @"SELECT COUNT(*) FROM shopping.shopping_list_item
-              WHERE product_id = @p AND source = 'meal_plan'",
+            @"SELECT COUNT(*) FROM shopping.shopping_list_item i
+              JOIN shopping.shopping_list_item_contribution c
+                ON c.shopping_list_item_id = i.shopping_list_item_id
+              WHERE i.product_id = @p AND c.source = 'meal_plan'",
             conn);
         cmd.Parameters.AddWithValue("@p", productId);
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());

@@ -33,7 +33,7 @@ public sealed class ShoppingListTests
 
     // ── AddItem (catalog product) ─────────────────────────────────────────
 
-    [Fact(DisplayName = "AddItem (product) sets ProductId, leaves FreeText null")]
+    [Fact(DisplayName = "AddItem (product) sets ProductId, leaves FreeText null; contribution carries source")]
     public void AddItem_Product_Sets_ProductId_And_Nulls_FreeText()
     {
         var list = ShoppingList.Create(Household, _clock);
@@ -43,13 +43,15 @@ public sealed class ShoppingListTests
 
         Assert.Equal(ProductA, item.ProductId);
         Assert.Null(item.FreeText);
-        Assert.Equal(ItemSource.Manual, item.Source);
+        // Source/SourceRef live on the contribution (plantry-9scq).
+        var contrib = Assert.Single(item.Contributions);
+        Assert.Equal(ItemSource.Manual, contrib.Source);
         Assert.Single(list.Items);
     }
 
     // ── AddFreeTextItem ───────────────────────────────────────────────────
 
-    [Fact(DisplayName = "AddFreeTextItem sets FreeText, leaves ProductId null — invariant satisfied")]
+    [Fact(DisplayName = "AddFreeTextItem sets FreeText, leaves ProductId null; contribution is Manual")]
     public void AddFreeTextItem_Sets_FreeText_And_Nulls_ProductId()
     {
         var list = ShoppingList.Create(Household, _clock);
@@ -58,7 +60,9 @@ public sealed class ShoppingListTests
 
         Assert.Null(item.ProductId);
         Assert.Equal("oat milk", item.FreeText);
-        Assert.Equal(ItemSource.Manual, item.Source);
+        // Free-text items always carry one Manual contribution (plantry-9scq).
+        var contrib = Assert.Single(item.Contributions);
+        Assert.Equal(ItemSource.Manual, contrib.Source);
     }
 
     [Fact(DisplayName = "AddFreeTextItem rejects blank or whitespace-only text")]
@@ -430,6 +434,149 @@ public sealed class ShoppingListTests
     {
         Assert.Equal(dbValue, source.ToDbValue());
         Assert.Equal(source, ItemSourceExtensions.Parse(dbValue));
+    }
+
+    // ── Per-source contribution model (plantry-9scq) ─────────────────────
+
+    [Fact(DisplayName = "AddItem — two distinct sources on same product → one row, quantity is SUM, both contributions retained")]
+    public void AddItem_TwoDistinctSources_OneSummedRow()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var list = ShoppingList.Create(Household, _clock);
+
+        // First add: Manual, 2 units
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null,
+            source: ItemSource.Manual, sourceRef: null, _clock);
+
+        // Second add: Recipe (distinct source) — finds the existing unchecked item and upserts
+        list.UpsertContribution(item, ItemSource.Recipe, recipeId, incomingQuantity: 3m, incomingUnitId: null, _clock);
+
+        Assert.Single(list.Items);                // still ONE row
+        Assert.Equal(5m, item.Quantity);           // 2 + 3 = 5 (SUM of contributions)
+        Assert.Equal(2, item.Contributions.Count); // both contributions retained
+        Assert.Contains(item.Contributions, c => c.Source == ItemSource.Manual && c.Quantity == 2m);
+        Assert.Contains(item.Contributions, c => c.Source == ItemSource.Recipe && c.SourceRef == recipeId && c.Quantity == 3m);
+    }
+
+    [Fact(DisplayName = "UpsertContribution — same (Source, SourceRef) re-add tops up that source idempotently, no stacking")]
+    public void UpsertContribution_SameKey_TopsUpIdempotently()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, quantity: 3m, unitId: null, note: null,
+            source: ItemSource.Recipe, sourceRef: recipeId, _clock);
+
+        Assert.Single(item.Contributions);
+        Assert.Equal(3m, item.Quantity);
+
+        // Re-add same recipe/sourceRef with same quantity — idempotent (delta = 0)
+        list.UpsertContribution(item, ItemSource.Recipe, recipeId, incomingQuantity: 3m, incomingUnitId: null, _clock);
+
+        Assert.Single(item.Contributions);          // still ONE contribution
+        Assert.Equal(3m, item.Quantity);            // unchanged — not doubled to 6
+    }
+
+    [Fact(DisplayName = "UpsertContribution — same (Source, SourceRef) with larger incoming tops up to shortfall")]
+    public void UpsertContribution_SameKey_LargerShortfall_TopsUp()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null,
+            source: ItemSource.Recipe, sourceRef: recipeId, _clock);
+
+        // Same recipe, shortfall grows to 5 — top up by 3
+        list.UpsertContribution(item, ItemSource.Recipe, recipeId, incomingQuantity: 5m, incomingUnitId: null, _clock);
+
+        Assert.Single(item.Contributions);
+        Assert.Equal(5m, item.Quantity);            // topped up to 5, not stacked to 7
+    }
+
+    [Fact(DisplayName = "UpsertContribution — two distinct SourceRefs for same source type (meal-plan style) SUM and do not collapse")]
+    public void UpsertContribution_TwoDistinctSourceRefs_SameSource_BothSummed()
+    {
+        // Mon entry and Thu entry for the same recipe — they MUST be separate contributions
+        var slotMon = Guid.CreateVersion7();
+        var slotThu = Guid.CreateVersion7();
+        var list = ShoppingList.Create(Household, _clock);
+
+        // First add: MealPlan/slotMon, 2 units (e.g. Mon dinner for 2 servings)
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null,
+            source: ItemSource.MealPlan, sourceRef: slotMon, _clock);
+
+        // Second add: MealPlan/slotThu — DISTINCT sourceRef → new contribution, not a top-up of Mon
+        list.UpsertContribution(item, ItemSource.MealPlan, slotThu, incomingQuantity: 3m, incomingUnitId: null, _clock);
+
+        Assert.Single(list.Items);                  // still one row
+        Assert.Equal(5m, item.Quantity);             // 2 + 3 = 5 (both slot contributions sum)
+        Assert.Equal(2, item.Contributions.Count);   // two separate contributions
+        Assert.Contains(item.Contributions, c => c.SourceRef == slotMon && c.Quantity == 2m);
+        Assert.Contains(item.Contributions, c => c.SourceRef == slotThu && c.Quantity == 3m);
+    }
+
+    [Fact(DisplayName = "UpsertContribution — same SourceRef re-add is idempotent (meal-plan same slot)")]
+    public void UpsertContribution_SameMealPlanSlot_IsIdempotent()
+    {
+        var slotId = Guid.CreateVersion7();
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, quantity: 1.5m, unitId: null, note: null,
+            source: ItemSource.MealPlan, sourceRef: slotId, _clock);
+
+        // Same meal plan slot re-runs — idempotent
+        list.UpsertContribution(item, ItemSource.MealPlan, slotId, incomingQuantity: 1.5m, incomingUnitId: null, _clock);
+
+        Assert.Single(item.Contributions);
+        Assert.Equal(1.5m, item.Quantity);           // not doubled to 3.0
+    }
+
+    [Fact(DisplayName = "AddFreeTextItem — always inserts new item with single Manual contribution")]
+    public void AddFreeTextItem_AlwaysInserts_WithOneManualContribution()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+
+        var item1 = list.AddFreeTextItem("oat milk", quantity: 1m, unitId: null, note: null, _clock);
+        var item2 = list.AddFreeTextItem("oat milk", quantity: 1m, unitId: null, note: null, _clock);
+
+        Assert.Equal(2, list.Items.Count);           // free-text items are never merged
+        var c1 = Assert.Single(item1.Contributions);
+        Assert.Equal(ItemSource.Manual, c1.Source);
+        Assert.Null(c1.SourceRef);
+        Assert.Equal(1m, c1.Quantity);
+    }
+
+    [Fact(DisplayName = "Quantity — computed as SUM of all contributions; null when no contribution has quantity")]
+    public void Quantity_IsDerivedSum()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var recipeA = Guid.CreateVersion7();
+        var recipeB = Guid.CreateVersion7();
+
+        // Start with no quantity set (null)
+        var item = list.AddItem(ProductA, quantity: null, unitId: null, note: null,
+            source: ItemSource.Manual, sourceRef: null, _clock);
+
+        Assert.Null(item.Quantity); // null when all contributions have null quantity
+
+        // Add a Recipe contribution with 2
+        list.UpsertContribution(item, ItemSource.Recipe, recipeA, incomingQuantity: 2m, incomingUnitId: null, _clock);
+        Assert.Equal(2m, item.Quantity);
+
+        // Add another Recipe contribution (distinct sourceRef) with 3
+        list.UpsertContribution(item, ItemSource.Recipe, recipeB, incomingQuantity: 3m, incomingUnitId: null, _clock);
+        Assert.Equal(5m, item.Quantity); // 2 + 3 = 5 (but Manual/null contribution has null qty → treated as 0)
+    }
+
+    [Fact(DisplayName = "EditQuantity — replaces Manual contribution directly, does not stack")]
+    public void EditQuantity_ReplacesManuaContribution()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null,
+            source: ItemSource.Manual, sourceRef: null, _clock);
+
+        list.EditItemQuantity(item.Id, quantity: 5m, unitId: null, _clock);
+
+        // Should replace the 2 with 5, not stack to 7
+        Assert.Equal(5m, item.Quantity);
+        Assert.Single(item.Contributions);
     }
 }
 

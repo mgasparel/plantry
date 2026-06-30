@@ -840,4 +840,99 @@ public sealed class ShoppingCommandsTests
         Assert.True(result.IsFailure);
         Assert.Equal("Unauthorized", result.Error.Code);
     }
+
+    // ── AddItemCommand — per-source contribution model (plantry-9scq) ─────────
+
+    private AddItemCommand AddProductWithSource(
+        FakeShoppingListRepository repo,
+        Guid productId,
+        ItemSource source,
+        Guid? sourceRef,
+        decimal? qty = 1m,
+        Guid? unitId = null,
+        FakeShoppingCatalogReader? catalogReader = null) =>
+        new(productId, null, qty, unitId ?? _unitId, null,
+            source, sourceRef, false,
+            repo, catalogReader ?? new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(_household));
+
+    [Fact(DisplayName = "AddItem — distinct (Source, SourceRef): both contributions added; quantity is SUM")]
+    public async Task AddItem_DistinctSourceKey_SumsContributions()
+    {
+        var (repo, list) = SeedList();
+        var recipeId = Guid.CreateVersion7();
+
+        // Manual add: 2 units
+        var firstResult = await AddProductWithSource(repo, _product1, ItemSource.Manual, null, qty: 2m, unitId: _unitId).ExecuteAsync();
+        Assert.True(firstResult.IsSuccess);
+        Assert.Single(list.Items);
+        Assert.Equal(2m, list.Items[0].Quantity);
+
+        // Recipe add (distinct source key): 3 units — different (Source, SourceRef) pair
+        var secondResult = await AddProductWithSource(repo, _product1, ItemSource.Recipe, recipeId, qty: 3m, unitId: _unitId).ExecuteAsync();
+        Assert.True(secondResult.IsSuccess);
+
+        Assert.Single(list.Items);                        // still ONE row
+        Assert.Equal(5m, list.Items[0].Quantity);          // 2 + 3 = 5 (SUM of contributions)
+        Assert.Equal(2, list.Items[0].Contributions.Count); // both contributions retained
+        Assert.Equal(firstResult.Value, secondResult.Value);  // same item ID returned
+    }
+
+    [Fact(DisplayName = "AddItem — same (Source, SourceRef) re-add is idempotent: contribution topped up, no stacking")]
+    public async Task AddItem_SameSourceKey_IdempotentTopUp()
+    {
+        var (repo, list) = SeedList();
+        var recipeId = Guid.CreateVersion7();
+
+        // Recipe add: 3 units
+        var first = await AddProductWithSource(repo, _product1, ItemSource.Recipe, recipeId, qty: 3m, unitId: _unitId).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+        Assert.Equal(3m, list.Items[0].Quantity);
+
+        // Same (Recipe, recipeId) re-add with same quantity — idempotent (delta=0)
+        var second = await AddProductWithSource(repo, _product1, ItemSource.Recipe, recipeId, qty: 3m, unitId: _unitId).ExecuteAsync();
+        Assert.True(second.IsSuccess);
+
+        Assert.Single(list.Items);
+        Assert.Equal(3m, list.Items[0].Quantity);          // unchanged — not doubled
+        Assert.Single(list.Items[0].Contributions);        // still one contribution
+    }
+
+    [Fact(DisplayName = "AddItem — two distinct SourceRefs (meal-plan slots) for same Source type SUM and do not collapse")]
+    public async Task AddItem_TwoMealPlanSlots_SameProduct_SumNotCollapse()
+    {
+        var (repo, list) = SeedList();
+        var slotMon = Guid.CreateVersion7();
+        var slotThu = Guid.CreateVersion7();
+
+        // Slot Mon: MealPlan, 2 units
+        var first = await AddProductWithSource(repo, _product1, ItemSource.MealPlan, slotMon, qty: 2m, unitId: _unitId).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+
+        // Slot Thu: MealPlan, 3 units — distinct SourceRef → separate contribution
+        var second = await AddProductWithSource(repo, _product1, ItemSource.MealPlan, slotThu, qty: 3m, unitId: _unitId).ExecuteAsync();
+        Assert.True(second.IsSuccess);
+
+        Assert.Single(list.Items);                         // ONE row
+        Assert.Equal(5m, list.Items[0].Quantity);           // 2 + 3 = 5 (summed, not collapsed)
+        Assert.Equal(2, list.Items[0].Contributions.Count); // two contributions (Mon + Thu)
+        Assert.Contains(list.Items[0].Contributions, c => c.SourceRef == slotMon && c.Quantity == 2m);
+        Assert.Contains(list.Items[0].Contributions, c => c.SourceRef == slotThu && c.Quantity == 3m);
+    }
+
+    [Fact(DisplayName = "AddItem — same MealPlan slot re-run is idempotent (no duplicate)")]
+    public async Task AddItem_SameMealPlanSlot_Idempotent()
+    {
+        var (repo, list) = SeedList();
+        var slotId = Guid.CreateVersion7();
+
+        var first = await AddProductWithSource(repo, _product1, ItemSource.MealPlan, slotId, qty: 1.5m, unitId: _unitId).ExecuteAsync();
+        Assert.True(first.IsSuccess);
+
+        var second = await AddProductWithSource(repo, _product1, ItemSource.MealPlan, slotId, qty: 1.5m, unitId: _unitId).ExecuteAsync();
+        Assert.True(second.IsSuccess);
+
+        Assert.Single(list.Items);
+        Assert.Equal(1.5m, list.Items[0].Quantity);  // not doubled
+        Assert.Single(list.Items[0].Contributions);  // one contribution (same slot)
+    }
 }
