@@ -102,6 +102,7 @@ $now = Get-Date
 $leadRows = New-Object System.Collections.Generic.List[object]
 $agingRows = New-Object System.Collections.Generic.List[object]
 $closeDays = @{}
+$excludedEpics = 0   # open epics: containers, not flow units -- kept out of Aging WIP
 
 foreach ($i in $all) {
     $id      = Get-SafeProp $i "id" ""
@@ -143,6 +144,8 @@ foreach ($i in $all) {
     }
     elseif ($status -in @("open", "in_progress", "blocked")) {
         # --- still open: age = created->now
+        # Epics stay open by design while their children close -- not stalled work.
+        if ($type -eq "epic") { $excludedEpics++; continue }
         $ageH = ($now - $created).TotalHours
         if ($ageH -lt 0) { $ageH = 0 }
         $agingRows.Add([PSCustomObject]@{
@@ -200,6 +203,7 @@ $kpis = [PSCustomObject]@{
     perDay          = $perDay
     medianWaitShare = if ($null -ne $medianWaitShare) { [math]::Round($medianWaitShare * 100, 0) } else { $null }
     stuckCount      = $stuckCount
+    excludedEpics   = $excludedEpics
 }
 
 $payload = [PSCustomObject]@{
@@ -296,9 +300,10 @@ $html = @'
   <section>
     <h2>Aging WIP &mdash; still-open issues by age</h2>
     <p class="desc">The survivorship fix: everything above is closed-only, so genuinely stuck work is invisible
-      there. Here, every currently-open issue is plotted by age against the same lead-time percentiles.
-      Bars past <b>p85</b> (amber) or <b>p95</b> (red) have already lived longer than 85% / 95% of all
-      completed work ever took &mdash; prime suspects for "why is this still open?"</p>
+      there. Here, every currently-open <b>non-epic</b> issue is plotted by age against the same lead-time
+      percentiles. Bars past <b>p85</b> (amber) or <b>p95</b> (red) have already lived longer than 85% / 95%
+      of all completed work ever took &mdash; prime suspects for "why is this still open?"
+      <span id="ageExcl" class="muted"></span></p>
     <div class="chart tall"><canvas id="ageChart"></canvas></div>
   </section>
 
@@ -343,7 +348,7 @@ const cards = [
   { v: k.medianWaitShare != null ? k.medianWaitShare + "%" : "n/a", l: "of lead is backlog wait (median)" },
   { v: k.perDay, l: "closed per active day" },
   { v: k.openCount, l: "currently open" },
-  { v: k.stuckCount, l: "open past p85 lead", warn: k.stuckCount > 0 },
+  { v: k.stuckCount, l: "non-epic open past p85 lead", warn: k.stuckCount > 0 },
 ];
 document.getElementById("kpis").innerHTML = cards.map(c =>
   `<div class="kpi${c.warn ? " warn" : ""}"><div class="v">${c.v}</div><div class="l">${c.l}</div></div>`
@@ -421,6 +426,9 @@ new Chart(document.getElementById("thChart"), {
 });
 
 // ---- 3. Aging WIP horizontal bars ----
+const excl = DATA.kpis.excludedEpics || 0;
+document.getElementById("ageExcl").textContent = excl > 0
+  ? ` (${excl} open epic${excl === 1 ? "" : "s"} excluded as containers.)` : "";
 const age = DATA.aging.slice(0, 30); // worst 30 by age
 const ageColor = (h) => h >= DATA.percentiles.p95 ? css("--warn")
                       : h >= DATA.percentiles.p85 ? css("--wait")
