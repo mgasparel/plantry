@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Catalog.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
@@ -78,8 +79,16 @@ public sealed class WalkModel(
 
         var hits = await reader.SearchProductsAsync(q.Trim(), ct);
         var enc = HtmlEncoder.Default;
-        var html = string.Join("", hits.Select(p =>
-            $$"""<li role="option" data-value="{{p.ProductId}}" data-track="true" data-default-location="{{p.DefaultLocationId}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: 'true', defaultUnitId: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}</li>"""));
+
+        // Emit ranked <li> markup. The ranking label (.rk span) mirrors Intake's AlternativesStrip
+        // vocabulary (best / N%) for cross-feature consistency per the design (plantry-hl4a §3).
+        // The product name is stored in data-name so the click handler uses data-name rather than
+        // textContent (which would otherwise include the .rk label text).
+        var html = string.Join("", hits.Select((p, i) =>
+        {
+            var label = ProductNameMatcher.RankLabel(p.Score, isTopHit: i == 0);
+            return $$"""<li role="option" data-value="{{p.ProductId}}" data-name="{{enc.Encode(p.Name)}}" data-track="true" data-default-location="{{p.DefaultLocationId}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: 'true', defaultUnitId: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+        }));
         return Content(html, "text/html");
     }
 

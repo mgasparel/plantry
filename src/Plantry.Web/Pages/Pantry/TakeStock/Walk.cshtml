@@ -1,8 +1,11 @@
 @page "/pantry/take-stock/{locationId:guid}"
 @model Plantry.Web.Pages.Pantry.TakeStock.WalkModel
 @using Plantry.Web.Pages.Shared
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @{
     ViewData["Title"] = Model.LocationName ?? "Take Stock";
+    var tsIslandSrc  = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, "/js/islands/take-stock.js");
+    var tsHelpersSrc = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, "/js/islands/helpers.js");
 }
 
 @* Island hydration payload — read by take-stock.js via readHydration('ts-walk-data'). *@
@@ -46,8 +49,8 @@
 
 @section Scripts {
     <script type="module">
-        import { mountTakeStockWalk } from '/js/islands/take-stock.js';
-        import { readHydration, readAntiforgeryToken } from '/js/islands/helpers.js';
+        const { mountTakeStockWalk }             = await import('@Html.Raw(tsIslandSrc)');
+        const { readHydration, readAntiforgeryToken } = await import('@Html.Raw(tsHelpersSrc)');
 
         const root         = document.getElementById('ts-walk-root');
         const rows         = readHydration('ts-walk-data');

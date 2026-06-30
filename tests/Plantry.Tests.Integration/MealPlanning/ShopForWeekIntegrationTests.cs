@@ -74,13 +74,17 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
 
         Assert.Equal(1, result.ItemsAdded);
 
-        // Reload shopping list from DB and assert item exists with source=meal_plan
+        // Reload shopping list from DB and assert item exists with source=meal_plan (contribution model)
         await using var shopCtx = NewShoppingDb();
-        var list = await shopCtx.ShoppingLists.Include(l => l.Items).FirstAsync();
+        var list = await shopCtx.ShoppingLists
+            .Include(l => l.Items)
+            .ThenInclude(i => i.Contributions)
+            .FirstAsync();
         var item = Assert.Single(list.Items);
         Assert.Equal(_productId, item.ProductId);
         Assert.Equal(1.5m, item.Quantity);
-        Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, item.Source);
+        var contrib = Assert.Single(item.Contributions);
+        Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, contrib.Source);
     }
 
     // ── L3-b: running ShopForWeek twice is idempotent (no duplicate lines, no inflated qty) ────
@@ -105,7 +109,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         // Verify first add wrote 1.5
         await using (var shopCtx = NewShoppingDb())
         {
-            var list = await shopCtx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await shopCtx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             var item = Assert.Single(list.Items);
             Assert.Equal(1.5m, item.Quantity);
         }
@@ -118,7 +122,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
 
         // Reload — must be exactly ONE row, with quantity = 1.5 (idempotent, not doubled to 3.0)
         await using var shopCtx2 = NewShoppingDb();
-        var list2 = await shopCtx2.ShoppingLists.Include(l => l.Items).FirstAsync();
+        var list2 = await shopCtx2.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
         var item2 = Assert.Single(list2.Items);  // NOT two rows
         Assert.Equal(1.5m, item2.Quantity);       // idempotent — not inflated to 3.0
     }
@@ -169,11 +173,16 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         Assert.Equal(1, result.ItemsAdded);
 
         await using var shopCtx = NewShoppingDb();
-        var list = await shopCtx.ShoppingLists.Include(l => l.Items).FirstAsync();
+        var list = await shopCtx.ShoppingLists
+            .Include(l => l.Items)
+            .ThenInclude(i => i.Contributions)
+            .FirstAsync();
         var item = Assert.Single(list.Items);
         Assert.Equal(_productId, item.ProductId);
         Assert.Equal(2m, item.Quantity); // all 2 servings needed (0 available)
-        Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, item.Source);
+        // Source is now on the contribution (plantry-9scq).
+        var contrib = Assert.Single(item.Contributions);
+        Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, contrib.Source);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

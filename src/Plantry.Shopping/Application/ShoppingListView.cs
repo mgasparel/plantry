@@ -34,7 +34,24 @@ public sealed record ShoppingListItemView(
     /// True when the pantry stock is at or below par (or zero). Null when <see cref="OnHand"/> is null.
     /// Shopping renders this as the "· low" warning sub-line.
     /// </summary>
-    bool? IsLow = null)
+    bool? IsLow = null,
+    /// <summary>
+    /// Resolved attribution labels for this item's contributions, rendered as the source sub-line on the board.
+    ///
+    /// <para>
+    /// Built by <see cref="ShoppingListQueryService"/> from the item's <c>Contributions</c> collection:
+    /// <list type="bullet">
+    ///   <item><description>Recipe contributions → "for {RecipeName}" (multiple distinct recipe names separated by " · ").</description></item>
+    ///   <item><description>A Recipe that appears more than once (distinct SourceRef, same name) → "for {RecipeName} ×N".</description></item>
+    ///   <item><description>Manual contributions → "added by you".</description></item>
+    ///   <item><description>MealPlan/Deal → omitted (future ports; no label yet).</description></item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>Empty when the item has no resolvable attribution (e.g. all contributions are MealPlan/Deal
+    /// which have no resolution port yet, or there are no contributions).</para>
+    /// </summary>
+    IReadOnlyList<string>? AttributionLabels = null)
 {
     /// <summary>Display label — product name or free-text, never null for a well-formed item.</summary>
     public string DisplayName => ProductName ?? FreeText ?? "(unnamed)";
@@ -44,6 +61,11 @@ public sealed record ShoppingListItemView(
     /// with a stock record in Inventory). Drives the .sl-instock sub-line visibility.
     /// </summary>
     public bool HasPantryStock => OnHand.HasValue;
+
+    /// <summary>
+    /// True when there are resolved attribution labels to render on the source sub-line.
+    /// </summary>
+    public bool HasAttribution => AttributionLabels is { Count: > 0 };
 }
 
 /// <summary>

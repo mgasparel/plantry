@@ -64,9 +64,15 @@ public sealed record CatalogProduct(
     bool IsParent,
     IReadOnlyList<Guid> VariantProductIds);
 
-/// <summary>A search hit for the ingredient editor's product picker.</summary>
+/// <summary>A search hit for the ingredient editor's product picker, with a fuzzy match score.</summary>
 public sealed record CatalogProductCandidate(
     Guid Id,
     string Name,
     bool TrackStock,
-    Guid DefaultUnitId);
+    Guid DefaultUnitId,
+    /// <summary>
+    /// Fuzzy match score in [0, 1] from <c>ProductNameMatcher</c>.
+    /// Used by the page model to emit ranking labels (<c>.rk</c>) in the search result
+    /// <c>&lt;li&gt;</c> markup. Defaults to 1.0 (perfect match) for callers that do not rank.
+    /// </summary>
+    double Score = 1.0);

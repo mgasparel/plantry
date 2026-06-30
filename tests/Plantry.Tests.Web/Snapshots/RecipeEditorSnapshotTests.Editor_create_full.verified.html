@@ -30,6 +30,7 @@
          draft: {},
          blankDraft() {
              return { ordinal: 0, productId: '', productName: '', qty: '', unitId: '',
+                 defaultUnitId: '', defaultUnitCode: '',
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '' };
          },
@@ -78,11 +79,45 @@
              row.productId = detail.value;
              row.productName = detail.name;
              row.isUntracked = detail.track === 'false';
-             if (row.isUntracked) { row.qty = ''; row.unitId = ''; }
-             else if (detail.defaultUnit) { row.unitId = detail.defaultUnit; }
+             if (row.isUntracked) { row.qty = ''; row.unitId = ''; row.defaultUnitId = ''; row.defaultUnitCode = ''; }
+             else if (detail.defaultUnit) { row.unitId = detail.defaultUnit; row.defaultUnitId = detail.defaultUnit; row.defaultUnitCode = detail.defaultUnitCode || ''; }
+             // Clear any stale conversion prompt when the product changes.
+             row.needsConversion = false; row.conversionFactor = '';
+         },
+         _convCheckTimer: null,
+         _triggerConversionCheck() {
+             clearTimeout(this._convCheckTimer);
+             const draft = this.draft;
+             if (!draft.productId || !draft.unitId || draft.isUntracked || draft.newStapleName !== null) {
+                 draft.needsConversion = false;
+                 return;
+             }
+             if (draft.unitId === draft.defaultUnitId) {
+                 draft.needsConversion = false;
+                 return;
+             }
+             this._convCheckTimer = setTimeout(async () => {
+                 const url = `/Recipes/New?handler=CheckConversion?productId=${encodeURIComponent(draft.productId)}&amp;fromUnitId=${encodeURIComponent(draft.unitId)}`;
+                 try {
+                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                     if (!res.ok) return;
+                     const data = await res.json();
+                     if (data.needsConversion) {
+                         draft.needsConversion = true;
+                         draft.defaultUnitId = data.defaultUnitId || draft.defaultUnitId;
+                         draft.defaultUnitCode = data.defaultUnitCode || draft.defaultUnitCode;
+                     } else {
+                         draft.needsConversion = false;
+                     }
+                 } catch (_) { /* network error — silently ignore, server backstop handles it */ }
+             }, 250);
          },
          showScaleOffer() { return !this.isCreate &amp;&amp; this.hasIngredients &amp;&amp; parseInt(this.servings) !== this.origServings; },
          isCreate: true,
+         init() {
+             this.$watch('draft.unitId', () => this._triggerConversionCheck());
+             this.$watch('draft.productId', () => { this.draft.needsConversion = false; this._triggerConversionCheck(); });
+         },
      }">
 	<form method="post" enctype="multipart/form-data" class="form-stack">
 		<div class="card">
@@ -197,13 +232,15 @@
 							</div>
 							<div x-show="row.needsConversion" class="ingredient-row__conversion" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
 								<p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
-									No conversion path found. Enter the factor from your chosen unit to the product's default unit:
+									No conversion path found. How much is 1
+									<span x-text="unitLabel(row.unitId)"></span>?
 								</p>
-								<div style="display:flex;align-items:center;gap:var(--space-2)">
-									<input type="number" class="field__input" step="any" min="0" placeholder="Conversion factor" x-model="row.conversionFactor" style="width:10rem">
-									<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">
-										× (your unit) = 1 × (product default unit)
-									</span>
+								<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
+									<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">1
+										<span x-text="unitLabel(row.unitId)"></span>
+										=</span>
+									<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="row.conversionFactor" style="width:8rem">
+									<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)" x-text="unitLabel(row.conversionToUnitId)"></span>
 								</div>
 							</div>
 						</div></template>
@@ -239,7 +276,7 @@
 									</ul>
 								</div>
 								<div x-show="!draft.productId" style="margin-top:var(--space-2)">
-									<button type="button" class="btn btn--ghost btn--sm" @click="draft.newStapleName = ''">
+									<button type="button" :class="open ? 'btn btn--ghost btn--sm' : 'btn btn--secondary btn--sm'" @click="draft.newStapleName = ''">
 										+ Create as staple (untracked)
 									</button>
 								</div>
@@ -280,6 +317,30 @@
 						</div>
 					</div>
 				</div>
+				<template x-if="draft.needsConversion"><div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)">
+						<p style="margin:0 0 var(--space-1);font-size:var(--font-size-sm)">
+							Plantry stocks
+							<strong x-text="draft.productName"></strong>
+							in
+							<strong x-text="draft.defaultUnitCode"></strong>.             How much is 1
+							<span x-text="unitLabel(draft.unitId)"></span>?
+						</p>
+						<div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);flex-wrap:wrap">
+							<span style="font-size:var(--font-size-sm)">1
+								<span x-text="unitLabel(draft.unitId)"></span>
+								=</span>
+							<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="draft.conversionFactor" style="width:8rem">
+							<span style="font-size:var(--font-size-sm)" x-text="draft.defaultUnitCode"></span>
+						</div>
+						<p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+							Saved to your catalog — you only set this once, and every future recipe reuses it.
+						</p>
+						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.conversionFactor = ''">
+							Measure in
+							<span x-text="draft.defaultUnitCode"></span>
+							instead
+						</button>
+					</div></template>
 				<div class="sheet__actions">
 					<button type="button" class="btn btn--primary" @click="saveSheet()" x-text="editingIdx === null ? 'Add' : 'Save'"></button>
 					<button type="button" class="btn btn--ghost" @click="closeSheet()">Cancel</button>

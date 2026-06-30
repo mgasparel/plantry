@@ -1,5 +1,6 @@
 using Plantry.Catalog.Domain;
 using Plantry.Recipes.Application;
+using Plantry.SharedKernel;
 
 namespace Plantry.Web.Recipes;
 
@@ -41,11 +42,23 @@ public sealed class CatalogProductReaderAdapter(IProductRepository products, IUn
     {
         if (string.IsNullOrWhiteSpace(nameQuery)) return [];
 
-        var query = nameQuery.Trim();
         var active = await products.ListActiveAsync(ct);
-        return active
-            .Where(p => p.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .Select(p => new CatalogProductCandidate(p.Id.Value, p.Name, p.TrackStock, p.DefaultUnitId.Value))
+
+        // Build a name→product map for lookup after ranking (names are unique within a household catalog).
+        var byName = active.ToDictionary(p => p.Name);
+
+        // Rank via the shared ProductNameMatcher (same algorithm as TakeStockReaderAdapter,
+        // so results are consistent wherever the _ProductSearchCreateSheet is used).
+        var hits = ProductNameMatcher.Rank(
+            active.Select(p => (p.Id.Value, p.Name)),
+            nameQuery.Trim());
+
+        return hits
+            .Select(h =>
+            {
+                var p = byName[h.Name];
+                return new CatalogProductCandidate(p.Id.Value, p.Name, p.TrackStock, p.DefaultUnitId.Value, h.Score);
+            })
             .ToList();
     }
 

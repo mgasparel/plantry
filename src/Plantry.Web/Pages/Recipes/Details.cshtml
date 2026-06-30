@@ -40,6 +40,7 @@
          servings: @recipe.DefaultServings,
          defaultServings: @recipe.DefaultServings,
          missingAdded: false,
+         allAdded: false,
          _fulfTimer: null,
          get scale() { return this.servings / this.defaultServings; },
          fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); },
@@ -207,8 +208,8 @@
                                  group-label="Servings"
                                  x-text="servings"
                                  display-fallback="@recipe.DefaultServings"
-                                 decrease-click="servings = Math.max(1, servings - 1); missingAdded = false; refreshFulfilment()"
-                                 increase-click="servings = Math.min(24, servings + 1); missingAdded = false; refreshFulfilment()"
+                                 decrease-click="servings = Math.max(1, servings - 1); missingAdded = false; allAdded = false; refreshFulfilment()"
+                                 increase-click="servings = Math.min(24, servings + 1); missingAdded = false; allAdded = false; refreshFulfilment()"
                                  decrease-disabled="servings <= 1"
                                  increase-disabled="servings >= 24"
                                  decrease-label="Fewer servings"

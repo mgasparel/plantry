@@ -344,6 +344,11 @@ builder.Services.AddScoped<IShoppingCatalogReader, ShoppingCatalogReaderAdapter>
 // item subline and search-dropdown stock hints.
 builder.Services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>();
 
+// Shopping → Recipes ACL adapter (plantry-26g). ShoppingRecipeReaderAdapter resolves recipe names
+// by id for the attribution sub-line on the shopping board. Shopping.Application never reads the
+// Recipes EF context directly (ADR-002).
+builder.Services.AddScoped<IShoppingRecipeReader, ShoppingRecipeReaderAdapter>();
+
 builder.Services.AddScoped<ShoppingListQueryService>();
 builder.Services.AddScoped<PantrySuggestionService>();
 
@@ -400,6 +405,11 @@ builder.Services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
 // Computes a fresh FulfillmentResult at the displayed servings, takes Missing lines (excluding untracked),
 // scales quantities, and calls IShoppingListWriter.AddItems(source=recipe, source_ref=recipeId).
 builder.Services.AddScoped<AddMissingToShoppingList>();
+
+// Add-all-ingredients-to-shopping-list application service (plantry-s1z).
+// Emits ALL tracked (quantity-bearing) ingredients for a recipe with Source=Recipe+SourceRef=recipeId.
+// Distinct from AddMissingToShoppingList — does not filter by stock level.
+builder.Services.AddScoped<AddIngredientsToShoppingList>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 

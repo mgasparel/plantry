@@ -6,6 +6,27 @@ using Plantry.Shopping.Domain;
 
 namespace Plantry.Tests.Unit.Shopping.Application;
 
+/// <summary>
+/// In-memory <see cref="IShoppingRecipeReader"/> for unit tests.
+/// Recipe names are registered per recipe id; unregistered ids are omitted from results.
+/// </summary>
+internal sealed class FakeShoppingRecipeReader : IShoppingRecipeReader
+{
+    private readonly Dictionary<Guid, string> _names = [];
+
+    public void RegisterRecipe(Guid recipeId, string name) =>
+        _names[recipeId] = name;
+
+    public Task<IReadOnlyDictionary<Guid, string>> GetRecipeNamesAsync(
+        IReadOnlyList<Guid> recipeIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, string> result = recipeIds
+            .Where(_names.ContainsKey)
+            .ToDictionary(id => id, id => _names[id]);
+        return Task.FromResult(result);
+    }
+}
+
 internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
 {
     public Guid? HouseholdId { get; } = householdId;

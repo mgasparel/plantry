@@ -300,6 +300,13 @@
         background + check icon). Clicking a button pre-selects the product in the drawer's
         searchable-select — nothing commits until the user clicks <em>Confirm item</em>.
     </p>
+    <p>
+        <strong>Related — Product search / create sheet:</strong> the <code>_ProductSearchCreateSheet</code>
+        control (see below) is the other member of this "match suggestion" family. Both use
+        <code>best</code>/<code>N%</code> labels via <code>.rk</code>, but they are deliberately separate
+        implementations: Intake's block shows AI-precomputed candidates unprompted; the sheet's ranked list
+        reacts as-you-type from the deterministic <code>ProductNameMatcher</code> fuzzy ranker.
+    </p>
     <div style="max-width: 36rem" x-data="{ sel: 'a' }">
         <div class="match-suggest">
             <div class="match-suggest__label">
@@ -892,6 +899,25 @@
         type a name and default unit when no match exists.
     </p>
     <p>
+        <strong>Fuzzy search + ranking (plantry-hl4a):</strong> the search endpoints backing this control
+        (<code>OnGetSearchProducts</code> on Recipes/Edit and Pantry/TakeStock/Walk) both run the shared
+        <code>ProductNameMatcher</code> ranker — tolerant of plurals, typos, and word-order differences.
+        Results appear as a ranked inline list: each <code>&lt;li&gt;</code> carries a
+        <code>&lt;span class="rk"&gt;</code> label (<code>best</code> for the top hit, <code>N%</code>
+        for the rest), using the same vocabulary as Intake's <code>.match-suggest</code> family.
+        The <code>+ Create …</code> button is <strong>demoted</strong> (ghost style) whenever the listbox
+        has results (score ≥ 0.70 cleared); it is full-strength only when nothing matches.
+    </p>
+    <p>
+        <strong>Relationship to <code>.match-suggest</code> (Intake):</strong> both surfaces belong to
+        the same "match suggestion" family — ranked results with <code>best</code>/<code>N%</code> labels
+        via <code>.rk</code> — but they use deliberately different mechanisms. Intake's
+        <code>AlternativesStrip</code> shows AI-precomputed candidates unprompted (hence a "Did you mean"
+        header); this control reacts as-you-type from a deterministic fuzzy ranker (no header needed). Do
+        NOT unify the implementations. Cross-reference: see the <em>Match suggest ("Did you mean")</em>
+        section on this page for the Intake family member.
+    </p>
+    <p>
         <strong>Alpine contract:</strong> the host page's <code>x-data</code> must expose
         <code>sheetOpen</code>, <code>editingIdx</code> (null = adding, number = editing),
         <code>draft</code> (working copy of the row), <code>closeSheet()</code>, <code>saveSheet()</code>,
@@ -911,7 +937,7 @@
         <strong>Parameters (<code>ProductSearchCreateSheetViewModel</code>):</strong>
     </p>
     <ul style="font-size:var(--font-size-sm)">
-        <li><code>SearchUrl</code> — htmx endpoint (<code>hx-get</code>) returning <code>&lt;li role="option"&gt;</code> markup.</li>
+        <li><code>SearchUrl</code> — htmx endpoint (<code>hx-get</code>) returning <code>&lt;li role="option"&gt;</code> markup with <code>.rk</code> ranking labels.</li>
         <li><code>UnitOptions</code> — units for the staple-create unit select and (when <code>TrackStock</code> is true) the ingredient unit select.</li>
         <li><code>TrackStock</code> — when true (Recipes), qty + unit fields appear for tracked products.
             When false (Take Stock inline-add) those fields are hidden; count lives in the extra-fields slot.</li>
@@ -952,7 +978,8 @@
          }">
         <button type="button" class="btn btn--secondary" @@click="openSheet()">Open sheet demo</button>
         <p x-show="!sheetOpen" style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-2) 0 0">
-            Click to open the shared sheet. Search for "milk" or "pasta".
+            Click to open the shared sheet. Fuzzy search: try "tomatos", "oat milks", "ched", or a query
+            that returns no matches to see the create button shift to full-strength.
         </p>
 
         <partial name="Shared/_ProductSearchCreateSheet"
@@ -976,6 +1003,14 @@ new ProductSearchCreateSheetViewModel
     CreateLabel           = ""Create as staple (untracked)"",// label for the inline-create button
     StapleNamePlaceholder = ""Staple name (e.g. Salt)"",     // placeholder in create-mode name input
 }
+
+// Search endpoints must return <li role=""option""> markup with .rk ranking labels:
+//   <li role=""option"" data-value=""{id}"" data-name=""{html-encoded name}""
+//       data-track=""true|false"" data-default-unit=""{unitId}""
+//       @click=""query = $el.dataset.name; open = false; $dispatch('pick-product', ...)"">
+//     {name}<span class=""rk"">best</span>   <!-- or: 87% -->
+//   </li>
+// Use ProductNameMatcher.RankLabel(score, isTopHit) to generate the label.
 
 // Host x-data must expose:
 //   sheetOpen, editingIdx, draft, closeSheet(), saveSheet(),
@@ -1353,7 +1388,16 @@ new ProductSearchCreateSheetViewModel
         </li>
     </ol>
 
-    <pre class="code-sample"><code>@(@"@* 1. Hydration payload — typed JSON, server-emitted *@
+    <pre class="code-sample"><code>@(@"@* At the top of the Razor page — inject IFileVersionProvider and version the entry module
+   and helpers.js. The version token is a content hash of the file bytes, so any change to
+   the entry module busts the browser cache automatically. *@
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@{
+    var myIslandSrc  = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, ""/js/islands/my-island.js"");
+    var myHelpersSrc = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, ""/js/islands/helpers.js"");
+}
+
+@* 1. Hydration payload — typed JSON, server-emitted *@
 <script type=""application/json"" id=""my-island-data"">@Html.Raw(Model.IslandJson)</script>
 
 @* 2. Antiforgery token (needed for mutation POSTs) *@
@@ -1362,11 +1406,11 @@ new ProductSearchCreateSheetViewModel
 @* 3. Mount point *@
 <div id=""my-island-root""></div>
 
-@* 4. Module script in @@section Scripts *@
+@* 4. Module script in @@section Scripts — use versioned paths from FileVersionProvider *@
 @section Scripts {
     <script type=""module"">
-        import { mountMyIsland } from '/js/islands/my-island.js';
-        import { readHydration, readAntiforgeryToken } from '/js/islands/helpers.js';
+        const { mountMyIsland }                   = await import('@Html.Raw(myIslandSrc)');
+        const { readHydration, readAntiforgeryToken } = await import('@Html.Raw(myHelpersSrc)');
 
         const root  = document.getElementById('my-island-root');
         const data  = readHydration('my-island-data');
@@ -1398,7 +1442,12 @@ new ProductSearchCreateSheetViewModel
     </ul>
 
     <pre class="code-sample"><code>@(@"// In your island file:
-import { h, render, html, signal, computed } from './runtime.js';
+// Note the ?v= query strings on transitive imports — these are the cache-busting
+// mechanism for modules not versioned by Razor's FileVersionProvider. Bump the
+// integer when the corresponding file changes (plantry-hxkf convention).
+import { h, render, html, signal, computed } from './runtime.js?v=1';
+// helpers.js is imported directly by the Razor page with FileVersionProvider, so
+// no ?v= token is needed here — it gets a content-hash URL automatically.
 import { readHydration, readAntiforgeryToken, postJson } from './helpers.js';
 
 // In the mount script:

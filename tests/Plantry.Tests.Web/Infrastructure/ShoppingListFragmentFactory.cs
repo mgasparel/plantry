@@ -18,6 +18,7 @@ namespace Plantry.Tests.Web.Infrastructure;
 ///   <item><see cref="IShoppingListRepository"/> — returns the fixture list.</item>
 ///   <item><see cref="IShoppingCatalogReader"/> — returns fixture product/unit data.</item>
 ///   <item><see cref="IShoppingPantryReader"/> — returns fixture pantry stock levels (plantry-juh).</item>
+///   <item><see cref="IShoppingRecipeReader"/> — returns empty recipe names (all fixture items are Manual-sourced; plantry-26g).</item>
 ///   <item><see cref="ShoppingListQueryService"/> — real service over the fakes above.</item>
 /// </list>
 /// No database is touched; rendered HTML is deterministic.
@@ -60,6 +61,11 @@ public sealed class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IShoppingPantryReader>(
                 new FakeShoppingPantryReaderForSnapshots(stockLevels));
 
+            // Shopping recipe reader: all fixture items are Manual-sourced so no recipe names
+            // are needed; the empty stub satisfies the DI requirement (plantry-26g).
+            services.RemoveAll<IShoppingRecipeReader>();
+            services.AddSingleton<IShoppingRecipeReader>(new FakeShoppingRecipeReaderForSnapshots());
+
             // Re-register ShoppingListQueryService and PantrySuggestionService so they pick up the fakes.
             services.RemoveAll<ShoppingListQueryService>();
             services.AddScoped<ShoppingListQueryService>();
@@ -67,6 +73,18 @@ public sealed class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             services.AddScoped<PantrySuggestionService>();
         });
     }
+}
+
+/// <summary>
+/// Stub <see cref="IShoppingRecipeReader"/> for the Shopping L4 snapshot tests.
+/// All fixture items are Manual-sourced so no recipe name resolution is needed;
+/// this stub satisfies the DI requirement without performing any lookup (plantry-26g).
+/// </summary>
+internal sealed class FakeShoppingRecipeReaderForSnapshots : IShoppingRecipeReader
+{
+    public Task<IReadOnlyDictionary<Guid, string>> GetRecipeNamesAsync(
+        IReadOnlyList<Guid> recipeIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 }
 
 /// <summary>

@@ -1,8 +1,11 @@
 @page "{id:guid}"
 @model Plantry.Web.Pages.Intake.ReviewModel
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @{
     ViewData["Title"] = "Review import";
     ViewData["ContentClass"] = "page-content--fluid";
+    var irIslandSrc  = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, "/js/islands/intake-review.js");
+    var irHelpersSrc = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, "/js/islands/helpers.js");
 }
 
 @* Island hydration payload — read by intake-review.js via readHydration('review-island-data').
@@ -20,8 +23,8 @@
 
 @section Scripts {
     <script type="module">
-        import { mountIntakeReview } from '/js/islands/intake-review.js';
-        import { readHydration } from '/js/islands/helpers.js';
+        const { mountIntakeReview } = await import('@Html.Raw(irIslandSrc)');
+        const { readHydration }     = await import('@Html.Raw(irHelpersSrc)');
 
         const root = document.getElementById('review-island-root');
         const hydration = readHydration('review-island-data');

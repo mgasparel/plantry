@@ -50,9 +50,15 @@
                 <span class="free-tag">custom</span>
             }
         </div>
-        @if (!item.IsChecked && (hasNote || item.HasPantryStock))
+        @{
+            var showSubLine = !item.IsChecked && (hasNote || item.HasPantryStock || item.HasAttribution);
+            // Tracks whether any sub-line peer has been rendered so we know when to emit a dot separator.
+            bool subLineHasPeer = false;
+        }
+        @if (showSubLine)
         {
             <div class="sl-sub">
+                @* Pantry stock sub-line peer *@
                 @if (item.HasPantryStock)
                 {
                     if (item.OnHand > 0)
@@ -68,13 +74,28 @@
                         <span class="dot" aria-hidden="true"></span>
                         <span class="sl-low">low</span>
                     }
+                    subLineHasPeer = true;
                 }
-                @if (hasNote && item.HasPantryStock)
+                @* Attribution sub-line peers: "for {Recipe}" / "for {Recipe} ×N" / "added by you" *@
+                @if (item.HasAttribution)
                 {
-                    <span class="dot" aria-hidden="true"></span>
+                    @foreach (var label in item.AttributionLabels!)
+                    {
+                        if (subLineHasPeer)
+                        {
+                            <span class="dot" aria-hidden="true"></span>
+                        }
+                        <span class="sl-attribution">@label</span>
+                        subLineHasPeer = true;
+                    }
                 }
+                @* Note sub-line peer *@
                 @if (hasNote)
                 {
+                    if (subLineHasPeer)
+                    {
+                        <span class="dot" aria-hidden="true"></span>
+                    }
                     <span class="sl-note">
                         <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
                         @item.Note

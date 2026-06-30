@@ -10,6 +10,8 @@ namespace Plantry.Shopping.Application;
 /// unit code) resolved via <see cref="IShoppingCatalogReader"/> — a cross-context anti-corruption
 /// port implemented by the Web adapter layer. Pantry on-hand quantities and low flags are enriched
 /// via <see cref="IShoppingPantryReader"/> (the Shopping→Inventory ACL port) for product-backed items.
+/// Recipe names for attribution labels are resolved via <see cref="IShoppingRecipeReader"/>
+/// (the Shopping→Recipes ACL port, plantry-26g).
 ///
 /// <para>Ordering: unchecked items first (ordered by <c>created_at</c> ascending), checked items
 /// last (ordered by <c>checked_at</c> ascending, i.e. most-recently-checked last). This gives a
@@ -22,6 +24,7 @@ public sealed class ShoppingListQueryService(
     IShoppingListRepository repository,
     IShoppingCatalogReader catalog,
     IShoppingPantryReader pantry,
+    IShoppingRecipeReader recipes,
     ITenantContext tenant)
 {
     private const string UncategorizedBucket = "Uncategorized";
@@ -81,9 +84,22 @@ public sealed class ShoppingListQueryService(
             ? await pantry.GetStockLevelsAsync(productIds, ct)
             : (IReadOnlyDictionary<Guid, ShoppingPantryStockLevel>)new Dictionary<Guid, ShoppingPantryStockLevel>();
 
+        // Resolve recipe names for Recipe-source contributions via the Shopping→Recipes ACL port (plantry-26g).
+        // Collect all distinct Recipe SourceRef values across all items' contributions.
+        var recipeSourceRefs = list.Items
+            .SelectMany(i => i.Contributions)
+            .Where(c => c.Source == ItemSource.Recipe && c.SourceRef.HasValue)
+            .Select(c => c.SourceRef!.Value)
+            .Distinct()
+            .ToList();
+
+        var recipeNames = recipeSourceRefs.Count > 0
+            ? await recipes.GetRecipeNamesAsync(recipeSourceRefs, ct)
+            : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
+
         // Map all items to view models.
         var itemViews = list.Items
-            .Select(i => MapItem(i, summaries, unitCodes, stockLevels, itemCategories))
+            .Select(i => MapItem(i, summaries, unitCodes, stockLevels, itemCategories, recipeNames))
             .ToList();
 
         // Partition: checked items sink to the bottom (SPEC §3c). Only unchecked items
@@ -134,7 +150,8 @@ public sealed class ShoppingListQueryService(
         IReadOnlyDictionary<Guid, ShoppingProductSummary> summaries,
         IReadOnlyDictionary<Guid, string> unitCodes,
         IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> stockLevels,
-        IReadOnlyDictionary<Guid, ShoppingCategoryOption> itemCategories)
+        IReadOnlyDictionary<Guid, ShoppingCategoryOption> itemCategories,
+        IReadOnlyDictionary<Guid, string> recipeNames)
     {
         string? productName = null;
         string? categoryName = null;
@@ -171,6 +188,9 @@ public sealed class ShoppingListQueryService(
             isLow = stock.IsLow;
         }
 
+        // Build attribution labels from contributions (plantry-26g).
+        var attributionLabels = BuildAttributionLabels(item.Contributions, recipeNames);
+
         return new ShoppingListItemView(
             ItemId: item.Id.Value,
             ListId: item.ShoppingListId.Value,
@@ -188,6 +208,75 @@ public sealed class ShoppingListQueryService(
             CreatedAt: item.CreatedAt,
             OnHand: onHand,
             PantryUnitCode: pantryUnitCode,
-            IsLow: isLow);
+            IsLow: isLow,
+            AttributionLabels: attributionLabels);
+    }
+
+    /// <summary>
+    /// Builds the ordered list of attribution label strings for an item's contributions (plantry-26g).
+    ///
+    /// <para>
+    /// Rules (per design session 2026-06-30):
+    /// <list type="bullet">
+    ///   <item><description>Recipe contributions: group by resolved recipe name (de-duplication by name),
+    ///     count distinct SourceRef values per name. Emit "for {Name}" when count=1, "for {Name} ×N" when count>1.
+    ///     Ordered by first-seen position for stable rendering.</description></item>
+    ///   <item><description>Manual contributions: emit "added by you" (always exactly once, regardless of how
+    ///     many manual contributions exist — currently at most one per domain model).</description></item>
+    ///   <item><description>MealPlan/Deal: omitted (no resolution port yet; additive when future ports land).</description></item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>Returns an empty list when no resolvable attribution exists.</para>
+    /// </summary>
+    private static IReadOnlyList<string> BuildAttributionLabels(
+        IReadOnlyList<ShoppingListItemContribution> contributions,
+        IReadOnlyDictionary<Guid, string> recipeNames)
+    {
+        var labels = new List<string>();
+
+        // ── Recipe contributions ──────────────────────────────────────────────
+        // Group by resolved recipe name (deduped by name, not by SourceRef).
+        // Each distinct (SourceRef, resolvedName) pair represents one contribution.
+        // We count the number of distinct SourceRefs that map to the same name.
+        var recipeContributions = contributions
+            .Where(c => c.Source == ItemSource.Recipe && c.SourceRef.HasValue)
+            .ToList();
+
+        if (recipeContributions.Count > 0)
+        {
+            // Build (name, count of distinct SourceRefs) pairs, preserving first-seen order of names.
+            var nameOrder = new List<string>();
+            var nameToRefCount = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            foreach (var c in recipeContributions)
+            {
+                if (!recipeNames.TryGetValue(c.SourceRef!.Value, out var name))
+                    continue; // recipe deleted or not found — skip
+
+                if (!nameToRefCount.ContainsKey(name))
+                {
+                    nameOrder.Add(name);
+                    nameToRefCount[name] = 0;
+                }
+                nameToRefCount[name]++;
+            }
+
+            foreach (var name in nameOrder)
+            {
+                var count = nameToRefCount[name];
+                labels.Add(count > 1 ? $"for {name} ×{count}" : $"for {name}");
+            }
+        }
+
+        // ── Manual contributions ──────────────────────────────────────────────
+        if (contributions.Any(c => c.Source == ItemSource.Manual))
+        {
+            labels.Add("added by you");
+        }
+
+        // MealPlan / Deal: no port yet — not emitted; additive when future ports land.
+
+        return labels;
     }
 }

@@ -93,8 +93,18 @@
                                 x-show="open" x-cloak style="display:none">
                             </ul>
                         </div>
+                        @*
+                            Create button is confidence-driven per the design (plantry-hl4a §3):
+                            demoted (btn--ghost) when matches are showing (open = true, meaning the
+                            listbox has results above the 0.70 cutoff) — steering the user toward an
+                            existing product. Full strength (btn--primary ghost style not used here;
+                            btn--secondary is the "available but not primary" style) only when nothing
+                            clears the threshold (open = false). The btn--ghost class already carries
+                            the de-emphasized styling; no new CSS class is needed.
+                        *@
                         <div x-show="!draft.productId" style="margin-top:var(--space-2)">
-                            <button type="button" class="btn btn--ghost btn--sm"
+                            <button type="button"
+                                    :class="open ? 'btn btn--ghost btn--sm' : 'btn btn--secondary btn--sm'"
                                     @@click="draft.newStapleName = ''">
                                 + @Model.CreateLabel
                             </button>

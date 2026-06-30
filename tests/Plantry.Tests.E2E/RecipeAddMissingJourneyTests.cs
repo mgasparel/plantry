@@ -166,8 +166,10 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
         await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            @"SELECT COUNT(*) FROM shopping.shopping_list_item
-              WHERE product_id = @p AND source = 'recipe'",
+            @"SELECT COUNT(*) FROM shopping.shopping_list_item i
+              JOIN shopping.shopping_list_item_contribution c
+                ON c.shopping_list_item_id = i.shopping_list_item_id
+              WHERE i.product_id = @p AND c.source = 'recipe'",
             conn);
         cmd.Parameters.AddWithValue("@p", productId);
         var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());

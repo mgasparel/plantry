@@ -227,28 +227,30 @@ public sealed class TakeStockReaderAdapter(
         var allProducts = await products.ListActiveAsync(ct);
         var unitCodesById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
 
-        var normalizedQuery = query.Trim();
-
-        // Only tracked, non-parent products.
+        // Only tracked, non-parent products (CanHoldStock = true).
         var candidates = allProducts.Where(p => p.CanHoldStock).ToList();
 
-        // Exact match first, then contains, ordered alphabetically within each bucket.
-        var exact = candidates
-            .Where(p => p.Name.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase);
+        // Build a name→product map for lookup after ranking.
+        var byName = candidates.ToDictionary(p => p.Name);
 
-        var contains = candidates
-            .Where(p => !p.Name.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase)
-                     && p.Name.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase);
+        // Rank via the shared ProductNameMatcher (same algorithm as CatalogProductReaderAdapter,
+        // so results are consistent wherever the _ProductSearchCreateSheet is used).
+        var hits = ProductNameMatcher.Rank(
+            candidates.Select(p => (p.Id.Value, p.Name)),
+            query.Trim());
 
-        return exact.Concat(contains)
-            .Select(p => new TakeStockProductMatch(
-                p.Id.Value,
-                p.Name,
-                unitCodesById.GetValueOrDefault(p.DefaultUnitId.Value, "?"),
-                p.DefaultLocationId?.Value ?? Guid.Empty,
-                p.DefaultUnitId.Value))
+        return hits
+            .Select(h =>
+            {
+                var p = byName[h.Name];
+                return new TakeStockProductMatch(
+                    p.Id.Value,
+                    p.Name,
+                    unitCodesById.GetValueOrDefault(p.DefaultUnitId.Value, "?"),
+                    p.DefaultLocationId?.Value ?? Guid.Empty,
+                    p.DefaultUnitId.Value,
+                    h.Score);
+            })
             .ToList();
     }
 

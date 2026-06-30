@@ -1,4 +1,5 @@
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -33,7 +34,8 @@ public sealed class EditModel(
     ITagRepository tags,
     ICatalogProductReader products,
     IClock clock,
-    AuthorRecipe authorRecipe) : PageModel
+    AuthorRecipe authorRecipe,
+    IUnitConverter unitConverter) : PageModel
 {
     // ── Route ────────────────────────────────────────────────────────────────────
 
@@ -159,13 +161,69 @@ public sealed class EditModel(
 
         var hits = await products.SearchAsync(q.Trim(), ct);
         var enc = HtmlEncoder.Default;
-        // The <li> dispatches a custom Alpine event carrying all product data. The surrounding
-        // .ingredient-row catches 'pick-product' and calls selectProduct(row, $event.detail)
+
+        // Resolve default unit codes in one batch so the pick-product event can carry
+        // defaultUnitCode alongside defaultUnit, enabling the in-sheet conversion prompt
+        // to display the unit label (e.g. "g") without an extra round-trip.
+        var defaultUnitIds = hits.Select(p => p.DefaultUnitId).Distinct().ToList();
+        var unitCodes = defaultUnitIds.Count > 0
+            ? await products.ResolveUnitCodesAsync(defaultUnitIds, ct)
+            : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
+
+        // Emit ranked <li> markup. The ranking label (.rk span) mirrors Intake's AlternativesStrip
+        // vocabulary (best / N%) for cross-feature consistency per the design (plantry-hl4a §3).
+        // The product name is stored in data-name so the click handler can set query = data-name
+        // rather than textContent (which would include the .rk label text).
+        // The surrounding .ingredient-row catches 'pick-product' and calls selectProduct(row, $event.detail)
         // with access to the current x-for 'row' scope — avoids the nested x-data scope conflict
         // that would occur with a single-arg $el approach.
-        var html = string.Join("", hits.Select(p =>
-            $$"""<li role="option" data-value="{{p.Id}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}</li>"""));
+        var html = string.Join("", hits.Select((p, i) =>
+        {
+            var label = ProductNameMatcher.RankLabel(p.Score, isTopHit: i == 0);
+            var unitCode = unitCodes.GetValueOrDefault(p.DefaultUnitId, "");
+            return $$"""<li role="option" data-value="{{p.Id}}" data-name="{{enc.Encode(p.Name)}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" data-default-unit-code="{{enc.Encode(unitCode)}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit, defaultUnitCode: $el.dataset.defaultUnitCode})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+        }));
         return Content(html, "text/html");
+    }
+
+    // ── Conversion-gap check (live C10 pre-check) ────────────────────────────────
+
+    /// <summary>
+    /// Lightweight GET called by the Alpine <c>$watch</c> when the author picks a unit inside the add/edit
+    /// ingredient sheet. Returns whether a conversion path exists from <paramref name="fromUnitId"/> to the
+    /// product's default unit. Used to surface the in-sheet conversion prompt (C10 early UX) before the form
+    /// is submitted — the authoritative R7 check at POST time is unchanged.
+    ///
+    /// <para>Same-dimension pairs (e.g. g → kg) resolve via universal conversions and return
+    /// <c>needsConversion:false</c>. Cross-dimension or density gaps return <c>needsConversion:true</c>
+    /// with the product's default unit id and code so the client can render the prompt correctly.</para>
+    /// </summary>
+    public async Task<IActionResult> OnGetCheckConversionAsync(Guid productId, Guid fromUnitId, CancellationToken ct)
+    {
+        var product = await products.FindAsync(productId, ct);
+        if (product is null)
+            return new JsonResult(new { needsConversion = false });
+
+        var defaultUnitId = product.DefaultUnitId;
+
+        // Same unit — no conversion needed (shortcut before calling the converter).
+        if (fromUnitId == defaultUnitId)
+            return new JsonResult(new { needsConversion = false });
+
+        var path = await unitConverter.ConvertAsync(productId, 1m, fromUnitId, defaultUnitId, ct);
+        if (path.IsSuccess)
+            return new JsonResult(new { needsConversion = false });
+
+        // No path — resolve the default unit code for the prompt display.
+        var allUnits = await products.ListUnitsAsync(ct);
+        var defaultUnitCode = allUnits.FirstOrDefault(u => u.Id == defaultUnitId)?.Code ?? "";
+
+        return new JsonResult(new
+        {
+            needsConversion = true,
+            defaultUnitId = defaultUnitId.ToString(),
+            defaultUnitCode,
+        });
     }
 
     // ── POST — main save ─────────────────────────────────────────────────────────
@@ -176,7 +234,7 @@ public sealed class EditModel(
 
         // ProductName and TagNames are not posted (display-only fields omitted from hidden inputs).
         // Repopulate them here so any Page() re-render has the ingredient names and tag chips intact.
-        RestoreTagNames();
+        await RestoreTagNamesAsync(ct);
 
         if (!ModelState.IsValid)
             return Page();
@@ -303,13 +361,35 @@ public sealed class EditModel(
 
     /// <summary>
     /// Repopulates <see cref="RecipeEditInput.TagNames"/> from the already-loaded <see cref="TagOptions"/>
-    /// after a POST. Tag names are display-only and are not posted with the form (only <see cref="RecipeEditInput.TagIds"/>
+    /// after a POST, falling back to <see cref="ITagRepository.ResolveNamesAsync"/> for any archived
+    /// applied tags not present in the active-only <see cref="TagOptions"/> set.
+    ///
+    /// <para>Tag names are display-only and are not posted with the form (only <see cref="RecipeEditInput.TagIds"/>
     /// are). Without this, the re-rendered page serialises an empty TagNames list and the Alpine chip
-    /// state loses all tag display labels, blanking the chips in the editor.
+    /// state loses all tag display labels, blanking the chips in the editor. Archived applied tags
+    /// would degrade to a truncated GUID stub if resolved only from the active-only picker list.</para>
+    ///
+    /// <para>Mirrors the GET pre-population at lines 100–106 which uses <see cref="ITagRepository.ResolveNamesAsync"/>
+    /// (archived tags included) for the same id→name resolution.</para>
     /// </summary>
-    private void RestoreTagNames()
+    private async Task RestoreTagNamesAsync(CancellationToken ct)
     {
         var nameDict = TagOptions.ToDictionary(o => Guid.Parse(o.Value), o => o.Text);
+
+        // Collect any applied tag ids that are not in the active-only TagOptions (i.e. archived tags).
+        var missingIds = Input.TagIds
+            .Where(id => !nameDict.ContainsKey(id))
+            .Select(id => new TagId(id))
+            .ToList();
+
+        if (missingIds.Count > 0)
+        {
+            // ResolveNamesAsync includes archived tags — mirrors the GET pre-population path.
+            var archivedNames = await tags.ResolveNamesAsync(missingIds, ct);
+            foreach (var (tagId, name) in archivedNames)
+                nameDict[tagId.Value] = name;
+        }
+
         Input.TagNames = Input.TagIds
             .Select(id => nameDict.GetValueOrDefault(id) ?? id.ToString("N")[..8])
             .ToList();

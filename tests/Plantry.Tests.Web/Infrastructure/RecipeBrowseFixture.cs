@@ -160,6 +160,16 @@ public sealed class FakeBrowseRecipeRepository(ITenantContext tenant, IReadOnlyL
 
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(recipes.Any(r => r.HouseholdId == householdId && r.ArchivedAt == null));
+
+    public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
+        IReadOnlyList<RecipeId> ids, CancellationToken ct = default)
+    {
+        var wanted = ids.ToHashSet();
+        IReadOnlyDictionary<RecipeId, string> result = recipes
+            .Where(r => wanted.Contains(r.Id) && r.ArchivedAt == null)
+            .ToDictionary(r => r.Id, r => r.Name);
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>

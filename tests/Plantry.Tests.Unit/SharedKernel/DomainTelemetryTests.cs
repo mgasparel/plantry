@@ -577,6 +577,9 @@ internal sealed class MetricsTestRecipeRepository : IRecipeRepository
         Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(Items.Any(r => r.HouseholdId == householdId));
+    public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
+        IReadOnlyList<RecipeId> ids, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<RecipeId, string>>(new Dictionary<RecipeId, string>());
 }
 
 internal sealed class MetricsTestCookEventRepository : ICookEventRepository

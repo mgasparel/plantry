@@ -61,7 +61,7 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
         // Reload and assert one row with qty = 2
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);
             Assert.Equal(2m, list.Items[0].Quantity);
         }
@@ -81,7 +81,7 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
         // Reload and confirm still one row with qty = 5 (topped up, not stacked)
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);               // NOT two rows
             Assert.Equal(5m, list.Items[0].Quantity); // topped up to shortfall, not 2+5=7
         }
@@ -104,7 +104,7 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
         // Reload and assert qty = 3
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);
             Assert.Equal(3m, list.Items[0].Quantity);
         }
@@ -123,7 +123,7 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
         // Reload and confirm still one row with qty = 3 (unchanged)
         await using (var ctx = NewShoppingDb())
         {
-            var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();
+            var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);
             Assert.Equal(3m, list.Items[0].Quantity); // idempotent — not doubled to 6
         }

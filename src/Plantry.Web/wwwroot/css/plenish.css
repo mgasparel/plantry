@@ -622,6 +622,11 @@ button { font-family: inherit; cursor: pointer; }
   font-size: var(--font-size-sm);
   color: var(--color-text);
   cursor: pointer;
+  /* Flex layout so the .rk rank label floats to the right of the product name. */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .searchable-select__listbox li:hover,

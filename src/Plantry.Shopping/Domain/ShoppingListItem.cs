@@ -8,9 +8,20 @@ namespace Plantry.Shopping.Domain;
 /// Invariant: exactly one of <see cref="ProductId"/> / <see cref="FreeText"/> is non-null
 /// (enforced by the domain factory and by CHECK num_nonnulls(product_id, free_text) = 1 in the DB).
 /// Mutable working state — items are edited in place and hard-deleted on clear (shopping.md, resolved call 2).
+///
+/// <para>
+/// <b>Per-source contribution model (plantry-9scq):</b> the item holds a collection of
+/// <see cref="ShoppingListItemContribution"/> children, one per distinct (Source, SourceRef) pair.
+/// <see cref="Quantity"/> is derived as the SUM of all contributions; it is not stored independently.
+/// <see cref="UnitId"/> is the canonical unit shared by all contributions on this item row;
+/// unit-incompatible adds produce a separate item row rather than mixing incompatible quantities.
+/// </para>
 /// </summary>
 public sealed class ShoppingListItem : Entity<ShoppingListItemId>
 {
+    // Backing field for the contribution collection — wired via EF PropertyAccessMode.Field.
+    private readonly List<ShoppingListItemContribution> _contributions = [];
+
     // EF constructor
     private ShoppingListItem() { }
 
@@ -20,11 +31,8 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
         ShoppingListId shoppingListId,
         Guid? productId,
         string? freeText,
-        decimal? quantity,
         Guid? unitId,
         string? note,
-        ItemSource source,
-        Guid? sourceRef,
         DateTimeOffset createdAt)
     {
         Id = id;
@@ -32,11 +40,8 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
         ShoppingListId = shoppingListId;
         ProductId = productId;
         FreeText = freeText;
-        Quantity = quantity;
         UnitId = unitId;
         Note = note;
-        Source = source;
-        SourceRef = sourceRef;
         CreatedAt = createdAt;
         UpdatedAt = createdAt;
     }
@@ -50,9 +55,20 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     /// <summary>For non-catalog items. Null when ProductId is set.</summary>
     public string? FreeText { get; private set; }
 
-    public decimal? Quantity { get; private set; }
+    /// <summary>
+    /// Derived total quantity: sum of all contribution quantities.
+    /// Returns null when no contribution has a quantity set.
+    /// This value is NOT stored — it is always computed from <see cref="Contributions"/>.
+    /// </summary>
+    public decimal? Quantity => _contributions.Any(c => c.Quantity.HasValue)
+        ? _contributions.Sum(c => c.Quantity ?? 0m)
+        : (decimal?)null;
 
-    /// <summary>Soft ref → catalog.unit.</summary>
+    /// <summary>
+    /// Canonical unit shared by all contributions on this item row.
+    /// Soft ref → catalog.unit. Null when unitless.
+    /// All contributions must be expressed in this unit so the sum is meaningful.
+    /// </summary>
     public Guid? UnitId { get; private set; }
 
     public string? Note { get; private set; }
@@ -70,28 +86,24 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     /// </summary>
     public Guid? CategoryId { get; private set; }
 
-    public ItemSource Source { get; private set; }
-
-    /// <summary>Soft ref to the originating recipe / meal_plan / deal.</summary>
-    public Guid? SourceRef { get; private set; }
-
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
     public bool IsChecked => CheckedAt.HasValue;
 
+    /// <summary>Per-source quantity contributions that sum to <see cref="Quantity"/>.</summary>
+    public IReadOnlyList<ShoppingListItemContribution> Contributions => _contributions.AsReadOnly();
+
     /// <summary>
-    /// Creates a new catalog-backed item (exactly one of productId / freeText: productId path).
+    /// Creates a new catalog-backed item (productId path) with no contributions yet.
+    /// The caller must immediately follow up with <see cref="UpsertContribution"/> to record the first source.
     /// </summary>
     internal static ShoppingListItem ForProduct(
         HouseholdId householdId,
         ShoppingListId shoppingListId,
         Guid productId,
-        decimal? quantity,
         Guid? unitId,
         string? note,
-        ItemSource source,
-        Guid? sourceRef,
         IClock clock)
     {
         return new ShoppingListItem(
@@ -100,16 +112,14 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
             shoppingListId,
             productId: productId,
             freeText: null,
-            quantity: quantity,
             unitId: unitId,
             note: note,
-            source: source,
-            sourceRef: sourceRef,
             createdAt: clock.UtcNow);
     }
 
     /// <summary>
-    /// Creates a new free-text item (exactly one of productId / freeText: freeText path).
+    /// Creates a new free-text item (freeText path) with a single Manual contribution seeded immediately.
+    /// Free-text items are always inserted unconditionally (no per-source merge).
     /// </summary>
     internal static ShoppingListItem ForFreeText(
         HouseholdId householdId,
@@ -123,19 +133,75 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
         if (string.IsNullOrWhiteSpace(freeText))
             throw new ArgumentException("FreeText may not be blank.", nameof(freeText));
 
-        return new ShoppingListItem(
+        var item = new ShoppingListItem(
             ShoppingListItemId.New(),
             householdId,
             shoppingListId,
             productId: null,
             freeText: freeText,
-            quantity: quantity,
             unitId: unitId,
             note: note,
-            source: ItemSource.Manual,
-            sourceRef: null,
             createdAt: clock.UtcNow);
+
+        // Free-text items always have exactly one Manual contribution.
+        item._contributions.Add(ShoppingListItemContribution.Create(item.Id, ItemSource.Manual, null, quantity, unitId));
+        return item;
     }
+
+    /// <summary>
+    /// Upserts a per-source contribution using (Source, SourceRef) as the match key (plantry-9scq).
+    ///
+    /// <para><b>New key</b> (no existing contribution matches): add a new contribution.</para>
+    /// <para><b>Existing key</b>: top up that contribution by <paramref name="delta"/>
+    ///   = max(0, incoming − that source's current quantity).
+    ///   A delta of zero or negative is a no-op (need already covered).</para>
+    ///
+    /// <para>
+    /// SourceRef idempotency rule (per design):
+    /// Manual → SourceRef = null → one bucket per product row (re-add tops up).
+    /// Recipe (ad-hoc) → SourceRef = recipeId → re-add same recipe is idempotent.
+    /// MealPlan → SourceRef = entry/slot id (NOT recipeId) → same recipe on Mon+Thu = two distinct contributions that SUM.
+    /// </para>
+    ///
+    /// Called exclusively by <see cref="ShoppingList.UpsertContribution"/>.
+    /// </summary>
+    /// <returns>True if a new contribution was added; false if an existing one was topped up.</returns>
+    internal bool UpsertContribution(
+        ItemSource source,
+        Guid? sourceRef,
+        decimal? delta,
+        Guid? incomingUnitId,
+        IClock clock)
+    {
+        var existing = FindContribution(source, sourceRef);
+        if (existing is null)
+        {
+            // New (Source, SourceRef) pair — add a fresh contribution.
+            var contribution = ShoppingListItemContribution.Create(Id, source, sourceRef, delta, incomingUnitId);
+            _contributions.Add(contribution);
+
+            // Adopt canonical unit if not yet set.
+            if (incomingUnitId.HasValue && UnitId is null)
+                UnitId = incomingUnitId;
+
+            UpdatedAt = clock.UtcNow;
+            return true;
+        }
+
+        // Existing key — top up only if there is a positive delta.
+        if (delta.HasValue && delta.Value > 0m)
+        {
+            existing.TopUp(delta.Value, incomingUnitId);
+            UpdatedAt = clock.UtcNow;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Finds the contribution for a given (Source, SourceRef) pair.
+    /// </summary>
+    internal ShoppingListItemContribution? FindContribution(ItemSource source, Guid? sourceRef) =>
+        _contributions.FirstOrDefault(c => c.Source == source && c.SourceRef == sourceRef);
 
     /// <summary>
     /// Sets CheckedAt and CheckedBy. Idempotent if already checked (re-stamps the time).
@@ -159,37 +225,27 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     }
 
     /// <summary>
-    /// Increments the quantity of this item by <paramref name="delta"/> (the reconcile delta
-    /// computed by the caller as <c>max(0, shortfall − alreadyOnList)</c>).
-    /// When <paramref name="delta"/> is non-null: adds to Quantity when present, sets it when null.
-    /// When <paramref name="delta"/> is null: quantity unchanged.
-    /// Also adopts the incoming unitId if provided and the current item has none.
-    /// Called exclusively by <see cref="ShoppingList.MergeItem"/> (plantry-wxho / shopping.md resolved call 5).
-    /// </summary>
-    internal void MergeFrom(decimal? delta, Guid? incomingUnitId, IClock clock)
-    {
-        if (delta.HasValue)
-        {
-            Quantity = Quantity.HasValue
-                ? Quantity.Value + delta.Value
-                : delta.Value;
-        }
-
-        if (incomingUnitId.HasValue && UnitId is null)
-            UnitId = incomingUnitId;
-
-        UpdatedAt = clock.UtcNow;
-    }
-
-    /// <summary>
-    /// Sets the quantity and unit on the item (inline qty/unit editor, plantry-dem).
+    /// Directly sets the quantity and unit on the Manual contribution (inline qty/unit editor, plantry-dem).
     /// Quantity may be null (clears the quantity). UnitId may be null (no unit).
+    /// If no Manual contribution exists, one is created.
+    /// This replaces (not adds to) the Manual bucket's quantity — it is a direct user edit, not a top-up.
     /// Called exclusively by <see cref="ShoppingList.EditItemQuantity"/>.
     /// </summary>
     internal void EditQuantity(decimal? quantity, Guid? unitId, IClock clock)
     {
-        Quantity = quantity;
+        // Update the item's canonical unit (all contributions share this).
         UnitId = unitId;
+
+        var manual = FindContribution(ItemSource.Manual, null);
+        if (manual is null)
+        {
+            _contributions.Add(ShoppingListItemContribution.Create(Id, ItemSource.Manual, null, quantity, unitId));
+        }
+        else
+        {
+            manual.ReplaceQuantity(quantity, unitId);
+        }
+
         UpdatedAt = clock.UtcNow;
     }
 

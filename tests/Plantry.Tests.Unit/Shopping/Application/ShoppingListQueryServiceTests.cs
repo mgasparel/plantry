@@ -27,12 +27,14 @@ public sealed class ShoppingListQueryServiceTests
     private ShoppingListQueryService BuildService(
         FakeShoppingListRepository repo,
         FakeShoppingCatalogReaderWithSummaries catalog,
-        FakeShoppingPantryReader? pantryReader = null)
+        FakeShoppingPantryReader? pantryReader = null,
+        FakeShoppingRecipeReader? recipeReader = null)
     {
         return new ShoppingListQueryService(
             repo,
             catalog,
             pantryReader ?? new FakeShoppingPantryReader(),
+            recipeReader ?? new FakeShoppingRecipeReader(),
             new FakeTenantContext(_household));
     }
 
@@ -321,6 +323,188 @@ public sealed class ShoppingListQueryServiceTests
         var item = Assert.Single(view.UncategorizedItems);
         Assert.Equal("Sourdough bread", item.DisplayName);
         Assert.Null(item.CategoryName);
+    }
+
+    // ── Attribution labels (plantry-26g) ─────────────────────────────────────
+
+    [Fact(DisplayName = "GetList — Manual-only item: AttributionLabels contains 'added by you'")]
+    public async Task GetList_ManualOnlyItem_AttributionIsAddedByYou()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Milk", "Dairy"));
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.True(item.HasAttribution);
+        Assert.Equal(["added by you"], item.AttributionLabels);
+    }
+
+    [Fact(DisplayName = "GetList — Recipe-only item: AttributionLabels contains 'for {RecipeName}'")]
+    public async Task GetList_RecipeOnlyItem_AttributionForRecipe()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Chicken", "Meat"));
+
+        var recipes = new FakeShoppingRecipeReader();
+        recipes.RegisterRecipe(recipeId, "Chicken Stir Fry");
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        list.AddItem(_productId, quantity: 500m, unitId: _unitId, note: null,
+            source: ItemSource.Recipe, sourceRef: recipeId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, recipeReader: recipes);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.True(item.HasAttribution);
+        Assert.Equal(["for Chicken Stir Fry"], item.AttributionLabels);
+    }
+
+    [Fact(DisplayName = "GetList — two distinct Recipe sources: AttributionLabels contains both names")]
+    public async Task GetList_TwoDistinctRecipeSources_BothNamesInAttribution()
+    {
+        var recipeAId = Guid.CreateVersion7();
+        var recipeBId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Bell Peppers", "Vegetables"));
+
+        var recipes = new FakeShoppingRecipeReader();
+        recipes.RegisterRecipe(recipeAId, "Chicken Stir Fry");
+        recipes.RegisterRecipe(recipeBId, "Caesar Salad");
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        // First contribution from recipe A
+        var existingItem = list.AddItem(_productId, quantity: 2m, unitId: _unitId, note: null,
+            source: ItemSource.Recipe, sourceRef: recipeAId, Clock);
+        // Second contribution from recipe B (distinct SourceRef → sums; plantry-9scq)
+        list.UpsertContribution(existingItem, ItemSource.Recipe, recipeBId, incomingQuantity: 3m, incomingUnitId: _unitId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, recipeReader: recipes);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.True(item.HasAttribution);
+        // Both recipe names should appear; order is first-seen
+        Assert.Equal(2, item.AttributionLabels!.Count);
+        Assert.Equal("for Chicken Stir Fry", item.AttributionLabels[0]);
+        Assert.Equal("for Caesar Salad", item.AttributionLabels[1]);
+    }
+
+    [Fact(DisplayName = "GetList — same recipe twice (meal-plan style): AttributionLabels shows 'for {Name} ×2'")]
+    public async Task GetList_SameRecipeNameTwoDistinctRefs_ShowsCountSuffix()
+    {
+        // Two distinct SourceRefs that both resolve to the same recipe name simulate
+        // the meal-plan-repeat pattern described in the design (Mon + Thu same recipe).
+        var slotARef = Guid.CreateVersion7(); // meal-plan slot A
+        var slotBRef = Guid.CreateVersion7(); // meal-plan slot B
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Rice", "Grains"));
+
+        var recipes = new FakeShoppingRecipeReader();
+        // Both SourceRefs resolve to the same recipe name
+        recipes.RegisterRecipe(slotARef, "Fried Rice");
+        recipes.RegisterRecipe(slotBRef, "Fried Rice");
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        var existingItem = list.AddItem(_productId, quantity: 200m, unitId: _unitId, note: null,
+            source: ItemSource.Recipe, sourceRef: slotARef, Clock);
+        list.UpsertContribution(existingItem, ItemSource.Recipe, slotBRef, incomingQuantity: 200m, incomingUnitId: _unitId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, recipeReader: recipes);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.True(item.HasAttribution);
+        Assert.Equal(["for Fried Rice ×2"], item.AttributionLabels);
+    }
+
+    [Fact(DisplayName = "GetList — mixed Recipe+Manual item: both labels appear in order")]
+    public async Task GetList_MixedRecipeAndManual_BothLabelsPresent()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Olive Oil", "Oils"));
+
+        var recipes = new FakeShoppingRecipeReader();
+        recipes.RegisterRecipe(recipeId, "Pasta Primavera");
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        // Start with a manual add
+        var existingItem = list.AddItem(_productId, quantity: 1m, unitId: _unitId, note: null,
+            source: ItemSource.Manual, sourceRef: null, Clock);
+        // Then a recipe add (distinct source → adds a second contribution)
+        list.UpsertContribution(existingItem, ItemSource.Recipe, recipeId, incomingQuantity: 2m, incomingUnitId: _unitId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, recipeReader: recipes);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.True(item.HasAttribution);
+        // Recipe labels appear first, then manual
+        Assert.Equal(2, item.AttributionLabels!.Count);
+        Assert.Equal("for Pasta Primavera", item.AttributionLabels[0]);
+        Assert.Equal("added by you", item.AttributionLabels[1]);
+    }
+
+    [Fact(DisplayName = "GetList — free-text item (Manual): 'added by you' in attribution")]
+    public async Task GetList_FreeTextItem_ShowsAddedByYouAttribution()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        SeedListWithFreeTextItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.UncategorizedItems);
+        Assert.True(item.HasAttribution);
+        Assert.Equal(["added by you"], item.AttributionLabels);
+    }
+
+    [Fact(DisplayName = "GetList — Recipe contribution with unknown recipeId: no attribution label emitted")]
+    public async Task GetList_RecipeContributionUnknownRecipeId_NoAttributionLabel()
+    {
+        var deletedRecipeId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Garlic", "Produce"));
+
+        // Recipe reader returns nothing (recipe deleted or in another household)
+        var recipes = new FakeShoppingRecipeReader();
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        list.AddItem(_productId, quantity: 3m, unitId: _unitId, note: null,
+            source: ItemSource.Recipe, sourceRef: deletedRecipeId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, recipeReader: recipes);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        // Deleted/unknown recipe should produce no attribution (graceful degradation)
+        Assert.False(item.HasAttribution);
     }
 }
 
