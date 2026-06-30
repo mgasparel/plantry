@@ -9,8 +9,6 @@
 
       [Briefing]  The operator's morning decision surface: factory stall, overnight
                   recap, runway, replenishment worklist, and the call.
-                  (Content filled by DB-2, DB-3, DB-4, DB-6 children; this shell
-                  shows a placeholder until those slices land.)
 
       [Flow]      The time-series flow view: lead-time scatter, throughput, aging
                   WIP, self-generated work. Full reuse of the flow-report logic.
@@ -30,6 +28,10 @@
 .PARAMETER Open
     Open the generated HTML in the default browser after writing.
 
+.PARAMETER LongInProgressHours
+    Threshold (hours) above which an in_progress issue is considered
+    suspiciously stalled. Default: 4.
+
 .NOTES
     Requires bd CLI on PATH. PowerShell 5.1 compatible. No third-party modules.
     ASCII-only source: use HTML entities in markup, not literal Unicode characters.
@@ -37,7 +39,8 @@
 param(
     [string]$Out = "",
     [switch]$Json,
-    [switch]$Open
+    [switch]$Open,
+    [int]$LongInProgressHours = 4
 )
 
 Set-StrictMode -Version Latest
@@ -86,6 +89,63 @@ function Get-Percentile {
 function To-Epoch {
     param([datetime]$dt)
     return [int64](($dt.ToUniversalTime() - [datetime]'1970-01-01T00:00:00Z').TotalMilliseconds)
+}
+
+# ---------------------------------------------------------------------------
+# 1b. Resolve gh robustly -- mirrors daily-report pattern exactly
+# ---------------------------------------------------------------------------
+function Get-GhExe {
+    # Try PATH first
+    try {
+        $p = (Get-Command gh -ErrorAction Stop).Source
+        return $p
+    } catch {}
+
+    # Known install locations (Windows)
+    $candidates = @(
+        "C:\Program Files\GitHub CLI\gh.exe",
+        "$env:LOCALAPPDATA\Programs\GitHub CLI\gh.exe",
+        "$env:ProgramFiles\GitHub CLI\gh.exe"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { return $c }
+    }
+
+    # Compose PATH from Machine + User registry values, re-search
+    try {
+        $machinePathRaw = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+        $userPathRaw    = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+        $machinePath = if ($null -eq $machinePathRaw) { "" } else { $machinePathRaw }
+        $userPath    = if ($null -eq $userPathRaw)    { "" } else { $userPathRaw }
+        $combined = ($machinePath -split ";") + ($userPath -split ";") | Where-Object { $_ -and (Test-Path $_) }
+        foreach ($dir in $combined) {
+            $candidate = Join-Path $dir "gh.exe"
+            if (Test-Path $candidate) { return $candidate }
+        }
+    } catch {}
+
+    return $null
+}
+
+$ghExe       = Get-GhExe
+$ghAvailable = $null -ne $ghExe
+
+function Invoke-GhJson {
+    param([string[]]$GhArgs)
+    if (-not $ghAvailable) { return @() }
+    try {
+        $raw = & $ghExe @GhArgs 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "gh $($GhArgs -join ' ') exited $LASTEXITCODE"
+            return @()
+        }
+        $text = $raw | Out-String
+        if (-not $text.Trim() -or $text.Trim() -eq "null") { return @() }
+        return ($text | ConvertFrom-Json)
+    } catch {
+        Write-Warning "gh $($GhArgs -join ' ') failed: $_"
+        return @()
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -263,8 +323,11 @@ $perDay    = [math]::Round($leadRows.Count / $spanDays, 1)
 $stuckCount= @($agingRows | Where-Object { $p85 -and $_.ageH -ge $p85 }).Count
 
 # ---------------------------------------------------------------------------
-# 5. Briefing slice: runway + needs-human queue + overnight window
+# 5. Briefing slice: factory stall + runway + overnight window
 # ---------------------------------------------------------------------------
+# Exhaustion reason labels set by the auto-park procedure.
+$exhaustionLabels = @("build-loop-exhausted", "test-loop-exhausted", "critic-loop-exhausted")
+
 # Runway = ready-queue depth / consumption rate (closes per day).
 # Consumption rate uses a 14-day trailing window for freshness.
 $trailingDays  = 14
@@ -277,23 +340,6 @@ $consumptionRate = if ($trailingDays -gt 0) { [math]::Round($trailCloseCount / $
 $readyDepth      = $readyById.Count
 $runwayDays      = if ($consumptionRate -gt 0) { [math]::Round($readyDepth / $consumptionRate, 1) } else { $null }
 
-# Needs-human items (labels: needs-human, needs-spec, needs-triage)
-$stallItems = New-Object System.Collections.Generic.List[object]
-foreach ($i in $all) {
-    $cls = Get-SafeProp $i "closed_at" $null
-    if ($cls) { continue }
-    $labels = @(Get-SafeProp $i "labels" @())
-    $isStall = $labels -contains "needs-human" -or $labels -contains "needs-spec" -or $labels -contains "needs-triage"
-    if ($isStall) {
-        $stallItems.Add([PSCustomObject]@{
-            id     = Get-SafeProp $i "id" ""
-            title  = Get-SafeProp $i "title" ""
-            status = Get-SafeProp $i "status" ""
-            labels = $labels
-        })
-    }
-}
-
 # Overnight recap: issues created/closed in last 24 h.
 $overnightCutoff = $now.AddHours(-24)
 $overnightCreated = @($all | Where-Object {
@@ -305,7 +351,158 @@ $overnightClosed = @($all | Where-Object {
     $cls -and ([datetime]::Parse($cls)) -ge $overnightCutoff
 }).Count
 
-# Parked / blocked items (needs attention but not immediately actionable)
+# ---------------------------------------------------------------------------
+# 5b. Factory stall: collect all five categories
+#
+#   blocked          -- status=blocked (dependency or manual block)
+#   needs-human      -- label needs-human (auto-parked or flagged)
+#   parked-exhausted -- status=blocked + exhaustion label OR "Auto-parked" in notes
+#   long-in-progress -- status=in_progress, age > LongInProgressHours
+#   red-ci           -- open PRs with failing CI checks (via gh, degrades gracefully)
+#
+# Items appear in one category only; priority order: needs-human > parked-exhausted
+# > blocked > long-in-progress > red-ci.
+# ---------------------------------------------------------------------------
+$stallSeenIds = @{}   # dedup across categories
+
+$stallNeedsHuman      = New-Object System.Collections.Generic.List[object]
+$stallParkedExhausted = New-Object System.Collections.Generic.List[object]
+$stallBlocked         = New-Object System.Collections.Generic.List[object]
+$stallLongInProgress  = New-Object System.Collections.Generic.List[object]
+
+function New-StallItem {
+    param($issue, [string]$category, [string]$reason, [string]$lever)
+    return [PSCustomObject]@{
+        id       = Get-SafeProp $issue "id" ""
+        title    = Get-SafeProp $issue "title" ""
+        status   = Get-SafeProp $issue "status" ""
+        labels   = @(Get-SafeProp $issue "labels" @())
+        category = $category
+        reason   = $reason
+        lever    = $lever
+    }
+}
+
+foreach ($i in $all) {
+    $cls = Get-SafeProp $i "closed_at" $null
+    if ($cls) { continue }
+    $iid     = Get-SafeProp $i "id" ""
+    $st      = Get-SafeProp $i "status" ""
+    $labels  = @(Get-SafeProp $i "labels" @())
+    $notes   = Get-SafeProp $i "notes" ""
+    if ($null -eq $notes) { $notes = "" }
+
+    # Category 1: needs-human label (highest priority, first pass)
+    if ($labels -contains "needs-human") {
+        $stallSeenIds[$iid] = $true
+        $stallNeedsHuman.Add((New-StallItem $i "needs-human" `
+            "Labelled needs-human -- awaiting operator decision" `
+            "Review bd show $iid; resolve the blocker and remove the needs-human label"))
+        continue
+    }
+
+    # Category 2: parked-on-exhaustion (status=blocked + exhaustion label OR Auto-parked notes)
+    $isExhausted = $false
+    foreach ($el in $exhaustionLabels) {
+        if ($labels -contains $el) { $isExhausted = $true; break }
+    }
+    if (-not $isExhausted -and $notes -match "Auto-parked") { $isExhausted = $true }
+    if ($isExhausted) {
+        $stallSeenIds[$iid] = $true
+        $exhaustReason = "Parked after exhausting retry budget"
+        foreach ($el in $exhaustionLabels) {
+            if ($labels -contains $el) { $exhaustReason = "Parked: $el"; break }
+        }
+        $stallParkedExhausted.Add((New-StallItem $i "parked-exhausted" `
+            $exhaustReason `
+            "Read .preflight/ report for the last failing run; fix the root cause or close the issue"))
+        continue
+    }
+
+    # Category 3: blocked (status=blocked, not already captured above)
+    if ($st -eq "blocked") {
+        $stallSeenIds[$iid] = $true
+        $stallBlocked.Add((New-StallItem $i "blocked" `
+            "Status: blocked" `
+            "Identify and resolve the dependency; use: bd show $iid"))
+        continue
+    }
+
+    # Category 4: suspiciously-long in_progress
+    if ($st -eq "in_progress") {
+        $startedS = Get-SafeProp $i "started_at" $null
+        if ($startedS) {
+            $started = [datetime]::Parse($startedS)
+            $ageH = ($now - $started).TotalHours
+            if ($ageH -gt $LongInProgressHours) {
+                $stallSeenIds[$iid] = $true
+                $ageLabel = if ($ageH -ge 24) { ([math]::Round($ageH / 24, 1)).ToString() + "d" } else { ([math]::Round($ageH, 1)).ToString() + "h" }
+                $stallLongInProgress.Add((New-StallItem $i "long-in-progress" `
+                    "In-progress for $ageLabel (threshold: $($LongInProgressHours)h)" `
+                    "Check if a worker is still running; if stalled, close/re-open or park: bd show $iid"))
+                continue
+            }
+        }
+    }
+}
+
+# Category 5: open PRs with red CI (via gh, degrades gracefully if gh absent)
+$stallRedCi = New-Object System.Collections.Generic.List[object]
+$ghWarning  = $null
+
+if (-not $ghAvailable) {
+    $ghWarning = "gh CLI not found -- red-CI PR check skipped. Install GitHub CLI to enable."
+} else {
+    $openPrs = Invoke-GhJson @(
+        "pr", "list", "--state", "open",
+        "--limit", "100",
+        "--json", "number,title,url,headRefName,statusCheckRollup"
+    )
+    if ($openPrs) {
+        foreach ($pr in $openPrs) {
+            # statusCheckRollup is an array; overall state is FAILURE if any check failed.
+            $rollup = $pr.statusCheckRollup
+            $hasFailed = $false
+            if ($rollup) {
+                foreach ($check in $rollup) {
+                    $st2 = Get-SafeProp $check "state" $null
+                    if ($null -eq $st2) { $st2 = Get-SafeProp $check "conclusion" $null }
+                    if ($st2 -eq "FAILURE" -or $st2 -eq "TIMED_OUT" -or $st2 -eq "CANCELLED") {
+                        $hasFailed = $true; break
+                    }
+                }
+            }
+            if ($hasFailed) {
+                $stallRedCi.Add([PSCustomObject]@{
+                    id       = "PR#$($pr.number)"
+                    title    = $pr.title
+                    status   = "open"
+                    labels   = @()
+                    category = "red-ci"
+                    reason   = "Open PR with failing CI checks"
+                    lever    = "Review CI output and push a fix: $($pr.url)"
+                    url      = $pr.url
+                    branch   = $pr.headRefName
+                })
+            }
+        }
+    }
+}
+
+# Build the combined factory-stall list (order: needs-human, parked-exhausted, blocked,
+# long-in-progress, red-ci) for the payload and KPI count.
+$allStallItems = New-Object System.Collections.Generic.List[object]
+foreach ($item in $stallNeedsHuman)      { $allStallItems.Add($item) }
+foreach ($item in $stallParkedExhausted) { $allStallItems.Add($item) }
+foreach ($item in $stallBlocked)         { $allStallItems.Add($item) }
+foreach ($item in $stallLongInProgress)  { $allStallItems.Add($item) }
+foreach ($item in $stallRedCi)           { $allStallItems.Add($item) }
+
+# Legacy stallItems (needs-human + needs-spec + needs-triage) kept for backward compat.
+# DB-0 used this field name; replace it with the richer factoryStall payload below.
+$stallItems = $allStallItems   # alias for legacy KPI count
+
+# Parked / blocked items for the backlog tab
 $parkedItems = New-Object System.Collections.Generic.List[object]
 foreach ($i in $all) {
     $cls = Get-SafeProp $i "closed_at" $null
@@ -336,22 +533,35 @@ $flowKpis = [PSCustomObject]@{
 }
 
 $briefingKpis = [PSCustomObject]@{
-    runwayDays       = $runwayDays
-    readyDepth       = $readyDepth
-    consumptionRate  = $consumptionRate
-    trailingDays     = $trailingDays
-    stallCount       = $stallItems.Count
-    overnightCreated = $overnightCreated
-    overnightClosed  = $overnightClosed
-    blockedCount     = $parkedItems.Count
+    runwayDays             = $runwayDays
+    readyDepth             = $readyDepth
+    consumptionRate        = $consumptionRate
+    trailingDays           = $trailingDays
+    stallCount             = $allStallItems.Count
+    overnightCreated       = $overnightCreated
+    overnightClosed        = $overnightClosed
+    blockedCount           = $parkedItems.Count
+    longInProgressHours    = $LongInProgressHours
+    ghAvailable            = $ghAvailable
 }
 
 $payload = [PSCustomObject]@{
     generatedAt  = $now.ToString("yyyy-MM-dd HH:mm")
     briefing     = [PSCustomObject]@{
-        kpis       = $briefingKpis
-        stallItems = $stallItems
-        parked     = $parkedItems
+        kpis         = $briefingKpis
+        factoryStall = [PSCustomObject]@{
+            count            = $allStallItems.Count
+            ghWarning        = $ghWarning
+            needsHuman       = $stallNeedsHuman
+            parkedExhausted  = $stallParkedExhausted
+            blocked          = $stallBlocked
+            longInProgress   = $stallLongInProgress
+            redCi            = $stallRedCi
+            all              = $allStallItems
+        }
+        # Legacy field kept for backward compat (DB-0 script used stallItems)
+        stallItems   = $allStallItems
+        parked       = $parkedItems
     }
     flow         = [PSCustomObject]@{
         kpis        = $flowKpis
@@ -405,6 +615,11 @@ $html = @'
     --r-ready:#4fd08a; --r-parked:#7c8794;
     --sg-review:#c98bd6; --sg-dogfood:#e0a458; --sg-closed:#4fd08a; --sg-line:#e7edf3;
     --tab-h:40px;
+    --cat-needs-human-bg:#2e1e1e; --cat-needs-human-fg:#e06c6c;
+    --cat-exhausted-bg:#241c2e;  --cat-exhausted-fg:#b58be0;
+    --cat-blocked-bg:#1e2032;    --cat-blocked-fg:#5aa9e6;
+    --cat-long-bg:#2a1f0c;       --cat-long-fg:#e0a458;
+    --cat-redci-bg:#2e1e1e;      --cat-redci-fg:#e06c6c;
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
@@ -459,18 +674,48 @@ $html = @'
   /* ---------- stall list ---------- */
   .stall-list { list-style:none; margin:0; padding:0; }
   .stall-list li {
-    display:flex; align-items:baseline; gap:10px;
-    padding:8px 0; border-bottom:1px solid var(--line); font-size:13px;
+    display:grid;
+    grid-template-columns:auto 1fr auto;
+    grid-template-rows:auto auto;
+    gap:2px 10px;
+    padding:10px 0; border-bottom:1px solid var(--line); font-size:13px;
+    align-items:start;
   }
   .stall-list li:last-child { border-bottom:none; }
-  .stall-id { color:var(--muted); font-family:monospace; font-size:11px; white-space:nowrap; }
-  .stall-title { flex:1; }
+  .stall-id { color:var(--muted); font-family:monospace; font-size:11px; white-space:nowrap;
+              grid-row:1; grid-column:1; padding-top:2px; }
+  .stall-title { flex:1; font-weight:500;
+                 grid-row:1; grid-column:2; }
+  .stall-lever { color:var(--muted); font-size:11.5px; grid-row:2; grid-column:2;
+                 line-height:1.5; }
+  .stall-badges { grid-row:1; grid-column:3; display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
   .badge {
-    font-size:10px; padding:1px 6px; border-radius:20px; white-space:nowrap;
+    font-size:10px; padding:2px 7px; border-radius:20px; white-space:nowrap;
     background:var(--panel2); color:var(--muted);
   }
-  .badge.needs-human { background:#2e1e1e; color:var(--warn); }
-  .badge.needs-spec  { background:#2a1f0c; color:var(--wait); }
+  .badge.needs-human  { background:var(--cat-needs-human-bg); color:var(--cat-needs-human-fg); }
+  .badge.exhausted    { background:var(--cat-exhausted-bg);   color:var(--cat-exhausted-fg); }
+  .badge.blocked      { background:var(--cat-blocked-bg);     color:var(--cat-blocked-fg); }
+  .badge.long-inprog  { background:var(--cat-long-bg);        color:var(--cat-long-fg); }
+  .badge.red-ci       { background:var(--cat-redci-bg);       color:var(--cat-redci-fg); }
+  /* ---------- clean-line state ---------- */
+  .clean-line {
+    display:flex; align-items:center; gap:10px; padding:14px 0;
+    color:var(--accent); font-size:13px; font-weight:500;
+  }
+  .clean-line::before {
+    content:""; display:inline-block; width:8px; height:8px;
+    border-radius:50%; background:var(--accent); flex-shrink:0;
+  }
+  /* ---------- stall category header ---------- */
+  .stall-cat-header {
+    font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase;
+    color:var(--muted); margin:14px 0 4px; padding-bottom:4px; border-bottom:1px solid var(--line);
+  }
+  .gh-warning {
+    font-size:12px; color:var(--wait); background:#2a1f0c; border-radius:6px;
+    padding:6px 10px; margin-bottom:10px;
+  }
 </style>
 </head>
 <body>
@@ -495,24 +740,15 @@ $html = @'
   <!-- Briefing KPI strip -->
   <div class="kpis" id="briefing-kpis"></div>
 
-  <!-- Factory stall: items that need a human before the loop can proceed -->
+  <!-- Factory stall: items only the human can clear -->
   <section id="stall-section">
-    <h2>Factory stall &mdash; line stopped on me</h2>
-    <p class="desc">
-      Items the autonomous loop cannot clear without human input.
-      These are your first priority &mdash; unblock them before the loop starves.
+    <h2 id="stall-heading">Factory stall &mdash; line stopped on me</h2>
+    <p class="desc" id="stall-desc">
+      Items the autonomous loop cannot clear without human input &mdash; unblock
+      these first. Each item shows the lever to clear it.
     </p>
-    <ul class="stall-list" id="stall-list"></ul>
+    <div id="stall-content"></div>
   </section>
-
-  <!-- Overnight recap placeholder (DB-2 will fill) -->
-  <div class="placeholder">
-    <strong>Overnight recap</strong>
-    DB-2 child will render: PRs opened/merged/closed since last session,
-    issues created and closed by the autonomous loop overnight.
-    <br>
-    (Placeholder &mdash; landing with DB-2: plantry-7t520)
-  </div>
 
   <!-- Runway gauge placeholder (DB-3 will fill) -->
   <div class="placeholder" id="runway-placeholder">
@@ -538,7 +774,7 @@ $html = @'
   <div class="placeholder">
     <strong>The call</strong>
     DB-6 child (skill + model layer) will produce the ranked
-    "where to spend attention" recommendation in chat.
+    &quot;where to spend attention&quot; recommendation in chat.
     This tab shows the raw data; the model writes the call.
     <br>
     (Placeholder &mdash; landing with DB-6: plantry-ze4dt)
@@ -681,51 +917,78 @@ document.querySelectorAll('.gen-ts').forEach(function(el) {
 });
 
 // ---------------------------------------------------------------------------
-// BRIEFING tab: KPI strip + stall list + runway preview
+// BRIEFING tab: KPI strip + factory stall section + runway preview
 // ---------------------------------------------------------------------------
 var bk = DATA.briefing.kpis;
 var runwayWarn = bk.runwayDays != null && bk.runwayDays < 3;
 var runwayOk   = bk.runwayDays != null && bk.runwayDays >= 7;
 var bCards = [
-    { v: bk.stallCount,       l: "items stopped on me",   warn: bk.stallCount > 0  },
+    { v: bk.stallCount,       l: "line stopped on me",    warn: bk.stallCount > 0, ok: bk.stallCount === 0 },
     { v: bk.runwayDays != null ? bk.runwayDays + "d" : "n/a",
                                l: "runway (ready / rate)", warn: runwayWarn, ok: runwayOk },
     { v: bk.readyDepth,       l: "ready to pull"                                    },
     { v: bk.consumptionRate,  l: "closes/day (14d)"                                 },
     { v: bk.overnightCreated, l: "created (last 24h)"                               },
     { v: bk.overnightClosed,  l: "closed (last 24h)"                                },
-    { v: bk.blockedCount,     l: "blocked items"          , warn: bk.blockedCount > 0 },
+    { v: bk.blockedCount,     l: "blocked items",          warn: bk.blockedCount > 0 },
 ];
 document.getElementById("briefing-kpis").innerHTML = bCards.map(function(c) {
     var cls = "kpi" + (c.warn ? " warn" : "") + (c.ok ? " ok" : "");
     return '<div class="' + cls + '"><div class="v">' + c.v + '</div><div class="l">' + c.l + '</div></div>';
 }).join("");
 
-// Stall list
-var stallList = document.getElementById("stall-list");
-var stalls = DATA.briefing.stallItems;
-if (stalls && stalls.length > 0) {
-    stalls.forEach(function(s) {
-        var labelsHtml = (s.labels || []).filter(function(lb) {
-            return lb === "needs-human" || lb === "needs-spec" || lb === "needs-triage";
-        }).map(function(lb) {
-            var cls = lb === "needs-human" ? "badge needs-human" :
-                      lb === "needs-spec"  ? "badge needs-spec"  : "badge";
-            return '<span class="' + cls + '">' + lb + '</span>';
-        }).join(" ");
-        var li = document.createElement("li");
-        li.innerHTML = '<span class="stall-id">' + s.id + '</span>'
-            + '<span class="stall-title">' + (s.title || "").replace(/</g,"&lt;") + '</span>'
-            + labelsHtml;
-        stallList.appendChild(li);
+// ---------------------------------------------------------------------------
+// Factory stall section
+// ---------------------------------------------------------------------------
+var fs = DATA.briefing.factoryStall;
+var stallContent = document.getElementById("stall-content");
+
+function esc(s) { return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function renderStallCategory(items, label, badgeCls) {
+    if (!items || items.length === 0) return "";
+    var html = '<div class="stall-cat-header">' + esc(label) + ' (' + items.length + ')</div>';
+    html += '<ul class="stall-list">';
+    items.forEach(function(s) {
+        var leverHtml = s.lever ? '<span class="stall-lever">' + esc(s.lever) + '</span>' : '';
+        var url = s.url ? ' <a href="' + esc(s.url) + '" target="_blank">[PR]</a>' : '';
+        html += '<li>'
+            + '<span class="stall-id">' + esc(s.id) + '</span>'
+            + '<span class="stall-title">' + esc(s.title) + url + '</span>'
+            + '<span class="stall-badges"><span class="badge ' + badgeCls + '">' + esc(label) + '</span></span>'
+            + leverHtml
+            + '</li>';
     });
+    html += '</ul>';
+    return html;
+}
+
+if (fs && fs.count > 0) {
+    var html = '';
+    if (fs.ghWarning) {
+        html += '<div class="gh-warning">' + esc(fs.ghWarning) + '</div>';
+    }
+    html += renderStallCategory(fs.needsHuman,      "needs-human",       "needs-human");
+    html += renderStallCategory(fs.parkedExhausted, "parked-exhausted",  "exhausted");
+    html += renderStallCategory(fs.blocked,         "blocked",           "blocked");
+    html += renderStallCategory(fs.longInProgress,  "long-in-progress",  "long-inprog");
+    html += renderStallCategory(fs.redCi,           "red-ci",            "red-ci");
+    stallContent.innerHTML = html;
 } else {
-    var li = document.createElement("li");
-    li.style.cssText = "color:var(--accent);font-size:13px;padding:10px 0;";
-    li.textContent = "No stall items -- the loop is running free.";
-    stallList.appendChild(li);
-    document.getElementById("stall-section").querySelector("h2").textContent =
-        "Factory stall -- line running free";
+    // Empty state: line running clean
+    document.getElementById("stall-heading").innerHTML = "Factory stall &mdash; line running clean";
+    document.getElementById("stall-desc").style.display = "none";
+    var cleanDiv = document.createElement("div");
+    cleanDiv.className = "clean-line";
+    cleanDiv.textContent = "No items stopped on you. The factory is running free.";
+    stallContent.appendChild(cleanDiv);
+    if (fs && fs.ghWarning) {
+        var warn = document.createElement("div");
+        warn.className = "gh-warning";
+        warn.style.marginTop = "10px";
+        warn.textContent = fs.ghWarning;
+        stallContent.appendChild(warn);
+    }
 }
 
 // Runway preview text (raw numbers until DB-3 renders the gauge)
@@ -942,8 +1205,10 @@ $html = $html.Replace('__DATA_JSON__', $dataJson)
 if (-not $Out) { $Out = Join-Path (Get-Location) "daily-briefing.html" }
 $html | Out-File -FilePath $Out -Encoding utf8
 Write-Host "Wrote $Out" -ForegroundColor Green
-Write-Host ("  runway={0}d  ready={1}  stall={2}  overnight created={3}/closed={4}  flow closed={5}  open={6}" -f `
+Write-Host ("  runway={0}d  ready={1}  stall={2} (needs-human={3} exhausted={4} blocked={5} long-ip={6} red-ci={7})  overnight created={8}/closed={9}  flow closed={10}  open={11}" -f `
     $briefingKpis.runwayDays, $briefingKpis.readyDepth, $briefingKpis.stallCount,
+    $stallNeedsHuman.Count, $stallParkedExhausted.Count, $stallBlocked.Count,
+    $stallLongInProgress.Count, $stallRedCi.Count,
     $briefingKpis.overnightCreated, $briefingKpis.overnightClosed,
     $flowKpis.totalClosed, $flowKpis.openCount)
 if ($Open) { Start-Process $Out }
