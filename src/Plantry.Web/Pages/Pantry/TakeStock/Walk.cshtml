@@ -21,14 +21,21 @@
      x-data="takeStockSheetBridge()"
      x-on:ts-open-add.window="openAdd()"
      x-on:pick-product="selectProduct(draft, $event.detail)">
-    @* TrackStock=false: count lives in the island, not in the sheet's qty/unit fields. *@
+    @* TrackStock=false: count lives in the island, not in the sheet's qty/unit fields.       *@
+    @* Noun/ShowGroupHeading/CreateLabel/StapleNamePlaceholder: context-aware overrides so the *@
+    @* sheet reads "Add item" instead of "Add ingredient", hides the Recipes-only Group field, *@
+    @* and uses neutral create-product wording (the action is tracked, not staple).            *@
     <partial name="Shared/_ProductSearchCreateSheet"
              model='new ProductSearchCreateSheetViewModel
              {
-                 SearchUrl        = Url.Page("./Walk", "SearchProducts", new { locationId = Model.LocationId })!,
-                 UnitOptions      = Model.UnitOptions,
-                 TrackStock       = false,
-                 ExtraFieldsPartial = "TakeStock/_CountLocationFields",
+                 SearchUrl             = Url.Page("./Walk", "SearchProducts", new { locationId = Model.LocationId })!,
+                 UnitOptions           = Model.UnitOptions,
+                 TrackStock            = false,
+                 ExtraFieldsPartial    = "TakeStock/_CountLocationFields",
+                 Noun                  = "item",
+                 ShowGroupHeading      = false,
+                 CreateLabel           = "Create new product",
+                 StapleNamePlaceholder = "Product name (e.g. Salt)",
              }' />
 </div>
 

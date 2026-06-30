@@ -916,6 +916,10 @@
         <li><code>TrackStock</code> — when true (Recipes), qty + unit fields appear for tracked products.
             When false (Take Stock inline-add) those fields are hidden; count lives in the extra-fields slot.</li>
         <li><code>ExtraFieldsPartial</code> — optional partial name rendered between the product picker and action bar (e.g. Take Stock count + location fields for P4-7).</li>
+        <li><code>Noun</code> — noun used in the sheet header and aria-label: "Add {Noun}" / "Edit {Noun}". Default: <code>"ingredient"</code> (Recipes). Pass <code>"item"</code> for Take Stock.</li>
+        <li><code>ShowGroupHeading</code> — when false, hides the "Group (optional)" field (a Recipes-only concept). Default: <code>true</code>. Take Stock passes <code>false</code>.</li>
+        <li><code>CreateLabel</code> — label for the inline create button. Default: <code>"Create as staple (untracked)"</code>. Take Stock passes <code>"Create new product"</code> (the action is actually tracked there).</li>
+        <li><code>StapleNamePlaceholder</code> — placeholder for the name input in create mode. Default: <code>"Staple name (e.g. Salt)"</code>. Pass neutral wording for non-Recipes contexts.</li>
     </ul>
 
     @*
@@ -960,13 +964,17 @@
                  }' />
     </div>
 
-    <pre class="code-sample"><code>@(@"// View-model
+    <pre class="code-sample"><code>@(@"// View-model (all params — defaults preserve Recipes behaviour)
 new ProductSearchCreateSheetViewModel
 {
-    SearchUrl          = Url.Page(""./MyPage"", ""SearchProducts"")!,
-    UnitOptions        = Model.UnitOptions,  // IReadOnlyList<SelectListItem>
-    TrackStock         = true,               // false = hide qty/unit (Take Stock mode)
-    ExtraFieldsPartial = null,               // or ""TakeStock/_CountLocationFields"" for P4-7
+    SearchUrl             = Url.Page(""./MyPage"", ""SearchProducts"")!,
+    UnitOptions           = Model.UnitOptions,              // IReadOnlyList<SelectListItem>
+    TrackStock            = true,                           // false = hide qty/unit (Take Stock)
+    ExtraFieldsPartial    = null,                           // or ""TakeStock/_CountLocationFields""
+    Noun                  = ""ingredient"",                  // 'Add {Noun}' / 'Edit {Noun}' in title
+    ShowGroupHeading      = true,                           // false hides the Recipes-only Group field
+    CreateLabel           = ""Create as staple (untracked)"",// label for the inline-create button
+    StapleNamePlaceholder = ""Staple name (e.g. Salt)"",     // placeholder in create-mode name input
 }
 
 // Host x-data must expose:

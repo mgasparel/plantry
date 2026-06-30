@@ -31,6 +31,12 @@
     Model.ExtraFieldsPartial → optional partial name rendered after the product picker section,
                                before the action bar (e.g. Take Stock count + location fields, P4-7).
 
+    ── Context-aware params ──────────────────────────────────────────────────────────────────────────
+    Model.Noun              → noun used in title / aria-label: "Add {Noun}" / "Edit {Noun}"
+    Model.ShowGroupHeading  → false hides the Recipes-only "Group (optional)" field (Take Stock)
+    Model.CreateLabel       → label for the inline create button (Take Stock uses "Create new product")
+    Model.StapleNamePlaceholder → placeholder in the name input in create mode
+
     ── Why x-show, not x-if ─────────────────────────────────────────────────────────────────────────
     The sheet stays in the DOM (x-show, not x-if) so the nested searchable-select inits once at
     page load and the htmx product-search binding is established before the sheet first opens.
@@ -38,13 +44,13 @@
 *@
 
 <div class="sheet" x-show="sheetOpen" x-cloak role="dialog" aria-modal="true"
-     :aria-label="editingIdx === null ? 'Add ingredient' : 'Edit ingredient'"
+     :aria-label="editingIdx === null ? 'Add @Model.Noun' : 'Edit @Model.Noun'"
      @@pick-product="selectProduct(draft, $event.detail)"
      @@keydown.escape="closeSheet()">
     <div class="sheet__overlay" @@click="closeSheet()"></div>
     <div class="sheet__panel">
         <header class="sheet__header">
-            <h2 class="sheet__title" x-text="editingIdx === null ? 'Add ingredient' : 'Edit ingredient'"></h2>
+            <h2 class="sheet__title" x-text="editingIdx === null ? 'Add @Model.Noun' : 'Edit @Model.Noun'"></h2>
             <button type="button" class="sheet__close" aria-label="Close" @@click="closeSheet()">&times;</button>
         </header>
 
@@ -90,14 +96,14 @@
                         <div x-show="!draft.productId" style="margin-top:var(--space-2)">
                             <button type="button" class="btn btn--ghost btn--sm"
                                     @@click="draft.newStapleName = ''">
-                                + Create as staple (untracked)
+                                + @Model.CreateLabel
                             </button>
                         </div>
                     </div>
 
-                    @* New staple mode (C12) — shown when user clicks "Create as staple" *@
+                    @* New staple / create mode (C12) — shown when user clicks the create button *@
                     <div class="ingredient-row__staple" x-show="draft.newStapleName !== null">
-                        <input type="text" class="field__input" placeholder="Staple name (e.g. Salt)"
+                        <input type="text" class="field__input" placeholder="@Model.StapleNamePlaceholder"
                                x-model="draft.newStapleName" style="flex:1;min-width:8rem" />
                         <select class="field__input" x-model="draft.newStapleUnit" style="min-width:5rem">
                             <option value="">unit</option>
@@ -140,14 +146,17 @@
                 </div>
             }
 
-            @* Group heading — always shown *@
-            <div class="form-grid__field form-grid__field--full">
-                <label class="form-grid__field__label">Group (optional)</label>
-                <div class="form-grid__field__control">
-                    <input type="text" class="field__input" placeholder="e.g. Sauce, Topping"
-                           x-model="draft.groupHeading" />
+            @* Group heading — Recipes-only concept (ingredient sections). Hidden for Take Stock. *@
+            @if (Model.ShowGroupHeading)
+            {
+                <div class="form-grid__field form-grid__field--full">
+                    <label class="form-grid__field__label">Group (optional)</label>
+                    <div class="form-grid__field__control">
+                        <input type="text" class="field__input" placeholder="e.g. Sauce, Topping"
+                               x-model="draft.groupHeading" />
+                    </div>
                 </div>
-            </div>
+            }
         </div>
 
         @* ── Host extra-fields slot ──────────────────────────────────────────────── *@

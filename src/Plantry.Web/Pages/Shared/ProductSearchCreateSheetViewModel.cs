@@ -48,6 +48,22 @@ namespace Plantry.Web.Pages.Shared;
 /// <para><b>ExtraFieldsPartial</b> is an optional partial name that is rendered between the product
 /// picker and the action buttons. Use it for host-specific fields (e.g. the count + location selects
 /// that Take Stock's inline-add sheet needs, P4-7). When null no extra markup is emitted.</para>
+///
+/// <para><b>Noun</b> drives the sheet header and aria-label: "Add {Noun}" / "Edit {Noun}".
+/// Defaults to "ingredient" (Recipes). Take Stock passes "item".</para>
+///
+/// <para><b>ShowGroupHeading</b> controls whether the "Group (optional)" field is rendered.
+/// It is a Recipes-specific concept (ingredient sections) and is irrelevant for Take Stock.
+/// Defaults to <c>true</c> (Recipes). Take Stock passes <c>false</c>.</para>
+///
+/// <para><b>CreateLabel</b> overrides the label of the inline create button
+/// (the one that switches from search mode to new-product mode).
+/// Defaults to "Create as staple (untracked)" (Recipes). Take Stock passes "Create new product"
+/// because the button actually creates a tracked product in that context.</para>
+///
+/// <para><b>StapleNamePlaceholder</b> overrides the placeholder text in the staple-name input shown
+/// when the user switches to create mode. Defaults to "Staple name (e.g. Salt)" (Recipes).
+/// Take Stock passes neutral wording.</para>
 /// </summary>
 public sealed class ProductSearchCreateSheetViewModel
 {
@@ -77,4 +93,31 @@ public sealed class ProductSearchCreateSheetViewModel
     /// Example: <c>"TakeStock/_CountLocationFields"</c> for P4-7.
     /// </summary>
     public string? ExtraFieldsPartial { get; init; }
+
+    /// <summary>
+    /// Noun used in the sheet header and aria-label: "Add {Noun}" / "Edit {Noun}".
+    /// Defaults to "ingredient" (Recipes behaviour). Take Stock passes "item".
+    /// </summary>
+    public string Noun { get; init; } = "ingredient";
+
+    /// <summary>
+    /// When true, the "Group (optional)" field is rendered. It is a Recipes-only concept
+    /// (ingredient sections like Sauce/Topping) and is irrelevant for Take Stock.
+    /// Defaults to <c>true</c> (Recipes behaviour). Take Stock passes <c>false</c>.
+    /// </summary>
+    public bool ShowGroupHeading { get; init; } = true;
+
+    /// <summary>
+    /// Label text for the inline create button (the one that switches from search mode to
+    /// new-product mode). Defaults to "Create as staple (untracked)" (Recipes behaviour).
+    /// Take Stock passes "Create new product" because the action actually creates a tracked product.
+    /// </summary>
+    public string CreateLabel { get; init; } = "Create as staple (untracked)";
+
+    /// <summary>
+    /// Placeholder text for the name input shown in create (staple) mode.
+    /// Defaults to "Staple name (e.g. Salt)" (Recipes behaviour).
+    /// Take Stock passes neutral wording to match the relabelled context.
+    /// </summary>
+    public string StapleNamePlaceholder { get; init; } = "Staple name (e.g. Salt)";
 }
