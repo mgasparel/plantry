@@ -344,6 +344,11 @@ builder.Services.AddScoped<IShoppingCatalogReader, ShoppingCatalogReaderAdapter>
 // item subline and search-dropdown stock hints.
 builder.Services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>();
 
+// Shopping → Recipes ACL adapter (plantry-26g). ShoppingRecipeReaderAdapter resolves recipe names
+// by id for the attribution sub-line on the shopping board. Shopping.Application never reads the
+// Recipes EF context directly (ADR-002).
+builder.Services.AddScoped<IShoppingRecipeReader, ShoppingRecipeReaderAdapter>();
+
 builder.Services.AddScoped<ShoppingListQueryService>();
 builder.Services.AddScoped<PantrySuggestionService>();
 

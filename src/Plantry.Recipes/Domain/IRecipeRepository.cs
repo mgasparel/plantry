@@ -41,4 +41,12 @@ public interface IRecipeRepository
     /// Today-page cold-start check to avoid materializing the full browse list.
     /// </summary>
     Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolves recipe names for the given set of recipe ids (plantry-26g, Shopping→Recipes ACL).
+    /// Returns a dictionary of id → name for non-archived recipes whose id is in <paramref name="ids"/>.
+    /// Ids not found in the household (deleted or not accessible via RLS) are silently omitted.
+    /// No navigation properties are loaded — this is a lightweight name-projection query only.
+    /// </summary>
+    Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(IReadOnlyList<RecipeId> ids, CancellationToken ct = default);
 }

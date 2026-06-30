@@ -45,6 +45,16 @@ internal sealed class FakeRecipeRepository : IRecipeRepository
 
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(Items.Any(r => r.HouseholdId == householdId && r.ArchivedAt == null));
+
+    public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
+        IReadOnlyList<RecipeId> ids, CancellationToken ct = default)
+    {
+        var wanted = ids.ToHashSet();
+        IReadOnlyDictionary<RecipeId, string> result = Items
+            .Where(r => wanted.Contains(r.Id) && r.ArchivedAt == null)
+            .ToDictionary(r => r.Id, r => r.Name);
+        return Task.FromResult(result);
+    }
 }
 
 internal sealed class FakeTagRepository : ITagRepository

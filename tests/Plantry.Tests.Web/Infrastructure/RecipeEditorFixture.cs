@@ -283,6 +283,10 @@ public sealed class FakeEditorRecipeRepository(ITenantContext tenant, params Rec
 
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         Task.FromResult(false);
+
+    public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
+        IReadOnlyList<RecipeId> ids, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<RecipeId, string>>(new Dictionary<RecipeId, string>());
 }
 
 /// <summary>

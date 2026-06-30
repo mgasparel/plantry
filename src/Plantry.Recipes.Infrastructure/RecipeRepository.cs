@@ -42,4 +42,23 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
 
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         db.Recipes.AnyAsync(r => r.HouseholdId == householdId && r.ArchivedAt == null, ct);
+
+    public async Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
+        IReadOnlyList<RecipeId> ids,
+        CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+            return new Dictionary<RecipeId, string>();
+
+        // Lightweight name-projection query with no navigation includes (no Ingredients/Tags/Photo).
+        // The RLS interceptor scopes the query to the current household automatically (ADR-008).
+        // EF translates the Contains against the value-converted Id column as a SQL IN (...) clause.
+        var wanted = ids.ToHashSet();
+        var results = await db.Recipes
+            .Where(r => wanted.Contains(r.Id) && r.ArchivedAt == null)
+            .Select(r => new { r.Id, r.Name })
+            .ToListAsync(ct);
+
+        return results.ToDictionary(r => r.Id, r => r.Name);
+    }
 }

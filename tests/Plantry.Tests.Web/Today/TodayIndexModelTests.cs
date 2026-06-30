@@ -248,6 +248,9 @@ public sealed class TodayIndexModelTests
         public Task<Recipe?> GetByIdAsync(RecipeId id, CancellationToken ct = default) => Task.FromResult<Recipe?>(null);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
+            IReadOnlyList<RecipeId> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<RecipeId, string>>(new Dictionary<RecipeId, string>());
     }
 
     private sealed class FakeSessionRepository(bool hasPendingIntake) : IImportSessionRepository
@@ -524,6 +527,9 @@ public sealed class ExpiringWidgetModelTests
         public Task<Recipe?> GetByIdAsync(RecipeId id, CancellationToken ct = default) => Task.FromResult<Recipe?>(null);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
+            IReadOnlyList<RecipeId> ids, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<RecipeId, string>>(new Dictionary<RecipeId, string>());
     }
 
     private sealed class FakeSessionRepo2(bool hasPending) : IImportSessionRepository

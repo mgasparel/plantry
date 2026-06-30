@@ -353,6 +353,9 @@ internal sealed class FakeTodayPlannedBandRecipeRepository : IRecipeRepository
     public Task AddAsync(Recipe recipe, CancellationToken ct = default) => Task.CompletedTask;
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
+        IReadOnlyList<RecipeId> ids, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<RecipeId, string>>(new Dictionary<RecipeId, string>());
 }
 
 /// <summary>
