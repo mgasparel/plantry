@@ -306,3 +306,87 @@ public sealed class RecipeEditorArchivedTagTests : IClassFixture<RecipeEditorFra
         Assert.Contains(vegetarianIdStr, tagOptionsJson, StringComparison.OrdinalIgnoreCase);
     }
 }
+
+// ── FIX 5: Archived applied-tag chip label survives a POST re-render ─────────────
+
+/// <summary>
+/// When a POST fails validation and the form is re-rendered, an archived applied tag's chip must
+/// still show its real name ("Grocer"), not the truncated GUID stub (first 8 hex chars of the id).
+///
+/// <para>Prior to the fix, <c>RestoreTagNames()</c> resolved names only from the active-only
+/// <c>TagOptions</c> dictionary. Archived tag ids were not found there, so the fallback
+/// <c>id.ToString("N")[..8]</c> was used, degrading the chip label.</para>
+///
+/// <para>After the fix, <c>RestoreTagNamesAsync()</c> calls <c>tags.ResolveNamesAsync()</c> for
+/// any ids absent from <c>TagOptions</c>, which includes archived tags — matching the GET path.</para>
+/// </summary>
+public sealed class RecipeEditorArchivedTagPostReRenderTests : IDisposable
+{
+    private static readonly HtmlParser Parser = new();
+    private readonly RecipeEditorPostFactory _factory = new();
+
+    public void Dispose() => _factory.Dispose();
+
+    private HttpClient AuthenticatedClient()
+    {
+        var client = _factory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(
+            TestAuthHandler.HouseholdHeader,
+            RecipeEditorFixture.HouseholdAId.ToString());
+        return client;
+    }
+
+    private async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
+    {
+        var html = await (await client.GetAsync("/Recipes/New")).Content.ReadAsStringAsync();
+        var match = System.Text.RegularExpressions.Regex.Match(
+            html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"");
+        Assert.True(match.Success, "No antiforgery token found on the create page.");
+        return match.Groups[1].Value;
+    }
+
+    /// <summary>
+    /// POST with an archived tag id and a tracked ingredient without a Quantity (triggers validation
+    /// failure → re-render). The re-rendered page must show the archived tag's real name ("Grocer")
+    /// in the Alpine x-data tags array, not the truncated GUID stub.
+    /// </summary>
+    [Fact]
+    public async Task OnPost_validation_failure_rerender_preserves_archived_tag_name()
+    {
+        var client = AuthenticatedClient();
+        var token  = await GetAntiforgeryTokenAsync(client);
+
+        var fields = new List<KeyValuePair<string, string>>
+        {
+            new("__RequestVerificationToken", token),
+            new("Input.Name",            "Archived Tag Fail Test"),
+            new("Input.DefaultServings", "2"),
+            // Tracked ingredient without Quantity → triggers R5 validation failure → re-render.
+            new("Input.Lines[0].Ordinal",     "0"),
+            new("Input.Lines[0].ProductId",   RecipeEditorFixture.PastaId.ToString()),
+            new("Input.Lines[0].ProductName", "Rigatoni"),
+            new("Input.Lines[0].UnitId",      RecipeEditorFixture.GramUnitId.ToString()),
+            // Quantity intentionally omitted to trigger ModelState.Invalid.
+            // Archived tag — id only, no name posted (name must be restored server-side via ResolveNamesAsync).
+            new("Input.TagIds", RecipeEditorFixture.ArchivedTagId.Value.ToString()),
+        };
+
+        var response = await client.PostAsync("/Recipes/New", new FormUrlEncodedContent(fields));
+
+        // Must be 200 (re-render on validation failure), NOT a redirect.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        var doc  = Parser.ParseDocument(html);
+
+        var editor = doc.QuerySelector("#recipe-editor")
+            ?? throw new InvalidOperationException("#recipe-editor not found in re-rendered page.");
+        var xData = editor.GetAttribute("x-data") ?? "";
+
+        // The archived tag name "Grocer" must appear in the tags array — not blank or GUID-stub.
+        Assert.Contains("Grocer", xData, StringComparison.OrdinalIgnoreCase);
+
+        // The archived tag's id must also be present (chip is in the tags array).
+        Assert.Contains(RecipeEditorFixture.ArchivedTagId.Value.ToString(), xData, StringComparison.OrdinalIgnoreCase);
+    }
+}

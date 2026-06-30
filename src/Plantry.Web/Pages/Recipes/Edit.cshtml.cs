@@ -176,7 +176,7 @@ public sealed class EditModel(
 
         // ProductName and TagNames are not posted (display-only fields omitted from hidden inputs).
         // Repopulate them here so any Page() re-render has the ingredient names and tag chips intact.
-        RestoreTagNames();
+        await RestoreTagNamesAsync(ct);
 
         if (!ModelState.IsValid)
             return Page();
@@ -303,13 +303,35 @@ public sealed class EditModel(
 
     /// <summary>
     /// Repopulates <see cref="RecipeEditInput.TagNames"/> from the already-loaded <see cref="TagOptions"/>
-    /// after a POST. Tag names are display-only and are not posted with the form (only <see cref="RecipeEditInput.TagIds"/>
+    /// after a POST, falling back to <see cref="ITagRepository.ResolveNamesAsync"/> for any archived
+    /// applied tags not present in the active-only <see cref="TagOptions"/> set.
+    ///
+    /// <para>Tag names are display-only and are not posted with the form (only <see cref="RecipeEditInput.TagIds"/>
     /// are). Without this, the re-rendered page serialises an empty TagNames list and the Alpine chip
-    /// state loses all tag display labels, blanking the chips in the editor.
+    /// state loses all tag display labels, blanking the chips in the editor. Archived applied tags
+    /// would degrade to a truncated GUID stub if resolved only from the active-only picker list.</para>
+    ///
+    /// <para>Mirrors the GET pre-population at lines 100–106 which uses <see cref="ITagRepository.ResolveNamesAsync"/>
+    /// (archived tags included) for the same id→name resolution.</para>
     /// </summary>
-    private void RestoreTagNames()
+    private async Task RestoreTagNamesAsync(CancellationToken ct)
     {
         var nameDict = TagOptions.ToDictionary(o => Guid.Parse(o.Value), o => o.Text);
+
+        // Collect any applied tag ids that are not in the active-only TagOptions (i.e. archived tags).
+        var missingIds = Input.TagIds
+            .Where(id => !nameDict.ContainsKey(id))
+            .Select(id => new TagId(id))
+            .ToList();
+
+        if (missingIds.Count > 0)
+        {
+            // ResolveNamesAsync includes archived tags — mirrors the GET pre-population path.
+            var archivedNames = await tags.ResolveNamesAsync(missingIds, ct);
+            foreach (var (tagId, name) in archivedNames)
+                nameDict[tagId.Value] = name;
+        }
+
         Input.TagNames = Input.TagIds
             .Select(id => nameDict.GetValueOrDefault(id) ?? id.ToString("N")[..8])
             .ToList();
