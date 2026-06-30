@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     ONE deterministic prep: gathers every data slice once from beads, then emits
-    a self-contained multi-tab HTML report with three tabs:
+    a self-contained multi-tab HTML report with four tabs:
 
       [Briefing]  The operator's morning decision surface: factory stall, overnight
                   recap, runway, replenishment worklist, and the call.
@@ -13,8 +13,11 @@
       [Flow]      The time-series flow view: lead-time scatter, throughput, aging
                   WIP, self-generated work. Full reuse of the flow-report logic.
 
-      [Backlog]   Full do-now / parked detail. (Filled by DB-5 child; placeholder
-                  here.)
+      [Backlog]   Full do-now / parked detail.
+
+      [Trend]     Health-over-time: charts each KPI metric across nightly snapshot
+                  dates. Data source: health-log.jsonl (git-tracked, appended each
+                  run). One row per calendar day; trend builds from first run forward.
 
     All tabs consume the SAME $payload JSON -- no per-tab re-querying of bd.
     The script is the substrate every subsequent DB-* child hangs off.
@@ -40,7 +43,10 @@ param(
     [string]$Out = "",
     [switch]$Json,
     [switch]$Open,
-    [int]$LongInProgressHours = 4
+    [int]$LongInProgressHours = 4,
+    # Path to the git-tracked health snapshot log. Default: same directory as this script.
+    # Each run appends ONE dated KPI-vector row; at most one row per calendar day is written.
+    [string]$HealthLog = ""
 )
 
 Set-StrictMode -Version Latest
@@ -644,7 +650,101 @@ $triageLeakGroups  = Group-ByTheme -rows $triageLeaks
 $triageParkedGroups= Group-ByTheme -rows $triageParked
 
 # ---------------------------------------------------------------------------
-# 6. Build JSON payload (the contract all tabs consume)
+# 6. Health-log: append one KPI-vector row per calendar day
+#
+#   File: health-log.jsonl (git-tracked, accumulates over time)
+#   Format: one JSON object per line, key "date" is the primary key.
+#   Idempotency: if a row for today's date already exists, skip append.
+#   Metrics persisted (snapshot state that cannot be reconstructed later):
+#     date, leadP50h, leadP85h, leadP95h, throughputPerDay, openCount,
+#     reasonMix (inflight/blocked/spec/ready/parked counts + percents),
+#     sgOutstanding (self-gen outstanding now), runwayDays, readyDepth,
+#     consumptionRate, stallCount
+# ---------------------------------------------------------------------------
+if (-not $HealthLog) {
+    $HealthLog = Join-Path $PSScriptRoot "health-log.jsonl"
+}
+
+$todayKey = $now.ToString("yyyy-MM-dd")
+$existingDates = @{}
+if (Test-Path $HealthLog) {
+    foreach ($rawLine in (Get-Content -Path $HealthLog -Encoding UTF8)) {
+        $trimmed = $rawLine.Trim()
+        if (-not $trimmed) { continue }
+        try {
+            $obj = $trimmed | ConvertFrom-Json
+            $d = Get-SafeProp $obj "date" ""
+            if ($d) { $existingDates[$d] = $true }
+        } catch {}
+    }
+}
+
+if (-not $existingDates.ContainsKey($todayKey)) {
+    # Compute reason-mix from agingRows
+    $rmTotal    = $agingRows.Count
+    $rmInflight = @($agingRows | Where-Object { $_.reason -eq "inflight" }).Count
+    $rmBlocked  = @($agingRows | Where-Object { $_.reason -eq "blocked"  }).Count
+    $rmSpec     = @($agingRows | Where-Object { $_.reason -eq "spec"     }).Count
+    $rmReady    = @($agingRows | Where-Object { $_.reason -eq "ready"    }).Count
+    $rmParked   = @($agingRows | Where-Object { $_.reason -eq "parked"   }).Count
+
+    function Pct { param([int]$n, [int]$total)
+        if ($total -eq 0) { return 0 }
+        return [math]::Round($n * 100.0 / $total, 1)
+    }
+
+    $kpiRow = [PSCustomObject]@{
+        date              = $todayKey
+        leadP50h          = if ($null -ne $p50) { [math]::Round($p50, 1) } else { $null }
+        leadP85h          = if ($null -ne $p85) { [math]::Round($p85, 1) } else { $null }
+        leadP95h          = if ($null -ne $p95) { [math]::Round($p95, 1) } else { $null }
+        throughputPerDay  = $perDay
+        openCount         = $agingRows.Count
+        reasonMix         = [PSCustomObject]@{
+            total    = $rmTotal
+            inflight = $rmInflight
+            blocked  = $rmBlocked
+            spec     = $rmSpec
+            ready    = $rmReady
+            parked   = $rmParked
+            pctInflight = Pct $rmInflight $rmTotal
+            pctBlocked  = Pct $rmBlocked  $rmTotal
+            pctSpec     = Pct $rmSpec     $rmTotal
+            pctReady    = Pct $rmReady    $rmTotal
+            pctParked   = Pct $rmParked   $rmTotal
+        }
+        sgOutstanding     = ($sgTotalCreated - $sgTotalClosed)
+        runwayDays        = if ($null -ne $runwayDays) { $runwayDays } else { $null }
+        readyDepth        = $readyDepth
+        consumptionRate   = $consumptionRate
+        stallCount        = $allStallItems.Count
+    }
+    $rowJson = ($kpiRow | ConvertTo-Json -Depth 5 -Compress)
+    Add-Content -Path $HealthLog -Value $rowJson -Encoding UTF8
+    Write-Host "  health-log: appended row for $todayKey -> $HealthLog" -ForegroundColor Cyan
+} else {
+    Write-Host "  health-log: row for $todayKey already exists, skipping append" -ForegroundColor Cyan
+}
+
+# Read the full health-log for trend data (all historical rows)
+$healthRows = New-Object System.Collections.Generic.List[object]
+if (Test-Path $HealthLog) {
+    foreach ($rawLine in (Get-Content -Path $HealthLog -Encoding UTF8)) {
+        $trimmed = $rawLine.Trim()
+        if (-not $trimmed) { continue }
+        try {
+            $obj = $trimmed | ConvertFrom-Json
+            $healthRows.Add($obj)
+        } catch {
+            Write-Warning "health-log: skipping malformed line: $trimmed"
+        }
+    }
+}
+# Sort by date ascending
+$healthRowsSorted = @($healthRows | Sort-Object -Property date)
+
+# ---------------------------------------------------------------------------
+# 7. Build JSON payload (the contract all tabs consume)
 # ---------------------------------------------------------------------------
 $flowKpis = [PSCustomObject]@{
     totalClosed     = $leadRows.Count
@@ -671,8 +771,17 @@ $briefingKpis = [PSCustomObject]@{
     ghAvailable            = $ghAvailable
 }
 
+$trendData = [PSCustomObject]@{
+    rows      = $healthRowsSorted
+    rowCount  = $healthRowsSorted.Count
+    # Note: trend builds from first run forward; no backfill from bd history.
+    # The first row date is the start of the tracked window.
+    startDate = if ($healthRowsSorted.Count -gt 0) { $healthRowsSorted[0].date } else { $null }
+}
+
 $payload = [PSCustomObject]@{
     generatedAt  = $now.ToString("yyyy-MM-dd HH:mm")
+    trend        = $trendData
     briefing     = [PSCustomObject]@{
         kpis         = $briefingKpis
         factoryStall = [PSCustomObject]@{
@@ -726,7 +835,7 @@ if ($Json) {
 }
 
 # ---------------------------------------------------------------------------
-# 7. Render HTML
+# 8. Render HTML
 # ---------------------------------------------------------------------------
 $dataJson = ($payload | ConvertTo-Json -Depth 10 -Compress)
 # Neutralise any "</script>" that could appear inside a title.
@@ -954,6 +1063,7 @@ $html = @'
   <button class="active" data-tab="briefing" role="tab" aria-selected="true">Briefing</button>
   <button data-tab="flow" role="tab" aria-selected="false">Flow</button>
   <button data-tab="backlog" role="tab" aria-selected="false">Backlog</button>
+  <button data-tab="trend" role="tab" aria-selected="false">Trend</button>
 </div>
 
 <!-- ============================================================
@@ -1114,6 +1224,94 @@ $html = @'
 
 </div><!-- .wrap -->
 </div><!-- #tab-backlog -->
+
+<!-- ============================================================
+     TREND TAB
+     Health-over-time: nightly KPI snapshot log + trend charts.
+     Data source: health-log.jsonl (git-tracked, appended each run).
+     Trend builds from first run forward -- no backfill from bd history.
+     ============================================================ -->
+<div class="tab-panel" id="tab-trend" role="tabpanel">
+<div class="wrap">
+  <header>
+    <h1>Health Trend</h1>
+    <div class="sub">Generated <span class="gen-ts"></span> &middot; KPI snapshots over time &mdash; one row per day</div>
+  </header>
+
+  <div class="kpis" id="trend-kpis"></div>
+
+  <div id="trend-empty" style="display:none">
+    <div class="placeholder">
+      <strong>No trend data yet</strong>
+      The health log is empty. Run the briefing at least once to seed the first snapshot row.
+      Each subsequent run appends one row; charts appear once two or more rows exist.
+    </div>
+  </div>
+
+  <div id="trend-charts">
+
+    <section>
+      <h2>Lead time percentiles &mdash; p50 / p85 / p95 (hours)</h2>
+      <p class="desc">Daily snapshot of p50, p85, and p95 lead time. A rising p95 means the tail is growing; a rising p50 means the median is slowing. Both axes are raw hours.</p>
+      <div class="chart"><canvas id="trendLeadChart"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>p50</span>
+        <span><i style="background:var(--wait)"></i>p85</span>
+        <span><i style="background:var(--warn)"></i>p95</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Throughput &mdash; closes per active day</h2>
+      <p class="desc">Rolling snapshot of closes-per-active-day (all time). Measures factory pace. Drops signal a slowdown or a dry-ready queue.</p>
+      <div class="chart"><canvas id="trendThroughputChart"></canvas></div>
+    </section>
+
+    <section>
+      <h2>Open count &mdash; WIP level over time</h2>
+      <p class="desc">Number of non-epic open issues at snapshot time. A growing pile signals intake exceeding throughput. Stacked by aging reason so you can see the composition shift.</p>
+      <div class="chart"><canvas id="trendOpenChart"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--r-inflight)"></i>in flight</span>
+        <span><i style="background:var(--r-blocked)"></i>blocked</span>
+        <span><i style="background:var(--r-spec)"></i>needs spec</span>
+        <span><i style="background:var(--r-ready)"></i>ready</span>
+        <span><i style="background:var(--r-parked)"></i>parked</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Self-gen outstanding &amp; runway</h2>
+      <p class="desc">Left axis: self-generated issues outstanding (code-review + dogfood not yet closed). Right axis: runway in days (ready depth / consumption rate). A falling runway while self-gen outstanding rises is the early warning for a queue starve.</p>
+      <div class="chart"><canvas id="trendSgRunwayChart"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--sg-line)"></i>self-gen outstanding</span>
+        <span><i style="background:var(--accent)"></i>runway (days)</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Stall count &mdash; items stopped on the operator</h2>
+      <p class="desc">Number of factory-stall items (needs-human + exhausted + blocked + long-in-progress + red-CI) that required operator attention at snapshot time. Drive to zero daily.</p>
+      <div class="chart" style="height:220px"><canvas id="trendStallChart"></canvas></div>
+    </section>
+
+  </div><!-- #trend-charts -->
+
+  <section style="margin-top:24px">
+    <h2 style="font-size:14px">Trend data &mdash; source &amp; caveats</h2>
+    <p class="note">
+      <b>Source:</b> <code>health-log.jsonl</code> in the daily-briefing skill directory.
+      Git-tracked; appended once per calendar day on each briefing run.
+      <span class="cav"><b>No backfill:</b> the trend log starts from the first time this script ran after DB-7 shipped.
+      Prior history is not reconstructed from bd; the window grows naturally over time.</span>
+      <span class="cav"><b>Idempotent:</b> if the briefing runs more than once on the same calendar day,
+      only the first run&apos;s row is written. Subsequent same-day runs are skipped.</span>
+    </p>
+  </section>
+
+</div><!-- .wrap -->
+</div><!-- #tab-trend -->
 
 <script>
 var DATA = __DATA_JSON__;
@@ -1772,6 +1970,279 @@ if (sg && sg.series && sg.series.length) {
     var parkedEl = document.getElementById("backlog-parked-content");
     if (parkedEl) {
         parkedEl.innerHTML = renderFullGroups(T.parkedGroups, false);
+    }
+})();
+
+// ---------------------------------------------------------------------------
+// TREND tab: health-over-time charts from DATA.trend.rows
+// ---------------------------------------------------------------------------
+(function() {
+    var TD = DATA.trend;
+    if (!TD || !TD.rows) { return; }
+
+    var rows = TD.rows;    // sorted ascending by date
+
+    var emptyEl  = document.getElementById("trend-empty");
+    var chartsEl = document.getElementById("trend-charts");
+    var kpisEl   = document.getElementById("trend-kpis");
+
+    if (rows.length === 0) {
+        if (emptyEl)  { emptyEl.style.display = "block"; }
+        if (chartsEl) { chartsEl.style.display = "none"; }
+        return;
+    }
+
+    // KPI strip: latest snapshot summary
+    var latest = rows[rows.length - 1];
+    var trendKpis = [
+        { v: rows.length,    l: "snapshot days logged" },
+        { v: latest.date,    l: "latest snapshot" },
+        { v: TD.startDate,   l: "tracking since" },
+        { v: latest.openCount != null ? latest.openCount : "n/a", l: "open (latest)" },
+        { v: latest.runwayDays != null ? latest.runwayDays + "d" : "n/a", l: "runway (latest)" },
+        { v: latest.stallCount != null ? latest.stallCount : "n/a", l: "stall count (latest)", warn: latest.stallCount > 0, ok: latest.stallCount === 0 },
+    ];
+    if (kpisEl) {
+        kpisEl.innerHTML = trendKpis.map(function(c) {
+            var cls = "kpi" + (c.warn ? " warn" : "") + (c.ok ? " ok" : "");
+            return '<div class="' + cls + '"><div class="v">' + c.v + '</div><div class="l">' + c.l + '</div></div>';
+        }).join("");
+    }
+
+    // Shared: x-axis labels (date strings MM-DD)
+    var labels = rows.map(function(r) { return (r.date || "").slice(5); });
+
+    var sharedOpts = {
+        maintainAspectRatio: false,
+        scales: {
+            x: { grid: { color: css("--grid") } },
+        },
+        plugins: { legend: { display: false } },
+    };
+
+    // 1. Lead time percentiles (multi-line)
+    var leadEl = document.getElementById("trendLeadChart");
+    if (leadEl && rows.length >= 1) {
+        new Chart(leadEl, {
+            type: "line",
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: "p50",
+                        data: rows.map(function(r) { return r.leadP50h != null ? r.leadP50h : null; }),
+                        borderColor: css("--accent"), borderWidth: 2, pointRadius: 3,
+                        tension: 0.2, fill: false, spanGaps: true,
+                    },
+                    {
+                        label: "p85",
+                        data: rows.map(function(r) { return r.leadP85h != null ? r.leadP85h : null; }),
+                        borderColor: css("--wait"), borderWidth: 2, pointRadius: 3,
+                        tension: 0.2, fill: false, spanGaps: true,
+                    },
+                    {
+                        label: "p95",
+                        data: rows.map(function(r) { return r.leadP95h != null ? r.leadP95h : null; }),
+                        borderColor: css("--warn"), borderWidth: 2, pointRadius: 3,
+                        tension: 0.2, fill: false, spanGaps: true,
+                    },
+                ],
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: css("--grid") } },
+                    y: { beginAtZero: true, title: { display: true, text: "hours" }, grid: { color: css("--grid") },
+                         ticks: { callback: function(v) { return fmtDur(v); } } },
+                },
+                plugins: {
+                    legend: { display: true, position: "bottom", labels: { boxWidth: 12 } },
+                    tooltip: { callbacks: { label: function(t) { return t.dataset.label + ": " + fmtDur(t.parsed.y); } } },
+                },
+            },
+        });
+    }
+
+    // 2. Throughput line
+    var thEl = document.getElementById("trendThroughputChart");
+    if (thEl && rows.length >= 1) {
+        new Chart(thEl, {
+            type: "line",
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: "closes/active day",
+                    data: rows.map(function(r) { return r.throughputPerDay != null ? r.throughputPerDay : null; }),
+                    borderColor: css("--accent"), borderWidth: 2, pointRadius: 3,
+                    backgroundColor: css("--accent") + "22", fill: true, tension: 0.2, spanGaps: true,
+                }],
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: css("--grid") } },
+                    y: { beginAtZero: true, title: { display: true, text: "closes/day" }, grid: { color: css("--grid") },
+                         ticks: { precision: 1 } },
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: function(t) { return "closes/day: " + t.parsed.y; } } },
+                },
+            },
+        });
+    }
+
+    // 3. Open count stacked bar by reason-mix
+    var openEl = document.getElementById("trendOpenChart");
+    if (openEl && rows.length >= 1) {
+        var hasReason = rows.some(function(r) { return r.reasonMix && r.reasonMix.total > 0; });
+        if (hasReason) {
+            new Chart(openEl, {
+                type: "bar",
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: "in flight",
+                            data: rows.map(function(r) { return r.reasonMix ? r.reasonMix.inflight : 0; }),
+                            backgroundColor: css("--r-inflight") + "cc", stack: "wip",
+                        },
+                        {
+                            label: "blocked",
+                            data: rows.map(function(r) { return r.reasonMix ? r.reasonMix.blocked : 0; }),
+                            backgroundColor: css("--r-blocked") + "cc", stack: "wip",
+                        },
+                        {
+                            label: "needs spec",
+                            data: rows.map(function(r) { return r.reasonMix ? r.reasonMix.spec : 0; }),
+                            backgroundColor: css("--r-spec") + "cc", stack: "wip",
+                        },
+                        {
+                            label: "ready",
+                            data: rows.map(function(r) { return r.reasonMix ? r.reasonMix.ready : 0; }),
+                            backgroundColor: css("--r-ready") + "cc", stack: "wip",
+                        },
+                        {
+                            label: "parked",
+                            data: rows.map(function(r) { return r.reasonMix ? r.reasonMix.parked : 0; }),
+                            backgroundColor: css("--r-parked") + "cc", stack: "wip",
+                        },
+                    ],
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true, grid: { display: false } },
+                        y: { stacked: true, beginAtZero: true, title: { display: true, text: "open issues" },
+                             grid: { color: css("--grid") }, ticks: { precision: 0 } },
+                    },
+                    plugins: {
+                        legend: { display: true, position: "bottom", labels: { boxWidth: 12 } },
+                    },
+                },
+            });
+        } else {
+            // Fallback: just total open count line
+            new Chart(openEl, {
+                type: "line",
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: "open count",
+                        data: rows.map(function(r) { return r.openCount != null ? r.openCount : null; }),
+                        borderColor: css("--accent"), borderWidth: 2, pointRadius: 3,
+                        backgroundColor: css("--accent") + "22", fill: true, tension: 0.2, spanGaps: true,
+                    }],
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { color: css("--grid") } },
+                        y: { beginAtZero: true, title: { display: true, text: "open issues" },
+                             grid: { color: css("--grid") }, ticks: { precision: 0 } },
+                    },
+                    plugins: { legend: { display: false } },
+                },
+            });
+        }
+    }
+
+    // 4. Self-gen outstanding (left) + runway (right) dual-axis
+    var sgRwEl = document.getElementById("trendSgRunwayChart");
+    if (sgRwEl && rows.length >= 1) {
+        new Chart(sgRwEl, {
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        type: "bar",
+                        label: "self-gen outstanding",
+                        data: rows.map(function(r) { return r.sgOutstanding != null ? r.sgOutstanding : null; }),
+                        backgroundColor: css("--sg-line") + "55",
+                        yAxisID: "y",
+                    },
+                    {
+                        type: "line",
+                        label: "runway (days)",
+                        data: rows.map(function(r) { return r.runwayDays != null ? r.runwayDays : null; }),
+                        borderColor: css("--accent"), borderWidth: 2, pointRadius: 3,
+                        tension: 0.2, fill: false, spanGaps: true,
+                        yAxisID: "y1",
+                    },
+                ],
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { display: false } },
+                    y:  { beginAtZero: true, title: { display: true, text: "self-gen outstanding" },
+                          grid: { color: css("--grid") }, ticks: { precision: 0 } },
+                    y1: { position: "right", beginAtZero: true,
+                          title: { display: true, text: "runway (days)" },
+                          grid: { display: false }, ticks: { precision: 0 } },
+                },
+                plugins: {
+                    legend: { display: true, position: "bottom", labels: { boxWidth: 12 } },
+                    tooltip: { callbacks: {
+                        label: function(t) {
+                            if (t.datasetIndex === 0) { return "self-gen: " + t.parsed.y; }
+                            return "runway: " + t.parsed.y + "d";
+                        },
+                    } },
+                },
+            },
+        });
+    }
+
+    // 5. Stall count bar
+    var stallEl = document.getElementById("trendStallChart");
+    if (stallEl && rows.length >= 1) {
+        new Chart(stallEl, {
+            type: "bar",
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: "stall count",
+                    data: rows.map(function(r) { return r.stallCount != null ? r.stallCount : null; }),
+                    backgroundColor: rows.map(function(r) {
+                        return (r.stallCount > 0) ? css("--warn") + "bb" : css("--accent") + "66";
+                    }),
+                    borderRadius: 3,
+                    maxBarThickness: 32,
+                }],
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: css("--grid") } },
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: function(t) { return "stall: " + t.parsed.y; } } },
+                },
+            },
+        });
     }
 })();
 </script>

@@ -2,16 +2,18 @@
 name: daily-briefing
 description: >-
   Generate a unified daily operator report: ONE command, ONE tabbed HTML with
-  [Briefing | Flow | Backlog] tabs. The Briefing tab shows factory stall (items
-  stopped on me), overnight recap, runway gauge, replenishment worklist, and the
-  ranked "where to spend attention" call written in chat. The Flow tab shows lead
-  time, throughput, aging WIP, and self-generated-work rate. The Backlog tab
-  shows the full do-now / parked detail.
+  [Briefing | Flow | Backlog | Trend] tabs. The Briefing tab shows factory stall
+  (items stopped on me), overnight recap, runway gauge, replenishment worklist,
+  and the ranked "where to spend attention" call written in chat. The Flow tab
+  shows lead time, throughput, aging WIP, and self-generated-work rate. The
+  Backlog tab shows the full do-now / parked detail. The Trend tab charts each
+  KPI metric across nightly snapshot dates from health-log.jsonl.
   USE FOR: "daily briefing", "morning report", "what should I do today",
   "run the briefing", "show me the briefing", "operator report",
   "morning standup summary", "what happened since yesterday",
   "triage the backlog", "show beads flow over time", "lead/cycle time",
-  "throughput chart", "aging WIP", "is the autonomous loop net-positive".
+  "throughput chart", "aging WIP", "is the autonomous loop net-positive",
+  "health trend", "KPI over time", "how is the factory performing over time".
   DO NOT USE FOR: classifying/labelling issues (use `groom`).
 license: MIT
 metadata:
@@ -33,6 +35,7 @@ are now folded into this briefing.
 | **Briefing** | Factory stall, overnight recap, runway, replenishment worklist, the call |
 | **Flow** | Lead-time scatter, throughput, aging WIP, self-generated work |
 | **Backlog** | Ranked do-now / parked detail |
+| **Trend** | KPI health-over-time charts from `health-log.jsonl` (nightly snapshots) |
 
 Landing tab is **Briefing**.
 
@@ -47,15 +50,52 @@ powershell -File "<skill-dir>/briefing.ps1" -Out C:\path\briefing.html
 
 # Emit the full JSON data contract to stdout (for debugging / piping)
 powershell -File "<skill-dir>/briefing.ps1" -Json
+
+# Use a custom health-log path (default: <skill-dir>/health-log.jsonl)
+powershell -File "<skill-dir>/briefing.ps1" -HealthLog C:\path\health-log.jsonl -Open
 ```
 
 Resolve `<skill-dir>` as the directory containing this `SKILL.md`.
+
+## Health log (Trend tab data source)
+
+`health-log.jsonl` lives in the same directory as `briefing.ps1` and `SKILL.md`.
+It is **git-tracked** so the trend accumulates across machines and branches.
+Each run appends at most one row (one per calendar day). The file is NOT
+gitignored -- commit it along with the generator to preserve trend history.
+
+The generated `daily-briefing.html` is gitignored (it is a snapshot artifact);
+the log that feeds the Trend tab is what gets committed.
+
+Schema per row:
+```json
+{
+  "date": "YYYY-MM-DD",
+  "leadP50h": float,
+  "leadP85h": float,
+  "leadP95h": float,
+  "throughputPerDay": float,
+  "openCount": int,
+  "reasonMix": { "total", "inflight", "blocked", "spec", "ready", "parked",
+                 "pctInflight", "pctBlocked", "pctSpec", "pctReady", "pctParked" },
+  "sgOutstanding": int,
+  "runwayDays": float | null,
+  "readyDepth": int,
+  "consumptionRate": float,
+  "stallCount": int
+}
+```
 
 ## Data contract (-Json payload)
 
 ```
 {
   "generatedAt": "YYYY-MM-DD HH:mm",
+  "trend": {
+    "rows":      [ { ... see health-log schema above ... } ],  // sorted asc by date
+    "rowCount":  int,
+    "startDate": "YYYY-MM-DD" | null    // date of the first row ever logged
+  },
   "briefing": {
     "kpis": {
       "runwayDays":          float | null,   // ready / consumptionRate
@@ -175,6 +215,9 @@ Do not recompute counts from scratch -- use what the script printed.
   re-querying. The JSON payload is the contract.
 - **Generated HTML is gitignored** -- it is a data snapshot; only the generator
   is committed.
+- **health-log.jsonl is git-tracked** -- this is the Trend tab's data source.
+  Commit it alongside the generator to preserve the cross-session trend window.
+  Each briefing run appends at most one row (idempotent per calendar day).
 - **On-demand only.** No session-start hook; runs when invoked.
 - **Supersedes:** `daily-report` (morning summary), `triage` (backlog ranking),
   `flow-report` (lead/throughput/aging/self-gen charts). Those skills are
