@@ -518,6 +518,118 @@ foreach ($i in $all) {
 }
 
 # ---------------------------------------------------------------------------
+# 5c. Replenishment worklist: port of triage/prep.py -- leaks-vs-investments
+#
+#   LEAK_CLASSES  = class:bug + class:ux
+#   PARKED_CLASSES = class:improvement + class:tech-debt
+#
+#   Gate: if any open issue has no class: label, surface a "groom first" warning
+#   (mirrors prep.py GATE: FAIL behaviour).
+#   Rows carry: id, title, cls, theme, priority, ready, blocked_by,
+#               quick_win, needs_spec, needs_split
+#   Groups by theme, leaks first.
+# ---------------------------------------------------------------------------
+$leakClasses   = @("class:bug", "class:ux")
+$parkedClasses = @("class:improvement", "class:tech-debt")
+
+function Get-ShortClass {
+    param([string[]]$labels)
+    foreach ($l in $labels) {
+        if ($l.StartsWith("class:")) { return $l.Substring(6) }
+    }
+    return $null
+}
+
+function Get-IssueTheme {
+    param([string[]]$labels)
+    foreach ($l in $labels) {
+        if ($l.StartsWith("theme:")) { return $l.Substring(6) }
+    }
+    return "(no theme)"
+}
+
+# Gather blocked-by information from bd blocked
+$blockedById = @{}
+foreach ($b in (Invoke-BdJson @("blocked", "--limit", "0"))) {
+    $bid = Get-SafeProp $b "id" ""
+    if (-not $bid) { continue }
+    $blockedBy = @(Get-SafeProp $b "blocked_by" @())
+    $blockedById[$bid] = $blockedBy
+}
+
+# Open issues only (already have $all; filter to non-closed)
+$openIssues = @($all | Where-Object { -not (Get-SafeProp $_ "closed_at" $null) })
+
+$triageUntriaged = New-Object System.Collections.Generic.List[object]
+$triageRows      = New-Object System.Collections.Generic.List[object]
+
+foreach ($i in $openIssues) {
+    $iid    = Get-SafeProp $i "id" ""
+    $labels = @(Get-SafeProp $i "labels" @())
+    $cls    = Get-ShortClass $labels
+
+    if (-not $cls) {
+        $triageUntriaged.Add([PSCustomObject]@{
+            id    = $iid
+            title = Get-SafeProp $i "title" ""
+        })
+        continue
+    }
+
+    $classLabel  = "class:$cls"
+    $isLeak      = $leakClasses   -contains $classLabel
+    $isParked    = $parkedClasses -contains $classLabel
+    if (-not $isLeak -and -not $isParked) { continue }  # unexpected class; skip
+
+    $blockedBy = if ($blockedById.ContainsKey($iid)) { $blockedById[$iid] } else { @() }
+
+    $triageRows.Add([PSCustomObject]@{
+        id         = $iid
+        title      = Get-SafeProp $i "title" ""
+        cls        = $cls
+        theme      = Get-IssueTheme $labels
+        priority   = Get-SafeProp $i "priority" $null
+        ready      = $readyById.ContainsKey($iid)
+        blocked_by = $blockedBy
+        quick_win  = $labels -contains "quick-win"
+        needs_spec = $labels -contains "needs-spec"
+        needs_split= $labels -contains "needs-split"
+        pool       = if ($isLeak) { "leak" } else { "parked" }
+    })
+}
+
+$triageLeaks  = @($triageRows | Where-Object { $_.pool -eq "leak" })
+$triageParked = @($triageRows | Where-Object { $_.pool -eq "parked" })
+$triageOther  = @()  # (class values outside the two sets are already skipped above)
+
+$triageBudget = [PSCustomObject]@{
+    open_leaks   = $triageLeaks.Count
+    bugs         = @($triageLeaks | Where-Object { $_.cls -eq "bug" }).Count
+    ux           = @($triageLeaks | Where-Object { $_.cls -eq "ux" }).Count
+    improvements = @($triageParked | Where-Object { $_.cls -eq "improvement" }).Count
+    tech_debt    = @($triageParked | Where-Object { $_.cls -eq "tech-debt" }).Count
+}
+
+# Group by theme (sorted: largest group first, then alpha) -- mirrors prep.py group_by_theme
+function Group-ByTheme {
+    param([object[]]$rows)
+    $groups = @{}
+    foreach ($r in $rows) {
+        $t = $r.theme
+        if (-not $groups.ContainsKey($t)) { $groups[$t] = New-Object System.Collections.Generic.List[object] }
+        $groups[$t].Add($r)
+    }
+    # Sort: largest count first, then alphabetical
+    $sorted = $groups.GetEnumerator() |
+        Sort-Object @{E={-$_.Value.Count}}, @{E={$_.Key}} |
+        ForEach-Object { [PSCustomObject]@{ theme = $_.Key; rows = @($_.Value) } }
+    return @($sorted)
+}
+
+$triageLeakGroups  = Group-ByTheme -rows $triageLeaks
+$triageParkedGroups= Group-ByTheme -rows $triageParked
+
+# ---------------------------------------------------------------------------
 # 6. Build JSON payload (the contract all tabs consume)
 # ---------------------------------------------------------------------------
 $flowKpis = [PSCustomObject]@{
@@ -583,6 +695,14 @@ $payload = [PSCustomObject]@{
     backlog      = [PSCustomObject]@{
         ready   = @($all | Where-Object { $readyById.ContainsKey((Get-SafeProp $_ "id" "")) })
         blocked = $parkedItems
+    }
+    triage       = [PSCustomObject]@{
+        gateOk      = ($triageUntriaged.Count -eq 0)
+        totalOpen   = $openIssues.Count
+        untriaged   = $triageUntriaged
+        budget      = $triageBudget
+        leakGroups  = $triageLeakGroups
+        parkedGroups= $triageParkedGroups
     }
 }
 
@@ -759,6 +879,58 @@ $html = @'
     font-size:10px; color:var(--muted); margin-top:5px; padding:0 1px;
   }
   .runway-note { font-size:11.5px; color:var(--muted); margin-top:12px; line-height:1.6; }
+  /* ---------- replenishment worklist ---------- */
+  .worklist-gate-warn {
+    font-size:13px; color:var(--warn); background:#2e1e1e;
+    border:1px solid #5a2020; border-radius:8px;
+    padding:10px 14px; margin-bottom:14px; line-height:1.6;
+  }
+  .worklist-gate-warn strong { display:block; font-size:14px; margin-bottom:4px; }
+  .worklist-gate-warn ul { margin:6px 0 0 16px; padding:0; }
+  .worklist-gate-warn li { margin:2px 0; font-size:12px; font-family:monospace; }
+  .worklist-budget {
+    display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;
+  }
+  .worklist-budget-pill {
+    background:var(--panel2); border:1px solid var(--line); border-radius:20px;
+    padding:4px 12px; font-size:12px; color:var(--muted);
+  }
+  .worklist-budget-pill.pill-leak { border-color:#5a2020; color:var(--warn); background:#2e1e1e; }
+  .worklist-budget-pill.pill-zero { border-color:#1a3a25; color:var(--accent); background:#1a2e1f; }
+  .worklist-pool-header {
+    font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--muted); border-bottom:1px solid var(--line);
+    padding:14px 0 4px; margin:14px 0 6px;
+  }
+  .worklist-pool-header.pool-leaks   { color:var(--warn); border-color:#5a2020; }
+  .worklist-pool-header.pool-parked  { color:var(--accent); }
+  .worklist-theme-header {
+    font-size:12px; font-weight:600; color:var(--ink);
+    margin:12px 0 4px; padding:0;
+  }
+  .worklist-theme-header span { color:var(--muted); font-weight:400; }
+  .worklist-list { list-style:none; margin:0 0 6px; padding:0; }
+  .worklist-list li {
+    display:grid;
+    grid-template-columns:auto auto 1fr;
+    grid-template-rows:auto auto;
+    gap:2px 8px;
+    padding:8px 0; border-bottom:1px solid var(--line); font-size:13px;
+    align-items:start;
+  }
+  .worklist-list li:last-child { border-bottom:none; }
+  .wl-id    { color:var(--muted); font-family:monospace; font-size:11px; white-space:nowrap; grid-row:1; grid-column:1; padding-top:2px; }
+  .wl-cls   { font-size:10px; padding:2px 7px; border-radius:20px; white-space:nowrap;
+              grid-row:1; grid-column:2; align-self:center; }
+  .wl-cls.cls-bug  { background:#2e1e1e; color:var(--warn); }
+  .wl-cls.cls-ux   { background:#2a1f2e; color:#c98bd6; }
+  .wl-cls.cls-improvement { background:#1a2e1f; color:var(--accent); }
+  .wl-cls.cls-tech-debt   { background:#1e2032; color:#5aa9e6; }
+  .wl-title { font-weight:500; grid-row:1; grid-column:3; }
+  .wl-flags { color:var(--muted); font-size:11.5px; grid-row:2; grid-column:2 / span 2; line-height:1.5; }
+  .wl-flag-warn { color:var(--warn); }
+  .wl-flag-spec { color:var(--wait); }
+  .worklist-empty { color:var(--muted); font-size:13px; padding:10px 0; font-style:italic; }
 </style>
 </head>
 <body>
@@ -804,14 +976,15 @@ $html = @'
     <div id="runway-content"></div>
   </section>
 
-  <!-- Replenishment worklist placeholder (DB-4 will fill) -->
-  <div class="placeholder">
-    <strong>Replenishment worklist</strong>
-    DB-4 child will port the triage logic from Python to PowerShell and
-    render the do-now priority list here.
-    <br>
-    (Placeholder &mdash; landing with DB-4: plantry-qk49o)
-  </div>
+  <!-- Replenishment worklist (DB-4: plantry-qk49o) -->
+  <section id="worklist-section">
+    <h2>Replenishment worklist</h2>
+    <p class="desc" id="worklist-desc">
+      Quality leaks first (bugs + UX), then investments to spec or unblock
+      to keep the queue full. Drive leak count to zero for MVP.
+    </p>
+    <div id="worklist-content"></div>
+  </section>
 
   <!-- The call placeholder (DB-6 will fill) -->
   <div class="placeholder">
@@ -1155,6 +1328,94 @@ if (fs && fs.count > 0) {
 })();
 
 // ---------------------------------------------------------------------------
+// Replenishment worklist (DB-4: plantry-qk49o)
+// Mirrors triage/prep.py render_text semantics; leaks first, then parked.
+// ---------------------------------------------------------------------------
+(function() {
+    var T = DATA.triage;
+    if (!T) { return; }
+
+    var wc = document.getElementById("worklist-content");
+    if (!wc) { return; }
+
+    // Budget pills
+    var b = T.budget;
+    var leakCount = b ? b.open_leaks : 0;
+    var pillsCls = leakCount > 0 ? "pill-leak" : "pill-zero";
+    var bugsStr  = b ? b.bugs + " bug" + (b.bugs === 1 ? "" : "s") : "0 bugs";
+    var uxStr    = b ? b.ux + " ux"   : "0 ux";
+    var impStr   = b ? b.improvements + " improvement" + (b.improvements === 1 ? "" : "s") : "";
+    var tdStr    = b ? b.tech_debt    + " tech-debt" : "";
+
+    var pillsHtml = '<div class="worklist-budget">'
+        + '<span class="worklist-budget-pill ' + pillsCls + '">'
+        + 'LEAK BUDGET: ' + leakCount + ' open (' + bugsStr + ' / ' + uxStr + ') &mdash; drive to 0 for MVP'
+        + '</span>';
+    if (impStr || tdStr) {
+        pillsHtml += '<span class="worklist-budget-pill">Parked: ' + impStr + (impStr && tdStr ? ' / ' : '') + tdStr + '</span>';
+    }
+    pillsHtml += '</div>';
+
+    // Gate warning
+    var gateHtml = '';
+    if (!T.gateOk && T.untriaged && T.untriaged.length > 0) {
+        gateHtml = '<div class="worklist-gate-warn">'
+            + '<strong>GATE: FAIL &mdash; ' + T.untriaged.length + ' of ' + T.totalOpen + ' open issues untriaged &mdash; run groom first</strong>'
+            + 'The worklist below is partial. These issues have no class: label:<ul>';
+        T.untriaged.forEach(function(u) {
+            gateHtml += '<li>' + esc(u.id) + '  ' + esc((u.title || '').slice(0, 72)) + '</li>';
+        });
+        gateHtml += '</ul></div>';
+    }
+
+    // Row renderer: mirrors prep.py flags()
+    function renderRow(r) {
+        var clsCss = 'cls-' + (r.cls || '');
+        var flags = [];
+        if (r.ready) { flags.push('<span>ready</span>'); }
+        if (r.blocked_by && r.blocked_by.length) {
+            flags.push('<span class="wl-flag-warn">blocked by ' + r.blocked_by.map(esc).join(', ') + '</span>');
+        }
+        if (r.quick_win) { flags.push('<span>quick-win</span>'); }
+        if (r.needs_spec) { flags.push('<span class="wl-flag-spec">[!] needs-spec (define first)</span>'); }
+        if (r.needs_split){ flags.push('<span class="wl-flag-spec">[!] needs-split (split first)</span>'); }
+        var flagsHtml = flags.length ? '<span class="wl-flags">' + flags.join(' &nbsp;|&nbsp; ') + '</span>' : '';
+        var prio = r.priority != null ? ' P' + r.priority : '';
+        return '<li>'
+            + '<span class="wl-id">' + esc(r.id) + '</span>'
+            + '<span class="wl-cls ' + clsCss + '">' + esc(r.cls || '') + '</span>'
+            + '<span class="wl-title">' + esc((r.title || '').slice(0, 64)) + prio + '</span>'
+            + flagsHtml
+            + '</li>';
+    }
+
+    // Group renderer (leaks or parked)
+    function renderGroups(groups, isLeak) {
+        if (!groups || groups.length === 0) {
+            return '<p class="worklist-empty">' + (isLeak ? '(none &mdash; leak budget is zero)' : '(none)') + '</p>';
+        }
+        var html = '';
+        groups.forEach(function(g) {
+            var rows = g.rows || [];
+            html += '<div class="worklist-theme-header">theme:' + esc(g.theme)
+                + ' <span>(' + rows.length + (isLeak ? ' leak' + (rows.length === 1 ? '' : 's') : ' item' + (rows.length === 1 ? '' : 's')) + ')</span></div>';
+            html += '<ul class="worklist-list">';
+            rows.forEach(function(r) { html += renderRow(r); });
+            html += '</ul>';
+        });
+        return html;
+    }
+
+    var html = gateHtml + pillsHtml
+        + '<div class="worklist-pool-header pool-leaks">DO-NOW POOL &mdash; bugs + ux (leaks) &mdash; rank and pull these first</div>'
+        + renderGroups(T.leakGroups, true)
+        + '<div class="worklist-pool-header pool-parked">PARKED POOL &mdash; improvement + tech-debt &mdash; spec or unblock to refill the queue</div>'
+        + renderGroups(T.parkedGroups, false);
+
+    wc.innerHTML = html;
+})();
+
+// ---------------------------------------------------------------------------
 // FLOW tab: mirrors flow-report charts exactly, reading from DATA.flow
 // ---------------------------------------------------------------------------
 var F = DATA.flow;
@@ -1358,10 +1619,12 @@ $html = $html.Replace('__DATA_JSON__', $dataJson)
 if (-not $Out) { $Out = Join-Path (Get-Location) "daily-briefing.html" }
 $html | Out-File -FilePath $Out -Encoding utf8
 Write-Host "Wrote $Out" -ForegroundColor Green
-Write-Host ("  runway={0}d  ready={1}  stall={2} (needs-human={3} exhausted={4} blocked={5} long-ip={6} red-ci={7})  overnight created={8}/closed={9}  flow closed={10}  open={11}" -f `
+$triageGateStr = if ($triageUntriaged.Count -gt 0) { "FAIL($($triageUntriaged.Count) untriaged)" } else { "OK" }
+Write-Host ("  runway={0}d  ready={1}  stall={2} (needs-human={3} exhausted={4} blocked={5} long-ip={6} red-ci={7})  overnight created={8}/closed={9}  flow closed={10}  open={11}  triage gate={12} leaks={13}" -f `
     $briefingKpis.runwayDays, $briefingKpis.readyDepth, $briefingKpis.stallCount,
     $stallNeedsHuman.Count, $stallParkedExhausted.Count, $stallBlocked.Count,
     $stallLongInProgress.Count, $stallRedCi.Count,
     $briefingKpis.overnightCreated, $briefingKpis.overnightClosed,
-    $flowKpis.totalClosed, $flowKpis.openCount)
+    $flowKpis.totalClosed, $flowKpis.openCount,
+    $triageGateStr, $triageBudget.open_leaks)
 if ($Open) { Start-Process $Out }
