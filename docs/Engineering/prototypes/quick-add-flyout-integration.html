@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inline-add integration — flyout view-swap vs modal-on-flyout (Take Stock)</title>
+<!-- THROWAWAY PROTOTYPE. How the group-aware create form lives inside the existing quick-add
+     flyout on Take Stock. Demonstrates the recommended in-place view swap vs the modal-off-flyout
+     anti-pattern. Mirrors plenish.css tokens + the real .sheet / _ProductSearchCreateSheet. -->
+<style>
+  :root {
+    --color-bg:#efe9db; --color-bg-subtle:#ece5d4; --color-surface:#fbf8f1; --color-surface-2:#f3eee2;
+    --color-border:#e4ddcc; --color-border-strong:#bdb49d; --color-text:#2b2b28; --color-text-muted:#6d685d;
+    --color-text-faint:#9c9587; --color-text-on-accent:#fbf8f1; --color-accent:#3d5a40; --color-accent-hover:#46683f;
+    --color-accent-subtle:#e3e8e3; --color-success:#3d7a4e; --color-success-bg:#e6f0e8; --color-warning:#b0701f;
+    --color-warning-bg:#f7ecdd; --color-danger:#a8493a; --color-danger-bg:#f4e4e1; --color-info:#36578a; --color-info-bg:#e2e8f1;
+    --radius-sm:4px; --radius-md:8px; --radius-lg:12px;
+    --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.5rem; --space-6:2rem;
+    --font-sans:'Hanken Grotesk',system-ui,sans-serif; --font-mono:'Spline Sans Mono',ui-monospace,monospace;
+    --font-size-xs:.75rem; --font-size-sm:.875rem; --font-size-base:1rem; --font-size-lg:1.125rem;
+    --shadow-lg:0 12px 32px rgba(0,0,0,.16);
+  }
+  * { box-sizing:border-box; }
+  body { font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); margin:0; padding:24px 32px 48px; line-height:1.5; }
+  h1 { font-size:21px; margin:0 0 4px; }
+  .sub { color:var(--color-text-muted); font-size:14px; margin:0 0 14px; max-width:94ch; }
+  code { font-family:var(--font-mono); font-size:12px; background:var(--color-surface-2); padding:1px 5px; border-radius:3px; }
+
+  .controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+  .seg { display:inline-flex; border:1px solid var(--color-border-strong); border-radius:var(--radius-md); overflow:hidden; }
+  .seg button { background:var(--color-surface); border:none; padding:8px 14px; font-family:inherit; font-size:13px; font-weight:600; color:var(--color-text-muted); cursor:pointer; border-right:1px solid var(--color-border); }
+  .seg button:last-child { border-right:none; }
+  .seg button.active { background:var(--color-accent); color:var(--color-text-on-accent); }
+
+  /* ── faux Take Stock walk behind the sheet ── */
+  .stage { position:relative; height:760px; border:1px solid var(--color-border); border-radius:var(--radius-lg); overflow:hidden; background:var(--color-bg); }
+  .walk { padding:20px 24px; filter:none; transition:filter .15s; }
+  .walk h2 { font-size:18px; margin:0 0 2px; }
+  .walk .crumb { font-size:12px; color:var(--color-text-muted); margin-bottom:16px; }
+  .row { display:flex; align-items:center; gap:12px; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:8px; max-width:560px; }
+  .row .nm { font-weight:600; }
+  .row .qty { margin-left:auto; font-family:var(--font-mono); font-size:13px; color:var(--color-text-muted); }
+  .row .step { width:26px; height:26px; border-radius:var(--radius-sm); border:1px solid var(--color-border-strong); background:var(--color-surface-2); display:grid; place-items:center; color:var(--color-text-muted); font-weight:700; }
+  .addbar { margin-top:14px; }
+  .addbtn { display:inline-flex; align-items:center; gap:8px; background:var(--color-accent); color:var(--color-text-on-accent); border:none; border-radius:var(--radius-md); padding:10px 16px; font-family:inherit; font-weight:600; font-size:14px; cursor:pointer; }
+  .stage.dim .walk { filter:saturate(.6) brightness(.96); }
+
+  /* ── overlay + sheet (real .sheet semantics) ── */
+  .overlay { position:absolute; inset:0; background:rgba(0,0,0,.4); }
+  .sheet__panel { position:absolute; right:0; top:0; bottom:0; width:min(440px,100%); background:var(--color-surface); box-shadow:var(--shadow-lg); display:flex; flex-direction:column; padding:var(--space-4); overflow-y:auto; }
+  .sheet__header { display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-4); }
+  .sheet__title { margin:0; font-size:var(--font-size-lg); display:flex; align-items:center; gap:8px; }
+  .sheet__close { background:none; border:none; font-size:1.5rem; line-height:1; color:var(--color-text-muted); cursor:pointer; }
+  .backlink { background:none; border:none; color:var(--color-accent); font-family:inherit; font-weight:600; font-size:13px; cursor:pointer; padding:0; }
+
+  .fld { display:flex; flex-direction:column; gap:var(--space-1); margin-bottom:var(--space-4); position:relative; }
+  .fld__label { font-size:var(--font-size-xs); font-weight:600; color:var(--color-text-muted); letter-spacing:.02em; text-transform:uppercase; }
+  .fld__hint { font-size:11.5px; color:var(--color-text-faint); }
+  .field__input { padding:var(--space-2) var(--space-3); border:1px solid var(--color-border-strong); border-radius:var(--radius-md); font-family:inherit; font-size:var(--font-size-base); background:var(--color-surface); color:var(--color-text); width:100%; }
+  .field__input::placeholder { color:var(--color-text-faint); }
+  select.field__input { appearance:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%236d685d' stroke-width='1.5'/></svg>"); background-repeat:no-repeat; background-position:right 10px center; padding-right:28px; }
+
+  .listbox { list-style:none; margin:var(--space-1) 0 0; padding:var(--space-1); background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); box-shadow:0 8px 24px rgba(0,0,0,.12); }
+  .listbox li { padding:var(--space-2) var(--space-3); border-radius:var(--radius-sm); font-size:var(--font-size-sm); cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .listbox li:hover { background:var(--color-accent-subtle); }
+  .opt-new { color:var(--color-accent); font-weight:600; }
+  .opt-pick .badge { margin-left:auto; font-size:10px; font-weight:700; text-transform:uppercase; color:var(--color-text-faint); }
+
+  details { border:1px solid var(--color-border); border-radius:var(--radius-md); padding:var(--space-2) var(--space-3); margin-bottom:var(--space-4); background:var(--color-surface-2); }
+  summary { font-size:var(--font-size-sm); font-weight:600; color:var(--color-accent); cursor:pointer; }
+  details .fld { margin:var(--space-3) 0 var(--space-2); }
+
+  .slot { border:1px dashed var(--color-border-strong); border-radius:var(--radius-md); padding:var(--space-3); margin-bottom:var(--space-4); background:color-mix(in srgb,var(--color-warning-bg) 40%,var(--color-surface)); }
+  .slot__tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--color-warning); margin-bottom:8px; }
+  .slot .two { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-3); }
+
+  .preview-line { font-size:12px; border-radius:var(--radius-sm); padding:8px 10px; margin-bottom:var(--space-3); background:var(--color-success-bg); color:var(--color-success); }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); padding:var(--space-2) var(--space-5); border-radius:var(--radius-md); font-family:inherit; font-size:var(--font-size-sm); font-weight:600; border:1px solid transparent; cursor:pointer; }
+  .btn--primary { background:var(--color-accent); color:var(--color-text-on-accent); }
+  .btn--ghost { background:transparent; color:var(--color-accent); }
+  .sheet__actions { display:flex; gap:var(--space-3); margin-top:auto; padding-top:var(--space-4); }
+
+  /* ── nested modal (anti-pattern demo) ── */
+  .modal-scrim { position:absolute; inset:0; background:rgba(0,0,0,.4); display:grid; place-items:center; }
+  .modal { width:min(380px,90%); background:var(--color-surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); padding:var(--space-4); max-height:86%; overflow-y:auto; }
+  .warnflags { margin-top:14px; max-width:560px; }
+  .warnflags li { font-size:13px; color:var(--color-danger); margin-bottom:4px; }
+  .goodflags li { font-size:13px; color:var(--color-success); margin-bottom:4px; }
+  .hidden { display:none !important; }
+  .note { font-size:13px; color:var(--color-text-muted); margin-top:14px; max-width:94ch; }
+  .note b { color:var(--color-text); }
+</style>
+</head>
+<body>
+  <h1>Inline-add on Take Stock: where does the group-aware create form live?</h1>
+  <p class="sub">The flyout (<code>.sheet</code>) already swaps modes in place (search ⇄ create-staple). Extend that — make the
+    group-aware create form a <b>second view of the same flyout</b>, not a modal launched off it. Toggle the views:</p>
+
+  <div class="controls">
+    <div class="seg">
+      <button data-view="search" class="active">1 · Flyout: search</button>
+      <button data-view="create">2 · Flyout: create (in place) ✓</button>
+      <button data-view="modal">✗ Modal off flyout</button>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <!-- faux walk page -->
+    <div class="walk">
+      <h2>Take Stock — Fridge</h2>
+      <div class="crumb">Walk · 6 items counted</div>
+      <div class="row"><span class="step">−</span><span class="nm">Whole Milk</span><span class="qty">2 L</span><span class="step">+</span></div>
+      <div class="row"><span class="step">−</span><span class="nm">Butter</span><span class="qty">250 g</span><span class="step">+</span></div>
+      <div class="row"><span class="step">−</span><span class="nm">Eggs</span><span class="qty">12 ea</span><span class="step">+</span></div>
+      <div class="addbar"><button class="addbtn">＋ Add an item</button></div>
+    </div>
+
+    <!-- the flyout -->
+    <div class="overlay" id="overlay"></div>
+
+    <!-- VIEW 1 + 2 share one panel; content swaps -->
+    <div class="sheet__panel" id="panel">
+      <!-- header swaps title + back affordance per view -->
+      <div class="sheet__header">
+        <h3 class="sheet__title" id="sheetTitle">Add an item</h3>
+        <button class="sheet__close">&times;</button>
+      </div>
+
+      <!-- ── SEARCH VIEW ── -->
+      <div id="viewSearch">
+        <div class="fld">
+          <label class="fld__label">Product</label>
+          <input class="field__input" placeholder="Search products…" value="oat" />
+          <ul class="listbox">
+            <li class="opt-pick">Rolled Oats <span class="badge">in catalog</span></li>
+            <li class="opt-new" id="toCreate">+ Create a new product…</li>
+          </ul>
+        </div>
+        <div class="slot">
+          <div class="slot__tag">Host slot · count + location</div>
+          <div class="two">
+            <div class="fld" style="margin:0"><label class="fld__label">Count</label><input class="field__input" placeholder="0" /></div>
+            <div class="fld" style="margin:0"><label class="fld__label">Location</label><select class="field__input"><option>Fridge</option></select></div>
+          </div>
+        </div>
+        <div class="sheet__actions"><button class="btn btn--primary">Add &amp; count</button><button class="btn btn--ghost">Cancel</button></div>
+      </div>
+
+      <!-- ── CREATE VIEW (group-aware) — same panel, swapped in place ── -->
+      <div id="viewCreate" class="hidden">
+        <button class="backlink" id="backToSearch" style="margin-bottom:12px">← Back to search</button>
+        <div class="fld">
+          <label class="fld__label">Name</label>
+          <input class="field__input" value="Oat Milk" />
+        </div>
+        <div class="fld">
+          <label class="fld__label">Group <span class="fld__hint">(optional)</span></label>
+          <input class="field__input" value="Milk" />
+          <ul class="listbox"><li class="opt-new">+ Create group “Milk”</li></ul>
+        </div>
+        <div class="preview-line">＋ Creates a new <b>Milk</b> group · <b>Oat Milk</b> becomes its first variant.</div>
+        <details>
+          <summary>Defaults (apply to the group)</summary>
+          <div class="fld"><label class="fld__label">Unit</label><select class="field__input"><option>L — litre</option></select></div>
+          <div class="fld"><label class="fld__label">Category</label><select class="field__input"><option>Dairy</option></select></div>
+        </details>
+        <div class="slot">
+          <div class="slot__tag">Host slot · count + location (unchanged)</div>
+          <div class="two">
+            <div class="fld" style="margin:0"><label class="fld__label">Count</label><input class="field__input" value="1" /></div>
+            <div class="fld" style="margin:0"><label class="fld__label">Location</label><select class="field__input"><option>Fridge</option></select></div>
+          </div>
+        </div>
+        <div class="sheet__actions"><button class="btn btn--primary">Create &amp; count</button><button class="btn btn--ghost" id="cancelCreate">Cancel</button></div>
+      </div>
+    </div>
+
+    <!-- ── MODAL-OFF-FLYOUT (anti-pattern) ── -->
+    <div class="modal-scrim hidden" id="modalScrim">
+      <div class="modal">
+        <div class="sheet__header"><h3 class="sheet__title">New product</h3><button class="sheet__close" id="modalClose">&times;</button></div>
+        <div class="fld"><label class="fld__label">Name</label><input class="field__input" value="Oat Milk" /></div>
+        <div class="fld"><label class="fld__label">Group</label><input class="field__input" value="Milk" /></div>
+        <div class="preview-line">＋ Creates a new Milk group · Oat Milk first variant.</div>
+        <div class="sheet__actions"><button class="btn btn--primary">Create</button><button class="btn btn--ghost" id="modalCancel">Cancel</button></div>
+      </div>
+    </div>
+  </div>
+
+  <ul class="warnflags hidden" id="warnFlags">
+    <li>✗ Two scrims stacked — Escape and click-outside become ambiguous (which layer closes?).</li>
+    <li>✗ Two focus traps competing; screen-reader context is now three dialogs deep.</li>
+    <li>✗ On mobile the flyout is already a 90vh bottom sheet — a modal on top has nowhere to sit.</li>
+    <li>✗ The count + location fields are stranded on the flyout behind the modal — you must close it to finish the count.</li>
+  </ul>
+  <ul class="goodflags hidden" id="goodFlags">
+    <li>✓ One surface, one scrim, one focus trap — Escape/back are unambiguous.</li>
+    <li>✓ The host count + location slot stays put; “Create &amp; count” still resolves in one submit.</li>
+    <li>✓ Identical on mobile — it's the same bottom sheet, just a different view.</li>
+    <li>✓ Reuses the existing search⇄staple swap mechanism (<code>x-show</code>), no new overlay plumbing.</li>
+  </ul>
+
+  <p class="note" id="caption"><b>Search view.</b> Picking “+ Create a new product…” swaps this same panel to the create view — it does not open anything new.</p>
+
+<script>
+  const views = { search:document.getElementById('viewSearch'), create:document.getElementById('viewCreate') };
+  const modalScrim = document.getElementById('modalScrim');
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+  const stage = document.getElementById('stage');
+  const title = document.getElementById('sheetTitle');
+  const warnFlags = document.getElementById('warnFlags');
+  const goodFlags = document.getElementById('goodFlags');
+  const caption = document.getElementById('caption');
+  const segBtns = document.querySelectorAll('.seg button');
+
+  const captions = {
+    search: '<b>Search view.</b> Picking “+ Create a new product…” swaps this same panel to the create view — it does not open anything new.',
+    create: '<b>Create view (recommended).</b> Same flyout, content swapped in place, with “← Back to search”. The host’s count + location slot is untouched, so “Create &amp; count” finishes the whole task in one submit.',
+    modal:  '<b>Modal off the flyout (avoid).</b> A second dialog stacked on the drawer — note the problems flagged below.'
+  };
+
+  function setView(v){
+    segBtns.forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+    // panel content
+    views.search.classList.toggle('hidden', v!=='search');
+    views.create.classList.toggle('hidden', v!=='create');
+    title.textContent = (v==='create') ? 'New product' : 'Add an item';
+    // modal + dimming
+    const isModal = v==='modal';
+    modalScrim.classList.toggle('hidden', !isModal);
+    stage.classList.toggle('dim', isModal);
+    // in modal demo, panel shows search behind
+    if(isModal){ views.search.classList.remove('hidden'); views.create.classList.add('hidden'); title.textContent='Add an item'; }
+    warnFlags.classList.toggle('hidden', !isModal);
+    goodFlags.classList.toggle('hidden', v!=='create');
+    caption.innerHTML = captions[v];
+  }
+  segBtns.forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+  document.getElementById('toCreate').addEventListener('click',()=>setView('create'));
+  document.getElementById('backToSearch').addEventListener('click',()=>setView('search'));
+  document.getElementById('cancelCreate').addEventListener('click',()=>setView('search'));
+  document.getElementById('modalClose').addEventListener('click',()=>setView('search'));
+  document.getElementById('modalCancel').addEventListener('click',()=>setView('search'));
+</script>
+</body>
+</html>

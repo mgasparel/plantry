@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quick-add × variant flow — design options (plantry-8r7o follow-up)</title>
+<!-- THROWAWAY PROTOTYPE. Mirrors plenish.css tokens + the real _ProductSearchCreateSheet /
+     _AddVariantForm markup. Three approaches for how a NEW product gets attached to a parent
+     (created as a variant) inside the shared quick-add sheet. Not wired to anything. -->
+<style>
+  :root {
+    --color-bg:          #efe9db;
+    --color-bg-subtle:   #ece5d4;
+    --color-surface:     #fbf8f1;
+    --color-surface-2:   #f3eee2;
+    --color-border:      #e4ddcc;
+    --color-border-strong:#bdb49d;
+    --color-text:        #2b2b28;
+    --color-text-muted:  #6d685d;
+    --color-text-faint:  #9c9587;
+    --color-text-on-accent:#fbf8f1;
+    --color-accent:      #3d5a40;
+    --color-accent-hover:#46683f;
+    --color-accent-subtle:#e3e8e3;
+    --color-success:     #3d7a4e;
+    --color-warning:     #b0701f;
+    --color-warning-bg:  #f7ecdd;
+    --color-info:        #36578a;
+    --color-info-bg:     #e2e8f1;
+    --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+    --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.5rem; --space-6:2rem;
+    --font-sans:'Hanken Grotesk',system-ui,sans-serif;
+    --font-mono:'Spline Sans Mono',ui-monospace,monospace;
+    --font-size-xs:.75rem; --font-size-sm:.875rem; --font-size-base:1rem; --font-size-lg:1.125rem;
+    --shadow-lg: 0 12px 32px rgba(0,0,0,.16);
+    --transition-fast: .12s ease;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: var(--font-sans); background: var(--color-bg); color: var(--color-text); margin: 0; padding: 32px; line-height: 1.5; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--color-text-muted); font-size: 14px; margin: 0 0 8px; max-width: 90ch; }
+  .scenario { font-size: 13px; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 10px 14px; margin: 14px 0 28px; max-width: 90ch; }
+  .scenario b { color: var(--color-text); }
+  code { font-family: var(--font-mono); font-size: 12px; background: var(--color-surface-2); padding: 1px 5px; border-radius: 3px; }
+
+  .deck { display: grid; grid-template-columns: repeat(3, minmax(320px, 1fr)); gap: 24px; align-items: start; }
+  @media (max-width: 1100px){ .deck { grid-template-columns: 1fr; } }
+
+  .col__head { margin: 0 0 4px; font-size: 15px; }
+  .col__tag { display:inline-block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; padding:2px 8px; border-radius:999px; margin-bottom:8px; }
+  .tag-a { background: var(--color-accent-subtle); color: var(--color-accent); }
+  .tag-b { background: var(--color-info-bg); color: var(--color-info); }
+  .tag-c { background: var(--color-warning-bg); color: var(--color-warning); }
+  .col__note { font-size: 12.5px; color: var(--color-text-muted); margin: 10px 2px 0; }
+  .col__note b { color: var(--color-text); }
+
+  /* ── faux sheet panel (docked, not overlay, for side-by-side) ── */
+  .panel { background: var(--color-surface); box-shadow: var(--shadow-lg); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-4); }
+  .panel__header { display:flex; align-items:center; justify-content:space-between; margin-bottom: var(--space-4); }
+  .panel__title { margin:0; font-size: var(--font-size-lg); }
+  .panel__close { background:none; border:none; font-size:1.5rem; line-height:1; color: var(--color-text-muted); cursor:pointer; }
+
+  .fld { display:flex; flex-direction:column; gap: var(--space-1); margin-bottom: var(--space-4); position: relative; }
+  .fld__label { font-size: var(--font-size-xs); font-weight:600; color: var(--color-text-muted); letter-spacing:.02em; text-transform:uppercase; }
+  .field__input { padding: var(--space-2) var(--space-3); border:1px solid var(--color-border-strong); border-radius: var(--radius-md); font-family:inherit; font-size: var(--font-size-base); background: var(--color-surface); color: var(--color-text); width:100%; }
+  .field__input::placeholder { color: var(--color-text-faint); }
+  select.field__input { appearance:none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%236d685d' stroke-width='1.5'/></svg>"); background-repeat:no-repeat; background-position: right 10px center; padding-right: 28px; }
+
+  /* ── search result listbox ── */
+  .listbox { list-style:none; margin: var(--space-1) 0 0; padding: var(--space-1); background: var(--color-surface); border:1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+  .listbox li { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); font-size: var(--font-size-sm); cursor:pointer; display:flex; align-items:center; gap:8px; }
+  .listbox li:hover { background: var(--color-accent-subtle); }
+  .opt-group { font-weight:700; color: var(--color-text); cursor:default; border-bottom:1px dashed var(--color-border); border-radius:0; }
+  .opt-group:hover { background: transparent; }
+  .opt-group .grouptag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color: var(--color-text-faint); margin-left:auto; }
+  .opt-variant { padding-left: var(--space-5); }
+  .opt-variant::before { content:"•"; color: var(--color-text-faint); }
+  .opt-new { color: var(--color-accent); font-weight:600; }
+  .opt-new.indent { padding-left: var(--space-5); }
+  .opt-standalone { color: var(--color-accent); font-weight:600; border-top:1px dashed var(--color-border); border-radius:0; }
+
+  details { border:1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4); background: var(--color-surface-2); }
+  summary { font-size: var(--font-size-sm); font-weight:600; color: var(--color-accent); cursor:pointer; }
+  details[open] { background: var(--color-surface); }
+  details .fld { margin: var(--space-3) 0 var(--space-2); }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap: var(--space-2); padding: var(--space-2) var(--space-5); border-radius: var(--radius-md); font-family:inherit; font-size: var(--font-size-sm); font-weight:600; border:1px solid transparent; cursor:pointer; }
+  .btn--primary { background: var(--color-accent); color: var(--color-text-on-accent); }
+  .btn--ghost { background:transparent; color: var(--color-accent); }
+  .btn--sm { padding: var(--space-1) var(--space-3); font-size: var(--font-size-xs); }
+  .actions { display:flex; gap: var(--space-3); margin-top: var(--space-4); }
+
+  .ctx { font-size:12px; color: var(--color-text-muted); background: var(--color-surface-2); border:1px solid var(--color-border); border-radius: var(--radius-sm); padding:6px 10px; margin-bottom: var(--space-4); }
+  .ctx b { color: var(--color-text); }
+  .inherit { color: var(--color-text-faint); font-style: italic; }
+  .divider { text-align:center; font-size:11px; color: var(--color-text-faint); text-transform:uppercase; letter-spacing:.08em; margin: var(--space-3) 0; }
+  .banner-warn { font-size:12.5px; background: var(--color-warning-bg); color: var(--color-warning); border:1px solid color-mix(in srgb, var(--color-warning) 30%, transparent); border-radius: var(--radius-sm); padding:6px 10px; margin-bottom: var(--space-3); }
+</style>
+</head>
+<body>
+  <h1>Quick-add × the variant flow — three ways to attach a new product to a parent</h1>
+  <p class="sub">The shared quick-add sheet (<code>_ProductSearchCreateSheet</code>) gains a create mode shaped like the
+    Detail page's <code>_AddVariantForm</code>: <b>name + a collapsed "Override inherited defaults" disclosure</b>. The only
+    difference between these options is <b>how the parent enters context</b> so the submit can route to <code>CreateVariantCommand</code>.</p>
+  <p class="scenario">Scenario: you're on a <b>Take Stock</b> walk in the <b>Fridge</b>. <b>"Milk"</b> already exists as a
+    <b>parent group</b> (variants: Whole Milk, Skim Milk) and so can't itself hold stock. You're holding a carton of <b>Oat Milk</b> that isn't in the catalog yet.</p>
+
+  <div class="deck">
+
+    <!-- ─────────────── OPTION A — search-surfaced parent ─────────────── -->
+    <div>
+      <span class="col__tag tag-a">Option A</span>
+      <h2 class="col__head">Search-surfaced parent</h2>
+      <div class="panel">
+        <div class="panel__header"><h3 class="panel__title">Add item</h3><button class="panel__close">&times;</button></div>
+
+        <div class="fld">
+          <label class="fld__label">Product</label>
+          <input class="field__input" value="milk" />
+          <ul class="listbox">
+            <li class="opt-group">Milk <span class="grouptag">group — pick a variant</span></li>
+            <li class="opt-variant">Whole Milk</li>
+            <li class="opt-variant">Skim Milk</li>
+            <li class="opt-new indent">+ New variant of “Milk”…</li>
+            <li class="opt-standalone">+ Create new product “milk” (standalone)</li>
+          </ul>
+        </div>
+
+        <div class="divider">— after choosing “New variant of Milk” —</div>
+
+        <div class="ctx">New <b>variant of</b> <b>Milk</b> · defaults inherited from parent</div>
+        <div class="fld">
+          <label class="fld__label">Variant name</label>
+          <input class="field__input" value="Oat Milk" />
+        </div>
+        <details>
+          <summary>Override inherited defaults</summary>
+          <div class="fld"><label class="fld__label">Unit</label><select class="field__input"><option>— Inherit from parent (L) —</option></select></div>
+          <div class="fld"><label class="fld__label">Category</label><select class="field__input"><option>— Inherit from parent (Dairy) —</option></select></div>
+          <div class="fld"><label class="fld__label">Location</label><select class="field__input"><option>— Inherit from parent (Fridge) —</option></select></div>
+        </details>
+        <div class="actions"><button class="btn btn--primary">Add &amp; count</button><button class="btn btn--ghost">Cancel</button></div>
+      </div>
+      <p class="col__note"><b>Closest mirror of the Detail page</b> — the parent is the context you act under. Kills the
+        collision dead-end for free (you literally can't pick the un-stockable parent; you pick a variant or add one).
+        Search results need a grouped render + two new "create" rows.</p>
+    </div>
+
+    <!-- ─────────────── OPTION B — explicit parent picker ─────────────── -->
+    <div>
+      <span class="col__tag tag-b">Option B</span>
+      <h2 class="col__head">Explicit parent picker</h2>
+      <div class="panel">
+        <div class="panel__header"><h3 class="panel__title">Add item</h3><button class="panel__close">&times;</button></div>
+
+        <div class="fld">
+          <label class="fld__label">Product</label>
+          <input class="field__input" value="oat milk" />
+          <ul class="listbox">
+            <li class="opt-standalone">+ Create new product “oat milk”</li>
+          </ul>
+        </div>
+
+        <div class="divider">— create form —</div>
+
+        <div class="fld">
+          <label class="fld__label">Name</label>
+          <input class="field__input" value="Oat Milk" />
+        </div>
+        <div class="fld">
+          <label class="fld__label">Variant of</label>
+          <select class="field__input">
+            <option>Standalone product</option>
+            <option selected>↳ Milk</option>
+            <option>↳ Flour</option>
+          </select>
+        </div>
+        <details open>
+          <summary>Override inherited defaults</summary>
+          <div class="fld"><label class="fld__label">Unit</label><select class="field__input"><option>— Inherit from parent (L) —</option></select></div>
+          <div class="fld"><label class="fld__label">Category</label><select class="field__input"><option>— Inherit from parent (Dairy) —</option></select></div>
+          <div class="fld"><label class="fld__label">Location</label><select class="field__input"><option>— Inherit from parent (Fridge) —</option></select></div>
+        </details>
+        <div class="actions"><button class="btn btn--primary">Add &amp; count</button><button class="btn btn--ghost">Cancel</button></div>
+      </div>
+      <p class="col__note"><b>Form drives it</b> — parents need not surface in search. Simplest search path; one extra
+        control on <i>every</i> create. The override disclosure greys out until a parent is chosen. Collision dead-end
+        still needs a separate guard (typing an exact parent name).</p>
+    </div>
+
+    <!-- ─────────────── OPTION C — hybrid ─────────────── -->
+    <div>
+      <span class="col__tag tag-c">Option C</span>
+      <h2 class="col__head">Both (hybrid)</h2>
+      <div class="panel">
+        <div class="panel__header"><h3 class="panel__title">Add item</h3><button class="panel__close">&times;</button></div>
+
+        <div class="banner-warn">“Milk” is a product group — pick a variant below or add a new one.</div>
+        <div class="fld">
+          <label class="fld__label">Product</label>
+          <input class="field__input" value="milk" />
+          <ul class="listbox">
+            <li class="opt-group">Milk <span class="grouptag">group</span></li>
+            <li class="opt-variant">Whole Milk</li>
+            <li class="opt-variant">Skim Milk</li>
+            <li class="opt-new indent">+ New variant of “Milk”…</li>
+            <li class="opt-standalone">+ Create new product…</li>
+          </ul>
+        </div>
+
+        <div class="divider">— create form (either entry point) —</div>
+
+        <div class="fld">
+          <label class="fld__label">Name</label>
+          <input class="field__input" value="Oat Milk" />
+        </div>
+        <div class="fld">
+          <label class="fld__label">Variant of</label>
+          <select class="field__input">
+            <option>Standalone product</option>
+            <option selected>↳ Milk (from search)</option>
+            <option>↳ Flour</option>
+          </select>
+        </div>
+        <details>
+          <summary>Override inherited defaults</summary>
+          <div class="fld"><label class="fld__label">Unit</label><select class="field__input"><option>— Inherit from parent (L) —</option></select></div>
+          <div class="fld"><label class="fld__label">Category</label><select class="field__input"><option>— Inherit from parent (Dairy) —</option></select></div>
+          <div class="fld"><label class="fld__label">Location</label><select class="field__input"><option>— Inherit from parent (Fridge) —</option></select></div>
+        </details>
+        <div class="actions"><button class="btn btn--primary">Add &amp; count</button><button class="btn btn--ghost">Cancel</button></div>
+      </div>
+      <p class="col__note"><b>Both entry points converge</b> on the same form + <code>CreateVariantCommand</code>. Most
+        flexible (search shortcut <i>and</i> a fallback picker), but the largest surface to build and test, and two ways
+        to do one thing can read as redundant.</p>
+    </div>
+
+  </div>
+
+  <p class="sub" style="margin-top:28px">All three submit through the same <code>CreateVariantCommand(parentId, name, unitOverride?, categoryOverride?, locationOverride?)</code> when a parent is set, and <code>CreateProductCommand</code> when standalone — so the back-end work is identical; only the picker UI differs.</p>
+</body>
+</html>
