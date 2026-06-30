@@ -97,6 +97,47 @@ if (-not $all -or $all.Count -eq 0) {
 $now = Get-Date
 
 # ---------------------------------------------------------------------------
+# 2b. Lookups for the Aging-WIP reason classifier
+#     - which issues are still open (a blocker only blocks while unclosed)
+#     - the "ready" set (actionable now: no open blockers, not deferred)
+# ---------------------------------------------------------------------------
+$openById = @{}
+foreach ($i in $all) {
+    $iid = Get-SafeProp $i "id" ""
+    if ($iid) { $openById[$iid] = (-not (Get-SafeProp $i "closed_at" $null)) }
+}
+$readyById = @{}
+foreach ($r in (Invoke-BdJson @("ready", "--limit", "0"))) {
+    $rid = Get-SafeProp $r "id" ""
+    if ($rid) { $readyById[$rid] = $true }
+}
+
+# Classify an open issue by WHY it is aging -> the lever it needs.
+# Precedence: in-flight > blocked > needs-decision > ready > parked.
+function Get-AgingReason {
+    param($item, [hashtable]$OpenById, [hashtable]$ReadyById)
+    $st  = Get-SafeProp $item "status" ""
+    $iid = Get-SafeProp $item "id" ""
+    if ($st -eq "in_progress") { return "inflight" }
+
+    $hasOpenBlocker = $false
+    foreach ($d in @(Get-SafeProp $item "dependencies" @())) {
+        if ($d -and (Get-SafeProp $d "type" "") -eq "blocks") {
+            $dep = Get-SafeProp $d "depends_on_id" ""
+            if ($dep -and $OpenById.ContainsKey($dep) -and $OpenById[$dep]) { $hasOpenBlocker = $true }
+        }
+    }
+    if ($st -eq "blocked" -or $hasOpenBlocker) { return "blocked" }
+
+    $labels = @(Get-SafeProp $item "labels" @())
+    if ($labels -contains "needs-spec" -or $labels -contains "needs-triage" -or $labels -contains "needs-human") {
+        return "spec"
+    }
+    if ($ReadyById.ContainsKey($iid)) { return "ready" }
+    return "parked"
+}
+
+# ---------------------------------------------------------------------------
 # 3. Project rows; split into closed (lead/wait/exec) and open (aging)
 # ---------------------------------------------------------------------------
 $leadRows = New-Object System.Collections.Generic.List[object]
@@ -154,6 +195,7 @@ foreach ($i in $all) {
             title  = $title
             status = $status
             ageH   = [math]::Round($ageH, 3)
+            reason = Get-AgingReason -item $i -OpenById $openById -ReadyById $readyById
         })
     }
 }
@@ -243,6 +285,7 @@ $html = @'
   :root {
     --bg:#0f1216; --panel:#171c22; --panel2:#1d242c; --ink:#e7edf3; --muted:#8b97a4;
     --line:#2a323b; --accent:#4fd08a; --wait:#e0a458; --exec:#4fd08a; --warn:#e06c6c; --grid:#222a32;
+    --r-inflight:#5aa9e6; --r-blocked:#b58be0; --r-spec:#e0a458; --r-ready:#4fd08a; --r-parked:#7c8794;
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
@@ -298,13 +341,14 @@ $html = @'
   </section>
 
   <section>
-    <h2>Aging WIP &mdash; still-open issues by age</h2>
-    <p class="desc">The survivorship fix: everything above is closed-only, so genuinely stuck work is invisible
-      there. Here, every currently-open <b>non-epic</b> issue is plotted by age against the same lead-time
-      percentiles. Bars past <b>p85</b> (amber) or <b>p95</b> (red) have already lived longer than 85% / 95%
-      of all completed work ever took &mdash; prime suspects for "why is this still open?"
-      <span id="ageExcl" class="muted"></span></p>
+    <h2>Aging WIP &mdash; open work by age, and the lever it needs</h2>
+    <p class="desc">The survivorship fix: everything above is closed-only, so still-open work is invisible there.
+      Here, every currently-open <b>non-epic</b> issue is plotted by age (log). The dashed lines mark <b>p85</b>
+      and <b>p95</b> of lead time &mdash; bars past them have already outlived 85% / 95% of all completed work.
+      Age alone just says "look at me"; the <b>colour</b> says what to do &mdash; spec it, unblock it, pull it, or
+      close it. <span id="ageExcl"></span></p>
     <div class="chart tall"><canvas id="ageChart"></canvas></div>
+    <div class="legend" id="ageLegend"></div>
   </section>
 
   <section>
@@ -425,20 +469,58 @@ new Chart(document.getElementById("thChart"), {
   },
 });
 
-// ---- 3. Aging WIP horizontal bars ----
+// ---- 3. Aging WIP horizontal bars, coloured by the lever each item needs ----
 const excl = DATA.kpis.excludedEpics || 0;
 document.getElementById("ageExcl").textContent = excl > 0
-  ? ` (${excl} open epic${excl === 1 ? "" : "s"} excluded as containers.)` : "";
+  ? `(${excl} open epic${excl === 1 ? "" : "s"} excluded as containers.)` : "";
+
+// reason -> {colour var, short label, the action it prompts}
+const REASON = {
+  inflight: { c:"--r-inflight", label:"in flight",  action:"pulled but not landed - check the batch" },
+  blocked:  { c:"--r-blocked",  label:"blocked",    action:"has an open blocker - unblock the dependency" },
+  spec:     { c:"--r-spec",     label:"needs spec", action:"decision overdue - spec it or close it" },
+  ready:    { c:"--r-ready",    label:"ready",      action:"actionable but unpulled - pull or deprioritise" },
+  parked:   { c:"--r-parked",   label:"parked",     action:"deferred / low-priority - close candidate?" },
+};
+const reasonOf = (d) => REASON[d.reason] || REASON.parked;
+
 const age = DATA.aging.slice(0, 30); // worst 30 by age
-const ageColor = (h) => h >= DATA.percentiles.p95 ? css("--warn")
-                      : h >= DATA.percentiles.p85 ? css("--wait")
-                      : css("--accent");
+
+// HTML legend: colour -> label -> action
+document.getElementById("ageLegend").innerHTML =
+  Object.keys(REASON).map(k => {
+    const r = REASON[k];
+    return `<span><i style="background:${css(r.c)}"></i>${r.label} &mdash; ${r.action}</span>`;
+  }).join("");
+
+// inline plugin: vertical p85 / p95 reference lines on the (log) age axis
+const pctLines = {
+  id:"pctLines",
+  afterDatasetsDraw(chart) {
+    const {ctx, chartArea:{top,bottom}, scales:{x}} = chart;
+    const draw = (val, color, label) => {
+      if (val == null) return;
+      const px = x.getPixelForValue(val);
+      if (px < x.left || px > x.right) return;
+      ctx.save();
+      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([6,4]);
+      ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, bottom); ctx.stroke();
+      ctx.setLineDash([]); ctx.fillStyle = color; ctx.font = "11px sans-serif";
+      ctx.fillText(label, px + 4, top + 11);
+      ctx.restore();
+    };
+    draw(DATA.percentiles.p85, css("--wait"), "p85 lead");
+    draw(DATA.percentiles.p95, css("--warn"), "p95 lead");
+  },
+};
+
 new Chart(document.getElementById("ageChart"), {
   type:"bar",
+  plugins:[pctLines],
   data: {
     labels: age.map(d => d.id),
     datasets: [{ label:"age", data: age.map(d=>d.ageH),
-                 backgroundColor: age.map(d=>ageColor(d.ageH)+"cc"), borderRadius:3 }],
+                 backgroundColor: age.map(d=>css(reasonOf(d).c)+"cc"), borderRadius:3 }],
   },
   options: {
     indexAxis:"y", maintainAspectRatio:false,
@@ -452,7 +534,8 @@ new Chart(document.getElementById("ageChart"), {
       legend:{display:false},
       tooltip:{ callbacks:{
         title:(t)=>age[t[0].dataIndex].id,
-        label:(t)=>{ const d=age[t.dataIndex]; return [`age: ${fmtDur(d.ageH)}`, `status: ${d.status}`]; },
+        label:(t)=>{ const d=age[t.dataIndex]; const r=reasonOf(d);
+          return [`age: ${fmtDur(d.ageH)}  (${d.status})`, `${r.label}: ${r.action}`]; },
         afterBody:(t)=>"\n"+(age[t[0].dataIndex].title||"").slice(0,80),
       }},
     },
