@@ -142,20 +142,64 @@ public sealed class WalkModel(
 
         var userId = CurrentUserId;
 
-        var cmd = new AddCountedItemCommand(
-            payload.Name.Trim(),
-            payload.DefaultUnitId,
-            LocationId,
-            payload.CountedValue,
-            payload.CountedUnitId == Guid.Empty ? payload.DefaultUnitId : payload.CountedUnitId,
-            userId,
-            catalogWriter,
-            stocks,
-            conversions,
-            clock,
-            tenant);
+        // ── Route to the correct creation path based on group-aware fields ────
+        // Path A: join existing group (newGroupId non-empty) → CreateVariantCommand via ITakeStockCatalogWriter
+        // Path B: create new group + variant (newGroupName non-empty, newGroupId empty) → CreateGroupedProductCommand
+        // Path C: standalone product (no group) → CreateProductCommand (existing AddCountedItemCommand)
+        //
+        // The count + opening-balance recording is common to all three paths:
+        // AddCountedItemCommand handles Path C internally; Paths A/B delegate to catalogWriter
+        // then run RecordCountCommand directly (same pattern, same post-create steps).
 
-        var result = await cmd.ExecuteAsync(ct);
+        var name        = payload.Name.Trim();
+        var unitId      = payload.DefaultUnitId;
+        var countUnit   = payload.CountedUnitId == Guid.Empty ? unitId : payload.CountedUnitId;
+        var newGroupId  = payload.NewGroupId?.Trim() ?? string.Empty;
+        var newGroupName = payload.NewGroupName?.Trim() ?? string.Empty;
+
+        Result<Guid> result;
+
+        if (!string.IsNullOrEmpty(newGroupId) && Guid.TryParse(newGroupId, out var parentGroupId))
+        {
+            // Path A: create as variant of an existing group.
+            result = await CreateAndCountAsync(
+                createAsync: ct2 => catalogWriter.CreateTrackedVariantAsync(
+                    parentGroupId, name,
+                    unitOverride:     unitId == Guid.Empty ? null : unitId,
+                    categoryOverride: payload.CategoryId,
+                    locationOverride: LocationId,
+                    ct2),
+                countedValue: payload.CountedValue,
+                countUnit:    countUnit,
+                userId:       userId,
+                ct:           ct);
+        }
+        else if (!string.IsNullOrEmpty(newGroupName))
+        {
+            // Path B: create new group + first variant atomically.
+            result = await CreateAndCountAsync(
+                createAsync: ct2 => catalogWriter.CreateTrackedGroupedProductAsync(
+                    newGroupName, name,
+                    defaultUnitId:    unitId,
+                    categoryId:       payload.CategoryId,
+                    defaultLocationId: LocationId,
+                    ct2),
+                countedValue: payload.CountedValue,
+                countUnit:    countUnit,
+                userId:       userId,
+                ct:           ct);
+        }
+        else
+        {
+            // Path C: standalone product — delegate to the existing AddCountedItemCommand.
+            // Category is forwarded so the user's Defaults-collapsible choice persists (plantry-l92u).
+            var cmd = new AddCountedItemCommand(
+                name, unitId, LocationId,
+                payload.CountedValue, countUnit,
+                userId, catalogWriter, stocks, conversions, clock, tenant,
+                categoryId: payload.CategoryId);
+            result = await cmd.ExecuteAsync(ct);
+        }
 
         if (result.IsFailure)
         {
@@ -357,6 +401,43 @@ public sealed class WalkModel(
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Shared "create then count" helper for the group-aware create paths (Paths A/B in
+    /// <see cref="OnPostAddItemAsync"/>). Calls the catalog writer, then runs
+    /// <see cref="RecordCountCommand"/> for a positive opening balance, mirroring
+    /// <see cref="AddCountedItemCommand.ExecuteAsync"/> for Paths A/B.
+    /// </summary>
+    private async Task<Result<Guid>> CreateAndCountAsync(
+        Func<CancellationToken, Task<Guid>> createAsync,
+        decimal countedValue,
+        Guid countUnit,
+        Guid userId,
+        CancellationToken ct)
+    {
+        Guid productId;
+        try
+        {
+            productId = await createAsync(ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Error.Custom("Inventory.InlineAddFailed", ex.Message);
+        }
+
+        if (countedValue > 0m)
+        {
+            var countCmd = new RecordCountCommand(
+                productId, LocationId, countedValue, countUnit,
+                StockReason.Correction, userId, stocks, conversions, clock, tenant);
+
+            var countResult = await countCmd.ExecuteAsync(ct);
+            if (countResult.IsFailure)
+                return countResult.Error;
+        }
+
+        return productId;
+    }
+
     private async Task LoadAsync(CancellationToken ct)
     {
         var locations = await reader.ListLocationsAsync(ct);
@@ -468,12 +549,26 @@ public sealed class WalkModel(
     {
         /// <summary>Product name typed in the create-new mode of the inline-add sheet.</summary>
         public string? Name           { get; set; }
-        /// <summary>Selected default unit for the new product.</summary>
+        /// <summary>Selected default unit for the new product (from the Defaults collapsible, plantry-y53t).</summary>
         public Guid   DefaultUnitId   { get; set; }
         /// <summary>Counted quantity for the opening-balance Correction (0 = register only, no stock).</summary>
         public decimal CountedValue   { get; set; }
         /// <summary>Unit for the counted quantity; falls back to DefaultUnitId when empty.</summary>
         public Guid   CountedUnitId   { get; set; }
+
+        // ── Group-aware create fields (plantry-l92u) ──────────────────────────
+        /// <summary>
+        /// Non-empty string = join an existing group (CreateVariantCommand).
+        /// Empty string or null = no group join (check NewGroupName for new-group path).
+        /// </summary>
+        public string? NewGroupId    { get; set; }
+        /// <summary>
+        /// Non-empty string when NewGroupId is empty = create a new group with this name
+        /// (CreateGroupedProductCommand). Empty string or null = standalone product.
+        /// </summary>
+        public string? NewGroupName  { get; set; }
+        /// <summary>Optional category for the new product (from the Defaults collapsible).</summary>
+        public Guid?  CategoryId     { get; set; }
     }
 }
 

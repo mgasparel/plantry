@@ -382,7 +382,8 @@ public sealed class AddCountedItemCommand(
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    Guid? categoryId = null)
 {
     /// <summary>
     /// Creates the tracked product and records the opening-balance count.
@@ -397,7 +398,7 @@ public sealed class AddCountedItemCommand(
         Guid productId;
         try
         {
-            productId = await writer.CreateTrackedProductAsync(name, defaultUnitId, locationId, ct);
+            productId = await writer.CreateTrackedProductAsync(name, defaultUnitId, categoryId, locationId, ct);
         }
         catch (InvalidOperationException ex)
         {

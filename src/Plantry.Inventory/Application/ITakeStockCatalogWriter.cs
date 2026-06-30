@@ -22,7 +22,7 @@ public interface ITakeStockCatalogWriter
 {
     /// <summary>
     /// Inline-creates a tracked product (<c>track_stock = true</c>, C12) from the typed name, a
-    /// default unit, and the current walk location, returning the new product's id.
+    /// default unit, an optional category, and the current walk location, returning the new product's id.
     ///
     /// <para>Throws when Catalog rejects the create (e.g. a duplicate name or unknown unit) —
     /// the caller searches first (J5 search-first dedupe), so create is the no-match path. The
@@ -31,7 +31,40 @@ public interface ITakeStockCatalogWriter
     Task<Guid> CreateTrackedProductAsync(
         string name,
         Guid defaultUnitId,
+        Guid? categoryId,
         Guid defaultLocationId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Inline-creates a tracked product as a variant of an existing group product
+    /// (<c>CreateVariantCommand</c>), then records the opening-balance count (C8).
+    ///
+    /// <para>Inherits unit/category/location from the parent group unless overrides are supplied.
+    /// Throws when Catalog rejects the create (e.g. unknown parent, max-depth violation, duplicate
+    /// name, unknown unit) — the caller surfaces the error inline.</para>
+    /// </summary>
+    Task<Guid> CreateTrackedVariantAsync(
+        Guid parentGroupId,
+        string variantName,
+        Guid? unitOverride,
+        Guid? categoryOverride,
+        Guid? locationOverride,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Inline-creates a new group (abstract parent, <c>trackStock = false</c>) and its first tracked
+    /// variant (<c>CreateGroupedProductCommand</c>) atomically, then records the opening-balance count
+    /// (C8). Returns the variant's product id (the stock-holding product).
+    ///
+    /// <para>Throws when Catalog rejects the create (e.g. duplicate group or variant name, unknown
+    /// unit) — the caller surfaces the error inline.</para>
+    /// </summary>
+    Task<Guid> CreateTrackedGroupedProductAsync(
+        string groupName,
+        string variantName,
+        Guid defaultUnitId,
+        Guid? categoryId,
+        Guid? defaultLocationId,
         CancellationToken ct = default);
 
     /// <summary>

@@ -128,6 +128,7 @@ function takeStockSheetBridge() {
             const islandRoot = document.getElementById('ts-walk-root');
             if (!islandRoot) return;
 
+            // Search-view path: existing product selected — dispatch to island, no POST needed.
             if (this.draft.productId) {
                 islandRoot.dispatchEvent(new CustomEvent('ts-sheet-add', {
                     bubbles: false,
@@ -143,17 +144,24 @@ function takeStockSheetBridge() {
                 return;
             }
 
-            const name = (this.draft.newStapleName ?? '').trim();
-            const unitId = this.draft.addUnitId || this.draft.newStapleUnit || '';
+            // Create-view path: new product (standalone, grouped, or variant).
+            // Validation: name and unit are always required.
+            const name   = (this.draft.newStapleName ?? '').trim();
+            const unitId = this.draft.newStapleUnit || '';
             if (!name || !unitId) return; // stay open — user must fill name and unit in create view
 
+            // Dispatch ts-sheet-add with the full create payload (group-aware, plantry-l92u).
+            // The island POSTs /AddItem and injects the saved row on success.
             islandRoot.dispatchEvent(new CustomEvent('ts-sheet-add', {
                 bubbles: false,
                 detail: {
-                    newStapleName: name,
-                    newStapleUnit: this.draft.newStapleUnit || '',
-                    addCount:      this.draft.addCount,
-                    addUnitId:     unitId,
+                    newStapleName:       name,
+                    newStapleUnit:       unitId,
+                    newGroupId:          this.draft.newGroupId   || '',
+                    newGroupName:        this.draft.newGroupName  || '',
+                    newStapleCategoryId: this.draft.newStapleCategoryId || '',
+                    addCount:            this.draft.addCount,
+                    addUnitId:           this.draft.addUnitId    || unitId,
                 }
             }));
             this.sheetView = 'search';

@@ -315,7 +315,19 @@ public sealed class FakeTsNoLocationCatalogWriter : ITakeStockCatalogWriter
     public Guid   LastSetLocationId  { get; private set; }
 
     public Task<Guid> CreateTrackedProductAsync(
-        string name, Guid defaultUnitId, Guid defaultLocationId, CancellationToken ct = default) =>
+        string name, Guid defaultUnitId, Guid? categoryId, Guid defaultLocationId, CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
+    public Task<Guid> CreateTrackedVariantAsync(
+        Guid parentGroupId, string variantName,
+        Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride,
+        CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
+    public Task<Guid> CreateTrackedGroupedProductAsync(
+        string groupName, string variantName,
+        Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId,
+        CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
     public Task SetDefaultLocationAsync(Guid productId, Guid locationId, CancellationToken ct = default)

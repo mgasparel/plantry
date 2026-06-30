@@ -422,7 +422,13 @@ export function mountTakeStockWalk(root, config) {
   // The shared Alpine sheet dispatches ts-sheet-add from the bridge's saveSheet()
   // on the island's root element. The island handles the payload here.
 
-  /** @param {{ productId?: string, productName?: string, addCount?: number, addUnitId?: string, supportedUnits?: UnitOption[], newStapleName?: string, newStapleUnit?: string }} detail */
+  /**
+   * @param {{
+   *   productId?: string, productName?: string, addCount?: number, addUnitId?: string,
+   *   supportedUnits?: UnitOption[], newStapleName?: string, newStapleUnit?: string,
+   *   newGroupId?: string, newGroupName?: string, newStapleCategoryId?: string
+   * }} detail
+   */
   async function handleSheetAdd(detail) {
     if (detail.productId) {
       // Path A: existing product selected — inject as a dirty row.
@@ -455,17 +461,22 @@ export function mountTakeStockWalk(root, config) {
         toast.value = "Added — tap Save to record.";
       }
     } else if (detail.newStapleName) {
-      // Path B: new product — POST to /AddItem.
-      const name = detail.newStapleName.trim();
-      const unitId = detail.addUnitId || detail.newStapleUnit || "";
+      // Path B: new product (standalone, grouped, or variant) — POST to /AddItem.
+      // The handler routes to the right Catalog command based on newGroupId / newGroupName.
+      const name   = detail.newStapleName.trim();
+      const unitId = detail.newStapleUnit || detail.addUnitId || "";
       if (!name || !unitId) return;
 
       const counted = parseFloat(String(detail.addCount ?? 0)) || 0;
       const payload = {
         name,
-        defaultUnitId: unitId,
-        countedValue: counted,
-        countedUnitId: unitId,
+        defaultUnitId:    unitId,
+        countedValue:     counted,
+        countedUnitId:    detail.addUnitId || unitId,
+        // Group-aware fields (plantry-l92u): forwarded to OnPostAddItemAsync for routing.
+        newGroupId:       detail.newGroupId       || "",
+        newGroupName:     detail.newGroupName      || "",
+        categoryId:       detail.newStapleCategoryId || null,
       };
 
       try {
