@@ -4835,6 +4835,9 @@ button.sadd svg { width: 13px; height: 13px; }
   display: flex; flex-direction: column; min-height: 0; transition: margin-right .2s;
 }
 .plan-rail.collapsed { margin-right: -322px; }
+/* plantry-lb9t: inactive modifier for historical (past) weeks — mutes the header icon and title */
+.plan-rail--inactive .rail-head .ri-mark { background: var(--color-surface-2); color: var(--color-text-faint); }
+.plan-rail--inactive .rail-head h3 { color: var(--color-text-muted); }
 .rail-head { display: flex; align-items: center; gap: 9px; padding: 16px 18px 13px; border-bottom: 1px solid var(--color-border); }
 .rail-head h3 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 .rail-head .ri-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--color-accent-subtle); color: var(--color-accent); display: grid; place-items: center; flex: none; }
