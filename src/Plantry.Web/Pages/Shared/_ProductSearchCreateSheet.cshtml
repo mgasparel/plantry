@@ -180,8 +180,13 @@
 
                 @if (Model.TrackStock)
                 {
-                    @* Quantity — hidden when a create is in progress or product not yet picked *@
-                    <div class="form-grid__field" x-show="!draft.isUntracked && draft.productId">
+                    @*
+                        Quantity — shown when:
+                          - A product was picked from search (draft.productId is set), OR
+                          - Editing a tracked inline-create row (draft.newIsTracked, plantry-orix),
+                        but NOT for untracked/staple rows (draft.isUntracked).
+                    *@
+                    <div class="form-grid__field" x-show="!draft.isUntracked && (draft.productId || draft.newIsTracked)">
                         <label class="form-grid__field__label">Quantity</label>
                         <div class="form-grid__field__control">
                             <input type="number" class="field__input" step="any" min="0"
@@ -189,8 +194,11 @@
                         </div>
                     </div>
 
-                    @* Unit — hidden when product not yet picked *@
-                    <div class="form-grid__field" x-show="!draft.isUntracked && draft.productId">
+                    @*
+                        Unit — shown under the same conditions as Quantity above.
+                        Also visible when editing a tracked inline-create row (draft.newIsTracked).
+                    *@
+                    <div class="form-grid__field" x-show="!draft.isUntracked && (draft.productId || draft.newIsTracked)">
                         <label class="form-grid__field__label">Unit</label>
                         <div class="form-grid__field__control">
                             <select class="field__input" x-model="draft.unitId">

@@ -83,13 +83,14 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             await page.FillAsync("[name='Input.Name']", recipeName);
             await page.FillAsync("[name='Input.DefaultServings']", "2");
 
-            // Open the add-ingredient sheet, switch to staple mode, fill and commit
+            // Open the add-ingredient sheet, switch to tracked-product create mode (plantry-orix),
+            // fill name + default unit, commit, then re-open to satisfy R5 (tracked needs qty).
             await page.ClickAsync("button:has-text('Add ingredient')");
             var ingSheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(ingSheet).ToBeVisibleAsync();
-            // Clicking the persistent create affordance navigates to the create view in-place (plantry-nb4x).
-            await ingSheet.Locator("button:has-text('Create as staple')").ClickAsync();
-            var nameInput = ingSheet.Locator("input[placeholder='Staple name (e.g. Salt)']");
+            // "Create new product" label (renamed from "Create as staple (untracked)" in plantry-orix).
+            await ingSheet.Locator("button:has-text('Create new product')").ClickAsync();
+            var nameInput = ingSheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
             await Assertions.Expect(nameInput).ToBeVisibleAsync();
             await nameInput.FillAsync("Salt");
             // Expand the Defaults collapsible (plantry-y53t) to access the Unit select.
@@ -100,6 +101,14 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             await ingSheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
             // Use .Last to target the create-view "Create" button (plantry-nb4x two-view scaffold).
             await ingSheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
+            // R5: tracked ingredients require a Quantity. Re-open the row to fill qty.
+            var saltRow = page.Locator(".ingredient-row", new() { HasText = "Salt" });
+            await Assertions.Expect(saltRow).ToBeVisibleAsync();
+            await saltRow.Locator("button[aria-label='Edit ingredient']").ClickAsync();
+            await Assertions.Expect(ingSheet).ToBeVisibleAsync();
+            await ingSheet.Locator("input[type='number']").FillAsync("1");
+            await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");

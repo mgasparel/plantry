@@ -192,6 +192,15 @@ internal sealed class FakeCatalogWriter : ICatalogWriter
     public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
+    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
+    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
+    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
     public Task AddConversionAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default) =>
         Task.CompletedTask;
 }

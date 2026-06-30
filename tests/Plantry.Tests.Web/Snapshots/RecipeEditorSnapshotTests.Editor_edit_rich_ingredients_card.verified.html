@@ -13,6 +13,10 @@
 					<input type="hidden" :name="'Input.Lines[' + idx + '].ProductName'" :value="row.productName">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleName'" :value="row.newStapleName ?? ''">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleDefaultUnitId'" :value="row.newStapleUnit">
+					<input type="hidden" :name="'Input.Lines[' + idx + '].NewIsTracked'" :value="row.newIsTracked">
+					<input type="hidden" :name="'Input.Lines[' + idx + '].NewGroupId'" :value="row.newGroupId ?? ''">
+					<input type="hidden" :name="'Input.Lines[' + idx + '].NewGroupName'" :value="row.newGroupName ?? ''">
+					<input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleCategoryId'" :value="row.newStapleCategoryId ?? ''">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].GroupHeading'" :value="row.groupHeading">
