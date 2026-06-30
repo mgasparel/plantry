@@ -33,7 +33,8 @@
 #>
 param(
     [string]$Out = "",
-    [switch]$Json
+    [switch]$Json,
+    [switch]$Open
 )
 
 Set-StrictMode -Version Latest
@@ -645,5 +646,7 @@ $html = $html.Replace('__DATA_JSON__', $dataJson)
 if (-not $Out) { $Out = Join-Path (Get-Location) "flow-report.html" }
 $html | Out-File -FilePath $Out -Encoding utf8
 Write-Host "Wrote $Out" -ForegroundColor Green
-Write-Host ("  closed={0}  open={1}  lead p50/85/95 = {2}/{3}/{4}h" -f `
-    $kpis.totalClosed, $kpis.openCount, $kpis.leadP50h, $kpis.leadP85h, $kpis.leadP95h)
+Write-Host ("  closed={0}  open={1}  lead p50/85/95 = {2}/{3}/{4}h  self-gen filed/closed={5}/{6}" -f `
+    $kpis.totalClosed, $kpis.openCount, $kpis.leadP50h, $kpis.leadP85h, $kpis.leadP95h, `
+    $sgTotalCreated, $sgTotalClosed)
+if ($Open) { Start-Process $Out }
