@@ -1,0 +1,1 @@
+﻿{"date":"2026-06-30","leadP50h":9.1,"leadP85h":67.8,"leadP95h":166.5,"throughputPerDay":15.4,"openCount":35,"reasonMix":{"total":35,"inflight":10,"blocked":1,"spec":5,"ready":19,"parked":0,"pctInflight":28.6,"pctBlocked":2.9,"pctSpec":14.3,"pctReady":54.3,"pctParked":0},"sgOutstanding":15,"runwayDays":1.6,"readyDepth":26,"consumptionRate":16.43,"stallCount":2}
