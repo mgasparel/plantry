@@ -27,9 +27,33 @@
 //     it into the lot-panel placeholder, calls Alpine.initTree, and listens for the
 //     lots-saved / collapse-lots events to update its own expandedLots state.
 
-import { render, html, signal, computed } from "./runtime.js";
+// ── Cache-busting convention (plantry-hxkf) ───────────────────────────────────
+//
+// The server (Walk.cshtml) versions this entry module via IFileVersionProvider,
+// which appends a content-hash query to this file's URL. Transitive imports of
+// runtime.js and take-stock-logic.js are NOT independently versioned by the Razor
+// layer — if only a transitive file changes, its URL stays the same and browsers
+// serve a stale cached version.
+//
+// FIX: the ?v= query strings on the import specifiers below ARE the versioning
+// mechanism. Changing the query changes the URL the browser uses as a cache key,
+// which forces a re-fetch of that module. The content-hash approach (used on this
+// file and helpers.js by Razor) cannot be extended to relative specifiers resolved
+// inside a JS module — the only option here is a manual version token in the URL.
+//
+// CONVENTION — when to bump each ?v= query:
+//   ./runtime.js?v=N           bump when runtime.js changes (Preact/htm/signals re-exports)
+//   ./take-stock-logic.js?v=N  bump when take-stock-logic.js changes
+//   ./helpers.js is imported directly by Walk.cshtml with FileVersionProvider, so it
+//   gets a content-hash automatically — no manual token needed here.
+//
+// The convention ensures that a logic-only change (e.g. take-stock-logic.js) is
+// caught by bumping the ?v= query, which changes this file's bytes, which changes
+// the entry-module content hash, which causes the full dependency graph to reload.
+
+import { render, html, signal, computed } from "./runtime.js?v=1";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage } from "./take-stock-logic.js";
+import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage } from "./take-stock-logic.js?v=1";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 

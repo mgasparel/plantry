@@ -24,9 +24,33 @@
 //   - "Alpine var-token silently fails" (no Alpine variable scoping)
 //   - debounced htmx.swap fragility (rollup is a direct postJson call)
 
-import { render, html, signal, computed, effect, useSignal, useComputed, useRef } from "./runtime.js";
+// ── Cache-busting convention (plantry-hxkf) ───────────────────────────────────
+//
+// The server (MealPlan/Index.cshtml) versions this entry module via IFileVersionProvider,
+// which appends a content-hash query to this file's URL. Transitive imports of
+// runtime.js and meal-planner-logic.js are NOT independently versioned by the Razor
+// layer — if only a transitive file changes, its URL stays the same and browsers
+// serve a stale cached version.
+//
+// FIX: the ?v= query strings on the import specifiers below ARE the versioning
+// mechanism. Changing the query changes the URL the browser uses as a cache key,
+// which forces a re-fetch of that module. The content-hash approach (used on this
+// file and helpers.js by Razor) cannot be extended to relative specifiers resolved
+// inside a JS module — the only option here is a manual version token in the URL.
+//
+// CONVENTION — when to bump each ?v= query:
+//   ./runtime.js?v=N           bump when runtime.js changes (Preact/htm/signals re-exports)
+//   ./meal-planner-logic.js?v=N  bump when meal-planner-logic.js changes
+//   ./helpers.js is imported directly by MealPlan/Index.cshtml with FileVersionProvider,
+//   so it gets a content-hash automatically — no manual token needed here.
+//
+// The convention ensures that a logic-only change (e.g. meal-planner-logic.js) is
+// caught by bumping the ?v= query, which changes this file's bytes, which changes
+// the entry-module content hash, which causes the full dependency graph to reload.
+
+import { render, html, signal, computed, effect, useSignal, useComputed, useRef } from "./runtime.js?v=1";
 import { readAntiforgeryToken, postJson } from "./helpers.js";
-import { lvl, money, dishMeta } from "./meal-planner-logic.js";
+import { lvl, money, dishMeta } from "./meal-planner-logic.js?v=1";
 
 // ── Type documentation ────────────────────────────────────────────────────────
 

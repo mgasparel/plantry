@@ -1388,7 +1388,16 @@ new ProductSearchCreateSheetViewModel
         </li>
     </ol>
 
-    <pre class="code-sample"><code>@(@"@* 1. Hydration payload — typed JSON, server-emitted *@
+    <pre class="code-sample"><code>@(@"@* At the top of the Razor page — inject IFileVersionProvider and version the entry module
+   and helpers.js. The version token is a content hash of the file bytes, so any change to
+   the entry module busts the browser cache automatically. *@
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@{
+    var myIslandSrc  = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, ""/js/islands/my-island.js"");
+    var myHelpersSrc = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, ""/js/islands/helpers.js"");
+}
+
+@* 1. Hydration payload — typed JSON, server-emitted *@
 <script type=""application/json"" id=""my-island-data"">@Html.Raw(Model.IslandJson)</script>
 
 @* 2. Antiforgery token (needed for mutation POSTs) *@
@@ -1397,11 +1406,11 @@ new ProductSearchCreateSheetViewModel
 @* 3. Mount point *@
 <div id=""my-island-root""></div>
 
-@* 4. Module script in @@section Scripts *@
+@* 4. Module script in @@section Scripts — use versioned paths from FileVersionProvider *@
 @section Scripts {
     <script type=""module"">
-        import { mountMyIsland } from '/js/islands/my-island.js';
-        import { readHydration, readAntiforgeryToken } from '/js/islands/helpers.js';
+        const { mountMyIsland }                   = await import('@Html.Raw(myIslandSrc)');
+        const { readHydration, readAntiforgeryToken } = await import('@Html.Raw(myHelpersSrc)');
 
         const root  = document.getElementById('my-island-root');
         const data  = readHydration('my-island-data');
@@ -1433,7 +1442,12 @@ new ProductSearchCreateSheetViewModel
     </ul>
 
     <pre class="code-sample"><code>@(@"// In your island file:
-import { h, render, html, signal, computed } from './runtime.js';
+// Note the ?v= query strings on transitive imports — these are the cache-busting
+// mechanism for modules not versioned by Razor's FileVersionProvider. Bump the
+// integer when the corresponding file changes (plantry-hxkf convention).
+import { h, render, html, signal, computed } from './runtime.js?v=1';
+// helpers.js is imported directly by the Razor page with FileVersionProvider, so
+// no ?v= token is needed here — it gets a content-hash URL automatically.
 import { readHydration, readAntiforgeryToken, postJson } from './helpers.js';
 
 // In the mount script:
