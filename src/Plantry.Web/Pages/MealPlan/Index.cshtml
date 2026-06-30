@@ -1,9 +1,12 @@
 @page
 @model Plantry.Web.Pages.MealPlan.IndexModel
 @using Plantry.MealPlanning.Domain
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @{
     ViewData["Title"] = "Meal Plan";
     ViewData["ContentClass"] = "page-content--fluid";
+    var mpIslandSrc  = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, "/js/islands/meal-planner.js");
+    var mpHelpersSrc = FileVersionProvider.AddFileVersionToPath(ViewContext.HttpContext.Request.PathBase, "/js/islands/helpers.js");
 }
 
 <div class="plan-main" x-data="{ costMode: 'projected' }">
@@ -147,8 +150,8 @@
     @* Mount the meal-planner island (replaces Alpine mealEditor + addDishFromResult bridge).
        plan-tune.js (planning-weights popover) remains Alpine — it is not part of the editor. *@
     <script type="module">
-        import { mountMealPlanner } from '/js/islands/meal-planner.js';
-        import { readHydration } from '/js/islands/helpers.js';
+        const { mountMealPlanner } = await import('@Html.Raw(mpIslandSrc)');
+        const { readHydration }    = await import('@Html.Raw(mpHelpersSrc)');
 
         const root = document.getElementById('meal-planner-island-root');
         const hydration = readHydration('meal-planner-island-data');
