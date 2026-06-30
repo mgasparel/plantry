@@ -1161,13 +1161,13 @@ var F = DATA.flow;
 var fk = F.kpis;
 var fCards = [
     { v: fk.totalClosed, l: "issues closed" },
-    { v: fmtDur(fk.leadP50h), l: "lead time p50" },
-    { v: fmtDur(fk.leadP85h), l: "lead time p85" },
-    { v: fmtDur(fk.leadP95h), l: "lead time p95" },
+    { v: fmtDur(fk.leadP50h), l: "lead time &middot; p50" },
+    { v: fmtDur(fk.leadP85h), l: "lead time &middot; p85" },
+    { v: fmtDur(fk.leadP95h), l: "lead time &middot; p95" },
     { v: fk.medianWaitShare != null ? fk.medianWaitShare + "%" : "n/a", l: "of lead is backlog wait (median)" },
     { v: fk.perDay,      l: "closed per active day" },
     { v: fk.openCount,   l: "currently open" },
-    { v: fk.stuckCount,  l: "open past p85 lead", warn: fk.stuckCount > 0 },
+    { v: fk.stuckCount,  l: "non-epic open past p85 lead", warn: fk.stuckCount > 0 },
 ];
 document.getElementById("flow-kpis").innerHTML = fCards.map(function(c) {
     return '<div class="kpi' + (c.warn ? " warn" : "") + '"><div class="v">' + c.v + '</div><div class="l">' + c.l + '</div></div>';
