@@ -128,9 +128,13 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         var nameInput = sheet.Locator("input[placeholder='Staple name (e.g. Salt)']");
         await Assertions.Expect(nameInput).ToBeVisibleAsync();
         await nameInput.FillAsync(stapleName);
-        // The create-view unit select (#create-product-unit) is the only visible select while in
-        // create view — the search-view selects are x-show hidden.
-        await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
+        // Expand the Defaults collapsible (plantry-y53t) to access the unit select.
+        // The <details class="sheet-defaults"> is collapsed by default; the summary click opens it.
+        var defaultsSummary = sheet.Locator(".sheet-defaults__summary");
+        await Assertions.Expect(defaultsSummary).ToBeVisibleAsync();
+        await defaultsSummary.ClickAsync();
+        // Select the unit — the #create-product-unit select is now visible inside the open collapsible.
+        await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
 
         // Use .Last to target the create-view "Create" button (the search-view "Add" is .First).
         await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();

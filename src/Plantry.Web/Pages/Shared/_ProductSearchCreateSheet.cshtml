@@ -367,25 +367,49 @@
                     </div>
                 }
 
-                @*
-                    Unit (default for the new product). Bound to draft.newStapleUnit so the Recipes
-                    hidden-input post (Input.Lines[n].NewStapleDefaultUnitId) and the TakeStock
-                    saveSheet() fallback both read it.  plantry-y53t will move this into a
-                    Defaults <details> collapsible together with Category.
-                *@
-                <div class="form-grid__field">
-                    <label class="form-grid__field__label" for="create-product-unit">Unit</label>
-                    <div class="form-grid__field__control">
-                        <select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
-                            <option value="">— Unit —</option>
-                            @foreach (var u in Model.UnitOptions)
-                            {
-                                <option value="@u.Value">@u.Text</option>
-                            }
-                        </select>
+            </div>
+
+            @*
+                ── Defaults collapsible (plantry-y53t) ──────────────────────────────────────────────
+                A <details> disclosure wrapping the two optional-to-see fields: Unit (required by
+                CreateProductCommand) and Category (optional).  Collapsed by default so the create
+                form stays compact; the user can expand when they want to change the defaults.
+
+                Unit is bound to draft.newStapleUnit — the existing wire used by Recipes' hidden-input
+                post (Input.Lines[n].NewStapleDefaultUnitId) and the TakeStock saveSheet() fallback.
+                Category is bound to draft.newStapleCategoryId — a new optional draft field.
+                Both are bound with x-model inside the Alpine x-data of the host, so no inner x-data
+                scope is needed here.
+            *@
+            <details class="sheet-defaults">
+                <summary class="sheet-defaults__summary">Defaults</summary>
+                <div class="sheet-defaults__body">
+                    <div class="form-grid__field form-grid__field--full">
+                        <label class="form-grid__field__label" for="create-product-unit">Unit</label>
+                        <div class="form-grid__field__control">
+                            <select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
+                                <option value="">— Unit —</option>
+                                @foreach (var u in Model.UnitOptions)
+                                {
+                                    <option value="@u.Value">@u.Text</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-grid__field form-grid__field--full">
+                        <label class="form-grid__field__label" for="create-product-category">Category</label>
+                        <div class="form-grid__field__control">
+                            <select id="create-product-category" class="field__input" x-model="draft.newStapleCategoryId">
+                                <option value="">— None —</option>
+                                @foreach (var c in Model.CategoryOptions)
+                                {
+                                    <option value="@c.Value">@c.Text</option>
+                                }
+                            </select>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </details>
         </div>
 
         @*

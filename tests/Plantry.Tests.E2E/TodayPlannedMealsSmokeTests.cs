@@ -92,8 +92,12 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             var nameInput = ingSheet.Locator("input[placeholder='Staple name (e.g. Salt)']");
             await Assertions.Expect(nameInput).ToBeVisibleAsync();
             await nameInput.FillAsync("Salt");
-            // The create-view unit select is the only visible select while in create view.
-            await ingSheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+            // Expand the Defaults collapsible (plantry-y53t) to access the Unit select.
+            var ingDefaultsSummary = ingSheet.Locator(".sheet-defaults__summary");
+            await Assertions.Expect(ingDefaultsSummary).ToBeVisibleAsync();
+            await ingDefaultsSummary.ClickAsync();
+            // Select the unit — the #create-product-unit select is now visible inside the open collapsible.
+            await ingSheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
             // Use .Last to target the create-view "Create" button (plantry-nb4x two-view scaffold).
             await ingSheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();

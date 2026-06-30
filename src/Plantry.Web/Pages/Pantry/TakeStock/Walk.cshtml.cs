@@ -38,6 +38,7 @@ public sealed class WalkModel(
     ITakeStockCatalogWriter catalogWriter,
     IUnitRepository unitRepository,
     IProductRepository productRepository,
+    ICategoryRepository categoryRepository,
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
@@ -68,6 +69,9 @@ public sealed class WalkModel(
     /// can filter client-side without an extra htmx round-trip.
     /// </summary>
     public IReadOnlyList<GroupOption> GroupOptions { get; private set; } = [];
+
+    /// <summary>Category options for the Defaults collapsible in the create view (plantry-y53t).</summary>
+    public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
 
     // ── GET ───────────────────────────────────────────────────────────────────
 
@@ -374,6 +378,12 @@ public sealed class WalkModel(
             .Where(p => p.IsParent)
             .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
             .Select(p => new GroupOption(p.Id.Value.ToString(), p.Name))
+            .ToList();
+
+        // Load category options for the Defaults collapsible in the create view (plantry-y53t).
+        CategoryOptions = (await categoryRepository.ListActiveAsync(ct))
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))
             .ToList();
     }
 

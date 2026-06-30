@@ -36,7 +36,7 @@
              return { ordinal: 0, productId: '', productName: '', qty: '', unitId: '',
                  defaultUnitId: '', defaultUnitCode: '',
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
-                 newGroupId: '', newGroupName: '',
+                 newStapleCategoryId: '', newGroupId: '', newGroupName: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '' };
          },
          openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
@@ -347,17 +347,30 @@
 								<input type="text" id="create-product-name" class="field__input" placeholder="Staple name (e.g. Salt)" x-model="draft.newStapleName" autocomplete="off">
 							</div>
 						</div>
-						<div class="form-grid__field">
-							<label class="form-grid__field__label" for="create-product-unit">Unit</label>
-							<div class="form-grid__field__control">
-								<select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
-									<option value="">— Unit —</option>
-									<option value="Guid_3">g</option>
-									<option value="Guid_4">ea</option>
-								</select>
+					</div>
+					<details class="sheet-defaults">
+						<summary class="sheet-defaults__summary">Defaults</summary>
+						<div class="sheet-defaults__body">
+							<div class="form-grid__field form-grid__field--full">
+								<label class="form-grid__field__label" for="create-product-unit">Unit</label>
+								<div class="form-grid__field__control">
+									<select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
+										<option value="">— Unit —</option>
+										<option value="Guid_3">g</option>
+										<option value="Guid_4">ea</option>
+									</select>
+								</div>
+							</div>
+							<div class="form-grid__field form-grid__field--full">
+								<label class="form-grid__field__label" for="create-product-category">Category</label>
+								<div class="form-grid__field__control">
+									<select id="create-product-category" class="field__input" x-model="draft.newStapleCategoryId">
+										<option value="">— None —</option>
+									</select>
+								</div>
 							</div>
 						</div>
-					</div>
+					</details>
 				</div>
 				<template x-if="draft.needsConversion"><div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)">
 						<p style="margin:0 0 var(--space-1);font-size:var(--font-size-sm)">

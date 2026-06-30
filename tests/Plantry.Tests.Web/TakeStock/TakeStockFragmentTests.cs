@@ -15,6 +15,7 @@ using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Web.Infrastructure;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogCategory = Plantry.Catalog.Domain.Category;
 
 namespace Plantry.Tests.Web.TakeStock;
 
@@ -936,6 +937,32 @@ public sealed class FakeTsUnitRepository : IUnitRepository
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
+/// <summary>
+/// Fake <see cref="ICategoryRepository"/> for L4 fragment tests. Returns an empty category list
+/// so the Defaults collapsible in the create view renders with no options other than "— None —"
+/// (plantry-y53t). WalkModel now resolves ICategoryRepository in LoadAsync.
+/// </summary>
+public sealed class FakeTsCategoryRepository : ICategoryRepository
+{
+    public Task<CatalogCategory?> FindAsync(CategoryId id, CancellationToken ct = default) =>
+        Task.FromResult<CatalogCategory?>(null);
+
+    public Task<CatalogCategory?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult<CatalogCategory?>(null);
+
+    public Task<List<CatalogCategory>> ListAsync(CancellationToken ct = default) =>
+        Task.FromResult(new List<CatalogCategory>());
+
+    public Task<List<CatalogCategory>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(new List<CatalogCategory>());
+
+    public Task AddAsync(CatalogCategory category, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    public Task SaveChangesAsync(CancellationToken ct = default) =>
+        Task.CompletedTask;
+}
+
 // ── In-memory fake conversion provider ───────────────────────────────────────
 
 public sealed class FakeTsConversionProvider : IProductConversionProvider
@@ -1015,6 +1042,10 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
         // plantry-40n6: group combobox — WalkModel now resolves IProductRepository to load group options.
         services.RemoveAll<IProductRepository>();
         services.AddSingleton<IProductRepository, FakeTsProductRepository>();
+
+        // plantry-y53t: Defaults collapsible — WalkModel now resolves ICategoryRepository to load category options.
+        services.RemoveAll<ICategoryRepository>();
+        services.AddSingleton<ICategoryRepository, FakeTsCategoryRepository>();
     }
 
     /// <summary>Creates an authenticated HTTP client for the given household.</summary>

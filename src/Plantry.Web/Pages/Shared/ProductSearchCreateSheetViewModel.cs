@@ -85,6 +85,13 @@ public sealed class ProductSearchCreateSheetViewModel
     public IReadOnlyList<SelectListItem> UnitOptions { get; init; } = [];
 
     /// <summary>
+    /// Category options for the optional Category select inside the Defaults collapsible in the
+    /// create view (plantry-y53t). When empty the Category select renders with no options other than
+    /// the "— None —" placeholder, which is still valid (Category is always optional on a new product).
+    /// </summary>
+    public IReadOnlyList<SelectListItem> CategoryOptions { get; init; } = [];
+
+    /// <summary>
     /// When true, quantity and unit fields are rendered for tracked products. Set false when the host
     /// only needs a product identity (e.g. Take Stock inline-add where the count is entered elsewhere).
     /// Defaults to true (Recipes behaviour).
