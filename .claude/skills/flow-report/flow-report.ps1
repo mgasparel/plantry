@@ -221,6 +221,47 @@ if ($closeDays.Count -gt 0) {
     }
 }
 
+# ---------------------------------------------------------------------------
+# 4b. Self-generated work: issues the dev loop files on itself (code-review
+#     findings + dogfood observations). Track filed-vs-closed per day and the
+#     cumulative outstanding pile -- is the loop net-positive or self-feeding?
+# ---------------------------------------------------------------------------
+$sgCreated = @{}   # day -> @{ review=N; dogfood=N }
+$sgClosed  = @{}   # day -> N
+$sgTotalCreated = 0; $sgTotalClosed = 0
+foreach ($i in $all) {
+    $labels = @(Get-SafeProp $i "labels" @())
+    $isReview = $labels -contains "code-review"
+    $isDog    = $labels -contains "source:dogfood"
+    if (-not ($isReview -or $isDog)) { continue }
+    $cs = Get-SafeProp $i "created_at" $null
+    if (-not $cs) { continue }
+    $cd = ([datetime]::Parse($cs)).ToString("yyyy-MM-dd")
+    if (-not $sgCreated.ContainsKey($cd)) { $sgCreated[$cd] = @{ review = 0; dogfood = 0 } }
+    if ($isDog) { $sgCreated[$cd].dogfood++ } else { $sgCreated[$cd].review++ }
+    $sgTotalCreated++
+    $cls = Get-SafeProp $i "closed_at" $null
+    if ($cls) {
+        $cld = ([datetime]::Parse($cls)).ToString("yyyy-MM-dd")
+        if ($sgClosed.ContainsKey($cld)) { $sgClosed[$cld]++ } else { $sgClosed[$cld] = 1 }
+        $sgTotalClosed++
+    }
+}
+$sgSeries = New-Object System.Collections.Generic.List[object]
+if ($sgTotalCreated -gt 0) {
+    $sgDays = @($sgCreated.Keys) + @($sgClosed.Keys) | Sort-Object -Unique
+    $sgFirst = [datetime]::ParseExact($sgDays[0], "yyyy-MM-dd", $null)
+    $cum = 0
+    for ($d = $sgFirst; $d -le $now.Date; $d = $d.AddDays(1)) {
+        $k = $d.ToString("yyyy-MM-dd")
+        $rev = 0; $dog = 0; $cl = 0
+        if ($sgCreated.ContainsKey($k)) { $rev = $sgCreated[$k].review; $dog = $sgCreated[$k].dogfood }
+        if ($sgClosed.ContainsKey($k))  { $cl = $sgClosed[$k] }
+        $cum += ($rev + $dog - $cl)
+        $sgSeries.Add([PSCustomObject]@{ day = $k; review = $rev; dogfood = $dog; closed = $cl; outstanding = $cum })
+    }
+}
+
 # Median wait share (how much of a typical issue's life is backlog dwell)
 $waited = @($leadRows | Where-Object { $null -ne $_.waitH -and $_.leadH -gt 0 })
 $medianWaitShare = $null
@@ -259,6 +300,12 @@ $payload = [PSCustomObject]@{
     lead       = $leadRows
     throughput = $throughput
     aging      = ($agingRows | Sort-Object -Property ageH -Descending)
+    selfGen    = [PSCustomObject]@{
+        series         = $sgSeries
+        totalCreated   = $sgTotalCreated
+        totalClosed    = $sgTotalClosed
+        outstandingNow = ($sgTotalCreated - $sgTotalClosed)
+    }
 }
 
 if ($Json) {
@@ -286,6 +333,7 @@ $html = @'
     --bg:#0f1216; --panel:#171c22; --panel2:#1d242c; --ink:#e7edf3; --muted:#8b97a4;
     --line:#2a323b; --accent:#4fd08a; --wait:#e0a458; --exec:#4fd08a; --warn:#e06c6c; --grid:#222a32;
     --r-inflight:#5aa9e6; --r-blocked:#b58be0; --r-spec:#e0a458; --r-ready:#4fd08a; --r-parked:#7c8794;
+    --sg-review:#c98bd6; --sg-dogfood:#e0a458; --sg-closed:#4fd08a; --sg-line:#e7edf3;
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
@@ -349,6 +397,15 @@ $html = @'
       close it. <span id="ageExcl"></span></p>
     <div class="chart tall"><canvas id="ageChart"></canvas></div>
     <div class="legend" id="ageLegend"></div>
+  </section>
+
+  <section>
+    <h2>Self-generated work &mdash; is the loop net-positive?</h2>
+    <p class="desc">Issues the dev loop files on itself: <b>code-review</b> findings and <b>dogfood</b>
+      observations. Bars up = filed that day (review + dogfood); bars down = self-gen issues closed. The
+      line is the cumulative <b>outstanding</b> pile &mdash; if it trends up, the loop is generating findings
+      faster than it clears them. <span id="sgNote"></span></p>
+    <div class="chart"><canvas id="sgChart"></canvas></div>
   </section>
 
   <section>
@@ -541,6 +598,43 @@ new Chart(document.getElementById("ageChart"), {
     },
   },
 });
+
+// ---- 4. Self-generated work: filed (up) vs closed (down) + outstanding line ----
+const sg = DATA.selfGen;
+if (sg && sg.series && sg.series.length) {
+  document.getElementById("sgNote").textContent =
+    `Filed ${sg.totalCreated}, closed ${sg.totalClosed}, ${sg.outstandingNow} still open.`;
+  const lab = sg.series.map(d => d.day.slice(5));
+  new Chart(document.getElementById("sgChart"), {
+    data: {
+      labels: lab,
+      datasets: [
+        { type:"bar", label:"review filed", data: sg.series.map(d=>d.review),
+          backgroundColor: css("--sg-review")+"cc", stack:"f", yAxisID:"y" },
+        { type:"bar", label:"dogfood filed", data: sg.series.map(d=>d.dogfood),
+          backgroundColor: css("--sg-dogfood")+"cc", stack:"f", yAxisID:"y" },
+        { type:"bar", label:"closed", data: sg.series.map(d=>-d.closed),
+          backgroundColor: css("--sg-closed")+"99", stack:"f", yAxisID:"y" },
+        { type:"line", label:"outstanding", data: sg.series.map(d=>d.outstanding),
+          borderColor: css("--sg-line"), borderWidth:2, pointRadius:0, tension:0.2,
+          yAxisID:"y1" },
+      ],
+    },
+    options: {
+      maintainAspectRatio:false,
+      scales: {
+        x:{ stacked:true, grid:{display:false} },
+        y:{ stacked:true, grid:{color:css("--grid")}, title:{display:true,text:"filed / closed per day"} },
+        y1:{ position:"right", beginAtZero:true, grid:{display:false},
+             title:{display:true,text:"outstanding (cumulative)"} },
+      },
+      plugins:{ legend:{ display:true, position:"bottom", labels:{boxWidth:12} } },
+    },
+  });
+} else {
+  document.getElementById("sgChart").parentElement.innerHTML =
+    '<p class="desc">No code-review / dogfood-labelled issues found.</p>';
+}
 </script>
 </body>
 </html>
