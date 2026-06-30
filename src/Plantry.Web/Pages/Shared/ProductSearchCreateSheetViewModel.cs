@@ -6,18 +6,23 @@ namespace Plantry.Web.Pages.Shared;
 /// View-model for the shared product search / create sheet partial
 /// (<c>Shared/_ProductSearchCreateSheet</c>).
 ///
-/// <para>The sheet provides a reusable ingredient/item add drawer with two modes:</para>
+/// <para>The sheet provides a reusable ingredient/item add drawer with two views:</para>
 /// <list type="bullet">
 ///   <item>
 ///     <description>
-///       <b>Search mode (default)</b> — an htmx-driven searchable-select that dispatches a
+///       <b>Search view (default)</b> — an htmx-driven searchable-select that dispatches a
 ///       <c>pick-product</c> CustomEvent on selection carrying <c>{ value, name, track }</c>.
+///       A persistent "+ Create a new product…" affordance appears at the bottom of the listbox
+///       and navigates to the create view in-place (<c>sheetView = 'create'</c>).
 ///     </description>
 ///   </item>
 ///   <item>
 ///     <description>
-///       <b>Staple-create mode (C12)</b> — when no match is found the user switches to inline
-///       name + unit create; the host page reads <c>draft.newStapleName</c> / <c>draft.newStapleUnit</c>.
+///       <b>Create view</b> — a full-panel second view of the same flyout (not a nested modal).
+///       Swapped in place via <c>x-show</c>; header swaps title + backlink. The host page drives
+///       the view via <c>sheetView: 'search' | 'create'</c> in its Alpine <c>x-data</c>.
+///       Siblings plantry-40n6 (group/variant) and plantry-y53t (defaults collapsible) extend
+///       the create-view body; this scaffold provides the shell.
 ///     </description>
 ///   </item>
 /// </list>
@@ -80,6 +85,13 @@ public sealed class ProductSearchCreateSheetViewModel
     public IReadOnlyList<SelectListItem> UnitOptions { get; init; } = [];
 
     /// <summary>
+    /// Category options for the optional Category select inside the Defaults collapsible in the
+    /// create view (plantry-y53t). When empty the Category select renders with no options other than
+    /// the "— None —" placeholder, which is still valid (Category is always optional on a new product).
+    /// </summary>
+    public IReadOnlyList<SelectListItem> CategoryOptions { get; init; } = [];
+
+    /// <summary>
     /// When true, quantity and unit fields are rendered for tracked products. Set false when the host
     /// only needs a product identity (e.g. Take Stock inline-add where the count is entered elsewhere).
     /// Defaults to true (Recipes behaviour).
@@ -87,9 +99,12 @@ public sealed class ProductSearchCreateSheetViewModel
     public bool TrackStock { get; init; } = true;
 
     /// <summary>
-    /// Optional partial name rendered between the product picker block and the sheet's action bar.
+    /// Optional partial name rendered ONCE between the two views and the action bar.
     /// The host page passes any extra Alpine draft state via the surrounding <c>x-data</c> context,
     /// so no extra model is needed. When null the slot is empty.
+    /// Rendered once (always in DOM, always visible) to avoid duplicate-id collisions
+    /// (e.g. <c>#add-count</c> appearing in both views) and to retain user-entered values
+    /// across the search↔create view swap without re-mounting the partial.
     /// Example: <c>"TakeStock/_CountLocationFields"</c> for P4-7.
     /// </summary>
     public string? ExtraFieldsPartial { get; init; }
@@ -108,16 +123,56 @@ public sealed class ProductSearchCreateSheetViewModel
     public bool ShowGroupHeading { get; init; } = true;
 
     /// <summary>
-    /// Label text for the inline create button (the one that switches from search mode to
-    /// new-product mode). Defaults to "Create as staple (untracked)" (Recipes behaviour).
-    /// Take Stock passes "Create new product" because the action actually creates a tracked product.
+    /// Label text for the persistent create affordance at the bottom of the search listbox
+    /// (the entry that navigates to the create view in-place via <c>sheetView = 'create'</c>).
+    /// Defaults to "Create as staple (untracked)" (Recipes behaviour).
+    /// Take Stock passes "Create new product" because the action creates a tracked product.
     /// </summary>
     public string CreateLabel { get; init; } = "Create as staple (untracked)";
 
     /// <summary>
-    /// Placeholder text for the name input shown in create (staple) mode.
+    /// Placeholder text for the name input in the create view.
     /// Defaults to "Staple name (e.g. Salt)" (Recipes behaviour).
     /// Take Stock passes neutral wording to match the relabelled context.
     /// </summary>
     public string StapleNamePlaceholder { get; init; } = "Staple name (e.g. Salt)";
+
+    /// <summary>
+    /// Sheet header title displayed while the create view is active (<c>sheetView === 'create'</c>).
+    /// Defaults to "New product". Pass a different string to context-label the create view
+    /// (e.g. a future Recipes variant once plantry-orix wires the tracked-product create path).
+    /// </summary>
+    public string CreateViewTitle { get; init; } = "New product";
+
+    /// <summary>
+    /// When true, the create-view primary action button reads "Create &amp; count" instead of "Create".
+    /// Set to <c>true</c> only for the Take Stock context where the create-view also submits an
+    /// opening count. Defaults to <c>false</c> (plain "Create" label for Recipes and other surfaces).
+    /// </summary>
+    public bool ShowCreateAndCount { get; init; } = false;
+
+    /// <summary>
+    /// Existing group products (active, <see cref="Plantry.Catalog.Domain.Product.IsParent"/> = true)
+    /// for the household, serialised as <c>[{ id, name }]</c> and embedded in the create-view's
+    /// Alpine data so the Group combobox can filter client-side without an extra htmx round-trip.
+    ///
+    /// <para>Each entry is a <see cref="GroupOption"/> with the group's <see cref="GroupOption.Id"/>
+    /// (string form of the <c>ProductId</c>) and <see cref="GroupOption.Name"/>.</para>
+    ///
+    /// <para>Leave empty (default) when the host does not need group-aware create (e.g. a future
+    /// context that does not support grouping). The create view hides the Group field when this list
+    /// is null.</para>
+    ///
+    /// <para>Null (the default) = don't render the group field at all. Empty list = render the field
+    /// with no existing groups (only the "create new group" option is shown).</para>
+    /// </summary>
+    public IReadOnlyList<GroupOption>? GroupOptions { get; init; } = null;
 }
+
+/// <summary>
+/// A single group (parent product) option for the create-view Group combobox
+/// (<see cref="ProductSearchCreateSheetViewModel.GroupOptions"/>).
+/// </summary>
+/// <param name="Id">String form of the group product's <c>ProductId</c>.</param>
+/// <param name="Name">Display name of the group product.</param>
+public sealed record GroupOption(string Id, string Name);

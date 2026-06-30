@@ -108,4 +108,10 @@ internal sealed class FakeBrowseCatalogProductReader(IReadOnlyDictionary<Guid, C
 
     public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+
+    public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
+
+    public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
 }

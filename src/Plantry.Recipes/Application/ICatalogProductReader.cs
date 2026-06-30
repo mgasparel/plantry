@@ -42,6 +42,18 @@ public interface ICatalogProductReader
     /// to populate the unit dropdown. Returns id and display code for each unit, ordered by code.
     /// </summary>
     Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists active parent group products (IsParent = true) for the household, ordered by name —
+    /// for the create-view Group combobox in the ingredient editor (plantry-orix).
+    /// </summary>
+    Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists active (non-archived) categories for the household, ordered by name —
+    /// for the Defaults collapsible in the create view (plantry-orix).
+    /// </summary>
+    Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default);
 }
 
 /// <summary>The display slice of a Catalog product for a recipe ingredient row (name + stock-tracking).</summary>
@@ -76,3 +88,9 @@ public sealed record CatalogProductCandidate(
     /// <c>&lt;li&gt;</c> markup. Defaults to 1.0 (perfect match) for callers that do not rank.
     /// </summary>
     double Score = 1.0);
+
+/// <summary>A parent product group option for the ingredient editor's Group combobox (plantry-orix).</summary>
+public sealed record CatalogGroupOption(Guid Id, string Name);
+
+/// <summary>A product category option for the ingredient editor's Defaults collapsible (plantry-orix).</summary>
+public sealed record CatalogCategoryOption(Guid Id, string Name);

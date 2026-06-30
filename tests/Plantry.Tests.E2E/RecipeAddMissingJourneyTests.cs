@@ -95,7 +95,9 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
             await ingOption.ClickAsync();
             await ingSheet.Locator("input[type='number']").FillAsync("100");
             await ingSheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = "g" });
-            await ingSheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+            // Use .First to target the search-view "Add" button (two .sheet__actions bars exist after
+            // the plantry-nb4x two-view scaffold; .First avoids the strict-mode violation).
+            await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
