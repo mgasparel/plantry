@@ -219,6 +219,13 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
       </div>
 
       <div class="ts-walk-inner">
+        <div class="ts-add-bar">
+          <button type="button" class="ts-add-item" onClick=${onOpenAdd}
+                  aria-label="Add a new item to this location">
+            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Add item
+          </button>
+        </div>
+
         <div class="ts-walk-intro">
           <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg>
           <span>Counts are pre-filled to what Plantry has on record. Change only what's different — untouched rows are left alone.</span>
@@ -248,11 +255,6 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
                      onExpandLots=${onExpandLots}
                      onCollapseLots=${onCollapseLots} />`)}
           </ul>`}
-
-        <button type="button" class="ts-add-item" onClick=${onOpenAdd}
-                aria-label="Add a new item to this location">
-          <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Add item
-        </button>
       </div>
 
       ${dirtyCount.value > 0 && html`

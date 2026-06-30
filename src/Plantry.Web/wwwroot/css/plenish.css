@@ -5615,6 +5615,10 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-hatch-sum b { color: var(--color-text); font-weight: 700; font-variant-numeric: tabular-nums; }
 .ts-hatch-status { font-size: 0.78125rem; color: var(--color-text-muted); }
 
+/* sticky add bar — sits at the top of .ts-walk-inner, under the topbar (z-index 9 < topbar's 10) */
+.ts-add-bar { position: sticky; top: var(--topbar-height); z-index: 9; padding: var(--space-3) 0; background: color-mix(in srgb, var(--color-surface) 90%, transparent); backdrop-filter: blur(10px); }
+.ts-add-bar .ts-add-item { margin-top: 0; }
+
 /* add-item row trigger */
 .ts-add-item { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: var(--space-3); width: 100%; background: none; border: 1.5px dashed var(--color-border-strong); color: var(--color-text-muted); border-radius: var(--radius-lg); padding: 14px; font-weight: 600; font-size: 0.875rem; cursor: pointer; }
 .ts-add-item:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-subtle); }
