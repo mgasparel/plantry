@@ -157,6 +157,7 @@
              row.productName = detail.name;
              row.isUntracked = detail.track === 'false';
              if (row.isUntracked) { row.qty = ''; row.unitId = ''; }
+             else if (detail.defaultUnit) { row.unitId = detail.defaultUnit; }
          },
          showScaleOffer() { return !this.isCreate && this.hasIngredients && parseInt(this.servings) !== this.origServings; },
          isCreate: @(Model.IsCreate ? "true" : "false"),
@@ -327,6 +328,9 @@
                             @* Hidden inputs for model binding — mirror Alpine row state *@
                             <input type="hidden" :name="'Input.Lines[' + idx + '].Ordinal'" :value="row.ordinal" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId" />
+                            @* ProductName is display-only but must be posted so the re-rendered form
+                               can repopulate the Alpine productName state after a validation failure. *@
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].ProductName'" :value="row.productName" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleName'" :value="row.newStapleName ?? ''" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleDefaultUnitId'" :value="row.newStapleUnit" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty" />

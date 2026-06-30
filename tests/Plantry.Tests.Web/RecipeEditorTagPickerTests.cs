@@ -159,6 +159,93 @@ public sealed class RecipeEditorEmptyTagsGuidanceTests : IDisposable
     }
 }
 
+// ── FIX 4: Re-render after validation failure — TagNames + ProductName preserved ──
+
+/// <summary>
+/// When a POST fails validation (e.g., missing ingredient qty/unit), the re-rendered page must:
+/// (a) Show the tag chip names correctly (from RestoreTagNames — not blank chips).
+/// (b) Show the ingredient product name correctly (from posted ProductName field — not blank rows).
+///
+/// Prior to the fix: TagNames was not posted with the form (only TagIds were), so Input.TagNames was
+/// empty after POST, causing the Zip to produce [] and Alpine to show blank chips.
+/// ProductName was not a hidden input, so it was null after POST, blanking ingredient rows.
+/// </summary>
+public sealed class RecipeEditorReRenderAfterValidationFailureTests : IDisposable
+{
+    private static readonly HtmlParser Parser = new();
+    private readonly RecipeEditorPostFactory _factory = new();
+
+    public void Dispose() => _factory.Dispose();
+
+    private HttpClient AuthenticatedClient()
+    {
+        var client = _factory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(
+            TestAuthHandler.HouseholdHeader,
+            RecipeEditorFixture.HouseholdAId.ToString());
+        return client;
+    }
+
+    private async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
+    {
+        var html = await (await client.GetAsync("/Recipes/New")).Content.ReadAsStringAsync();
+        var match = System.Text.RegularExpressions.Regex.Match(
+            html, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"");
+        Assert.True(match.Success, "No antiforgery token found on the create page.");
+        return match.Groups[1].Value;
+    }
+
+    /// <summary>
+    /// POST a form that triggers a validation error (missing Quantity on a tracked ingredient).
+    /// The re-rendered page (200 OK, not redirect) must embed the tag chip names in the Alpine
+    /// x-data tags array — not blank chips — and the ingredient ProductName in the rows JSON.
+    /// </summary>
+    [Fact]
+    public async Task OnPost_validation_failure_rerender_preserves_tag_names_and_ingredient_product_name()
+    {
+        var client = AuthenticatedClient();
+        var token  = await GetAntiforgeryTokenAsync(client);
+
+        // Post a tracked ingredient WITHOUT a quantity — triggers R5 "A tracked ingredient must have
+        // both a quantity and a unit." Also include a tag (by id) and a ProductName hidden field.
+        var fields = new List<KeyValuePair<string, string>>
+        {
+            new("__RequestVerificationToken", token),
+            new("Input.Name",            "Fail Test Recipe"),
+            new("Input.DefaultServings", "2"),
+            // Ingredient row: tracked product, ProductName posted, but NO Quantity — triggers validation failure.
+            new("Input.Lines[0].Ordinal",      "0"),
+            new("Input.Lines[0].ProductId",    RecipeEditorFixture.PastaId.ToString()),
+            new("Input.Lines[0].ProductName",  "Rigatoni"),
+            new("Input.Lines[0].UnitId",       RecipeEditorFixture.GramUnitId.ToString()),
+            // Note: Quantity intentionally omitted to trigger R5 validation error.
+            // Tag: id only (name not posted — must be restored server-side from TagOptions).
+            new("Input.TagIds", RecipeEditorFixture.VegetarianTagId.Value.ToString()),
+        };
+
+        var response = await client.PostAsync("/Recipes/New", new FormUrlEncodedContent(fields));
+
+        // Must be 200 (re-render on validation failure), NOT a redirect.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        var doc  = Parser.ParseDocument(html);
+
+        var editor = doc.QuerySelector("#recipe-editor")
+            ?? throw new InvalidOperationException("#recipe-editor not found in re-rendered page.");
+        var xData = editor.GetAttribute("x-data") ?? "";
+
+        // (a) Tag name "Vegetarian" must appear in the "tags" array in the x-data — not blank.
+        // The tags array in x-data is: tags: [{"id":"...","name":"Vegetarian"}]
+        // After HTML entity decoding (attribute value), the name is the plain string.
+        Assert.Contains("Vegetarian", xData, StringComparison.OrdinalIgnoreCase);
+
+        // (b) Ingredient product name "Rigatoni" must appear in the "rows" array in the x-data.
+        // The rows JSON in x-data contains: productName:"Rigatoni"
+        Assert.Contains("Rigatoni", xData, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
 // ── FIX 3: Archived-applied-tag edge case ────────────────────────────────────────
 
 /// <summary>
