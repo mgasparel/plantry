@@ -59,3 +59,5 @@ aspire-output/.env
 
 # Production database backups (bind-mount directory; actual dumps are off-host)
 backups/
+# flow-report generated output
+flow-report.html
