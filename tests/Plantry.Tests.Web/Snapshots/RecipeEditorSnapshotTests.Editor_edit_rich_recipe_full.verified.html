@@ -260,7 +260,7 @@
 									</ul>
 								</div>
 								<div x-show="!draft.productId" style="margin-top:var(--space-2)">
-									<button type="button" class="btn btn--ghost btn--sm" @click="draft.newStapleName = ''">
+									<button type="button" :class="open ? 'btn btn--ghost btn--sm' : 'btn btn--secondary btn--sm'" @click="draft.newStapleName = ''">
 										+ Create as staple (untracked)
 									</button>
 								</div>

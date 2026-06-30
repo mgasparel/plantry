@@ -134,8 +134,12 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         Assert.Contains(flMatches, c => c.Name == "Flour");
         Assert.Contains(flMatches, c => c.Name == "Flax seed");
 
+        // Fuzzy ranker (plantry-hl4a): "FLOUR" may surface near-misses like "Flax seed" above the
+        // 0.70 cutoff.  Assert the exact match is present and ranked first; don't constrain count.
         var flourMatches = await reader.SearchAsync("FLOUR");
-        Assert.Single(flourMatches);
+        Assert.NotEmpty(flourMatches);
+        Assert.Equal("Flour", flourMatches[0].Name);
+        Assert.Equal(1.0, flourMatches[0].Score, precision: 2);
 
         Assert.Empty(await reader.SearchAsync("   "));
     }

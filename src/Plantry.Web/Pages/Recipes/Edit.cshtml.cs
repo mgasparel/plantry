@@ -159,12 +159,19 @@ public sealed class EditModel(
 
         var hits = await products.SearchAsync(q.Trim(), ct);
         var enc = HtmlEncoder.Default;
-        // The <li> dispatches a custom Alpine event carrying all product data. The surrounding
-        // .ingredient-row catches 'pick-product' and calls selectProduct(row, $event.detail)
+
+        // Emit ranked <li> markup. The ranking label (.rk span) mirrors Intake's AlternativesStrip
+        // vocabulary (best / N%) for cross-feature consistency per the design (plantry-hl4a §3).
+        // The product name is stored in data-name so the click handler can set query = data-name
+        // rather than textContent (which would include the .rk label text).
+        // The surrounding .ingredient-row catches 'pick-product' and calls selectProduct(row, $event.detail)
         // with access to the current x-for 'row' scope — avoids the nested x-data scope conflict
         // that would occur with a single-arg $el approach.
-        var html = string.Join("", hits.Select(p =>
-            $$"""<li role="option" data-value="{{p.Id}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}</li>"""));
+        var html = string.Join("", hits.Select((p, i) =>
+        {
+            var label = ProductNameMatcher.RankLabel(p.Score, isTopHit: i == 0);
+            return $$"""<li role="option" data-value="{{p.Id}}" data-name="{{enc.Encode(p.Name)}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+        }));
         return Content(html, "text/html");
     }
 

@@ -80,7 +80,13 @@ public sealed record TakeStockProductMatch(
     string Name,
     string DefaultUnitCode,
     Guid DefaultLocationId,
-    Guid DefaultUnitId);
+    Guid DefaultUnitId,
+    /// <summary>
+    /// Fuzzy match score in [0, 1] from <c>ProductNameMatcher</c>.
+    /// Used by the page model to emit ranking labels (<c>.rk</c>) in the search result
+    /// <c>&lt;li&gt;</c> markup. Defaults to 1.0 (perfect match) for callers that do not rank.
+    /// </summary>
+    double Score = 1.0);
 
 // ─── Port ─────────────────────────────────────────────────────────────────────
 
@@ -130,10 +136,9 @@ public interface ITakeStockReader
 
     /// <summary>
     /// Inline product search for the Take Stock walk (TS-10 / SearchProducts).
-    /// Matches products by exact or contains-match on name (case-insensitive).
-    /// Fuzzy matching is deferred to plantry-hl4a.
-    /// Only tracked (<c>CanHoldStock = true</c>) and non-archived products are returned.
-    /// Results are ordered: exact matches first, then contains, then alphabetically.
+    /// Uses the shared <c>ProductNameMatcher</c> fuzzy ranker (plantry-hl4a): tolerant of plurals,
+    /// typos, and word-order differences. Only tracked (<c>CanHoldStock = true</c>) and non-archived
+    /// products are returned. Results are ordered score-desc then alphabetically (display cutoff ≥ 0.70).
     /// </summary>
     Task<IReadOnlyList<TakeStockProductMatch>> SearchProductsAsync(
         string query, CancellationToken ct = default);
