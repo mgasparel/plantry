@@ -99,6 +99,13 @@ public sealed class IndexModel(
     /// <summary>Advisory insight callouts for the rail, derived from the loaded week (presentation only).</summary>
     public List<InsightCallout> Insights { get; private set; } = [];
 
+    /// <summary>
+    /// True when the viewed week is in the past (WeekStart &lt; ThisWeekStart).
+    /// Plan Insights are suppressed for historical weeks — they are only meaningful
+    /// for the current or upcoming week (plantry-lb9t).
+    /// </summary>
+    public bool IsHistoricalWeek => WeekStart < ThisWeekStart;
+
     /// <summary>Rolled-up week cost for the budget chip. Null when no pricing data available.</summary>
     public decimal? WeekTotalCost { get; private set; }
 
@@ -1147,7 +1154,9 @@ public sealed class IndexModel(
         CancellationToken ct)
     {
         Insights = [];
-        if (!HasSlots) return;
+        // Plan Insights are only meaningful for the current or upcoming week.
+        // Suppress computation entirely for historical weeks (plantry-lb9t).
+        if (!HasSlots || IsHistoricalWeek) return;
 
         // Build the full cell key list (date × slot) for the unfilled-slot rule.
         var allCells = new List<string>();
@@ -1367,7 +1376,7 @@ public sealed class IndexModel(
             pending, ghostDishNames, ghostEnrichment,
             IsHardConflict: ConflictCells.ContainsKey(key),
             UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key));
-        var railVm = new PlanRailVm(Insights, PendingCount, Oob: false);
+        var railVm = new PlanRailVm(Insights, PendingCount, Oob: false, IsHistoricalWeek: IsHistoricalWeek);
         var barNavVm = BuildPlanBarNavVm(Oob: false);
 
         // plan-rail-reopen is rendered inside the _PlanRail partial — no separate render needed.
@@ -1465,7 +1474,8 @@ public sealed class IndexModel(
             UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key));
         var railVm = new PlanRailVm(Insights, PendingCount, Oob: true,
             ConfirmedWeekCost: WeekTotalCost, ConfirmedCostIsPartial: WeekCostIsPartial,
-            ProjectedWeekCost: ProjectedWeekCost, ProjectedCostIsPartial: ProjectedWeekCostIsPartial);
+            ProjectedWeekCost: ProjectedWeekCost, ProjectedCostIsPartial: ProjectedWeekCostIsPartial,
+            IsHistoricalWeek: IsHistoricalWeek);
         var barNavVm = BuildPlanBarNavVm(Oob: true);
         return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm, barNavVm));
     }
@@ -1599,6 +1609,7 @@ public sealed class IndexModel(
     /// <param name="ConfirmedCostIsPartial">True when the confirmed figure is a partial estimate.</param>
     /// <param name="ProjectedWeekCost">Confirmed + pending ghost costs (plantry-5lp — shown in the rail toggle callout).</param>
     /// <param name="ProjectedCostIsPartial">True when the projected figure is a partial estimate.</param>
+    /// <param name="IsHistoricalWeek">True when the viewed week is in the past. Insights are suppressed for historical weeks (plantry-lb9t).</param>
     public sealed record PlanRailVm(
         IReadOnlyList<InsightCallout> Insights,
         int PendingCount,
@@ -1606,7 +1617,8 @@ public sealed class IndexModel(
         decimal? ConfirmedWeekCost = null,
         bool ConfirmedCostIsPartial = false,
         decimal? ProjectedWeekCost = null,
-        bool ProjectedCostIsPartial = false);
+        bool ProjectedCostIsPartial = false,
+        bool IsHistoricalWeek = false);
 
     /// <summary>
     /// Combines a single cell fragment with an out-of-band rail refresh and an out-of-band

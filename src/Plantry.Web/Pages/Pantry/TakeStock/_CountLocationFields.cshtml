@@ -11,11 +11,15 @@
     from the route. No location picker is needed here.
 
     Model access: this partial is rendered without an explicit model by the shared sheet partial.
-    The enclosing Walk page model (carrying UnitOptions) is reached via ViewContext.ViewData.Model.
+    When rendered through _ProductSearchCreateSheet the active ViewData.Model is the
+    ProductSearchCreateSheetViewModel (not WalkModel), so we resolve UnitOptions from that first.
+    The WalkModel fallback is kept for any future direct-render path.
 *@
 @{
-    var unitOptions = (ViewContext.ViewData.Model as Plantry.Web.Pages.Pantry.TakeStock.WalkModel)?.UnitOptions
-                   ?? [];
+    var unitOptions =
+        (ViewContext.ViewData.Model as Plantry.Web.Pages.Shared.ProductSearchCreateSheetViewModel)?.UnitOptions
+        ?? (ViewContext.ViewData.Model as Plantry.Web.Pages.Pantry.TakeStock.WalkModel)?.UnitOptions
+        ?? [];
 }
 
 <div class="form-grid">

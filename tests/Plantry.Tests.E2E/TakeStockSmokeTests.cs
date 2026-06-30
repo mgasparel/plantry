@@ -78,14 +78,14 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await Assertions.Expect(addItemBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await addItemBtn.ClickAsync();
 
-            // The inline-add sheet is the one containing "Add ingredient" in its header.
+            // The inline-add sheet title is "Add item" in the Take Stock context (Noun="item").
             // Use :has to scope to the take-stock-add sheet specifically (avoids conflicts with
             // the global inventory sheet which may also be present in the page layout).
-            var sheet = page.Locator(".sheet:has(.sheet__title:text-is('Add ingredient')) .sheet__panel");
+            var sheet = page.Locator(".sheet:has(.sheet__title:text-is('Add item')) .sheet__panel");
             await Assertions.Expect(sheet).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
 
-            // ── Switch to "Create as staple" mode to type a new product name ──────
-            var createStapleBtn = sheet.Locator("button:has-text('+ Create as staple')");
+            // ── Switch to "Create new product" mode to type a new product name ──────
+            var createStapleBtn = sheet.Locator("button:has-text('+ Create new product')");
             await Assertions.Expect(createStapleBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
             await createStapleBtn.ClickAsync();
 

@@ -164,7 +164,7 @@ public sealed class EditModel(
         // with access to the current x-for 'row' scope — avoids the nested x-data scope conflict
         // that would occur with a single-arg $el approach.
         var html = string.Join("", hits.Select(p =>
-            $$"""<li role="option" data-value="{{p.Id}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: $el.dataset.track})">{{enc.Encode(p.Name)}}</li>"""));
+            $$"""<li role="option" data-value="{{p.Id}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.textContent.trim(); open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.textContent.trim(), track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}</li>"""));
         return Content(html, "text/html");
     }
 
@@ -173,6 +173,10 @@ public sealed class EditModel(
     public async Task<IActionResult> OnPostAsync(IFormFile? photo, CancellationToken ct)
     {
         await LoadReferenceDataAsync(ct);
+
+        // ProductName and TagNames are not posted (display-only fields omitted from hidden inputs).
+        // Repopulate them here so any Page() re-render has the ingredient names and tag chips intact.
+        RestoreTagNames();
 
         if (!ModelState.IsValid)
             return Page();
@@ -296,6 +300,20 @@ public sealed class EditModel(
             .Where(l => l.ProductId.HasValue || !string.IsNullOrWhiteSpace(l.NewStapleName))
             .ToList();
     }
+
+    /// <summary>
+    /// Repopulates <see cref="RecipeEditInput.TagNames"/> from the already-loaded <see cref="TagOptions"/>
+    /// after a POST. Tag names are display-only and are not posted with the form (only <see cref="RecipeEditInput.TagIds"/>
+    /// are). Without this, the re-rendered page serialises an empty TagNames list and the Alpine chip
+    /// state loses all tag display labels, blanking the chips in the editor.
+    /// </summary>
+    private void RestoreTagNames()
+    {
+        var nameDict = TagOptions.ToDictionary(o => Guid.Parse(o.Value), o => o.Text);
+        Input.TagNames = Input.TagIds
+            .Select(id => nameDict.GetValueOrDefault(id) ?? id.ToString("N")[..8])
+            .ToList();
+    }
 }
 
 // ── Input models ─────────────────────────────────────────────────────────────────
@@ -345,7 +363,12 @@ public sealed class IngredientRowInput
 
     // ── Product ────────────────────────────────────────────────────────────────────
     public Guid? ProductId { get; set; }
-    /// <summary>Display-only — not posted; populated by Alpine when the user picks from the search list.</summary>
+    /// <summary>
+    /// Product display name — posted via a hidden input so it survives POST re-renders (validation
+    /// failure re-render preserves ingredient row names). Populated on GET by the page model's
+    /// pre-population loop, and re-posted by the hidden <c>Input.Lines[n].ProductName</c> inputs
+    /// in the Alpine <c>x-for</c> template so <c>row.productName</c> remains intact client-side.
+    /// </summary>
     public string? ProductName { get; set; }
 
     // ── Inline staple create (C12) ─────────────────────────────────────────────────

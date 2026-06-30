@@ -102,7 +102,8 @@ else
     @await Html.PartialAsync("_PlanRail", new Plantry.Web.Pages.MealPlan.IndexModel.PlanRailVm(
         Model.Insights, Model.PendingCount,
         ConfirmedWeekCost: Model.WeekTotalCost, ConfirmedCostIsPartial: Model.WeekCostIsPartial,
-        ProjectedWeekCost: Model.ProjectedWeekCost, ProjectedCostIsPartial: Model.ProjectedWeekCostIsPartial))
+        ProjectedWeekCost: Model.ProjectedWeekCost, ProjectedCostIsPartial: Model.ProjectedWeekCostIsPartial,
+        IsHistoricalWeek: Model.IsHistoricalWeek))
 
     @* Pending bar — visible when there are staged AI suggestions *@
     @if (Model.PendingCount > 0)

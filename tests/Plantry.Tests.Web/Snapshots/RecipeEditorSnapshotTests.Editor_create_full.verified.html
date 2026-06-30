@@ -79,6 +79,7 @@
              row.productName = detail.name;
              row.isUntracked = detail.track === 'false';
              if (row.isUntracked) { row.qty = ''; row.unitId = ''; }
+             else if (detail.defaultUnit) { row.unitId = detail.defaultUnit; }
          },
          showScaleOffer() { return !this.isCreate &amp;&amp; this.hasIngredients &amp;&amp; parseInt(this.servings) !== this.origServings; },
          isCreate: true,
@@ -166,6 +167,7 @@
 					<template x-for="(row, idx) in rows" :key="row.ordinal"><div class="ingredient-row" :class="{ 'ingredient-row--needs-conversion': row.needsConversion }" draggable="true" @dragstart.self="dragStart(idx)" @dragover.prevent="dragOver(idx)" @drop="drop()">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].Ordinal'" :value="row.ordinal">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId">
+							<input type="hidden" :name="'Input.Lines[' + idx + '].ProductName'" :value="row.productName">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleName'" :value="row.newStapleName ?? ''">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleDefaultUnitId'" :value="row.newStapleUnit">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty">

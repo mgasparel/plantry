@@ -75,7 +75,12 @@ public sealed class InsightsRailFragmentTests : IClassFixture<InsightsRailFragme
         var token = ExtractAntiforgeryToken(pageHtml);
 
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
-        var payload = new { date = "2026-06-01", slotId = slot.Id.Value, mode = "note", note = "Takeout" };
+        // Use a date in the current week so Plan Insights are active (plantry-lb9t: insights are
+        // suppressed for past weeks). Monday of the current week is a safe choice — the server
+        // also treats the current week as non-historical regardless of the exact weekday.
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
+        var payload = new { date = monday.ToString("yyyy-MM-dd"), slotId = slot.Id.Value, mode = "note", note = "Takeout" };
         var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         content.Headers.Add("RequestVerificationToken", token);
         content.Headers.Add("X-Requested-With", "XMLHttpRequest");
@@ -96,9 +101,33 @@ public sealed class InsightsRailFragmentTests : IClassFixture<InsightsRailFragme
         // covered separately by FullGridSwap_Carries_Rail_Projection.)
         OobContract.AssertCarriesProjections(railHtml, "plan-rail");
 
-        // The recomputed rail carries fresh insight content.
+        // The recomputed rail carries fresh insight content (active for the current week).
         var doc = new HtmlParser().ParseDocument(railHtml);
         Assert.NotNull(doc.QuerySelector("#plan-rail .callout[data-tone='warn']"));
+    }
+
+    [Fact(DisplayName = "plantry-lb9t: past-week rail shows inactive state instead of insight callouts")]
+    public async Task HistoricalWeek_Rail_Shows_Inactive_State()
+    {
+        var client = CreateClient();
+
+        // Navigate to a week that is clearly in the past (well before today).
+        var html = await (await client.GetAsync("/MealPlan?week=2020-01-06")).Content.ReadAsStringAsync();
+        var doc = new HtmlParser().ParseDocument(html);
+
+        // The rail renders with the inactive modifier.
+        var rail = doc.QuerySelector("#plan-rail");
+        Assert.NotNull(rail);
+        Assert.Contains("plan-rail--inactive", rail!.ClassName ?? "");
+
+        // No callouts are rendered for a past week — insights are meaningless there.
+        Assert.Empty(doc.QuerySelectorAll("#plan-rail .callout"));
+
+        // The count badge is suppressed.
+        Assert.Null(doc.QuerySelector("#plan-rail .ri-count"));
+
+        // The reopen tab has no badge.
+        Assert.Null(doc.QuerySelector("#plan-rail-reopen .rr-badge"));
     }
 
     [Fact(DisplayName = "Contract: the full-grid-swap path (Grid handler) also carries the rail projection")]
