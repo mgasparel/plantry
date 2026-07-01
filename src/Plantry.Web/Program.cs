@@ -407,8 +407,9 @@ builder.Services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
 builder.Services.AddScoped<AddMissingToShoppingList>();
 
 // Add-all-ingredients-to-shopping-list application service (plantry-s1z).
-// Emits ALL tracked (quantity-bearing) ingredients for a recipe with Source=Recipe+SourceRef=recipeId.
-// Distinct from AddMissingToShoppingList — does not filter by stock level.
+// Emits every quantity-bearing, stock-tracked (track_stock=true) ingredient for a recipe with
+// Source=Recipe+SourceRef=recipeId. Distinct from AddMissingToShoppingList — does not filter by
+// stock level, but does exclude untracked staples via ICatalogProductReader (C12, plantry-yukq).
 builder.Services.AddScoped<AddIngredientsToShoppingList>();
 
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));

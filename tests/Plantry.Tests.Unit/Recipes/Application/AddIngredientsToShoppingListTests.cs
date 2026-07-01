@@ -14,6 +14,8 @@ namespace Plantry.Tests.Unit.Recipes.Application;
 /// <list type="bullet">
 ///   <item>ALL tracked (quantity-bearing) ingredients are forwarded — not just missing/low.</item>
 ///   <item>Untracked staples (null Quantity/UnitId) are excluded.</item>
+///   <item>Quantity-bearing ingredients whose product is untracked (track_stock=false) or unknown
+///     to the household are excluded — the add-set matches the "tracked" UI label (plantry-yukq).</item>
 ///   <item>Quantities are scaled to the desired serving count.</item>
 ///   <item>source="recipe" and source_ref=recipeId are stamped correctly.</item>
 ///   <item>NothingToAdd result when all ingredients are untracked staples.</item>
@@ -50,6 +52,7 @@ public sealed class AddIngredientsToShoppingListTests
     {
         public required FakeRecipeRepository Recipes { get; init; }
         public required FakeShoppingListWriter Writer { get; init; }
+        public required FakeCatalogProductReader Products { get; init; }
         public required AddIngredientsToShoppingList Service { get; init; }
     }
 
@@ -57,12 +60,14 @@ public sealed class AddIngredientsToShoppingListTests
     {
         var recipes = new FakeRecipeRepository();
         var writer = new FakeShoppingListWriter();
+        var products = new FakeCatalogProductReader();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : (Guid?)null);
-        var service = new AddIngredientsToShoppingList(recipes, writer, tenant);
+        var service = new AddIngredientsToShoppingList(recipes, writer, products, tenant);
         return new Harness
         {
             Recipes = recipes,
             Writer = writer,
+            Products = products,
             Service = service,
         };
     }
@@ -133,6 +138,10 @@ public sealed class AddIngredientsToShoppingListTests
         var product2 = Guid.CreateVersion7();
         var product3 = Guid.CreateVersion7();
 
+        h.Products.RegisterTracked(product1);
+        h.Products.RegisterTracked(product2);
+        h.Products.RegisterTracked(product3);
+
         var recipe = Recipe.Create(Household, "Full Recipe", 4, Clock).Value;
         recipe.ReplaceIngredients(
         [
@@ -165,6 +174,8 @@ public sealed class AddIngredientsToShoppingListTests
         var trackedId = Guid.CreateVersion7();
         var stapleId = Guid.CreateVersion7();
 
+        h.Products.RegisterTracked(trackedId);
+
         var recipe = Recipe.Create(Household, "Mixed Recipe", 2, Clock).Value;
         recipe.ReplaceIngredients(
         [
@@ -185,6 +196,94 @@ public sealed class AddIngredientsToShoppingListTests
         Assert.Equal(unitId, item.UnitId);
     }
 
+    // ── Quantity-bearing untracked staple excluded (track_stock = false) ─────
+
+    [Fact(DisplayName = "Quantity-bearing ingredient with an untracked product (track_stock=false) is excluded from the add-set")]
+    public async Task QuantityBearing_Untracked_Product_Is_Excluded()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+        var trackedId = Guid.CreateVersion7();
+        var untrackedStapleId = Guid.CreateVersion7();
+
+        // Both ingredients carry a Quantity+UnitId, but the staple's product is track_stock=false
+        // in Catalog. The service must exclude it so the add-set matches the _DetailsFulfilmentCard
+        // "tracked" label, which counts only non-Untracked fulfilment lines (plantry-yukq).
+        h.Products.RegisterTracked(trackedId);
+        h.Products.RegisterUntracked(untrackedStapleId);
+
+        var recipe = Recipe.Create(Household, "Salted Recipe", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(trackedId, 300m, unitId, null, 0),
+            new IngredientLine(untrackedStapleId, 5m, unitId, null, 1), // untracked staple w/ incidental qty
+        ], Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, servings: 2);
+
+        var added = Assert.IsType<AddIngredientsResult.Added>(result);
+        Assert.Equal(1, added.ItemCount);
+
+        var call = Assert.Single(h.Writer.Calls);
+        var item = Assert.Single(call.Items);
+        Assert.Equal(trackedId, item.ProductId);
+        Assert.DoesNotContain(call.Items, i => i.ProductId == untrackedStapleId);
+    }
+
+    // ── Quantity-bearing ingredient absent from Catalog is excluded ───────────
+
+    [Fact(DisplayName = "Quantity-bearing ingredient whose product is unknown to the household is excluded")]
+    public async Task QuantityBearing_Unknown_Product_Is_Excluded()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+        var trackedId = Guid.CreateVersion7();
+        var unknownId = Guid.CreateVersion7(); // never registered in the catalog reader
+
+        h.Products.RegisterTracked(trackedId);
+
+        var recipe = Recipe.Create(Household, "Orphan Recipe", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(trackedId, 300m, unitId, null, 0),
+            new IngredientLine(unknownId, 5m, unitId, null, 1),
+        ], Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, servings: 2);
+
+        var added = Assert.IsType<AddIngredientsResult.Added>(result);
+        Assert.Equal(1, added.ItemCount);
+
+        var call = Assert.Single(h.Writer.Calls);
+        var item = Assert.Single(call.Items);
+        Assert.Equal(trackedId, item.ProductId);
+    }
+
+    // ── NothingToAdd when the only quantity-bearing ingredient is untracked ───
+
+    [Fact(DisplayName = "Returns NothingToAdd when every quantity-bearing ingredient is untracked")]
+    public async Task Returns_NothingToAdd_When_All_QuantityBearing_Untracked()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+        var untrackedId = Guid.CreateVersion7();
+
+        h.Products.RegisterUntracked(untrackedId);
+
+        var recipe = Recipe.Create(Household, "All Untracked", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+            [new IngredientLine(untrackedId, 5m, unitId, null, 0)],
+            Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, servings: 2);
+
+        Assert.IsType<AddIngredientsResult.NothingToAdd>(result);
+        Assert.Empty(h.Writer.Calls);
+    }
+
     // ── Quantity scaling ──────────────────────────────────────────────────────
 
     [Fact(DisplayName = "Quantities are scaled by servings / defaultServings")]
@@ -193,6 +292,8 @@ public sealed class AddIngredientsToShoppingListTests
         var h = BuildHarness();
         var unitId = Guid.CreateVersion7();
         var productId = Guid.CreateVersion7();
+
+        h.Products.RegisterTracked(productId);
 
         // Default 4 servings, 200g per serving block → ask for 6 → scale = 1.5 → 300g
         var recipe = Recipe.Create(Household, "Pasta", defaultServings: 4, Clock).Value;
@@ -217,6 +318,8 @@ public sealed class AddIngredientsToShoppingListTests
         var unitId = Guid.CreateVersion7();
         var productId = Guid.CreateVersion7();
 
+        h.Products.RegisterTracked(productId);
+
         var recipe = Recipe.Create(Household, "Risotto", 2, Clock).Value;
         recipe.ReplaceIngredients(
             [new IngredientLine(productId, 100m, unitId, null, 0)],
@@ -239,6 +342,9 @@ public sealed class AddIngredientsToShoppingListTests
         var unitId = Guid.CreateVersion7();
         var p1 = Guid.CreateVersion7();
         var p2 = Guid.CreateVersion7();
+
+        h.Products.RegisterTracked(p1);
+        h.Products.RegisterTracked(p2);
 
         var recipe = Recipe.Create(Household, "Sauce", 2, Clock).Value;
         recipe.ReplaceIngredients(
