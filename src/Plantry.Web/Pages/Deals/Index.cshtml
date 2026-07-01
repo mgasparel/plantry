@@ -1,0 +1,149 @@
+@page
+@using System.Globalization
+@using Plantry.Deals.Application
+@model Plantry.Web.Pages.Deals.IndexModel
+@{
+    ViewData["Title"] = "Deals";
+
+    // Templated delegate — renders one active deal card, reused across the store- and category-grouped
+    // views so the same markup never diverges between the two grouping segments.
+    Func<DealView, object> dealCard =
+    @<li class="catalog-list__item deal-row">
+        <div class="deal-row__main">
+            <span class="catalog-list__primary">
+                @item.DisplayName
+                @if (item.AutoMatched)
+                {
+                    <span class="badge badge--info deal-row__auto" title="Auto-matched from a remembered match">
+                        <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg> Auto-matched
+                    </span>
+                }
+            </span>
+            <span class="catalog-list__secondary">
+                @item.StoreName
+                @if (!string.IsNullOrWhiteSpace(item.SaleStory))
+                {
+                    <span>&middot; @item.SaleStory</span>
+                }
+            </span>
+        </div>
+        <div class="deal-row__price">
+            <span class="deal-row__amount">@item.Price.ToString("C2", CultureInfo.CurrentCulture)</span>
+            <span class="deal-row__until">Valid until @item.ValidTo.ToString("d MMM")</span>
+        </div>
+    </li>;
+}
+
+<div class="cfg-wrap" data-screen-label="Deals">
+    <div class="cfg-head">
+        <div class="eyebrow">Flyer deals</div>
+        <h1>Deals</h1>
+        <p>Active flyer deals from the stores you follow, matched to your catalog. New deals wait in the
+           review queue until you confirm them.</p>
+    </div>
+
+    @if (Model.Board.IsEmpty)
+    {
+        <div class="card">
+            <div class="card__body">
+                <div class="empty-state">
+                    <div class="empty-state__icon">
+                        <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
+                    </div>
+                    <div class="empty-state__title">No deals yet</div>
+                    <div class="empty-state__body">
+                        Subscribe to the stores you shop and Plantry will pull their weekly flyers and
+                        surface matching deals here.
+                    </div>
+                    <a class="btn btn--primary" href="/Settings/StoresAndDeals">Subscribe to a store</a>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* Pending review — visually distinguished; entry point only, the form is P5-8. *@
+        @if (Model.Board.PendingCount > 0)
+        {
+            <div class="card deal-pending" style="margin-bottom: var(--space-4)">
+                <div class="card__body deal-pending__body">
+                    <div class="deal-pending__text">
+                        <span class="badge badge--warning">@Model.Board.PendingCount to review</span>
+                        <div class="deal-pending__lead">New deals need a quick look</div>
+                        <p class="deal-pending__sub">
+                            Plantry found @Model.Board.PendingCount new @(Model.Board.PendingCount == 1 ? "deal" : "deals")
+                            it couldn&rsquo;t auto-match. Confirm the ones you want to track.
+                        </p>
+                    </div>
+                    <a class="btn btn--primary" href="@Plantry.Web.Pages.Deals.IndexModel.ReviewQueueUrl">
+                        Review deals
+                    </a>
+                </div>
+            </div>
+        }
+
+        @* Active deals — grouped by store or category via a client-side toggle over the one read result. *@
+        <div class="card" x-data="{ group: 'store' }">
+            <div class="card__head">
+                <h3 class="card__head-title">Active deals</h3>
+                <span class="ch-sub">&middot; @Model.Board.Active.Count</span>
+                @if (Model.Board.Active.Count > 0)
+                {
+                    <div class="seg-ctrl deal-group-toggle" role="group" aria-label="Group deals by">
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="deal-group" value="store" x-model="group" checked />
+                            <span>By store</span>
+                        </label>
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="deal-group" value="category" x-model="group" />
+                            <span>By category</span>
+                        </label>
+                    </div>
+                }
+            </div>
+            <div class="card__body">
+                @if (Model.Board.Active.Count == 0)
+                {
+                    <div class="empty-state">
+                        <div class="empty-state__title">No active deals right now</div>
+                        <div class="empty-state__body">
+                            Confirmed deals show here while they&rsquo;re running. Check the review queue above
+                            for new deals waiting on you.
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div x-show="group === 'store'" class="deal-groups">
+                        @foreach (var grp in Model.GroupedByStore)
+                        {
+                            <div class="deal-group">
+                                <div class="deal-group__head">@grp.Label</div>
+                                <ul class="catalog-list" role="list">
+                                    @foreach (var deal in grp.Deals)
+                                    {
+                                        @dealCard(deal)
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                    <div x-show="group === 'category'" x-cloak class="deal-groups">
+                        @foreach (var grp in Model.GroupedByCategory)
+                        {
+                            <div class="deal-group">
+                                <div class="deal-group__head">@grp.Label</div>
+                                <ul class="catalog-list" role="list">
+                                    @foreach (var deal in grp.Deals)
+                                    {
+                                        @dealCard(deal)
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>

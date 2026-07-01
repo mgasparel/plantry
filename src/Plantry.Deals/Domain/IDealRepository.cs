@@ -11,6 +11,15 @@ public interface IDealRepository
     Task<Deal?> FindAsync(DealId id, CancellationToken ct = default);
 
     /// <summary>
+    /// Every <see cref="DealStatus.Pending"/> or <see cref="DealStatus.Confirmed"/> deal for the household
+    /// (Rejected excluded) — the source set for the <c>BrowseDeals</c> read model (P5-7, DJ3). The
+    /// clock-driven in-window partition (active = Confirmed ∧ in-window, DD7; pending = Pending ∧
+    /// today ≤ valid_to, DD14) is applied by the read service against <c>IClock</c>, never persisted here.
+    /// RLS-scoped, so it never crosses households.
+    /// </summary>
+    Task<List<Deal>> ListBrowsableAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// All deals materialized from a given <see cref="FlyerImport"/> (the P5-6 re-pull path, DD13). The
     /// worker partitions these into still-<see cref="DealStatus.Pending"/> deals (refreshed on a changed
     /// re-pull) and resolved <see cref="DealStatus.Confirmed"/>/<see cref="DealStatus.Rejected"/> deals

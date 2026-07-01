@@ -293,6 +293,11 @@ builder.Services.AddScoped<Plantry.Deals.Application.ICatalogProductReader, Deal
 builder.Services.AddScoped<ConfirmDeal>();
 builder.Services.AddScoped<RejectDeal>();
 
+// Deals — P5-7 BrowseDeals read side + Deals page (DJ3). Read-only over the Deal aggregate + the clock;
+// nothing stored. The active/pending partition is recomputed per request (DD7/DD14), names resolved via
+// the batch Catalog/store ports (no N+1).
+builder.Services.AddScoped<BrowseDeals>();
+
 // Deals — P5-6 IngestFlyer worker (DJ2). IngestFlyer is the per-household unit of work (pull → dedup →
 // normalize → match → materialize → auto-confirm); IFlyerImportRepository is the new dedup/provenance
 // repo. FlyerIngestionCycle reproduces RlsMiddleware's tenancy arming with no HTTP request — cross-tenant
