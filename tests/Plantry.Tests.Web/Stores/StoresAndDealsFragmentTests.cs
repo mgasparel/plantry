@@ -154,6 +154,11 @@ public sealed class StoresAndDealsFragmentFactory : WebApplicationFactory<Progra
     {
         builder.UseEnvironment("Testing");
 
+        // Keep the canned StubFlyerSourceAdapter (not the real Flipp FlyerSource) so the directory-search
+        // fragment is exercised deterministically with no live Flipp call. Honours the
+        // Deals:UseStubFlyerSource seam in Program.cs.
+        builder.UseSetting("Deals:UseStubFlyerSource", "true");
+
         builder.ConfigureTestServices(services =>
         {
             services.AddAuthentication(opts =>

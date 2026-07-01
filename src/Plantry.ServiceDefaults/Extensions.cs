@@ -86,7 +86,11 @@ public static class Extensions
                     // meal_plan_propose (MealPlannerAiService). Both carry ai.model and
                     // ai.usage.input_tokens / ai.usage.output_tokens attributes.
                     // Error-status spans + LogError fire on failure, timeout, or empty response.
-                    .AddSource("Plantry.AI");
+                    .AddSource("Plantry.AI")
+                    // Deals' fragile external seam: flyer_directory_search / flyer_pull spans from the
+                    // Flipp FlyerSource (FlyerTelemetry). Carry the store ref + result counts only — no
+                    // postal code, PII, or secret. Error-status spans fire on failure/soft-fail.
+                    .AddSource("Plantry.Deals");
             });
 
         builder.AddOpenTelemetryExporters();

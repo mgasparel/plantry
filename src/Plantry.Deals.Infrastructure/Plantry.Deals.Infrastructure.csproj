@@ -12,11 +12,19 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- FlyerSource (Flipp ACL): typed HttpClient options, telemetry, and structured logging. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.*" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.Deals\Plantry.Deals.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exposes FlyerSource.MapFlyer / MapDirectory / ParsePrice for L1 fixture-based tests (no live call). -->
+    <InternalsVisibleTo Include="Plantry.Tests.Unit" />
   </ItemGroup>
 
 </Project>
