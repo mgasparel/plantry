@@ -1,0 +1,43 @@
+@model Plantry.Web.Pages.Deals.ReviewModel
+
+@*
+    The review-queue region (P5-8 / DJ4). Re-rendered from server truth by every verb (Confirm/Correct/Reject),
+    so the queue shrinks as it is worked and a re-drive / refresh never double-acts. When empty, the
+    "all caught up" state clears the queue; the Deals-page Review entry (and, with P5-11, the Home banner)
+    reflect the shrunk count on their next load.
+*@
+@if (Model.Deals.Count == 0)
+{
+    <div class="card">
+        <div class="card__body">
+            <div class="empty-state">
+                <div class="empty-state__icon">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                </div>
+                <div class="empty-state__title">All caught up</div>
+                <div class="empty-state__body">
+                    No deals waiting on you. New flyer deals that Plantry can&rsquo;t auto-match will show up
+                    here after the next pull.
+                </div>
+                <a class="btn btn--secondary" href="/Deals">Back to deals</a>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="card__head">
+            <h3 class="card__head-title">Deals to review</h3>
+            <span class="ch-sub">&middot; @Model.Deals.Count</span>
+        </div>
+        <div class="card__body">
+            <ul class="catalog-list deal-review-list" role="list">
+                @foreach (var deal in Model.Deals)
+                {
+                    <partial name="_DealReviewCard" model="deal" />
+                }
+            </ul>
+        </div>
+    </div>
+}

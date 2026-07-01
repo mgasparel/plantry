@@ -30,6 +30,14 @@
         <div class="deal-row__price">
             <span class="deal-row__amount">@item.Price.ToString("C2", CultureInfo.CurrentCulture)</span>
             <span class="deal-row__until">Valid until @item.ValidTo.ToString("d MMM")</span>
+            @if (item.AutoMatched)
+            {
+                @* DJ3 → DJ4 edge: an auto-matched deal can be corrected/rejected in the review form (P5-8).
+                   A Correct supersedes the auto-confirmed match via ConfirmDeal. *@
+                <a class="deal-row__correct" href="@($"{Plantry.Web.Pages.Deals.IndexModel.ReviewQueueUrl}?dealId={item.DealId.Value}")">
+                    Correct match
+                </a>
+            }
         </div>
     </li>;
 }
