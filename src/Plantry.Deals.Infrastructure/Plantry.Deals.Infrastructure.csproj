@@ -12,7 +12,9 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <!-- FlyerSource (Flipp ACL): typed HttpClient options, telemetry, and structured logging. -->
+    <!-- FlyerSource (Flipp ACL) + DealMatcher (untrusted AI): typed HttpClient / ChatClient options,
+         telemetry, and structured logging. -->
+    <PackageReference Include="OpenAI" Version="2.*" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.*" />
   </ItemGroup>
@@ -20,6 +22,10 @@
   <ItemGroup>
     <ProjectReference Include="..\Plantry.Deals\Plantry.Deals.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+    <!-- AiOptions + AiTelemetry live in Plantry.Intake.Infrastructure (shared AI config/telemetry);
+         DealMatcher consumes the same global setup as MealPlanning's MealPlannerAiService (plantry-ew5
+         tracks relocating AiOptions to clean all three consumers at once). -->
+    <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
