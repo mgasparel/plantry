@@ -5932,3 +5932,40 @@ button.sadd svg { width: 13px; height: 13px; }
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
+
+/* ── Stores & Deals (§7e / P5-2) ───────────────────────────────────────────── */
+/* Page-specific layout composing the shared card / catalog-list / badge / btn   */
+/* primitives. A subscription row stacks name+postal on the left, pushes its      */
+/* status badge and actions to the right; the store search is a simple input row. */
+.store-row { flex-wrap: wrap; }
+.store-row > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.store-row__status { margin-left: auto; }
+.store-row__actions { display: flex; gap: var(--space-2); }
+.store-row--paused .catalog-list__primary { color: var(--color-text-muted); }
+
+.store-paused { margin-top: var(--space-4); }
+.store-paused__head {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.store-search { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.store-search__postal,
+.store-search__query {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.store-search__postal { width: 12rem; }
+.store-search__query { flex: 1 1 12rem; min-width: 0; }
+.store-search__hint { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: 0; }
+
+.store-results { margin-top: var(--space-1); }
+.store-result__action { margin-left: auto; }
