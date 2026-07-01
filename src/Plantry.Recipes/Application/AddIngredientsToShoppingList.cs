@@ -11,9 +11,10 @@ namespace Plantry.Recipes.Application;
 /// <para>Given a <see cref="RecipeId"/> and a <paramref name="servings"/> count, this service:
 /// <list type="number">
 ///   <item>Loads the recipe aggregate.</item>
-///   <item>Collects every tracked ingredient that has a Quantity+UnitId (quantity-bearing).
-///     Untracked staples (null Quantity/UnitId) are skipped — they cannot be expressed as
-///     a shopping-list quantity.</item>
+///   <item>Collects every ingredient that has a Quantity+UnitId (quantity-bearing) AND whose
+///     product is stock-tracked in Catalog (<c>track_stock = true</c>). Ingredients with a null
+///     Quantity/UnitId (untracked staples) and quantity-bearing ingredients whose product is
+///     untracked or unknown to the household are skipped (C12, plantry-yukq).</item>
 ///   <item>Scales each ingredient's quantity to <paramref name="servings"/> (same scaling
 ///     formula used by <see cref="AddMissingToShoppingList"/>).</item>
 ///   <item>Calls <see cref="IShoppingListWriter.AddItemsAsync"/> with <c>source = "recipe"</c>
@@ -25,10 +26,17 @@ namespace Plantry.Recipes.Application;
 /// stock. It emits the full scaled quantity for every tracked ingredient — the caller wants
 /// "put all of this recipe on the list", not "what am I still short of". Duplicate-handling
 /// (per-source contribution upsert, plantry-9scq) is Shopping's responsibility (DM-18).</para>
+///
+/// <para>"Tracked" here means <c>track_stock = true</c> in Catalog — the same definition the Cook
+/// flow (C12, <see cref="CookRecipe"/>) and the <c>_DetailsFulfilmentCard</c> "tracked" label use.
+/// A quantity-bearing ingredient whose product is untracked (a staple that carries an incidental
+/// quantity) or is absent from this household's catalog is excluded, so the add-set matches the UI
+/// label exactly and untracked staples never reach the shopping list (plantry-yukq).</para>
 /// </summary>
 public sealed class AddIngredientsToShoppingList(
     IRecipeRepository recipes,
     IShoppingListWriter shoppingWriter,
+    ICatalogProductReader products,
     ITenantContext tenant)
 {
     /// <summary>Provenance string stamped on every row written via this service (DM-18).</summary>
@@ -53,9 +61,22 @@ public sealed class AddIngredientsToShoppingList(
         // Scale factor: desiredServings / defaultServings.
         var scale = (decimal)servings / recipe.DefaultServings;
 
-        // Collect all ingredients that have a Quantity+UnitId (skip untracked staples).
-        var itemsToAdd = recipe.Ingredients
+        // Candidate ingredients: those carrying a Quantity+UnitId (a null quantity/unit is an
+        // untracked staple with nothing to express as a shopping-list line).
+        var candidates = recipe.Ingredients
             .Where(i => i.Quantity.HasValue && i.UnitId.HasValue)
+            .ToList();
+
+        // Batch-resolve track_stock for every candidate product in one catalog round-trip, then
+        // keep only the products this household actually stock-tracks (C12, mirroring CookRecipe.cs:164).
+        // A product absent from the result (unknown to this household) or with TrackStock=false (an
+        // untracked staple) is dropped — this aligns the add-set with the "tracked" definition the
+        // Cook flow and the _DetailsFulfilmentCard label use (plantry-yukq).
+        var candidateIds = candidates.Select(i => i.ProductId).Distinct().ToList();
+        var summaries = await products.ResolveSummariesAsync(candidateIds, ct);
+
+        var itemsToAdd = candidates
+            .Where(i => summaries.TryGetValue(i.ProductId, out var summary) && summary.TrackStock)
             .Select(i => new ShoppingItem(
                 ProductId: i.ProductId,
                 Quantity: Math.Round(i.Quantity!.Value * scale, 3),
@@ -82,7 +103,11 @@ public abstract record AddIngredientsResult
     /// <param name="ItemCount">Number of ingredient lines dispatched to Shopping.</param>
     public sealed record Added(int ItemCount) : AddIngredientsResult;
 
-    /// <summary>No tracked ingredient has a Quantity+UnitId (all are untracked staples).</summary>
+    /// <summary>
+    /// No ingredient qualified for the list — every ingredient is either an untracked staple
+    /// (null Quantity/UnitId) or a quantity-bearing line whose product is untracked / unknown to
+    /// the household (track_stock = false or absent from Catalog).
+    /// </summary>
     public sealed record NothingToAdd : AddIngredientsResult;
 
     /// <summary>The recipe does not exist in this household.</summary>

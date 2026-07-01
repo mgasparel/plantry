@@ -1,3 +1,5 @@
+using Plantry.Intake.Domain;
+
 namespace Plantry.Intake.Application;
 
 /// <summary>
@@ -44,7 +46,10 @@ public sealed record ParsedLine(
 public sealed record ReceiptParseResult(
     string? MerchantText,
     IReadOnlyList<ParsedLine> Lines,
-    string? ErrorMessage = null)
+    string? ErrorMessage = null,
+    /// <summary>Receipt-header metadata (store branch, date/time, totals, payment, number).
+    /// Null on a soft-failed parse; individual fields are null when the AI could not read them.</summary>
+    ReceiptMetadata? Metadata = null)
 {
     public bool HasError => ErrorMessage is not null;
 }

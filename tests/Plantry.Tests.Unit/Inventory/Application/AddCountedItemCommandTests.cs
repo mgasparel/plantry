@@ -86,6 +86,10 @@ public sealed class AddCountedItemCommandTests
             SetLocationCalls++;
             return Task.CompletedTask;
         }
+
+        public Task AddConversionAsync(
+            Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default) =>
+            Task.CompletedTask;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

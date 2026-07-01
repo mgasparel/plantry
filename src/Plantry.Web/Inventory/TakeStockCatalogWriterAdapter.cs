@@ -106,4 +106,20 @@ public sealed class TakeStockCatalogWriterAdapter(
             throw new InvalidOperationException(
                 $"Set default location failed ({result.Error.Code}): {result.Error.Description}");
     }
+
+    public async Task AddConversionAsync(
+        Guid productId,
+        Guid fromUnitId,
+        Guid toUnitId,
+        decimal factor,
+        CancellationToken ct = default)
+    {
+        var command = new AddConversionCommand(
+            ProductId.From(productId), fromUnitId, toUnitId, factor, products, units, clock);
+
+        var result = await command.ExecuteAsync(ct);
+        if (result.IsFailure)
+            throw new InvalidOperationException(
+                $"Add product conversion failed ({result.Error.Code}): {result.Error.Description}");
+    }
 }

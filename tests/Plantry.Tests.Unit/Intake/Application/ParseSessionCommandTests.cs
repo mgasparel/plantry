@@ -59,6 +59,33 @@ public sealed class ParseSessionCommandTests
     }
 
     [Fact]
+    public async Task Lands_Receipt_Metadata_On_The_Ready_Session()
+    {
+        var metadata = new ReceiptMetadata(
+            StoreBranch: "42 Market St",
+            PurchaseDate: new DateOnly(2026, 6, 7),
+            PurchaseTime: new TimeOnly(14, 34),
+            Subtotal: 40.00m, Tax: 2.00m, Total: 42.00m,
+            PaymentDescriptor: "VISA ****4471 APPROVED",
+            ReceiptNumber: "TXN 0472 118");
+        var parser = new FakeReceiptParser(new ReceiptParseResult("Superstore",
+        [
+            new ParsedLine(1, "Flour 1kg", null, null, 1m, null, 4.99m, "high", null),
+        ], Metadata: metadata));
+        var repo = new FakeImportSessionRepository();
+
+        await Parse(repo, parser, new FakeCatalogHintProvider()).ExecuteAsync();
+
+        var session = Assert.Single(repo.Sessions);
+        Assert.Equal("42 Market St", session.StoreBranch);
+        Assert.Equal(new DateOnly(2026, 6, 7), session.PurchaseDate);
+        Assert.Equal(new TimeOnly(14, 34), session.PurchaseTime);
+        Assert.Equal(42.00m, session.Total);
+        Assert.Equal("VISA ****4471 APPROVED", session.PaymentDescriptor);
+        Assert.Equal("TXN 0472 118", session.ReceiptNumber);
+    }
+
+    [Fact]
     public async Task Quarantines_The_Raw_AI_Payload_Verbatim_On_Each_Line()
     {
         const string rawOne = """{"line":1,"junk":"<script>"}""";

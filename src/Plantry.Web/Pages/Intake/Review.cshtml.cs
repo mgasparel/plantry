@@ -366,9 +366,45 @@ public sealed class ReviewModel(
             Units: units,
             Locations: locations,
             Categories: categories,
-            Lines: lines);
+            Lines: lines,
+            // Receipt-panel metadata — via tag reflects the source; the rest is present-only display data.
+            ScanVia: Session.SourceType == ImportSourceType.Receipt ? "photo" : "email",
+            ScannedLabel: RelativeScanLabel(Session.CreatedAt, clock.UtcNow),
+            StoreBranch: NullIfBlank(Session.StoreBranch),
+            PurchaseDate: Session.PurchaseDate is { } pd
+                ? pd.ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture) : null,
+            PurchaseTime: Session.PurchaseTime is { } pt
+                ? pt.ToString("h:mm tt", CultureInfo.CurrentCulture) : null,
+            Subtotal: Session.Subtotal,
+            Tax: Session.Tax,
+            Total: Session.Total,
+            Payment: NullIfBlank(Session.PaymentDescriptor),
+            ReceiptNo: NullIfBlank(Session.ReceiptNumber));
 
         return JsonSerializer.Serialize(hydration, IntakeHydrationJson.Options);
+    }
+
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    /// <summary>Humanises how long ago the receipt was scanned, for the receipt panel's meta line
+    /// ("scanned just now" / "scanned 5 minutes ago" / "scanned on Jun 7, 2026"). Coarse buckets only —
+    /// this is ambient display copy, not a precise timestamp.</summary>
+    private static string RelativeScanLabel(DateTimeOffset scannedAt, DateTimeOffset now)
+    {
+        var elapsed = now - scannedAt;
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+        if (elapsed < TimeSpan.FromMinutes(1)) return "scanned just now";
+        if (elapsed < TimeSpan.FromHours(1))
+        {
+            var mins = (int)elapsed.TotalMinutes;
+            return $"scanned {mins} minute{(mins == 1 ? "" : "s")} ago";
+        }
+        if (elapsed < TimeSpan.FromDays(1))
+        {
+            var hours = (int)elapsed.TotalHours;
+            return $"scanned {hours} hour{(hours == 1 ? "" : "s")} ago";
+        }
+        return "scanned on " + scannedAt.ToLocalTime().ToString("MMM d, yyyy", CultureInfo.CurrentCulture);
     }
 
     private IActionResult JsonError(string message) =>

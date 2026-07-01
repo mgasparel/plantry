@@ -34,7 +34,7 @@ namespace Plantry.Web.TagHelpers;
 /// hatch) vs. ranked search + create (Recipes/TakeStock). When true, a divider and a "+ Create
 /// ..." button render directly below the listbox — demoted (<c>btn--demoted</c>) while the
 /// listbox currently has matches, full-strength when it doesn't — matching
-/// docs/Engineering/prototypes/fuzzy-match-suggestion-widget.html Option A. Clicking it dispatches
+/// the accepted fuzzy match-suggestion prototype (Option A). Clicking it dispatches
 /// a bubbling <c>product-search-create</c> CustomEvent with <c>{ query }</c> for the host to
 /// handle (e.g. switch to a create view, as <c>_ProductSearchCreateSheet</c> will on migration).</para>
 ///
@@ -133,7 +133,14 @@ public sealed class SearchableSelectTagHelper(IHtmlGenerator htmlGenerator) : Ta
         }
         html.Append("/>");
         html.Append("</div>");
-        html.Append($"""<ul class="searchable-select__listbox" id="{listboxId}" role="listbox" x-ref="listbox" x-show="open" x-cloak style="display: none" """);
+        // AllowCreate (fuzzy search + create) mode uses the in-flow `--inline` listbox variant so the
+        // results expand the sheet and the divider/create button sit BELOW them in normal flow, per
+        // the accepted fuzzy match-suggestion prototype (Option A). Plain-combobox mode
+        // (Shopping/Pantry Add Stock) keeps the default floating overlay listbox (position: absolute).
+        var listboxClass = AllowCreate
+            ? "searchable-select__listbox searchable-select__listbox--inline"
+            : "searchable-select__listbox";
+        html.Append($"""<ul class="{listboxClass}" id="{listboxId}" role="listbox" x-ref="listbox" x-show="open" x-cloak style="display: none" """);
         if (AllowCreate)
         {
             // Drives the create button's demoted/full-strength state (see below) — independent of

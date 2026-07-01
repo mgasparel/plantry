@@ -7,7 +7,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
+using System.Globalization;
 using Plantry.Intake.Application;
+using Plantry.Intake.Domain;
 
 namespace Plantry.Intake.Infrastructure;
 
@@ -54,6 +56,14 @@ public sealed class GeminiReceiptParser : IReceiptParser
         Output format:
         {
           "merchant": "store name or null",
+          "store_branch": "branch / location / address line printed under the store name, or null",
+          "purchase_date": "the receipt date as YYYY-MM-DD, or null",
+          "purchase_time": "the receipt time as HH:MM in 24-hour clock, or null",
+          "subtotal": 0.00,
+          "tax": 0.00,
+          "total": 0.00,
+          "payment": "the payment/tender line verbatim, e.g. 'VISA ****4471 APPROVED', or null",
+          "receipt_number": "the receipt / transaction / invoice number printed on the receipt, or null",
           "lines": [
             {
               "line_no": 1,
@@ -83,6 +93,9 @@ public sealed class GeminiReceiptParser : IReceiptParser
           copied verbatim from the catalog list — do not invent ids or use free-text names without an id.
           Each confidence is a decimal in [0, 1]. Emit fewer than 3 when fewer plausible catalog matches
           exist. Emit an empty array [] when there are no credible alternatives.
+        - store_branch, purchase_date, purchase_time, subtotal, tax, total, payment, receipt_number:
+          read these from the receipt header/footer for display. Use null (for text) or omit the field
+          when it is not printed — never guess. subtotal/tax/total are decimals as printed.
         """;
 
     public async Task<ReceiptParseResult> ParseAsync(
@@ -214,7 +227,17 @@ public sealed class GeminiReceiptParser : IReceiptParser
                 }
             }
 
-            return new ReceiptParseResult(merchant, lines);
+            var metadata = new ReceiptMetadata(
+                StoreBranch: GetString(root, "store_branch"),
+                PurchaseDate: GetDate(root, "purchase_date"),
+                PurchaseTime: GetTime(root, "purchase_time"),
+                Subtotal: GetDecimal(root, "subtotal"),
+                Tax: GetDecimal(root, "tax"),
+                Total: GetDecimal(root, "total"),
+                PaymentDescriptor: GetString(root, "payment"),
+                ReceiptNumber: GetString(root, "receipt_number"));
+
+            return new ReceiptParseResult(merchant, lines, Metadata: metadata);
         }
         catch (JsonException ex)
         {
@@ -282,6 +305,16 @@ public sealed class GeminiReceiptParser : IReceiptParser
 
     private static Guid? GetGuid(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String && Guid.TryParse(p.GetString(), out var v) ? v : null;
+
+    // Untrusted display data: a date/time the AI could not render as the requested shape is dropped
+    // (null) rather than guessed. DateOnly/TimeOnly parse invariantly so locale never shifts the value.
+    private static DateOnly? GetDate(JsonElement el, string name) =>
+        el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
+        && DateOnly.TryParse(p.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null;
+
+    private static TimeOnly? GetTime(JsonElement el, string name) =>
+        el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
+        && TimeOnly.TryParse(p.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null;
 
     /// <summary>
     /// Converts the AI's string confidence label to a numeric score for the histogram.

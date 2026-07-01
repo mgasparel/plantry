@@ -112,6 +112,14 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
 
     public void Register(CatalogProduct product) => _products[product.Id] = product;
 
+    /// <summary>Registers a specific product id as stock-tracked (track_stock = true).</summary>
+    public void RegisterTracked(Guid id, string name = "Product") =>
+        Register(new CatalogProduct(id, name, TrackStock: true, Guid.CreateVersion7(), null, false, []));
+
+    /// <summary>Registers a specific product id as an untracked staple (track_stock = false).</summary>
+    public void RegisterUntracked(Guid id, string name = "Staple") =>
+        Register(new CatalogProduct(id, name, TrackStock: false, Guid.CreateVersion7(), null, false, []));
+
     public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(_products.GetValueOrDefault(productId));
 

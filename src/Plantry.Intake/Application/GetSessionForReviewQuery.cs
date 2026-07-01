@@ -49,7 +49,17 @@ public sealed record SessionReviewView(
     string? ParseError,
     DateTimeOffset CreatedAt,
     IReadOnlyList<ReviewLineView> Lines,
-    ReviewReferenceData ReferenceData);
+    ReviewReferenceData ReferenceData,
+    // ── Receipt-header metadata (AI-parsed display data; each field null when absent) ──
+    ImportSourceType SourceType = ImportSourceType.Receipt,
+    string? StoreBranch = null,
+    DateOnly? PurchaseDate = null,
+    TimeOnly? PurchaseTime = null,
+    decimal? Subtotal = null,
+    decimal? Tax = null,
+    decimal? Total = null,
+    string? PaymentDescriptor = null,
+    string? ReceiptNumber = null);
 
 /// <summary>
 /// Read query (SPEC §2e): loads a <see cref="ImportSession"/> with its lines and the household's Catalog
@@ -116,6 +126,15 @@ public sealed class GetSessionForReviewQuery(
             session.ParseError,
             session.CreatedAt,
             lines,
-            reference);
+            reference,
+            session.SourceType,
+            session.StoreBranch,
+            session.PurchaseDate,
+            session.PurchaseTime,
+            session.Subtotal,
+            session.Tax,
+            session.Total,
+            session.PaymentDescriptor,
+            session.ReceiptNumber);
     }
 }

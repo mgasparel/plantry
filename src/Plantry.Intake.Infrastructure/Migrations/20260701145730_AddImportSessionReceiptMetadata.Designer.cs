@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Plantry.Intake.Infrastructure;
@@ -11,9 +12,11 @@ using Plantry.Intake.Infrastructure;
 namespace Plantry.Intake.Infrastructure.Migrations
 {
     [DbContext(typeof(IntakeDbContext))]
-    partial class IntakeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260701145730_AddImportSessionReceiptMetadata")]
+    partial class AddImportSessionReceiptMetadata
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

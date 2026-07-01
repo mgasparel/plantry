@@ -15,6 +15,15 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
     public Guid UserId { get; private set; }
     public ImportStatus Status { get; private set; }
     public string? MerchantText { get; private set; }
+    // ── Receipt metadata (AI-parsed display data — never read on commit, ADR-007) ──
+    public string? StoreBranch { get; private set; }
+    public DateOnly? PurchaseDate { get; private set; }
+    public TimeOnly? PurchaseTime { get; private set; }
+    public decimal? Subtotal { get; private set; }
+    public decimal? Tax { get; private set; }
+    public decimal? Total { get; private set; }
+    public string? PaymentDescriptor { get; private set; }
+    public string? ReceiptNumber { get; private set; }
     public string? ParseError { get; private set; }
     public DateTimeOffset? ParsedAt { get; private set; }
     public DateTimeOffset? CommittedAt { get; private set; }
@@ -78,12 +87,23 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
         return Result.Success();
     }
 
-    public Result MarkReady(string? merchantText, DateTimeOffset parsedAt)
+    public Result MarkReady(string? merchantText, DateTimeOffset parsedAt, ReceiptMetadata? metadata = null)
     {
         if (Status != ImportStatus.Parsing)
             return Error.Custom("Intake.InvalidTransition", $"Cannot mark ready from status '{Status}'.");
 
         MerchantText = merchantText;
+        if (metadata is not null)
+        {
+            StoreBranch = metadata.StoreBranch;
+            PurchaseDate = metadata.PurchaseDate;
+            PurchaseTime = metadata.PurchaseTime;
+            Subtotal = metadata.Subtotal;
+            Tax = metadata.Tax;
+            Total = metadata.Total;
+            PaymentDescriptor = metadata.PaymentDescriptor;
+            ReceiptNumber = metadata.ReceiptNumber;
+        }
         ParsedAt = parsedAt;
         Status = ImportStatus.Ready;
         UpdatedAt = parsedAt;

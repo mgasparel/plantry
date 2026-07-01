@@ -24,3 +24,4 @@ Architecture Decision Records for Plantry.
 | [ADR-018](ADR-018.md) | Fully agentic engineering | Accepted |
 | [ADR-019](ADR-019.md) | Skills until they break: keep agentic tooling minimal, escalate on concrete triggers | Accepted |
 | [ADR-020](ADR-020.md) | Reactive islands for stateful surfaces (Intake, Meal Planner, Take Stock) — amends ADR-005/013/015 | Accepted · amended 2026-06-24 (test-time Node permitted for island tests) |
+| [ADR-021](ADR-021.md) | Read paths may cross bounded-context boundaries via read-only cross-schema read models (read-side dual of ADR-014) | Accepted |

@@ -15,6 +15,12 @@ The **anticorruption layer over the AI** (ADR-007, ADR-010). A receipt — photo
 | `source_type` | `text` | `photo` / `email` (CHECK) — the two SPEC §2 entry modes; email path uses `household_settings.email_intake_address` |
 | `status` | `text` | `parsing` / `ready` / `committed` / `discarded` / `failed` (CHECK) — `failed` captures a pipeline/AI error so the ACL surfaces it rather than silently dropping |
 | `merchant_text` | `text` null | merchant as parsed from the receipt; copied into `price_observation.merchant_text` on commit (DM-16) |
+| `store_branch` | `text` null | branch / location line under the store name — AI-parsed **display data**, never read on commit |
+| `purchase_date` | `date` null | receipt date — display data |
+| `purchase_time` | `time` null | receipt time — display data |
+| `subtotal` / `tax` / `total` | `numeric(12,2)` null | receipt totals as printed — display data; the panel shows parsed `total` when present, else the computed line sum |
+| `payment_descriptor` | `text` null | payment/tender line e.g. `VISA ****4471 APPROVED` — display data |
+| `receipt_number` | `text` null | receipt / transaction number — display data |
 | `error_detail` | `text` null | populated when `status = failed` |
 | `parsed_at` | `timestamptz` null | when the pipeline finished (status → `ready`) |
 | `committed_at` | `timestamptz` null | |

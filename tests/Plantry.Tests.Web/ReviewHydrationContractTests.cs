@@ -55,7 +55,17 @@ public sealed class ReviewHydrationContractTests
                     ProductId: "p1", ProductName: "Milk", Quantity: 2m, UnitId: "u1", LocationId: "loc1",
                     Price: 3.99m, Expiry: "2026-06-22", SkuId: "sku1"),
                 Alternatives: [new AlternativeHydration("p2", "Cheddar, Sharp", 0.72m)]),
-        ]);
+        ],
+        ScanVia: "photo",
+        ScannedLabel: "scanned just now",
+        StoreBranch: "42 Market St",
+        PurchaseDate: "Sun Jun 15, 2026",
+        PurchaseTime: "2:30 PM",
+        Subtotal: 40.00m,
+        Tax: 2.00m,
+        Total: 42.00m,
+        Payment: "VISA ****4471 APPROVED",
+        ReceiptNo: "TXN 0472 118");
 
     [Fact]
     public void Root_has_exact_island_key_set()
@@ -63,7 +73,9 @@ public sealed class ReviewHydrationContractTests
         HydrationContract.AssertKeys(Serialize(Sample()),
             "merchantText", "sessionDate", "today",
             "commitUrl", "discardUrl", "saveLineUrl", "dismissLineUrl", "restoreLineUrl",
-            "products", "units", "locations", "categories", "lines");
+            "products", "units", "locations", "categories", "lines",
+            "scanVia", "scannedLabel", "storeBranch", "purchaseDate", "purchaseTime",
+            "subtotal", "tax", "total", "payment", "receiptNo");
     }
 
     [Fact]

@@ -53,7 +53,7 @@
 
 import { render, html, signal, computed } from "./runtime.js?v=1";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage } from "./take-stock-logic.js?v=1";
+import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage } from "./take-stock-logic.js?v=2";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -90,6 +90,12 @@ import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults,
  * @property {import("@preact/signals").ReadonlySignal<boolean>} dirty
  * @property {import("@preact/signals").ReadonlySignal<boolean>} down
  * @property {boolean} isNewRow        true for rows injected by inline-add, not in initial hydration
+ * @property {import("@preact/signals").Signal<boolean>} needsConversion
+ * @property {import("@preact/signals").Signal<string>} convFromUnitId
+ * @property {import("@preact/signals").Signal<string>} convFromCode
+ * @property {import("@preact/signals").Signal<string>} convToUnitId
+ * @property {import("@preact/signals").Signal<string>} convToCode
+ * @property {import("@preact/signals").Signal<string>} convFactor
  */
 
 // ── Row factory ─────────────────────────────────────────────────────────────────
@@ -110,8 +116,8 @@ function makeRow(seed) {
 
 // ── CountRow component ───────────────────────────────────────────────────────────
 
-/** @param {{ row: Row, expandedLots: import("@preact/signals").Signal<Record<string,boolean>>, onExpandLots: (row:Row)=>void, onCollapseLots: (pid:string)=>void }} props */
-function CountRow({ row, expandedLots, onExpandLots, onCollapseLots }) {
+/** @param {{ row: Row, expandedLots: import("@preact/signals").Signal<Record<string,boolean>>, onExpandLots: (row:Row)=>void, onCollapseLots: (pid:string)=>void, onAddConversion: (row:Row)=>void }} props */
+function CountRow({ row, expandedLots, onExpandLots, onCollapseLots, onAddConversion }) {
   const counted = row.counted.value;
   const recorded = row.recorded.value;
   const delta = Math.abs(counted - recorded);
@@ -193,6 +199,26 @@ function CountRow({ row, expandedLots, onExpandLots, onCollapseLots }) {
           </div>
         </div>`}
 
+      ${row.needsConversion.value && html`
+        <div class="ts-conversion" role="group"
+             aria-label=${"Conversion factor for " + row.productName}>
+          <p class="ts-conversion-lbl">
+            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+            No conversion path found. How much is 1 ${row.convFromCode.value}?
+          </p>
+          <div class="ts-conversion-row">
+            <span class="ts-conversion-eq">1 ${row.convFromCode.value} =</span>
+            <input class="field__input ts-conversion-input" type="number" step="any" min="0"
+                   placeholder="e.g. 120"
+                   aria-label=${"Conversion factor for " + row.productName}
+                   value=${row.convFactor.value}
+                   onInput=${(/** @type {Event} */ e) => { row.convFactor.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
+            <span class="ts-conversion-unit">${row.convToCode.value}</span>
+            <button type="button" class="btn btn--primary btn--sm"
+                    onClick=${() => onAddConversion(row)}>Save conversion</button>
+          </div>
+        </div>`}
+
       ${!row.isNewRow && html`
         <div id=${"lot-panel-" + row.productId}
              data-product-id=${row.productId}
@@ -219,9 +245,10 @@ function CountRow({ row, expandedLots, onExpandLots, onCollapseLots }) {
  *           onOpenAdd: () => void,
  *           expandedLots: import("@preact/signals").Signal<Record<string,boolean>>,
  *           onExpandLots: (row:Row) => void,
- *           onCollapseLots: (pid:string) => void }} props
+ *           onCollapseLots: (pid:string) => void,
+ *           onAddConversion: (row:Row) => void }} props
  */
-function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd, expandedLots, onExpandLots, onCollapseLots }) {
+function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd, expandedLots, onExpandLots, onCollapseLots, onAddConversion }) {
   const allRows = rows.value;
   const rowCount = allRows.length;
 
@@ -268,7 +295,8 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
                 html`<${CountRow} key=${row.productId} row=${row}
                        expandedLots=${expandedLots}
                        onExpandLots=${onExpandLots}
-                       onCollapseLots=${onCollapseLots} />`)}
+                       onCollapseLots=${onCollapseLots}
+                       onAddConversion=${onAddConversion} />`)}
             </ul>`}
 
         ${allRows.some(r => r.isNewRow) && html`
@@ -277,7 +305,8 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
               html`<${CountRow} key=${row.productId} row=${row}
                      expandedLots=${expandedLots}
                      onExpandLots=${onExpandLots}
-                     onCollapseLots=${onCollapseLots} />`)}
+                     onCollapseLots=${onCollapseLots}
+                     onAddConversion=${onAddConversion} />`)}
           </ul>`}
       </div>
 
@@ -330,8 +359,12 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
     }
 
     const data = await resp.json();
-    const { saved, failed } = reconcileResults(rows, data.results ?? []);
-    toast.value = saveStatusMessage({ ok: true, saved, failed });
+    const { saved, failed, needsConversion } = reconcileResults(rows, data.results ?? []);
+    // A needsConversion row is neither saved nor a plain failure — it is waiting on a factor.
+    // Prompt the user toward the highlighted rows rather than reporting a save success/failure.
+    toast.value = needsConversion > 0 && saved === 0 && failed === 0
+      ? "Add a conversion factor for the highlighted rows to record them."
+      : saveStatusMessage({ ok: true, saved, failed });
   } catch {
     toast.value = "Network error — please try again";
   } finally {
@@ -347,6 +380,7 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
  *   rows: RowSeed[],
  *   saveUrl: string,
  *   addItemUrl: string,
+ *   addConversionUrl: string,
  *   token: string,
  *   locationName: string,
  * }} config
@@ -425,8 +459,8 @@ export function mountTakeStockWalk(root, config) {
   /**
    * @param {{
    *   productId?: string, productName?: string, addCount?: number, addUnitId?: string,
-   *   supportedUnits?: UnitOption[], newStapleName?: string, newStapleUnit?: string,
-   *   newGroupId?: string, newGroupName?: string, newStapleCategoryId?: string
+   *   addUnitCode?: string, supportedUnits?: UnitOption[], newStapleName?: string,
+   *   newStapleUnit?: string, newGroupId?: string, newGroupName?: string, newStapleCategoryId?: string
    * }} detail
    */
   async function handleSheetAdd(detail) {
@@ -436,24 +470,43 @@ export function mountTakeStockWalk(root, config) {
       const rows = rowsSignal.value;
       const existing = rows.find((r) => r.productId === pid);
       if (existing) {
-        // Row already in the working set — just update the count.
+        // Row already in the working set — update the count AND the chosen unit. Carrying the
+        // sheet-selected unit is the direct fix for plantry-3mwx: previously the unit was dropped
+        // here, so a count in a non-default unit was silently recorded in the product default unit.
         const newCounted = parseFloat(String(detail.addCount ?? 0)) || 0;
         existing.counted.value = newCounted;
         existing.failed.value = false;
         existing.failMsg.value = null;
+        existing.needsConversion.value = false;
+        if (detail.addUnitId) {
+          existing.unitId.value = detail.addUnitId;
+          // Ensure the selected unit is displayable even if it is not in the reachable set yet
+          // (the per-row selector is limited to units reachable from the default unit).
+          if (detail.addUnitCode
+              && !existing.supportedUnits.some((u) => u.unitId === detail.addUnitId)) {
+            existing.supportedUnits = [...existing.supportedUnits, { unitId: detail.addUnitId, code: detail.addUnitCode }];
+          }
+          if (detail.addUnitCode) existing.unitCode = detail.addUnitCode;
+        }
+        // supportedUnits/unitCode are plain (non-signal) fields — reassign the array to re-render.
+        rowsSignal.value = [...rows];
         toast.value = "Added — tap Save to record.";
       } else {
         // New row not yet in working set.
         const counted = parseFloat(String(detail.addCount ?? 0)) || 0;
+        const chosenUnit = detail.addUnitId ?? "";
+        const chosenCode = detail.addUnitCode ?? "";
+        const seedUnits = detail.supportedUnits
+          ?? (chosenUnit && chosenCode ? [{ unitId: chosenUnit, code: chosenCode }] : []);
         const newRow = makeRow({
           productId: pid,
           productName: detail.productName ?? "(new item)",
           recorded: 0,
-          unitCode: "",
-          unitId: detail.addUnitId ?? "",
+          unitCode: chosenCode,
+          unitId: chosenUnit,
           hasActiveStock: false,
           lotsUrl: "",
-          supportedUnits: detail.supportedUnits ?? [],
+          supportedUnits: seedUnits,
           isNewRow: true,
         });
         newRow.counted.value = counted;
@@ -552,6 +605,42 @@ export function mountTakeStockWalk(root, config) {
 
   const onSave = () => save(rowsSignal, config.saveUrl, config.token, toast, saving);
 
+  // ── NeedsConversion prompt (plantry-3mwx) ──────────────────────────────
+  // Persist the user-supplied factor (1 countedUnit = factor defaultUnit), then re-save so the
+  // now-convertible count is recorded. Mirrors the Recipes C10 post-save conversion flow.
+  /** @param {Row} row */
+  async function addConversion(row) {
+    const factor = parseFloat(row.convFactor.value);
+    if (!(factor > 0)) {
+      toast.value = "Enter a conversion factor greater than zero.";
+      return;
+    }
+    try {
+      const resp = await postJson(config.addConversionUrl, {
+        productId: row.productId,
+        fromUnitId: row.convFromUnitId.value,
+        toUnitId: row.convToUnitId.value,
+        factor,
+      }, config.token);
+      if (!resp.ok) {
+        toast.value = `Couldn't save the conversion (${resp.status}) — please try again`;
+        return;
+      }
+      const data = await resp.json();
+      if (!data.isSuccess) {
+        toast.value = data.error ?? "Couldn't save the conversion.";
+        return;
+      }
+      // Conversion stored — clear the prompt and ensure the row keeps the counted unit, then re-save.
+      row.needsConversion.value = false;
+      if (row.convFromUnitId.value) row.unitId.value = row.convFromUnitId.value;
+      row.convFactor.value = "";
+      await save(rowsSignal, config.saveUrl, config.token, toast, saving);
+    } catch {
+      toast.value = "Network error — please try again";
+    }
+  }
+
   const onOpenAdd = () => {
     // Signal the Alpine sheet bridge to open via a window-level event.
     // The bridge listens with x-on:ts-open-add.window, which requires a window dispatch.
@@ -569,7 +658,8 @@ export function mountTakeStockWalk(root, config) {
       onOpenAdd=${onOpenAdd}
       expandedLots=${expandedLots}
       onExpandLots=${expandLots}
-      onCollapseLots=${collapseLots} />`,
+      onCollapseLots=${collapseLots}
+      onAddConversion=${addConversion} />`,
     root,
   );
 }
