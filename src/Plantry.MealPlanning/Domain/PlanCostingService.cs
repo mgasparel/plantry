@@ -4,7 +4,9 @@ namespace Plantry.MealPlanning.Domain;
 
 /// <summary>
 /// Domain service that rolls up estimated cost for a planned meal or a full week (domain-model §7).
-/// Stateless. Deal-blind in Phase 3 (C7) — cost comes from purchase-price history only.
+/// Stateless. Deal-aware (P5-9b, DJ6): the injected <see cref="IMealPlanPriceReader"/> now returns Pricing's
+/// effective (deal-aware) price — cheapest active in-window deal else latest purchase — so roll-ups (and the
+/// cost-driven planning weight) reflect live sales for free, with no change here and no Deals dependency.
 ///
 /// Recipe dishes: borrows <c>CostPerServing × servings</c> from Recipes' read models via
 /// <see cref="IRecipeReadModel.GetEnrichmentAsync"/>. Product dishes: price × quantity via
@@ -160,7 +162,7 @@ public enum CostCompleteness
 
 /// <summary>
 /// Rolled-up cost estimate for a planned meal or week (computed read model — never persisted).
-/// Deal-blind (C7) — uses purchase-price history only.
+/// Deal-aware (P5-9b) — uses Pricing's effective price (cheapest active deal else latest purchase).
 /// </summary>
 /// <param name="Amount">
 /// Total estimated cost, or null when <see cref="Completeness"/> is <see cref="CostCompleteness.None"/>.
