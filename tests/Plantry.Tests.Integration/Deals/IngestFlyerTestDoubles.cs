@@ -47,6 +47,9 @@ internal sealed class StubCatalogProductReader : ICatalogProductReader
     public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(true);
     public Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ProductCandidate>>([]);
+    public Task<IReadOnlyDictionary<Guid, DealProductInfo>> ForProductsAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, DealProductInfo>>(new Dictionary<Guid, DealProductInfo>());
 }
 
 internal sealed class StubPriceObservationWriter : IPriceObservationWriter

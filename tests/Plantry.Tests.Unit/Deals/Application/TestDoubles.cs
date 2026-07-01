@@ -117,6 +117,11 @@ internal sealed class FakeDealRepository : IDealRepository
     public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) =>
         Task.FromResult(Items.SingleOrDefault(d => d.Id == id));
 
+    public Task<List<Deal>> ListBrowsableAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items
+            .Where(d => d.Status is DealStatus.Pending or DealStatus.Confirmed)
+            .ToList());
+
     public Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default) =>
         Task.FromResult(Items.Where(d => d.FlyerImportId == flyerImportId).ToList());
 
@@ -197,6 +202,12 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
     public List<ProductCandidate> Candidates { get; } = [];
     public int ListCandidatesCalls { get; private set; }
 
+    /// <summary>Product id → (name, category) resolved by the batch <see cref="ForProductsAsync"/> read.</summary>
+    public Dictionary<Guid, DealProductInfo> Products { get; } = new();
+
+    /// <summary>The id sets passed to <see cref="ForProductsAsync"/>, for asserting a single batch call (no N+1).</summary>
+    public List<IReadOnlyList<Guid>> ForProductsCalls { get; } = [];
+
     public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
     {
         Checked.Add(productId);
@@ -207,6 +218,16 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
     {
         ListCandidatesCalls++;
         return Task.FromResult<IReadOnlyList<ProductCandidate>>(Candidates.ToList());
+    }
+
+    public Task<IReadOnlyDictionary<Guid, DealProductInfo>> ForProductsAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        ForProductsCalls.Add(productIds);
+        IReadOnlyDictionary<Guid, DealProductInfo> result = productIds
+            .Where(Products.ContainsKey)
+            .ToDictionary(id => id, id => Products[id]);
+        return Task.FromResult(result);
     }
 }
 
