@@ -1,4 +1,5 @@
 using Plantry.Catalog.Infrastructure;
+using Plantry.Deals.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Infrastructure;
@@ -28,7 +29,7 @@ public sealed class RlsMiddleware(RequestDelegate next)
         HttpContext context, TenantContext tenant, CatalogDbContext catalogDb,
         PlantryIdentityDbContext identityDb, InventoryDbContext inventoryDb, IntakeDbContext intakeDb,
         RecipesDbContext recipesDb, ShoppingDbContext shoppingDb, MealPlanningDbContext mealPlanningDb,
-        PricingDbContext pricingDb)
+        PricingDbContext pricingDb, DealsDbContext dealsDb)
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
@@ -45,6 +46,7 @@ public sealed class RlsMiddleware(RequestDelegate next)
                 shoppingDb.SetHouseholdId(id);        // feeds the Shopping EF query filter
                 mealPlanningDb.SetHouseholdId(id);    // feeds the MealPlanning EF query filter
                 pricingDb.SetHouseholdId(id);         // feeds the Pricing EF query filter
+                dealsDb.SetHouseholdId(id);           // feeds the Deals EF query filter (P5-0)
             }
         }
 
