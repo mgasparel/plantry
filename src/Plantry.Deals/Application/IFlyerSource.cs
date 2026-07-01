@@ -14,12 +14,34 @@ public sealed record DirectoryMerchant(string ExternalRef, string Name);
 /// items plus the dedup/validity envelope (<c>flyer_external_id</c> + window + raw content). Consumed by
 /// the P5-6 <c>IngestFlyer</c> worker; <b>unused in the P5-2 directory-search slice</b> — it is defined
 /// here so the port is complete and P5-3's real adapter does not have to redefine it.
+/// <para>
+/// <b>Soft-fail (ADR-007, the Intake untrusted-source pattern).</b> The Flipp seam is fragile, so a
+/// pull that fails — a network/HTTP error, an empty or malformed payload, or no active flyer — returns
+/// an <em>error-carrying result</em> (<see cref="ErrorMessage"/> set, <see cref="HasError"/> true) rather
+/// than throwing into the caller. The P5-6 worker maps <see cref="HasError"/> to
+/// <c>FlyerImport.MarkFailed</c>. On a failure result <see cref="Window"/> is <c>null</c> and
+/// <see cref="Deals"/> is empty; on success <see cref="Window"/> is non-null and <see cref="ErrorMessage"/>
+/// is <c>null</c>. Build failures with <see cref="Failed"/>.
+/// </para>
 /// </summary>
 public sealed record FlyerPullResult(
     string FlyerExternalId,
-    ValidityWindow Window,
+    ValidityWindow? Window,
     string RawContent,
-    IReadOnlyList<RawDeal> Deals);
+    IReadOnlyList<RawDeal> Deals,
+    string? ErrorMessage = null)
+{
+    /// <summary>True when the pull soft-failed; the caller maps this to <c>FlyerImport.MarkFailed</c>.</summary>
+    public bool HasError => ErrorMessage is not null;
+
+    /// <summary>
+    /// Builds a soft-failure result: no window, no deals, carrying <paramref name="error"/>. The
+    /// <paramref name="rawContent"/> (the payload we did manage to read, if any) is preserved for
+    /// provenance/debugging; <see cref="FlyerExternalId"/> is empty since a failed pull has no flyer id.
+    /// </summary>
+    public static FlyerPullResult Failed(string error, string rawContent = "") =>
+        new(string.Empty, null, rawContent, [], error);
+}
 
 /// <summary>
 /// The single untrusted, fragile external seam over Flipp (D1). Two halves:

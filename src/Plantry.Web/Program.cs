@@ -273,12 +273,32 @@ builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
 // Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
 // ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters
 // implement them over Catalog's IStoreRepository / EnsureStoreCommand so Deals never touches CatalogDbContext
-// (ADR-010/DM-3). IFlyerSource is the untrusted Flipp seam (D1): P5-2 registers a canned StubFlyerSourceAdapter
-// for the directory search; P5-3 swaps in the real Flipp adapter against the same port.
+// (ADR-010/DM-3).
 builder.Services.AddScoped<IStoreSubscriptionRepository, StoreSubscriptionRepository>();
 builder.Services.AddScoped<ICatalogStoreReader, CatalogStoreReaderAdapter>();
 builder.Services.AddScoped<ICatalogStoreWriter, CatalogStoreWriterAdapter>();
-builder.Services.AddScoped<IFlyerSource, StubFlyerSourceAdapter>();
+
+// IFlyerSource is the untrusted Flipp seam (D1). Production wires the real Flipp adapter (P5-3): a typed
+// HttpClient (base URL + locale + browser UA from the Deals:Flipp config; standard resilience — timeout +
+// retry — applied to every HttpClient by ServiceDefaults) mapping raw Flipp payloads to RawDeal/DirectoryMerchant.
+// The P5-2 canned StubFlyerSourceAdapter is kept as a deterministic seam behind Deals:UseStubFlyerSource so
+// E2E / L4 fragment tests exercise the §7e journey with no live Flipp call (mirrors the AI:UseFakeParser seam).
+builder.Services.Configure<FlippOptions>(builder.Configuration.GetSection(FlippOptions.SectionName));
+if (builder.Configuration.GetValue<bool>("Deals:UseStubFlyerSource"))
+{
+    builder.Services.AddScoped<IFlyerSource, StubFlyerSourceAdapter>();
+}
+else
+{
+    builder.Services.AddHttpClient<IFlyerSource, FlyerSource>(client =>
+    {
+        var flipp = builder.Configuration.GetSection(FlippOptions.SectionName).Get<FlippOptions>() ?? new FlippOptions();
+        var baseUrl = flipp.BaseUrl.EndsWith('/') ? flipp.BaseUrl : flipp.BaseUrl + "/";
+        client.BaseAddress = new Uri(baseUrl);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(flipp.UserAgent);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    });
+}
 builder.Services.AddScoped<ManageSubscriptions>();
 builder.Services.AddScoped<ManageSlotsService>();
 builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();
