@@ -442,6 +442,11 @@ builder.Services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>()
 // Recipes EF context directly (ADR-002).
 builder.Services.AddScoped<IShoppingRecipeReader, ShoppingRecipeReaderAdapter>();
 
+// Shopping → Pricing ACL adapter (P5-9). ShoppingDealReaderAdapter reads Pricing's cheapest-active-deal
+// read model for the "On sale at {store} this week" badge, resolving the merchant name over Catalog.
+// Shopping reads PRICING, never Deals (ADR-010 boundary); the badge is a read-time join, never stored.
+builder.Services.AddScoped<IShoppingDealReader, ShoppingDealReaderAdapter>();
+
 builder.Services.AddScoped<ShoppingListQueryService>();
 builder.Services.AddScoped<PantrySuggestionService>();
 

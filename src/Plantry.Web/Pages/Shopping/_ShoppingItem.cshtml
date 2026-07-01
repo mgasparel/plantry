@@ -19,6 +19,13 @@
     var setNoteUrl = Url.Page("./Index", "SetNote", new { listId = item.ListId, itemId = item.ItemId });
     var recatUrl = Url.Page("./Index", "Recategorize", new { listId = item.ListId, itemId = item.ItemId });
     var hasNote = !string.IsNullOrWhiteSpace(item.Note);
+    // Deal badge (P5-9): tappable to the household's Deals browse page. No per-deal detail route exists,
+    // so the badge deep-links to /Deals with a #deal-{id} fragment (harmless no-op until the Deals page
+    // anchors its rows). The badge text/visibility come from the read model — read from Pricing, never stored.
+    var dealsUrl = Url.Page("/Deals/Index");
+    var dealText = !string.IsNullOrWhiteSpace(item.DealStoreName)
+        ? $"On sale at {item.DealStoreName} this week"
+        : "On sale this week";
     // The toggle posts to the uncheck handler if checked, or the check-off handler if unchecked.
     var toggleUrl = item.IsChecked ? uncheckUrl : checkOffUrl;
     // Alpine x-data: use JsonSerializer so Razor HTML-encodes the quotes correctly.
@@ -102,6 +109,19 @@
                     </span>
                 }
             </div>
+        }
+
+        @* Deal badge (P5-9): read-time join with Pricing's cheapest-active-deal read model — never stored.
+           Tappable to the Deals page. Reuses the shared tonal .badge pill. Hidden on checked items, like the
+           sub-line. *@
+        @if (!item.IsChecked && item.HasDeal)
+        {
+            <a class="badge badge--success sl-deal"
+               href="@($"{dealsUrl}#deal-{item.DealId}")"
+               title="@dealText">
+                <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
+                @dealText
+            </a>
         }
 
         @* Inline note editor: .sl-noterow expands below the name row when editingNote is true *@

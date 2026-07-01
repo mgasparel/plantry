@@ -28,13 +28,17 @@ public sealed class ShoppingListQueryServiceTests
         FakeShoppingListRepository repo,
         FakeShoppingCatalogReaderWithSummaries catalog,
         FakeShoppingPantryReader? pantryReader = null,
-        FakeShoppingRecipeReader? recipeReader = null)
+        FakeShoppingRecipeReader? recipeReader = null,
+        FakeShoppingDealReader? dealReader = null,
+        IClock? clock = null)
     {
         return new ShoppingListQueryService(
             repo,
             catalog,
             pantryReader ?? new FakeShoppingPantryReader(),
             recipeReader ?? new FakeShoppingRecipeReader(),
+            dealReader ?? new FakeShoppingDealReader(),
+            clock ?? Clock,
             new FakeTenantContext(_household));
     }
 
@@ -506,6 +510,121 @@ public sealed class ShoppingListQueryServiceTests
         // Deleted/unknown recipe should produce no attribution (graceful degradation)
         Assert.False(item.HasAttribution);
     }
+
+    // ── Deal badge (P5-9, Shopping→Pricing read model) ───────────────────────
+
+    [Fact(DisplayName = "GetList — product with an active deal: DealStoreName/DealId populated, HasDeal true")]
+    public async Task GetList_ProductWithActiveDeal_DealFieldsPopulated()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Milk", "Dairy"));
+
+        var dealId = Guid.CreateVersion7();
+        var storeId = Guid.CreateVersion7();
+        var deals = new FakeShoppingDealReader();
+        deals.RegisterDeal(_productId, new ShoppingActiveDeal(_productId, dealId, storeId, "FreshCo"));
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, dealReader: deals);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.True(item.HasDeal);
+        Assert.Equal("FreshCo", item.DealStoreName);
+        Assert.Equal(dealId, item.DealId);
+    }
+
+    [Fact(DisplayName = "GetList — product with no active deal: HasDeal false, deal fields null")]
+    public async Task GetList_ProductWithNoActiveDeal_NoBadge()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Milk", "Dairy"));
+
+        // Deal reader returns nothing — no active deal in the window (or window lapsed).
+        var deals = new FakeShoppingDealReader();
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, dealReader: deals);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.False(item.HasDeal);
+        Assert.Null(item.DealStoreName);
+        Assert.Null(item.DealId);
+    }
+
+    [Fact(DisplayName = "GetList — active deal with unresolved store: HasDeal true, DealStoreName null (storeless badge)")]
+    public async Task GetList_ActiveDealNoStore_HasDealButNullStoreName()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Milk", "Dairy"));
+
+        var dealId = Guid.CreateVersion7();
+        var deals = new FakeShoppingDealReader();
+        // storeId null / name unresolved → badge falls back to "On sale this week".
+        deals.RegisterDeal(_productId, new ShoppingActiveDeal(_productId, dealId, StoreId: null, StoreName: null));
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, dealReader: deals);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.True(item.HasDeal);
+        Assert.Null(item.DealStoreName);
+        Assert.Equal(dealId, item.DealId);
+    }
+
+    [Fact(DisplayName = "GetList — free-text item: no deal lookup, HasDeal false")]
+    public async Task GetList_FreeTextItem_NoDeal()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        var deals = new FakeShoppingDealReader();
+
+        SeedListWithFreeTextItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, dealReader: deals);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.UncategorizedItems);
+        Assert.False(item.HasDeal);
+    }
+
+    [Fact(DisplayName = "GetList — deal reader is evaluated against the clock's today (window activation/lapse)")]
+    public async Task GetList_DealReader_ReceivesClockToday()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Milk", "Dairy"));
+
+        var deals = new FakeShoppingDealReader();
+        var fixedInstant = new DateTimeOffset(2026, 7, 4, 9, 30, 0, TimeSpan.Zero);
+        var clock = new FixedClock(fixedInstant);
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, dealReader: deals, clock: clock);
+        await svc.GetListAsync();
+
+        // The query service must pass the clock's UTC date so a deal appears/lapses with its window.
+        Assert.Equal(new DateOnly(2026, 7, 4), deals.LastToday);
+    }
+}
+
+/// <summary>Deterministic <see cref="IClock"/> for asserting "today" derivation in the read model.</summary>
+internal sealed class FixedClock(DateTimeOffset utcNow) : IClock
+{
+    public DateTimeOffset UtcNow { get; } = utcNow;
 }
 
 /// <summary>
