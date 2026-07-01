@@ -10,10 +10,12 @@ namespace Plantry.Web.Pages.Shared;
 /// <list type="bullet">
 ///   <item>
 ///     <description>
-///       <b>Search view (default)</b> — an htmx-driven searchable-select that dispatches a
-///       <c>pick-product</c> CustomEvent on selection carrying <c>{ value, name, track }</c>.
-///       A persistent "+ Create a new product…" affordance appears at the bottom of the listbox
-///       and navigates to the create view in-place (<c>sheetView = 'create'</c>).
+///       <b>Search view (default)</b> — the ONE shared fuzzy-ranked search + create component
+///       (plantry-gzro, <c>&lt;searchable-select allow-create="true"&gt;</c>). Search results
+///       dispatch a <c>pick-product</c> CustomEvent on selection carrying
+///       <c>{ value, name, track }</c>; a divider + demoted/full-strength "+ Create ..." button
+///       below the listbox dispatches <c>product-search-create</c> and navigates to the create
+///       view in-place (<c>sheetView = 'create'</c>).
 ///     </description>
 ///   </item>
 ///   <item>
@@ -43,6 +45,13 @@ namespace Plantry.Web.Pages.Shared;
 ///       <c>@@sheet-product-set.window</c>.
 ///     </description>
 ///   </item>
+///   <item>
+///     <description>
+///       <c>product-search-create</c> — dispatched by the search component's create button.
+///       Detail: <c>{ query: string }</c>. The partial catches this on the <c>.sheet</c> element and
+///       sets <c>sheetView = 'create'</c>, seeding <c>draft.newStapleName</c> from the query.
+///     </description>
+///   </item>
 /// </list>
 ///
 /// <para><b>TrackStock</b> controls whether the quantity + unit fields are rendered inside the sheet.
@@ -61,9 +70,9 @@ namespace Plantry.Web.Pages.Shared;
 /// It is a Recipes-specific concept (ingredient sections) and is irrelevant for Take Stock.
 /// Defaults to <c>true</c> (Recipes). Take Stock passes <c>false</c>.</para>
 ///
-/// <para><b>CreateLabel</b> overrides the label of the inline create button
-/// (the one that switches from search mode to new-product mode).
-/// Defaults to "Create as staple (untracked)" (Recipes). Take Stock passes "Create new product"
+/// <para><b>CreateLabel</b> is the trailing phrase in the search component's create button, e.g.
+/// "+ Create "chicken" {CreateLabel}" (the button that switches from search mode to new-product
+/// mode). Defaults to "as a new staple" (Recipes). Take Stock passes "as a new product"
 /// because the button actually creates a tracked product in that context.</para>
 ///
 /// <para><b>StapleNamePlaceholder</b> overrides the placeholder text in the staple-name input shown
@@ -123,12 +132,12 @@ public sealed class ProductSearchCreateSheetViewModel
     public bool ShowGroupHeading { get; init; } = true;
 
     /// <summary>
-    /// Label text for the persistent create affordance at the bottom of the search listbox
-    /// (the entry that navigates to the create view in-place via <c>sheetView = 'create'</c>).
-    /// Defaults to "Create as staple (untracked)" (Recipes behaviour).
-    /// Take Stock passes "Create new product" because the action creates a tracked product.
+    /// Trailing phrase in the search component's create button below the listbox, e.g.
+    /// "+ Create "chicken" {CreateLabel}" (the button that navigates to the create view in-place
+    /// via <c>sheetView = 'create'</c>). Defaults to "as a new staple" (Recipes behaviour).
+    /// Take Stock passes "as a new product" because the action creates a tracked product.
     /// </summary>
-    public string CreateLabel { get; init; } = "Create as staple (untracked)";
+    public string CreateLabel { get; init; } = "as a new staple";
 
     /// <summary>
     /// Placeholder text for the name input in the create view.

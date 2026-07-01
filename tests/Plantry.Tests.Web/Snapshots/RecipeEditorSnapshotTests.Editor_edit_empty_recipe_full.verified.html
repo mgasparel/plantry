@@ -302,7 +302,7 @@
 				</div>
 			</div>
 		</div>
-		<div class="sheet" x-show="sheetOpen" x-cloak="" role="dialog" aria-modal="true" :aria-label="editingIdx === null ? 'Add ingredient' : 'Edit ingredient'" @pick-product="selectProduct(draft, $event.detail)" @keydown.escape="closeSheet()">
+		<div class="sheet" x-show="sheetOpen" x-cloak="" role="dialog" aria-modal="true" :aria-label="editingIdx === null ? 'Add ingredient' : 'Edit ingredient'" @pick-product="selectProduct(draft, $event.detail)" @product-search-create="sheetView = 'create'; draft.newStapleName = $event.detail.query" @keydown.escape="closeSheet()">
 			<div class="sheet__overlay" @click="closeSheet()"></div>
 			<div class="sheet__panel">
 				<header class="sheet__header">
@@ -320,14 +320,14 @@
 						<div class="form-grid__field form-grid__field--full">
 							<label class="form-grid__field__label">Product</label>
 							<div class="form-grid__field__control">
-								<div class="searchable-select" x-data="searchableSelect()" :data-initial-label="draft.productName" @sheet-product-set.window="query = $event.detail; open = false; highlighted = -1" @htmx:after-swap="open = ($event.target.children.length > 0)" @click.outside="open = false" @keydown.escape.stop="open = false">
-									<input type="text" class="field__input" role="combobox" autocomplete="off" placeholder="Search products…" x-model="query" :aria-expanded="open" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="(function(){ const li = $refs.listbox &amp;&amp; ($refs.listbox.querySelector('[aria-selected=true]') || $refs.listbox.querySelector('li')); if (li) li.click(); })()" name="q" id="prod-search-sheet" hx-get="/Recipes/New?handler=SearchProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#prod-list-sheet" hx-swap="innerHTML" hx-params="q">
-									<ul class="searchable-select__listbox" id="prod-list-sheet" role="listbox" x-ref="listbox" x-show="open" x-cloak="" style="display:none">
-									</ul>
-								</div>
-								<div style="margin-top:var(--space-2)">
-									<button type="button" class="btn btn--ghost btn--sm" @click="sheetView = 'create'; draft.newStapleName = draft.newStapleName ?? ''">
-										+ Create new product
+								<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" data-create-label="as a new product" @click.outside="open = false" @keydown.escape="open = false" @sheet-product-set.window="query = $event.detail; open = false; highlighted = -1">
+									<div class="searchable-select__control">
+										<input type="text" class="field__input" role="combobox" aria-controls="prod-search-sheet-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Search products…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Recipes/New?handler=SearchProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#prod-search-sheet-listbox" hx-swap="innerHTML" hx-params="q">
+									</div>
+									<ul class="searchable-select__listbox" id="prod-search-sheet-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="" style="display: none" @htmx:after-swap="hasMatches = $event.target.children.length > 0"></ul>
+									<hr class="searchable-select__create-divider" x-show="open &amp;&amp; query.trim().length > 0" x-cloak="">
+									<button type="button" class="btn btn--ghost btn--sm" :class="{ 'btn--demoted': hasMatches }" x-show="open &amp;&amp; query.trim().length > 0" x-cloak="" @click="$dispatch('product-search-create', { query: query })">
+										<span x-text="'+ Create “' + query + '” ' + createLabel"></span>
 									</button>
 								</div>
 							</div>
