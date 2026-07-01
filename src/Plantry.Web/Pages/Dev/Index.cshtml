@@ -972,6 +972,9 @@
         <li><code>pick-product</code> — dispatched outbound from each search result <code>&lt;li&gt;</code> on click.
             <code>detail: &#123; value: ProductId, name, track: "true"|"false" &#125;</code>.
             The host catches it on the sheet element via <code>@@pick-product="selectProduct(draft, $event.detail)"</code>.</li>
+        <li><code>product-search-create</code> — dispatched outbound by the search component's create button
+            (plantry-gzro). <code>detail: &#123; query: string &#125;</code>. The sheet catches it on the sheet
+            element and sets <code>sheetView = 'create'</code>, seeding <code>draft.newStapleName</code> from the query.</li>
     </ul>
     <p>
         <strong>Parameters (<code>ProductSearchCreateSheetViewModel</code>):</strong>
@@ -984,7 +987,7 @@
         <li><code>ExtraFieldsPartial</code> — optional partial name rendered between the product picker and action bar (e.g. Take Stock count + location fields for P4-7).</li>
         <li><code>Noun</code> — noun used in the sheet header and aria-label: "Add {Noun}" / "Edit {Noun}". Default: <code>"ingredient"</code> (Recipes). Pass <code>"item"</code> for Take Stock.</li>
         <li><code>ShowGroupHeading</code> — when false, hides the "Group (optional)" field (a Recipes-only concept). Default: <code>true</code>. Take Stock passes <code>false</code>.</li>
-        <li><code>CreateLabel</code> — label for the inline create button. Default: <code>"Create as staple (untracked)"</code>. Take Stock passes <code>"Create new product"</code> (the action is actually tracked there).</li>
+        <li><code>CreateLabel</code> — trailing phrase in the search component's create button, e.g. <code>+ Create "chicken" {CreateLabel}</code>. Default: <code>"as a new staple"</code>. Take Stock passes <code>"as a new product"</code> (the action is actually tracked there).</li>
         <li><code>StapleNamePlaceholder</code> — placeholder for the name input in create mode. Default: <code>"Staple name (e.g. Salt)"</code>. Pass neutral wording for non-Recipes contexts.</li>
     </ul>
 
@@ -1041,7 +1044,7 @@ new ProductSearchCreateSheetViewModel
     ExtraFieldsPartial    = null,                           // or ""TakeStock/_CountLocationFields""
     Noun                  = ""ingredient"",                  // 'Add {Noun}' / 'Edit {Noun}' in title
     ShowGroupHeading      = true,                           // false hides the Recipes-only Group field
-    CreateLabel           = ""Create as staple (untracked)"",// label for the inline-create button
+    CreateLabel           = ""as a new staple"",              // trailing phrase: '+ Create ""x"" {CreateLabel}'
     StapleNamePlaceholder = ""Staple name (e.g. Salt)"",     // placeholder in create-mode name input
 }
 

@@ -25,16 +25,19 @@ public sealed class SearchableSelectTagHelperTests
     /// dereferenced on the bound (<c>For</c> set) path, so the unbound-mode tests here don't need
     /// to construct them.
     /// </summary>
-    private static string Render(SearchableSelectTagHelper helper)
+    private static string Render(SearchableSelectTagHelper helper, TagHelperAttributeList? unrecognizedAttributes = null)
     {
         var context = new TagHelperContext(
             allAttributes: new TagHelperAttributeList(),
             items: new Dictionary<object, object>(),
             uniqueId: "test");
 
+        // Attributes remaining in output.Attributes simulate what the Razor-generated page class
+        // passes through after stripping attributes bound to a recognized property (asp-for, items,
+        // search-url, ...) — see SearchableSelectTagHelper.Process()'s pass-through loop.
         var output = new TagHelperOutput(
             "searchable-select",
-            attributes: new TagHelperAttributeList(),
+            attributes: unrecognizedAttributes ?? new TagHelperAttributeList(),
             getChildContentAsync: (_, _) => Task.FromResult<TagHelperContent>(new DefaultTagHelperContent()));
 
         helper.Process(context, output);
@@ -133,5 +136,35 @@ public sealed class SearchableSelectTagHelperTests
         var root = doc.QuerySelector("div.searchable-select");
 
         Assert.Equal("as a \"new\" product", root!.GetAttribute("data-create-label"));
+    }
+
+    [Fact(DisplayName = "Unbound mode with explicit Id derives the listbox id from it instead of a random guid (plantry-gzro.2)")]
+    public void UnboundWithId_DerivesListboxIdFromExplicitId()
+    {
+        var helper = new SearchableSelectTagHelper(htmlGenerator: null!) { Id = "prod-search-sheet" };
+
+        var doc = Parser.ParseDocument(Render(helper));
+        var input = doc.QuerySelector("input[role=combobox]");
+        var listbox = doc.QuerySelector("ul.searchable-select__listbox");
+
+        Assert.Equal("prod-search-sheet-listbox", listbox!.GetAttribute("id"));
+        Assert.Equal("prod-search-sheet-listbox", input!.GetAttribute("aria-controls"));
+    }
+
+    [Fact(DisplayName = "Unrecognized attributes on <searchable-select> pass through onto the rendered wrapper div (plantry-gzro.2)")]
+    public void UnrecognizedAttribute_PassesThroughOntoWrapperDiv()
+    {
+        var helper = new SearchableSelectTagHelper(htmlGenerator: null!);
+        var passthrough = new TagHelperAttributeList
+        {
+            new TagHelperAttribute("@sheet-product-set.window", "query = $event.detail; open = false; highlighted = -1"),
+        };
+
+        var doc = Parser.ParseDocument(Render(helper, passthrough));
+        var root = doc.QuerySelector("div.searchable-select");
+
+        Assert.Equal(
+            "query = $event.detail; open = false; highlighted = -1",
+            root!.GetAttribute("@sheet-product-set.window"));
     }
 }

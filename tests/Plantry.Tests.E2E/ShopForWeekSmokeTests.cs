@@ -88,7 +88,7 @@ public sealed class ShopForWeekSmokeTests(AppHostFixture appHost) : IAsyncLifeti
             var ingSheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(ingSheet).ToBeVisibleAsync();
             await ingSheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName[..8]);
-            var ingOption = page.Locator("#prod-list-sheet li[role='option']", new() { HasText = productName });
+            var ingOption = ingSheet.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
             await Assertions.Expect(ingOption).ToBeVisibleAsync();
             await ingOption.ClickAsync();
             await ingSheet.Locator("input[type='number']").FillAsync("100");

@@ -81,6 +81,16 @@ public sealed class SearchableSelectTagHelper(IHtmlGenerator htmlGenerator) : Ta
     /// </summary>
     public string CreateLabel { get; set; } = "as a new product";
 
+    /// <summary>
+    /// Optional explicit id for the unbound-mode combobox (plantry-gzro.2). When set, it replaces the
+    /// randomly-generated <c>ss-&lt;guid&gt;</c> fallback as the base id the listbox id is derived from.
+    /// Only meaningful when <see cref="For"/> is omitted — bound mode already derives a deterministic
+    /// id from the field name. Hosts that render this component once per page inside markup covered by
+    /// approval/snapshot tests (e.g. <c>_ProductSearchCreateSheet</c>) should set this so the emitted
+    /// ids are stable across renders instead of a fresh GUID every time.
+    /// </summary>
+    public string? Id { get; set; }
+
     public override void Process(TagHelperContext context, TagHelperOutput output)
     {
         var enc = HtmlEncoder.Default;
@@ -89,7 +99,7 @@ public sealed class SearchableSelectTagHelper(IHtmlGenerator htmlGenerator) : Ta
         var fullName = hasFor ? ViewContext.ViewData.TemplateInfo.GetFullHtmlFieldName(For!.Name) : "";
         var hiddenId = hasFor
             ? TagBuilder.CreateSanitizedId(fullName, htmlGenerator.IdAttributeDotReplacement)
-            : "ss-" + Guid.NewGuid().ToString("N");
+            : Id ?? "ss-" + Guid.NewGuid().ToString("N");
         var listboxId = $"{hiddenId}-listbox";
 
         var selected = Items.FirstOrDefault(i => i.Selected);
@@ -100,7 +110,17 @@ public sealed class SearchableSelectTagHelper(IHtmlGenerator htmlGenerator) : Ta
         // `query` is seeded from data-initial-label by searchableSelect().init() (searchable-select.js),
         // so the x-data only needs to name the component. data-create-label similarly seeds the
         // Alpine `createLabel` field used by the AllowCreate button's x-text below.
-        html.Append($"""<div class="searchable-select" x-data="searchableSelect()" data-initial-label="{enc.Encode(initialLabel)}" data-create-label="{enc.Encode(CreateLabel)}" @click.outside="open = false" @keydown.escape="open = false">""");
+        html.Append($"""<div class="searchable-select" x-data="searchableSelect()" data-initial-label="{enc.Encode(initialLabel)}" data-create-label="{enc.Encode(CreateLabel)}" @click.outside="open = false" @keydown.escape="open = false" """);
+        // Pass through any attributes the host wrote on <searchable-select> that don't map to a bound
+        // property above (e.g. an Alpine `@sheet-product-set.window` listener that must live on this
+        // same x-data scope to reach its `query`/`open`/`highlighted` fields — plantry-gzro.2). The
+        // framework has already stripped recognized attributes (asp-for, items, search-url, ...) from
+        // output.Attributes by this point, so only genuinely unrecognized ones remain.
+        foreach (var attribute in output.Attributes)
+        {
+            html.Append(attribute.Name).Append("=\"").Append(enc.Encode(attribute.Value?.ToString() ?? "")).Append("\" ");
+        }
+        html.Append('>');
         if (hasFor)
         {
             html.Append($"""<input type="hidden" name="{enc.Encode(fullName)}" id="{hiddenId}" value="{enc.Encode(initialValue)}" x-ref="hidden" />""");

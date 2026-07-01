@@ -84,10 +84,15 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             var sheet = page.Locator(".sheet:has(.sheet__title:text-is('Add item')) .sheet__panel");
             await Assertions.Expect(sheet).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
 
-            // ── Switch to "Create new product" create view (plantry-nb4x in-place view swap) ──
-            // The persistent "+ Create new product" affordance navigates the same panel to the
-            // create view (sheetView = 'create') — no new scrim or modal opens.
-            var createStapleBtn = sheet.Locator("button:has-text('+ Create new product')");
+            // ── Switch to the create view (plantry-nb4x in-place view swap) ──
+            // The shared search + create component's "+ Create ... as a new product" button
+            // (plantry-gzro) only appears once the user has typed a query, so type first — then
+            // click it to navigate the same panel to the create view (sheetView = 'create') — no
+            // new scrim or modal opens.
+            var searchInputForCreate = sheet.Locator("input[role='combobox']");
+            await searchInputForCreate.ClickAsync();
+            await searchInputForCreate.PressSequentiallyAsync(productName.Substring(0, 8), new() { Delay = 50 });
+            var createStapleBtn = sheet.Locator("button:has-text('as a new product')");
             await Assertions.Expect(createStapleBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
             await createStapleBtn.ClickAsync();
 
@@ -143,12 +148,12 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // Search for the product that was just created — hits the real catalog.
             // Use PressSequentiallyAsync to fire keydown/keypress/keyup events for each character
             // so that htmx's "keyup changed" trigger fires reliably.
-            var searchInput = page.Locator("#prod-search-sheet");
+            var searchInput = sheet.Locator("input[role='combobox']");
             await searchInput.ClickAsync();
             await searchInput.PressSequentiallyAsync(productName, new() { Delay = 50 });
 
             // Wait for the htmx search to populate the listbox (250ms debounce + server round-trip).
-            var searchResult = page.Locator("#prod-list-sheet li[role='option']", new() { HasText = productName });
+            var searchResult = sheet.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
             await Assertions.Expect(searchResult).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
 
             // Select the existing product from search results — exercises Path A (selectProduct).
