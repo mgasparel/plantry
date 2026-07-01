@@ -5,13 +5,15 @@ namespace Plantry.MealPlanning.Application;
 /// Reuses the same minimal contract as <c>Plantry.Recipes.Application.IPriceReader</c> but is
 /// owned by MealPlanning.Application to keep MealPlanning free of Recipes dependencies (DM-3).
 /// Implemented in Plantry.Web over the same <c>PricingQueries</c> adapter.
-/// Deal-blind in Phase 3 (C7) — only purchase-price history is used.
+/// Deal-aware (P5-9b, DJ6): the Web adapter reads Pricing's effective-price read model — the cheapest
+/// active in-window deal when one exists, else the latest purchase — so cost/weighting reflect live
+/// sales without MealPlanning ever depending on Deals (ADR-010).
 /// </summary>
 public interface IMealPlanPriceReader
 {
     /// <summary>
-    /// Returns the latest price observation for a product, or null when no price has been recorded.
-    /// The price covers <see cref="MealPlanPricePoint.Quantity"/> units.
+    /// Returns the effective (deal-aware) price observation for a product, or null when no price has
+    /// been recorded. The price covers <see cref="MealPlanPricePoint.Quantity"/> units.
     /// </summary>
     Task<MealPlanPricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default);
 }
