@@ -117,6 +117,148 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(1.80m, latest.Price);
     }
 
+    [Fact(DisplayName = "Deal observation round-trips validity window + store_id through EF")]
+    public async Task Deal_Observation_RoundTrips_Window_And_Store()
+    {
+        var storeId = Guid.CreateVersion7();
+        var from = new DateOnly(2026, 7, 1);
+        var to = new DateOnly(2026, 7, 7);
+
+        await using (var ctx = NewPricingDb())
+        {
+            var obs = PriceObservation.Record(
+                _household, _productId, null, 2.50m, 1m, _unitId, 2.50m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: from, validTo: to, storeId: storeId);
+            await ctx.PriceObservations.AddAsync(obs);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var loaded = await ctx2.PriceObservations.SingleAsync(p => p.ProductId == _productId);
+
+        Assert.Equal(PriceSource.Deal, loaded.Source);
+        Assert.Equal(from, loaded.ValidFrom);
+        Assert.Equal(to, loaded.ValidTo);
+        Assert.Equal(storeId, loaded.StoreId);
+    }
+
+    [Fact(DisplayName = "CheapestActiveDeal returns MIN(unit_price) among in-window deals against the supplied clock")]
+    public async Task CheapestActiveDeal_Returns_Min_UnitPrice_In_Window()
+    {
+        var today = new DateOnly(2026, 7, 4);
+
+        await using (var ctx = NewPricingDb())
+        {
+            // Active, cheapest.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 2m, 1m, _unitId, 2m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            // Active, dearer.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 2), validTo: new(2026, 7, 6)));
+            // Cheaper but expired — must be excluded.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 1m, 1m, _unitId, 1m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 6, 1), validTo: new(2026, 6, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var cheapest = await repo.CheapestActiveDealForProductAsync(_productId, today);
+
+        Assert.NotNull(cheapest);
+        Assert.Equal(2m, cheapest.UnitPrice);
+    }
+
+    [Fact(DisplayName = "CheapestActiveDeal returns null when no deal is active for the supplied clock")]
+    public async Task CheapestActiveDeal_Returns_Null_When_None_Active()
+    {
+        var today = new DateOnly(2026, 7, 4);
+
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 1m, 1m, _unitId, 1m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 6, 1), validTo: new(2026, 6, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        Assert.Null(await repo.CheapestActiveDealForProductAsync(_productId, today));
+    }
+
+    [Fact(DisplayName = "LatestForProduct is source-filtered — a deal row never contaminates a purchase-cost query")]
+    public async Task LatestForProduct_Excludes_Deal_Rows()
+    {
+        await using (var ctx = NewPricingDb())
+        {
+            // Older purchase.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-2), _userId));
+            // Newer DEAL row — would win a naive "latest" query, must be excluded.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 2m, 1m, _unitId, 2m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var latest = await repo.LatestForProductAsync(_productId);
+
+        Assert.NotNull(latest);
+        Assert.Equal(PriceSource.Purchase, latest.Source);
+        Assert.Equal(4m, latest.Price);
+    }
+
+    [Fact(DisplayName = "LatestForSku is source-filtered — a deal row never contaminates a purchase-cost query")]
+    public async Task LatestForSku_Excludes_Deal_Rows()
+    {
+        var skuId = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, skuId, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-2), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, skuId, 2m, 1m, _unitId, 2m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var latest = await repo.LatestForSkuAsync(skuId);
+
+        Assert.NotNull(latest);
+        Assert.Equal(PriceSource.Purchase, latest.Source);
+        Assert.Equal(4m, latest.Price);
+    }
+
+    [Fact(DisplayName = "Check constraint rejects an inverted deal validity window (valid_from > valid_to)")]
+    public async Task Inverted_Validity_Window_Is_Rejected_By_Check_Constraint()
+    {
+        await using var ctx = NewPricingDb();
+        await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+            _household, _productId, null, 2m, 1m, _unitId, 2m,
+            PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+            validFrom: new(2026, 7, 7), validTo: new(2026, 7, 1)));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => ctx.SaveChangesAsync());
+    }
+
     [Fact(DisplayName = "RLS: household B cannot read household A's price observations")]
     public async Task RLS_Household_B_Cannot_Read_Household_A_Observations()
     {
