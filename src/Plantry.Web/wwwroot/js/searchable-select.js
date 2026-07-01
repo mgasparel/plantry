@@ -2,6 +2,11 @@
 // Alpine owns the popover/keyboard interaction; htmx swaps the option list as the user types
 // (see hx-get on the search input). Selecting an option writes the value into the hidden input
 // that actually gets posted with the form, and a `change` event so any other listeners observe it.
+//
+// hasMatches / createLabel back the AllowCreate mode (plantry-gzro.1, the shared fuzzy-ranked
+// search + demoted create-button component): hasMatches tracks whether the last htmx swap of the
+// listbox produced any options (drives the create button's btn--demoted class), and createLabel
+// is seeded from data-create-label for the button's x-text.
 document.addEventListener('alpine:init', function () {
     'use strict';
 
@@ -10,14 +15,23 @@ document.addEventListener('alpine:init', function () {
             open: false,
             highlighted: -1,
             query: '',
+            hasMatches: false,
+            createLabel: '',
 
             init() {
                 this.query = this.$el.dataset.initialLabel ?? '';
+                this.createLabel = this.$el.dataset.createLabel ?? '';
             },
 
             select(value, label) {
-                this.$refs.hidden.value = value;
-                this.$refs.hidden.dispatchEvent(new Event('change', { bubbles: true }));
+                // $refs.hidden only exists in the bound (asp-for) mode. Unbound hosts (e.g.
+                // Recipes/TakeStock's per-item enrichment) render their own @click handlers that
+                // read data-* attributes and dispatch their own event instead of calling select()
+                // at all — guarded here so select() stays safe to call from either mode.
+                if (this.$refs.hidden) {
+                    this.$refs.hidden.value = value;
+                    this.$refs.hidden.dispatchEvent(new Event('change', { bubbles: true }));
+                }
                 this.query = label;
                 this.open = false;
                 this.highlighted = -1;
@@ -44,14 +58,15 @@ document.addEventListener('alpine:init', function () {
             },
 
             chooseHighlighted() {
+                // Delegates to the option's own @click handler (via a real DOM click) rather than
+                // calling select() directly — every host, bound or unbound, already puts the
+                // correct pick logic on each <li>'s @click (select() for bound hosts like Shopping,
+                // a custom pick-product dispatch for unbound hosts like Recipes/TakeStock), so
+                // Enter-to-choose stays correct under both without special-casing here.
                 var opts = this.options();
                 var opt = opts[this.highlighted] || opts[0];
                 if (opt) {
-                    // Resolve label the same way the @click handler does: prefer [data-label]
-                    // so enriched options (e.g. with an .ostock stock-hint child span) do not
-                    // concatenate the extra text into the combobox input.
-                    var label = (opt.querySelector('[data-label]') || {}).dataset?.label ?? opt.textContent.trim();
-                    this.select(opt.getAttribute('data-value'), label);
+                    opt.click();
                 }
             }
         };

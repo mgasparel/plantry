@@ -223,6 +223,46 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Fuzzy search + create (<code>searchable-select</code> with <code>allow-create</code>)</h2>
+    </div>
+    <p>
+        The ONE shared product-search component (plantry-gzro) — the same <code>&lt;searchable-select&gt;</code>
+        tag helper above, ranked by <code>ProductNameMatcher</code> (same <code>best</code>/<code>N%</code>
+        <code>.rk</code> vocabulary as Intake's AlternativesStrip and the "Match suggest" demo above) with
+        <code>allow-create="true"</code>. A divider + "+ Create&nbsp;…" button render directly below the
+        listbox: <strong>demoted</strong> (dimmed <code>btn--ghost btn--demoted</code>) while the listbox has
+        matches, <strong>full-strength</strong> when it doesn't — matching
+        <code>docs/Engineering/prototypes/fuzzy-match-suggestion-widget.html</code> Option A. Try "tomatos"
+        or "yoghurt" — the ranker equates plurals/typos to the seeded grocery names.
+    </p>
+    <p>
+        <code>asp-for</code> is optional on this tag helper — omit it for the unbound event-dispatch
+        pattern (Recipes/TakeStock's <code>pick-product</code> contract), as shown here bound to a demo field
+        so picking / creating is visible below. <code>allow-create</code> defaults to <code>false</code> — the
+        plain listbox above (Shopping's mode: fuzzy ranking, no create option) is the same component with
+        the parameter simply omitted.
+    </p>
+
+    <div x-data="{ created: '' }" @@product-search-create="created = $event.detail.query" style="max-width: 28rem">
+        <form method="post" class="form-stack">
+            <field asp-for="SearchableSelectDemo.FuzzyItem">
+                <searchable-select asp-for="SearchableSelectDemo.FuzzyItem"
+                                   search-url="/Dev?handler=FuzzySearchGroceries"
+                                   allow-create="true"
+                                   create-label="as a new grocery item"
+                                   placeholder="Search groceries…" />
+            </field>
+        </form>
+        <p x-show="created" x-cloak class="alert alert--info" style="margin-top: var(--space-2)">
+            Would create "<span x-text="created"></span>" as a new grocery item — nothing commits in this demo.
+        </p>
+    </div>
+
+    <pre class="code-sample"><code>@("<searchable-select asp-for=\"Input.Item\"\n                   search-url=\"/Dev?handler=FuzzySearchGroceries\"\n                   allow-create=\"true\"\n                   create-label=\"as a new grocery item\"\n                   placeholder=\"Search groceries…\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Segmented control</h2>
     </div>
     <p>

@@ -4,6 +4,7 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Plantry.SharedKernel;
 using Plantry.Web.Pages.Shared;
 using Plantry.Web.TagHelpers;
 
@@ -113,6 +114,11 @@ public sealed class IndexModel : PageModel
     {
         [Display(Name = "Grocery item")]
         public string? Item { get; set; }
+
+        /// <summary>Backs the fuzzy-ranked + create demo (plantry-gzro.1) — a separate field so the
+        /// two <searchable-select> demos on this page don't collide over the same posted value.</summary>
+        [Display(Name = "Grocery item (fuzzy + create)")]
+        public string? FuzzyItem { get; set; }
     }
 
     public void OnGet()
@@ -185,6 +191,30 @@ public sealed class IndexModel : PageModel
 
         var html = new StringBuilder();
         SearchableSelectTagHelper.AppendOptions(html, matches, HtmlEncoder.Default);
+        return Content(html.ToString(), "text/html");
+    }
+
+    /// <summary>
+    /// Backs the fuzzy-search + create demo's hx-get (plantry-gzro.1) — ranks the same demo grocery
+    /// list with <see cref="ProductNameMatcher"/> (the deterministic ranker Recipes/TakeStock's real
+    /// search handlers use) and returns replacement &lt;li&gt; option markup carrying a <c>.rk</c>
+    /// best/N% label, mirroring Recipes' <c>OnGetSearchProductsAsync</c> rendering convention.
+    /// </summary>
+    public ContentResult OnGetFuzzySearchGroceries(string? q)
+    {
+        if (string.IsNullOrWhiteSpace(q))
+            return Content("", "text/html");
+
+        var enc = HtmlEncoder.Default;
+        var ranked = ProductNameMatcher.Rank(GroceryItems, name => name, q.Trim());
+
+        var html = new StringBuilder();
+        for (var i = 0; i < ranked.Count; i++)
+        {
+            var r = ranked[i];
+            var label = ProductNameMatcher.RankLabel(r.Score, isTopHit: i == 0);
+            html.Append($"""<li role="option" data-value="{enc.Encode(r.Name)}" @click="select($el.dataset.value, $el.querySelector('[data-label]')?.dataset.label ?? $el.textContent.trim())"><span data-label="{enc.Encode(r.Name)}">{enc.Encode(r.Name)}</span><span class="rk">{enc.Encode(label)}</span></li>""");
+        }
         return Content(html.ToString(), "text/html");
     }
 }
