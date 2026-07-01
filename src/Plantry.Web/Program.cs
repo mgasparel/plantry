@@ -298,6 +298,11 @@ builder.Services.AddScoped<RejectDeal>();
 // the batch Catalog/store ports (no N+1).
 builder.Services.AddScoped<BrowseDeals>();
 
+// Deals — P5-8 review queue (DJ4). ReviewDeals is the review-form read side (pending queue + single-deal
+// correction lookup); the verbs reuse P5-5's ConfirmDeal/RejectDeal registered above. Inline product
+// create in the review page runs over Catalog's CreateProductCommand (Web composition root).
+builder.Services.AddScoped<ReviewDeals>();
+
 // Deals — P5-6 IngestFlyer worker (DJ2). IngestFlyer is the per-household unit of work (pull → dedup →
 // normalize → match → materialize → auto-confirm); IFlyerImportRepository is the new dedup/provenance
 // repo. FlyerIngestionCycle reproduces RlsMiddleware's tenancy arming with no HTTP request — cross-tenant

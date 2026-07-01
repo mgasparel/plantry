@@ -6014,3 +6014,42 @@ button.sadd svg { width: 13px; height: 13px; }
 .deal-pending__lead { font-weight: 600; margin-top: var(--space-2); }
 .deal-pending__sub { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: var(--space-1) 0 0; }
 .deal-pending__body > .btn { margin-left: auto; }
+.deal-row__correct {
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  text-decoration: none;
+  margin-top: var(--space-1);
+}
+.deal-row__correct:hover { text-decoration: underline; }
+
+/* ── Deal review queue (P5-8 / DJ4) — one card per pending/correctable deal ─── */
+.deal-review-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+.deal-review-row__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.deal-review-row__raw { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.deal-review-row__brand {
+  margin-left: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.deal-review-row__price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.deal-review-row__suggest { margin: 0; }
+.deal-review-row__reasoning { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.deal-review-row__unrecognized {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  padding: var(--space-2) 0;
+}
+.deal-review-row__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.deal-review-row__reject { margin-left: auto; }
