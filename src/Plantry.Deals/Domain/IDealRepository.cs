@@ -10,7 +10,21 @@ public interface IDealRepository
 {
     Task<Deal?> FindAsync(DealId id, CancellationToken ct = default);
 
+    /// <summary>
+    /// All deals materialized from a given <see cref="FlyerImport"/> (the P5-6 re-pull path, DD13). The
+    /// worker partitions these into still-<see cref="DealStatus.Pending"/> deals (refreshed on a changed
+    /// re-pull) and resolved <see cref="DealStatus.Confirmed"/>/<see cref="DealStatus.Rejected"/> deals
+    /// (frozen — never overwritten). RLS-scoped, so it never crosses households.
+    /// </summary>
+    Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default);
+
     Task AddAsync(Deal deal, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes a deal. Used only by the re-pull refresh (DD13) to drop a superseded still-Pending deal
+    /// before re-staging the flyer's current items; a resolved deal is never removed (it is frozen).
+    /// </summary>
+    void Remove(Deal deal);
 
     Task SaveChangesAsync(CancellationToken ct = default);
 }

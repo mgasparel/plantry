@@ -293,6 +293,19 @@ builder.Services.AddScoped<Plantry.Deals.Application.ICatalogProductReader, Deal
 builder.Services.AddScoped<ConfirmDeal>();
 builder.Services.AddScoped<RejectDeal>();
 
+// Deals — P5-6 IngestFlyer worker (DJ2). IngestFlyer is the per-household unit of work (pull → dedup →
+// normalize → match → materialize → auto-confirm); IFlyerImportRepository is the new dedup/provenance
+// repo. FlyerIngestionCycle reproduces RlsMiddleware's tenancy arming with no HTTP request — cross-tenant
+// household enumeration, then a fresh armed scope per household. FlyerIngestionWorker is the app's first
+// BackgroundService, driving the cycle daily (locked cadence). See Deals/FlyerIngestion*.cs.
+builder.Services.AddScoped<IFlyerImportRepository, FlyerImportRepository>();
+builder.Services.AddScoped<IngestFlyer>();
+builder.Services.Configure<FlyerIngestionOptions>(builder.Configuration.GetSection(FlyerIngestionOptions.SectionName));
+// Singleton: it owns no per-request state and opens a fresh DI scope per household itself, so it is safe
+// to inject into the singleton hosted worker (a scoped registration would fault at root resolution).
+builder.Services.AddSingleton<FlyerIngestionCycle>();
+builder.Services.AddHostedService<FlyerIngestionWorker>();
+
 // IFlyerSource is the untrusted Flipp seam (D1). Production wires the real Flipp adapter (P5-3): a typed
 // HttpClient (base URL + locale + browser UA from the Deals:Flipp config; standard resilience — timeout +
 // retry — applied to every HttpClient by ServiceDefaults) mapping raw Flipp payloads to RawDeal/DirectoryMerchant.
@@ -541,6 +554,14 @@ if (app.Environment.IsDevelopment())
     app.MapPost("/Dev/Reset", async (FakeDataSeeder seeder, CancellationToken ct) =>
     {
         await seeder.ResetAndSeedAsync(ct);
+        return Results.Ok();
+    });
+
+    // Deals §7e "pull now": drive one full flyer-ingestion sweep on demand instead of waiting for the
+    // daily timer (P5-6). Dev-only (gated by DevPagesGateMiddleware); the sweep arms tenancy per household.
+    app.MapPost("/Dev/Deals/PullNow", async (FlyerIngestionCycle cycle, CancellationToken ct) =>
+    {
+        await cycle.RunAsync(ct);
         return Results.Ok();
     });
 }
