@@ -142,6 +142,12 @@ public sealed class FakeCookCatalogReader(
 
     public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+
+    public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
+
+    public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
 }
 
 /// <summary>Stock reader for Cook L4 tests.</summary>

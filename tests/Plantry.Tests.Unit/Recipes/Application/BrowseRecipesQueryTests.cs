@@ -80,6 +80,12 @@ public sealed class BrowseRecipesQueryTests
 
         public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+
+        public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
+
+        public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
     }
 
     /// <summary>Identity converter — same unit converts to itself. Sufficient for all tests here.</summary>

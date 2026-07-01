@@ -104,30 +104,61 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         await option.ClickAsync();
 
         await sheet.Locator("input[type='number']").FillAsync(qty);
-        // `select:visible` resolves to the unit select — the staple-mode select is x-show hidden here.
+        // `select:visible` resolves to the unit select — the create-view select is x-show hidden here.
         await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
 
-        await sheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+        // The sheet has two .sheet__actions bars (search view + create view); use .First to target
+        // the search-view "Add" button without strict-mode violation (plantry-nb4x two-view scaffold).
+        await sheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
         await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
     }
 
-    /// <summary>Opens the add-ingredient sheet, switches to inline-staple mode, fills name + unit, and commits.</summary>
+    /// <summary>
+    /// Opens the add-ingredient sheet, switches to inline tracked-product create mode (plantry-orix),
+    /// fills name + default unit, commits, then re-opens the row to fill qty + unit (R5).
+    /// </summary>
     /// <remarks>
-    /// Scoped to #recipe-editor .sheet to avoid Playwright strict-mode violations (see AddProductIngredientAsync).
+    /// Scoped to #recipe-editor .sheet to avoid Playwright strict-mode violations.
+    /// The create-view now mints a tracked catalog product ("Create new product" label, plantry-orix).
+    /// R5 (tracked ingredients require qty+unit) is satisfied by re-opening the row after sheet close.
     /// </remarks>
-    private async Task AddStapleIngredientAsync(IPage page, string stapleName, string unitLabel)
+    private async Task AddTrackedProductIngredientAsync(IPage page, string productName, string qty, string unitLabel)
     {
         await page.ClickAsync("button:has-text('Add ingredient')");
         var sheet = page.Locator("#recipe-editor .sheet");
         await Assertions.Expect(sheet).ToBeVisibleAsync();
 
-        await sheet.Locator("button:has-text('Create as staple')").ClickAsync();
-        var nameInput = sheet.Locator("input[placeholder='Staple name (e.g. Salt)']");
+        // Clicking the persistent create affordance navigates to the create view in-place (plantry-nb4x).
+        // The label is "Create new product" (changed from "Create as staple (untracked)" in plantry-orix).
+        await sheet.Locator("button:has-text('Create new product')").ClickAsync();
+        var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
         await Assertions.Expect(nameInput).ToBeVisibleAsync();
-        await nameInput.FillAsync(stapleName);
-        await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
+        await nameInput.FillAsync(productName);
 
-        await sheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+        // Expand the Defaults collapsible (plantry-y53t) to access the unit select.
+        // The <details class="sheet-defaults"> is collapsed by default; the summary click opens it.
+        var defaultsSummary = sheet.Locator(".sheet-defaults__summary");
+        await Assertions.Expect(defaultsSummary).ToBeVisibleAsync();
+        await defaultsSummary.ClickAsync();
+        // Select the product's default unit. saveSheet() will pre-populate draft.unitId from this
+        // (plantry-orix), so the committed row already has a unitId set.
+        await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
+
+        // Use .Last to target the create-view "Create" button (the search-view "Add" is .First).
+        await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+        await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+
+        // R5: tracked ingredients require a Quantity. After sheet close, re-open the row via the
+        // edit icon and fill qty. (The sheet's search view has qty+unit fields pre-populated with
+        // unitId from saveSheet(); we only need to fill qty here.)
+        var row = page.Locator(".ingredient-row", new() { HasText = productName });
+        await Assertions.Expect(row).ToBeVisibleAsync();
+        await row.Locator("button[aria-label='Edit ingredient']").ClickAsync();
+        await Assertions.Expect(sheet).ToBeVisibleAsync();
+        // In edit mode, the sheet opens on the search view with the existing row state. Fill qty.
+        await sheet.Locator("input[type='number']").FillAsync(qty);
+        // The search-view "Add/Save" button is .First.
+        await sheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
         await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
     }
 
@@ -182,8 +213,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await Assertions.Expect(page.Locator(".ingredient-row__summary", new() { HasText = tomatoName }))
                 .ToBeVisibleAsync();
 
-            // ── Ingredient 2: inline staple create via the sheet ──────────────────
-            await AddStapleIngredientAsync(page, "Olive Oil", unitLabel: "ea");
+            // ── Ingredient 2: inline tracked-product create via the sheet (plantry-orix) ─────
+            await AddTrackedProductIngredientAsync(page, "Olive Oil", qty: "30", unitLabel: "ea");
             await Assertions.Expect(page.Locator(".ingredient-row__summary", new() { HasText = "Olive Oil" }))
                 .ToBeVisibleAsync();
 
@@ -212,10 +243,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await Assertions.Expect(page.Locator(".rd-ing-row", new() { HasText = tomatoName }))
                 .ToBeVisibleAsync();
 
-            // Olive Oil untracked staple renders (untracked sub-label)
+            // Olive Oil tracked product renders in the ingredient list (plantry-orix: now tracked, not untracked)
             await Assertions.Expect(page.Locator(".rd-ing-row", new() { HasText = "Olive Oil" }))
-                .ToBeVisibleAsync();
-            await Assertions.Expect(page.Locator(".rd-ing-sub--untracked"))
                 .ToBeVisibleAsync();
 
             // Tag mini-pill "Italian" is present in the hero overlay
@@ -296,7 +325,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             var qtyInput = editSheet.Locator("input[type='number']");
             await qtyInput.ClearAsync();
             await qtyInput.FillAsync("500");
-            await editSheet.Locator(".sheet__actions button.btn--primary").ClickAsync();
+            // Use .First to target the search-view "Save" button (avoids strict-mode violation from
+            // the create-view button also in DOM, plantry-nb4x two-view scaffold).
+            await editSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(editSheet).Not.ToBeVisibleAsync();
 
             // ── Submit ────────────────────────────────────────────────────────────
@@ -382,6 +413,92 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         finally
         {
             await context.Tracing.StopAsync(new() { Path = "trace-recipe-inspect.zip" });
+        }
+    }
+
+    // ── Journey 4: Tracked product inline create from ingredient sheet (plantry-orix) ─────
+
+    [Fact(DisplayName = "C12-tracked: ingredient sheet create-view mints a tracked catalog product")]
+    public async Task InlineTrackedProductCreate_InIngredientSheet_ProductAppearsInCatalog()
+    {
+        var email = $"recipe-tracked-create-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe Tracked Create Household");
+
+            // ── Navigate to new recipe form ───────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Stir Fry {Guid.NewGuid():N}".Substring(0, 20);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            // ── Open the ingredient sheet and switch to create-view ───────────────
+            await page.ClickAsync("button:has-text('Add ingredient')");
+            var sheet = page.Locator("#recipe-editor .sheet");
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+            // Primary acceptance criterion: the create affordance label has changed from
+            // "Create as staple (untracked)" to "Create new product" (plantry-orix).
+            var createBtn = sheet.Locator("button:has-text('Create new product')");
+            await Assertions.Expect(createBtn).ToBeVisibleAsync();
+            await createBtn.ClickAsync();
+
+            // Create-view is now active: the product-name input is visible.
+            var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
+            await Assertions.Expect(nameInput).ToBeVisibleAsync();
+
+            // The Defaults collapsible (from sibling plantry-y53t) is present in the create-view.
+            await Assertions.Expect(sheet.Locator(".sheet-defaults__summary")).ToBeVisibleAsync();
+
+            var trackedProductName = $"Sesame Oil {Guid.NewGuid():N}".Substring(0, 22);
+            await nameInput.FillAsync(trackedProductName);
+
+            // Open the Defaults collapsible and set the product's default unit.
+            await sheet.Locator(".sheet-defaults__summary").ClickAsync();
+            await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+
+            // Commit via create-view "Create" button (.Last targets create-view, .First targets search-view).
+            await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+
+            // The ingredient row appears client-side with the typed product name.
+            await Assertions.Expect(page.Locator(".ingredient-row__summary", new() { HasText = trackedProductName }))
+                .ToBeVisibleAsync();
+
+            // ── Fill qty before submitting (R5 pre-check, plantry-orix) ─────────
+            // AuthorRecipe validates qty/unit BEFORE the Catalog write (to avoid orphan products).
+            // The create-view has no qty field, so we re-open the row in the search view to fill qty.
+            // saveSheet() pre-populates draft.unitId from draft.newStapleUnit, so only qty is missing.
+            var trackedRow = page.Locator(".ingredient-row", new() { HasText = trackedProductName });
+            await Assertions.Expect(trackedRow).ToBeVisibleAsync();
+            await trackedRow.Locator("button[aria-label='Edit ingredient']").ClickAsync();
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+            await sheet.Locator("input[type='number']").FillAsync("1");
+            await sheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+
+            // ── Submit the recipe form — now saves cleanly ────────────────────────
+            // R5 is satisfied (qty=1, unitId pre-populated from default unit). The recipe saves and
+            // redirects to the Detail page. The newly-created tracked product appears in Catalog.
+            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.WaitForURLAsync(DetailUrlPattern);
+            Assert.DoesNotMatch(@"/New$", page.Url);
+
+            // ── Verify the product was created in Catalog (tracked) ───────────────
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products");
+            await page.WaitForURLAsync("**/Catalog/Products**");
+            await Assertions.Expect(page.GetByText(trackedProductName))
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-tracked-create.zip" });
         }
     }
 

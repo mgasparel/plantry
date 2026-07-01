@@ -194,6 +194,12 @@ public sealed class WeekBagEnricherTests
             Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
         public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+
+        public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
+
+        public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
     }
 
     private sealed class NullConverter : IUnitConverter

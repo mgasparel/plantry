@@ -127,6 +127,126 @@ public sealed class AuthorRecipeTests
         Assert.Null(ing.UnitId);
     }
 
+    // ── Tracked-product inline create (plantry-orix) ─────────────────────────────
+
+    [Fact]
+    public async Task Create_Inline_Tracked_Standalone_Creates_Tracked_Product_And_Ingredient()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+
+        // NewIsTracked = true, no group fields → standalone tracked product (CreateProductCommand).
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Pasta Dish",
+            DefaultServings: 2,
+            Lines: [new AuthorIngredientLine(
+                ProductId: null, Quantity: 200m, UnitId: unit, GroupHeading: null, Ordinal: 0,
+                NewStapleName: "Olive Oil", NewStapleDefaultUnitId: unit,
+                NewIsTracked: true)],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        // Must route to CreateTrackedProductAsync, not CreateUntrackedStapleAsync.
+        Assert.Empty(h.Writer.StaplesCreated);
+        var created = Assert.Single(h.Writer.TrackedProductsCreated);
+        Assert.Equal("Olive Oil", created.Name);
+        Assert.Equal(unit, created.DefaultUnitId);
+        // The ingredient row must reference the new tracked product.
+        var recipe = Assert.Single(h.Recipes.Items);
+        var ing = Assert.Single(recipe.Ingredients);
+        Assert.NotEqual(Guid.Empty, ing.ProductId);
+        Assert.Equal(200m, ing.Quantity);
+    }
+
+    [Fact]
+    public async Task Create_Inline_Tracked_Variant_Creates_Variant_And_Ingredient()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var parentGroupId = Guid.NewGuid();
+
+        // NewIsTracked = true, NewGroupId non-empty → CreateVariantCommand.
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Salad",
+            DefaultServings: 1,
+            Lines: [new AuthorIngredientLine(
+                ProductId: null, Quantity: 100m, UnitId: unit, GroupHeading: null, Ordinal: 0,
+                NewStapleName: "Cherry Tomato", NewStapleDefaultUnitId: unit,
+                NewIsTracked: true, NewGroupId: parentGroupId.ToString())],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        Assert.Empty(h.Writer.StaplesCreated);
+        Assert.Empty(h.Writer.TrackedProductsCreated);
+        var variant = Assert.Single(h.Writer.VariantsCreated);
+        Assert.Equal(parentGroupId, variant.ParentGroupId);
+        Assert.Equal("Cherry Tomato", variant.VariantName);
+        var recipe = Assert.Single(h.Recipes.Items);
+        Assert.Single(recipe.Ingredients);
+    }
+
+    [Fact]
+    public async Task Create_Inline_Tracked_Grouped_Product_Creates_Group_And_Variant_And_Ingredient()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+
+        // NewIsTracked = true, NewGroupName non-empty → CreateGroupedProductCommand.
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Tomato Sauce",
+            DefaultServings: 4,
+            Lines: [new AuthorIngredientLine(
+                ProductId: null, Quantity: 400m, UnitId: unit, GroupHeading: null, Ordinal: 0,
+                NewStapleName: "Roma Tomato", NewStapleDefaultUnitId: unit,
+                NewIsTracked: true, NewGroupName: "Tomatoes")],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        Assert.Empty(h.Writer.StaplesCreated);
+        Assert.Empty(h.Writer.TrackedProductsCreated);
+        Assert.Empty(h.Writer.VariantsCreated);
+        var grouped = Assert.Single(h.Writer.GroupedProductsCreated);
+        Assert.Equal("Tomatoes", grouped.GroupName);
+        Assert.Equal("Roma Tomato", grouped.VariantName);
+        Assert.Equal(unit, grouped.DefaultUnitId);
+        var recipe = Assert.Single(h.Recipes.Items);
+        Assert.Single(recipe.Ingredients);
+    }
+
+    [Fact]
+    public async Task Tracked_Inline_Product_Requires_Quantity_And_Unit_R5()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+
+        // A tracked inline product must still have qty + unit (R5).
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Test Recipe",
+            DefaultServings: 1,
+            Lines: [new AuthorIngredientLine(
+                ProductId: null, Quantity: null, UnitId: null, GroupHeading: null, Ordinal: 0,
+                NewStapleName: "Butter", NewStapleDefaultUnitId: unit,
+                NewIsTracked: true)],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        // R5: tracked ingredient must have both quantity and unit — reject.
+        var invalid = Assert.IsType<AuthorRecipeResult.Invalid>(result);
+        Assert.Equal("Recipes.TrackedRequiresQuantity", invalid.Error.Code);
+        Assert.Empty(h.Recipes.Items);
+    }
+
     [Fact]
     public async Task Create_Resolves_Existing_Tag_By_Id()
     {

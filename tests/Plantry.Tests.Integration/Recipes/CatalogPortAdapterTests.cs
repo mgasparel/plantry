@@ -63,7 +63,7 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         }
 
         await using var read = NewCatalogDb();
-        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read));
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read), new CategoryRepository(read));
 
         var result = await reader.FindAsync(productId.Value);
 
@@ -100,7 +100,7 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         }
 
         await using var read = NewCatalogDb();
-        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read));
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read), new CategoryRepository(read));
 
         var parentView = await reader.FindAsync(parentId.Value);
         Assert.NotNull(parentView);
@@ -127,7 +127,7 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         }
 
         await using var read = NewCatalogDb();
-        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read));
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read), new CategoryRepository(read));
 
         var flMatches = await reader.SearchAsync("fl");
         Assert.Equal(2, flMatches.Count);
@@ -161,7 +161,7 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         }
 
         await using var read = NewCatalogDb();
-        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read));
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read), new CategoryRepository(read));
 
         var summaries = await reader.ResolveSummariesAsync([trackedId.Value, stapleId.Value, Guid.NewGuid()]);
         Assert.Equal(2, summaries.Count); // the unknown id is omitted

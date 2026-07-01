@@ -37,10 +37,41 @@ public sealed class AddCountedItemCommandTests
         public Guid? LastLocationId { get; private set; }
 
         public Task<Guid> CreateTrackedProductAsync(
-            string name, Guid defaultUnitId, Guid defaultLocationId, CancellationToken ct = default)
+            string name, Guid defaultUnitId, Guid? categoryId, Guid defaultLocationId, CancellationToken ct = default)
         {
             CreateCalls++;
             LastName = name;
+            LastUnitId = defaultUnitId;
+            LastLocationId = defaultLocationId;
+
+            if (throwMessage is not null)
+                throw new InvalidOperationException(throwMessage);
+
+            return Task.FromResult(returnProductId ?? Guid.NewGuid());
+        }
+
+        public Task<Guid> CreateTrackedVariantAsync(
+            Guid parentGroupId, string variantName,
+            Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride,
+            CancellationToken ct = default)
+        {
+            CreateCalls++;
+            LastName = variantName;
+            LastLocationId = locationOverride;
+
+            if (throwMessage is not null)
+                throw new InvalidOperationException(throwMessage);
+
+            return Task.FromResult(returnProductId ?? Guid.NewGuid());
+        }
+
+        public Task<Guid> CreateTrackedGroupedProductAsync(
+            string groupName, string variantName,
+            Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId,
+            CancellationToken ct = default)
+        {
+            CreateCalls++;
+            LastName = variantName;
             LastUnitId = defaultUnitId;
             LastLocationId = defaultLocationId;
 

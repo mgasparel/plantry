@@ -8,6 +8,7 @@ using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.Web.Pages.Shared;
 
 namespace Plantry.Web.Pages.Recipes;
 
@@ -25,8 +26,10 @@ namespace Plantry.Web.Pages.Recipes;
 /// user changes DefaultServings, the form shows a Proportional/Keep toggle (seg-ctrl) before submit.
 /// Alpine holds whether the servings value has drifted from the original to show/hide the offer.</para>
 ///
-/// <para>All Catalog access flows through <see cref="ICatalogProductReader"/> (the anti-corruption port) —
-/// this page never touches Catalog repositories directly (Gate 2).</para>
+/// <para>All Catalog access flows through <see cref="ICatalogProductReader"/> (the anti-corruption port);
+/// this page never touches Catalog repositories directly (Gate 2). Group and category lists used
+/// by the ingredient create view are loaded via <see cref="ICatalogProductReader.ListGroupsAsync"/> and
+/// <see cref="ICatalogProductReader.ListCategoriesAsync"/> added in plantry-orix.</para>
 /// </summary>
 [Authorize]
 public sealed class EditModel(
@@ -66,6 +69,19 @@ public sealed class EditModel(
 
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> TagOptions { get; private set; } = [];
+
+    /// <summary>
+    /// Active group products (IsParent = true) for the household, for the create-view Group combobox
+    /// (plantry-orix). Passed to <see cref="ProductSearchCreateSheetViewModel.GroupOptions"/>.
+    /// Loaded via <see cref="ICatalogProductReader.ListGroupsAsync"/> (the anti-corruption port).
+    /// </summary>
+    public IReadOnlyList<GroupOption> GroupOptions { get; private set; } = [];
+
+    /// <summary>
+    /// Category options for the Defaults collapsible in the create view (plantry-y53t / plantry-orix).
+    /// Passed to <see cref="ProductSearchCreateSheetViewModel.CategoryOptions"/>.
+    /// </summary>
+    public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
 
     // ── Top-level validation error ────────────────────────────────────────────────
 
@@ -250,7 +266,11 @@ public sealed class EditModel(
                 Ordinal: l.Ordinal,
                 NewStapleName: l.NewStapleName,
                 NewStapleDefaultUnitId: l.NewStapleDefaultUnitId,
-                ConversionFactor: l.ConversionFactor))
+                ConversionFactor: l.ConversionFactor,
+                NewIsTracked: l.NewIsTracked,
+                NewGroupId: l.NewGroupId,
+                NewGroupName: l.NewGroupName,
+                NewStapleCategoryId: l.NewStapleCategoryId))
             .ToList();
 
         if (lines.Count == 0)
@@ -330,6 +350,21 @@ public sealed class EditModel(
         var activeTags = await tags.ListAllAsync(activeOnly: true, ct);
         TagOptions = activeTags
             .Select(t => new SelectListItem(t.Name, t.Id.Value.ToString()))
+            .ToList();
+
+        // Load group options for the create-view Group combobox (plantry-orix).
+        // Groups are active products with HasVariants = true (IsParent). Filtered client-side in Alpine.
+        // Loaded via ICatalogProductReader.ListGroupsAsync (the anti-corruption port — Gate 2).
+        var groupOptions = await products.ListGroupsAsync(ct);
+        GroupOptions = groupOptions
+            .Select(g => new GroupOption(g.Id.ToString(), g.Name))
+            .ToList();
+
+        // Load category options for the Defaults collapsible in the create view (plantry-orix).
+        // Loaded via ICatalogProductReader.ListCategoriesAsync (the anti-corruption port — Gate 2).
+        var categoryOptions = await products.ListCategoriesAsync(ct);
+        CategoryOptions = categoryOptions
+            .Select(c => new SelectListItem(c.Name, c.Id.ToString()))
             .ToList();
     }
 
@@ -433,9 +468,24 @@ public sealed class RecipeEditInput
 
 /// <summary>
 /// One ingredient row in the editor. Carries either a chosen ProductId (product search/select)
-/// or a new-staple request (NewStapleName + NewStapleDefaultUnitId, C12). NeedsConversion and the
-/// two unit ids are set by the page model on a NeedsConversion outcome so the view can display the
-/// inline conversion form (C10).
+/// or an inline create request. Two inline-create flavours:
+/// <list type="bullet">
+///   <item>
+///     <description>
+///       <b>Untracked staple</b> (C12): <see cref="NewIsTracked"/> = false.
+///       <see cref="NewStapleName"/> + <see cref="NewStapleDefaultUnitId"/> posted from hidden inputs.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///       <b>Tracked product</b> (plantry-orix): <see cref="NewIsTracked"/> = true.
+///       Additional fields <see cref="NewGroupId"/>, <see cref="NewGroupName"/>,
+///       <see cref="NewStapleCategoryId"/> drive group-aware routing in <see cref="AuthorRecipe"/>.
+///     </description>
+///   </item>
+/// </list>
+/// NeedsConversion and the two unit ids are set by the page model on a NeedsConversion outcome so
+/// the view can display the inline conversion form (C10).
 /// </summary>
 public sealed class IngredientRowInput
 {
@@ -451,9 +501,34 @@ public sealed class IngredientRowInput
     /// </summary>
     public string? ProductName { get; set; }
 
-    // ── Inline staple create (C12) ─────────────────────────────────────────────────
+    // ── Inline create (C12 untracked / plantry-orix tracked) ──────────────────────
     public string? NewStapleName { get; set; }
     public Guid? NewStapleDefaultUnitId { get; set; }
+
+    /// <summary>
+    /// When true, the inline create path mints a tracked product (track_stock = true) via the
+    /// group-aware create paths in <see cref="AuthorRecipe"/> (plantry-orix). When false (default),
+    /// the C12 untracked-staple path is used.
+    /// </summary>
+    public bool NewIsTracked { get; set; }
+
+    /// <summary>
+    /// For tracked-product create: the existing group product's id to join as a variant (Path A in
+    /// <see cref="AuthorRecipe"/>). Empty string or null when not joining an existing group.
+    /// </summary>
+    public string? NewGroupId { get; set; }
+
+    /// <summary>
+    /// For tracked-product create: the name of a new group to create together with the first variant
+    /// (Path B in <see cref="AuthorRecipe"/>). Empty string or null when not creating a new group.
+    /// </summary>
+    public string? NewGroupName { get; set; }
+
+    /// <summary>
+    /// For tracked-product create: the optional category id chosen in the Defaults collapsible
+    /// (plantry-y53t). Empty Guid or null when no category is selected.
+    /// </summary>
+    public Guid? NewStapleCategoryId { get; set; }
 
     // ── Quantity / unit ────────────────────────────────────────────────────────────
     public decimal? Quantity { get; set; }

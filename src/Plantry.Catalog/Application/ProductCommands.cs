@@ -461,3 +461,92 @@ public sealed class MakeVariantCommand(
         return Result.Success();
     }
 }
+
+/// <summary>
+/// Creates a new group (abstract parent, <c>trackStock = false</c>) and its first variant
+/// (the concrete product the user is actually adding) in a single atomic <c>SaveChanges</c>.
+///
+/// <para>This is the "hard case" from the quick-add group-creation prototype (plantry-40n6):
+/// the user wants to create a product AND mint a new group at the same time, before any stock
+/// lands. Because a stock-holding product can never be converted into a group afterwards, the
+/// group must be born atomically alongside the first variant.</para>
+///
+/// <para>The group inherits the supplied unit/category/location and stores them as its defaults.
+/// The variant inherits all defaults from the group (<see cref="Product.InheritFrom"/>), so a
+/// single set of attribute fields covers both records.</para>
+///
+/// <para>Both the group name and the variant name must be unique within the household —
+/// duplicate-name checks run for each before any write.</para>
+///
+/// <para>Returns the new <see cref="ProductId"/> of the <b>variant</b> (the stock-holding product
+/// the caller wants to count/use).</para>
+/// </summary>
+public sealed class CreateGroupedProductCommand(
+    string groupName,
+    string variantName,
+    Guid defaultUnitId,
+    Guid? categoryId,
+    Guid? defaultLocationId,
+    IProductRepository products,
+    IUnitRepository units,
+    ICategoryRepository categories,
+    ILocationRepository locations,
+    IClock clock,
+    ITenantContext tenant,
+    ILogger<CreateGroupedProductCommand>? logger = null)
+{
+    public async Task<Result<ProductId>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var crossRefError = await CreateProductCommand.ValidateCrossReferencesAsync(
+            defaultUnitId, categoryId, defaultLocationId, units, categories, locations, ct);
+        if (crossRefError is not null)
+        {
+            logger?.LogWarning("CreateGroupedProduct rejected — cross-reference validation failed: {ErrorCode}.", crossRefError.Code);
+            return crossRefError;
+        }
+
+        // Both names must be free before we write anything.
+        if (await products.FindByNameAsync(groupName.Trim(), ct) is not null)
+        {
+            logger?.LogWarning("CreateGroupedProduct rejected — duplicate group name {GroupName}.", groupName);
+            return Error.Custom("Catalog.DuplicateProductName", $"A product named '{groupName}' already exists.");
+        }
+
+        if (await products.FindByNameAsync(variantName.Trim(), ct) is not null)
+        {
+            logger?.LogWarning("CreateGroupedProduct rejected — duplicate variant name {VariantName}.", variantName);
+            return Error.Custom("Catalog.DuplicateProductName", $"A product named '{variantName}' already exists.");
+        }
+
+        // Mint the group — abstract parent, never holds stock.
+        var group = Product.Create(HouseholdId.From(householdId), groupName, UnitId.From(defaultUnitId), clock, trackStock: false);
+        if (categoryId is { } catId) group.SetCategory(CategoryId.From(catId), clock);
+        if (defaultLocationId is { } locId) group.SetDefaultLocation(LocationId.From(locId), clock);
+
+        // Mint the first variant — the concrete, stock-holding product.
+        var variant = Product.Create(HouseholdId.From(householdId), variantName, UnitId.From(defaultUnitId), clock, trackStock: true);
+        if (categoryId is { } catId2) variant.SetCategory(CategoryId.From(catId2), clock);
+        if (defaultLocationId is { } locId2) variant.SetDefaultLocation(LocationId.From(locId2), clock);
+
+        // Persist the group first (needed for the FK on MakeVariantOf).
+        await products.AddAsync(group, ct);
+        await products.AddAsync(variant, ct);
+
+        // Link variant → group; set denormalized flag on group; inherit expiry + conversions.
+        variant.MakeVariantOf(group.Id, clock);
+        group.SetHasVariants(true, clock);
+        variant.InheritFrom(group, clock);
+
+        // Single SaveChanges — atomic creation of both records.
+        await products.SaveChangesAsync(ct);
+
+        logger?.LogInformation(
+            "Group {GroupId} ({GroupName}) created with first variant {VariantId} ({VariantName}).",
+            group.Id.Value, groupName, variant.Id.Value, variantName);
+
+        return variant.Id;
+    }
+}

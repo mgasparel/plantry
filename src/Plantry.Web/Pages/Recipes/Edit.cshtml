@@ -98,6 +98,13 @@
                  isUntracked = false,
                  newStapleName = (string?)null,
                  newStapleUnit = "",
+                 // Tracked-product create fields (plantry-orix) — persisted rows always start with defaults
+                 // (these fields only become non-default when the user commits from the create-view on
+                 // a new inline-create row; existing catalog-product rows always have newIsTracked:false).
+                 newIsTracked = false,
+                 newGroupId = "",
+                 newGroupName = "",
+                 newStapleCategoryId = "",
                  needsConversion = l.NeedsConversion,
                  conversionFactor = l.ConversionFactor?.ToString() ?? "",
                  conversionFromUnitId = l.ConversionFromUnitId.ToString(),
@@ -108,31 +115,50 @@
 
          // Ingredient sheet (add / edit)
          sheetOpen: false,
+         // sheetView: 'search' | 'create' — drives the two-view swap in _ProductSearchCreateSheet
+         // (plantry-nb4x).  Recipes currently only uses the search view; plantry-orix wires the
+         // create-view path for the tracked-product create on this surface.
+         sheetView: 'search',
          editingIdx: null,
          draft: {},
          blankDraft() {
              return { ordinal: 0, productId: '', productName: '', qty: '', unitId: '',
                  defaultUnitId: '', defaultUnitCode: '',
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
+                 newIsTracked: false,
+                 newStapleCategoryId: '', newGroupId: '', newGroupName: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '' };
          },
-         openAdd() { this.editingIdx = null; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
-         openEdit(idx) { this.editingIdx = idx; this.draft = JSON.parse(JSON.stringify(this.rows[idx])); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
+         openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
+         openEdit(idx) { this.editingIdx = idx; this.sheetView = 'search'; this.draft = JSON.parse(JSON.stringify(this.rows[idx])); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
          // The sheet stays mounted (x-show), so the nested searchableSelect inits once. Push the
          // current product label into its search box each time the sheet opens.
          _syncSearch(label) { this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: label || '' }))); },
-         closeSheet() { this.sheetOpen = false; },
+         closeSheet() { this.sheetView = 'search'; this.sheetOpen = false; },
          draftIsEmpty() {
              return !this.draft.productId && !(this.draft.newStapleName && this.draft.newStapleName.trim());
          },
          saveSheet() {
-             if (this.draftIsEmpty()) { this.sheetOpen = false; return; }
+             if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetOpen = false; return; }
+             // When saving from the create view, mark the row as a tracked product create
+             // (plantry-orix). The untracked-staple path (C12) is now only used when newIsTracked
+             // is false — which is the legacy path kept for backward compatibility in the data model;
+             // the create view always mints tracked products (the whole point of plantry-orix).
+             // Also pre-populate draft.unitId from draft.newStapleUnit so R5 (tracked needs unit)
+             // is satisfied without requiring a separate edit after sheet close.
+             if (this.sheetView === 'create' && this.draft.newStapleName !== null) {
+                 this.draft.newIsTracked = true;
+                 if (this.draft.newStapleUnit && !this.draft.unitId) {
+                     this.draft.unitId = this.draft.newStapleUnit;
+                 }
+             }
              if (this.editingIdx === null) {
                  this.draft.ordinal = this._nextOrd++;
                  this.rows.push(JSON.parse(JSON.stringify(this.draft)));
              } else {
                  this.rows.splice(this.editingIdx, 1, JSON.parse(JSON.stringify(this.draft)));
              }
+             this.sheetView = 'search';
              this.sheetOpen = false;
          },
          unitLabel(id) { return this.unitCodes[id] || ''; },
@@ -372,6 +398,11 @@
                             <input type="hidden" :name="'Input.Lines[' + idx + '].ProductName'" :value="row.productName" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleName'" :value="row.newStapleName ?? ''" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleDefaultUnitId'" :value="row.newStapleUnit" />
+                            @* Tracked-product create fields (plantry-orix) *@
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].NewIsTracked'" :value="row.newIsTracked" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].NewGroupId'" :value="row.newGroupId ?? ''" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].NewGroupName'" :value="row.newGroupName ?? ''" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleCategoryId'" :value="row.newStapleCategoryId ?? ''" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].GroupHeading'" :value="row.groupHeading" />
@@ -445,13 +476,24 @@
         @* ── Ingredient add/edit sheet (P4-6: shared partial) ──────────────────────── *@
         @* Kept in the DOM via x-show (not x-if) so the searchable-select Alpine component inits
            once at page load — see _ProductSearchCreateSheet.cshtml for the rationale. *@
+        @*
+            GroupOptions and CategoryOptions are populated by the page model (plantry-orix) so the
+            create-view Group combobox (plantry-40n6) and Defaults collapsible (plantry-y53t) render
+            with the household's real data. CreateLabel is changed from "Create as staple (untracked)"
+            to "Create new product" because the create view now mints a tracked catalog product —
+            the untracked-staple path (C12) still works via the legacy newIsTracked=false route.
+        *@
         <partial name="Shared/_ProductSearchCreateSheet"
                  model='new Plantry.Web.Pages.Shared.ProductSearchCreateSheetViewModel
                  {
-                     SearchUrl        = Url.Page("./Edit", "SearchProducts")!,
-                     UnitOptions      = Model.UnitOptions,
-                     TrackStock       = true,
-                     ExtraFieldsPartial = "Shared/_IngredientConversionPrompt",
+                     SearchUrl           = Url.Page("./Edit", "SearchProducts")!,
+                     UnitOptions         = Model.UnitOptions,
+                     CategoryOptions     = Model.CategoryOptions,
+                     GroupOptions        = Model.GroupOptions,
+                     TrackStock          = true,
+                     ExtraFieldsPartial  = "Shared/_IngredientConversionPrompt",
+                     CreateLabel         = "Create new product",
+                     StapleNamePlaceholder = "Product name (e.g. Olive Oil)",
                  }' />
 
         @* ── Directions ───────────────────────────────────────────────────────── *@
@@ -522,14 +564,6 @@
     .ingredient-row__summary:hover { color: var(--color-accent); }
     .ingredient-row__action { flex-shrink: 0; }
 
-    /* Inline new-staple editor inside the sheet. display lives in the class (not inline)
-       because x-show strips an inline `display` when it reveals the element. */
-    .ingredient-row__staple {
-        display: flex;
-        gap: var(--space-2);
-        align-items: center;
-        flex-wrap: wrap;
-    }
     .recipe-tag-editor:focus-within { border-color: var(--color-accent); }
     .tag-picker-option:hover { background: var(--color-surface-2) !important; }
 </style>

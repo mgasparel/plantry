@@ -15,6 +15,7 @@ using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Web.Infrastructure;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogCategory = Plantry.Catalog.Domain.Category;
 
 namespace Plantry.Tests.Web.TakeStock;
 
@@ -499,6 +500,156 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
             keys);
     }
 
+    // ── J5: Category forwarding on standalone Path C (plantry-l92u) ──────────
+
+    [Fact(DisplayName = "POST AddItem with categoryId on standalone path routes to CreateTrackedProductAsync with category (J5, plantry-l92u)")]
+    public async Task Post_AddItem_Standalone_WithCategory_ForwardsCategory()
+    {
+        // Use a dedicated factory with a fresh catalog writer for isolation.
+        using var catFactory = new TakeStockGroupedProductFactory();
+        var client = catFactory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Standalone payload (no group) with a categoryId — verifies category is not dropped.
+        var categoryId = Guid.CreateVersion7();
+        var payload = new
+        {
+            name          = "Himalayan Salt",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue  = 500m,
+            countedUnitId = TakeStockFixture.GramUnitId,
+            newGroupId    = "",
+            newGroupName  = "",
+            categoryId,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess, $"Expected success but got error: {data.Error}");
+        Assert.Equal("Himalayan Salt", data.ProductName);
+        // Verify the standalone creation path was invoked (not the grouped/variant paths).
+        Assert.Equal(1, catFactory.CatalogWriter.CreateCalls);
+        Assert.Equal("Himalayan Salt", catFactory.CatalogWriter.LastName);
+        // Verify the category value was forwarded to the writer (not silently dropped).
+        Assert.Equal(categoryId, catFactory.CatalogWriter.LastCategoryId);
+    }
+
+    // ── J5: Group-aware AddItem paths (plantry-l92u) ──────────────────────────
+
+    [Fact(DisplayName = "POST AddItem with newGroupName creates grouped product and records opening balance (J5, plantry-l92u)")]
+    public async Task Post_AddItem_WithNewGroupName_CreatesGroupedProduct()
+    {
+        // Use a dedicated factory with a fresh catalog writer so CreateCalls is not shared
+        // with other tests that also exercise the inline-add path via the class-fixture factory.
+        using var groupFactory = new TakeStockGroupedProductFactory();
+        var client = groupFactory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Payload: new group + first variant (CreateGroupedProductCommand path).
+        var payload = new
+        {
+            name          = "Oat Milk",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue  = 1m,
+            countedUnitId = TakeStockFixture.GramUnitId,
+            newGroupId    = "",
+            newGroupName  = "Milk",
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess, $"Expected success but got error: {data.Error}");
+        Assert.NotEqual(Guid.Empty, data.ProductId);
+        Assert.Equal("Oat Milk", data.ProductName);
+        Assert.Equal(1m, data.CountedValue);
+        // Verify the grouped-product creation path was invoked.
+        Assert.Equal(1, groupFactory.CatalogWriter.CreateCalls);
+        Assert.Equal("Oat Milk", groupFactory.CatalogWriter.LastName);
+    }
+
+    [Fact(DisplayName = "POST AddItem with non-empty newGroupId creates variant of existing group (J5, plantry-l92u)")]
+    public async Task Post_AddItem_WithNewGroupId_CreatesVariant()
+    {
+        // Use a dedicated factory with a fresh catalog writer (isolation from class-fixture factory).
+        using var variantFactory = new TakeStockGroupedProductFactory();
+        var client = variantFactory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var existingGroupId = Guid.CreateVersion7();
+
+        // Payload: join existing group (CreateVariantCommand path).
+        var payload = new
+        {
+            name          = "Whole Milk",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue  = 2m,
+            countedUnitId = TakeStockFixture.GramUnitId,
+            newGroupId    = existingGroupId.ToString(),
+            newGroupName  = "Milk",
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess, $"Expected success but got error: {data.Error}");
+        Assert.NotEqual(Guid.Empty, data.ProductId);
+        Assert.Equal("Whole Milk", data.ProductName);
+        Assert.Equal(2m, data.CountedValue);
+        // Verify the variant creation path was invoked.
+        Assert.Equal(1, variantFactory.CatalogWriter.CreateCalls);
+        Assert.Equal("Whole Milk", variantFactory.CatalogWriter.LastName);
+    }
+
     [Fact(DisplayName = "POST AddItem with duplicate name returns Catalog error inline (J5)")]
     public async Task Post_AddItem_DuplicateName_ReturnsErrorInline()
     {
@@ -847,14 +998,48 @@ public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? th
     public string? LastName { get; private set; }
     public Guid LastUnitId { get; private set; }
     public Guid LastLocationId { get; private set; }
+    /// <summary>Category id passed to the most recent <see cref="CreateTrackedProductAsync"/> call.</summary>
+    public Guid? LastCategoryId { get; private set; }
 
     public Task<Guid> CreateTrackedProductAsync(
-        string name, Guid defaultUnitId, Guid defaultLocationId, CancellationToken ct = default)
+        string name, Guid defaultUnitId, Guid? categoryId, Guid defaultLocationId, CancellationToken ct = default)
     {
         CreateCalls++;
         LastName = name;
         LastUnitId = defaultUnitId;
         LastLocationId = defaultLocationId;
+        LastCategoryId = categoryId;
+
+        if (throwMessage is not null)
+            throw new InvalidOperationException(throwMessage);
+
+        return Task.FromResult(returnProductId ?? DefaultProductId);
+    }
+
+    public Task<Guid> CreateTrackedVariantAsync(
+        Guid parentGroupId, string variantName,
+        Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride,
+        CancellationToken ct = default)
+    {
+        CreateCalls++;
+        LastName = variantName;
+        if (locationOverride.HasValue) LastLocationId = locationOverride.Value;
+
+        if (throwMessage is not null)
+            throw new InvalidOperationException(throwMessage);
+
+        return Task.FromResult(returnProductId ?? DefaultProductId);
+    }
+
+    public Task<Guid> CreateTrackedGroupedProductAsync(
+        string groupName, string variantName,
+        Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId,
+        CancellationToken ct = default)
+    {
+        CreateCalls++;
+        LastName = variantName;
+        LastUnitId = defaultUnitId;
+        if (defaultLocationId.HasValue) LastLocationId = defaultLocationId.Value;
 
         if (throwMessage is not null)
             throw new InvalidOperationException(throwMessage);
@@ -864,6 +1049,45 @@ public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? th
 
     public Task SetDefaultLocationAsync(Guid productId, Guid locationId, CancellationToken ct = default) =>
         Task.CompletedTask;
+}
+
+/// <summary>
+/// Fake <see cref="IProductRepository"/> for L4 fragment tests.
+/// Returns an empty catalog (no existing groups) so the create-view group combobox
+/// renders with an empty groupOptions list (plantry-40n6).
+/// </summary>
+public sealed class FakeTsProductRepository : IProductRepository
+{
+    private readonly List<Product> _items = [];
+    public IReadOnlyList<Product> Items => _items;
+
+    public Task<Product?> FindAsync(ProductId id, CancellationToken ct = default) =>
+        Task.FromResult(_items.SingleOrDefault(p => p.Id == id));
+
+    public Task<Product?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult(_items.SingleOrDefault(p =>
+            p.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    public Task<List<Product>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(_items.Where(p => p.ArchivedAt is null).ToList());
+
+    public Task<List<Product>> ListActiveWithSkusAsync(CancellationToken ct = default) =>
+        Task.FromResult(_items.Where(p => p.ArchivedAt is null).ToList());
+
+    public Task<List<Product>> ListWithConversionsAsync(
+        IEnumerable<ProductId> ids, CancellationToken ct = default) =>
+        Task.FromResult(_items.Where(p => ids.Contains(p.Id)).ToList());
+
+    public Task<List<Product>> ListVariantsAsync(ProductId parentId, CancellationToken ct = default) =>
+        Task.FromResult(_items.Where(p => p.ParentProductId == parentId).ToList());
+
+    public Task AddAsync(Product product, CancellationToken ct = default)
+    {
+        _items.Add(product);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 /// <summary>
@@ -895,6 +1119,32 @@ public sealed class FakeTsUnitRepository : IUnitRepository
     }
 
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Fake <see cref="ICategoryRepository"/> for L4 fragment tests. Returns an empty category list
+/// so the Defaults collapsible in the create view renders with no options other than "— None —"
+/// (plantry-y53t). WalkModel now resolves ICategoryRepository in LoadAsync.
+/// </summary>
+public sealed class FakeTsCategoryRepository : ICategoryRepository
+{
+    public Task<CatalogCategory?> FindAsync(CategoryId id, CancellationToken ct = default) =>
+        Task.FromResult<CatalogCategory?>(null);
+
+    public Task<CatalogCategory?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult<CatalogCategory?>(null);
+
+    public Task<List<CatalogCategory>> ListAsync(CancellationToken ct = default) =>
+        Task.FromResult(new List<CatalogCategory>());
+
+    public Task<List<CatalogCategory>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(new List<CatalogCategory>());
+
+    public Task AddAsync(CatalogCategory category, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    public Task SaveChangesAsync(CancellationToken ct = default) =>
+        Task.CompletedTask;
 }
 
 // ── In-memory fake conversion provider ───────────────────────────────────────
@@ -972,6 +1222,14 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
 
         services.RemoveAll<IUnitRepository>();
         services.AddSingleton<IUnitRepository, FakeTsUnitRepository>();
+
+        // plantry-40n6: group combobox — WalkModel now resolves IProductRepository to load group options.
+        services.RemoveAll<IProductRepository>();
+        services.AddSingleton<IProductRepository, FakeTsProductRepository>();
+
+        // plantry-y53t: Defaults collapsible — WalkModel now resolves ICategoryRepository to load category options.
+        services.RemoveAll<ICategoryRepository>();
+        services.AddSingleton<ICategoryRepository, FakeTsCategoryRepository>();
     }
 
     /// <summary>Creates an authenticated HTTP client for the given household.</summary>
@@ -998,6 +1256,31 @@ public sealed class TakeStockDuplicateNameFactory : WebApplicationFactory<Progra
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
             TakeStockFragmentFactory.RegisterFakes(services, catalogWriter: _dupWriter));
+    }
+
+    public HttpClient CreateAuthClient(Guid householdId)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, householdId.ToString());
+        return client;
+    }
+}
+
+/// <summary>
+/// L4 WebApplicationFactory for the group-aware AddItem tests (plantry-l92u).
+/// Provides a fresh <see cref="FakeTsCatalogWriter"/> instance so each test can inspect
+/// <see cref="FakeTsCatalogWriter.CreateCalls"/> independently of the class-fixture factory.
+/// </summary>
+public sealed class TakeStockGroupedProductFactory : WebApplicationFactory<Program>
+{
+    /// <summary>Exposed so tests can assert on which creation path was invoked.</summary>
+    public FakeTsCatalogWriter CatalogWriter { get; } = new FakeTsCatalogWriter();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+            TakeStockFragmentFactory.RegisterFakes(services, catalogWriter: CatalogWriter));
     }
 
     public HttpClient CreateAuthClient(Guid householdId)

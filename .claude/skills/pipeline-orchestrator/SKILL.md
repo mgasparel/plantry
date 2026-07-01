@@ -53,42 +53,37 @@ stale.
 
 ## Epic authoring rules
 
-These rules govern how children in a curated epic must be structured. Violating them
-causes the loop to deadlock silently and the epic to never drain.
+These rules govern how children in a curated epic must be structured.
 
-### No `blocks` dependencies between batch siblings
+### `blocks` dependencies between batch siblings are supported
 
-**Rule: children in a batched epic MUST NOT carry `blocks` (or `depends-on`) deps on
-their siblings.**
+Sibling `blocks` deps are safe to use. The epic-aware ready check (Step 1) treats a
+`staged` sibling as satisfying a dep — staged code is on `epic/<id>` and available for
+dependent work to build on. The loop will naturally pick children in dependency order
+without deadlocking.
 
-Why: the batch model keeps children `OPEN` with only a `staged` label until the entire
-epic flushes. `bd ready` treats a dependency as satisfied only when the blocking issue
-is **closed** — a `staged` label does not satisfy it. The result is a permanent deadlock:
-
-1. Only dependency-free children are ever `ready`.
-2. The loop implements + stages one; it stays `OPEN` (batch semantics).
-3. Its dependents are still blocked — `bd ready` never surfaces them.
-4. The epic can never reach 100% staged → never flushes → children never close → deadlock.
-
-**Use priority to express ordering instead.** The epic branch already provides
-code-availability ordering: each child branches off `epic/<id>` and sees every prior
-sibling's commit. If child B logically follows child A, assign A a higher priority (lower
-number) so the loop picks it first. No `blocks` dep is needed.
+**Priority is still the simpler choice for pure ordering.** If child B logically follows
+child A but doesn't need A's code at compile time, a priority difference is less
+bookkeeping than a dep:
 
 ```bash
-# Express "B depends on A" by giving A higher priority:
+# Option 1 — dep (correct if B genuinely needs A's code to build/pass):
+bd dep add <child-B-id> <child-A-id>   # B is blocked by A
+
+# Option 2 — priority (sufficient if the ordering is just logical preference):
 bd update <child-A-id> --priority 1   # implement first
 bd update <child-B-id> --priority 2   # implement after A is staged
 ```
 
+Use a `blocks` dep when B would fail to build or test without A's code present. Use
+priority when it's an ordering preference and both children are independently buildable.
+
 ### Sweep / cleanup children belong as post-epic follow-ups, not batch siblings
 
 A "sweep" child (dead-code removal, final cleanup, doc update) that runs against the
-**merged** code cannot be a batch sibling — it would need all peers closed before it is
-meaningful, recreating the same deadlock. Instead, **file it as a follow-up issue after
-the epic PR merges**, either manually or via `bd create` in the post-merge batch-close
-step. The batch-close loop is the right place to create these because at that point the
-merged code is available and the follow-up can be filed and immediately claimed:
+**merged** code cannot be a batch sibling — it needs the code on `main`, not just staged
+on the epic branch. File it as a follow-up issue after the epic PR merges, either
+manually or via `bd create` in the post-merge batch-close step:
 
 ```bash
 # After confirming MERGED (Step 5-5), before closing children:
@@ -96,23 +91,21 @@ bd create --title="<sweep task>" --description="Follow-up sweep after epic <epic
   --type=task --priority=<p>
 ```
 
-### Detecting the deadlock during a manual run
+### Diagnosing a stalled epic during a manual run
 
-If you find the loop stuck (epic has staged children but `bd ready` shows no further
-children of that epic), check for sibling `blocks` deps:
+If the loop appears stuck (epic has staged children but no further child is claimed):
 
 ```bash
 bd show <epic-id>          # see all children and their status
 bd blocked                 # see which children are blocked and by what
-bd show <blocked-child-id> # confirm the blocker is a staged (still-open) sibling
+bd show <blocked-child-id> # inspect the blocker
 ```
 
-If the blocker is staged, remove the dep and let priority drive ordering:
-
-```bash
-bd dep remove <blocked-child-id> <staged-sibling-id>
-bd update <blocked-child-id> --priority <appropriate-priority>
-```
+A child blocked on a **staged** sibling should be picked up automatically by the
+epic-aware ready check. If it isn't, confirm the orchestrator is running Step 1's local
+ready logic (not falling through to `bd ready` alone for epic children). A child blocked
+on a non-staged, non-closed sibling is genuinely waiting — the blocker must be staged
+first.
 
 ---
 
@@ -152,11 +145,27 @@ bd ready
   `ScheduleWakeup(delaySeconds=180)`. Return to the start of the loop.
 
 - **Issues available — prefer draining the active epic.** If an epic is already in
-  progress (an `epic/<id>` branch with staged-but-unmerged children exists), pick the
-  first ready issue **that is a child of that epic**. Only if the active epic has no
-  ready children do you pick a ready issue from elsewhere — and you do *not* start its
-  epic until the active one has shipped or parked. This keeps the epic branch from
-  falling behind.
+  progress (an `epic/<id>` branch with staged-but-unmerged children exists), use the
+  **epic-aware ready check** to find the next child to work on:
+
+  1. `bd show <epic-id>` — collect all children.
+  2. Discard any child that is `staged`, `in_progress`, `closed`, or `blocked`.
+  3. For each remaining (`OPEN`, untagged) child, inspect its deps via `bd show <child-id>`.
+  4. A dep is **satisfied** if the blocker is `CLOSED` **or** (still `OPEN` AND carries the
+     `staged` label) — staged code is already on `epic/<id>` and available to build on.
+  5. A child is **locally ready** when all its deps are satisfied.
+  6. Pick the highest-priority locally-ready child. If none, the epic has no actionable
+     work right now — pick a ready issue from elsewhere (but do *not* start a new epic
+     until the active one has shipped or parked).
+
+  > **Why not rely solely on `bd ready` here?** `bd ready` clears a dep only when the
+  > blocker is `CLOSED`. In the batch model siblings stay `OPEN` until the epic flushes,
+  > so sibling `blocks` deps would never clear — causing a permanent deadlock. The
+  > epic-aware check substitutes `staged` as the satisfaction signal within the epic,
+  > resolving deps correctly without breaking the batch model.
+  >
+  > `bd ready` is still used for the non-epic path (loose one-offs with no active epic)
+  > where the closed-only rule is correct.
 
 Claim the chosen issue:
 ```bash
@@ -444,7 +453,8 @@ Log `PARKED: epic <epic-id> — ci-failed (exhausted)`; return to Step 1.
   Worktrees and branches are preserved on any park.
 - **The worst failure mode is idle**, not a broken `main`. A crash mid-loop leaves staged
   children on their epic branch and any armed epic PR open — nothing is lost.
-- **`staged` does not satisfy `bd ready` block-checks.** A `staged` child is still
-  OPEN; `bd ready` only clears a dependency when the blocker is CLOSED. Never author
-  sibling `blocks` deps in a batched epic — they create a deadlock the loop cannot
-  recover from. Use priority for ordering; see the "Epic authoring rules" section above.
+- **Sibling deps are resolved by the epic-aware ready check, not `bd ready`.** `bd ready`
+  only clears a dep when the blocker is CLOSED; the epic-aware check (Step 1) also
+  accepts `staged` as satisfied within an epic. Sibling `blocks` deps work correctly;
+  `bd ready` is used only for the non-epic (loose one-off) path. See "Epic authoring
+  rules" for when to use deps vs. priority.

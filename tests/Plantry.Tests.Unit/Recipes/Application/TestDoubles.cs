@@ -140,16 +140,26 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
 
     public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+
+    public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
+
+    public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
 }
 
 /// <summary>
-/// Records the two inline Catalog mutations. A created staple is registered into the paired
-/// <see cref="FakeCatalogProductReader"/> (so a follow-up resolve sees it), and a written conversion is
-/// registered into the paired <see cref="FakeUnitConverter"/> (so the retry's path check passes).
+/// Records inline Catalog mutations for AuthorRecipe unit tests. Created products are registered into
+/// the paired <see cref="FakeCatalogProductReader"/> (so a follow-up resolve sees them), and written
+/// conversions are registered into the paired <see cref="FakeUnitConverter"/> (so the retry's path
+/// check passes).
 /// </summary>
 internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUnitConverter converter) : ICatalogWriter
 {
     public List<(string Name, Guid DefaultUnitId)> StaplesCreated { get; } = [];
+    public List<(string Name, Guid DefaultUnitId, Guid? CategoryId)> TrackedProductsCreated { get; } = [];
+    public List<(Guid ParentGroupId, string VariantName)> VariantsCreated { get; } = [];
+    public List<(string GroupName, string VariantName, Guid DefaultUnitId)> GroupedProductsCreated { get; } = [];
     public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId, decimal Factor)> ConversionsAdded { get; } = [];
 
     public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default)
@@ -158,6 +168,35 @@ internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUni
         var staple = new CatalogProduct(Guid.CreateVersion7(), name, TrackStock: false, defaultUnitId, null, false, []);
         reader.Register(staple);
         return Task.FromResult(staple.Id);
+    }
+
+    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
+    {
+        TrackedProductsCreated.Add((name, defaultUnitId, categoryId));
+        var product = new CatalogProduct(Guid.CreateVersion7(), name, TrackStock: true, defaultUnitId, null, false, []);
+        reader.Register(product);
+        return Task.FromResult(product.Id);
+    }
+
+    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, CancellationToken ct = default)
+    {
+        VariantsCreated.Add((parentGroupId, variantName));
+        // The variant has the parent's unit (simplified in the fake — unit override not tracked for simplicity).
+        var defaultUnitId = unitOverride ?? Guid.CreateVersion7();
+        var variant = new CatalogProduct(Guid.CreateVersion7(), variantName, TrackStock: true, defaultUnitId, parentGroupId, false, []);
+        reader.Register(variant);
+        return Task.FromResult(variant.Id);
+    }
+
+    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
+    {
+        GroupedProductsCreated.Add((groupName, variantName, defaultUnitId));
+        var variantId = Guid.CreateVersion7();
+        var groupId = Guid.CreateVersion7();
+        // Register only the variant — the group is an abstract parent and is not directly resolved.
+        var variant = new CatalogProduct(variantId, variantName, TrackStock: true, defaultUnitId, groupId, false, []);
+        reader.Register(variant);
+        return Task.FromResult(variantId);
     }
 
     public Task AddConversionAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default)

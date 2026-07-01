@@ -11,7 +11,10 @@ namespace Plantry.Web.Recipes;
 /// <see cref="IUnitRepository"/>. Lives in Plantry.Web, the composition root that already references
 /// both contexts, so the Recipes projects stay free of any Catalog dependency.
 /// </summary>
-public sealed class CatalogProductReaderAdapter(IProductRepository products, IUnitRepository units)
+public sealed class CatalogProductReaderAdapter(
+    IProductRepository products,
+    IUnitRepository units,
+    ICategoryRepository categories)
     : ICatalogProductReader
 {
     public async Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default)
@@ -94,6 +97,25 @@ public sealed class CatalogProductReaderAdapter(IProductRepository products, IUn
         return all
             .OrderBy(u => u.Code)
             .Select(u => new CatalogUnitOption(u.Id.Value, u.Code))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default)
+    {
+        var active = await products.ListActiveAsync(ct);
+        return active
+            .Where(p => p.IsParent)
+            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(p => new CatalogGroupOption(p.Id.Value, p.Name))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default)
+    {
+        var activeCategories = await categories.ListActiveAsync(ct);
+        return activeCategories
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(c => new CatalogCategoryOption(c.Id.Value, c.Name))
             .ToList();
     }
 

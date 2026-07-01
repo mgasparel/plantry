@@ -345,4 +345,18 @@ public sealed class FakeEditorProductReader(
 
     public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
         Task.FromResult(unitOptions);
+
+    /// <summary>
+    /// Returns an empty list of group options — the L4 editor tests do not exercise the create-view
+    /// Group combobox, so an empty set is correct (the combobox renders with no pre-loaded groups).
+    /// </summary>
+    public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
+
+    /// <summary>
+    /// Returns an empty list of category options — the L4 editor tests do not exercise the create-view
+    /// Defaults collapsible, so an empty set is correct.
+    /// </summary>
+    public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
 }

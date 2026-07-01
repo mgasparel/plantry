@@ -58,7 +58,8 @@ public sealed class AuthorRecipe(
             return new AuthorRecipeResult.Invalid(
                 Error.Custom("Recipes.DuplicateName", $"A recipe named '{name}' already exists."));
 
-        // ── Per-line product resolution (search/select or inline untracked-staple create, C12) ──
+        // ── Per-line product resolution (search/select, inline untracked-staple create C12,
+        //    or inline tracked-product create plantry-orix) ──
         var resolved = new List<ResolvedLine>(command.Lines.Count);
         foreach (var line in command.Lines)
         {
@@ -70,8 +71,57 @@ public sealed class AuthorRecipe(
                         Error.Custom("Recipes.UnknownProduct", "A chosen ingredient product does not exist."));
                 resolved.Add(new ResolvedLine(product.Id, product.TrackStock, product.DefaultUnitId, line));
             }
+            else if (line.NewIsTracked && !string.IsNullOrWhiteSpace(line.NewStapleName))
+            {
+                // Tracked product create from the create-view (plantry-orix). Three sub-paths:
+                //   A. Join existing group  — newGroupId non-empty → CreateVariantCommand
+                //   B. Create new group     — newGroupName non-empty, newGroupId empty → CreateGroupedProductCommand
+                //   C. Standalone tracked   — both group fields empty → CreateProductCommand (track_stock: true)
+                if (line.NewStapleDefaultUnitId is not { } trackedUnit)
+                    return new AuthorRecipeResult.Invalid(
+                        Error.Custom("Recipes.MissingStapleUnit", "An inline tracked product needs a default unit."));
+
+                // R5 pre-check: a tracked ingredient must have both qty and unitId. We validate BEFORE
+                // the Catalog write so no orphan product is minted when the user hasn't set a quantity
+                // (the create-view has no qty field; the user must re-open the row in the search view
+                // to fill qty). Without this guard the product would be created in Catalog and then the
+                // recipe save would still fail, leaving the catalog in a dirty state (plantry-orix).
+                if (line.Quantity is null || line.UnitId is null)
+                    return new AuthorRecipeResult.Invalid(Error.Custom(
+                        "Recipes.TrackedRequiresQuantity",
+                        "A tracked ingredient must have both a quantity and a unit."));
+
+                var trackedName = line.NewStapleName.Trim();
+                Guid newTrackedId;
+
+                if (!string.IsNullOrWhiteSpace(line.NewGroupId) && Guid.TryParse(line.NewGroupId, out var parentGroupId))
+                {
+                    // Path A: create as a variant of an existing group.
+                    var unitOverride = trackedUnit == Guid.Empty ? (Guid?)null : trackedUnit;
+                    var catOverride  = line.NewStapleCategoryId;
+                    newTrackedId = await catalogWriter.CreateTrackedVariantAsync(
+                        parentGroupId, trackedName, unitOverride, catOverride, ct);
+                }
+                else if (!string.IsNullOrWhiteSpace(line.NewGroupName))
+                {
+                    // Path B: create new group + first variant atomically.
+                    newTrackedId = await catalogWriter.CreateTrackedGroupedProductAsync(
+                        line.NewGroupName.Trim(), trackedName,
+                        trackedUnit, line.NewStapleCategoryId, ct);
+                }
+                else
+                {
+                    // Path C: standalone tracked product (no group).
+                    newTrackedId = await catalogWriter.CreateTrackedProductAsync(
+                        trackedName, trackedUnit, line.NewStapleCategoryId, ct);
+                }
+
+                // A freshly created tracked product has trackStock: true; its default unit is the supplied unit.
+                resolved.Add(new ResolvedLine(newTrackedId, TrackStock: true, trackedUnit, line));
+            }
             else if (!string.IsNullOrWhiteSpace(line.NewStapleName))
             {
+                // Untracked staple (C12, NewIsTracked = false).
                 if (line.NewStapleDefaultUnitId is not { } stapleUnit)
                     return new AuthorRecipeResult.Invalid(
                         Error.Custom("Recipes.MissingStapleUnit", "An inline staple needs a default unit."));
@@ -228,10 +278,29 @@ public sealed record AuthorRecipeCommand(
 
 /// <summary>
 /// One authored ingredient row. Carries <b>either</b> a chosen <see cref="ProductId"/> (search/select)
-/// <b>or</b> an inline untracked-staple request (<see cref="NewStapleName"/> +
-/// <see cref="NewStapleDefaultUnitId"/>, C12). <see cref="ConversionFactor"/> is the author-supplied
-/// factor (from <see cref="UnitId"/> to the product's default unit) returned on the retry after a
-/// <see cref="AuthorRecipeResult.NeedsConversion"/> outcome (C10).
+/// <b>or</b> an inline create request via the create-view. Two inline-create flavours:
+/// <list type="bullet">
+///   <item>
+///     <description>
+///       <b>Untracked staple</b> (C12): <see cref="NewIsTracked"/> = false. <see cref="NewStapleName"/>
+///       + <see cref="NewStapleDefaultUnitId"/> are required. Creates a <c>track_stock = false</c> product.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///       <b>Tracked product</b> (plantry-orix): <see cref="NewIsTracked"/> = true.
+///       <see cref="NewStapleName"/> + <see cref="NewStapleDefaultUnitId"/> are required.
+///       Three sub-paths driven by <see cref="NewGroupId"/> / <see cref="NewGroupName"/>:
+///       (A) <see cref="NewGroupId"/> non-empty → join existing group (CreateVariantCommand);
+///       (B) <see cref="NewGroupName"/> non-empty → new group + first variant (CreateGroupedProductCommand);
+///       (C) both empty → standalone tracked product (CreateProductCommand, track_stock = true).
+///       <see cref="NewStapleCategoryId"/> is the optional category Guid supplied from the Defaults collapsible.
+///     </description>
+///   </item>
+/// </list>
+/// <see cref="ConversionFactor"/> is the author-supplied factor (from <see cref="UnitId"/> to the
+/// product's default unit) returned on the retry after a <see cref="AuthorRecipeResult.NeedsConversion"/>
+/// outcome (C10).
 /// </summary>
 public sealed record AuthorIngredientLine(
     Guid? ProductId,
@@ -241,7 +310,11 @@ public sealed record AuthorIngredientLine(
     int Ordinal,
     string? NewStapleName = null,
     Guid? NewStapleDefaultUnitId = null,
-    decimal? ConversionFactor = null);
+    decimal? ConversionFactor = null,
+    bool NewIsTracked = false,
+    string? NewGroupId = null,
+    string? NewGroupName = null,
+    Guid? NewStapleCategoryId = null);
 
 // ── Result ──────────────────────────────────────────────────────────────────────────────────────
 
