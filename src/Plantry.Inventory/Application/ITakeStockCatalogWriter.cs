@@ -78,4 +78,18 @@ public interface ITakeStockCatalogWriter
         Guid productId,
         Guid locationId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Adds a product-specific <c>ProductConversion</c> — the inline factor a user supplies from the
+    /// Take Stock walk when a counted unit has no conversion path to the product's default unit (the
+    /// NeedsConversion backstop, the exact analogue of Recipes' C10 flow). The factor is stored in the
+    /// <paramref name="fromUnitId"/>→<paramref name="toUnitId"/> direction (i.e. "1 fromUnit =
+    /// factor toUnit"). Throws when Catalog rejects it (unknown product or unit, equal units).
+    /// </summary>
+    Task AddConversionAsync(
+        Guid productId,
+        Guid fromUnitId,
+        Guid toUnitId,
+        decimal factor,
+        CancellationToken ct = default);
 }

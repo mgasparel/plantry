@@ -66,7 +66,7 @@ public sealed class ParseSessionCommand(
                 alternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } ? alternatives : null);
         }
 
-        session.MarkReady(parse.MerchantText, clock.UtcNow);
+        session.MarkReady(parse.MerchantText, clock.UtcNow, parse.Metadata);
         await sessions.SaveChangesAsync(ct);
         logger?.LogInformation(
             "Receipt parsed successfully. Session {SessionId} is Ready with {LineCount} line(s).",

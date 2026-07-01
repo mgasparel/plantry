@@ -264,21 +264,58 @@ public sealed class WalkModel(
         var invalidItems = new List<SaveItem>();
         var validItems = new List<CountItem>();
 
+        // NeedsConversion backstop (plantry-3mwx) — the exact analogue of Recipes' C10 flow
+        // (AuthorRecipe R7/C10). A counted unit that has no conversion path to the product's default
+        // unit must NOT be silently recorded (previously the count was applied in whichever unit the
+        // client sent, or the client had already dropped it to the product default). Instead we
+        // surface a per-row prompt so the user supplies a conversion factor via OnPostAddConversion,
+        // then re-saves. Unit codes are resolved lazily (only when a row actually needs conversion).
+        var needsConversionResults = new List<object>();
+        Dictionary<Guid, string>? unitCodesById = null;
+
         foreach (var i in payload.Items)
         {
             if (!Guid.TryParse(i.CountedUnitId, out var unitId) || unitId == Guid.Empty)
             {
                 invalidItems.Add(i);
+                continue;
             }
-            else
+
+            // Resolve the product's default unit; if the counted unit differs and there is no
+            // conversion path to the default unit, hold the row for a conversion factor. When the
+            // product cannot be resolved we fall through to the command (which fails loudly on an
+            // unresolvable unit as the backstop) rather than guessing.
+            var product = await productRepository.FindAsync(ProductId.From(i.ProductId), ct);
+            if (product is not null && unitId != product.DefaultUnitId.Value)
             {
-                validItems.Add(new CountItem(
-                    i.ProductId,
-                    LocationId,
-                    i.CountedValue,
-                    unitId,
-                    ParseReason(i.Reason)));
+                var defaultUnitId = product.DefaultUnitId.Value;
+                var converter = await conversions.ForProductAsync(i.ProductId, ct);
+                if (converter.Convert(1m, unitId, defaultUnitId).IsFailure)
+                {
+                    unitCodesById ??= (await unitRepository.ListAsync(ct))
+                        .ToDictionary(u => u.Id.Value, u => u.Code);
+
+                    needsConversionResults.Add(new
+                    {
+                        ProductId = i.ProductId,
+                        IsSuccess = false,
+                        needsConversion = true,
+                        fromUnitId = unitId,
+                        fromUnitCode = unitCodesById.GetValueOrDefault(unitId, "?"),
+                        toUnitId = defaultUnitId,
+                        toUnitCode = unitCodesById.GetValueOrDefault(defaultUnitId, "?"),
+                        error = "This unit needs a conversion factor before it can be recorded.",
+                    });
+                    continue;
+                }
             }
+
+            validItems.Add(new CountItem(
+                i.ProductId,
+                LocationId,
+                i.CountedValue,
+                unitId,
+                ParseReason(i.Reason)));
         }
 
         // Build per-row results — invalid items get an inline error, valid items go through the command.
@@ -293,6 +330,8 @@ public sealed class WalkModel(
                 error = "Unit is required — please select a unit before saving.",
             });
         }
+
+        perRowResults.AddRange(needsConversionResults);
 
         if (validItems.Count > 0)
         {
@@ -315,6 +354,58 @@ public sealed class WalkModel(
         }
 
         return new JsonResult(new { results = perRowResults });
+    }
+
+    // ── POST (Add conversion — NeedsConversion backstop, plantry-3mwx) ─────────
+
+    /// <summary>
+    /// Accepts a JSON body <c>{ productId, fromUnitId, toUnitId, factor }</c> posted by the island's
+    /// inline conversion-factor prompt when a Save returned a <c>needsConversion</c> row. Persists the
+    /// product-specific conversion via <see cref="ITakeStockCatalogWriter.AddConversionAsync"/> (over
+    /// Catalog's <c>AddConversionCommand</c>) so the subsequent re-save can convert the counted unit
+    /// into the product's default unit. Returns <c>{ isSuccess, error? }</c> — the mirror of the
+    /// Recipes C10 post-save conversion flow.
+    /// </summary>
+    public async Task<IActionResult> OnPostAddConversionAsync(CancellationToken ct = default)
+    {
+        using var bodyReader = new StreamReader(Request.Body);
+        var bodyJson = await bodyReader.ReadToEndAsync(ct);
+        AddConversionRequest? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize<AddConversionRequest>(bodyJson, JsonOptions);
+        }
+        catch
+        {
+            return BadRequest(new { error = "Invalid request body." });
+        }
+
+        if (payload is null
+            || payload.ProductId == Guid.Empty
+            || payload.FromUnitId == Guid.Empty
+            || payload.ToUnitId == Guid.Empty)
+            return BadRequest(new { error = "productId, fromUnitId, and toUnitId are required." });
+
+        if (payload.Factor <= 0m)
+            return new JsonResult(new { isSuccess = false, error = "Enter a conversion factor greater than zero." });
+
+        if (tenant.HouseholdId is null)
+            return Unauthorized();
+
+        try
+        {
+            await catalogWriter.AddConversionAsync(
+                payload.ProductId, payload.FromUnitId, payload.ToUnitId, payload.Factor, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(
+                "AddConversion failed for product {ProductId} ({FromUnitId}→{ToUnitId}) at location {LocationId}: {Message}.",
+                payload.ProductId, payload.FromUnitId, payload.ToUnitId, LocationId, ex.Message);
+            return new JsonResult(new { isSuccess = false, error = ex.Message });
+        }
+
+        return new JsonResult(new { isSuccess = true });
     }
 
     // ── GET (Lots fragment — escape hatch) ────────────────────────────────────
@@ -534,6 +625,19 @@ public sealed class WalkModel(
     private sealed class SaveLotsRequest
     {
         public List<SaveLotAdjust>? Adjustments { get; set; }
+    }
+
+    /// <summary>
+    /// Body for <see cref="OnPostAddConversionAsync"/> (plantry-3mwx). The factor is stored in the
+    /// <see cref="FromUnitId"/>→<see cref="ToUnitId"/> direction (i.e. "1 fromUnit = factor toUnit"),
+    /// where fromUnit is the counted unit and toUnit is the product's default unit.
+    /// </summary>
+    private sealed class AddConversionRequest
+    {
+        public Guid    ProductId  { get; set; }
+        public Guid    FromUnitId { get; set; }
+        public Guid    ToUnitId   { get; set; }
+        public decimal Factor     { get; set; }
     }
 
     private sealed class SaveLotAdjust

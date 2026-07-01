@@ -76,6 +76,12 @@
  * @property {SignalLike<boolean>} dirty        ReadonlySignal in the real island; SignalLike for tests
  * @property {SignalLike<boolean>} down         ReadonlySignal in the real island; SignalLike for tests
  * @property {boolean} isNewRow
+ * @property {SignalLike<boolean>} needsConversion   true when the last save returned a needsConversion row (plantry-3mwx)
+ * @property {SignalLike<string>} convFromUnitId     the counted unit id awaiting a conversion factor
+ * @property {SignalLike<string>} convFromCode       the counted unit's display code
+ * @property {SignalLike<string>} convToUnitId       the product default unit id to convert into
+ * @property {SignalLike<string>} convToCode         the product default unit's display code
+ * @property {SignalLike<string>} convFactor         the user-entered conversion factor (raw input)
  */
 
 /**
@@ -84,6 +90,11 @@
  * @property {string} productId
  * @property {boolean} isSuccess
  * @property {string|null} [error]
+ * @property {boolean} [needsConversion]   true when the row needs a conversion factor (plantry-3mwx)
+ * @property {string} [fromUnitId]         the counted unit id (needsConversion rows)
+ * @property {string} [fromUnitCode]       the counted unit's display code
+ * @property {string} [toUnitId]           the product default unit id to convert into
+ * @property {string} [toUnitCode]         the product default unit's display code
  */
 
 // ── setCount ─────────────────────────────────────────────────────────────────
@@ -160,6 +171,14 @@ export function makeRow(seed, signalFn, computedFn) {
     dirty,
     down,
     isNewRow: seed.isNewRow ?? false,
+    // NeedsConversion prompt state (plantry-3mwx) — set by reconcileResults when a save returns a
+    // needsConversion row, cleared once the factor is saved and the row re-saves cleanly.
+    needsConversion: signalFn(false),
+    convFromUnitId: signalFn(""),
+    convFromCode: signalFn(""),
+    convToUnitId: signalFn(""),
+    convToCode: signalFn(""),
+    convFactor: signalFn(""),
   };
 }
 
@@ -199,13 +218,17 @@ export function buildSaveItems(dirtyRows) {
  * Pure transform: only reads/writes `.value` on signal-like objects;
  * no network I/O, no DOM access.
  *
+ * A result carrying `needsConversion: true` is neither saved nor a plain failure: the row is put
+ * into the conversion-prompt state (plantry-3mwx) so the UI can collect a factor. Such rows are
+ * counted in the returned `needsConversion` tally and are NOT included in `failed`.
+ *
  * @param {Row[]} rows                  — the full row list (haystack for productId lookup)
  * @param {SaveResult[]} results        — data.results from the server response
- * @returns {{ saved: number, failed: number }}
+ * @returns {{ saved: number, failed: number, needsConversion: number }}
  */
 export function reconcileResults(rows, results) {
   const byId = new Map(rows.map((r) => [r.productId, r]));
-  let saved = 0, failed = 0;
+  let saved = 0, failed = 0, needsConversion = 0;
   for (const result of results) {
     const row = byId.get(result.productId);
     if (!row) continue;
@@ -213,14 +236,26 @@ export function reconcileResults(rows, results) {
       row.recorded.value = row.counted.value;
       row.failed.value = false;
       row.failMsg.value = null;
+      row.needsConversion.value = false;
       saved++;
+    } else if (result.needsConversion) {
+      // Hold the row for a conversion factor instead of showing a raw error (C10 parity).
+      row.needsConversion.value = true;
+      row.convFromUnitId.value = result.fromUnitId ?? row.unitId.value;
+      row.convFromCode.value = result.fromUnitCode ?? "";
+      row.convToUnitId.value = result.toUnitId ?? "";
+      row.convToCode.value = result.toUnitCode ?? "";
+      row.failed.value = false;
+      row.failMsg.value = null;
+      needsConversion++;
     } else {
       row.failed.value = true;
       row.failMsg.value = result.error ?? "Failed to save";
+      row.needsConversion.value = false;
       failed++;
     }
   }
-  return { saved, failed };
+  return { saved, failed, needsConversion };
 }
 
 // ── saveStatusMessage ─────────────────────────────────────────────────────────

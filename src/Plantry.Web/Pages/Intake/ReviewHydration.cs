@@ -30,7 +30,18 @@ public sealed record SessionHydration(
     IReadOnlyList<UnitHydration> Units,
     IReadOnlyList<LocationHydration> Locations,
     IReadOnlyList<CategoryHydration> Categories,
-    IReadOnlyList<LineHydration> Lines);
+    IReadOnlyList<LineHydration> Lines,
+    // ── Receipt-panel metadata (display-only; each null/absent field is omitted from the panel) ──
+    string ScanVia,
+    string ScannedLabel,
+    string? StoreBranch,
+    string? PurchaseDate,
+    string? PurchaseTime,
+    decimal? Subtotal,
+    decimal? Tax,
+    decimal? Total,
+    string? Payment,
+    string? ReceiptNo);
 
 /// <summary>A catalog product the drawer can resolve a line to, with the defaults the
 /// island applies on (re-)selection (ADR-020 §3 case 2 — single-default fill is UI).</summary>

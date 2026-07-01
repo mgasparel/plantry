@@ -642,6 +642,21 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--color-text-muted);
 }
 
+/* ── Inline listbox variant (AllowCreate fuzzy search + create) — plantry-g0gb ──
+   The plain combobox listbox above is a floating overlay (position: absolute) — correct
+   for Shopping/Pantry Add Stock where the listbox should not disturb page layout. The
+   fuzzy search + create mode (SearchableSelectTagHelper AllowCreate="true") instead needs
+   an in-flow block that EXPANDS the sheet and pushes the create divider/button below it,
+   matching the accepted fuzzy match-suggestion prototype (Option A). Dropping
+   position: absolute puts the listbox back in normal flow (its top/left/right/z-index no
+   longer apply); the small top gap the prototype's .listbox has is restored via margin-top.
+   All other listbox styling (padding, border, radius, drop shadow, internal scroll) is
+   inherited from the base rule above. */
+.searchable-select__listbox--inline {
+  position: static;
+  margin-top: var(--space-1);
+}
+
 /* ── Rank label (fuzzy search) — plantry-gzro.1 ───────────────────────────────
    Mirrors Intake's .suggest-opt .rk convention (best / N%) so the ranking
    vocabulary reads identically across Intake's AlternativesStrip family and any
@@ -655,8 +670,8 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ── Create escape hatch (AllowCreate) — plantry-gzro.1 ───────────────────────
    Divider + button sit directly below the listbox so the two read as one
-   visually grouped unit, per docs/Engineering/prototypes/
-   fuzzy-match-suggestion-widget.html Option A (.lb-divider treatment). */
+   visually grouped unit, per the accepted fuzzy match-suggestion prototype,
+   Option A (.lb-divider treatment). */
 .searchable-select__create-divider {
   border: none;
   border-top: 1px dashed var(--color-border-strong);
@@ -1764,6 +1779,11 @@ details[open].sheet-defaults > .sheet-defaults__summary { list-style: disclosure
   text-transform: uppercase;
   letter-spacing: -0.01em;
 }
+.rcpt-store-sub {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
 .rcpt-rule { border: none; border-top: 1px dashed var(--color-border); margin: var(--space-3) 0; }
 .rcpt-line {
   display: flex;
@@ -1785,6 +1805,12 @@ details[open].sheet-defaults > .sheet-defaults__summary { list-style: disclosure
     var(--color-text) 4px 5px, transparent 5px 9px,
     var(--color-text) 9px 12px, transparent 12px 14px);
   opacity: 0.85;
+}
+.rcpt-no {
+  text-align: center;
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
 }
 
 /* Per-row error banner (shown when a line command fails — the row is swapped back with the message). */
@@ -5646,6 +5672,14 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-retry { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: var(--radius-md); padding: 5px 11px; font-size: 0.78125rem; font-weight: 700; cursor: pointer; }
 .ts-retry:hover { background: var(--color-danger); color: #fff; border-color: var(--color-danger); }
 
+/* inline conversion-factor prompt (plantry-3mwx — NeedsConversion backstop) */
+.ts-conversion { padding: 11px var(--space-4) 13px; border-top: 1px solid var(--color-warning); background: var(--color-warning-bg); }
+.ts-conversion-lbl { display: flex; align-items: center; gap: 8px; margin: 0 0 9px; font-size: 0.8125rem; font-weight: 600; color: var(--color-text); }
+.ts-conversion-lbl .icon { width: 15px; height: 15px; flex: none; color: var(--color-warning); }
+.ts-conversion-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ts-conversion-eq, .ts-conversion-unit { font-size: 0.8125rem; color: var(--color-text-muted); }
+.ts-conversion-input { width: 7rem; }
+
 /* ---- J3: lot hatch ----------------------------------------------------- */
 .ts-hatch { border-top: 1px solid var(--color-border); background: var(--color-surface-2); padding: 14px var(--space-4) 16px; }
 .ts-hatch-head { font-size: 0.71875rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-faint); margin-bottom: 11px; display: flex; align-items: center; gap: 8px; }
@@ -5681,7 +5715,7 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-hatch-status { font-size: 0.78125rem; color: var(--color-text-muted); }
 
 /* sticky add bar — sits at the top of .ts-walk-inner, under the topbar (z-index 9 < topbar's 10) */
-.ts-add-bar { position: sticky; top: var(--topbar-height); z-index: 9; padding: var(--space-3) 0; background: color-mix(in srgb, var(--color-surface) 90%, transparent); backdrop-filter: blur(10px); }
+.ts-add-bar { position: sticky; top: var(--topbar-height); z-index: 9; padding: var(--space-3) 0; background: color-mix(in srgb, var(--color-bg) 90%, transparent); backdrop-filter: blur(10px); }
 .ts-add-bar .ts-add-item { margin-top: 0; }
 
 /* add-item row trigger */

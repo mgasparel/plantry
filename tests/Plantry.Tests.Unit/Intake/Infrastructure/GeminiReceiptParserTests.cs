@@ -61,6 +61,63 @@ public sealed class GeminiReceiptParserTests
         Assert.Null(milk.UnitLabel);
     }
 
+    // ── Receipt metadata mapping ────────────────────────────────────────────────────────────────
+
+    private const string ResponseWithMetadata = """
+        {
+          "merchant": "Real Canadian Superstore",
+          "store_branch": "1000 Marine Dr, North Vancouver",
+          "purchase_date": "2026-06-07",
+          "purchase_time": "14:34",
+          "subtotal": 39.60,
+          "tax": 1.98,
+          "total": 41.58,
+          "payment": "VISA ****4471 APPROVED",
+          "receipt_number": "TXN 0472 118 6620",
+          "lines": []
+        }
+        """;
+
+    [Fact]
+    public void Maps_Receipt_Header_Metadata_When_Present()
+    {
+        var result = GeminiReceiptParser.MapResponse(ResponseWithMetadata);
+
+        Assert.False(result.HasError);
+        Assert.NotNull(result.Metadata);
+        var m = result.Metadata!;
+        Assert.Equal("1000 Marine Dr, North Vancouver", m.StoreBranch);
+        Assert.Equal(new DateOnly(2026, 6, 7), m.PurchaseDate);
+        Assert.Equal(new TimeOnly(14, 34), m.PurchaseTime);
+        Assert.Equal(39.60m, m.Subtotal);
+        Assert.Equal(1.98m, m.Tax);
+        Assert.Equal(41.58m, m.Total);
+        Assert.Equal("VISA ****4471 APPROVED", m.PaymentDescriptor);
+        Assert.Equal("TXN 0472 118 6620", m.ReceiptNumber);
+    }
+
+    [Fact]
+    public void Metadata_Fields_Are_Null_When_Absent_Or_Unparseable()
+    {
+        // The RecordedResponse fixture has none of the metadata keys; a bad date/time must drop to null
+        // rather than throw (untrusted display data).
+        var badShapes = """
+            {"merchant":null,"purchase_date":"not-a-date","purchase_time":"99:99","lines":[]}
+            """;
+
+        var recorded = GeminiReceiptParser.MapResponse(RecordedResponse);
+        Assert.NotNull(recorded.Metadata);
+        Assert.Null(recorded.Metadata!.StoreBranch);
+        Assert.Null(recorded.Metadata.Subtotal);
+        Assert.Null(recorded.Metadata.PurchaseDate);
+
+        var bad = GeminiReceiptParser.MapResponse(badShapes);
+        Assert.False(bad.HasError);
+        Assert.NotNull(bad.Metadata);
+        Assert.Null(bad.Metadata!.PurchaseDate);
+        Assert.Null(bad.Metadata.PurchaseTime);
+    }
+
     [Fact]
     public void Strips_Markdown_Fences_Before_Parsing()
     {

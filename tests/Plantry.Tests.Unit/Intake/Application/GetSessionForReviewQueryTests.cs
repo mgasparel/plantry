@@ -18,13 +18,56 @@ public sealed class GetSessionForReviewQueryTests
     private readonly Guid _productB = Guid.CreateVersion7();
     private readonly Guid _productC = Guid.CreateVersion7();
 
-    private ImportSession BuildReadySession(Action<ImportSession> configure)
+    private ImportSession BuildReadySession(Action<ImportSession> configure, ReceiptMetadata? metadata = null)
     {
         var session = ImportSession.Start(
             HouseholdId.From(_householdId), ImportSourceType.Receipt, _userId, Clock);
         configure(session);
-        session.MarkReady("Test Grocer", Clock.UtcNow);
+        session.MarkReady("Test Grocer", Clock.UtcNow, metadata);
         return session;
+    }
+
+    [Fact]
+    public async Task View_Carries_Receipt_Metadata_From_The_Session()
+    {
+        var metadata = new ReceiptMetadata(
+            StoreBranch: "42 Market St",
+            PurchaseDate: new DateOnly(2026, 6, 7),
+            PurchaseTime: new TimeOnly(14, 34),
+            Subtotal: 40.00m, Tax: 2.00m, Total: 42.00m,
+            PaymentDescriptor: "VISA ****4471 APPROVED",
+            ReceiptNumber: "TXN 0472 118");
+        var session = BuildReadySession(
+            s => s.AddLine(1, "WHOLE MILK 2L", SuggestedConfidence.High, rawPayload: null),
+            metadata);
+
+        var result = await Query(session).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var view = result.Value;
+        Assert.Equal(ImportSourceType.Receipt, view.SourceType);
+        Assert.Equal("42 Market St", view.StoreBranch);
+        Assert.Equal(new DateOnly(2026, 6, 7), view.PurchaseDate);
+        Assert.Equal(new TimeOnly(14, 34), view.PurchaseTime);
+        Assert.Equal(40.00m, view.Subtotal);
+        Assert.Equal(2.00m, view.Tax);
+        Assert.Equal(42.00m, view.Total);
+        Assert.Equal("VISA ****4471 APPROVED", view.PaymentDescriptor);
+        Assert.Equal("TXN 0472 118", view.ReceiptNumber);
+    }
+
+    [Fact]
+    public async Task View_Metadata_Is_Null_When_Session_Has_None()
+    {
+        var session = BuildReadySession(
+            s => s.AddLine(1, "WHOLE MILK 2L", SuggestedConfidence.High, rawPayload: null));
+
+        var result = await Query(session).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value.StoreBranch);
+        Assert.Null(result.Value.Total);
+        Assert.Null(result.Value.PaymentDescriptor);
     }
 
     private static FakeImportSessionRepository RepoWith(ImportSession session)

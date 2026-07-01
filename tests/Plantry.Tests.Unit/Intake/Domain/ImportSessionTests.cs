@@ -68,6 +68,50 @@ public sealed class ImportSessionTests
     }
 
     [Fact]
+    public void MarkReady_Stores_Receipt_Metadata_When_Provided()
+    {
+        var session = Started();
+        var metadata = new ReceiptMetadata(
+            StoreBranch: "42 Market St",
+            PurchaseDate: new DateOnly(2026, 6, 7),
+            PurchaseTime: new TimeOnly(14, 34),
+            Subtotal: 39.60m,
+            Tax: 1.98m,
+            Total: 41.58m,
+            PaymentDescriptor: "VISA ****4471 APPROVED",
+            ReceiptNumber: "TXN 0472 118");
+
+        var result = session.MarkReady("Superstore", DateTimeOffset.UtcNow, metadata);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("42 Market St", session.StoreBranch);
+        Assert.Equal(new DateOnly(2026, 6, 7), session.PurchaseDate);
+        Assert.Equal(new TimeOnly(14, 34), session.PurchaseTime);
+        Assert.Equal(39.60m, session.Subtotal);
+        Assert.Equal(1.98m, session.Tax);
+        Assert.Equal(41.58m, session.Total);
+        Assert.Equal("VISA ****4471 APPROVED", session.PaymentDescriptor);
+        Assert.Equal("TXN 0472 118", session.ReceiptNumber);
+    }
+
+    [Fact]
+    public void MarkReady_Leaves_Metadata_Null_When_Omitted()
+    {
+        var session = Started();
+
+        session.MarkReady("Superstore", DateTimeOffset.UtcNow);
+
+        Assert.Null(session.StoreBranch);
+        Assert.Null(session.PurchaseDate);
+        Assert.Null(session.PurchaseTime);
+        Assert.Null(session.Subtotal);
+        Assert.Null(session.Tax);
+        Assert.Null(session.Total);
+        Assert.Null(session.PaymentDescriptor);
+        Assert.Null(session.ReceiptNumber);
+    }
+
+    [Fact]
     public void MarkReady_Fails_When_Not_In_Parsing()
     {
         var session = Started();
