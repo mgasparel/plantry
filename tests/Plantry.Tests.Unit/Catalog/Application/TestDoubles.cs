@@ -101,6 +101,39 @@ internal sealed class FakeCategoryRepository : ICategoryRepository
     }
 }
 
+internal sealed class FakeStoreRepository : IStoreRepository
+{
+    public List<Store> Items { get; } = [];
+    public int SaveChangesCalls { get; private set; }
+
+    public Task<Store?> FindAsync(StoreId id, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(s => s.Id == id));
+
+    public Task<Store?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(s => s.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    public Task<Store?> FindByExternalRefAsync(string externalRef, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(s =>
+            s.ExternalRef is not null && s.ExternalRef.Equals(externalRef.Trim(), StringComparison.Ordinal)));
+
+    public Task<List<Store>> ListAsync(CancellationToken ct = default) => Task.FromResult(Items.ToList());
+
+    public Task<List<Store>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(s => !s.IsArchived).ToList());
+
+    public Task AddAsync(Store store, CancellationToken ct = default)
+    {
+        Items.Add(store);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveChangesCalls++;
+        return Task.CompletedTask;
+    }
+}
+
 internal sealed class FakeLocationRepository : ILocationRepository
 {
     public List<Location> Items { get; } = [];
