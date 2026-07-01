@@ -5661,6 +5661,14 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-retry { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: var(--radius-md); padding: 5px 11px; font-size: 0.78125rem; font-weight: 700; cursor: pointer; }
 .ts-retry:hover { background: var(--color-danger); color: #fff; border-color: var(--color-danger); }
 
+/* inline conversion-factor prompt (plantry-3mwx — NeedsConversion backstop) */
+.ts-conversion { padding: 11px var(--space-4) 13px; border-top: 1px solid var(--color-warning); background: var(--color-warning-bg); }
+.ts-conversion-lbl { display: flex; align-items: center; gap: 8px; margin: 0 0 9px; font-size: 0.8125rem; font-weight: 600; color: var(--color-text); }
+.ts-conversion-lbl .icon { width: 15px; height: 15px; flex: none; color: var(--color-warning); }
+.ts-conversion-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ts-conversion-eq, .ts-conversion-unit { font-size: 0.8125rem; color: var(--color-text-muted); }
+.ts-conversion-input { width: 7rem; }
+
 /* ---- J3: lot hatch ----------------------------------------------------- */
 .ts-hatch { border-top: 1px solid var(--color-border); background: var(--color-surface-2); padding: 14px var(--space-4) 16px; }
 .ts-hatch-head { font-size: 0.71875rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-faint); margin-bottom: 11px; display: flex; align-items: center; gap: 8px; }

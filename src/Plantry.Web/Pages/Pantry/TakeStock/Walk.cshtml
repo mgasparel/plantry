@@ -65,8 +65,9 @@
         if (root && rows) {
             mountTakeStockWalk(root, {
                 rows,
-                saveUrl:      '@Url.Page("./Walk", "Save",    new { locationId = Model.LocationId })',
-                addItemUrl:   '@Url.Page("./Walk", "AddItem", new { locationId = Model.LocationId })',
+                saveUrl:          '@Url.Page("./Walk", "Save",          new { locationId = Model.LocationId })',
+                addItemUrl:       '@Url.Page("./Walk", "AddItem",       new { locationId = Model.LocationId })',
+                addConversionUrl: '@Url.Page("./Walk", "AddConversion", new { locationId = Model.LocationId })',
                 token,
                 locationName,
             });
@@ -128,6 +129,14 @@ function takeStockSheetBridge() {
             const islandRoot = document.getElementById('ts-walk-root');
             if (!islandRoot) return;
 
+            // Resolve the display code of the chosen opening-count unit from the #add-unit select so
+            // the island can show the selected unit on the row even before a conversion exists for it
+            // (plantry-3mwx). Falls back to '' when the select is absent.
+            const unitSel = document.getElementById('add-unit');
+            const addUnitCode = unitSel && unitSel.selectedIndex >= 0
+                ? (unitSel.options[unitSel.selectedIndex].text || '')
+                : '';
+
             // Search-view path: existing product selected — dispatch to island, no POST needed.
             if (this.draft.productId) {
                 islandRoot.dispatchEvent(new CustomEvent('ts-sheet-add', {
@@ -137,6 +146,7 @@ function takeStockSheetBridge() {
                         productName: this.draft.productName,
                         addCount:    this.draft.addCount,
                         addUnitId:   this.draft.addUnitId,
+                        addUnitCode: addUnitCode,
                     }
                 }));
                 this.sheetView = 'search';
@@ -162,6 +172,7 @@ function takeStockSheetBridge() {
                     newStapleCategoryId: this.draft.newStapleCategoryId || '',
                     addCount:            this.draft.addCount,
                     addUnitId:           this.draft.addUnitId    || unitId,
+                    addUnitCode:         addUnitCode,
                 }
             }));
             this.sheetView = 'search';

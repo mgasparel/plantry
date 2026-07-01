@@ -295,6 +295,16 @@ describe("makeRow", () => {
       const row = makeTestRow({ isNewRow: true });
       assert.equal(row.isNewRow, true);
     });
+
+    it("needsConversion defaults to false with empty conversion fields (plantry-3mwx)", () => {
+      const row = makeTestRow();
+      assert.equal(row.needsConversion.value, false);
+      assert.equal(row.convFromUnitId.value, "");
+      assert.equal(row.convFromCode.value, "");
+      assert.equal(row.convToUnitId.value, "");
+      assert.equal(row.convToCode.value, "");
+      assert.equal(row.convFactor.value, "");
+    });
   });
 
   describe("seed values propagated", () => {
@@ -499,6 +509,48 @@ describe("reconcileResults", () => {
     ]);
     assert.equal(saved, 0);
     assert.equal(failed, 2);
+  });
+
+  // ── NeedsConversion rows (plantry-3mwx) ──────────────────────────────────────
+
+  it("needsConversion result puts the row into the prompt state, not failed", () => {
+    const row = makeTestRow({ productId: "prod-a", unitId: "unit-cup" });
+
+    const { saved, failed, needsConversion } = reconcileResults([row], [{
+      productId: "prod-a",
+      isSuccess: false,
+      needsConversion: true,
+      fromUnitId: "unit-cup",
+      fromUnitCode: "cup",
+      toUnitId: "unit-g",
+      toUnitCode: "g",
+      error: "This unit needs a conversion factor before it can be recorded.",
+    }]);
+
+    assert.equal(row.needsConversion.value, true);
+    assert.equal(row.convFromUnitId.value, "unit-cup");
+    assert.equal(row.convFromCode.value, "cup");
+    assert.equal(row.convToUnitId.value, "unit-g");
+    assert.equal(row.convToCode.value, "g");
+    assert.equal(row.failed.value, false, "needsConversion is not a plain failure");
+    assert.equal(saved, 0);
+    assert.equal(failed, 0);
+    assert.equal(needsConversion, 1);
+  });
+
+  it("a later success clears a row's needsConversion prompt state", () => {
+    const row = makeTestRow({ productId: "prod-a" });
+    row.needsConversion.value = true;
+    row.counted.value = 2;
+
+    const { saved, needsConversion } = reconcileResults([row], [
+      { productId: "prod-a", isSuccess: true, error: null },
+    ]);
+
+    assert.equal(row.needsConversion.value, false);
+    assert.equal(row.recorded.value, 2);
+    assert.equal(saved, 1);
+    assert.equal(needsConversion, 0);
   });
 });
 

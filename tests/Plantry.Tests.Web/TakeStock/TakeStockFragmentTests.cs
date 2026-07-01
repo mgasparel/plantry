@@ -798,6 +798,186 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.NotNull(result.Error);
     }
 
+    // ── NeedsConversion backstop (plantry-3mwx) ───────────────────────────────
+
+    [Fact(DisplayName = "POST Save with a counted unit that has no conversion path returns a needsConversion row (plantry-3mwx)")]
+    public async Task Post_Save_UnconvertibleUnit_ReturnsNeedsConversionRow()
+    {
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Count the seeded Flour (default unit = gram) in "cup" — a unit the failing converter cannot
+        // convert to gram. The server must NOT record it; it must return a needsConversion row.
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = factory.FlourProductId,
+                    countedValue  = 1m,
+                    countedUnitId = factory.CupUnitId,
+                    reason        = "Correction",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        var result = Assert.Single(root.GetProperty("results").EnumerateArray());
+        Assert.False(result.GetProperty("isSuccess").GetBoolean());
+        Assert.True(result.GetProperty("needsConversion").GetBoolean());
+        Assert.Equal(factory.CupUnitId, result.GetProperty("fromUnitId").GetGuid());
+        Assert.Equal(TakeStockFixture.GramUnitId, result.GetProperty("toUnitId").GetGuid());
+
+        // Nothing was recorded — the count was held for a conversion factor.
+        var stock = factory.StockRepository.Items.SingleOrDefault(s => s.ProductId == factory.FlourProductId);
+        Assert.Null(stock);
+    }
+
+    [Fact(DisplayName = "POST Save in the product default unit still records (no false needsConversion) (plantry-3mwx)")]
+    public async Task Post_Save_DefaultUnit_StillRecords()
+    {
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Same product, but counted in its default unit (gram) — the guard must not trip.
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = factory.FlourProductId,
+                    countedValue  = 42m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason        = "Correction",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
+    }
+
+    [Fact(DisplayName = "POST AddConversion persists the factor via the catalog writer (plantry-3mwx)")]
+    public async Task Post_AddConversion_PersistsFactorViaWriter()
+    {
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var productId = Guid.CreateVersion7();
+        var cupUnitId = Guid.CreateVersion7();
+        var payload = new
+        {
+            productId,
+            fromUnitId = cupUnitId,
+            toUnitId   = TakeStockFixture.GramUnitId,
+            factor     = 120m,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddConversion")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        Assert.True(root.GetProperty("isSuccess").GetBoolean());
+
+        Assert.Equal(1, factory.CatalogWriter.ConversionCalls);
+        Assert.Equal(productId, factory.CatalogWriter.LastConversionProductId);
+        Assert.Equal(cupUnitId, factory.CatalogWriter.LastConversionFromUnitId);
+        Assert.Equal(TakeStockFixture.GramUnitId, factory.CatalogWriter.LastConversionToUnitId);
+        Assert.Equal(120m, factory.CatalogWriter.LastConversionFactor);
+    }
+
+    [Fact(DisplayName = "POST AddConversion with a non-positive factor is rejected without calling the writer (plantry-3mwx)")]
+    public async Task Post_AddConversion_NonPositiveFactor_Rejected()
+    {
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            productId  = Guid.CreateVersion7(),
+            fromUnitId = Guid.CreateVersion7(),
+            toUnitId   = TakeStockFixture.GramUnitId,
+            factor     = 0m,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddConversion")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(root.GetProperty("isSuccess").GetBoolean());
+        Assert.Equal(0, factory.CatalogWriter.ConversionCalls);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static string ExtractAntiforgeryToken(string html)
@@ -1049,6 +1229,28 @@ public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? th
 
     public Task SetDefaultLocationAsync(Guid productId, Guid locationId, CancellationToken ct = default) =>
         Task.CompletedTask;
+
+    // ── AddConversion capture (plantry-3mwx) ──────────────────────────────────
+    public int ConversionCalls { get; private set; }
+    public Guid LastConversionProductId { get; private set; }
+    public Guid LastConversionFromUnitId { get; private set; }
+    public Guid LastConversionToUnitId { get; private set; }
+    public decimal LastConversionFactor { get; private set; }
+
+    public Task AddConversionAsync(
+        Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default)
+    {
+        ConversionCalls++;
+        LastConversionProductId = productId;
+        LastConversionFromUnitId = fromUnitId;
+        LastConversionToUnitId = toUnitId;
+        LastConversionFactor = factor;
+
+        if (throwMessage is not null)
+            throw new InvalidOperationException(throwMessage);
+
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>
@@ -1281,6 +1483,88 @@ public sealed class TakeStockGroupedProductFactory : WebApplicationFactory<Progr
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
             TakeStockFragmentFactory.RegisterFakes(services, catalogWriter: CatalogWriter));
+    }
+
+    public HttpClient CreateAuthClient(Guid householdId)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, householdId.ToString());
+        return client;
+    }
+}
+
+/// <summary>
+/// Fake <see cref="IProductConversionProvider"/> whose converter fails for any cross-unit conversion
+/// (models a product with NO conversion rules). Same-unit conversions pass through as identity.
+/// Used by the NeedsConversion backstop tests (plantry-3mwx).
+/// </summary>
+public sealed class FailingConversionProvider : IProductConversionProvider
+{
+    public Task<IQuantityConverter> ForProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IQuantityConverter>(new FailingConverter());
+
+    public Task<IReadOnlyDictionary<Guid, IQuantityConverter>> ForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, IQuantityConverter> result =
+            productIds.ToDictionary(id => id, _ => (IQuantityConverter)new FailingConverter());
+        return Task.FromResult(result);
+    }
+
+    private sealed class FailingConverter : IQuantityConverter
+    {
+        public Result<decimal> Convert(decimal amount, Guid fromUnitId, Guid toUnitId) =>
+            fromUnitId == toUnitId
+                ? amount
+                : Error.Custom("Units.NoConversion", "No conversion path.");
+    }
+}
+
+/// <summary>
+/// L4 WebApplicationFactory for the NeedsConversion backstop (plantry-3mwx). Seeds a real Flour
+/// product (default unit = gram) into the catalog fake and registers a converter that cannot convert
+/// between distinct units, so a count in "cup" trips the server-side NeedsConversion guard.
+/// </summary>
+public sealed class TakeStockConversionFactory : WebApplicationFactory<Program>
+{
+    public FakeTsStockRepository StockRepository { get; } = new FakeTsStockRepository();
+    public Guid FlourProductId { get; }
+    public Guid CupUnitId { get; }
+
+    private readonly FakeTsProductRepository _productRepo = new();
+    private readonly FakeTsUnitRepository _unitRepo = new();
+
+    public TakeStockConversionFactory()
+    {
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+        var flour = Product.Create(
+            TakeStockFixture.Household, "Flour Conv", UnitId.From(TakeStockFixture.GramUnitId), clock);
+        FlourProductId = flour.Id.Value;
+        _productRepo.AddAsync(flour).GetAwaiter().GetResult();
+
+        var cup = CatalogUnit.Create(
+            TakeStockFixture.Household, "cup", "cup", Dimension.Volume, factorToBase: 1m, isBase: true);
+        CupUnitId = cup.Id.Value;
+        _unitRepo.AddAsync(cup).GetAwaiter().GetResult();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+        {
+            TakeStockFragmentFactory.RegisterFakes(services, stockRepo: StockRepository);
+
+            services.RemoveAll<IProductRepository>();
+            services.AddSingleton<IProductRepository>(_productRepo);
+
+            services.RemoveAll<IUnitRepository>();
+            services.AddSingleton<IUnitRepository>(_unitRepo);
+
+            services.RemoveAll<IProductConversionProvider>();
+            services.AddSingleton<IProductConversionProvider, FailingConversionProvider>();
+        });
     }
 
     public HttpClient CreateAuthClient(Guid householdId)
