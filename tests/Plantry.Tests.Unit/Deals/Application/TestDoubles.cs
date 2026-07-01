@@ -18,6 +18,9 @@ internal sealed class FakeStoreSubscriptionRepository : IStoreSubscriptionReposi
     public Task<List<StoreSubscription>> ListAsync(CancellationToken ct = default) =>
         Task.FromResult(Items.OrderBy(s => s.CreatedAt).ToList());
 
+    public Task<List<StoreSubscription>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(s => s.IsActive).OrderBy(s => s.CreatedAt).ToList());
+
     public Task AddAsync(StoreSubscription subscription, CancellationToken ct = default)
     {
         Items.Add(subscription);
@@ -56,9 +59,12 @@ internal sealed class FakeCatalogStoreReader : ICatalogStoreReader
 {
     public Dictionary<Guid, string> Names { get; } = new();
 
+    /// <summary>Store id → Flipp external ref, so the ingest worker can resolve a merchant to pull.</summary>
+    public Dictionary<Guid, string?> ExternalRefs { get; } = new();
+
     public Task<CatalogStoreInfo?> FindAsync(Guid storeId, CancellationToken ct = default) =>
         Task.FromResult(Names.TryGetValue(storeId, out var n)
-            ? new CatalogStoreInfo(storeId, n, null)
+            ? new CatalogStoreInfo(storeId, n, ExternalRefs.GetValueOrDefault(storeId))
             : null);
 
     public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(
@@ -111,11 +117,16 @@ internal sealed class FakeDealRepository : IDealRepository
     public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) =>
         Task.FromResult(Items.SingleOrDefault(d => d.Id == id));
 
+    public Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(d => d.FlyerImportId == flyerImportId).ToList());
+
     public Task AddAsync(Deal deal, CancellationToken ct = default)
     {
         Items.Add(deal);
         return Task.CompletedTask;
     }
+
+    public void Remove(Deal deal) => Items.Remove(deal);
 
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
@@ -183,10 +194,86 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
 {
     public bool Exists { get; set; } = true;
     public List<Guid> Checked { get; } = [];
+    public List<ProductCandidate> Candidates { get; } = [];
+    public int ListCandidatesCalls { get; private set; }
 
     public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
     {
         Checked.Add(productId);
         return Task.FromResult(Exists);
+    }
+
+    public Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default)
+    {
+        ListCandidatesCalls++;
+        return Task.FromResult<IReadOnlyList<ProductCandidate>>(Candidates.ToList());
+    }
+}
+
+/// <summary>In-memory <see cref="IFlyerImportRepository"/> keyed on the (store, flyer_external_id) dedup key.</summary>
+internal sealed class FakeFlyerImportRepository : IFlyerImportRepository
+{
+    public List<FlyerImport> Items { get; } = [];
+    public int SaveChangesCalls { get; private set; }
+
+    public Task<FlyerImport?> FindByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(f => f.StoreId == storeId && f.FlyerExternalId == flyerExternalId));
+
+    public Task AddAsync(FlyerImport import, CancellationToken ct = default)
+    {
+        Items.Add(import);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveChangesCalls++;
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Configurable <see cref="IDealMatcher"/> stand-in: returns a queued proposal per raw name, else
+/// <see cref="MatchProposal.Unmatched"/>. Records each call for assertions.
+/// </summary>
+internal sealed class FakeDealMatcher : IDealMatcher
+{
+    public Dictionary<string, MatchProposal> ByRawName { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> Calls { get; } = [];
+
+    public Task<MatchProposal> MatchAsync(RawDeal deal, IReadOnlyList<ProductCandidate> candidates, CancellationToken ct = default)
+    {
+        Calls.Add(deal.RawName);
+        return Task.FromResult(ByRawName.GetValueOrDefault(deal.RawName, MatchProposal.Unmatched()));
+    }
+}
+
+/// <summary>
+/// Controllable <see cref="IFlyerSource"/> for ingest tests: a queue of pull results per external ref,
+/// so a test can script a first pull then a re-pull (changed / identical / failed). Directory search is
+/// unused here.
+/// </summary>
+internal sealed class FakeIngestFlyerSource : IFlyerSource
+{
+    private readonly Dictionary<string, Queue<FlyerPullResult>> _byRef = new(StringComparer.Ordinal);
+    public List<string> PullCalls { get; } = [];
+
+    public void EnqueuePull(string externalRef, FlyerPullResult result)
+    {
+        if (!_byRef.TryGetValue(externalRef, out var q))
+            _byRef[externalRef] = q = new Queue<FlyerPullResult>();
+        q.Enqueue(result);
+    }
+
+    public Task<IReadOnlyList<DirectoryMerchant>> SearchDirectoryAsync(
+        string postalCode, string? nameQuery, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<DirectoryMerchant>>([]);
+
+    public Task<FlyerPullResult> PullFlyerAsync(string externalRef, string postalCode, CancellationToken ct = default)
+    {
+        PullCalls.Add(externalRef);
+        if (_byRef.TryGetValue(externalRef, out var q) && q.Count > 0)
+            return Task.FromResult(q.Dequeue());
+        return Task.FromResult(FlyerPullResult.Failed("no scripted result"));
     }
 }

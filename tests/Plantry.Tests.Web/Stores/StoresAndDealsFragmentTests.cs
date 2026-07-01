@@ -198,6 +198,9 @@ public sealed class FakeStoreSubscriptionRepo : IStoreSubscriptionRepository
     public Task<List<StoreSubscription>> ListAsync(CancellationToken ct = default) =>
         Task.FromResult(Items.OrderBy(s => s.CreatedAt).ToList());
 
+    public Task<List<StoreSubscription>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(s => s.IsActive).OrderBy(s => s.CreatedAt).ToList());
+
     public Task AddAsync(StoreSubscription subscription, CancellationToken ct = default)
     {
         Items.Add(subscription);

@@ -213,6 +213,8 @@ public sealed class TodayIndexModelTests
             var household = Household.Create(name, new FakeClock(DateTimeOffset.UtcNow));
             return Task.FromResult<Household?>(household);
         }
+        public Task<IReadOnlyList<HouseholdId>> ListAllIdsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<HouseholdId>>([]);
         public Task AddAsync(Household household, CancellationToken ct = default) => Task.CompletedTask;
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
@@ -496,6 +498,8 @@ public sealed class ExpiringWidgetModelTests
             var h = Household.Create(name, new FakeClock2(DateTimeOffset.UtcNow));
             return Task.FromResult<Household?>(h);
         }
+        public Task<IReadOnlyList<HouseholdId>> ListAllIdsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<HouseholdId>>([]);
         public Task AddAsync(Household household, CancellationToken ct = default) => Task.CompletedTask;
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }

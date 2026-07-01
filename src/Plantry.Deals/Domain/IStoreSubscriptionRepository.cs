@@ -20,6 +20,12 @@ public interface IStoreSubscriptionRepository
     /// <summary>All of the household's subscriptions (active and inactive) for the §7e management list.</summary>
     Task<List<StoreSubscription>> ListAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// The household's <c>is_active</c> subscriptions — the P5-6 worker's per-household work list (DJ2).
+    /// RLS-scoped, so it only ever returns the armed household's subscriptions.
+    /// </summary>
+    Task<List<StoreSubscription>> ListActiveAsync(CancellationToken ct = default);
+
     Task AddAsync(StoreSubscription subscription, CancellationToken ct = default);
     Task SaveChangesAsync(CancellationToken ct = default);
 }

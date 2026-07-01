@@ -254,6 +254,32 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         }
     }
 
+    [Fact(DisplayName = "Cross-tenant enumeration (P5-6 worker): ListAllIds with no tenant returns every household; scoped returns only its own")]
+    public async Task ListAllIds_NoTenant_ReturnsAllHouseholds_ScopedReturnsOwn()
+    {
+        // The ingestion worker's cross-tenant sweep runs with NO tenant armed → the households carve-out
+        // exposes all rows and ListAllIdsAsync (IgnoreQueryFilters) returns every household id.
+        var noTenant = new TenantContext();
+        await using (var db1 = new PlantryIdentityDbContext(
+            BuildIdentityOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(noTenant))))
+        {
+            var all = await new HouseholdRepository(db1).ListAllIdsAsync();
+            Assert.Contains(_householdA, all);
+            Assert.Contains(_householdB, all);
+        }
+
+        // Run inside an armed household (the misuse case) → RLS collapses it to that one household, so a
+        // stray tenant-scoped call can never leak the full directory.
+        var tenantA = new TenantContext();
+        tenantA.Set(_householdA.Value);
+        await using (var db2 = new PlantryIdentityDbContext(
+            BuildIdentityOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenantA))))
+        {
+            var scoped = await new HouseholdRepository(db2).ListAllIdsAsync();
+            Assert.Equal(_householdA, Assert.Single(scoped));
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static AppUser NewUser(string email, Guid householdId) => new()

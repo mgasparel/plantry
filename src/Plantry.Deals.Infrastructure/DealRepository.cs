@@ -14,8 +14,13 @@ public sealed class DealRepository(DealsDbContext db) : IDealRepository
     public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) =>
         db.Deals.FirstOrDefaultAsync(d => d.Id == id, ct);
 
+    public Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default) =>
+        db.Deals.Where(d => d.FlyerImportId == flyerImportId).ToListAsync(ct);
+
     public async Task AddAsync(Deal deal, CancellationToken ct = default) =>
         await db.Deals.AddAsync(deal, ct);
+
+    public void Remove(Deal deal) => db.Deals.Remove(deal);
 
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);

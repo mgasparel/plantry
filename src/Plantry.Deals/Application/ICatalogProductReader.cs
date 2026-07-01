@@ -11,4 +11,12 @@ public interface ICatalogProductReader
 {
     /// <summary>True when a live (non-archived) product with this id exists in the current household's catalog.</summary>
     Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The current household's live, stock-eligible products, projected as <see cref="ProductCandidate"/>s
+    /// for the stage-2 <see cref="IDealMatcher"/> (DJ2 step 4). Passed <b>in</b> to the matcher so the
+    /// untrusted AI adapter never touches Catalog and can only ever suggest one of these ids (ADR-007) —
+    /// the deal twin of Intake's <c>ICatalogHintProvider</c>. RLS-scoped to the armed household.
+    /// </summary>
+    Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default);
 }

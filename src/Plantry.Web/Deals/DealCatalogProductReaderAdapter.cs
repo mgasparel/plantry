@@ -17,4 +17,15 @@ public sealed class DealCatalogProductReaderAdapter(IProductRepository products)
         var product = await products.FindAsync(ProductId.From(productId), ct);
         return product is not null && !product.IsArchived;
     }
+
+    public async Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default)
+    {
+        // Active, stock-eligible products only: a deal can never resolve to a parent product (it holds no
+        // stock and carries no price), mirroring Intake's CatalogHintProvider.
+        var active = await products.ListActiveAsync(ct);
+        return active
+            .Where(p => p.CanHoldStock)
+            .Select(p => new ProductCandidate(p.Id.Value, p.Name))
+            .ToList();
+    }
 }

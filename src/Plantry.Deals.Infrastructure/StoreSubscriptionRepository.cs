@@ -18,6 +18,9 @@ public sealed class StoreSubscriptionRepository(DealsDbContext db) : IStoreSubsc
     public Task<List<StoreSubscription>> ListAsync(CancellationToken ct = default) =>
         db.StoreSubscriptions.OrderBy(s => s.CreatedAt).ToListAsync(ct);
 
+    public Task<List<StoreSubscription>> ListActiveAsync(CancellationToken ct = default) =>
+        db.StoreSubscriptions.Where(s => s.IsActive).OrderBy(s => s.CreatedAt).ToListAsync(ct);
+
     public async Task AddAsync(StoreSubscription subscription, CancellationToken ct = default) =>
         await db.StoreSubscriptions.AddAsync(subscription, ct);
 
