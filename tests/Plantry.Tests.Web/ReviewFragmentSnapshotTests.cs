@@ -155,6 +155,27 @@ public sealed class ReviewFragmentSnapshotTests(ReviewFragmentFactory factory)
         Assert.Equal("2026-06-22", expiry.GetString());
     }
 
+    // ── Receipt-panel metadata (plantry-ydv) ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Hydration_carries_receipt_metadata_for_the_panel()
+    {
+        using var doc = await GetHydrationAsync();
+        var root = doc.RootElement;
+
+        // Fixture seeds branch/date/time/totals/payment/number — each must reach the panel hydration.
+        Assert.Equal("42 Market St", root.GetProperty("storeBranch").GetString());
+        Assert.False(string.IsNullOrEmpty(root.GetProperty("purchaseDate").GetString()));
+        Assert.False(string.IsNullOrEmpty(root.GetProperty("purchaseTime").GetString()));
+        Assert.Equal(40.00m, root.GetProperty("subtotal").GetDecimal());
+        Assert.Equal(2.00m, root.GetProperty("tax").GetDecimal());
+        Assert.Equal(42.00m, root.GetProperty("total").GetDecimal());
+        Assert.Equal("VISA ****4471 APPROVED", root.GetProperty("payment").GetString());
+        Assert.Equal("TXN 0472 118", root.GetProperty("receiptNo").GetString());
+        Assert.Equal("photo", root.GetProperty("scanVia").GetString());
+        Assert.StartsWith("scanned", root.GetProperty("scannedLabel").GetString());
+    }
+
     // ── All lines present ────────────────────────────────────────────────────────────────────
 
     [Fact]

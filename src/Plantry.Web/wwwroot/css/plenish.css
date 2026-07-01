@@ -1779,6 +1779,11 @@ details[open].sheet-defaults > .sheet-defaults__summary { list-style: disclosure
   text-transform: uppercase;
   letter-spacing: -0.01em;
 }
+.rcpt-store-sub {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
 .rcpt-rule { border: none; border-top: 1px dashed var(--color-border); margin: var(--space-3) 0; }
 .rcpt-line {
   display: flex;
@@ -1800,6 +1805,12 @@ details[open].sheet-defaults > .sheet-defaults__summary { list-style: disclosure
     var(--color-text) 4px 5px, transparent 5px 9px,
     var(--color-text) 9px 12px, transparent 12px 14px);
   opacity: 0.85;
+}
+.rcpt-no {
+  text-align: center;
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
 }
 
 /* Per-row error banner (shown when a line command fails — the row is swapped back with the message). */

@@ -146,6 +146,16 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
  * @property {LocationHydration[]} locations
  * @property {CategoryHydration[]} categories
  * @property {Array<{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null}>} lines
+ * @property {string} scanVia            "photo" | "email" — drives the rcpt-meta-top via tag
+ * @property {string} scannedLabel       relative "scanned …" copy for rcpt-meta-top
+ * @property {string|null} storeBranch   branch/location line under the store name
+ * @property {string|null} purchaseDate  formatted receipt date, or null
+ * @property {string|null} purchaseTime  formatted receipt time, or null
+ * @property {number|null} subtotal
+ * @property {number|null} tax
+ * @property {number|null} total         parsed receipt total (falls back to the computed sum when null)
+ * @property {string|null} payment       payment/tender descriptor line
+ * @property {string|null} receiptNo     receipt / transaction number
  */
 
 /**
@@ -957,12 +967,22 @@ function App({ lines, products, units, locations, categories, token, session, fi
       <aside class="review__receipt rcpt-pane">
         <div class="rcpt-meta-top">
           <span class="rcpt-via">
-            <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg> Scanned receipt
+            <svg class="icon" aria-hidden="true"><use href=${session.scanVia === "email" ? "#i-receipt" : "#i-camera"} /></svg>
+            ${session.scanVia === "email" ? "Forwarded by email" : "Receipt photo"}
           </span>
+          <span style="margin-left:auto">${session.scannedLabel}</span>
         </div>
         <div class="receipt">
           <div class="rcpt-store">
             <div class="rcpt-store-name">${session.merchantText || "Receipt"}</div>
+            ${(session.storeBranch || session.purchaseDate || session.purchaseTime) && html`
+              <div class="rcpt-store-sub">
+                ${session.storeBranch && html`<div>${session.storeBranch}</div>`}
+                ${(session.purchaseDate || session.purchaseTime) && html`
+                  <div>${[session.purchaseDate, session.purchaseTime].filter(Boolean).join(" · ")}</div>
+                `}
+              </div>
+            `}
           </div>
           <hr class="rcpt-rule" />
           ${allLines.map((ls) => html`
@@ -973,12 +993,30 @@ function App({ lines, products, units, locations, categories, token, session, fi
           `)}
           <hr class="rcpt-rule" />
           <div class="rcpt-foot">
+            ${session.subtotal != null && html`
+              <div class="rcpt-line">
+                <span class="rl-name">SUBTOTAL</span>
+                <span class="rl-price">${session.subtotal.toFixed(2)}</span>
+              </div>
+            `}
+            ${session.tax != null && html`
+              <div class="rcpt-line">
+                <span class="rl-name">TAX</span>
+                <span class="rl-price">${session.tax.toFixed(2)}</span>
+              </div>
+            `}
             <div id="rcpt-total" class="rcpt-line rcpt-total">
               <span class="rl-name">TOTAL</span>
-              <span class="rl-price">${receiptTotal.value.toFixed(2)}</span>
+              <span class="rl-price">${(session.total != null ? session.total : receiptTotal.value).toFixed(2)}</span>
             </div>
+            ${session.payment && html`
+              <div class="rcpt-line" style="margin-top:6px">
+                <span class="rl-name">${session.payment}</span>
+              </div>
+            `}
           </div>
           <div class="rcpt-barcode"></div>
+          ${session.receiptNo && html`<div class="rcpt-no">${session.receiptNo}</div>`}
         </div>
       </aside>
 

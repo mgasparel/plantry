@@ -45,6 +45,15 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
                 .HasMaxLength(20)
                 .IsRequired();
             b.Property(s => s.MerchantText).HasColumnName("merchant_text").HasMaxLength(200);
+            // Receipt-header metadata (AI-parsed display data; never read on commit).
+            b.Property(s => s.StoreBranch).HasColumnName("store_branch").HasMaxLength(200);
+            b.Property(s => s.PurchaseDate).HasColumnName("purchase_date");
+            b.Property(s => s.PurchaseTime).HasColumnName("purchase_time");
+            b.Property(s => s.Subtotal).HasColumnName("subtotal").HasPrecision(12, 2);
+            b.Property(s => s.Tax).HasColumnName("tax").HasPrecision(12, 2);
+            b.Property(s => s.Total).HasColumnName("total").HasPrecision(12, 2);
+            b.Property(s => s.PaymentDescriptor).HasColumnName("payment_descriptor").HasMaxLength(100);
+            b.Property(s => s.ReceiptNumber).HasColumnName("receipt_number").HasMaxLength(100);
             b.Property(s => s.ParseError).HasColumnName("parse_error").HasMaxLength(2000);
             b.Property(s => s.ParsedAt).HasColumnName("parsed_at");
             b.Property(s => s.CommittedAt).HasColumnName("committed_at");

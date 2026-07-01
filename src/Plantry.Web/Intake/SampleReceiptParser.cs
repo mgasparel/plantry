@@ -1,4 +1,5 @@
 using Plantry.Intake.Application;
+using Plantry.Intake.Domain;
 
 namespace Plantry.Web.Intake;
 
@@ -105,6 +106,17 @@ public sealed class SampleReceiptParser : IReceiptParser
                 Alternatives: alternatives);
         }).ToList();
 
-        return new ReceiptParseResult(Merchant, parsed);
+        // Captured receipt header/footer so the dev review panel renders the full receipt shape.
+        var metadata = new ReceiptMetadata(
+            StoreBranch: "1000 Marine Dr, North Vancouver",
+            PurchaseDate: new DateOnly(2026, 6, 7),
+            PurchaseTime: new TimeOnly(14, 34),
+            Subtotal: 39.60m,
+            Tax: 1.98m,
+            Total: 41.58m,
+            PaymentDescriptor: "VISA ****4471 APPROVED",
+            ReceiptNumber: "TXN 0472 118 6620");
+
+        return new ReceiptParseResult(Merchant, parsed, Metadata: metadata);
     }
 }

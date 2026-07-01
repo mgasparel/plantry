@@ -105,8 +105,16 @@ public static class ReviewSessionFixture
                 new AlternativeCandidate(CheddarMarbleId, "Cheddar, Marble", 0.53m),
             ]);
 
-        // The session must be Ready before the page will render it.
-        session.MarkReady("Test Grocer", clock.UtcNow);
+        // The session must be Ready before the page will render it. Metadata drives the receipt panel.
+        session.MarkReady("Test Grocer", clock.UtcNow, new ReceiptMetadata(
+            StoreBranch: "42 Market St",
+            PurchaseDate: new DateOnly(2026, 6, 15),
+            PurchaseTime: new TimeOnly(14, 30),
+            Subtotal: 40.00m,
+            Tax: 2.00m,
+            Total: 42.00m,
+            PaymentDescriptor: "VISA ****4471 APPROVED",
+            ReceiptNumber: "TXN 0472 118"));
 
         // matched + unmatched + lowConf stay Pending (their state is derived from confidence).
 
