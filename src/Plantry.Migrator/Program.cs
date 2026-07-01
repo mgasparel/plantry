@@ -5,6 +5,7 @@ using Plantry.Catalog.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Infrastructure;
+using Plantry.Deals.Infrastructure;
 using Plantry.MealPlanning.Infrastructure;
 using Plantry.Pricing.Infrastructure;
 using Plantry.Recipes.Infrastructure;
@@ -69,6 +70,10 @@ try
     // 8. MealPlanning
     await MigrateAsync<MealPlanningDbContext>(
         ownerConnStr, "Plantry.MealPlanning.Infrastructure");
+
+    // 9. Deals (Phase 5)
+    await MigrateAsync<DealsDbContext>(
+        ownerConnStr, "Plantry.Deals.Infrastructure");
 
     // Open one owner connection for the remaining DDL steps.
     await using var conn = new NpgsqlConnection(ownerConnStr);

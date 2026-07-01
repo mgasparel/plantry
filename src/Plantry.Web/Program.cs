@@ -5,6 +5,7 @@ using Npgsql;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
+using Plantry.Deals.Infrastructure;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
 using Plantry.Inventory.Application;
@@ -256,6 +257,14 @@ builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
+
+// Deals context (Phase 5 / P5-0). Walking skeleton — DbContext + schema only, no app services yet.
+// DealsDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0
+// gotcha: omit it and every Deals query filter returns nothing while writes silently succeed.
+builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.Deals.Infrastructure"))
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<ManageSlotsService>();
 builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();
 
