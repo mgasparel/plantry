@@ -479,8 +479,8 @@
         @*
             GroupOptions and CategoryOptions are populated by the page model (plantry-orix) so the
             create-view Group combobox (plantry-40n6) and Defaults collapsible (plantry-y53t) render
-            with the household's real data. CreateLabel is changed from "Create as staple (untracked)"
-            to "Create new product" because the create view now mints a tracked catalog product —
+            with the household's real data. CreateLabel is "as a new product" (not the Recipes default
+            "as a new staple") because the create view now mints a tracked catalog product —
             the untracked-staple path (C12) still works via the legacy newIsTracked=false route.
         *@
         <partial name="Shared/_ProductSearchCreateSheet"
@@ -492,7 +492,7 @@
                      GroupOptions        = Model.GroupOptions,
                      TrackStock          = true,
                      ExtraFieldsPartial  = "Shared/_IngredientConversionPrompt",
-                     CreateLabel         = "Create new product",
+                     CreateLabel         = "as a new product",
                      StapleNamePlaceholder = "Product name (e.g. Olive Oil)",
                  }' />
 

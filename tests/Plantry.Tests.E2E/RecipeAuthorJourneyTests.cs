@@ -99,7 +99,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         // Type char-by-char (PressSequentially) so the htmx "keyup" trigger fires — the listbox is
         // populated entirely by the htmx search, and FillAsync sets .value without firing keyup.
         await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 8));
-        var option = page.Locator("#prod-list-sheet li[role='option']", new() { HasText = productName });
+        var option = sheet.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
         await Assertions.Expect(option).ToBeVisibleAsync();
         await option.ClickAsync();
 
@@ -119,8 +119,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
     /// </summary>
     /// <remarks>
     /// Scoped to #recipe-editor .sheet to avoid Playwright strict-mode violations.
-    /// The create-view now mints a tracked catalog product ("Create new product" label, plantry-orix).
-    /// R5 (tracked ingredients require qty+unit) is satisfied by re-opening the row after sheet close.
+    /// The create-view now mints a tracked catalog product ("as a new product" create-button
+    /// phrase, plantry-orix / plantry-gzro). R5 (tracked ingredients require qty+unit) is
+    /// satisfied by re-opening the row after sheet close.
     /// </remarks>
     private async Task AddTrackedProductIngredientAsync(IPage page, string productName, string qty, string unitLabel)
     {
@@ -128,9 +129,12 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         var sheet = page.Locator("#recipe-editor .sheet");
         await Assertions.Expect(sheet).ToBeVisibleAsync();
 
-        // Clicking the persistent create affordance navigates to the create view in-place (plantry-nb4x).
-        // The label is "Create new product" (changed from "Create as staple (untracked)" in plantry-orix).
-        await sheet.Locator("button:has-text('Create new product')").ClickAsync();
+        // The shared search + create component's "+ Create ... as a new product" button
+        // (plantry-gzro) only appears once the user has typed a query, so type first — then click
+        // it to navigate to the create view in-place (plantry-nb4x). The button text embeds the
+        // query, so match on the static trailing phrase "as a new product" instead.
+        await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 8));
+        await sheet.Locator("button:has-text('as a new product')").ClickAsync();
         var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
         await Assertions.Expect(nameInput).ToBeVisibleAsync();
         await nameInput.FillAsync(productName);
@@ -443,9 +447,13 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             var sheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(sheet).ToBeVisibleAsync();
 
-            // Primary acceptance criterion: the create affordance label has changed from
-            // "Create as staple (untracked)" to "Create new product" (plantry-orix).
-            var createBtn = sheet.Locator("button:has-text('Create new product')");
+            var trackedProductName = $"Sesame Oil {Guid.NewGuid():N}".Substring(0, 22);
+
+            // Primary acceptance criterion: the create affordance's trailing phrase is "as a new
+            // product" (plantry-orix / plantry-gzro). The shared search + create component's create
+            // button only appears once the user has typed a query, so type first.
+            await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(trackedProductName.Substring(0, 8));
+            var createBtn = sheet.Locator("button:has-text('as a new product')");
             await Assertions.Expect(createBtn).ToBeVisibleAsync();
             await createBtn.ClickAsync();
 
@@ -456,7 +464,6 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             // The Defaults collapsible (from sibling plantry-y53t) is present in the create-view.
             await Assertions.Expect(sheet.Locator(".sheet-defaults__summary")).ToBeVisibleAsync();
 
-            var trackedProductName = $"Sesame Oil {Guid.NewGuid():N}".Substring(0, 22);
             await nameInput.FillAsync(trackedProductName);
 
             // Open the Defaults collapsible and set the product's default unit.

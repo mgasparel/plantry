@@ -90,20 +90,48 @@ public sealed class IndexModel(
     }
 
     /// <summary>
-    /// htmx product search handler for the searchable-select on the add form.
-    /// Returns matching product options as HTML option elements, enriched with pantry
-    /// stock hints (.ostock) via the <see cref="IShoppingPantryReader"/> port.
+    /// htmx product search handler for the searchable-select on the add form (plantry-gzro.3 —
+    /// migrated onto the shared fuzzy-ranked search component, <c>AllowCreate</c> left at its
+    /// default false since Shopping's escape hatch is the existing free-text "Custom item" field,
+    /// not a catalog create).
+    ///
+    /// <para>Returns matching product options as HTML option elements, enriched with pantry stock
+    /// hints (.ostock) via the <see cref="IShoppingPantryReader"/> port. This handler renders its
+    /// own &lt;li&gt; markup (rather than the tag helper's default <c>AppendOptions</c>) so it can
+    /// append that stock hint per item — the "host owns per-item enrichment, component owns chrome"
+    /// pattern documented on <see cref="Plantry.Web.TagHelpers.SearchableSelectTagHelper"/>.</para>
+    ///
+    /// <para>A blank query returns up to 20 unranked products (browse-all on focus, unchanged from
+    /// the prior plain-substring behaviour) with no <c>.rk</c> label. A non-blank query is ranked via
+    /// <see cref="ProductNameMatcher"/> — the same best/N% vocabulary Recipes/TakeStock's product
+    /// search and Intake's AlternativesStrip family already use — and only hits above the display
+    /// cutoff are returned.</para>
     /// </summary>
     public async Task<ContentResult> OnGetFilterProductsAsync(string? q)
     {
         var candidates = await catalog.ListProductsAsync();
-        var matches = candidates
-            .Where(p => string.IsNullOrWhiteSpace(q) || p.Name.Contains(q.Trim(), StringComparison.OrdinalIgnoreCase))
-            .Take(20)
-            .ToList();
+
+        List<(Guid ProductId, string Name, string? RankLabel)> matches;
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            matches = candidates
+                .Take(20)
+                .Select(p => (p.ProductId, p.Name, (string?)null))
+                .ToList();
+        }
+        else
+        {
+            var ranked = ProductNameMatcher.Rank(
+                candidates.Select(p => (p.ProductId, p.Name)),
+                q.Trim());
+            matches = ranked
+                .Take(20)
+                .Select((m, i) => (m.Id, m.Name, (string?)ProductNameMatcher.RankLabel(m.Score, isTopHit: i == 0)))
+                .ToList();
+        }
 
         // Enrich with stock levels for all matching products in one batch call.
-        var productIds = matches.Select(p => p.ProductId).ToList();
+        var productIds = matches.Select(m => m.ProductId).ToList();
         var stockLevels = productIds.Count > 0
             ? await pantry.GetStockLevelsAsync(productIds)
             : (IReadOnlyDictionary<Guid, ShoppingPantryStockLevel>)new Dictionary<Guid, ShoppingPantryStockLevel>();
@@ -114,6 +142,10 @@ public sealed class IndexModel(
         {
             html.Append($"""<li role="option" data-value="{enc.Encode(match.ProductId.ToString())}" @click="select($el.dataset.value, $el.querySelector('[data-label]')?.dataset.label ?? $el.textContent.trim())">""");
             html.Append($"""<span data-label="{enc.Encode(match.Name)}">{enc.Encode(match.Name)}</span>""");
+            if (match.RankLabel is { } rankLabel)
+            {
+                html.Append($"""<span class="rk">{enc.Encode(rankLabel)}</span>""");
+            }
             if (stockLevels.TryGetValue(match.ProductId, out var stock))
             {
                 if (stock.OnHand > 0)

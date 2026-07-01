@@ -88,8 +88,10 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             await page.ClickAsync("button:has-text('Add ingredient')");
             var ingSheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(ingSheet).ToBeVisibleAsync();
-            // "Create new product" label (renamed from "Create as staple (untracked)" in plantry-orix).
-            await ingSheet.Locator("button:has-text('Create new product')").ClickAsync();
+            // The shared search + create component's create button (plantry-gzro, trailing phrase
+            // "as a new product") only appears once the user has typed a query, so type first.
+            await ingSheet.Locator("input[role='combobox']").PressSequentiallyAsync("Salt");
+            await ingSheet.Locator("button:has-text('as a new product')").ClickAsync();
             var nameInput = ingSheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
             await Assertions.Expect(nameInput).ToBeVisibleAsync();
             await nameInput.FillAsync("Salt");

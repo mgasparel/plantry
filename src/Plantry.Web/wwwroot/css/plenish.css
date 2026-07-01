@@ -642,6 +642,31 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--color-text-muted);
 }
 
+/* ── Rank label (fuzzy search) — plantry-gzro.1 ───────────────────────────────
+   Mirrors Intake's .suggest-opt .rk convention (best / N%) so the ranking
+   vocabulary reads identically across Intake's AlternativesStrip family and any
+   searchable-select host that renders ProductNameMatcher-ranked results
+   (Recipes/TakeStock's ingredient search, Shopping's add-item search). */
+.searchable-select__listbox .rk {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--color-text-faint);
+}
+
+/* ── Create escape hatch (AllowCreate) — plantry-gzro.1 ───────────────────────
+   Divider + button sit directly below the listbox so the two read as one
+   visually grouped unit, per docs/Engineering/prototypes/
+   fuzzy-match-suggestion-widget.html Option A (.lb-divider treatment). */
+.searchable-select__create-divider {
+  border: none;
+  border-top: 1px dashed var(--color-border-strong);
+  margin: var(--space-2) var(--space-1) 0;
+}
+
+.btn--demoted {
+  opacity: 0.55;
+}
+
 /* ── Group combobox — "+ Create group" affordance item (plantry-40n6) ────────── */
 .searchable-select__listbox-item--create {
   color: var(--color-accent);

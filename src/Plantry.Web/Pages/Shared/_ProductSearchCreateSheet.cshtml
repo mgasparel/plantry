@@ -11,10 +11,15 @@
     The sheet has two views, swapped in place via x-show — NOT a nested modal:
 
       SEARCH VIEW  (sheetView !== 'create')
-        Product search input + htmx-driven listbox.
-        A persistent "＋ @Model.CreateLabel" affordance sits below the search input and is always
-        visible — it does not vanish when a product is selected (plantry-0zrc superseded).
-        Clicking it sets sheetView = 'create' and draft.newStapleName = '' in-place.
+        Product search input + fuzzy-ranked, htmx-driven listbox — the ONE shared search + create
+        component (plantry-gzro), not a hand-rolled combobox. A divider + "+ Create "{query}"
+        {CreateLabel}" button render directly below the listbox: demoted (dimmed ghost) while the
+        listbox has matches, full-strength when it doesn't, matching
+        docs/Engineering/prototypes/fuzzy-match-suggestion-widget.html Option A (plantry-hl4a's
+        design, corrected per the gzro epic decision — supersedes both the old always-visible ghost
+        button here and the in-listbox create row from plantry-ipuz/plantry-0zrc). Only shown once
+        the user has typed something (no "Create ''" before any input). Clicking it sets
+        sheetView = 'create' and draft.newStapleName = the current query, in-place.
 
       CREATE VIEW  (sheetView === 'create')
         Full-panel second view of the same flyout, same panel, content swapped in place.
@@ -61,11 +66,19 @@
     ── Event contract ────────────────────────────────────────────────────────────────────────────────
     Inbound  — sheet-product-set (window): { detail: label string }
                Dispatched by the host when opening the sheet to pre-populate the search box.
-               Handled by @sheet-product-set.window on the searchable-select wrapper.
+               Handled by @sheet-product-set.window, passed through onto the <searchable-select>
+               wrapper (SearchableSelectTagHelper forwards unrecognized attributes — plantry-gzro.2)
+               so it reaches the same Alpine scope as `query`/`open`/`highlighted`.
 
     Outbound — pick-product (bubbles from inside the sheet to the .sheet element)
                Detail: { value: ProductId string, name: string, track: "true"|"false" }
                The host catches via @pick-product="selectProduct(draft, $event.detail)" on the sheet.
+
+               product-search-create (bubbles from the <searchable-select> create button, itself
+               owned by SearchableSelectTagHelper — plantry-gzro.2 migration)
+               Detail: { query: string } — the current search text.
+               Handled directly on the .sheet element below: sets sheetView = 'create' and seeds
+               draft.newStapleName from the query so the typed text carries into the create view.
 
     ── TrackStock / slot ──────────────────────────────────────────────────────────────────────────────
     Model.TrackStock = true  → qty + unit fields are shown for tracked products (Recipes).
@@ -80,7 +93,7 @@
     Model.Noun              → noun used in search-view title / aria-label: "Add {Noun}" / "Edit {Noun}"
     Model.CreateViewTitle   → header title shown while in create view (default "New product")
     Model.ShowGroupHeading  → false hides the Recipes-only "Group (optional)" field (Take Stock)
-    Model.CreateLabel       → label for the persistent create affordance button
+    Model.CreateLabel       → trailing phrase in the create button, e.g. "+ Create "chicken" {CreateLabel}"
     Model.StapleNamePlaceholder → placeholder for the name input in create view
     Model.GroupOptions      → null = hide group field; non-null = render group combobox
 
@@ -102,6 +115,7 @@
 <div class="sheet" x-show="sheetOpen" x-cloak role="dialog" aria-modal="true"
      :aria-label="editingIdx === null ? 'Add @Model.Noun' : 'Edit @Model.Noun'"
      @@pick-product="selectProduct(draft, $event.detail)"
+     @@product-search-create="sheetView = 'create'; draft.newStapleName = $event.detail.query"
      @@keydown.escape="closeSheet()">
     <div class="sheet__overlay" @@click="closeSheet()"></div>
     <div class="sheet__panel">
@@ -126,55 +140,29 @@
         @* ════════════════ SEARCH VIEW ════════════════ *@
         <div x-show="sheetView !== 'create'">
             <div class="form-grid">
-                @* ── Product — searchable-select ──────────────────────────────── *@
+                @* ── Product — the shared fuzzy-ranked search + create component (plantry-gzro) ── *@
                 <div class="form-grid__field form-grid__field--full">
                     <label class="form-grid__field__label">Product</label>
                     <div class="form-grid__field__control">
                         @*
-                            htmx:afterSwap bubbles from the #prod-list-sheet <ul> to here (not the sibling
-                            input), so 'open' is driven reactively from the result count — the popover shows
-                            only when there are matches and never as an empty panel.
+                            allow-create renders the divider + demoted/full-strength "+ Create ..." button
+                            below the listbox (see the class doc above and SearchableSelectTagHelper).
+                            Id="prod-search-sheet" keeps the emitted listbox id deterministic — this partial
+                            renders once per host page and its markup is asserted by snapshot tests
+                            (RecipeEditorSnapshotTests), so a random-guid id would defeat the baseline.
+                            sheet-product-set (window) re-syncs `query` each time the host opens the sheet
+                            for add/edit — the sheet stays mounted via x-show, so this component's own
+                            Alpine scope only inits once at page load (see "Why x-show" above). It is passed
+                            through onto the rendered wrapper div by SearchableSelectTagHelper's
+                            unrecognized-attribute pass-through (plantry-gzro.2) so it reaches the same
+                            scope as `query`/`open`/`highlighted`.
                         *@
-                        <div class="searchable-select" x-data="searchableSelect()"
-                             :data-initial-label="draft.productName"
-                             @@sheet-product-set.window="query = $event.detail; open = false; highlighted = -1"
-                             @@htmx:after-swap="open = ($event.target.children.length > 0)"
-                             @@click.outside="open = false" @@keydown.escape.stop="open = false">
-                            <input type="text" class="field__input" role="combobox" autocomplete="off"
-                                   placeholder="Search products…"
-                                   x-model="query"
-                                   :aria-expanded="open"
-                                   @@keydown.down.prevent="highlightNext()"
-                                   @@keydown.up.prevent="highlightPrev()"
-                                   @@keydown.enter.prevent="(function(){ const li = $refs.listbox && ($refs.listbox.querySelector('[aria-selected=true]') || $refs.listbox.querySelector('li')); if (li) li.click(); })()"
-                                   name="q"
-                                   id="prod-search-sheet"
-                                   hx-get="@Model.SearchUrl"
-                                   hx-trigger="keyup changed delay:250ms, focus"
-                                   hx-target="#prod-list-sheet"
-                                   hx-swap="innerHTML"
-                                   hx-params="q" />
-                            <ul class="searchable-select__listbox"
-                                id="prod-list-sheet"
-                                role="listbox"
-                                x-ref="listbox"
-                                x-show="open" x-cloak style="display:none">
-                            </ul>
-                        </div>
-                        @*
-                            Persistent create affordance — always visible; does NOT vanish when a product
-                            is selected (plantry-0zrc superseded). Clicking navigates the same flyout panel
-                            to the create view in-place (sheetView = 'create') — no nested modal, no new scrim.
-                            draft.newStapleName is initialised to '' (non-null) so the Recipes saveSheet
-                            path and TakeStock bridge both detect "create mode" via the existing null-check.
-                        *@
-                        <div style="margin-top:var(--space-2)">
-                            <button type="button"
-                                    class="btn btn--ghost btn--sm"
-                                    @@click="sheetView = 'create'; draft.newStapleName = draft.newStapleName ?? ''">
-                                + @Model.CreateLabel
-                            </button>
-                        </div>
+                        <searchable-select id="prod-search-sheet"
+                                           allow-create="true"
+                                           search-url="@Model.SearchUrl"
+                                           placeholder="Search products…"
+                                           create-label="@Model.CreateLabel"
+                                           @@sheet-product-set.window="query = $event.detail; open = false; highlighted = -1" />
                     </div>
                 </div>
 
