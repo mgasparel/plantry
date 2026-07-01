@@ -299,6 +299,17 @@ else
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
     });
 }
+
+// IDealMatcher is the untrusted stage-2 AI match (DJ2 step 4, ADR-007) — the deal twin of
+// GeminiReceiptParser. It consumes the same global AiOptions/ChatClient as Intake/MealPlanning (no
+// per-household key; DM-7 unbuilt). DealMatcher builds a ChatClient at construction, which needs a
+// non-empty key, so with no key configured we register DisabledDealMatcher (soft-fails to Unmatched)
+// so a keyless dev/E2E host still resolves the port the P5-6 worker will consume.
+if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IDealMatcher, DisabledDealMatcher>();
+else
+    builder.Services.AddScoped<IDealMatcher, DealMatcher>();
+
 builder.Services.AddScoped<ManageSubscriptions>();
 builder.Services.AddScoped<ManageSlotsService>();
 builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();

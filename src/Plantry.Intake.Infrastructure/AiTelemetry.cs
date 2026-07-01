@@ -43,4 +43,15 @@ public static class AiTelemetry
             "ai.parse.confidence",
             unit: "1",
             description: "AI-assigned match-confidence for each receipt line (high=1.0, low=0.5, none=0.0).");
+
+    /// <summary>
+    /// Histogram of per-deal match-confidence scores emitted by <c>DealMatcher</c> (Deals.Infrastructure).
+    /// Values are in [0, 1]: 1.0 for <c>high</c>, 0.5 for <c>low</c>, 0.0 for <c>none</c>.
+    /// Query as <c>ai.deal_match.confidence</c> in your metrics backend.
+    /// </summary>
+    public static readonly Histogram<double> DealMatchConfidence =
+        Meter.CreateHistogram<double>(
+            "ai.deal_match.confidence",
+            unit: "1",
+            description: "AI-assigned match-confidence for each flyer deal (high=1.0, low=0.5, none=0.0).");
 }
