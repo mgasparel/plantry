@@ -5,6 +5,8 @@ using Npgsql;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
+using Plantry.Deals.Application;
+using Plantry.Deals.Domain;
 using Plantry.Deals.Infrastructure;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
@@ -30,6 +32,7 @@ using Plantry.Shopping.Domain;
 using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Deals;
 using Plantry.Web.Dev;
 using Plantry.Web.Events;
 using Plantry.Web.Intake;
@@ -259,13 +262,24 @@ builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 
-// Deals context (Phase 5 / P5-0). Walking skeleton — DbContext + schema only, no app services yet.
+// Deals context (Phase 5 / P5-0). DbContext + schema (P5-0); store subscriptions + §7e management (P5-2).
 // DealsDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0
 // gotcha: omit it and every Deals query filter returns nothing while writes silently succeed.
 builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Deals.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+
+// Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
+// ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters
+// implement them over Catalog's IStoreRepository / EnsureStoreCommand so Deals never touches CatalogDbContext
+// (ADR-010/DM-3). IFlyerSource is the untrusted Flipp seam (D1): P5-2 registers a canned StubFlyerSourceAdapter
+// for the directory search; P5-3 swaps in the real Flipp adapter against the same port.
+builder.Services.AddScoped<IStoreSubscriptionRepository, StoreSubscriptionRepository>();
+builder.Services.AddScoped<ICatalogStoreReader, CatalogStoreReaderAdapter>();
+builder.Services.AddScoped<ICatalogStoreWriter, CatalogStoreWriterAdapter>();
+builder.Services.AddScoped<IFlyerSource, StubFlyerSourceAdapter>();
+builder.Services.AddScoped<ManageSubscriptions>();
 builder.Services.AddScoped<ManageSlotsService>();
 builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();
 

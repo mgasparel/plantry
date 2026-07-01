@@ -1,0 +1,48 @@
+@model Plantry.Web.Pages.Settings.StoresAndDealsModel
+
+@{
+    var subscribedStoreNames = Model.Subscriptions
+        .Where(s => s.IsActive)
+        .Select(s => s.StoreName)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+}
+
+@if (!Model.Searched)
+{
+    <p class="store-search__hint">Enter a postal code and search to find stores near you.</p>
+}
+else if (Model.SearchResults.Count == 0)
+{
+    <p class="store-search__hint">No stores found for that search. Flipp couldn&rsquo;t match a merchant —
+        try a different postal code or store name.</p>
+}
+else
+{
+    <ul class="catalog-list store-results" role="list">
+        @foreach (var merchant in Model.SearchResults)
+        {
+            var alreadySubscribed = subscribedStoreNames.Contains(merchant.Name);
+            <li class="catalog-list__item store-result" data-merchant="@merchant.Name">
+                <span class="catalog-list__primary">@merchant.Name</span>
+                <div class="store-result__action">
+                    @if (alreadySubscribed)
+                    {
+                        <span class="badge badge--success">Subscribed</span>
+                    }
+                    else
+                    {
+                        <form hx-post="/Settings/StoresAndDeals?handler=Subscribe"
+                              hx-target="#subs-region"
+                              hx-swap="innerHTML"
+                              style="display:contents">
+                            <input type="hidden" name="externalRef" value="@merchant.ExternalRef" />
+                            <input type="hidden" name="name" value="@merchant.Name" />
+                            <input type="hidden" name="postalCode" value="@Model.PostalCode" />
+                            <button type="submit" class="btn btn--primary btn--sm">Subscribe</button>
+                        </form>
+                    }
+                </div>
+            </li>
+        }
+    </ul>
+}
