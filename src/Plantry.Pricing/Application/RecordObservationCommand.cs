@@ -21,7 +21,10 @@ public sealed class RecordObservationCommand(
     PriceSource source,
     IPriceObservationRepository repository,
     IUnitPriceCalculator calculator,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    DateOnly? validFrom = null,
+    DateOnly? validTo = null,
+    Guid? storeId = null)
 {
     public async Task<Result<PriceObservationId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -42,7 +45,10 @@ public sealed class RecordObservationCommand(
             merchantText,
             sourceRef,
             observedAt,
-            userId);
+            userId,
+            validFrom,
+            validTo,
+            storeId);
 
         await repository.AddAsync(observation, ct);
         await repository.SaveChangesAsync(ct);

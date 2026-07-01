@@ -96,4 +96,38 @@ public sealed class PriceObservationTests
 
         Assert.Null(obs.SkuId);
     }
+
+    [Fact]
+    public void Record_Deal_Carries_Validity_Window_And_StoreId()
+    {
+        var storeId = Guid.CreateVersion7();
+        var from = new DateOnly(2026, 7, 1);
+        var to = new DateOnly(2026, 7, 7);
+
+        var obs = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 2.50m, quantity: 1m, unitId: UnitId,
+            unitPrice: 2.50m, source: PriceSource.Deal,
+            merchantText: "Flyer", sourceRef: SourceRef, observedAt: Now, userId: UserId,
+            validFrom: from, validTo: to, storeId: storeId);
+
+        Assert.Equal(PriceSource.Deal, obs.Source);
+        Assert.Equal(from, obs.ValidFrom);
+        Assert.Equal(to, obs.ValidTo);
+        Assert.Equal(storeId, obs.StoreId);
+    }
+
+    [Fact]
+    public void Record_Purchase_Leaves_Window_And_StoreId_Null()
+    {
+        var obs = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 3.99m, quantity: 500m, unitId: UnitId,
+            unitPrice: 0.00798m, source: PriceSource.Purchase,
+            merchantText: "Superstore", sourceRef: SourceRef, observedAt: Now, userId: UserId);
+
+        Assert.Null(obs.ValidFrom);
+        Assert.Null(obs.ValidTo);
+        Assert.Null(obs.StoreId);
+    }
 }

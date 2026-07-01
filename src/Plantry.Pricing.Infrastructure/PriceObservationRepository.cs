@@ -13,13 +13,23 @@ public sealed class PriceObservationRepository(PricingDbContext db) : IPriceObse
 
     public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
         db.PriceObservations
-            .Where(p => p.ProductId == productId)
+            .Where(p => p.ProductId == productId && p.Source == PriceSource.Purchase)
             .OrderByDescending(p => p.ObservedAt)
             .FirstOrDefaultAsync(ct);
 
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
         db.PriceObservations
-            .Where(p => p.SkuId == skuId)
+            .Where(p => p.SkuId == skuId && p.Source == PriceSource.Purchase)
             .OrderByDescending(p => p.ObservedAt)
+            .FirstOrDefaultAsync(ct);
+
+    public Task<PriceObservation?> CheapestActiveDealForProductAsync(Guid productId, DateOnly today, CancellationToken ct = default) =>
+        db.PriceObservations
+            .Where(p => p.ProductId == productId
+                && p.Source == PriceSource.Deal
+                && p.ValidFrom <= today
+                && p.ValidTo >= today)
+            .OrderBy(p => p.UnitPrice)
+            .ThenBy(p => p.Price)
             .FirstOrDefaultAsync(ct);
 }
