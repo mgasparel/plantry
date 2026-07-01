@@ -223,6 +223,33 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Searchable select — unbound (no <code>asp-for</code>)</h2>
+    </div>
+    <p>
+        The same <code>&lt;searchable-select&gt;</code> <strong>without</strong> <code>asp-for</code>: no
+        hidden input is rendered, so nothing posts with a form. Hosts use this mode when they own per-item
+        enrichment and dispatch their own event contract from each option's <code>@@click</code> (e.g.
+        Recipes/TakeStock's <code>pick-product</code>). This demo keeps the component's <em>default</em>
+        keyboard handling — no custom Enter override — so pressing <kbd>Enter</kbd> runs
+        <code>chooseHighlighted()</code> → the highlighted (or first) option's real click →
+        <code>select()</code>, which safely no-ops its hidden-input write when there is no bound hidden
+        input (the <code>$refs.hidden</code> guard added by plantry-gzro.1). The visible label still updates.
+        This is the E2E reach for that guard (plantry-p5ww) — no production host drives this branch by
+        keyboard, so the coverage lives against this demo.
+    </p>
+
+    <div style="max-width: 28rem">
+        <searchable-select id="unbound-ss-demo"
+                           items="Model.GroceryOptions"
+                           search-url="/Dev?handler=FilterGroceries"
+                           placeholder="Search groceries…" />
+    </div>
+
+    <pre class="code-sample"><code>@("<searchable-select id=\"unbound-ss-demo\"\n                   items=\"Model.GroceryOptions\"\n                   search-url=\"/Dev?handler=FilterGroceries\"\n                   placeholder=\"Search groceries…\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Fuzzy search + create (<code>searchable-select</code> with <code>allow-create</code>)</h2>
     </div>
     <p>
