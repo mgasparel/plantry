@@ -21,6 +21,13 @@ public readonly record struct LocationId(Guid Value)
     public override string ToString() => Value.ToString();
 }
 
+public readonly record struct StoreId(Guid Value)
+{
+    public static StoreId New() => new(Guid.CreateVersion7());
+    public static StoreId From(Guid value) => new(value);
+    public override string ToString() => Value.ToString();
+}
+
 public readonly record struct ProductId(Guid Value)
 {
     public static ProductId New() => new(Guid.CreateVersion7());

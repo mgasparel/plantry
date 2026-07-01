@@ -6,7 +6,7 @@ namespace Plantry.Catalog.Infrastructure;
 
 /// <summary>
 /// EF DbContext for the Catalog bounded context.
-/// Owns: units, categories, locations, products (+ SKUs, conversions).
+/// Owns: units, categories, locations, stores, products (+ SKUs, conversions).
 /// </summary>
 public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
     : DbContext(options)
@@ -14,6 +14,7 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
     public DbSet<Unit> Units => Set<Unit>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Location> Locations => Set<Location>();
+    public DbSet<Store> Stores => Set<Store>();
     public DbSet<Product> Products => Set<Product>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -96,6 +97,35 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             b.HasIndex(l => new { l.HouseholdId, l.Name }).IsUnique();
 
             b.HasQueryFilter(l => l.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<Store>(b =>
+        {
+            b.ToTable("stores");
+            b.HasKey(s => s.Id);
+            b.Property(s => s.Id)
+                .HasConversion(id => id.Value, v => StoreId.From(v))
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+            b.Property(s => s.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(s => s.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            b.Property(s => s.ExternalRef).HasColumnName("external_ref").HasMaxLength(200);
+            b.Property(s => s.ArchivedAt).HasColumnName("archived_at");
+            b.Property(s => s.CreatedAt).HasColumnName("created_at");
+            b.Property(s => s.UpdatedAt).HasColumnName("updated_at");
+
+            b.HasIndex(s => new { s.HouseholdId, s.Name }).IsUnique();
+            // Partial unique (catalog.md DM-16 addition): keeps a merchant's external directory id
+            // unambiguous so EnsureStore can resolve by it, while manual stores (null external_ref)
+            // are excluded from the constraint.
+            b.HasIndex(s => new { s.HouseholdId, s.ExternalRef })
+                .IsUnique()
+                .HasFilter("external_ref IS NOT NULL");
+
+            b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });
 
         builder.Entity<Product>(b =>
