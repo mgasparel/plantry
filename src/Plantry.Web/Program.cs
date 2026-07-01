@@ -265,10 +265,15 @@ builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>(
 // Deals context (Phase 5 / P5-0). DbContext + schema (P5-0); store subscriptions + §7e management (P5-2).
 // DealsDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0
 // gotcha: omit it and every Deals query filter returns nothing while writes silently succeed.
+// DealConfirmed/DealRejected (P5-5) dispatch through the same post-save interceptor as Intake — no
+// subscriber today (latent, like RecipeCookedEvent; see the ADR-014 guardrail above), but the interceptor
+// drains + clears the buffered events on every save so they can't accumulate.
 builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Deals.Infrastructure"))
-        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+        .AddInterceptors(
+            sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
+            sp.GetRequiredService<DomainEventDispatchInterceptor>()));
 
 // Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
 // ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters
@@ -277,6 +282,16 @@ builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
 builder.Services.AddScoped<IStoreSubscriptionRepository, StoreSubscriptionRepository>();
 builder.Services.AddScoped<ICatalogStoreReader, CatalogStoreReaderAdapter>();
 builder.Services.AddScoped<ICatalogStoreWriter, CatalogStoreWriterAdapter>();
+
+// Deals — P5-5 confirm/reject orchestration (DJ4). The Deal + DealMatchMemory repos, the Pricing observation
+// writer (deal-sourced observation over P5-P's RecordObservationCommand; Deals never touches PricingDbContext),
+// and the Catalog product-existence check (ADR-010/DM-3).
+builder.Services.AddScoped<IDealRepository, DealRepository>();
+builder.Services.AddScoped<IDealMatchMemoryRepository, DealMatchMemoryRepository>();
+builder.Services.AddScoped<IPriceObservationWriter, RecordDealObservationAdapter>();
+builder.Services.AddScoped<Plantry.Deals.Application.ICatalogProductReader, DealCatalogProductReaderAdapter>();
+builder.Services.AddScoped<ConfirmDeal>();
+builder.Services.AddScoped<RejectDeal>();
 
 // IFlyerSource is the untrusted Flipp seam (D1). Production wires the real Flipp adapter (P5-3): a typed
 // HttpClient (base URL + locale + browser UA from the Deals:Flipp config; standard resilience — timeout +
@@ -410,7 +425,7 @@ builder.Services.AddScoped<PantrySuggestionService>();
 // Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +
 // Web-adapter seam: Recipes.Application owns the interfaces, these implement them over Catalog's
 // repositories/commands and pure UnitConverter, so the Recipes projects stay → SharedKernel only.
-builder.Services.AddScoped<ICatalogProductReader, CatalogProductReaderAdapter>();
+builder.Services.AddScoped<Plantry.Recipes.Application.ICatalogProductReader, CatalogProductReaderAdapter>();
 builder.Services.AddScoped<ICatalogWriter, CatalogWriterAdapter>();
 builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
 

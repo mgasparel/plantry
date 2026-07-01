@@ -139,6 +139,7 @@ public sealed class Deal : AggregateRoot<DealId>
         AutoMatched = true;
         MatchConfidence = MatchConfidence.High;
         Stamp(clock);
+        RaiseConfirmed(clock);
         return Result.Success();
     }
 
@@ -156,6 +157,7 @@ public sealed class Deal : AggregateRoot<DealId>
         ProductId = productId;
         Status = DealStatus.Confirmed;
         Review(by, clock);
+        RaiseConfirmed(clock);
         return Result.Success();
     }
 
@@ -173,6 +175,7 @@ public sealed class Deal : AggregateRoot<DealId>
         Status = DealStatus.Confirmed;
         AutoMatched = false;
         Review(by, clock);
+        RaiseConfirmed(clock);
         return Result.Success();
     }
 
@@ -185,6 +188,7 @@ public sealed class Deal : AggregateRoot<DealId>
         Status = DealStatus.Rejected;
         ProductId = null;
         Review(by, clock);
+        RaiseDomainEvent(new DealRejectedEvent(Id, HouseholdId, StoreId, clock.UtcNow));
         return Result.Success();
     }
 
@@ -205,6 +209,9 @@ public sealed class Deal : AggregateRoot<DealId>
         ReviewedAt = clock.UtcNow;
         Stamp(clock);
     }
+
+    private void RaiseConfirmed(IClock clock) =>
+        RaiseDomainEvent(new DealConfirmedEvent(Id, HouseholdId, ProductId!.Value, StoreId, AutoMatched, clock.UtcNow));
 
     private void Stamp(IClock clock) => UpdatedAt = clock.UtcNow;
 }
