@@ -51,10 +51,29 @@ public sealed record ShoppingListItemView(
     /// <para>Empty when the item has no resolvable attribution (e.g. all contributions are MealPlan/Deal
     /// which have no resolution port yet, or there are no contributions).</para>
     /// </summary>
-    IReadOnlyList<string>? AttributionLabels = null)
+    IReadOnlyList<string>? AttributionLabels = null,
+    /// <summary>
+    /// Resolved store name for the product's cheapest active deal (P5-9), read at request time from
+    /// <b>Pricing</b>'s cheapest-active-deal read model via <see cref="IShoppingDealReader"/> — never
+    /// stored (ADR-010 R3/D11). Drives the "On sale at {store} this week" badge. Null when the product has
+    /// no active deal, or when a deal is active but its store is unresolved (badge falls back to "On sale
+    /// this week"). Presence of a badge is governed by <see cref="DealId"/>, not this name.
+    /// </summary>
+    string? DealStoreName = null,
+    /// <summary>
+    /// The deal behind the active-deal badge (Pricing observation source ref) — provenance for the
+    /// tappable link. Non-null exactly when the product has a cheapest active deal. Null otherwise.
+    /// </summary>
+    Guid? DealId = null)
 {
     /// <summary>Display label — product name or free-text, never null for a well-formed item.</summary>
     public string DisplayName => ProductName ?? FreeText ?? "(unnamed)";
+
+    /// <summary>
+    /// True when the product has a cheapest active deal to badge ("On sale at {store} this week").
+    /// Keyed on <see cref="DealId"/> so a deal with an unresolved store still badges (storeless text).
+    /// </summary>
+    public bool HasDeal => DealId.HasValue;
 
     /// <summary>
     /// True when pantry stock data is available for this item (i.e. it is a product-backed item
