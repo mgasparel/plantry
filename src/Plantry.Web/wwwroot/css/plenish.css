@@ -647,7 +647,7 @@ button { font-family: inherit; cursor: pointer; }
    for Shopping/Pantry Add Stock where the listbox should not disturb page layout. The
    fuzzy search + create mode (SearchableSelectTagHelper AllowCreate="true") instead needs
    an in-flow block that EXPANDS the sheet and pushes the create divider/button below it,
-   matching docs/Engineering/prototypes/fuzzy-match-suggestion-widget.html Option A. Dropping
+   matching the accepted fuzzy match-suggestion prototype (Option A). Dropping
    position: absolute puts the listbox back in normal flow (its top/left/right/z-index no
    longer apply); the small top gap the prototype's .listbox has is restored via margin-top.
    All other listbox styling (padding, border, radius, drop shadow, internal scroll) is
@@ -670,8 +670,8 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ── Create escape hatch (AllowCreate) — plantry-gzro.1 ───────────────────────
    Divider + button sit directly below the listbox so the two read as one
-   visually grouped unit, per docs/Engineering/prototypes/
-   fuzzy-match-suggestion-widget.html Option A (.lb-divider treatment). */
+   visually grouped unit, per the accepted fuzzy match-suggestion prototype,
+   Option A (.lb-divider treatment). */
 .searchable-select__create-divider {
   border: none;
   border-top: 1px dashed var(--color-border-strong);
