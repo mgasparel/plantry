@@ -1,0 +1,332 @@
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Extensions.Logging;
+using Plantry.Deals.Domain;
+using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
+using Plantry.SharedKernel.Tenancy;
+
+namespace Plantry.Deals.Application;
+
+/// <summary>The per-household outcome of one <see cref="IngestFlyer"/> cycle — for logging + tests.</summary>
+/// <param name="Processed">Active subscriptions the worker attempted.</param>
+/// <param name="Pulled">Subscriptions whose flyer pulled and parsed (new or refreshed).</param>
+/// <param name="Skipped">Byte-identical no-ops (DD5) + subscriptions with nothing to pull.</param>
+/// <param name="Failed">Subscriptions whose pull or parse failed (isolated; cycle continued).</param>
+/// <param name="PendingCreated">Total deals left <c>Pending</c> across the cycle.</param>
+/// <param name="AutoConfirmed">Total deals auto-confirmed from memory (D4).</param>
+public sealed record IngestSummary(
+    int Processed, int Pulled, int Skipped, int Failed, int PendingCreated, int AutoConfirmed);
+
+/// <summary>
+/// DJ2 — the async ingestion pipeline (deals-domain-model §7): for the <b>currently armed household</b>,
+/// pull each active <see cref="StoreSubscription"/> → dedup → normalize → match → materialize
+/// <see cref="Deal"/>s, auto-confirming remembered matches (via the shared P5-5 <see cref="ConfirmDeal"/>
+/// side effects) and queuing the rest for review. The convergence point of the Deals context.
+/// <para>
+/// <b>Tenancy (security-critical).</b> This service runs inside an already-armed household scope — the
+/// background worker sets <see cref="ITenantContext"/> and <c>DealsDbContext.SetHouseholdId</c> per
+/// household before resolving it (there is no HTTP principal). It reads only the armed household's
+/// RLS-scoped rows and stamps every new aggregate with that household id. A null tenant is a
+/// programming error (the worker must arm first) and yields an empty cycle rather than a cross-tenant read.
+/// </para>
+/// <para>
+/// <b>Failure isolation (D1).</b> One bad subscription — a Flipp pull failure, or a parse/materialize
+/// error — never aborts the cycle: it is contained and the loop continues to the next subscription. A
+/// pull that yields a valid envelope but fails downstream marks its <see cref="FlyerImport"/>
+/// <see cref="PullStatus.Failed"/> with <c>error_detail</c> and persists <b>no partial deals</b>; a pull
+/// that never returns an envelope (Flipp unreachable) is logged and retried next cycle.
+/// </para>
+/// <para>
+/// <b>Idempotent re-pull (DD5/DD13).</b> A byte-identical re-pull (content-hash match) is a no-op; a
+/// changed re-pull updates the same <see cref="FlyerImport"/>, re-stages only still-<c>Pending</c> deals,
+/// and freezes <c>Confirmed</c>/<c>Rejected</c> ones.
+/// </para>
+/// </summary>
+public sealed class IngestFlyer(
+    IStoreSubscriptionRepository subscriptions,
+    IFlyerImportRepository imports,
+    IDealRepository deals,
+    IDealMatchMemoryRepository memories,
+    IFlyerSource source,
+    IDealMatcher matcher,
+    ICatalogStoreReader stores,
+    ICatalogProductReader products,
+    ConfirmDeal confirmDeal,
+    ITenantContext tenant,
+    IClock clock,
+    ILogger<IngestFlyer> logger)
+{
+    public async Task<IngestSummary> RunAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } tenantId)
+        {
+            logger.LogError("IngestFlyer invoked with no armed tenant — the worker must set TenantContext per household. Skipping.");
+            return new IngestSummary(0, 0, 0, 0, 0, 0);
+        }
+
+        var household = HouseholdId.From(tenantId);
+        var active = await subscriptions.ListActiveAsync(ct);
+
+        int pulled = 0, skipped = 0, failed = 0, pending = 0, autoConfirmed = 0;
+
+        foreach (var sub in active)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var outcome = await IngestSubscriptionAsync(household, sub, ct);
+                pulled += outcome.Pulled;
+                skipped += outcome.Skipped;
+                pending += outcome.PendingCreated;
+                autoConfirmed += outcome.AutoConfirmed;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Failure isolation: one bad subscription never aborts the household's cycle.
+                failed++;
+                logger.LogError(ex,
+                    "IngestFlyer: subscription {SubscriptionId} (store {StoreId}) failed; continuing to the next.",
+                    sub.Id.Value, sub.StoreId);
+            }
+        }
+
+        logger.LogInformation(
+            "IngestFlyer cycle for household {HouseholdId}: {Processed} processed, {Pulled} pulled, {Skipped} skipped, {Failed} failed, {Pending} pending, {AutoConfirmed} auto-confirmed.",
+            household.Value, active.Count, pulled, skipped, failed, pending, autoConfirmed);
+
+        return new IngestSummary(active.Count, pulled, skipped, failed, pending, autoConfirmed);
+    }
+
+    private async Task<IngestSummary> IngestSubscriptionAsync(HouseholdId household, StoreSubscription sub, CancellationToken ct)
+    {
+        // Resolve the merchant's Flipp id from Catalog (soft-ref → catalog.store). No external ref → nothing to pull.
+        var store = await stores.FindAsync(sub.StoreId, ct);
+        if (store?.ExternalRef is not { Length: > 0 } externalRef)
+        {
+            logger.LogWarning("IngestFlyer: store {StoreId} has no external ref; skipping subscription {SubscriptionId}.",
+                sub.StoreId, sub.Id.Value);
+            return Empty(skipped: 1);
+        }
+
+        // ── Pull (untrusted, fragile). Never throws into the caller; a failure is a soft-fail result. ──
+        FlyerPullResult pull;
+        try
+        {
+            pull = await source.PullFlyerAsync(externalRef, sub.PostalCode, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            pull = FlyerPullResult.Failed(ex.Message);
+        }
+
+        if (pull.HasError || pull.Window is null || string.IsNullOrWhiteSpace(pull.FlyerExternalId))
+        {
+            // No persistable envelope (flyer_external_id / window are NOT NULL). Log + retry next cycle.
+            logger.LogWarning("IngestFlyer: pull failed for store {StoreId} — {Error}. Retrying next cycle.",
+                sub.StoreId, pull.ErrorMessage ?? "empty flyer");
+            return Empty(); // not counted as a hard failure — no import row was created
+        }
+
+        var contentHash = SHA256.HashData(Encoding.UTF8.GetBytes(pull.RawContent));
+        var existing = await imports.FindByDedupKeyAsync(sub.StoreId, pull.FlyerExternalId, ct);
+
+        // ── DD5: byte-identical re-pull is a no-op. ──
+        if (existing is not null && existing.ContentHash is not null && existing.ContentHash.AsSpan().SequenceEqual(contentHash))
+        {
+            sub.RecordPull(pull.FlyerExternalId, clock);
+            await subscriptions.SaveChangesAsync(ct);
+            return Empty(skipped: 1);
+        }
+
+        var result = existing is null
+            ? await IngestNewImportAsync(household, sub, pull, contentHash, ct)
+            : await RefreshImportAsync(household, sub, existing, pull, contentHash, ct);
+
+        sub.RecordPull(pull.FlyerExternalId, clock);
+        await subscriptions.SaveChangesAsync(ct);
+        return result;
+    }
+
+    private async Task<IngestSummary> IngestNewImportAsync(
+        HouseholdId household, StoreSubscription sub, FlyerPullResult pull, byte[] contentHash, CancellationToken ct)
+    {
+        var import = FlyerImport.Start(household, sub.StoreId, pull.FlyerExternalId, contentHash, pull.Window!, pull.RawContent, clock);
+        await imports.AddAsync(import, ct);
+        await imports.SaveChangesAsync(ct); // persist the Pulling envelope first so a later parse failure is recordable
+
+        try
+        {
+            var staged = await StageDealsAsync(household, sub, import.Id, pull, frozenNames: null, ct);
+
+            // Nothing is added to the context until the whole batch stages cleanly — a mid-stage throw
+            // leaves zero partial deals (the shared DealsDbContext would otherwise flush tracked adds).
+            foreach (var s in staged.Deals)
+                await deals.AddAsync(s.Deal, ct);
+            await deals.SaveChangesAsync(ct);
+
+            var autoConfirmed = await AutoConfirmAsync(staged, ct);
+
+            var mark = import.MarkParsed(staged.PendingCount, clock);
+            if (mark.IsFailure)
+                throw new InvalidOperationException($"MarkParsed failed: {mark.Error.Description}");
+            await imports.SaveChangesAsync(ct);
+
+            return new IngestSummary(0, 1, 0, 0, staged.PendingCount, autoConfirmed);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await MarkImportFailedAsync(import, ex, ct);
+            throw; // surface to the per-subscription isolation boundary (counts as a failed subscription)
+        }
+    }
+
+    private async Task<IngestSummary> RefreshImportAsync(
+        HouseholdId household, StoreSubscription sub, FlyerImport import, FlyerPullResult pull, byte[] contentHash, CancellationToken ct)
+    {
+        if (import.Status != PullStatus.Parsed)
+        {
+            // A prior Failed/Pulling import for this dedup key can't be re-opened (DD12 monotonic). Skip.
+            logger.LogWarning("IngestFlyer: import {ImportId} is {Status}, not Parsed; skipping re-pull refresh.",
+                import.Id.Value, import.Status);
+            return Empty(skipped: 1);
+        }
+
+        var existingDeals = await deals.ListByFlyerImportAsync(import.Id, ct);
+        var frozenNames = existingDeals
+            .Where(d => d.Status is DealStatus.Confirmed or DealStatus.Rejected)
+            .Select(d => d.NormalizedName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // DD13: refresh only still-Pending deals. Stage the flyer's current items FIRST (in-memory, no
+        // change-tracker mutation) so a malformed item throws before we touch the shared scoped context —
+        // otherwise stranded Deleted entities would leak into the next subscription's SaveChanges and wipe
+        // this household's prior Pending deals. Only once staging succeeds do we drop the old Pending deals
+        // and add the fresh ones. Items whose normalized name maps to a frozen (resolved) deal are skipped.
+        var staged = await StageDealsAsync(household, sub, import.Id, pull, frozenNames, ct);
+
+        foreach (var pendingDeal in existingDeals.Where(d => d.Status == DealStatus.Pending))
+            deals.Remove(pendingDeal);
+        foreach (var s in staged.Deals)
+            await deals.AddAsync(s.Deal, ct);
+        await deals.SaveChangesAsync(ct);
+
+        var autoConfirmed = await AutoConfirmAsync(staged, ct);
+
+        var mark = import.RecordRepull(contentHash, pull.Window!, staged.PendingCount, clock);
+        if (mark.IsFailure)
+            throw new InvalidOperationException($"RecordRepull failed: {mark.Error.Description}");
+        await imports.SaveChangesAsync(ct);
+
+        return new IngestSummary(0, 1, 0, 0, staged.PendingCount, autoConfirmed);
+    }
+
+    /// <summary>
+    /// Stage 1 (normalize) + stage 2 (match) for every <see cref="RawDeal"/>, building — but not yet
+    /// persisting — one <see cref="Deal"/> each. Remembered matches (D4) are flagged for auto-confirm;
+    /// everything else lands <c>Pending</c>. Items whose normalized name is <paramref name="frozenNames"/>
+    /// (a resolved deal on a re-pull) are skipped so a resolution is never clobbered (DD13).
+    /// </summary>
+    private async Task<StagedDeals> StageDealsAsync(
+        HouseholdId household, StoreSubscription sub, FlyerImportId importId, FlyerPullResult pull,
+        IReadOnlySet<string>? frozenNames, CancellationToken ct)
+    {
+        IReadOnlyList<ProductCandidate>? candidates = null;
+        var staged = new List<StagedDeal>();
+        var pending = 0;
+
+        foreach (var raw in pull.Deals)
+        {
+            var normalized = DealNormalizer.Normalize(raw.RawName);
+
+            if (frozenNames is not null && frozenNames.Contains(normalized.Value))
+                continue; // resolved deal for this item — frozen, leave it be (DD13)
+
+            var (proposal, rememberedProductId) = await MatchAsync(sub.StoreId, raw, normalized, LoadCandidates, ct);
+
+            var deal = Deal.Stage(household, importId, sub.StoreId, raw, normalized, proposal, clock);
+            staged.Add(new StagedDeal(deal, rememberedProductId));
+            if (rememberedProductId is null)
+                pending++;
+        }
+
+        return new StagedDeals(staged, pending);
+
+        // Candidates are fetched lazily and once per import — only when an AI match is actually needed.
+        async Task<IReadOnlyList<ProductCandidate>> LoadCandidates() =>
+            candidates ??= await products.ListCandidatesAsync(ct);
+    }
+
+    /// <summary>
+    /// Stage 2 for one item: memory lookup first (DD3), else the untrusted AI matcher over candidates.
+    /// A positive memory → auto-confirm proposal; a negative memory → stays unmatched/Pending. An AI
+    /// suggestion outside the candidate set is an invention and is dropped (ADR-007).
+    /// </summary>
+    private async Task<(MatchProposal Proposal, Guid? RememberedProductId)> MatchAsync(
+        Guid storeId, RawDeal raw, NormalizedName normalized, Func<Task<IReadOnlyList<ProductCandidate>>> loadCandidates, CancellationToken ct)
+    {
+        var memory = await memories.FindByKeyAsync(storeId, normalized.Value, ct);
+        if (memory is not null)
+        {
+            return memory.ProductId is { } remembered
+                ? (new MatchProposal(remembered, MatchConfidence.High, "remembered match"), remembered)
+                : (MatchProposal.Unmatched(), null); // negative memory: "not a tracked product"
+        }
+
+        var candidates = await loadCandidates();
+        var proposal = await matcher.MatchAsync(raw, candidates, ct);
+        if (proposal.SuggestedProductId is { } suggested && candidates.All(c => c.Id != suggested))
+        {
+            logger.LogWarning("IngestFlyer: matcher suggested product {ProductId} not in the candidate set; dropping (ADR-007).", suggested);
+            proposal = MatchProposal.Unmatched();
+        }
+
+        return (proposal, null);
+    }
+
+    /// <summary>
+    /// Runs the P5-5 confirm side effects for each remembered match (D4): the deal is already persisted
+    /// <c>Pending</c>, so <see cref="ConfirmDeal.AutoConfirmAsync"/> flips it, writes the deal observation,
+    /// and refreshes memory — with <c>reviewed_by_user_id = null</c>. A single auto-confirm failure is
+    /// isolated: the deal simply stays Pending (resumable), and the cycle proceeds.
+    /// </summary>
+    private async Task<int> AutoConfirmAsync(StagedDeals staged, CancellationToken ct)
+    {
+        var confirmed = 0;
+        foreach (var s in staged.Deals)
+        {
+            if (s.RememberedProductId is not { } productId)
+                continue;
+
+            var result = await confirmDeal.AutoConfirmAsync(s.Deal.Id, productId, ct);
+            if (result.IsSuccess)
+                confirmed++;
+            else
+                logger.LogWarning("IngestFlyer: auto-confirm of deal {DealId} failed ({Error}); it stays Pending.",
+                    s.Deal.Id.Value, result.Error.Code);
+        }
+        return confirmed;
+    }
+
+    private async Task MarkImportFailedAsync(FlyerImport import, Exception ex, CancellationToken ct)
+    {
+        try
+        {
+            var mark = import.MarkFailed(Truncate(ex.Message, 1000), clock);
+            if (mark.IsSuccess)
+                await imports.SaveChangesAsync(ct); // only the import status flips — no deals were added to the context
+        }
+        catch (Exception markEx) when (markEx is not OperationCanceledException)
+        {
+            logger.LogError(markEx, "IngestFlyer: failed to mark import {ImportId} Failed.", import.Id.Value);
+        }
+    }
+
+    private static IngestSummary Empty(int skipped = 0) => new(0, 0, skipped, 0, 0, 0);
+
+    private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
+
+    private sealed record StagedDeal(Deal Deal, Guid? RememberedProductId);
+
+    private sealed record StagedDeals(IReadOnlyList<StagedDeal> Deals, int PendingCount);
+}

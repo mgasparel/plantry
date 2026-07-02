@@ -70,6 +70,10 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("source_ref");
 
+                    b.Property<Guid?>("StoreId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("store_id");
+
                     b.Property<Guid>("UnitId")
                         .HasColumnType("uuid")
                         .HasColumnName("unit_id");
@@ -83,7 +87,19 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
 
+                    b.Property<DateOnly?>("ValidFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_from");
+
+                    b.Property<DateOnly?>("ValidTo")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_to");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("HouseholdId", "ProductId")
+                        .HasDatabaseName("ix_price_observation_deal")
+                        .HasFilter("source = 'Deal'");
 
                     b.HasIndex("HouseholdId", "ProductId", "ObservedAt")
                         .HasDatabaseName("ix_price_observation_product");
@@ -92,7 +108,10 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                         .HasDatabaseName("ix_price_observation_sku")
                         .HasFilter("sku_id IS NOT NULL");
 
-                    b.ToTable("price_observation", "pricing");
+                    b.ToTable("price_observation", "pricing", t =>
+                        {
+                            t.HasCheckConstraint("ck_price_observation_valid_window", "valid_from <= valid_to");
+                        });
                 });
 #pragma warning restore 612, 618
         }

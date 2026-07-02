@@ -52,7 +52,12 @@ public sealed class AppHostFixture : IAsyncLifetime
             .Single(r => r.Name == "plantry-web");
         appHost.CreateResourceBuilder(webResource)
             .WithEnvironment("AI__UseSampleParser", "false")
-            .WithEnvironment("AI__UseFakeParser", "true");
+            .WithEnvironment("AI__UseFakeParser", "true")
+            // Keep the deterministic canned StubFlyerSourceAdapter for the Stores & Deals journey
+            // (StoresAndDealsJourneyTests) so no live Flipp call is made in CI. Honours the
+            // Deals:UseStubFlyerSource seam in Program.cs; confined to the test AppHost (production wires
+            // the real Flipp FlyerSource). ('__' is the .NET config section delimiter for "Deals:UseStubFlyerSource".)
+            .WithEnvironment("Deals__UseStubFlyerSource", "true");
 
         _app = await appHost.BuildAsync();
 

@@ -1,4 +1,5 @@
 using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Shopping.Domain;
 
@@ -11,7 +12,10 @@ namespace Plantry.Shopping.Application;
 /// port implemented by the Web adapter layer. Pantry on-hand quantities and low flags are enriched
 /// via <see cref="IShoppingPantryReader"/> (the Shopping→Inventory ACL port) for product-backed items.
 /// Recipe names for attribution labels are resolved via <see cref="IShoppingRecipeReader"/>
-/// (the Shopping→Recipes ACL port, plantry-26g).
+/// (the Shopping→Recipes ACL port, plantry-26g). Cheapest-active-deal badges are resolved via
+/// <see cref="IShoppingDealReader"/> — the Shopping→<b>Pricing</b> ACL port (P5-9, ADR-010: Shopping reads
+/// Pricing's read model, never Deals) — evaluated against <see cref="IClock"/> today so a badge appears and
+/// lapses with the deal's validity window, and never stored.
 ///
 /// <para>Ordering: unchecked items first (ordered by <c>created_at</c> ascending), checked items
 /// last (ordered by <c>checked_at</c> ascending, i.e. most-recently-checked last). This gives a
@@ -25,6 +29,8 @@ public sealed class ShoppingListQueryService(
     IShoppingCatalogReader catalog,
     IShoppingPantryReader pantry,
     IShoppingRecipeReader recipes,
+    IShoppingDealReader deals,
+    IClock clock,
     ITenantContext tenant)
 {
     private const string UncategorizedBucket = "Uncategorized";
@@ -97,9 +103,17 @@ public sealed class ShoppingListQueryService(
             ? await recipes.GetRecipeNamesAsync(recipeSourceRefs, ct)
             : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
 
+        // Enrich product-backed items with their cheapest active deal via the Shopping→Pricing read port
+        // (P5-9). Evaluated against "today" so the badge appears/lapses with the deal's validity window
+        // (ADR-010: Shopping reads Pricing's read model, never Deals; the badge is never stored, D11).
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var activeDeals = productIds.Count > 0
+            ? await deals.GetActiveDealsAsync(productIds, today, ct)
+            : (IReadOnlyDictionary<Guid, ShoppingActiveDeal>)new Dictionary<Guid, ShoppingActiveDeal>();
+
         // Map all items to view models.
         var itemViews = list.Items
-            .Select(i => MapItem(i, summaries, unitCodes, stockLevels, itemCategories, recipeNames))
+            .Select(i => MapItem(i, summaries, unitCodes, stockLevels, itemCategories, recipeNames, activeDeals))
             .ToList();
 
         // Partition: checked items sink to the bottom (SPEC §3c). Only unchecked items
@@ -151,7 +165,8 @@ public sealed class ShoppingListQueryService(
         IReadOnlyDictionary<Guid, string> unitCodes,
         IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> stockLevels,
         IReadOnlyDictionary<Guid, ShoppingCategoryOption> itemCategories,
-        IReadOnlyDictionary<Guid, string> recipeNames)
+        IReadOnlyDictionary<Guid, string> recipeNames,
+        IReadOnlyDictionary<Guid, ShoppingActiveDeal> activeDeals)
     {
         string? productName = null;
         string? categoryName = null;
@@ -191,6 +206,15 @@ public sealed class ShoppingListQueryService(
         // Build attribution labels from contributions (plantry-26g).
         var attributionLabels = BuildAttributionLabels(item.Contributions, recipeNames);
 
+        // Cheapest-active-deal badge (P5-9): product-backed items only; read from Pricing, never stored.
+        string? dealStoreName = null;
+        Guid? dealId = null;
+        if (item.ProductId.HasValue && activeDeals.TryGetValue(item.ProductId.Value, out var deal))
+        {
+            dealStoreName = deal.StoreName;
+            dealId = deal.DealId;
+        }
+
         return new ShoppingListItemView(
             ItemId: item.Id.Value,
             ListId: item.ShoppingListId.Value,
@@ -209,7 +233,9 @@ public sealed class ShoppingListQueryService(
             OnHand: onHand,
             PantryUnitCode: pantryUnitCode,
             IsLow: isLow,
-            AttributionLabels: attributionLabels);
+            AttributionLabels: attributionLabels,
+            DealStoreName: dealStoreName,
+            DealId: dealId);
     }
 
     /// <summary>

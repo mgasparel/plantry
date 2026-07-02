@@ -77,6 +77,47 @@ public sealed class RecordObservationCommandTests
         Assert.True(result.IsSuccess);
         Assert.NotEqual(Guid.Empty, result.Value.Value);
     }
+
+    [Fact]
+    public async Task Deal_Source_Records_Validity_Window_And_StoreId()
+    {
+        var repo = new FakePriceObservationRepository();
+        var calculator = new FakeUnitPriceCalculator(2.50m);
+        var storeId = Guid.CreateVersion7();
+        var dealRef = Guid.CreateVersion7();
+        var from = new DateOnly(2026, 7, 1);
+        var to = new DateOnly(2026, 7, 7);
+
+        var result = await new RecordObservationCommand(
+            ProductId, null, 2.50m, 1m, UnitId, "Flyer", dealRef, Now, UserId,
+            PriceSource.Deal, repo, calculator, new FakeTenantContext(Household),
+            validFrom: from, validTo: to, storeId: storeId)
+            .ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(repo.Items);
+        Assert.Equal(PriceSource.Deal, saved.Source);
+        Assert.Equal(from, saved.ValidFrom);
+        Assert.Equal(to, saved.ValidTo);
+        Assert.Equal(storeId, saved.StoreId);
+        Assert.Equal(dealRef, saved.SourceRef);
+        Assert.Equal(2.50m, saved.UnitPrice);
+    }
+
+    [Fact]
+    public async Task Purchase_Source_Leaves_Window_And_StoreId_Null()
+    {
+        var repo = new FakePriceObservationRepository();
+        var calculator = new FakeUnitPriceCalculator(0.00798m);
+
+        var result = await Command(repo, calculator).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(repo.Items);
+        Assert.Null(saved.ValidFrom);
+        Assert.Null(saved.ValidTo);
+        Assert.Null(saved.StoreId);
+    }
 }
 
 internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
@@ -102,10 +143,22 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
     }
 
     public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
-        Task.FromResult(Items.Where(p => p.ProductId == productId).MaxBy(p => p.ObservedAt));
+        Task.FromResult(Items
+            .Where(p => p.ProductId == productId && p.Source == PriceSource.Purchase)
+            .MaxBy(p => p.ObservedAt));
 
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
-        Task.FromResult(Items.Where(p => p.SkuId == skuId).MaxBy(p => p.ObservedAt));
+        Task.FromResult(Items
+            .Where(p => p.SkuId == skuId && p.Source == PriceSource.Purchase)
+            .MaxBy(p => p.ObservedAt));
+
+    public Task<PriceObservation?> CheapestActiveDealForProductAsync(Guid productId, DateOnly today, CancellationToken ct = default) =>
+        Task.FromResult(Items
+            .Where(p => p.ProductId == productId && p.Source == PriceSource.Deal
+                && p.ValidFrom <= today && p.ValidTo >= today)
+            .OrderBy(p => p.UnitPrice)
+            .ThenBy(p => p.Price)
+            .FirstOrDefault());
 }
 
 internal sealed class FakeUnitPriceCalculator(decimal? returnValue) : IUnitPriceCalculator

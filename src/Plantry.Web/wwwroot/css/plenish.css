@@ -3591,6 +3591,10 @@ details[open].sheet-defaults > .sheet-defaults__summary { list-style: disclosure
 .sl-sub .dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .6; }
 .sl-note { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-muted); font-style: italic; }
 .sl-note svg { width: 12px; height: 12px; opacity: .7; font-style: normal; }
+/* Deal badge (P5-9): reuses the tonal .badge pill; a tappable anchor to the Deals page. */
+.sl-deal { display: inline-flex; margin-top: 4px; text-decoration: none; }
+.sl-deal:hover { filter: brightness(0.97); }
+.sl-deal svg { width: 12px; height: 12px; }
 /* Pantry stock sub-line (.sl-instock) and low indicator (.sl-low) */
 .sl-instock { color: var(--color-success); font-variant-numeric: tabular-nums; }
 .sl-instock.out { color: var(--color-text-faint); }
@@ -5932,3 +5936,130 @@ button.sadd svg { width: 13px; height: 13px; }
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
+
+/* ── Stores & Deals (§7e / P5-2) ───────────────────────────────────────────── */
+/* Page-specific layout composing the shared card / catalog-list / badge / btn   */
+/* primitives. A subscription row stacks name+postal on the left, pushes its      */
+/* status badge and actions to the right; the store search is a simple input row. */
+.store-row { flex-wrap: wrap; }
+.store-row > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.store-row__status { margin-left: auto; }
+.store-row__actions { display: flex; gap: var(--space-2); }
+.store-row--paused .catalog-list__primary { color: var(--color-text-muted); }
+
+.store-paused { margin-top: var(--space-4); }
+.store-paused__head {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.store-search { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.store-search__postal,
+.store-search__query {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.store-search__postal { width: 12rem; }
+.store-search__query { flex: 1 1 12rem; min-width: 0; }
+.store-search__hint { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: 0; }
+
+.store-results { margin-top: var(--space-1); }
+.store-result__action { margin-left: auto; }
+
+/* ── Deals page (§6a / DJ3 / P5-7) ─────────────────────────────────────────── */
+/* Page-specific layout composing the shared card / catalog-list / badge / btn /  */
+/* seg-ctrl primitives. Active deals group by store or category (client toggle);   */
+/* the pending block is a distinguished review entry point (the form is P5-8).     */
+.deal-group-toggle { margin-left: auto; }
+.deal-groups { display: flex; flex-direction: column; gap: var(--space-4); }
+.deal-group__head {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.deal-row { align-items: center; gap: var(--space-3); }
+.deal-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.deal-row__auto {
+  margin-left: var(--space-2);
+  vertical-align: middle;
+  font-size: var(--font-size-xs);
+}
+.deal-row__price {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  white-space: nowrap;
+}
+.deal-row__amount { font-weight: 600; color: var(--color-text); }
+.deal-row__until { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+/* Stock-up alerts (P5-10 / DJ5): the add-to-list action is pushed to the row's trailing edge. */
+.deal-row__action { margin-left: auto; white-space: nowrap; }
+.deal-alerts { border-color: var(--color-success); }
+.deal-alerts__lead { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: 0 0 var(--space-3); }
+.deal-row__deal-badge { margin-left: var(--space-2); vertical-align: middle; font-size: var(--font-size-xs); }
+
+.deal-pending { border-color: var(--color-accent); }
+.deal-pending__body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.deal-pending__text { flex: 1 1 16rem; min-width: 0; }
+.deal-pending__lead { font-weight: 600; margin-top: var(--space-2); }
+.deal-pending__sub { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: var(--space-1) 0 0; }
+.deal-pending__body > .btn { margin-left: auto; }
+.deal-row__correct {
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  text-decoration: none;
+  margin-top: var(--space-1);
+}
+.deal-row__correct:hover { text-decoration: underline; }
+
+/* ── Deal review queue (P5-8 / DJ4) — one card per pending/correctable deal ─── */
+.deal-review-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+.deal-review-row__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.deal-review-row__raw { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.deal-review-row__brand {
+  margin-left: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.deal-review-row__price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.deal-review-row__suggest { margin: 0; }
+.deal-review-row__reasoning { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.deal-review-row__unrecognized {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  padding: var(--space-2) 0;
+}
+.deal-review-row__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.deal-review-row__reject { margin-left: auto; }

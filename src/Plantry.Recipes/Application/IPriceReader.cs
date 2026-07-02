@@ -2,8 +2,10 @@ namespace Plantry.Recipes.Application;
 
 /// <summary>
 /// Anti-corruption read port onto Pricing (recipes-domain-model.md §8; DM-17). Returns the
-/// latest/representative <c>PriceObservation</c> for a product — the price (in the observation's
+/// effective (deal-aware) <c>PriceObservation</c> for a product — the price (in the observation's
 /// unit) that <see cref="Plantry.Recipes.Domain.CostingService"/> uses to compute cost-per-serving.
+/// Deal-aware (P5-9b, DJ6): the Web adapter reads Pricing's effective-price read model — cheapest active
+/// in-window deal else latest purchase — so cost reflects live sales without Recipes depending on Deals.
 /// Defined here in Recipes.Application and <b>implemented in Plantry.Web</b> over
 /// <see cref="Plantry.Pricing.Application.PricingQueries"/>, so the Recipes projects keep their
 /// <c>→ SharedKernel only</c> dependency. All identifiers cross as raw <see cref="Guid"/> soft refs
@@ -12,8 +14,8 @@ namespace Plantry.Recipes.Application;
 public interface IPriceReader
 {
     /// <summary>
-    /// Returns the latest price observation for the given product, or null when no price has
-    /// ever been recorded for this product in the household. The returned <see cref="PricePoint"/>
+    /// Returns the effective (deal-aware) price observation for the given product, or null when no price
+    /// has ever been recorded for this product in the household. The returned <see cref="PricePoint"/>
     /// expresses the price per <see cref="PricePoint.Quantity"/> <see cref="PricePoint.UnitId"/>
     /// of the product — <c>CostingService</c> converts to the ingredient unit via
     /// <see cref="IUnitConverter"/> before summing.

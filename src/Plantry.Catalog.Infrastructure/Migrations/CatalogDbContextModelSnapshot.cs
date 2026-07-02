@@ -41,15 +41,15 @@ namespace Plantry.Catalog.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("household_id");
 
+                    b.Property<int?>("Hue")
+                        .HasColumnType("integer")
+                        .HasColumnName("hue");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("name");
-
-                    b.Property<int?>("Hue")
-                        .HasColumnType("integer")
-                        .HasColumnName("hue");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")
@@ -247,6 +247,51 @@ namespace Plantry.Catalog.Infrastructure.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("product_skus", "catalog");
+                });
+
+            modelBuilder.Entity("Plantry.Catalog.Domain.Store", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ExternalRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("external_ref");
+
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("household_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HouseholdId", "ExternalRef")
+                        .IsUnique()
+                        .HasFilter("external_ref IS NOT NULL");
+
+                    b.HasIndex("HouseholdId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("stores", "catalog");
                 });
 
             modelBuilder.Entity("Plantry.Catalog.Domain.Unit", b =>

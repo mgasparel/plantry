@@ -1,0 +1,101 @@
+@using System.Globalization
+@using Plantry.Deals.Domain
+@using Plantry.Intake.Domain
+@model Plantry.Deals.Application.DealReviewView
+
+@*
+    One deal review card (P5-8 / DJ4) — the deal-side twin of an Intake review row. Shows the raw flyer
+    fields verbatim (ACL quarantine, DD6), the confidence-shaped treatment via the shared _ConfidenceBadge,
+    the single suggested-product "did you mean" chip (reused .match-suggest pattern — a deal carries ONE
+    suggestion, never a ranked list), and the three verbs. Confirm/Reject are htmx posts that re-render the
+    whole #review-region from server truth; Correct opens the shared _ProductSearchCreateSheet via the host
+    Alpine wrapper (openCorrect).
+*@
+@{
+    // Reuse Intake's _ConfidenceBadge verbatim — MatchConfidence reuses Intake's High/Low/None scale (DM-15/DL-O7).
+    var confidence = Model.Confidence switch
+    {
+        MatchConfidence.High => SuggestedConfidence.High,
+        MatchConfidence.Low => SuggestedConfidence.Low,
+        _ => SuggestedConfidence.None,
+    };
+    var dealId = Model.DealId.Value;
+    var isPending = Model.Status == DealStatus.Pending;
+}
+
+<li class="catalog-list__item deal-review-row" id="deal-review-@dealId" data-deal-id="@dealId">
+    <div class="deal-review-row__head">
+        <div class="deal-review-row__raw">
+            <span class="catalog-list__primary">
+                @Model.RawName
+                @if (!string.IsNullOrWhiteSpace(Model.Brand))
+                {
+                    <span class="deal-review-row__brand">@Model.Brand</span>
+                }
+            </span>
+            <span class="catalog-list__secondary">
+                @Model.StoreName
+                @if (!string.IsNullOrWhiteSpace(Model.SaleStory))
+                {
+                    <span>&middot; @Model.SaleStory</span>
+                }
+                <span>&middot; Valid @Model.ValidFrom.ToString("d MMM") &ndash; @Model.ValidTo.ToString("d MMM")</span>
+            </span>
+        </div>
+        <div class="deal-review-row__price">
+            <span class="deal-row__amount">@Model.Price.ToString("C2", CultureInfo.CurrentCulture)</span>
+            <partial name="Shared/_ConfidenceBadge" model="confidence" />
+        </div>
+    </div>
+
+    @if (Model.HasSuggestion)
+    {
+        @* Single-suggestion "did you mean" chip (reused .match-suggest). For an already-confirmed deal it
+           shows the current match; for a pending deal it is the AI proposal to accept. *@
+        <div class="match-suggest deal-review-row__suggest">
+            <div class="match-suggest__label">
+                @(Model.IsAlreadyConfirmed ? "Currently matched to" : "Did you mean") &mdash;
+                <span>@Model.SuggestedProductName</span>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Model.Reasoning))
+            {
+                <div class="suggest-opts">
+                    <span class="deal-review-row__reasoning">@Model.Reasoning</span>
+                </div>
+            }
+        </div>
+    }
+    else if (isPending)
+    {
+        <div class="deal-review-row__unrecognized">
+            Unrecognized &mdash; no catalog match. Search for the right product, or reject this deal.
+        </div>
+    }
+
+    <div class="deal-review-row__actions">
+        @if (isPending && Model.HasSuggestion)
+        {
+            <button type="button"
+                    class="btn @(Model.Confidence == MatchConfidence.High ? "btn--primary" : "btn--secondary") btn--sm"
+                    hx-post="/Deals/Review?handler=Confirm&dealId=@dealId"
+                    hx-target="#review-region"
+                    hx-swap="innerHTML">
+                <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                Confirm
+            </button>
+        }
+        @* Plain bubbling event (not Alpine @@click) so the button keeps working after an htmx queue swap:
+           the deal-correct listener lives on the persistent host wrapper, not on this swapped-in node. *@
+        <button type="button" class="btn btn--ghost btn--sm"
+                onclick="this.dispatchEvent(new CustomEvent('deal-correct', { bubbles: true, detail: { dealId: '@dealId' } }))">
+            <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg>
+            Correct
+        </button>
+        <button type="button" class="btn btn--ghost btn--sm deal-review-row__reject"
+                hx-post="/Deals/Review?handler=Reject&dealId=@dealId"
+                hx-target="#review-region"
+                hx-swap="innerHTML">
+            Reject
+        </button>
+    </div>
+</li>

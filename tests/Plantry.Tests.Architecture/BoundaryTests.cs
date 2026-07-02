@@ -471,6 +471,50 @@ public sealed class BoundaryTests
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
+    // Deals is a Phase-5 core context wrapping an untrusted flyer feed behind an ACL. Its domain
+    // references only SharedKernel; it reaches Catalog/Pricing/Shopping/Inventory/Identity by opaque
+    // Guid soft-refs only (deals-domain-model.md §1/§8), so every other context is a sibling it must
+    // not depend on directly.
+    private static readonly string[] DealsSiblingContexts =
+    [
+        "Plantry.Identity",
+        "Plantry.Catalog",
+        "Plantry.Inventory",
+        "Plantry.Pricing",
+        "Plantry.Shopping",
+        "Plantry.Intake",
+        "Plantry.Recipes",
+        "Plantry.MealPlanning",
+    ];
+
+    [Fact]
+    public void Deals_Domain_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Deals.Domain")
+            .Should().NotHaveDependencyOnAny(InfraPackages)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Deals domain references infrastructure packages:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Deals_Domain_Should_Not_Reference_Sibling_Contexts()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Deals.Domain")
+            .Should().NotHaveDependencyOnAny(DealsSiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Deals domain references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
     [Fact]
     public void DbContexts_Should_Reside_In_Infrastructure_Namespaces()
     {

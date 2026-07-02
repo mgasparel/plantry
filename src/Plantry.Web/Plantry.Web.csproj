@@ -46,6 +46,8 @@
     <ProjectReference Include="..\Plantry.Recipes.Infrastructure\Plantry.Recipes.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.MealPlanning\Plantry.MealPlanning.csproj" />
     <ProjectReference Include="..\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Deals\Plantry.Deals.csproj" />
+    <ProjectReference Include="..\Plantry.Deals.Infrastructure\Plantry.Deals.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.ServiceDefaults\Plantry.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Plantry.Migration.Grocy\Plantry.Migration.Grocy.csproj" />
   </ItemGroup>

@@ -33,6 +33,32 @@ internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
 }
 
 /// <summary>
+/// In-memory <see cref="IShoppingDealReader"/> for unit tests (P5-9).
+/// Active deals are registered per product id; unregistered products are omitted (no active deal).
+/// Records the last <c>today</c> the query service supplied so tests can assert the clock threads through.
+/// </summary>
+internal sealed class FakeShoppingDealReader : IShoppingDealReader
+{
+    private readonly Dictionary<Guid, ShoppingActiveDeal> _deals = [];
+
+    /// <summary>The <c>today</c> value last passed to <see cref="GetActiveDealsAsync"/>, or null if never called.</summary>
+    public DateOnly? LastToday { get; private set; }
+
+    public void RegisterDeal(Guid productId, ShoppingActiveDeal deal) =>
+        _deals[productId] = deal;
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingActiveDeal>> GetActiveDealsAsync(
+        IReadOnlyList<Guid> productIds, DateOnly today, CancellationToken ct = default)
+    {
+        LastToday = today;
+        IReadOnlyDictionary<Guid, ShoppingActiveDeal> result = productIds
+            .Where(_deals.ContainsKey)
+            .ToDictionary(id => id, id => _deals[id]);
+        return Task.FromResult(result);
+    }
+}
+
+/// <summary>
 /// In-memory <see cref="IShoppingPantryReader"/> for unit tests.
 /// Stock levels are registered per product id; unregistered products are omitted (as if never stocked).
 /// </summary>
