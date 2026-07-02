@@ -1,0 +1,62 @@
+@page
+@model Plantry.Web.Pages.Settings.StoresAndDealsModel
+@{
+    ViewData["Title"] = "Stores & Deals";
+}
+
+<div class="cfg-wrap" data-screen-label="Stores & Deals">
+    <div class="cfg-head">
+        <div class="eyebrow">Household setup</div>
+        <h1>Stores &amp; Deals</h1>
+        <p>Choose which stores Plantry pulls weekly flyer deals from. Search your area by postal code,
+           subscribe to the merchants you shop, and Plantry will start watching their flyers. Pause a
+           store to stop pulls without losing its learned matches; unsubscribe to stop watching it.</p>
+    </div>
+
+    @* Subscription list — updated by every subscribe/pause/resume/unsubscribe POST. *@
+    <div id="subs-region"
+         hx-get="/Settings/StoresAndDeals?handler=List"
+         hx-trigger="none"
+         hx-swap="innerHTML">
+        @await Html.PartialAsync("_StoresList", Model)
+    </div>
+
+    @* Store search + subscribe. *@
+    <div class="card" style="margin-top: var(--space-4)">
+        <div class="card__head">
+            <h3 class="card__head-title">Add a store</h3>
+        </div>
+        <div class="card__body">
+            <form class="store-search"
+                  hx-get="/Settings/StoresAndDeals?handler=Search"
+                  hx-target="#store-search-results"
+                  hx-swap="innerHTML">
+                <input class="store-search__postal"
+                       name="postalCode"
+                       value="@Model.PostalCode"
+                       placeholder="Postal code — e.g. K1A 0B1"
+                       aria-label="Postal code"
+                       autocomplete="postal-code" />
+                <input class="store-search__query"
+                       name="q"
+                       value="@(Model.SearchQuery ?? string.Empty)"
+                       placeholder="Store name (optional)"
+                       aria-label="Store name" />
+                <button type="submit" class="btn btn--secondary">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    Search
+                </button>
+            </form>
+
+            <div id="store-search-results">
+                @await Html.PartialAsync("_StoreSearchResults", Model)
+            </div>
+        </div>
+    </div>
+
+    <div class="cfg-foot-note">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>
+        <span>Deals appear after Plantry&rsquo;s next flyer pull for a subscribed store — new subscriptions
+              show &ldquo;not pulled yet&rdquo; until then.</span>
+    </div>
+</div>

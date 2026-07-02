@@ -23,7 +23,7 @@ namespace Plantry.Tests.Web.Infrastructure;
 /// </list>
 /// No database is touched; rendered HTML is deterministic.
 /// </summary>
-public sealed class ShoppingListFragmentFactory : WebApplicationFactory<Program>
+public class ShoppingListFragmentFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -66,6 +66,12 @@ public sealed class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IShoppingRecipeReader>();
             services.AddSingleton<IShoppingRecipeReader>(new FakeShoppingRecipeReaderForSnapshots());
 
+            // Shopping deal reader (P5-9): fixture products carry no active deals, so the stub returns
+            // empty — the shopping list renders without deal badges (baselines unchanged). The dedicated
+            // deal-badge render test overrides this with a deal-bearing reader.
+            services.RemoveAll<IShoppingDealReader>();
+            services.AddSingleton<IShoppingDealReader>(new FakeShoppingDealReaderForSnapshots());
+
             // Re-register ShoppingListQueryService and PantrySuggestionService so they pick up the fakes.
             services.RemoveAll<ShoppingListQueryService>();
             services.AddScoped<ShoppingListQueryService>();
@@ -85,6 +91,17 @@ internal sealed class FakeShoppingRecipeReaderForSnapshots : IShoppingRecipeRead
     public Task<IReadOnlyDictionary<Guid, string>> GetRecipeNamesAsync(
         IReadOnlyList<Guid> recipeIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+}
+
+/// <summary>
+/// Stub <see cref="IShoppingDealReader"/> for the Shopping L4 snapshot tests (P5-9).
+/// The fixture products carry no active deals, so this returns empty and the list renders with no badges.
+/// </summary>
+internal sealed class FakeShoppingDealReaderForSnapshots : IShoppingDealReader
+{
+    public Task<IReadOnlyDictionary<Guid, ShoppingActiveDeal>> GetActiveDealsAsync(
+        IReadOnlyList<Guid> productIds, DateOnly today, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, ShoppingActiveDeal>>(new Dictionary<Guid, ShoppingActiveDeal>());
 }
 
 /// <summary>

@@ -5,6 +5,9 @@ using Npgsql;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
+using Plantry.Deals.Application;
+using Plantry.Deals.Domain;
+using Plantry.Deals.Infrastructure;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
 using Plantry.Inventory.Application;
@@ -29,6 +32,7 @@ using Plantry.Shopping.Domain;
 using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Deals;
 using Plantry.Web.Dev;
 using Plantry.Web.Events;
 using Plantry.Web.Intake;
@@ -185,12 +189,15 @@ builder.Services.AddScoped<IReferenceDataSeeder, CatalogReferenceDataSeeder>();
 builder.Services.AddScoped<IUnitRepository, UnitRepository>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<ILocationRepository, LocationRepository>();
+builder.Services.AddScoped<IStoreRepository, StoreRepository>();
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<ProductQueryService>();
 
 // Inventory context
 builder.Services.AddScoped<IProductStockRepository, ProductStockRepository>();
 builder.Services.AddScoped<InventoryQueryService>();
+// Purchase-frequency read over the stock journal — feeds the Deals stock-up alerts (P5-10 / DL-O4).
+builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 builder.Services.AddScoped<ITakeStockReader, TakeStockReaderAdapter>();
@@ -256,6 +263,102 @@ builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
+
+// Deals context (Phase 5 / P5-0). DbContext + schema (P5-0); store subscriptions + §7e management (P5-2).
+// DealsDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0
+// gotcha: omit it and every Deals query filter returns nothing while writes silently succeed.
+// DealConfirmed/DealRejected (P5-5) dispatch through the same post-save interceptor as Intake — no
+// subscriber today (latent, like RecipeCookedEvent; see the ADR-014 guardrail above), but the interceptor
+// drains + clears the buffered events on every save so they can't accumulate.
+builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.Deals.Infrastructure"))
+        .AddInterceptors(
+            sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
+            sp.GetRequiredService<DomainEventDispatchInterceptor>()));
+
+// Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
+// ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters
+// implement them over Catalog's IStoreRepository / EnsureStoreCommand so Deals never touches CatalogDbContext
+// (ADR-010/DM-3).
+builder.Services.AddScoped<IStoreSubscriptionRepository, StoreSubscriptionRepository>();
+builder.Services.AddScoped<ICatalogStoreReader, CatalogStoreReaderAdapter>();
+builder.Services.AddScoped<ICatalogStoreWriter, CatalogStoreWriterAdapter>();
+
+// Deals — P5-5 confirm/reject orchestration (DJ4). The Deal + DealMatchMemory repos, the Pricing observation
+// writer (deal-sourced observation over P5-P's RecordObservationCommand; Deals never touches PricingDbContext),
+// and the Catalog product-existence check (ADR-010/DM-3).
+builder.Services.AddScoped<IDealRepository, DealRepository>();
+builder.Services.AddScoped<IDealMatchMemoryRepository, DealMatchMemoryRepository>();
+builder.Services.AddScoped<IPriceObservationWriter, RecordDealObservationAdapter>();
+builder.Services.AddScoped<Plantry.Deals.Application.ICatalogProductReader, DealCatalogProductReaderAdapter>();
+builder.Services.AddScoped<ConfirmDeal>();
+builder.Services.AddScoped<RejectDeal>();
+
+// Deals — P5-7 BrowseDeals read side + Deals page (DJ3). Read-only over the Deal aggregate + the clock;
+// nothing stored. The active/pending partition is recomputed per request (DD7/DD14), names resolved via
+// the batch Catalog/store ports (no N+1).
+builder.Services.AddScoped<BrowseDeals>();
+
+// Deals — P5-8 review queue (DJ4). ReviewDeals is the review-form read side (pending queue + single-deal
+// correction lookup); the verbs reuse P5-5's ConfirmDeal/RejectDeal registered above. Inline product
+// create in the review page runs over Catalog's CreateProductCommand (Web composition root).
+builder.Services.AddScoped<ReviewDeals>();
+
+// Deals — P5-10 stock-up alerts (DJ5). StockUpAlerts intersects Deals' own active partition (BrowseDeals,
+// ADR-010) with Inventory's purchase-journal frequency (IPurchaseFrequencyReader over InventoryQueryService,
+// DL-O4); "Add to list" reuses the P2-4 Shopping AddItems seam via a Deals-side writer port (DM-18). Both
+// adapters live in Web so Plantry.Deals keeps its → SharedKernel-only dependency.
+builder.Services.AddScoped<StockUpAlerts>();
+builder.Services.AddScoped<IPurchaseFrequencyReader, PurchaseFrequencyReaderAdapter>();
+builder.Services.AddScoped<IDealShoppingListWriter, DealShoppingListWriterAdapter>();
+
+// Deals — P5-6 IngestFlyer worker (DJ2). IngestFlyer is the per-household unit of work (pull → dedup →
+// normalize → match → materialize → auto-confirm); IFlyerImportRepository is the new dedup/provenance
+// repo. FlyerIngestionCycle reproduces RlsMiddleware's tenancy arming with no HTTP request — cross-tenant
+// household enumeration, then a fresh armed scope per household. FlyerIngestionWorker is the app's first
+// BackgroundService, driving the cycle daily (locked cadence). See Deals/FlyerIngestion*.cs.
+builder.Services.AddScoped<IFlyerImportRepository, FlyerImportRepository>();
+builder.Services.AddScoped<IngestFlyer>();
+builder.Services.Configure<FlyerIngestionOptions>(builder.Configuration.GetSection(FlyerIngestionOptions.SectionName));
+// Singleton: it owns no per-request state and opens a fresh DI scope per household itself, so it is safe
+// to inject into the singleton hosted worker (a scoped registration would fault at root resolution).
+builder.Services.AddSingleton<FlyerIngestionCycle>();
+builder.Services.AddHostedService<FlyerIngestionWorker>();
+
+// IFlyerSource is the untrusted Flipp seam (D1). Production wires the real Flipp adapter (P5-3): a typed
+// HttpClient (base URL + locale + browser UA from the Deals:Flipp config; standard resilience — timeout +
+// retry — applied to every HttpClient by ServiceDefaults) mapping raw Flipp payloads to RawDeal/DirectoryMerchant.
+// The P5-2 canned StubFlyerSourceAdapter is kept as a deterministic seam behind Deals:UseStubFlyerSource so
+// E2E / L4 fragment tests exercise the §7e journey with no live Flipp call (mirrors the AI:UseFakeParser seam).
+builder.Services.Configure<FlippOptions>(builder.Configuration.GetSection(FlippOptions.SectionName));
+if (builder.Configuration.GetValue<bool>("Deals:UseStubFlyerSource"))
+{
+    builder.Services.AddScoped<IFlyerSource, StubFlyerSourceAdapter>();
+}
+else
+{
+    builder.Services.AddHttpClient<IFlyerSource, FlyerSource>(client =>
+    {
+        var flipp = builder.Configuration.GetSection(FlippOptions.SectionName).Get<FlippOptions>() ?? new FlippOptions();
+        var baseUrl = flipp.BaseUrl.EndsWith('/') ? flipp.BaseUrl : flipp.BaseUrl + "/";
+        client.BaseAddress = new Uri(baseUrl);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(flipp.UserAgent);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    });
+}
+
+// IDealMatcher is the untrusted stage-2 AI match (DJ2 step 4, ADR-007) — the deal twin of
+// GeminiReceiptParser. It consumes the same global AiOptions/ChatClient as Intake/MealPlanning (no
+// per-household key; DM-7 unbuilt). DealMatcher builds a ChatClient at construction, which needs a
+// non-empty key, so with no key configured we register DisabledDealMatcher (soft-fails to Unmatched)
+// so a keyless dev/E2E host still resolves the port the P5-6 worker will consume.
+if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IDealMatcher, DisabledDealMatcher>();
+else
+    builder.Services.AddScoped<IDealMatcher, DealMatcher>();
+
+builder.Services.AddScoped<ManageSubscriptions>();
 builder.Services.AddScoped<ManageSlotsService>();
 builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder>();
 
@@ -349,13 +452,18 @@ builder.Services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>()
 // Recipes EF context directly (ADR-002).
 builder.Services.AddScoped<IShoppingRecipeReader, ShoppingRecipeReaderAdapter>();
 
+// Shopping → Pricing ACL adapter (P5-9). ShoppingDealReaderAdapter reads Pricing's cheapest-active-deal
+// read model for the "On sale at {store} this week" badge, resolving the merchant name over Catalog.
+// Shopping reads PRICING, never Deals (ADR-010 boundary); the badge is a read-time join, never stored.
+builder.Services.AddScoped<IShoppingDealReader, ShoppingDealReaderAdapter>();
+
 builder.Services.AddScoped<ShoppingListQueryService>();
 builder.Services.AddScoped<PantrySuggestionService>();
 
 // Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +
 // Web-adapter seam: Recipes.Application owns the interfaces, these implement them over Catalog's
 // repositories/commands and pure UnitConverter, so the Recipes projects stay → SharedKernel only.
-builder.Services.AddScoped<ICatalogProductReader, CatalogProductReaderAdapter>();
+builder.Services.AddScoped<Plantry.Recipes.Application.ICatalogProductReader, CatalogProductReaderAdapter>();
 builder.Services.AddScoped<ICatalogWriter, CatalogWriterAdapter>();
 builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
 
@@ -471,6 +579,14 @@ if (app.Environment.IsDevelopment())
     app.MapPost("/Dev/Reset", async (FakeDataSeeder seeder, CancellationToken ct) =>
     {
         await seeder.ResetAndSeedAsync(ct);
+        return Results.Ok();
+    });
+
+    // Deals §7e "pull now": drive one full flyer-ingestion sweep on demand instead of waiting for the
+    // daily timer (P5-6). Dev-only (gated by DevPagesGateMiddleware); the sweep arms tenancy per household.
+    app.MapPost("/Dev/Deals/PullNow", async (FlyerIngestionCycle cycle, CancellationToken ct) =>
+    {
+        await cycle.RunAsync(ct);
         return Results.Ok();
     });
 }

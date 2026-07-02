@@ -115,6 +115,9 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
             // The fixture household has one member (the registering user — Guid.Empty for simplicity).
             services.RemoveAll<IHouseholdMemberReader>();
             services.AddSingleton<IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
+
+            // Empty Deals seams (plantry-bpw) — Today now consumes BrowseDeals for the deal banner.
+            TodayDealsStubs.RegisterEmpty(services);
         });
     }
 }
@@ -182,6 +185,9 @@ public sealed class TodayPlannedMealsBandNoSlotsFactory : WebApplicationFactory<
 
             // No slot config → empty-slots prompt
             TodayMealPlanningStubs.RegisterNull(services);
+
+            // Empty Deals seams (plantry-bpw) — Today now consumes BrowseDeals for the deal banner.
+            TodayDealsStubs.RegisterEmpty(services);
         });
     }
 }

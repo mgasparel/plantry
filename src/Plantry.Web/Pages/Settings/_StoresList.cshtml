@@ -1,0 +1,87 @@
+@model Plantry.Web.Pages.Settings.StoresAndDealsModel
+
+<div class="card">
+    <div class="card__head">
+        <h3 class="card__head-title">Your stores</h3>
+        <span class="ch-sub">&middot; @Model.ActiveSubscriptions.Count active</span>
+    </div>
+    <div class="card__body">
+        @if (Model.Subscriptions.Count == 0)
+        {
+            <div class="empty-state">
+                <div class="empty-state__icon">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13 5.4 5M7 13l-2.3 4.6a1 1 0 0 0 .9 1.4H19"/><circle cx="9" cy="21" r="1"/><circle cx="17" cy="21" r="1"/></svg>
+                </div>
+                <div class="empty-state__title">No stores yet</div>
+                <div class="empty-state__body">Search by postal code below and subscribe to the stores you shop.</div>
+            </div>
+        }
+        else
+        {
+            <ul class="catalog-list" role="list">
+                @foreach (var sub in Model.ActiveSubscriptions)
+                {
+                    <li class="catalog-list__item store-row" data-store-name="@sub.StoreName">
+                        <div>
+                            <span class="catalog-list__primary">@sub.StoreName</span>
+                            <span class="catalog-list__secondary">@sub.PostalCode</span>
+                        </div>
+                        <div class="store-row__status">
+                            @if (sub.LastPulledAt is null)
+                            {
+                                <span class="badge badge--neutral">Not pulled yet</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge--success">Updated @sub.LastPulledAt.Value.ToString("d MMM")</span>
+                            }
+                        </div>
+                        <div class="store-row__actions">
+                            <button type="button" class="btn btn--ghost btn--sm"
+                                    hx-post="/Settings/StoresAndDeals?handler=Pause&id=@sub.Id.Value"
+                                    hx-target="#subs-region"
+                                    hx-swap="innerHTML">
+                                Pause
+                            </button>
+                            <button type="button" class="btn btn--ghost btn--sm"
+                                    hx-post="/Settings/StoresAndDeals?handler=Unsubscribe&id=@sub.Id.Value"
+                                    hx-target="#subs-region"
+                                    hx-swap="innerHTML">
+                                Unsubscribe
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ul>
+
+            @if (Model.PausedSubscriptions.Count > 0)
+            {
+                <div class="store-paused">
+                    <div class="store-paused__head">Paused</div>
+                    <ul class="catalog-list" role="list">
+                        @foreach (var sub in Model.PausedSubscriptions)
+                        {
+                            <li class="catalog-list__item store-row store-row--paused" data-store-name="@sub.StoreName">
+                                <div>
+                                    <span class="catalog-list__primary">@sub.StoreName</span>
+                                    <span class="catalog-list__secondary">@sub.PostalCode</span>
+                                </div>
+                                <div class="store-row__status">
+                                    <span class="badge badge--neutral">Paused</span>
+                                </div>
+                                <div class="store-row__actions">
+                                    <button type="button" class="btn btn--secondary btn--sm"
+                                            hx-post="/Settings/StoresAndDeals?handler=Resume&id=@sub.Id.Value"
+                                            hx-target="#subs-region"
+                                            hx-swap="innerHTML">
+                                        Resume
+                                    </button>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        }
+    </div>
+</div>

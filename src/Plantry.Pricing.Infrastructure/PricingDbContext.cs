@@ -18,7 +18,8 @@ public sealed class PricingDbContext(DbContextOptions<PricingDbContext> options)
 
         builder.Entity<PriceObservation>(b =>
         {
-            b.ToTable("price_observation");
+            b.ToTable("price_observation", t =>
+                t.HasCheckConstraint("ck_price_observation_valid_window", "valid_from <= valid_to"));
             b.HasKey(p => p.Id);
             b.Property(p => p.Id)
                 .HasConversion(id => id.Value, v => PriceObservationId.From(v))
@@ -40,6 +41,9 @@ public sealed class PricingDbContext(DbContextOptions<PricingDbContext> options)
                 .HasMaxLength(20)
                 .IsRequired();
             b.Property(p => p.MerchantText).HasColumnName("merchant_text").HasMaxLength(200);
+            b.Property(p => p.StoreId).HasColumnName("store_id");
+            b.Property(p => p.ValidFrom).HasColumnName("valid_from");
+            b.Property(p => p.ValidTo).HasColumnName("valid_to");
             b.Property(p => p.SourceRef).HasColumnName("source_ref").IsRequired();
             b.Property(p => p.ObservedAt).HasColumnName("observed_at").IsRequired();
             b.Property(p => p.UserId).HasColumnName("user_id").IsRequired();
@@ -50,6 +54,10 @@ public sealed class PricingDbContext(DbContextOptions<PricingDbContext> options)
             b.HasIndex(p => new { p.HouseholdId, p.SkuId, p.ObservedAt })
                 .HasDatabaseName("ix_price_observation_sku")
                 .HasFilter("sku_id IS NOT NULL");
+            // Cheapest-active-deal read model: deal rows only (source stored as 'Deal', DM-17).
+            b.HasIndex(p => new { p.HouseholdId, p.ProductId })
+                .HasDatabaseName("ix_price_observation_deal")
+                .HasFilter("source = 'Deal'");
 
             b.HasQueryFilter(p => p.HouseholdId == HouseholdId.From(_householdId));
         });

@@ -171,6 +171,8 @@ public sealed class FakeTodayHouseholdRepository : IHouseholdRepository
         var h = Household.Create("Cook Test Household", Clock);
         return Task.FromResult<Household?>(h);
     }
+    public Task<IReadOnlyList<HouseholdId>> ListAllIdsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<HouseholdId>>([]);
     public Task AddAsync(Household household, CancellationToken ct = default) => Task.CompletedTask;
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

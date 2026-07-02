@@ -18,6 +18,19 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
     public decimal? UnitPrice { get; private set; }
     public PriceSource Source { get; private set; }
     public string? MerchantText { get; private set; }
+
+    /// <summary>Resolved merchant identity (soft ref → <c>catalog.store</c>). Null for purchases and
+    /// until <c>store</c> exists (DM-16); populated by Deals (Phase 5).</summary>
+    public Guid? StoreId { get; private set; }
+
+    /// <summary>Deal validity window start (DM-17). Set only for <see cref="PriceSource.Deal"/>;
+    /// null for a purchase (a point observation at <see cref="ObservedAt"/>).</summary>
+    public DateOnly? ValidFrom { get; private set; }
+
+    /// <summary>Deal validity window end (DM-17) — drives the "cheapest active deal" read model.
+    /// Set only for <see cref="PriceSource.Deal"/>; null for a purchase.</summary>
+    public DateOnly? ValidTo { get; private set; }
+
     public Guid SourceRef { get; private set; }
     public DateTimeOffset ObservedAt { get; private set; }
     public Guid UserId { get; private set; }
@@ -36,7 +49,10 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
         string? merchantText,
         Guid sourceRef,
         DateTimeOffset observedAt,
-        Guid userId) =>
+        Guid userId,
+        DateOnly? validFrom = null,
+        DateOnly? validTo = null,
+        Guid? storeId = null) =>
         new()
         {
             Id = PriceObservationId.New(),
@@ -49,6 +65,9 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
             UnitPrice = unitPrice,
             Source = source,
             MerchantText = merchantText,
+            StoreId = storeId,
+            ValidFrom = validFrom,
+            ValidTo = validTo,
             SourceRef = sourceRef,
             ObservedAt = observedAt,
             UserId = userId,

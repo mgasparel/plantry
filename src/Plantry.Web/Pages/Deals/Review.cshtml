@@ -1,0 +1,112 @@
+@page
+@using Plantry.Web.Pages.Shared
+@model Plantry.Web.Pages.Deals.ReviewModel
+@{
+    ViewData["Title"] = "Review deals";
+    var correctUrl = Url.Page("./Review", "Correct")!;
+}
+
+<div class="cfg-wrap" data-screen-label="Review deals">
+    <div class="cfg-head">
+        <div class="eyebrow">Flyer deals</div>
+        <h1>Review deals</h1>
+        <p>Confirm the deals Plantry matched to your catalog, correct a wrong match by searching for the
+           right product (or creating a new one), or reject a deal you don&rsquo;t want to track. Each
+           choice is saved as you go.</p>
+    </div>
+
+    @* Host wrapper — owns the correction sheet state; persists across every htmx queue swap so the
+       Correct affordance keeps working as the queue re-renders. See dealsReview() below. *@
+    <div x-data="dealsReview('@correctUrl')" x-on:deal-correct="openCorrect($event.detail.dealId)">
+
+        @* The review queue — re-rendered from server truth by every verb (Confirm/Correct/Reject). *@
+        <div id="review-region">
+            @await Html.PartialAsync("_ReviewQueue", Model)
+        </div>
+
+        @* Shared catalog search + inline-create sheet (P4-6). Composed, not rebuilt: TrackStock=false and
+           no group field — a deal correction only resolves a product identity. Inline-create mints a
+           catalog product (Unit from the Defaults collapsible, Category optional) which the Correct POST
+           then supersedes the deal against. *@
+        <partial name="Shared/_ProductSearchCreateSheet"
+                 model='new ProductSearchCreateSheetViewModel
+                 {
+                     SearchUrl             = Model.SearchUrl,
+                     UnitOptions           = Model.UnitOptions,
+                     CategoryOptions       = Model.CategoryOptions,
+                     TrackStock            = false,
+                     Noun                  = "product",
+                     ShowGroupHeading      = false,
+                     CreateLabel           = "as a new product",
+                     StapleNamePlaceholder = "Product name (e.g. 2% Milk)",
+                     CreateViewTitle       = "New product",
+                     GroupOptions          = null,
+                 }' />
+    </div>
+</div>
+
+@Html.AntiForgeryToken()
+
+@* Alpine component for the correction sheet host. Defined in the body (NOT @@section Scripts) so it is
+   parsed before the deferred alpine.min.js starts and evaluates x-data="dealsReview(...)" — the same
+   ordering rule Take Stock's takeStockSheetBridge() follows. *@
+<script>
+function dealsReview(correctUrl) {
+    return {
+        // ── Shared _ProductSearchCreateSheet Alpine contract ──────────────────
+        sheetOpen: false,
+        sheetView: 'search',   // 'search' | 'create'
+        editingIdx: null,      // part of the sheet contract (Add vs Edit title); always Add here
+        draft: {},
+        // ── Deals-specific ────────────────────────────────────────────────────
+        activeDealId: null,
+        correctUrl: correctUrl,
+
+        // Open the correction sheet for one deal (from a card's Correct button, via the bubbling
+        // deal-correct event so it survives htmx queue swaps).
+        openCorrect(dealId) {
+            this.activeDealId = dealId;
+            this.sheetView = 'search';
+            this.draft = { productId: '', productName: '', newStapleName: null,
+                           newStapleUnit: '', newStapleCategoryId: '' };
+            this.sheetOpen = true;
+            this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: '' })));
+        },
+
+        closeSheet() {
+            this.sheetView = 'search';
+            this.sheetOpen = false;
+        },
+
+        // Search-result pick — dispatched by the sheet's listbox (pick-product bubbles to the sheet).
+        selectProduct(draft, detail) {
+            draft.productId = detail.value;
+            draft.productName = detail.name;
+        },
+
+        // Add (search view) or Create (create view) — resolve the deal's product and supersede via Correct.
+        saveSheet() {
+            if (this.draft.productId) {
+                this.submitCorrect({ dealId: this.activeDealId, productId: this.draft.productId });
+                return;
+            }
+            const name = (this.draft.newStapleName ?? '').trim();
+            const unitId = this.draft.newStapleUnit || '';
+            if (!name || !unitId) return; // stay open — a new product needs a name and a unit
+            this.submitCorrect({
+                dealId: this.activeDealId,
+                newProductName: name,
+                newProductUnitId: unitId,
+                newProductCategoryId: this.draft.newStapleCategoryId || '',
+            });
+        },
+
+        // One htmx POST that carries the resolved product (existing or new) and re-renders the queue from
+        // server truth. The antiforgery token is attached by htmx-antiforgery.js on configRequest.
+        submitCorrect(values) {
+            htmx.ajax('POST', this.correctUrl, { target: '#review-region', swap: 'innerHTML', values: values });
+            this.closeSheet();
+        },
+    };
+}
+</script>
