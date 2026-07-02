@@ -95,6 +95,9 @@ public sealed class TodayReviewBannerOneFactory : WebApplicationFactory<Program>
             // ── MealPlanning seams (plantry-zp7) — Today page now loads planned meals ─
             // Null stubs: these banner tests only exercise the banner stack, not the meals band.
             TodayMealPlanningStubs.RegisterNull(services);
+
+            // ── Deals seams (plantry-bpw) — empty → no deal banner ───────────
+            TodayDealsStubs.RegisterEmpty(services);
         });
     }
 }
@@ -165,6 +168,9 @@ public sealed class TodayReviewBannerManyFactory : WebApplicationFactory<Program
 
             // ── MealPlanning seams (plantry-zp7) ─────────────────────────────
             TodayMealPlanningStubs.RegisterNull(services);
+
+            // ── Deals seams (plantry-bpw) — empty → no deal banner ───────────
+            TodayDealsStubs.RegisterEmpty(services);
         });
     }
 }
@@ -234,6 +240,9 @@ public sealed class TodayReviewBannerNoneFactory : WebApplicationFactory<Program
 
             // ── MealPlanning seams (plantry-zp7) ─────────────────────────────
             TodayMealPlanningStubs.RegisterNull(services);
+
+            // ── Deals seams (plantry-bpw) — empty → no deal banner ───────────
+            TodayDealsStubs.RegisterEmpty(services);
         });
     }
 }

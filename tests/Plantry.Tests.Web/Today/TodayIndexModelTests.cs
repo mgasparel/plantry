@@ -175,6 +175,14 @@ public sealed class TodayIndexModelTests
         var recipeReadModel = new NullRecipeReadModelStub();
         var fulfillmentService = BuildNullFulfillmentService();
 
+        // Deals seam (plantry-bpw): empty repo → BrowseDeals reports zero pending → no deal banner.
+        // These tests only exercise IsColdStart / greeting / expiring, so an empty board is sufficient.
+        var browseDeals = new Plantry.Deals.Application.BrowseDeals(
+            new Plantry.Tests.Web.Deals.FakeDealBrowseRepo(),
+            new Plantry.Tests.Web.Deals.FakeDealProductReader(),
+            new Plantry.Tests.Web.Deals.FakeDealStoreReader(),
+            FixedClock);
+
         return new IndexModel(
             new FakeHouseholdRepository("Test Household"),
             stockRepo,
@@ -187,6 +195,7 @@ public sealed class TodayIndexModelTests
             recipeReadModel,
             new FakeRecipeRepository(hasRecipes),
             new NullMemberReader(),
+            browseDeals,
             FixedClock,
             tenant);
     }
@@ -382,6 +391,13 @@ public sealed class ExpiringWidgetModelTests
         var recipeReadModel = new NullRecipeReadModelStub2();
         var fulfillmentService = new PlanFulfillmentService(recipeReadModel, new NullMealPlanStockReader2());
 
+        // Deals seam (plantry-bpw): empty repo → BrowseDeals reports zero pending → no deal banner.
+        var browseDeals = new Plantry.Deals.Application.BrowseDeals(
+            new Plantry.Tests.Web.Deals.FakeDealBrowseRepo(),
+            new Plantry.Tests.Web.Deals.FakeDealProductReader(),
+            new Plantry.Tests.Web.Deals.FakeDealStoreReader(),
+            FixedClock);
+
         return new IndexModel(
             new FakeHouseholdRepo2("Test Household"),
             stockRepo,
@@ -394,6 +410,7 @@ public sealed class ExpiringWidgetModelTests
             recipeReadModel,
             new FakeRecipeRepo2(hasRecipes),
             new NullMemberReader2(),
+            browseDeals,
             FixedClock,
             tenant);
     }

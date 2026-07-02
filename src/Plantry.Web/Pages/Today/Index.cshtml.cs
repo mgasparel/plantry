@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Plantry.Deals.Application;
 using Plantry.Identity.Domain;
 using Plantry.Intake.Application;
 using Plantry.Inventory.Application;
@@ -22,11 +23,12 @@ namespace Plantry.Web.Pages.Today;
 /// <c>_ReviewBannerStack.cshtml</c> — no structural change to this record or to <see cref="IndexModel"/>
 /// is needed.
 /// </summary>
-/// <param name="Kind">Banner category — currently "intake"; Phase-5 will add "deal".</param>
-/// <param name="SessionId">Intake session ID as a string, used as the Alpine dismiss key.</param>
+/// <param name="Kind">Banner category — "intake" (Ready intake session) or "deal" (Phase-5 deal-review, plantry-bpw).</param>
+/// <param name="SessionId">Stable dismiss/DOM key — the intake session ID for an intake banner, or the fixed
+///   "deal-review" sentinel for the (single) deal banner.</param>
 /// <param name="Title">Primary banner text, e.g. "7 items from Whole Foods are ready to review".</param>
 /// <param name="Sub">Secondary text, e.g. "Forwarded by email · 2 hours ago".</param>
-/// <param name="ActionUrl">URL the Review button navigates to, e.g. "/Intake/Review/{id}".</param>
+/// <param name="ActionUrl">URL the Review button navigates to, e.g. "/Intake/Review/{id}" or "/Deals/Review".</param>
 /// <param name="CreatedAt">When the session was created — used to format the relative timestamp.</param>
 public sealed record ReviewBannerItem(
     string Kind,
@@ -83,6 +85,7 @@ public sealed class IndexModel(
     IRecipeReadModel recipeReadModel,
     IRecipeRepository recipeRepo,
     IHouseholdMemberReader memberReader,
+    BrowseDeals browseDeals,
     IClock clock,
     ITenantContext tenant) : PageModel
 {
@@ -139,11 +142,12 @@ public sealed class IndexModel(
     public List<HouseholdMember> Members { get; private set; } = [];
 
     /// <summary>
-    /// Intake sessions in <c>Ready</c> status for this household — each becomes a dismissible
-    /// review banner on the Today page (SPEC Page 0 §0b, plantry-yb6). Ordered newest first.
-    /// Empty when <see cref="IsColdStart"/> is true or there are no pending sessions.
-    /// The <see cref="ReviewBannerItem.Kind"/> field is the extensibility hook: Phase-5 (plantry-bpw)
-    /// adds deal-review banners as a new kind without restructuring this list or the partial.
+    /// The Today page review-banner stack (SPEC Page 0 §0b) — the kind-keyed set of pending-review
+    /// prompts. Holds the <c>intake</c> banners (one per <c>Ready</c> intake session, plantry-yb6,
+    /// newest first) followed, additively, by the single <c>deal</c> banner (Phase-5, plantry-bpw)
+    /// when the household has any deal pending review in-window. Empty when <see cref="IsColdStart"/>
+    /// is true or nothing is pending. The <see cref="ReviewBannerItem.Kind"/> field is the extensibility
+    /// hook — the deal banner drops in as a new kind without restructuring this list or the partial.
     /// </summary>
     public IReadOnlyList<ReviewBannerItem> PendingReviewBanners { get; private set; } = [];
 
@@ -181,7 +185,13 @@ public sealed class IndexModel(
                 ExpiringSoon = await inventoryQueries.ExpiringSoonAsync(ct);
                 Members = (await memberReader.ListMembersAsync(ct)).ToList();
                 PlannedMealsToday = await LoadPlannedMealsTodayAsync(houseId, now, ct);
-                PendingReviewBanners = await LoadReviewBannersAsync(houseId, ct);
+
+                // Kind-keyed banner stack (plantry-yb6): intake banners first, then the additive
+                // Phase-5 deal-review banner (plantry-bpw) when any deal is pending review in-window.
+                var banners = new List<ReviewBannerItem>(await LoadReviewBannersAsync(houseId, ct));
+                if (await LoadDealReviewBannerAsync(ct) is { } dealBanner)
+                    banners.Add(dealBanner);
+                PendingReviewBanners = banners;
             }
         }
         else
@@ -366,6 +376,32 @@ public sealed class IndexModel(
                 ActionUrl: $"/Intake/Review/{r.Id.Value}",
                 CreatedAt: r.CreatedAt);
         }).ToList();
+    }
+
+    /// <summary>
+    /// Computes the Phase-5 deal-review banner (plantry-bpw / DJ4 / SPEC §0b). The pending count is
+    /// recomputed <b>live</b> via <see cref="BrowseDeals"/> — <c>Pending ∧ in-window</c> against the clock
+    /// (DD14) — <b>never</b> the point-in-time <c>FlyerImported.pendingCount</c>, which goes stale the moment
+    /// a deal ages out of its window. Returns <c>null</c> (no banner, no chrome) when nothing is pending
+    /// in-window, so the banner clears the instant the review queue empties or every pending deal expires.
+    /// The action deep-links into the P5-8 review queue (<see cref="Plantry.Web.Pages.Deals.IndexModel.ReviewQueueUrl"/>).
+    /// This is a normal RLS-scoped request, so <c>BrowseDeals</c> only ever sees the signed-in household's deals.
+    /// </summary>
+    private async Task<ReviewBannerItem?> LoadDealReviewBannerAsync(CancellationToken ct)
+    {
+        var board = await browseDeals.BrowseAsync(ct);
+        var pending = board.PendingCount;
+        if (pending == 0)
+            return null;
+
+        var dealWord = pending == 1 ? "deal" : "deals";
+        return new ReviewBannerItem(
+            Kind: "deal",
+            SessionId: "deal-review",
+            Title: $"{pending} flyer {dealWord} ready to review",
+            Sub: "Confirm the matches to start tracking their sale prices",
+            ActionUrl: Plantry.Web.Pages.Deals.IndexModel.ReviewQueueUrl,
+            CreatedAt: clock.UtcNow);
     }
 
     /// <summary>Builds the banner subtitle: source type + relative age.</summary>
