@@ -2,8 +2,16 @@
 @using System.Globalization
 @using Plantry.Deals.Application
 @model Plantry.Web.Pages.Deals.IndexModel
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
 @{
     ViewData["Title"] = "Deals";
+
+    // Antiforgery token for the stock-up "Add to list" htmx POSTs — generated once here (code context) and
+    // emitted as a hidden input when alerts render; htmx-antiforgery.js reads it for the request header.
+    // GetAndStoreTokens sets a cookie, so only call it when there is at least one alert to act on.
+    var alertTokens = Model.Alerts.Count > 0
+        ? Antiforgery.GetAndStoreTokens(ViewContext.HttpContext)
+        : null;
 
     // Templated delegate — renders one active deal card, reused across the store- and category-grouped
     // views so the same markup never diverges between the two grouping segments.
@@ -70,6 +78,63 @@
     }
     else
     {
+        @* Stock-up alerts (P5-10 / DJ5): frequently-bought products that currently have an active deal.
+           "Add to list" reuses the P2-4 Shopping seam (source="deal"); Shopping's merge rule prevents dups. *@
+        @if (Model.Alerts.Count > 0)
+        {
+            @* Antiforgery token for the htmx "Add to list" POSTs — htmx-antiforgery.js reads this hidden
+               input and attaches it as the RequestVerificationToken header. *@
+            <input type="hidden" name="@alertTokens!.FormFieldName" value="@alertTokens.RequestToken" />
+
+            <div class="card deal-alerts" style="margin-bottom: var(--space-4)">
+                <div class="card__head">
+                    <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg>
+                    <h3 class="card__head-title">Stock up</h3>
+                    <span class="ch-sub">&middot; @Model.Alerts.Count</span>
+                </div>
+                <div class="card__body">
+                    <p class="deal-alerts__lead">
+                        Things you buy often that are on sale right now — add them to your list while the
+                        deal lasts.
+                    </p>
+                    <ul class="catalog-list" role="list">
+                        @foreach (var alert in Model.Alerts)
+                        {
+                            <li class="catalog-list__item deal-row" x-data="{ added: false }">
+                                <div class="deal-row__main">
+                                    <span class="catalog-list__primary">
+                                        @alert.ProductName
+                                        <span class="badge badge--success deal-row__deal-badge"
+                                              title="On sale at @alert.StoreName">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg> Deal
+                                        </span>
+                                    </span>
+                                    <span class="catalog-list__secondary">
+                                        @alert.StoreName
+                                        &middot; @alert.Price.ToString("C2", CultureInfo.CurrentCulture)
+                                        &middot; valid until @alert.ValidTo.ToString("d MMM")
+                                    </span>
+                                </div>
+                                <div class="deal-row__action">
+                                    <button type="button" class="btn btn--soft"
+                                            hx-post="/Deals?handler=AddToList"
+                                            hx-vals='{"productId": "@alert.ProductId", "dealId": "@alert.DealId.Value"}'
+                                            hx-swap="none"
+                                            @@htmx:after-request="if ($event.detail.successful) added = true"
+                                            :disabled="added">
+                                        <svg class="icon" aria-hidden="true" x-show="!added"><use href="#i-cart" /></svg>
+                                        <svg class="icon" aria-hidden="true" x-show="added" x-cloak><use href="#i-check" /></svg>
+                                        <span x-show="!added">Add to list</span>
+                                        <span x-show="added" x-cloak>Added</span>
+                                    </button>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        }
+
         @* Pending review — visually distinguished; entry point only, the form is P5-8. *@
         @if (Model.Board.PendingCount > 0)
         {

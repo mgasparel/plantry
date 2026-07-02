@@ -6007,6 +6007,12 @@ button.sadd svg { width: 13px; height: 13px; }
 .deal-row__amount { font-weight: 600; color: var(--color-text); }
 .deal-row__until { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 
+/* Stock-up alerts (P5-10 / DJ5): the add-to-list action is pushed to the row's trailing edge. */
+.deal-row__action { margin-left: auto; white-space: nowrap; }
+.deal-alerts { border-color: var(--color-success); }
+.deal-alerts__lead { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: 0 0 var(--space-3); }
+.deal-row__deal-badge { margin-left: var(--space-2); vertical-align: middle; font-size: var(--font-size-xs); }
+
 .deal-pending { border-color: var(--color-accent); }
 .deal-pending__body {
   display: flex;

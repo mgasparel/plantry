@@ -196,6 +196,8 @@ builder.Services.AddScoped<ProductQueryService>();
 // Inventory context
 builder.Services.AddScoped<IProductStockRepository, ProductStockRepository>();
 builder.Services.AddScoped<InventoryQueryService>();
+// Purchase-frequency read over the stock journal — feeds the Deals stock-up alerts (P5-10 / DL-O4).
+builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 builder.Services.AddScoped<ITakeStockReader, TakeStockReaderAdapter>();
@@ -302,6 +304,14 @@ builder.Services.AddScoped<BrowseDeals>();
 // correction lookup); the verbs reuse P5-5's ConfirmDeal/RejectDeal registered above. Inline product
 // create in the review page runs over Catalog's CreateProductCommand (Web composition root).
 builder.Services.AddScoped<ReviewDeals>();
+
+// Deals — P5-10 stock-up alerts (DJ5). StockUpAlerts intersects Deals' own active partition (BrowseDeals,
+// ADR-010) with Inventory's purchase-journal frequency (IPurchaseFrequencyReader over InventoryQueryService,
+// DL-O4); "Add to list" reuses the P2-4 Shopping AddItems seam via a Deals-side writer port (DM-18). Both
+// adapters live in Web so Plantry.Deals keeps its → SharedKernel-only dependency.
+builder.Services.AddScoped<StockUpAlerts>();
+builder.Services.AddScoped<IPurchaseFrequencyReader, PurchaseFrequencyReaderAdapter>();
+builder.Services.AddScoped<IDealShoppingListWriter, DealShoppingListWriterAdapter>();
 
 // Deals — P5-6 IngestFlyer worker (DJ2). IngestFlyer is the per-household unit of work (pull → dedup →
 // normalize → match → materialize → auto-confirm); IFlyerImportRepository is the new dedup/provenance
