@@ -1,8 +1,52 @@
 using Plantry.Deals.Application;
 using Plantry.Deals.Domain;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Tests.Integration.Deals;
+
+/// <summary>A controllable clock so a test can stamp two subscriptions with strictly ordered CreatedAt
+/// values, pinning the order <see cref="IngestFlyer"/> processes them (ListActiveAsync orders by CreatedAt).</summary>
+internal sealed class MutableClock(DateTimeOffset start) : IClock
+{
+    public DateTimeOffset UtcNow { get; private set; } = start;
+    public void Advance(TimeSpan by) => UtcNow += by;
+}
+
+/// <summary>
+/// Wraps a real <see cref="IDealRepository"/> and makes the <b>first</b> <see cref="SaveChangesAsync"/>
+/// throw — a stand-in for a DB-infrastructure fault mid-cycle (plantry-60p9) — then delegates every later
+/// call so the next subscription commits against the real, shared context. Every other member delegates
+/// unchanged, so the real change tracker (and <see cref="DiscardStagedChanges"/>) behave exactly as in
+/// production: the faulted save leaves this subscription's Added/Deleted deals tracked on the shared context.
+/// </summary>
+internal sealed class FaultOnceDealRepository(IDealRepository inner) : IDealRepository
+{
+    public bool HasFaulted { get; private set; }
+
+    public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) => inner.FindAsync(id, ct);
+
+    public Task<List<Deal>> ListBrowsableAsync(CancellationToken ct = default) => inner.ListBrowsableAsync(ct);
+
+    public Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default) =>
+        inner.ListByFlyerImportAsync(flyerImportId, ct);
+
+    public Task AddAsync(Deal deal, CancellationToken ct = default) => inner.AddAsync(deal, ct);
+
+    public void Remove(Deal deal) => inner.Remove(deal);
+
+    public void DiscardStagedChanges() => inner.DiscardStagedChanges();
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        if (!HasFaulted)
+        {
+            HasFaulted = true;
+            throw new InvalidOperationException("simulated deals.SaveChangesAsync infrastructure fault (plantry-60p9)");
+        }
+        return inner.SaveChangesAsync(ct);
+    }
+}
 
 /// <summary>Cross-context port fakes for the L3 <see cref="IngestFlyer"/> isolation test — only the Deals
 /// persistence is real (RLS-armed); Catalog/Pricing/Flipp/AI seams are stubbed so the test isolates the

@@ -73,6 +73,15 @@ public sealed class IngestFlyer(
         foreach (var sub in active)
         {
             ct.ThrowIfCancellationRequested();
+
+            // Isolate each subscription's unit of work: discard any changes a prior subscription left
+            // staged in the shared DealsDbContext but never committed. EF does NOT detach tracked entities
+            // when SaveChanges throws, so without this a save-fault in one subscription would strand its
+            // Added/Deleted deals in the context and flush them into the NEXT subscription's commit —
+            // inserting the failed flyer's deals and deleting a household's prior Pending deals meant only
+            // to be replaced (plantry-60p9). Complements the pass-1 stage-throw guard in StageDealsAsync.
+            deals.DiscardStagedChanges();
+
             try
             {
                 var outcome = await IngestSubscriptionAsync(household, sub, ct);

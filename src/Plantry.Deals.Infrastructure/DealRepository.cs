@@ -27,6 +27,21 @@ public sealed class DealRepository(DealsDbContext db) : IDealRepository
 
     public void Remove(Deal deal) => db.Deals.Remove(deal);
 
+    public void DiscardStagedChanges()
+    {
+        // Detach every uncommitted entry (Added / Modified / Deleted). EF keeps entities tracked when a
+        // SaveChanges throws, so a faulted subscription would otherwise strand its Added/Deleted Deal rows
+        // in the shared context and flush them alongside the next subscription's commit (plantry-60p9).
+        // Unchanged entities — including the ingest loop's per-iteration-committed StoreSubscriptions — are
+        // deliberately left tracked, so this drops nothing legitimate on the success path.
+        var staged = db.ChangeTracker
+            .Entries()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .ToList();
+        foreach (var entry in staged)
+            entry.State = EntityState.Detached;
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);
 }

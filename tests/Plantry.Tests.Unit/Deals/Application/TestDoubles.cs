@@ -133,6 +133,11 @@ internal sealed class FakeDealRepository : IDealRepository
 
     public void Remove(Deal deal) => Items.Remove(deal);
 
+    /// <summary>No-op: this fake commits inline on Add/Remove (no deferred change tracker to reset). The
+    /// save-fault isolation the real reset guards (plantry-60p9) is proven against real EF in
+    /// <c>IngestFlyerIsolationTests</c>, where a genuine change tracker strands entities on a failed save.</summary>
+    public void DiscardStagedChanges() { }
+
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
         SaveChangesCalls++;
