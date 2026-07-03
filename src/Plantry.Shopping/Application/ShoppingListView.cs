@@ -37,13 +37,15 @@ public sealed record ShoppingListItemView(
     bool? IsLow = null,
     /// <summary>
     /// Resolved attribution labels for this item's contributions, rendered as the source sub-line on the board.
+    /// Each label carries a structural <see cref="AttributionKind"/> the UI keys presentation off (e.g. the
+    /// recipe icon), plus its display <c>Text</c> — presentation never sniffs the wording.
     ///
     /// <para>
     /// Built by <see cref="ShoppingListQueryService"/> from the item's <c>Contributions</c> collection:
     /// <list type="bullet">
-    ///   <item><description>Recipe contributions → "for {RecipeName}" (multiple distinct recipe names separated by " · ").</description></item>
-    ///   <item><description>A Recipe that appears more than once (distinct SourceRef, same name) → "for {RecipeName} ×N".</description></item>
-    ///   <item><description>Manual contributions → "added by you".</description></item>
+    ///   <item><description>Recipe contributions → <c>(Recipe, "for {RecipeName}")</c>.</description></item>
+    ///   <item><description>A Recipe that appears more than once (distinct SourceRef, same name) → <c>(Recipe, "for {RecipeName} ×N")</c>.</description></item>
+    ///   <item><description>Manual contributions → <c>(Manual, "added by you")</c>.</description></item>
     ///   <item><description>MealPlan/Deal → omitted (future ports; no label yet).</description></item>
     /// </list>
     /// </para>
@@ -51,7 +53,7 @@ public sealed record ShoppingListItemView(
     /// <para>Empty when the item has no resolvable attribution (e.g. all contributions are MealPlan/Deal
     /// which have no resolution port yet, or there are no contributions).</para>
     /// </summary>
-    IReadOnlyList<string>? AttributionLabels = null,
+    IReadOnlyList<AttributionLabel>? AttributionLabels = null,
     /// <summary>
     /// Resolved store name for the product's cheapest active deal (P5-9), read at request time from
     /// <b>Pricing</b>'s cheapest-active-deal read model via <see cref="IShoppingDealReader"/> — never
