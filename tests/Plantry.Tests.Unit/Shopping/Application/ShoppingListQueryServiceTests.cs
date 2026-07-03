@@ -625,6 +625,88 @@ public sealed class ShoppingListQueryServiceTests
         // The query service must pass the clock's UTC date so a deal appears/lapses with its window.
         Assert.Equal(new DateOnly(2026, 7, 4), deals.LastToday);
     }
+
+    // ── HasRecipeContribution (plantry-yt0m) ─────────────────────────────────
+
+    [Fact(DisplayName = "HasRecipeContribution — true when the list carries a Recipe contribution for the recipe id")]
+    public async Task HasRecipeContribution_RecipeContributionPresent_ReturnsTrue()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        list.AddItem(_productId, quantity: 2m, unitId: _unitId, note: null,
+            source: ItemSource.Recipe, sourceRef: recipeId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog);
+
+        Assert.True(await svc.HasRecipeContributionAsync(recipeId));
+    }
+
+    [Fact(DisplayName = "HasRecipeContribution — false when only a Manual contribution exists for the product")]
+    public async Task HasRecipeContribution_OnlyManualContribution_ReturnsFalse()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        // Manual-sourced item (SourceRef null) — not a recipe contribution.
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog);
+
+        Assert.False(await svc.HasRecipeContributionAsync(recipeId));
+    }
+
+    [Fact(DisplayName = "HasRecipeContribution — false when the Recipe contribution belongs to a different recipe")]
+    public async Task HasRecipeContribution_DifferentRecipeId_ReturnsFalse()
+    {
+        var thisRecipe = Guid.CreateVersion7();
+        var otherRecipe = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        list.AddItem(_productId, quantity: 1m, unitId: _unitId, note: null,
+            source: ItemSource.Recipe, sourceRef: otherRecipe, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog);
+
+        Assert.False(await svc.HasRecipeContributionAsync(thisRecipe));
+    }
+
+    [Fact(DisplayName = "HasRecipeContribution — false when the household has no shopping list")]
+    public async Task HasRecipeContribution_NoList_ReturnsFalse()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        var svc = BuildService(repo, catalog);
+
+        Assert.False(await svc.HasRecipeContributionAsync(recipeId));
+    }
+
+    [Fact(DisplayName = "HasRecipeContribution — false when there is no household context")]
+    public async Task HasRecipeContribution_NoHousehold_ReturnsFalse()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        var svc = new ShoppingListQueryService(
+            repo, catalog,
+            new FakeShoppingPantryReader(),
+            new FakeShoppingRecipeReader(),
+            new FakeShoppingDealReader(),
+            Clock,
+            new FakeTenantContext(null));
+
+        Assert.False(await svc.HasRecipeContributionAsync(recipeId));
+    }
 }
 
 /// <summary>Deterministic <see cref="IClock"/> for asserting "today" derivation in the read model.</summary>

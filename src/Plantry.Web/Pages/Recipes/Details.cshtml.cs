@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
+using Plantry.Shopping.Application;
 
 namespace Plantry.Web.Pages.Recipes;
 
@@ -21,12 +22,25 @@ public sealed class DetailsModel(
     FulfillmentService fulfillmentService,
     CostingService costingService,
     AddMissingToShoppingList addMissingService,
-    AddIngredientsToShoppingList addAllService) : PageModel
+    AddIngredientsToShoppingList addAllService,
+    ShoppingListQueryService shoppingList) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
 
     public RecipeDetailView Recipe { get; private set; } = null!;
+
+    /// <summary>
+    /// True when this recipe already has a contribution on the household's shopping list
+    /// (Source=Recipe, SourceRef=recipeId). Drives the initial greyed/"Added" state of the
+    /// "Add … to shopping list" buttons so a return visit reflects true list state and does not
+    /// invite a duplicate add (plantry-yt0m). Resolved via Shopping's application query — the Web
+    /// page is the composition root and reads Shopping's public read surface directly, mirroring how
+    /// the Shopping board page consumes <see cref="ShoppingListQueryService"/>; no new ACL port is
+    /// needed (the Recipes→Shopping write port exists only because Plantry.Recipes must stay
+    /// SharedKernel-only, a constraint that does not apply to a Web page model).
+    /// </summary>
+    public bool AlreadyOnShoppingList { get; private set; }
 
     public async Task<IActionResult> OnGetAsync(CancellationToken ct)
     {
@@ -56,6 +70,10 @@ public sealed class DetailsModel(
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var fulfillment = await fulfillmentService.ComputeAsync(recipe, recipe.DefaultServings, today, ct);
         var cost = await costingService.ComputeAsync(recipe, recipe.DefaultServings, ct);
+
+        // Server-render the "Add … to shopping list" buttons in their already-added state when this
+        // recipe already contributed to the list, so a return visit does not invite a duplicate add (plantry-yt0m).
+        AlreadyOnShoppingList = await shoppingList.HasRecipeContributionAsync(Id, ct);
 
         Recipe = RecipeDetailView.From(recipe, productLookup, unitLookup, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost);
         return Page();
@@ -354,4 +372,5 @@ public sealed record DetailsFulfilmentCardModel(
     int DefaultServings,
     FulfillmentResult Fulfillment,
     IReadOnlyList<IngredientGroupView> IngredientGroups,
-    bool Oob = false);
+    bool Oob = false,
+    bool AlreadyOnList = false);

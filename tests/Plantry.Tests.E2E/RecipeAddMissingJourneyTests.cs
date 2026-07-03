@@ -136,6 +136,16 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
             // The missing product should now appear on the shopping list.
             await Assertions.Expect(page.Locator("#shopping-list")).ToContainTextAsync(productName);
 
+            // ── Step 6b: Return to the Detail page — button must be greyed on fresh server-render ─
+            // The recipe now has a contribution on the list, so the Detail page must render the
+            // "Add missing" button in its disabled/"Added" state on load (plantry-yt0m). Before the
+            // fix it reset to the active state on return, inviting a duplicate add. A full navigation
+            // (GotoAsync) — not htmx — proves the state is server-rendered, not client-only.
+            await page.GotoAsync(detailUrl);
+            await page.WaitForURLAsync(DetailUrlPattern);
+            var addMissingOnReturn = page.Locator("button.btn--soft", new() { HasText = "missing to shopping list" });
+            await Assertions.Expect(addMissingOnReturn).ToBeDisabledAsync();
+
             // ── Step 7: Assert source=recipe provenance in the DB ────────────────
             var productId = await GetProductIdAsync(productName);
             Assert.True(productId.HasValue, $"Product '{productName}' not found in catalog.");
