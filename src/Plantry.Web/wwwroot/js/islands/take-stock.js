@@ -53,7 +53,7 @@
 
 import { render, html, signal, computed } from "./runtime.js?v=1";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage } from "./take-stock-logic.js?v=2";
+import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage, mergeSheetUnitIntoRow } from "./take-stock-logic.js?v=3";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -470,24 +470,9 @@ export function mountTakeStockWalk(root, config) {
       const rows = rowsSignal.value;
       const existing = rows.find((r) => r.productId === pid);
       if (existing) {
-        // Row already in the working set — update the count AND the chosen unit. Carrying the
-        // sheet-selected unit is the direct fix for plantry-3mwx: previously the unit was dropped
-        // here, so a count in a non-default unit was silently recorded in the product default unit.
-        const newCounted = parseFloat(String(detail.addCount ?? 0)) || 0;
-        existing.counted.value = newCounted;
-        existing.failed.value = false;
-        existing.failMsg.value = null;
-        existing.needsConversion.value = false;
-        if (detail.addUnitId) {
-          existing.unitId.value = detail.addUnitId;
-          // Ensure the selected unit is displayable even if it is not in the reachable set yet
-          // (the per-row selector is limited to units reachable from the default unit).
-          if (detail.addUnitCode
-              && !existing.supportedUnits.some((u) => u.unitId === detail.addUnitId)) {
-            existing.supportedUnits = [...existing.supportedUnits, { unitId: detail.addUnitId, code: detail.addUnitCode }];
-          }
-          if (detail.addUnitCode) existing.unitCode = detail.addUnitCode;
-        }
+        // Row already in the working set — merge the sheet-selected count AND unit onto it
+        // (pure transform in take-stock-logic.js; plantry-3mwx fix, regression-covered by plantry-1me7).
+        mergeSheetUnitIntoRow(existing, detail);
         // supportedUnits/unitCode are plain (non-signal) fields — reassign the array to re-render.
         rowsSignal.value = [...rows];
         toast.value = "Added — tap Save to record.";

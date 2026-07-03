@@ -152,14 +152,13 @@ public sealed class SearchableSelectTagHelper(IHtmlGenerator htmlGenerator) : Ta
         html.Append("</ul>");
         if (AllowCreate)
         {
-            // Divider + create button sit directly below the listbox so the two read as one
-            // visually grouped unit, matching the prototype's Option A (.lb-divider treatment).
-            // Gated on `open` (same popover visibility as the listbox, so the pair never appears
-            // detached while the popover itself is closed) AND a non-empty query (no "Create ''"
-            // before the user has typed anything) — combining the prototype's query-driven gating
-            // with the real app's existing open/close popover semantics.
-            html.Append("""<hr class="searchable-select__create-divider" x-show="open && query.trim().length > 0" x-cloak />""");
-            html.Append("""<button type="button" class="btn btn--ghost btn--sm" :class="{ 'btn--demoted': hasMatches }" x-show="open && query.trim().length > 0" x-cloak @click="$dispatch('product-search-create', { query: query })">""");
+            // The create button sits directly below the listbox as a single demoted affordance,
+            // matching the accepted prototype's Option A (a plain demoted row spaced below the results —
+            // NO divider; the dashed .lb-divider belonged to prototype variant C, not A). Its top spacing
+            // (searchable-select__create-btn) replaces the gap the old divider provided.
+            // Gated on `open` (same popover visibility as the listbox, so it never appears detached while
+            // the popover itself is closed) AND a non-empty query (no "Create ''" before the user types).
+            html.Append("""<button type="button" class="btn btn--ghost btn--sm searchable-select__create-btn" :class="{ 'btn--demoted': hasMatches }" x-show="open && query.trim().length > 0" x-cloak @click="$dispatch('product-search-create', { query: query })">""");
             html.Append("""<span x-text="'+ Create “' + query + '” ' + createLabel"></span>""");
             html.Append("</button>");
         }

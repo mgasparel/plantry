@@ -27,11 +27,25 @@ public static class ProductNameMatcher
     /// <summary>Minimum score for a result to be surfaced in the UI.</summary>
     public const double DisplayCutoff = 0.70;
 
+    /// <summary>
+    /// Stricter cutoff applied to <b>single-token</b> queries (plantry-fz3i). Mean-best Jaro-Winkler with a
+    /// lone query token has nothing to average it down, so a short token spuriously clears 0.70 against many
+    /// unrelated name-tokens (e.g. "speaker" surfaced "sea salt", "sirloin steak", "sparkling water"). A
+    /// single-token query must reach the <b>strong</b> tier (0.85) to surface — exact / token-subset rungs
+    /// still qualify (they score ≥ 0.90); only the fuzzy rung-4 noise is cut. Multi-token queries keep
+    /// <see cref="DisplayCutoff"/>, since a spurious token match is diluted by the mean across tokens.
+    /// </summary>
+    public const double SingleTokenCutoff = 0.85;
+
+    /// <summary>Maximum hits returned from <c>Rank</c> — caps an over-broad query so it cannot flood the listbox.</summary>
+    public const int MaxResults = 8;
+
     // ─── Public API ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Ranks <paramref name="candidates"/> against <paramref name="query"/> and returns all hits
-    /// that clear the <see cref="DisplayCutoff"/> (≥ 0.70), ordered score-desc then alphabetical.
+    /// Ranks <paramref name="candidates"/> against <paramref name="query"/> and returns the hits that clear
+    /// the cutoff (<see cref="DisplayCutoff"/>, or <see cref="SingleTokenCutoff"/> for a one-token query),
+    /// ordered score-desc then alphabetical and capped at <see cref="MaxResults"/>.
     /// Returns an empty list for a blank query.
     /// </summary>
     public static IReadOnlyList<MatchResult> Rank<T>(
@@ -48,23 +62,25 @@ public static class ProductNameMatcher
         if (queryTokens.Length == 0)
             return [];
 
+        var cutoff = queryTokens.Length == 1 ? SingleTokenCutoff : DisplayCutoff;
         var results = new List<MatchResult>();
 
         foreach (var candidate in candidates)
         {
             var name = nameSelector(candidate);
             var score = Score(normQuery, queryTokens, name);
-            if (score >= DisplayCutoff)
+            if (score >= cutoff)
                 results.Add(new MatchResult(name, score));
         }
 
         results.Sort(MatchResult.ByScoreDescThenAlpha);
-        return results;
+        return results.Count > MaxResults ? results.GetRange(0, MaxResults) : results;
     }
 
     /// <summary>
-    /// Ranks the <paramref name="namedItems"/> (pairs of id + name) and returns all hits above the
-    /// display cutoff, ordered score-desc then alphabetical. Returns an empty list for a blank query.
+    /// Ranks the <paramref name="namedItems"/> (pairs of id + name) and returns the hits above the cutoff
+    /// (<see cref="DisplayCutoff"/>, or <see cref="SingleTokenCutoff"/> for a one-token query), ordered
+    /// score-desc then alphabetical and capped at <see cref="MaxResults"/>. Returns an empty list for a blank query.
     /// </summary>
     public static IReadOnlyList<MatchResult<TId>> Rank<TId>(
         IEnumerable<(TId Id, string Name)> namedItems,
@@ -79,17 +95,18 @@ public static class ProductNameMatcher
         if (queryTokens.Length == 0)
             return [];
 
+        var cutoff = queryTokens.Length == 1 ? SingleTokenCutoff : DisplayCutoff;
         var results = new List<MatchResult<TId>>();
 
         foreach (var (id, name) in namedItems)
         {
             var score = Score(normQuery, queryTokens, name);
-            if (score >= DisplayCutoff)
+            if (score >= cutoff)
                 results.Add(new MatchResult<TId>(id, name, score));
         }
 
         results.Sort(MatchResult<TId>.ByScoreDescThenAlpha);
-        return results;
+        return results.Count > MaxResults ? results.GetRange(0, MaxResults) : results;
     }
 
     /// <summary>

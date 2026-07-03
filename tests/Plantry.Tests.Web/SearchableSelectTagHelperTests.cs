@@ -74,8 +74,8 @@ public sealed class SearchableSelectTagHelperTests
         Assert.DoesNotContain("hasMatches", html);
     }
 
-    [Fact(DisplayName = "AllowCreate=true renders a divider and a create button directly below the listbox")]
-    public void AllowCreateTrue_RendersDividerAndButtonBelowListbox()
+    [Fact(DisplayName = "AllowCreate=true renders a create button directly below the listbox (no divider — plantry-4j9q)")]
+    public void AllowCreateTrue_RendersButtonBelowListbox()
     {
         var helper = new SearchableSelectTagHelper(htmlGenerator: null!)
         {
@@ -90,16 +90,17 @@ public sealed class SearchableSelectTagHelperTests
         var children = root!.Children.ToList();
 
         var listboxIndex = children.FindIndex(c => c.ClassList.Contains("searchable-select__listbox"));
-        var dividerIndex = children.FindIndex(c => c.ClassList.Contains("searchable-select__create-divider"));
         var buttonIndex = children.FindIndex(c => c.TagName.Equals("button", StringComparison.OrdinalIgnoreCase));
 
         Assert.True(listboxIndex >= 0, "listbox should render");
-        Assert.True(dividerIndex > listboxIndex, "divider must come directly after the listbox");
-        Assert.True(buttonIndex > dividerIndex, "create button must come directly after the divider");
+        Assert.True(buttonIndex > listboxIndex, "create button must come directly after the listbox");
+        // The dashed create-divider (prototype variant C) was removed — Option A is a plain demoted row.
+        Assert.Null(doc.QuerySelector("hr.searchable-select__create-divider"));
 
         var button = children[buttonIndex];
         Assert.Contains("btn--ghost", button.ClassList);
         Assert.Contains("btn--sm", button.ClassList);
+        Assert.Contains("searchable-select__create-btn", button.ClassList);
         Assert.Contains("product-search-create", button.GetAttribute("@click") ?? "");
         Assert.Contains("hasMatches", button.GetAttribute(":class") ?? "");
         Assert.Contains("btn--demoted", button.GetAttribute(":class") ?? "");

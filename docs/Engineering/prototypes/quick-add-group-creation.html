@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inline group creation — quick-add (plantry-8r7o follow-up)</title>
+<!-- THROWAWAY PROTOTYPE. The hard case: creating a product + its group when NEITHER exists yet.
+     A "group" is an abstract parent product that can't hold stock; you can't convert a
+     stock-holding product into a group; so the group must be born at first-create, alongside
+     the first variant. Mirrors plenish.css tokens. -->
+<style>
+  :root {
+    --color-bg:#efe9db; --color-bg-subtle:#ece5d4; --color-surface:#fbf8f1; --color-surface-2:#f3eee2;
+    --color-border:#e4ddcc; --color-border-strong:#bdb49d; --color-text:#2b2b28; --color-text-muted:#6d685d;
+    --color-text-faint:#9c9587; --color-text-on-accent:#fbf8f1; --color-accent:#3d5a40; --color-accent-hover:#46683f;
+    --color-accent-subtle:#e3e8e3; --color-success:#3d7a4e; --color-success-bg:#e6f0e8; --color-warning:#b0701f;
+    --color-warning-bg:#f7ecdd; --color-danger:#a8493a; --color-danger-bg:#f4e4e1; --color-info:#36578a; --color-info-bg:#e2e8f1;
+    --radius-sm:4px; --radius-md:8px; --radius-lg:12px;
+    --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.5rem; --space-6:2rem;
+    --font-sans:'Hanken Grotesk',system-ui,sans-serif; --font-mono:'Spline Sans Mono',ui-monospace,monospace;
+    --font-size-xs:.75rem; --font-size-sm:.875rem; --font-size-base:1rem; --font-size-lg:1.125rem;
+    --shadow-lg:0 12px 32px rgba(0,0,0,.16);
+  }
+  * { box-sizing:border-box; }
+  body { font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); margin:0; padding:32px; line-height:1.5; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2.section { font-size:16px; margin:36px 0 4px; }
+  .sub { color:var(--color-text-muted); font-size:14px; margin:0 0 8px; max-width:92ch; }
+  code { font-family:var(--font-mono); font-size:12px; background:var(--color-surface-2); padding:1px 5px; border-radius:3px; }
+
+  .rule { display:flex; gap:12px; align-items:flex-start; font-size:13px; background:var(--color-info-bg); color:var(--color-text);
+          border:1px solid color-mix(in srgb,var(--color-info) 28%,transparent); border-radius:var(--radius-md); padding:12px 16px; margin:14px 0 8px; max-width:92ch; }
+  .rule b { color:var(--color-info); }
+  .rule .ico { font-size:18px; line-height:1.2; }
+
+  .deck { display:grid; grid-template-columns:repeat(3,minmax(300px,1fr)); gap:24px; align-items:start; margin-top:12px; }
+  @media (max-width:1080px){ .deck { grid-template-columns:1fr; } }
+
+  .col__tag { display:inline-block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; padding:2px 8px; border-radius:999px; margin-bottom:8px; }
+  .tag-new { background:var(--color-success-bg); color:var(--color-success); }
+  .tag-exist { background:var(--color-accent-subtle); color:var(--color-accent); }
+  .tag-block { background:var(--color-danger-bg); color:var(--color-danger); }
+  .col__head { margin:0 0 8px; font-size:15px; }
+  .col__note { font-size:12.5px; color:var(--color-text-muted); margin:10px 2px 0; }
+  .col__note b { color:var(--color-text); }
+
+  .panel { background:var(--color-surface); box-shadow:var(--shadow-lg); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:var(--space-4); }
+  .panel__header { display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-4); }
+  .panel__title { margin:0; font-size:var(--font-size-lg); }
+  .panel__close { background:none; border:none; font-size:1.5rem; line-height:1; color:var(--color-text-muted); cursor:pointer; }
+
+  .fld { display:flex; flex-direction:column; gap:var(--space-1); margin-bottom:var(--space-4); position:relative; }
+  .fld__label { font-size:var(--font-size-xs); font-weight:600; color:var(--color-text-muted); letter-spacing:.02em; text-transform:uppercase; }
+  .fld__hint { font-size:11.5px; color:var(--color-text-faint); }
+  .field__input { padding:var(--space-2) var(--space-3); border:1px solid var(--color-border-strong); border-radius:var(--radius-md); font-family:inherit; font-size:var(--font-size-base); background:var(--color-surface); color:var(--color-text); width:100%; }
+  .field__input::placeholder { color:var(--color-text-faint); }
+  select.field__input { appearance:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%236d685d' stroke-width='1.5'/></svg>"); background-repeat:no-repeat; background-position:right 10px center; padding-right:28px; }
+
+  .listbox { list-style:none; margin:var(--space-1) 0 0; padding:var(--space-1); background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); box-shadow:0 8px 24px rgba(0,0,0,.12); }
+  .listbox li { padding:var(--space-2) var(--space-3); border-radius:var(--radius-sm); font-size:var(--font-size-sm); cursor:pointer; display:flex; align-items:center; gap:8px; }
+  .listbox li:hover { background:var(--color-accent-subtle); }
+  .opt-new { color:var(--color-accent); font-weight:600; }
+  .opt-pick .badge { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--color-text-faint); margin-left:auto; }
+  .opt-bad { color:var(--color-danger); cursor:not-allowed; }
+  .opt-bad .badge { margin-left:auto; font-size:10px; font-weight:700; text-transform:uppercase; color:var(--color-danger); }
+
+  details { border:1px solid var(--color-border); border-radius:var(--radius-md); padding:var(--space-2) var(--space-3); margin-bottom:var(--space-4); background:var(--color-surface-2); }
+  summary { font-size:var(--font-size-sm); font-weight:600; color:var(--color-accent); cursor:pointer; }
+  details .fld { margin:var(--space-3) 0 var(--space-2); }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); padding:var(--space-2) var(--space-5); border-radius:var(--radius-md); font-family:inherit; font-size:var(--font-size-sm); font-weight:600; border:1px solid transparent; cursor:pointer; }
+  .btn--primary { background:var(--color-accent); color:var(--color-text-on-accent); }
+  .btn--primary:disabled { opacity:.5; cursor:not-allowed; }
+  .btn--ghost { background:transparent; color:var(--color-accent); }
+  .actions { display:flex; gap:var(--space-3); margin-top:var(--space-4); }
+
+  .preview-line { font-size:12.5px; border-radius:var(--radius-sm); padding:8px 10px; margin-bottom:var(--space-3); display:flex; gap:8px; align-items:flex-start; }
+  .preview-new { background:var(--color-success-bg); color:var(--color-success); }
+  .preview-exist { background:var(--color-accent-subtle); color:var(--color-accent); }
+  .preview-bad { background:var(--color-danger-bg); color:var(--color-danger); }
+  .preview-line .ico { font-weight:700; }
+  .tree { font-family:var(--font-mono); font-size:11.5px; color:var(--color-text-muted); margin-top:4px; white-space:pre; }
+</style>
+</head>
+<body>
+  <h1>Inline group creation in quick-add — when neither the product nor its group exists yet</h1>
+  <p class="sub">One <b>Group</b> combobox unifies every case. As you type a group name the form previews exactly what
+    will be minted. Empty = standalone (today). Pick existing = variant. <b>New name = create the group + this product as its first variant, atomically.</b></p>
+
+  <div class="rule">
+    <span class="ico">⚠️</span>
+    <div><b>Why it must happen at first-create:</b> a group is an abstract parent that can't hold stock, and a
+      stock-holding product <b>can't be converted into a group later</b> (<code>"Remove all stock lots before adding a variant"</code>).
+      So the group has to be born <i>with</i> its first variant, before the Take Stock count lands on it.</div>
+  </div>
+
+  <h2 class="section">Recommended — unified “Group” combobox, with live preview of what gets created</h2>
+  <p class="sub">Same create form in three states, driven only by what you type into <b>Group</b>. Scenario: Take Stock in the Fridge, you're holding <b>Oat Milk</b>.</p>
+
+  <div class="deck">
+
+    <!-- STATE 1 — new group -->
+    <div>
+      <span class="col__tag tag-new">Types a new name</span>
+      <h3 class="col__head">Creates group + first variant</h3>
+      <div class="panel">
+        <div class="panel__header"><h4 class="panel__title">New product</h4><button class="panel__close">&times;</button></div>
+        <div class="fld">
+          <label class="fld__label">Name</label>
+          <input class="field__input" value="Oat Milk" />
+        </div>
+        <div class="fld">
+          <label class="fld__label">Group <span class="fld__hint">(optional)</span></label>
+          <input class="field__input" value="Milk" />
+          <ul class="listbox">
+            <li class="opt-new">+ Create group “Milk”</li>
+          </ul>
+        </div>
+        <div class="preview-line preview-new">
+          <span class="ico">＋</span>
+          <div>Creates a new <b>“Milk”</b> group and adds <b>Oat Milk</b> as its first variant.
+            <div class="tree">Milk            (group · no stock)
+└─ Oat Milk     (variant · holds your count)</div>
+          </div>
+        </div>
+        <details>
+          <summary>Defaults (apply to the group)</summary>
+          <div class="fld"><label class="fld__label">Unit</label><select class="field__input"><option>L — litre</option></select></div>
+          <div class="fld"><label class="fld__label">Category</label><select class="field__input"><option>Dairy</option></select></div>
+          <div class="fld"><label class="fld__label">Location</label><select class="field__input"><option>Fridge</option></select></div>
+        </details>
+        <div class="actions"><button class="btn btn--primary">Create &amp; count</button><button class="btn btn--ghost">Cancel</button></div>
+      </div>
+      <p class="col__note">Free-text → one atomic <code>CreateGroupedProductCommand</code>. The group inherits the
+        unit/category/location you set here; the variant inherits from the group. One set of fields, two products.</p>
+    </div>
+
+    <!-- STATE 2 — existing group -->
+    <div>
+      <span class="col__tag tag-exist">Matches an existing group</span>
+      <h3 class="col__head">Adds a sibling variant</h3>
+      <div class="panel">
+        <div class="panel__header"><h4 class="panel__title">New product</h4><button class="panel__close">&times;</button></div>
+        <div class="fld">
+          <label class="fld__label">Name</label>
+          <input class="field__input" value="Oat Milk" />
+        </div>
+        <div class="fld">
+          <label class="fld__label">Group <span class="fld__hint">(optional)</span></label>
+          <input class="field__input" value="Mil" />
+          <ul class="listbox">
+            <li class="opt-pick">Milk <span class="badge">existing group</span></li>
+            <li class="opt-new">+ Create group “Mil”</li>
+          </ul>
+        </div>
+        <div class="preview-line preview-exist">
+          <span class="ico">↳</span>
+          <div>Adds <b>Oat Milk</b> as a variant of the existing <b>Milk</b> group.
+            <div class="tree">Milk
+├─ Whole Milk
+├─ Skim Milk
+└─ Oat Milk    (new)</div>
+          </div>
+        </div>
+        <details>
+          <summary>Override inherited defaults</summary>
+          <div class="fld"><label class="fld__label">Unit</label><select class="field__input"><option>— Inherit from Milk (L) —</option></select></div>
+          <div class="fld"><label class="fld__label">Category</label><select class="field__input"><option>— Inherit from Milk (Dairy) —</option></select></div>
+          <div class="fld"><label class="fld__label">Location</label><select class="field__input"><option>— Inherit from Milk (Fridge) —</option></select></div>
+        </details>
+        <div class="actions"><button class="btn btn--primary">Create &amp; count</button><button class="btn btn--ghost">Cancel</button></div>
+      </div>
+      <p class="col__note">Routes to the existing <code>CreateVariantCommand(parentId,…)</code> — same path as the
+        Detail-page form. Autocomplete keeps the user from accidentally minting a duplicate group.</p>
+    </div>
+
+    <!-- STATE 3 — collision with a flat stock-holding product -->
+    <div>
+      <span class="col__tag tag-block">Name clashes with a stocked product</span>
+      <h3 class="col__head">Blocked, with a way out</h3>
+      <div class="panel">
+        <div class="panel__header"><h4 class="panel__title">New product</h4><button class="panel__close">&times;</button></div>
+        <div class="fld">
+          <label class="fld__label">Name</label>
+          <input class="field__input" value="Oat Milk" />
+        </div>
+        <div class="fld">
+          <label class="fld__label">Group <span class="fld__hint">(optional)</span></label>
+          <input class="field__input" value="Milk" style="border-color:var(--color-danger)" />
+          <ul class="listbox">
+            <li class="opt-bad">“Milk” is a product that holds stock <span class="badge">can’t be a group</span></li>
+          </ul>
+        </div>
+        <div class="preview-line preview-bad">
+          <span class="ico">✕</span>
+          <div><b>“Milk”</b> already exists as a stocked product, so it can’t become a group. Empty its stock first,
+            or group them on the product page.</div>
+        </div>
+        <div class="actions"><button class="btn btn--primary" disabled>Create &amp; count</button><button class="btn btn--ghost">Cancel</button></div>
+      </div>
+      <p class="col__note">The one case the model forbids. We detect it pre-submit (name matches a non-parent product
+        with active lots) and block with guidance rather than a cryptic duplicate-name error. Rare — needs a deliberate
+        clash to hit.</p>
+    </div>
+
+  </div>
+
+  <h2 class="section">Alternative — explicit “New group” form (groups are a deliberate act, not a side-effect of typing)</h2>
+  <p class="sub">Instead of a smart combobox, a distinct affordance makes the two-products-being-created explicit.</p>
+  <div style="max-width:360px">
+    <div class="panel">
+      <div class="panel__header"><h4 class="panel__title">New group</h4><button class="panel__close">&times;</button></div>
+      <div class="fld">
+        <label class="fld__label">Group name</label>
+        <input class="field__input" value="Milk" />
+        <span class="fld__hint">An abstract grouping — won’t hold stock itself.</span>
+      </div>
+      <div class="fld">
+        <label class="fld__label">First variant name</label>
+        <input class="field__input" value="Oat Milk" />
+        <span class="fld__hint">The product you’re actually stocking now.</span>
+      </div>
+      <div class="fld"><label class="fld__label">Unit</label><select class="field__input"><option>L — litre</option></select></div>
+      <div class="actions"><button class="btn btn--primary">Create group &amp; count</button><button class="btn btn--ghost">Cancel</button></div>
+    </div>
+    <p class="col__note">Clearer that two records are born, but adds a third “mode” to the create flow (search /
+      new product / new group) and one extra tap to reach. The combobox folds this into the field the user is already in.</p>
+  </div>
+
+  <p class="sub" style="margin-top:28px"><b>Back-end either way:</b> a new atomic <code>CreateGroupedProductCommand(groupName, variantName, unit, category?, location?)</code>
+    that mints the parent and first variant in one <code>SaveChanges</code> — mirroring how <code>CreateVariantCommand</code> fused
+    create + link. Standalone still uses <code>CreateProductCommand</code>; existing-group uses <code>CreateVariantCommand</code>.</p>
+</body>
+</html>

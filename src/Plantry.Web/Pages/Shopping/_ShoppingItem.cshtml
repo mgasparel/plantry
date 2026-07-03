@@ -92,7 +92,13 @@
                         {
                             <span class="dot" aria-hidden="true"></span>
                         }
-                        <span class="sl-attribution">@label</span>
+                        <span class="sl-attribution">
+                            @if (label.StartsWith("for ", StringComparison.Ordinal))
+                            {
+                                <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+                            }
+                            @label
+                        </span>
                         subLineHasPeer = true;
                     }
                 }

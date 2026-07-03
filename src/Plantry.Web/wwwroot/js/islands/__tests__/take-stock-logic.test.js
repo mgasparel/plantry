@@ -23,6 +23,7 @@ import {
   buildSaveItems,
   reconcileResults,
   saveStatusMessage,
+  mergeSheetUnitIntoRow,
 } from "../take-stock-logic.js";
 
 // Import the vendored reactive runtime so dirty/down computed tests exercise
@@ -586,5 +587,61 @@ describe("saveStatusMessage", () => {
   it("ok with zero saved and zero failed (no results) is not a failure message", () => {
     // failed === 0 branch → "0 items updated" rather than the all-failed wording.
     assert.equal(saveStatusMessage({ ok: true, saved: 0, failed: 0 }), "0 items updated");
+  });
+});
+
+// ── mergeSheetUnitIntoRow (plantry-1me7) ──────────────────────────────────────
+
+describe("mergeSheetUnitIntoRow", () => {
+  it("existing-row branch: carries the sheet-selected unit onto the row (the plantry-3mwx fix)", () => {
+    // Row default unit is L (unit-l); the sheet chose an unconvertible unit "each" (unit-ea).
+    const row = makeTestRow({ unitId: "unit-l", unitCode: "L", supportedUnits: [{ unitId: "unit-l", code: "L" }] });
+
+    mergeSheetUnitIntoRow(row, { addCount: "6", addUnitId: "unit-ea", addUnitCode: "ea" });
+
+    // The chosen unit is NOT dropped back to the product default — it is recorded on the row.
+    assert.equal(row.unitId.value, "unit-ea");
+    assert.equal(row.unitCode, "ea");
+    assert.equal(row.counted.value, 6);
+  });
+
+  it("appends the chosen unit to supportedUnits when it is not already reachable", () => {
+    const row = makeTestRow({ supportedUnits: [{ unitId: "unit-l", code: "L" }] });
+
+    mergeSheetUnitIntoRow(row, { addCount: 2, addUnitId: "unit-ea", addUnitCode: "ea" });
+
+    assert.deepEqual(row.supportedUnits, [
+      { unitId: "unit-l", code: "L" },
+      { unitId: "unit-ea", code: "ea" },
+    ]);
+  });
+
+  it("does not duplicate a unit already present in supportedUnits", () => {
+    const row = makeTestRow({
+      supportedUnits: [{ unitId: "unit-l", code: "L" }, { unitId: "unit-ea", code: "ea" }],
+    });
+
+    mergeSheetUnitIntoRow(row, { addCount: 1, addUnitId: "unit-ea", addUnitCode: "ea" });
+
+    assert.equal(row.supportedUnits.length, 2);
+  });
+
+  it("clears prior save-error and conversion-prompt state on the row", () => {
+    const row = makeTestRow();
+    row.failed.value = true;
+    row.failMsg.value = "boom";
+    row.needsConversion.value = true;
+
+    mergeSheetUnitIntoRow(row, { addCount: "4", addUnitId: "unit-l", addUnitCode: "L" });
+
+    assert.equal(row.failed.value, false);
+    assert.equal(row.failMsg.value, null);
+    assert.equal(row.needsConversion.value, false);
+  });
+
+  it("defaults a blank/absent count to 0", () => {
+    const row = makeTestRow();
+    mergeSheetUnitIntoRow(row, { addUnitId: "unit-l", addUnitCode: "L" });
+    assert.equal(row.counted.value, 0);
   });
 });
