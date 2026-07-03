@@ -363,6 +363,12 @@
 								<input type="text" id="create-product-name" class="field__input" placeholder="Product name (e.g. Olive Oil)" x-model="draft.newStapleName" autocomplete="off">
 							</div>
 						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label" for="create-product-qty">Quantity</label>
+							<div class="form-grid__field__control">
+								<input type="number" id="create-product-qty" class="field__input" step="any" min="0" placeholder="e.g. 50" x-model="draft.qty">
+							</div>
+						</div>
 						<div class="form-grid__field form-grid__field--full" x-data="{
                              groupOptions: [],
                              groupQuery: '',

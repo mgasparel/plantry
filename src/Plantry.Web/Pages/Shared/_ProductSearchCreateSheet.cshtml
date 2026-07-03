@@ -247,6 +247,29 @@
                     </div>
                 </div>
 
+                @if (Model.TrackStock)
+                {
+                    @*
+                        Quantity (plantry-guab) — the create view mints tracked products (newIsTracked
+                        set at save, plantry-orix), and R5 (AuthorRecipe.cs) requires a tracked line to
+                        carry both Quantity and UnitId. Unit is already covered: saveSheet() falls the
+                        line's unitId back to the product default (newStapleUnit) in the Defaults section.
+                        Quantity had no field here, forcing a two-trip workaround (close sheet, re-open
+                        the row in the search view) before the recipe could save. This single input closes
+                        that gap, binding to the same draft.qty the search-view Quantity uses so the value
+                        carries through saveSheet() into the row (posted via the hidden Quantity input in
+                        Edit.cshtml). No x-show guard beyond TrackStock is needed — newStapleName is always
+                        non-null throughout create-view time, so the tracked-product invariant always holds.
+                    *@
+                    <div class="form-grid__field">
+                        <label class="form-grid__field__label" for="create-product-qty">Quantity</label>
+                        <div class="form-grid__field__control">
+                            <input type="number" id="create-product-qty" class="field__input" step="any" min="0"
+                                   placeholder="e.g. 50" x-model="draft.qty" />
+                        </div>
+                    </div>
+                }
+
                 @if (Model.GroupOptions is not null)
                 {
                     @*

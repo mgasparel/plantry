@@ -93,7 +93,9 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
             var ingOption = ingSheet.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
             await Assertions.Expect(ingOption).ToBeVisibleAsync();
             await ingOption.ClickAsync();
-            await ingSheet.Locator("input[type='number']").FillAsync("100");
+            // `:visible` targets the search-view Quantity; the create-view Quantity (plantry-guab) is
+            // x-show hidden here, mirroring the `select:visible` disambiguation on the next line.
+            await ingSheet.Locator("input[type='number']:visible").FillAsync("100");
             await ingSheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = "g" });
             // Use .First to target the search-view "Add" button (two .sheet__actions bars exist after
             // the plantry-nb4x two-view scaffold; .First avoids the strict-mode violation).

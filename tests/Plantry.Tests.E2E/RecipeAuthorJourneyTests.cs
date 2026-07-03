@@ -103,7 +103,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         await Assertions.Expect(option).ToBeVisibleAsync();
         await option.ClickAsync();
 
-        await sheet.Locator("input[type='number']").FillAsync(qty);
+        // `input[type='number']:visible` resolves to the search-view Quantity — the create-view
+        // Quantity field (plantry-guab) is x-show hidden here, mirroring the `select:visible` pattern below.
+        await sheet.Locator("input[type='number']:visible").FillAsync(qty);
         // `select:visible` resolves to the unit select — the create-view select is x-show hidden here.
         await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
 
@@ -115,13 +117,15 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
     /// <summary>
     /// Opens the add-ingredient sheet, switches to inline tracked-product create mode (plantry-orix),
-    /// fills name + default unit, commits, then re-opens the row to fill qty + unit (R5).
+    /// fills name + quantity + default unit, and commits in a single pass (plantry-guab).
     /// </summary>
     /// <remarks>
     /// Scoped to #recipe-editor .sheet to avoid Playwright strict-mode violations.
-    /// The create-view now mints a tracked catalog product ("as a new product" create-button
-    /// phrase, plantry-orix / plantry-gzro). R5 (tracked ingredients require qty+unit) is
-    /// satisfied by re-opening the row after sheet close.
+    /// The create-view mints a tracked catalog product ("as a new product" create-button phrase,
+    /// plantry-orix / plantry-gzro). R5 (tracked ingredients require qty+unit) is satisfied entirely
+    /// within the create view: Quantity is entered directly in the create-view field (plantry-guab)
+    /// and Unit falls back from the product default (newStapleUnit) in saveSheet() — no second trip
+    /// through the search view is needed, which is exactly the friction plantry-guab removes.
     /// </remarks>
     private async Task AddTrackedProductIngredientAsync(IPage page, string productName, string qty, string unitLabel)
     {
@@ -139,6 +143,10 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         await Assertions.Expect(nameInput).ToBeVisibleAsync();
         await nameInput.FillAsync(productName);
 
+        // Quantity is entered directly in the create view (plantry-guab) — the field is TrackStock-gated
+        // and always visible in create mode, so R5 is satisfied without re-opening the row afterwards.
+        await sheet.Locator("#create-product-qty").FillAsync(qty);
+
         // Expand the Defaults collapsible (plantry-y53t) to access the unit select.
         // The <details class="sheet-defaults"> is collapsed by default; the summary click opens it.
         var defaultsSummary = sheet.Locator(".sheet-defaults__summary");
@@ -149,20 +157,9 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
 
         // Use .Last to target the create-view "Create" button (the search-view "Add" is .First).
+        // Single pass: name + qty + unit are all set here, so the committed row satisfies R5
+        // (tracked ingredients require qty+unit) with no second trip through the search view.
         await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
-        await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
-
-        // R5: tracked ingredients require a Quantity. After sheet close, re-open the row via the
-        // edit icon and fill qty. (The sheet's search view has qty+unit fields pre-populated with
-        // unitId from saveSheet(); we only need to fill qty here.)
-        var row = page.Locator(".ingredient-row", new() { HasText = productName });
-        await Assertions.Expect(row).ToBeVisibleAsync();
-        await row.Locator("button[aria-label='Edit ingredient']").ClickAsync();
-        await Assertions.Expect(sheet).ToBeVisibleAsync();
-        // In edit mode, the sheet opens on the search view with the existing row state. Fill qty.
-        await sheet.Locator("input[type='number']").FillAsync(qty);
-        // The search-view "Add/Save" button is .First.
-        await sheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
         await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
     }
 
@@ -326,7 +323,8 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
                 .Locator("button[aria-label='Edit ingredient']").ClickAsync();
             var editSheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(editSheet).ToBeVisibleAsync();
-            var qtyInput = editSheet.Locator("input[type='number']");
+            // `:visible` targets the search-view Quantity; the create-view Quantity (plantry-guab) is x-show hidden.
+            var qtyInput = editSheet.Locator("input[type='number']:visible");
             await qtyInput.ClearAsync();
             await qtyInput.FillAsync("500");
             // Use .First to target the search-view "Save" button (avoids strict-mode violation from
@@ -466,6 +464,13 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             await nameInput.FillAsync(trackedProductName);
 
+            // ── Fill qty directly in the create-view (plantry-guab) ───────────────
+            // AuthorRecipe R5 validates qty/unit BEFORE the Catalog write (to avoid orphan products).
+            // The create-view now carries a TrackStock-gated Quantity field (plantry-guab), so R5 is
+            // satisfied in a single sheet pass — no re-opening the row in the search view. Unit is
+            // covered by the product default (newStapleUnit → unitId fallback in saveSheet()).
+            await sheet.Locator("#create-product-qty").FillAsync("1");
+
             // Open the Defaults collapsible and set the product's default unit.
             await sheet.Locator(".sheet-defaults__summary").ClickAsync();
             await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
@@ -478,19 +483,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await Assertions.Expect(page.Locator(".ingredient-row__summary", new() { HasText = trackedProductName }))
                 .ToBeVisibleAsync();
 
-            // ── Fill qty before submitting (R5 pre-check, plantry-orix) ─────────
-            // AuthorRecipe validates qty/unit BEFORE the Catalog write (to avoid orphan products).
-            // The create-view has no qty field, so we re-open the row in the search view to fill qty.
-            // saveSheet() pre-populates draft.unitId from draft.newStapleUnit, so only qty is missing.
-            var trackedRow = page.Locator(".ingredient-row", new() { HasText = trackedProductName });
-            await Assertions.Expect(trackedRow).ToBeVisibleAsync();
-            await trackedRow.Locator("button[aria-label='Edit ingredient']").ClickAsync();
-            await Assertions.Expect(sheet).ToBeVisibleAsync();
-            await sheet.Locator("input[type='number']").FillAsync("1");
-            await sheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
-            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
-
-            // ── Submit the recipe form — now saves cleanly ────────────────────────
+            // ── Submit the recipe form — saves cleanly in a single pass ───────────
             // R5 is satisfied (qty=1, unitId pre-populated from default unit). The recipe saves and
             // redirects to the Detail page. The newly-created tracked product appears in Catalog.
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
