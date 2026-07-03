@@ -22,13 +22,17 @@ public sealed class TagReaderAdapter(ITagRepository tagRepository) : ITagReader
     // Canonical category order (matches TAG_GROUPS in plan-data.js).
     private static readonly string[] CategoryOrder = ["Diet", "Protein", "Flavor", "Cuisine"];
 
+    // Non-null grouping key for tags whose Category is null (kept out of CategoryOrder so they
+    // fall through to the "Uncategorized" bucket below). Avoids a nullable dictionary key.
+    private const string NoCategory = "";
+
     public async Task<IReadOnlyList<TagGroup>> ListGroupedAsync(CancellationToken ct = default)
     {
         // Active-only: archived tags should not appear in dietary preferences.
         var all = await tagRepository.ListAllAsync(activeOnly: true, ct);
 
         var grouped = all
-            .GroupBy(t => t.Category?.ToString())
+            .GroupBy(t => t.Category?.ToString() ?? NoCategory)
             .ToDictionary(g => g.Key, g => g.ToList());
 
         var result = new List<TagGroup>();
@@ -49,8 +53,9 @@ public sealed class TagReaderAdapter(ITagRepository tagRepository) : ITagReader
         }
 
         // Any tag with no category or an unrecognised category goes in "Uncategorized".
+        // (NoCategory is not in CategoryOrder, so null-category tags land here too.)
         var uncategorized = grouped
-            .Where(kv => kv.Key is null || !CategoryOrder.Contains(kv.Key))
+            .Where(kv => !CategoryOrder.Contains(kv.Key))
             .SelectMany(kv => kv.Value)
             .OrderBy(t => t.Name)
             .ToList();

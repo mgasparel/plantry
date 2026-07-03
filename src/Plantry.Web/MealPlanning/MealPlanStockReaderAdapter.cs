@@ -17,7 +17,6 @@ public sealed class MealPlanStockReaderAdapter(
     IProductStockRepository stocks,
     ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
-    IClock clock,
     ITenantContext tenant)
     : IMealPlanStockReader
 {

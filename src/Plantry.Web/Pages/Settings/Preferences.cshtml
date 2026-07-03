@@ -71,7 +71,7 @@
         </div>
 
         @* ── Progress meta line ─────────────────────────────────────────────── *@
-        @Html.Partial("Settings/_PrefsMeta", new Plantry.Web.Pages.Settings.PrefsMetaViewModel(
+        @await Html.PartialAsync("Settings/_PrefsMeta", new Plantry.Web.Pages.Settings.PrefsMetaViewModel(
             (Model.ViewModel!.Members.FirstOrDefault(m => m.UserId == Model.CurrentUserId)?.Initials) ?? "Y",
             (Model.ViewModel.Members.FirstOrDefault(m => m.UserId == Model.CurrentUserId)?.DisplayName) ?? "You",
             Model.ViewModel.SetCount,

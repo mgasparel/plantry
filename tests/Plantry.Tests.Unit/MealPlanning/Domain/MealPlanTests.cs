@@ -269,7 +269,7 @@ public sealed class MealPlanTests
         var tuesday = Monday.AddDays(1);
         plan.MoveMeal(mealId, tuesday, SlotB, Clock);
 
-        Assert.Empty(plan.PlannedMeals.Where(m => m.Date == Monday && m.MealSlotId == SlotA));
+        Assert.DoesNotContain(plan.PlannedMeals, m => m.Date == Monday && m.MealSlotId == SlotA);
     }
 
     // ── C11 — MoveMeal: relocate-into-occupied (append, no swap) ─────────────
