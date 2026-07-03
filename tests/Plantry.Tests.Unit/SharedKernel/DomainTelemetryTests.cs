@@ -124,6 +124,7 @@ public sealed class DomainTelemetryTests
             new MetricsTestCreateProductPort(),
             new MetricsTestAddStockPort(),
             new MetricsTestRecordPricePort(),
+            new MetricsTestEnsurePurchaseStorePort(),
             clock, new MetricsTestTenantContext(household),
             NullLogger<CommitSessionCommand>.Instance);
 
@@ -152,6 +153,7 @@ public sealed class DomainTelemetryTests
             new MetricsTestCreateProductPort(),
             new MetricsTestAddStockPort(),
             new MetricsTestRecordPricePort(),
+            new MetricsTestEnsurePurchaseStorePort(),
             clock, new MetricsTestTenantContext(household),
             NullLogger<CommitSessionCommand>.Instance);
 
@@ -479,7 +481,13 @@ internal sealed class MetricsTestAddStockPort : IAddStockPort
 internal sealed class MetricsTestRecordPricePort : IRecordPricePort
 {
     public Task<Guid> RecordAsync(Guid productId, Guid? skuId, decimal price, decimal quantity, Guid unitId,
-        string? merchantText, Guid sourceRef, DateTimeOffset observedAt, Guid userId, CancellationToken ct = default) =>
+        string? merchantText, Guid? storeId, Guid sourceRef, DateTimeOffset observedAt, Guid userId, CancellationToken ct = default) =>
+        Task.FromResult(Guid.CreateVersion7());
+}
+
+internal sealed class MetricsTestEnsurePurchaseStorePort : IEnsurePurchaseStorePort
+{
+    public Task<Guid> EnsureAsync(string merchantName, CancellationToken ct = default) =>
         Task.FromResult(Guid.CreateVersion7());
 }
 

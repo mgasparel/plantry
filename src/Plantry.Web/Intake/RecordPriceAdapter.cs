@@ -18,11 +18,11 @@ public sealed class RecordPriceAdapter(
 {
     public async Task<Guid> RecordAsync(
         Guid productId, Guid? skuId, decimal price, decimal quantity, Guid unitId,
-        string? merchantText, Guid sourceRef, DateTimeOffset observedAt, Guid userId, CancellationToken ct = default)
+        string? merchantText, Guid? storeId, Guid sourceRef, DateTimeOffset observedAt, Guid userId, CancellationToken ct = default)
     {
         var command = new RecordObservationCommand(
             productId, skuId, price, quantity, unitId, merchantText, sourceRef, observedAt, userId,
-            PriceSource.Purchase, repository, calculator, tenant);
+            PriceSource.Purchase, repository, calculator, tenant, storeId: storeId);
 
         var result = await command.ExecuteAsync(ct);
         if (result.IsFailure)

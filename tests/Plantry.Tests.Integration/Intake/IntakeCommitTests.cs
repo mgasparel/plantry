@@ -98,10 +98,11 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         var addStock = new AddStockAdapter(new ProductStockRepository(inventoryDb), catalogFacade, Clock, tenant);
         var recordPrice = new RecordPriceAdapter(
             new PriceObservationRepository(pricingDb), new UnitPriceCalculatorAdapter(units), tenant);
+        var ensureStore = new EnsurePurchaseStoreAdapter(new StoreRepository(catalogDb), tenant, Clock);
 
         var command = new CommitSessionCommand(
-            sessionId, new ImportSessionRepository(intakeDb), createProduct, addStock, recordPrice, Clock, tenant,
-            NullLogger<CommitSessionCommand>.Instance);
+            sessionId, new ImportSessionRepository(intakeDb), createProduct, addStock, recordPrice, ensureStore,
+            Clock, tenant, NullLogger<CommitSessionCommand>.Instance);
 
         var result = await command.ExecuteAsync();
 
@@ -125,6 +126,15 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(sessionId.Value, observation.SourceRef);
         Assert.Equal(4.99m, observation.Price);
         Assert.NotNull(observation.UnitPrice); // grams is the base unit → price / (1000 × 1)
+        Assert.NotNull(observation.StoreId);   // receipt merchant resolved to a catalog.store (DM-16)
+
+        // Catalog: the receipt merchant "Superstore" was resolved find-or-create to a manual store whose
+        // id is exactly the one stamped on the purchase observation.
+        await using var verifyCatalog = NewCatalogDb();
+        var store = await verifyCatalog.Stores.SingleAsync();
+        Assert.Equal("Superstore", store.Name);
+        Assert.Null(store.ExternalRef);        // purchase-side manual store, not a Flipp subscription
+        Assert.Equal(store.Id.Value, observation.StoreId);
 
         // Intake: session + line committed, with the cross-context refs recorded.
         await using var verifyIntake = NewIntakeDb();

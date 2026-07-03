@@ -201,19 +201,60 @@
                 }
 
                 @*
-                    Group heading — Recipes-only concept (ingredient sections). Hidden for Take Stock.
+                    Section picker — Recipes-only concept (ingredient sections). Hidden for Take Stock.
                     Gate: show for tracked rows (productId set) OR for staple/untracked rows
-                    (newStapleName !== null). Previously always-visible; the newStapleName check
-                    restores editability for staple rows that were previously always shown the field.
+                    (newStapleName !== null).
+
+                    plantry-vff8: replaces the old free-text "Group (optional)" input with a picker over
+                    the recipe's EXISTING sections (+ "New section…"). Picking an existing section reuses
+                    its exact heading, so a Sauce/sauce typo can no longer split one section into two on
+                    the add path. The picker writes draft.groupHeading (unchanged post contract). It reads
+                    the host's existingSectionHeadings() (Recipes/Edit x-data); guarded so any other
+                    ShowGroupHeading host degrades to "type a new section" rather than erroring.
                 *@
                 @if (Model.ShowGroupHeading)
                 {
                     <div class="form-grid__field form-grid__field--full"
-                         x-show="draft.productId || draft.newStapleName !== null">
-                        <label class="form-grid__field__label">Group (optional)</label>
-                        <div class="form-grid__field__control">
-                            <input type="text" class="field__input" placeholder="e.g. Sauce, Topping"
-                                   x-model="draft.groupHeading" />
+                         x-show="draft.productId || draft.newStapleName !== null"
+                         x-data="{
+                             secOpen: false,
+                             secQuery: '',
+                             get secOptions() { return typeof existingSectionHeadings === 'function' ? existingSectionHeadings() : []; },
+                             get secFiltered() {
+                                 const q = this.secQuery.trim().toLowerCase();
+                                 return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
+                             },
+                             pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
+                             createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
+                             clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
+                         }"
+                         @@sheet-product-set.window="secQuery = draft.groupHeading || ''"
+                         @@click.outside="secOpen = false">
+                        <label class="form-grid__field__label" for="ingredient-section">Section (optional)</label>
+                        <div class="form-grid__field__control" style="position:relative">
+                            <input type="text" id="ingredient-section" class="field__input"
+                                   placeholder="Ungrouped — pick or type a section…"
+                                   x-model="secQuery"
+                                   autocomplete="off"
+                                   @@focus="secOpen = true"
+                                   @@input="secOpen = true; draft.groupHeading = secQuery.trim()"
+                                   @@keydown.escape.stop="secOpen = false" />
+                            <ul class="searchable-select__listbox" role="listbox"
+                                x-show="secOpen && (secFiltered.length > 0 || secQuery.trim().length > 0)"
+                                x-cloak style="display:none">
+                                @* Existing sections on this recipe *@
+                                <template x-for="h in secFiltered" :key="h">
+                                    <li role="option" class="searchable-select__listbox-item"
+                                        @@click="pickSection(h)" x-text="h"></li>
+                                </template>
+                                @* "+ New section '{name}'" — only when the typed name is not already an existing section *@
+                                <li role="option" class="searchable-select__listbox-item searchable-select__listbox-item--create"
+                                    x-show="secQuery.trim().length > 0 && !secOptions.some(h => h.toLowerCase() === secQuery.trim().toLowerCase())"
+                                    @@click="createSection()">
+                                    <span>+ New section</span>
+                                    <span x-text="' “' + secQuery.trim() + '”'"></span>
+                                </li>
+                            </ul>
                         </div>
                     </div>
                 }
@@ -316,8 +357,13 @@
                              }
                          }"
                          @@click.outside="groupOpen = false">
+                        @*
+                            Label reads "Parent" (plantry-grvy) — matches the domain term Product.IsParent
+                            ("Parent product" / "Parent / variant group" on the Catalog product detail).
+                            Label-only rename; the draft fields stay newGroupId/newGroupName.
+                        *@
                         <label class="form-grid__field__label" for="create-product-group">
-                            Group <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span>
+                            Parent <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span>
                         </label>
                         <div class="form-grid__field__control" style="position:relative">
                             <input type="text" id="create-product-group" class="field__input"
@@ -366,8 +412,13 @@
                         <div class="create-group-preview"
                              x-show="draft.newGroupName && draft.newGroupName.trim().length > 0"
                              x-cloak>
+                            @*
+                                Both paths share ONE muted/neutral treatment (plantry-grvy, owner decision
+                                2026-07-03): the line describes what WILL happen, so it reads as informational,
+                                not as a success confirmation. No green --new / accent --join split.
+                            *@
                             @* new-group path *@
-                            <p x-show="!draft.newGroupId" class="create-group-preview__text create-group-preview__text--new">
+                            <p x-show="!draft.newGroupId" class="create-group-preview__text">
                                 <span>Creates a new </span>
                                 <strong x-text="'“' + (draft.newGroupName || '') + '”'"></strong>
                                 <span> group and adds </span>
@@ -375,7 +426,7 @@
                                 <span> as its first variant.</span>
                             </p>
                             @* join-existing-group path *@
-                            <p x-show="draft.newGroupId" class="create-group-preview__text create-group-preview__text--join">
+                            <p x-show="draft.newGroupId" class="create-group-preview__text">
                                 <span>Adds </span>
                                 <strong x-text="'“' + ((draft.newStapleName || '').trim() || 'this product') + '”'"></strong>
                                 <span> as a variant of the existing </span>
@@ -400,8 +451,16 @@
                 Both are bound with x-model inside the Alpine x-data of the host, so no inner x-data
                 scope is needed here.
             *@
-            <details class="sheet-defaults">
-                <summary class="sheet-defaults__summary">Defaults</summary>
+            @*
+                Open by default (plantry-grvy) so the Unit/Category defaults are visible without a
+                click — the disclosure marker is the app's canonical chevron (#i-chevron), which rotates
+                on [open]; the native list-style marker is suppressed in CSS.
+            *@
+            <details class="sheet-defaults" open>
+                <summary class="sheet-defaults__summary">
+                    <svg class="icon sheet-defaults__chev" aria-hidden="true"><use href="#i-chevron" /></svg>
+                    <span>Defaults</span>
+                </summary>
                 <div class="sheet-defaults__body">
                     <div class="form-grid__field form-grid__field--full">
                         <label class="form-grid__field__label" for="create-product-unit">Unit</label>

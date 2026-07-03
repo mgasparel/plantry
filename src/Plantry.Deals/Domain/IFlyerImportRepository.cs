@@ -18,5 +18,27 @@ public interface IFlyerImportRepository
 
     Task AddAsync(FlyerImport import, CancellationToken ct = default);
 
+    /// <summary>
+    /// Detaches a single <see cref="FlyerImport"/> (and its owned children) from the change tracker. Used only
+    /// by the Failed-recording path (plantry-pwkm): after an atomic materialization transaction rolls back, the
+    /// envelope saved inside it is left tracked as <c>Unchanged</c> — a phantom, since the row was rolled out of
+    /// the database — which <see cref="IDealRepository.DiscardStagedChanges"/> (Added/Modified/Deleted only)
+    /// deliberately does not touch. Detaching it releases its owned <c>ValidityWindow</c> instance so a fresh
+    /// Pulling → Failed envelope reusing that provenance can be recorded without an owned-key or dedup collision.
+    /// </summary>
+    void Detach(FlyerImport import);
+
+    /// <summary>
+    /// Runs <paramref name="action"/> inside a single database transaction on the shared <c>DealsDbContext</c>,
+    /// committing on success and rolling back on any exception (plantry-pwkm). One import's materialization —
+    /// the <c>Pulling</c> envelope, its staged <c>Pending</c> <see cref="Deal"/>s, and the <c>Parsed</c>
+    /// transition — is written through this seam so it commits <b>atomically or not at all</b>: a hard crash
+    /// mid-write rolls back to nothing, so no partial <see cref="FlyerImport"/> row can wedge the
+    /// <c>(household_id, store_id, flyer_external_id)</c> dedup key (DD5/DD15). The envelope must be INSERTed
+    /// before its deals because the <c>deal → flyer_import</c> composite FK is enforced but has <b>no</b> EF
+    /// navigation to order the inserts — hence an explicit transaction spanning two saves, not one save.
+    /// </summary>
+    Task ExecuteInTransactionAsync(Func<CancellationToken, Task> action, CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }

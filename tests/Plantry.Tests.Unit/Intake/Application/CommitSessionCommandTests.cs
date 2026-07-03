@@ -27,9 +27,10 @@ public sealed class CommitSessionCommandTests
 
     private CommitSessionCommand Commit(
         ImportSession session, FakeImportSessionRepository repo,
-        FakeCreateProductPort create, FakeAddStockPort add, FakeRecordPricePort price) =>
-        new(session.Id, repo, create, add, price, Clock, new FakeTenantContext(_household),
-            NullLogger<CommitSessionCommand>.Instance);
+        FakeCreateProductPort create, FakeAddStockPort add, FakeRecordPricePort price,
+        FakeEnsurePurchaseStorePort? store = null) =>
+        new(session.Id, repo, create, add, price, store ?? new FakeEnsurePurchaseStorePort(),
+            Clock, new FakeTenantContext(_household), NullLogger<CommitSessionCommand>.Instance);
 
     [Fact]
     public async Task Commits_A_Confirmed_Existing_Product_Line_With_Stock_And_Price()
@@ -128,6 +129,89 @@ public sealed class CommitSessionCommandTests
     }
 
     [Fact]
+    public async Task Resolves_Merchant_To_A_Store_And_Stamps_StoreId_On_The_Price_Observation()
+    {
+        var session = ReadySession();
+        var line = session.AddLine(1, "Flour 1kg", SuggestedConfidence.High, null);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, price: 4.99m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var price = new FakeRecordPricePort();
+        var store = new FakeEnsurePurchaseStorePort();
+
+        var result = await Commit(session, repo, new(), new(), price, store).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Superstore", Assert.Single(store.Calls));           // merchant resolved find-or-create
+        Assert.NotNull(Assert.Single(price.StoreIds));                    // resolved store id stamped onto the observation
+        Assert.Equal("Superstore", Assert.Single(price.MerchantTexts));   // MerchantText retained for provenance
+    }
+
+    [Fact]
+    public async Task Blank_Merchant_Leaves_StoreId_Null_Without_Resolving_A_Store()
+    {
+        var session = ReadySession();
+        var line = session.AddLine(1, "Flour 1kg", SuggestedConfidence.High, null);
+        session.MarkReady("   ", Clock.UtcNow); // whitespace-only merchant is treated as blank
+        line.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, price: 4.99m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var price = new FakeRecordPricePort();
+        var store = new FakeEnsurePurchaseStorePort();
+
+        var result = await Commit(session, repo, new(), new(), price, store).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(store.Calls);                       // no ensure attempted for a blank merchant
+        Assert.Null(Assert.Single(price.StoreIds));      // store_id left null
+    }
+
+    [Fact]
+    public async Task Resolves_The_Store_Once_And_Reuses_It_Across_Multiple_Priced_Lines()
+    {
+        var session = ReadySession();
+        var line1 = session.AddLine(1, "Flour", SuggestedConfidence.High, null);
+        var line2 = session.AddLine(2, "Milk", SuggestedConfidence.High, null);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line1.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, 3m);
+        line2.Confirm(Guid.CreateVersion7(), null, 2m, _unitId, _locationId, null, 4m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var price = new FakeRecordPricePort();
+        var store = new FakeEnsurePurchaseStorePort();
+
+        var result = await Commit(session, repo, new(), new(), price, store).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(store.Calls);                          // resolved exactly once, not per line
+        Assert.Equal(2, price.StoreIds.Count);
+        Assert.All(price.StoreIds, id => Assert.Equal(price.StoreIds[0], id)); // same store on both lines
+        Assert.NotNull(price.StoreIds[0]);
+    }
+
+    [Fact]
+    public async Task Does_Not_Resolve_A_Store_When_No_Line_Has_A_Price()
+    {
+        var session = ReadySession();
+        var line = session.AddLine(1, "Free sample", SuggestedConfidence.High, null);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, price: null);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var store = new FakeEnsurePurchaseStorePort();
+
+        var result = await Commit(session, repo, new(), new(), new(), store).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(store.Calls); // a session with no priced lines mints no store
+    }
+
+    [Fact]
     public async Task Mid_Batch_Failure_Is_Resumable_Without_Double_Writing()
     {
         var session = ReadySession();
@@ -172,7 +256,7 @@ public sealed class CommitSessionCommandTests
 
         var cmd = new CommitSessionCommand(
             session.Id, repo, new FakeCreateProductPort(), new FakeAddStockPort(), new FakeRecordPricePort(),
-            Clock, new FakeTenantContext(null), NullLogger<CommitSessionCommand>.Instance);
+            new FakeEnsurePurchaseStorePort(), Clock, new FakeTenantContext(null), NullLogger<CommitSessionCommand>.Instance);
         var result = await cmd.ExecuteAsync();
 
         Assert.True(result.IsFailure);

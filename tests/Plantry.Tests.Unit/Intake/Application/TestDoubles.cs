@@ -109,17 +109,44 @@ internal sealed class FakeAddStockPort : IAddStockPort
     }
 }
 
-/// <summary>Records each price write and hands back a fresh observation id.</summary>
+/// <summary>Records each price write (price + the store_id it was handed) and hands back a fresh observation id.</summary>
 internal sealed class FakeRecordPricePort : IRecordPricePort
 {
     public List<decimal> Prices { get; } = [];
+    public List<Guid?> StoreIds { get; } = [];
+    public List<string?> MerchantTexts { get; } = [];
 
     public Task<Guid> RecordAsync(
         Guid productId, Guid? skuId, decimal price, decimal quantity, Guid unitId,
-        string? merchantText, Guid sourceRef, DateTimeOffset observedAt, Guid userId, CancellationToken ct = default)
+        string? merchantText, Guid? storeId, Guid sourceRef, DateTimeOffset observedAt, Guid userId, CancellationToken ct = default)
     {
         Prices.Add(price);
+        StoreIds.Add(storeId);
+        MerchantTexts.Add(merchantText);
         return Task.FromResult(Guid.CreateVersion7());
+    }
+}
+
+/// <summary>Resolves any merchant name to a stable, per-name store id and records each call, so tests can
+/// assert the same store is reused across a session's lines (idempotent find-or-create). Can be told to throw.</summary>
+internal sealed class FakeEnsurePurchaseStorePort : IEnsurePurchaseStorePort
+{
+    private readonly Dictionary<string, Guid> _byName = new(StringComparer.Ordinal);
+    public List<string> Calls { get; } = [];
+    public bool Throw { get; set; }
+
+    public Task<Guid> EnsureAsync(string merchantName, CancellationToken ct = default)
+    {
+        Calls.Add(merchantName);
+        if (Throw)
+            throw new InvalidOperationException("simulated store-ensure failure");
+
+        if (!_byName.TryGetValue(merchantName, out var id))
+        {
+            id = Guid.CreateVersion7();
+            _byName[merchantName] = id;
+        }
+        return Task.FromResult(id);
     }
 }
 

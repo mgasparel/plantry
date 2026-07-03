@@ -251,6 +251,15 @@ internal sealed class FakeFlyerImportRepository : IFlyerImportRepository
         return Task.CompletedTask;
     }
 
+    /// <summary>No-op: this fake tracks no EF state, so there is no phantom Unchanged envelope to detach.</summary>
+    public void Detach(FlyerImport import) { }
+
+    /// <summary>Runs the action inline — this fake commits on Add/Save with no real transaction. The atomic
+    /// commit-or-rollback contract is proven against real Postgres in <c>IngestFlyerAtomicMaterializeTests</c>
+    /// (plantry-pwkm), where a genuine transaction actually rolls a partial write back.</summary>
+    public Task ExecuteInTransactionAsync(Func<CancellationToken, Task> action, CancellationToken ct = default) =>
+        action(ct);
+
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
         SaveChangesCalls++;

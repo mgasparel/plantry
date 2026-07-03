@@ -9,9 +9,9 @@ namespace Plantry.Shopping.Application;
 ///
 /// <para>
 /// Resolution is only needed for <c>ItemSource.Recipe</c> contributions where
-/// <c>SourceRef</c> is the recipe id. Manual contributions resolve to a fixed label; MealPlan/Deal
-/// resolution is out of scope (those ports do not exist yet) and is treated generically as an
-/// unknown source — no label emitted so adding future ports is additive without breaking the view.
+/// <c>SourceRef</c> is the recipe id. Manual contributions resolve to a fixed label; MealPlan and Deal
+/// contributions resolve via their own sibling ports (<see cref="IShoppingMealPlanReader"/> and
+/// <see cref="IShoppingDealAttributionReader"/>, plantry-jwyb), not this one.
 /// </para>
 /// </summary>
 public interface IShoppingRecipeReader

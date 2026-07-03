@@ -22,29 +22,36 @@
         ?? [];
 }
 
-<div class="form-grid">
-    <div class="form-grid__field">
-        <label class="form-grid__field__label" for="add-count">Opening count (optional)</label>
-        <div class="form-grid__field__control">
-            <input type="number" id="add-count" class="field__input" step="any" min="0"
-                   placeholder="0"
-                   x-model="draft.addCount"
-                   aria-label="Opening count for new item" />
+@*
+    Grouped-box treatment (plantry-grvy): the opening-count + unit fields are wrapped in a bordered,
+    subtly-filled container so they read as one visually-grouped slot rather than a bare form-grid.
+    No user-facing "host slot" wording — that term is implementation jargon and stays in comments only.
+*@
+<div class="sheet-slot-group">
+    <div class="form-grid">
+        <div class="form-grid__field">
+            <label class="form-grid__field__label" for="add-count">Opening count (optional)</label>
+            <div class="form-grid__field__control">
+                <input type="number" id="add-count" class="field__input" step="any" min="0"
+                       placeholder="0"
+                       x-model="draft.addCount"
+                       aria-label="Opening count for new item" />
+            </div>
         </div>
-    </div>
 
-    <div class="form-grid__field">
-        <label class="form-grid__field__label" for="add-unit">Unit</label>
-        <div class="form-grid__field__control">
-            <select id="add-unit" class="field__input"
-                    x-model="draft.addUnitId"
-                    aria-label="Unit for opening count">
-                <option value="">— Unit —</option>
-                @foreach (var u in unitOptions)
-                {
-                    <option value="@u.Value">@u.Text</option>
-                }
-            </select>
+        <div class="form-grid__field">
+            <label class="form-grid__field__label" for="add-unit">Unit</label>
+            <div class="form-grid__field__control">
+                <select id="add-unit" class="field__input"
+                        x-model="draft.addUnitId"
+                        aria-label="Unit for opening count">
+                    <option value="">— Unit —</option>
+                    @foreach (var u in unitOptions)
+                    {
+                        <option value="@u.Value">@u.Text</option>
+                    }
+                </select>
+            </div>
         </div>
     </div>
 </div>

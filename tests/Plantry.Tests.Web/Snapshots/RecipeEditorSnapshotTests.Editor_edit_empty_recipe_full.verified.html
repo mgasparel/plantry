@@ -21,7 +21,7 @@
          hasIngredients: false,
          scaleMode: 'Keep',
          rows: [],
-         _nextOrd: 1,
+         _nextId: 0,
          unitCodes: {&quot;Guid_3&quot;:&quot;g&quot;,&quot;Guid_4&quot;:&quot;ea&quot;},
 
          // Ingredient sheet (add / edit)
@@ -33,7 +33,7 @@
          editingIdx: null,
          draft: {},
          blankDraft() {
-             return { ordinal: 0, productId: '', productName: '', qty: '', unitId: '',
+             return { _id: null, ordinal: 0, productId: '', productName: '', qty: '', unitId: '',
                  defaultUnitId: '', defaultUnitCode: '',
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
                  newIsTracked: false,
@@ -41,7 +41,9 @@
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '' };
          },
          openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
-         openEdit(idx) { this.editingIdx = idx; this.sheetView = 'search'; this.draft = JSON.parse(JSON.stringify(this.rows[idx])); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
+         // editingIdx carries the row's stable _id while editing (null while adding). The shared
+         // sheet only tests `editingIdx === null` (add vs edit), so an _id value satisfies it.
+         openEdit(row) { this.editingIdx = row._id; this.sheetView = 'search'; this.draft = JSON.parse(JSON.stringify(row)); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
          // The sheet stays mounted (x-show), so the nested searchableSelect inits once. Push the
          // current product label into its search box each time the sheet opens.
          _syncSearch(label) { this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: label || '' }))); },
@@ -64,35 +66,97 @@
                  }
              }
              if (this.editingIdx === null) {
-                 this.draft.ordinal = this._nextOrd++;
+                 this.draft._id = this._nextId++;
                  this.rows.push(JSON.parse(JSON.stringify(this.draft)));
              } else {
-                 this.rows.splice(this.editingIdx, 1, JSON.parse(JSON.stringify(this.draft)));
+                 const i = this.rows.findIndex(r => r._id === this.editingIdx);
+                 if (i >= 0) this.rows.splice(i, 1, JSON.parse(JSON.stringify(this.draft)));
              }
-             this.sheetView = 'search';
+             // Re-cluster the flat list into canonical section order (ungrouped-first, first-seen)
+             // and reassign ordinals so the posted order equals what Details renders.
+             this.rows = window.RecipeSections.normalizeRows(this.rows);             this.sheetView = 'search';
              this.sheetOpen = false;
          },
          unitLabel(id) { return this.unitCodes[id] || ''; },
          rowSummary(row) {
+             // Group heading is NO LONGER crammed into the summary — it is the section header now.
              const name = row.newStapleName ? row.newStapleName : row.productName;
              const parts = [];
              if (!row.isUntracked &amp;&amp; row.qty) parts.push(row.qty + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
              if (row.isUntracked) parts.push('untracked');
-             if (row.groupHeading) parts.push(row.groupHeading);
              return parts.length ? name + ' · ' + parts.join(' · ') : name;
          },
-         removeRow(idx) { this.rows.splice(idx, 1); this.reassignOrdinals(); },
-         reassignOrdinals() { this.rows.forEach((r, i) => r.ordinal = i); this._nextOrd = this.rows.length; },
-         _dragIdx: null,
-         dragStart(idx) { this._dragIdx = idx; },
-         dragOver(idx) {
-             if (this._dragIdx === null || this._dragIdx === idx) return;
-             const moved = this.rows.splice(this._dragIdx, 1)[0];
-             this.rows.splice(idx, 0, moved);
-             this._dragIdx = idx;
-             this.reassignOrdinals();
+         removeRow(row) {
+             this.rows = window.RecipeSections.normalizeRows(this.rows.filter(r => r._id !== row._id));         },
+
+         // ── Section model (plantry-vff8) ───────────────────────────────────────────
+         _isUngrouped(h) { return h == null || String(h).trim() === ''; },
+         // Display sections for render: the ungrouped bucket first (nameless), then each named
+         // heading in first-appearance order. Mirrors recipe-sections.js deriveSections but kept
+         // inline so the FIRST synchronous render never depends on window.RecipeSections having
+         // loaded yet (that module is bridged after Alpine starts; every mutation call below runs
+         // at interaction time, when it is guaranteed present).
+         sections() {
+             const secs = [{ key: '__ungrouped__', heading: '', isUngrouped: true,
+                             items: this.rows.filter(r => this._isUngrouped(r.groupHeading)) }];
+             const seen = [];
+             for (const r of this.rows) {
+                 const h = r.groupHeading;
+                 if (this._isUngrouped(h) || seen.includes(h)) continue;
+                 seen.push(h);
+                 secs.push({ key: 'g:' + h, heading: h, isUngrouped: false,
+                             items: this.rows.filter(x => x.groupHeading === h) });
+             }
+             return secs;
          },
-         drop() { this._dragIdx = null; },
+         // The nameless Ungrouped header is hidden when it is the only section (a recipe with no
+         // headings looks essentially like today); it appears once at least one named section
+         // exists. The ungrouped rows themselves always render (header or not).
+         showUngroupedHeader() { return this.sections().length > 1; },
+         // Distinct existing section names on this recipe — feeds the add/edit sheet's section picker.
+         existingSectionHeadings() {
+             const seen = [];
+             for (const r of this.rows) {
+                 if (this._isUngrouped(r.groupHeading) || seen.includes(r.groupHeading)) continue;
+                 seen.push(r.groupHeading);
+             }
+             return seen;
+         },
+         renameSection(oldHeading, newName) {
+             this.rows = window.RecipeSections.renameSection(this.rows, oldHeading, newName);         },
+         deleteSection(heading) {
+             this.rows = window.RecipeSections.deleteSection(this.rows, heading);         },
+
+         // ── Drag (live-shift, cross-section reassignment) ──────────────────────────
+         _dragId: null,
+         _dragActive: false,
+         onDragStart(row, ev) {
+             this._dragId = row._id;
+             this._dragActive = true;
+             if (ev &amp;&amp; ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(row._id)); }
+         },
+         // Live shift: as the pointer moves over a section, reflow the dragged row to the cursor
+         // position and (when the section differs) reassign its group — so the editor order tracks
+         // the Details render in real time. Mutates rows on dragover, exactly like the flat editor
+         // did; the reactive :class keeps the dragged row styled across re-renders.
+         onDragOver(section, ev) {
+             if (this._dragId === null) return;
+             ev.preventDefault();
+             const container = ev.currentTarget;
+             const rowEls = Array.from(container.querySelectorAll('.ingredient-row'))
+                 .filter(el => Number(el.dataset.rowId) !== this._dragId);
+             let beforeId = null, closest = -Infinity;
+             for (const el of rowEls) {
+                 const box = el.getBoundingClientRect();
+                 const offset = ev.clientY - box.top - box.height / 2;
+                 if (offset < 0 &amp;&amp; offset > closest) { closest = offset; beforeId = Number(el.dataset.rowId); }
+             }
+             this.rows = window.RecipeSections.placeRow(this.rows, this._dragId, section.heading, beforeId);
+         },
+         onDragEnd() {
+             this._dragId = null;
+             this._dragActive = false;
+             this.rows = window.RecipeSections.normalizeRows(this.rows);         },
          removeTag(i) { this.tags.splice(i, 1); },
          selectProduct(row, detail) {
              row.productId = detail.value;
@@ -234,12 +298,12 @@
 			<div class="card__head">
 				<div>
 					<h3 class="card__head-title">Ingredients</h3>
-					<p class="card__head-sub">Add ingredients one at a time. Click a row to edit it, or drag to reorder.</p>
+					<p class="card__head-sub">Grouped into sections. Drag a row to reorder it, or across a section to move it. Rename a section heading once to rename it for every ingredient in it.</p>
 				</div>
 			</div>
 			<div class="card__body" style="padding:0">
-				<div id="ingredient-rows">
-					<template x-for="(row, idx) in rows" :key="row.ordinal"><div class="ingredient-row" :class="{ 'ingredient-row--needs-conversion': row.needsConversion }" draggable="true" @dragstart.self="dragStart(idx)" @dragover.prevent="dragOver(idx)" @drop="drop()">
+				<div hidden="" aria-hidden="true">
+					<template x-for="(row, idx) in rows" :key="row._id"><div>
 							<input type="hidden" :name="'Input.Lines[' + idx + '].Ordinal'" :value="row.ordinal">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].ProductName'" :value="row.productName">
@@ -253,39 +317,57 @@
 							<input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].GroupHeading'" :value="row.groupHeading">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionFactor'" :value="row.conversionFactor">
-							<div class="ingredient-row__body">
-								<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-										<line x1="3" y1="8" x2="21" y2="8"></line>
-										<line x1="3" y1="16" x2="21" y2="16"></line>
-									</svg>
-								</div>
-								<button type="button" class="ingredient-row__summary" @click="openEdit(idx)" :title="'Edit ' + (row.newStapleName || row.productName)">
-									<span x-text="rowSummary(row)"></span>
-								</button>
-								<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Edit ingredient" @click="openEdit(idx)">
-									<svg class="icon" aria-hidden="true">
-										<use href="#i-edit"></use>
-									</svg>
-								</button>
-								<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Remove ingredient" @click="removeRow(idx)" style="color:var(--color-danger)">
-									<svg class="icon" aria-hidden="true">
-										<use href="#i-minus"></use>
-									</svg>
-								</button>
+						</div></template>
+				</div>
+				<div id="ingredient-rows" :class="{ 'ingredient-sections--dragging': _dragActive }">
+					<template x-for="section in sections()" :key="section.key"><div class="ing-section" @dragover.prevent="onDragOver(section, $event)" @drop.prevent="onDragEnd()">
+							<div class="ing-section__head" x-show="!section.isUngrouped || showUngroupedHeader()">
+								<template x-if="section.isUngrouped"><span class="ing-section__name ing-section__name--ungrouped" title="Ingredients with no section">Ungrouped</span></template>
+								<template x-if="!section.isUngrouped"><input class="ing-section__name" type="text" :value="section.heading" title="Rename this section — every ingredient in it follows" aria-label="Section heading" @change="renameSection(section.heading, $event.target.value)" @keydown.enter.prevent="$event.target.blur()"></template>
+								<span class="ing-section__count" x-text="section.items.length + (section.items.length === 1 ? ' item' : ' items')"></span>
+								<template x-if="!section.isUngrouped"><button type="button" class="ing-section__del" aria-label="Delete section" title="Delete section (its ingredients move to Ungrouped)" @click="deleteSection(section.heading)">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button></template>
 							</div>
-							<div x-show="row.needsConversion" class="ingredient-row__conversion" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
-								<p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
-									No conversion path found. How much is 1
-									<span x-text="unitLabel(row.unitId)"></span>?
-								</p>
-								<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-									<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">1
-										<span x-text="unitLabel(row.unitId)"></span>
-										=</span>
-									<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="row.conversionFactor" style="width:8rem">
-									<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)" x-text="unitLabel(row.conversionToUnitId)"></span>
-								</div>
+							<div class="ing-rows">
+								<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion, 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
+										<div class="ingredient-row__body">
+											<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
+												<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+													<line x1="3" y1="8" x2="21" y2="8"></line>
+													<line x1="3" y1="16" x2="21" y2="16"></line>
+												</svg>
+											</div>
+											<button type="button" class="ingredient-row__summary" @click="openEdit(row)" :title="'Edit ' + (row.newStapleName || row.productName)">
+												<span x-text="rowSummary(row)"></span>
+											</button>
+											<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Edit ingredient" @click="openEdit(row)">
+												<svg class="icon" aria-hidden="true">
+													<use href="#i-edit"></use>
+												</svg>
+											</button>
+											<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Remove ingredient" @click="removeRow(row)" style="color:var(--color-danger)">
+												<svg class="icon" aria-hidden="true">
+													<use href="#i-minus"></use>
+												</svg>
+											</button>
+										</div>
+										<div x-show="row.needsConversion" class="ingredient-row__conversion" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
+											<p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+												No conversion path found. How much is 1
+												<span x-text="unitLabel(row.unitId)"></span>?
+											</p>
+											<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
+												<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">1
+													<span x-text="unitLabel(row.unitId)"></span>
+													=</span>
+												<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="row.conversionFactor" style="width:8rem">
+												<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)" x-text="unitLabel(row.conversionToUnitId)"></span>
+											</div>
+										</div>
+									</div></template>
 							</div>
 						</div></template>
 				</div>
@@ -347,10 +429,28 @@
 								</select>
 							</div>
 						</div>
-						<div class="form-grid__field form-grid__field--full" x-show="draft.productId || draft.newStapleName !== null">
-							<label class="form-grid__field__label">Group (optional)</label>
-							<div class="form-grid__field__control">
-								<input type="text" class="field__input" placeholder="e.g. Sauce, Topping" x-model="draft.groupHeading">
+						<div class="form-grid__field form-grid__field--full" x-show="draft.productId || draft.newStapleName !== null" x-data="{
+                             secOpen: false,
+                             secQuery: '',
+                             get secOptions() { return typeof existingSectionHeadings === 'function' ? existingSectionHeadings() : []; },
+                             get secFiltered() {
+                                 const q = this.secQuery.trim().toLowerCase();
+                                 return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
+                             },
+                             pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
+                             createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
+                             clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
+                         }" @sheet-product-set.window="secQuery = draft.groupHeading || ''" @click.outside="secOpen = false">
+							<label class="form-grid__field__label" for="ingredient-section">Section (optional)</label>
+							<div class="form-grid__field__control" style="position:relative">
+								<input type="text" id="ingredient-section" class="field__input" placeholder="Ungrouped — pick or type a section…" x-model="secQuery" autocomplete="off" @focus="secOpen = true" @input="secOpen = true; draft.groupHeading = secQuery.trim()" @keydown.escape.stop="secOpen = false">
+								<ul class="searchable-select__listbox" role="listbox" x-show="secOpen &amp;&amp; (secFiltered.length > 0 || secQuery.trim().length > 0)" x-cloak="" style="display:none">
+									<template x-for="h in secFiltered" :key="h"><li role="option" class="searchable-select__listbox-item" @click="pickSection(h)" x-text="h"></li></template>
+									<li role="option" class="searchable-select__listbox-item searchable-select__listbox-item--create" x-show="secQuery.trim().length > 0 &amp;&amp; !secOptions.some(h => h.toLowerCase() === secQuery.trim().toLowerCase())" @click="createSection()">
+										<span>+ New section</span>
+										<span x-text="' “' + secQuery.trim() + '”'"></span>
+									</li>
+								</ul>
 							</div>
 						</div>
 					</div>
@@ -397,7 +497,7 @@
                              }
                          }" @click.outside="groupOpen = false">
 							<label class="form-grid__field__label" for="create-product-group">
-								Group
+								Parent
 								<span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span>
 							</label>
 							<div class="form-grid__field__control" style="position:relative">
@@ -411,7 +511,7 @@
 								</ul>
 							</div>
 							<div class="create-group-preview" x-show="draft.newGroupName &amp;&amp; draft.newGroupName.trim().length > 0" x-cloak="">
-								<p x-show="!draft.newGroupId" class="create-group-preview__text create-group-preview__text--new">
+								<p x-show="!draft.newGroupId" class="create-group-preview__text">
 									<span>Creates a new
 									</span>
 									<strong x-text="'“' + (draft.newGroupName || '') + '”'"></strong>
@@ -422,7 +522,7 @@
 									<span>
 										as its first variant.</span>
 								</p>
-								<p x-show="draft.newGroupId" class="create-group-preview__text create-group-preview__text--join">
+								<p x-show="draft.newGroupId" class="create-group-preview__text">
 									<span>Adds
 									</span>
 									<strong x-text="'“' + ((draft.newStapleName || '').trim() || 'this product') + '”'"></strong>
@@ -436,8 +536,13 @@
 							</div>
 						</div>
 					</div>
-					<details class="sheet-defaults">
-						<summary class="sheet-defaults__summary">Defaults</summary>
+					<details class="sheet-defaults" open="">
+						<summary class="sheet-defaults__summary">
+							<svg class="icon sheet-defaults__chev" aria-hidden="true">
+								<use href="#i-chevron"></use>
+							</svg>
+							<span>Defaults</span>
+						</summary>
 						<div class="sheet-defaults__body">
 							<div class="form-grid__field form-grid__field--full">
 								<label class="form-grid__field__label" for="create-product-unit">Unit</label>

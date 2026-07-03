@@ -25,20 +25,36 @@ public sealed class IndexModel(ProductQueryService products) : PageModel
         return Partial("Shared/_DataGrid", ProductGrid);
     }
 
-    private DataGridViewModel BuildProductGrid(GridSort? sort)
+    /// <summary>Sort-key selectors for the products grid, keyed by the column's <c>SortKey</c>. Mirrors the
+    /// pantry grid's shape for consistency; boxing to <see cref="IComparable"/> sorts identically to a
+    /// typed <c>OrderBy</c>.</summary>
+    private static readonly Dictionary<string, Func<ProductListItem, IComparable?>> ProductSortKeys = new()
     {
-        IEnumerable<ProductListItem> rows = Products;
-        if (sort is { } s)
-        {
-            rows = s.Key switch
-            {
-                "name" => s.Descending ? rows.OrderByDescending(p => p.Name) : rows.OrderBy(p => p.Name),
-                "category" => s.Descending ? rows.OrderByDescending(p => p.CategoryName) : rows.OrderBy(p => p.CategoryName),
-                _ => rows,
-            };
-        }
+        ["name"]     = p => p.Name,
+        ["category"] = p => p.CategoryName,
+    };
 
-        return new DataGridViewModel(
+    /// <summary>Applies the requested column sort; unknown or absent keys leave order untouched.
+    /// <c>internal</c> so it can be unit-tested directly (no page-handler test harness exists).</summary>
+    internal static IEnumerable<ProductListItem> ApplyProductSort(IEnumerable<ProductListItem> rows, GridSort? sort) =>
+        sort is { } s && ProductSortKeys.TryGetValue(s.Key, out var key)
+            ? (s.Descending ? rows.OrderByDescending(key) : rows.OrderBy(key))
+            : rows;
+
+    private static GridRow BuildProductRow(ProductListItem p) => new(
+    [
+        GridCell.Link(p.Name, $"/Catalog/Products/{p.Id}"),
+        GridCell.Text(p.CategoryName ?? ""),
+        p switch
+        {
+            { IsParent: true } => GridCell.Badge("Parent", BadgeTone.Info),
+            { IsVariant: true } => GridCell.Badge("Variant", BadgeTone.Neutral),
+            _ => GridCell.Muted("—"),
+        },
+    ]);
+
+    private DataGridViewModel BuildProductGrid(GridSort? sort) =>
+        new DataGridViewModel(
             Id: "products-grid",
             SortUrl: Url.Page("./Index", "SortProducts"),
             CurrentSort: sort,
@@ -48,17 +64,6 @@ public sealed class IndexModel(ProductQueryService products) : PageModel
                 new("Category", SortKey: "category"),
                 new("Kind"),
             ],
-            Rows: [.. rows.Select(p => new GridRow(
-            [
-                GridCell.Link(p.Name, $"/Catalog/Products/{p.Id}"),
-                GridCell.Text(p.CategoryName ?? ""),
-                p switch
-                {
-                    { IsParent: true } => GridCell.Badge("Parent", BadgeTone.Info),
-                    { IsVariant: true } => GridCell.Badge("Variant", BadgeTone.Neutral),
-                    _ => GridCell.Muted("—"),
-                },
-            ]))],
+            Rows: [.. ApplyProductSort(Products, sort).Select(BuildProductRow)],
             EmptyMessage: "No products yet — add your first one above.");
-    }
 }

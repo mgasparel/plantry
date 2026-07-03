@@ -131,24 +131,40 @@ public sealed class IndexModel(
         return Partial("_PantryList", new PantryListPartialModel(BuildPantryGrid(items), Oob: true));
     }
 
-    private DataGridViewModel BuildPantryGrid(IReadOnlyList<PantryListItem> items, GridSort? sort = null)
+    /// <summary>Sort-key selectors for the pantry grid, keyed by the column's <c>SortKey</c>. Each returns
+    /// an <see cref="IComparable"/> so a single direction switch covers every column; boxing sorts
+    /// identically to a typed <c>OrderBy</c> (nulls first, same comparer).</summary>
+    private static readonly Dictionary<string, Func<PantryListItem, IComparable?>> PantrySortKeys = new()
     {
-        IEnumerable<PantryListItem> rows = items;
-        if (sort is { } s)
-        {
-            rows = s.Key switch
-            {
-                "name"     => s.Descending ? rows.OrderByDescending(i => i.Name)          : rows.OrderBy(i => i.Name),
-                "category" => s.Descending ? rows.OrderByDescending(i => i.CategoryName)  : rows.OrderBy(i => i.CategoryName),
-                "location" => s.Descending ? rows.OrderByDescending(i => i.LocationDisplay) : rows.OrderBy(i => i.LocationDisplay),
-                "kind"     => s.Descending ? rows.OrderByDescending(i => i.IsVariant)     : rows.OrderBy(i => i.IsVariant),
-                "qty"      => s.Descending ? rows.OrderByDescending(i => i.TotalQuantity) : rows.OrderBy(i => i.TotalQuantity),
-                "expiry"   => s.Descending ? rows.OrderByDescending(i => i.SoonestExpiry) : rows.OrderBy(i => i.SoonestExpiry),
-                _ => rows,
-            };
-        }
+        ["name"]     = i => i.Name,
+        ["category"] = i => i.CategoryName,
+        ["location"] = i => i.LocationDisplay,
+        ["kind"]     = i => i.IsVariant,
+        ["qty"]      = i => i.TotalQuantity,
+        ["expiry"]   = i => i.SoonestExpiry,
+    };
 
-        return new(
+    /// <summary>Applies the requested column sort; unknown or absent keys leave order untouched.
+    /// <c>internal</c> so it can be unit-tested directly (no page-handler test harness exists).</summary>
+    internal static IEnumerable<PantryListItem> ApplyPantrySort(IEnumerable<PantryListItem> rows, GridSort? sort) =>
+        sort is { } s && PantrySortKeys.TryGetValue(s.Key, out var key)
+            ? (s.Descending ? rows.OrderByDescending(key) : rows.OrderBy(key))
+            : rows;
+
+    private static GridRow BuildPantryRow(PantryListItem item) => new(
+    [
+        GridCell.Link(item.Name, $"/Pantry/Products/Detail/{item.ProductId}"),
+        GridCell.CategoryChip(item.CategoryName, item.CategoryHue),
+        item.LocationDisplay is { } loc ? GridCell.Text(loc) : GridCell.Muted("—"),
+        item.IsVariant ? GridCell.Badge("Variant", BadgeTone.Neutral) : GridCell.Muted("—"),
+        GridCell.Text($"{item.TotalQuantity:0.###} {item.DisplayUnitCode}"),
+        item.SoonestExpiry is { } expiry
+            ? GridCell.Badge(expiry.ToString("d MMM"), ExpiryToneToBadge(item.ExpiryTone))
+            : GridCell.Muted("—"),
+    ]);
+
+    private DataGridViewModel BuildPantryGrid(IReadOnlyList<PantryListItem> items, GridSort? sort = null) =>
+        new(
             Id: "pantry-grid",
             SortUrl: Url.Page("./Index", "SortPantry"),
             CurrentSort: sort,
@@ -161,19 +177,8 @@ public sealed class IndexModel(
                 new("Quantity", GridAlign.End, SortKey: "qty"),
                 new("Expiry",   SortKey: "expiry"),
             ],
-            Rows: [.. rows.Select(item => new GridRow(
-            [
-                GridCell.Link(item.Name, $"/Pantry/Products/Detail/{item.ProductId}"),
-                GridCell.CategoryChip(item.CategoryName, item.CategoryHue),
-                item.LocationDisplay is { } loc ? GridCell.Text(loc) : GridCell.Muted("—"),
-                item.IsVariant ? GridCell.Badge("Variant", BadgeTone.Neutral) : GridCell.Muted("—"),
-                GridCell.Text($"{item.TotalQuantity:0.###} {item.DisplayUnitCode}"),
-                item.SoonestExpiry is { } expiry
-                    ? GridCell.Badge(expiry.ToString("d MMM"), ExpiryToneToBadge(item.ExpiryTone))
-                    : GridCell.Muted("—"),
-            ]))],
+            Rows: [.. ApplyPantrySort(items, sort).Select(BuildPantryRow)],
             EmptyMessage: "Nothing here yet — add your first item with the Add stock button above.");
-    }
 
     private static BadgeTone ExpiryToneToBadge(ExpiryTone tone) => tone switch
     {

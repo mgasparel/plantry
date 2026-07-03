@@ -30,6 +30,8 @@ public sealed class ShoppingListQueryServiceTests
         FakeShoppingPantryReader? pantryReader = null,
         FakeShoppingRecipeReader? recipeReader = null,
         FakeShoppingDealReader? dealReader = null,
+        FakeShoppingMealPlanReader? mealPlanReader = null,
+        FakeShoppingDealAttributionReader? dealAttributionReader = null,
         IClock? clock = null)
     {
         return new ShoppingListQueryService(
@@ -37,6 +39,8 @@ public sealed class ShoppingListQueryServiceTests
             catalog,
             pantryReader ?? new FakeShoppingPantryReader(),
             recipeReader ?? new FakeShoppingRecipeReader(),
+            mealPlanReader ?? new FakeShoppingMealPlanReader(),
+            dealAttributionReader ?? new FakeShoppingDealAttributionReader(),
             dealReader ?? new FakeShoppingDealReader(),
             clock ?? Clock,
             new FakeTenantContext(_household));
@@ -517,6 +521,191 @@ public sealed class ShoppingListQueryServiceTests
         Assert.False(item.HasAttribution);
     }
 
+    // ── MealPlan attribution (plantry-jwyb) ──────────────────────────────────
+
+    [Fact(DisplayName = "GetList — MealPlan item across two slots: one line per distinct slot, no ×N")]
+    public async Task GetList_MealPlanTwoSlots_TwoLinesInOrder()
+    {
+        var slotMon = Guid.CreateVersion7();
+        var slotThu = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Rice", "Grains"));
+
+        var mealPlans = new FakeShoppingMealPlanReader();
+        mealPlans.RegisterSlot(slotMon, DayOfWeek.Monday, "Dinner");
+        mealPlans.RegisterSlot(slotThu, DayOfWeek.Thursday, "Dinner");
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        var item = list.AddItem(_productId, quantity: 200m, unitId: _unitId, note: null,
+            source: ItemSource.MealPlan, sourceRef: slotMon, Clock);
+        // Distinct slot SourceRef → a second contribution that sums (ShoppingListItem.cs:163).
+        list.UpsertContribution(item, ItemSource.MealPlan, slotThu, incomingQuantity: 200m, incomingUnitId: _unitId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, mealPlanReader: mealPlans);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var viewItem = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(
+            [
+                new AttributionLabel(AttributionKind.MealPlan, "for Mon dinner"),
+                new AttributionLabel(AttributionKind.MealPlan, "for Thu dinner"),
+            ],
+            viewItem.AttributionLabels);
+    }
+
+    [Fact(DisplayName = "GetList — MealPlan item with unresolved slot: falls back to 'for your meal plan'")]
+    public async Task GetList_MealPlanUnresolvedSlot_FallsBack()
+    {
+        var unknownSlot = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Rice", "Grains"));
+
+        // Reader resolves nothing — slot deleted, foreign, or a coarser whole-plan ref.
+        var mealPlans = new FakeShoppingMealPlanReader();
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        list.AddItem(_productId, quantity: 200m, unitId: _unitId, note: null,
+            source: ItemSource.MealPlan, sourceRef: unknownSlot, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, mealPlanReader: mealPlans);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var viewItem = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(
+            [new AttributionLabel(AttributionKind.MealPlan, "for your meal plan")],
+            viewItem.AttributionLabels);
+    }
+
+    [Fact(DisplayName = "GetList — MealPlan two unresolved slots collapse to a single fallback line")]
+    public async Task GetList_MealPlanTwoUnresolvedSlots_SingleFallbackLine()
+    {
+        var slotA = Guid.CreateVersion7();
+        var slotB = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Rice", "Grains"));
+
+        var mealPlans = new FakeShoppingMealPlanReader(); // resolves neither
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        var item = list.AddItem(_productId, quantity: 100m, unitId: _unitId, note: null,
+            source: ItemSource.MealPlan, sourceRef: slotA, Clock);
+        list.UpsertContribution(item, ItemSource.MealPlan, slotB, incomingQuantity: 100m, incomingUnitId: _unitId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, mealPlanReader: mealPlans);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var viewItem = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        // Both unresolved refs map to the same fallback text → a single line.
+        Assert.Equal(
+            [new AttributionLabel(AttributionKind.MealPlan, "for your meal plan")],
+            viewItem.AttributionLabels);
+    }
+
+    // ── Deal attribution (plantry-jwyb) ──────────────────────────────────────
+
+    [Fact(DisplayName = "GetList — Deal item with resolved store: 'on sale at {store}'")]
+    public async Task GetList_DealResolvedStore_ShowsStoreLabel()
+    {
+        var dealId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Butter", "Dairy"));
+
+        var dealAttribution = new FakeShoppingDealAttributionReader();
+        dealAttribution.RegisterDealStore(dealId, "Metro");
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        list.AddItem(_productId, quantity: 1m, unitId: null, note: null,
+            source: ItemSource.Deal, sourceRef: dealId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, dealAttributionReader: dealAttribution);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var viewItem = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(
+            [new AttributionLabel(AttributionKind.Deal, "on sale at Metro")],
+            viewItem.AttributionLabels);
+    }
+
+    [Fact(DisplayName = "GetList — Deal item with unresolved store: falls back to plain 'on sale'")]
+    public async Task GetList_DealUnresolvedStore_FallsBack()
+    {
+        var dealId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Butter", "Dairy"));
+
+        // Reader resolves nothing — deal deleted/foreign, or its store unresolved.
+        var dealAttribution = new FakeShoppingDealAttributionReader();
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        list.AddItem(_productId, quantity: 1m, unitId: null, note: null,
+            source: ItemSource.Deal, sourceRef: dealId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, dealAttributionReader: dealAttribution);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var viewItem = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(
+            [new AttributionLabel(AttributionKind.Deal, "on sale")],
+            viewItem.AttributionLabels);
+    }
+
+    [Fact(DisplayName = "GetList — all four kinds: labels emit in order Recipe → MealPlan → Deal → Manual")]
+    public async Task GetList_AllKinds_EmitInFixedOrder()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var slotRef = Guid.CreateVersion7();
+        var dealId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Olive Oil", "Oils"));
+
+        var recipes = new FakeShoppingRecipeReader();
+        recipes.RegisterRecipe(recipeId, "Pasta Primavera");
+        var mealPlans = new FakeShoppingMealPlanReader();
+        mealPlans.RegisterSlot(slotRef, DayOfWeek.Friday, "Lunch");
+        var dealAttribution = new FakeShoppingDealAttributionReader();
+        dealAttribution.RegisterDealStore(dealId, "Loblaws");
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        // Seed contributions out of the final emission order (Manual first) to prove ordering is by kind.
+        var item = list.AddItem(_productId, quantity: 1m, unitId: _unitId, note: null,
+            source: ItemSource.Manual, sourceRef: null, Clock);
+        list.UpsertContribution(item, ItemSource.Deal, dealId, incomingQuantity: 1m, incomingUnitId: _unitId, Clock);
+        list.UpsertContribution(item, ItemSource.MealPlan, slotRef, incomingQuantity: 1m, incomingUnitId: _unitId, Clock);
+        list.UpsertContribution(item, ItemSource.Recipe, recipeId, incomingQuantity: 1m, incomingUnitId: _unitId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog, recipeReader: recipes,
+            mealPlanReader: mealPlans, dealAttributionReader: dealAttribution);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var viewItem = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(
+            [
+                new AttributionLabel(AttributionKind.Recipe, "for Pasta Primavera"),
+                new AttributionLabel(AttributionKind.MealPlan, "for Fri lunch"),
+                new AttributionLabel(AttributionKind.Deal, "on sale at Loblaws"),
+                new AttributionLabel(AttributionKind.Manual, "added by you"),
+            ],
+            viewItem.AttributionLabels);
+    }
+
     // ── Deal badge (P5-9, Shopping→Pricing read model) ───────────────────────
 
     [Fact(DisplayName = "GetList — product with an active deal: DealStoreName/DealId populated, HasDeal true")]
@@ -701,6 +890,8 @@ public sealed class ShoppingListQueryServiceTests
             repo, catalog,
             new FakeShoppingPantryReader(),
             new FakeShoppingRecipeReader(),
+            new FakeShoppingMealPlanReader(),
+            new FakeShoppingDealAttributionReader(),
             new FakeShoppingDealReader(),
             Clock,
             new FakeTenantContext(null));

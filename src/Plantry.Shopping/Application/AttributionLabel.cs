@@ -6,8 +6,8 @@ namespace Plantry.Shopping.Application;
 ///
 /// <para>The UI keys presentation (e.g. the recipe icon) off this <b>structural</b> kind, never off
 /// the label's display text. Only <see cref="Recipe"/> drives an icon today; <see cref="MealPlan"/>
-/// and <see cref="Deal"/> are inert cases that emit no label until their attribution resolvers land
-/// (tracked separately — see plantry-jwyb).</para>
+/// and <see cref="Deal"/> now emit resolved labels (plantry-jwyb) but drive no icon yet — an additive
+/// presentation choice left to a future ticket.</para>
 /// </summary>
 public enum AttributionKind
 {
@@ -17,10 +17,10 @@ public enum AttributionKind
     /// <summary>Item originates from a recipe contribution ("for {RecipeName}"). Drives the recipe icon.</summary>
     Recipe,
 
-    /// <summary>Item originates from a meal-plan contribution. Inert until a resolver lands (no label emitted).</summary>
+    /// <summary>Item originates from a meal-plan contribution ("for {Day} {meal}" / "for your meal plan").</summary>
     MealPlan,
 
-    /// <summary>Item originates from a deal contribution. Inert until a resolver lands (no label emitted).</summary>
+    /// <summary>Item originates from a deal contribution ("on sale at {Store}" / "on sale").</summary>
     Deal,
 }
 

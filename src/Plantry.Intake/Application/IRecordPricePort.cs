@@ -14,6 +14,7 @@ public interface IRecordPricePort
         decimal quantity,
         Guid unitId,
         string? merchantText,
+        Guid? storeId,
         Guid sourceRef,
         DateTimeOffset observedAt,
         Guid userId,

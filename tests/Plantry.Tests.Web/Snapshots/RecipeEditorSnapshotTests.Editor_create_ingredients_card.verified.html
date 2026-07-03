@@ -2,12 +2,12 @@
 	<div class="card__head">
 		<div>
 			<h3 class="card__head-title">Ingredients</h3>
-			<p class="card__head-sub">Add ingredients one at a time. Click a row to edit it, or drag to reorder.</p>
+			<p class="card__head-sub">Grouped into sections. Drag a row to reorder it, or across a section to move it. Rename a section heading once to rename it for every ingredient in it.</p>
 		</div>
 	</div>
 	<div class="card__body" style="padding:0">
-		<div id="ingredient-rows">
-			<template x-for="(row, idx) in rows" :key="row.ordinal"><div class="ingredient-row" :class="{ 'ingredient-row--needs-conversion': row.needsConversion }" draggable="true" @dragstart.self="dragStart(idx)" @dragover.prevent="dragOver(idx)" @drop="drop()">
+		<div hidden="" aria-hidden="true">
+			<template x-for="(row, idx) in rows" :key="row._id"><div>
 					<input type="hidden" :name="'Input.Lines[' + idx + '].Ordinal'" :value="row.ordinal">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].ProductName'" :value="row.productName">
@@ -21,39 +21,57 @@
 					<input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].GroupHeading'" :value="row.groupHeading">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionFactor'" :value="row.conversionFactor">
-					<div class="ingredient-row__body">
-						<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-								<line x1="3" y1="8" x2="21" y2="8"></line>
-								<line x1="3" y1="16" x2="21" y2="16"></line>
-							</svg>
-						</div>
-						<button type="button" class="ingredient-row__summary" @click="openEdit(idx)" :title="'Edit ' + (row.newStapleName || row.productName)">
-							<span x-text="rowSummary(row)"></span>
-						</button>
-						<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Edit ingredient" @click="openEdit(idx)">
-							<svg class="icon" aria-hidden="true">
-								<use href="#i-edit"></use>
-							</svg>
-						</button>
-						<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Remove ingredient" @click="removeRow(idx)" style="color:var(--color-danger)">
-							<svg class="icon" aria-hidden="true">
-								<use href="#i-minus"></use>
-							</svg>
-						</button>
+				</div></template>
+		</div>
+		<div id="ingredient-rows" :class="{ 'ingredient-sections--dragging': _dragActive }">
+			<template x-for="section in sections()" :key="section.key"><div class="ing-section" @dragover.prevent="onDragOver(section, $event)" @drop.prevent="onDragEnd()">
+					<div class="ing-section__head" x-show="!section.isUngrouped || showUngroupedHeader()">
+						<template x-if="section.isUngrouped"><span class="ing-section__name ing-section__name--ungrouped" title="Ingredients with no section">Ungrouped</span></template>
+						<template x-if="!section.isUngrouped"><input class="ing-section__name" type="text" :value="section.heading" title="Rename this section — every ingredient in it follows" aria-label="Section heading" @change="renameSection(section.heading, $event.target.value)" @keydown.enter.prevent="$event.target.blur()"></template>
+						<span class="ing-section__count" x-text="section.items.length + (section.items.length === 1 ? ' item' : ' items')"></span>
+						<template x-if="!section.isUngrouped"><button type="button" class="ing-section__del" aria-label="Delete section" title="Delete section (its ingredients move to Ungrouped)" @click="deleteSection(section.heading)">
+								<svg class="icon" aria-hidden="true">
+									<use href="#i-minus"></use>
+								</svg>
+							</button></template>
 					</div>
-					<div x-show="row.needsConversion" class="ingredient-row__conversion" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
-						<p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
-							No conversion path found. How much is 1
-							<span x-text="unitLabel(row.unitId)"></span>?
-						</p>
-						<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-							<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">1
-								<span x-text="unitLabel(row.unitId)"></span>
-								=</span>
-							<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="row.conversionFactor" style="width:8rem">
-							<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)" x-text="unitLabel(row.conversionToUnitId)"></span>
-						</div>
+					<div class="ing-rows">
+						<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion, 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
+								<div class="ingredient-row__body">
+									<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+											<line x1="3" y1="8" x2="21" y2="8"></line>
+											<line x1="3" y1="16" x2="21" y2="16"></line>
+										</svg>
+									</div>
+									<button type="button" class="ingredient-row__summary" @click="openEdit(row)" :title="'Edit ' + (row.newStapleName || row.productName)">
+										<span x-text="rowSummary(row)"></span>
+									</button>
+									<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Edit ingredient" @click="openEdit(row)">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-edit"></use>
+										</svg>
+									</button>
+									<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Remove ingredient" @click="removeRow(row)" style="color:var(--color-danger)">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-minus"></use>
+										</svg>
+									</button>
+								</div>
+								<div x-show="row.needsConversion" class="ingredient-row__conversion" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
+									<p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+										No conversion path found. How much is 1
+										<span x-text="unitLabel(row.unitId)"></span>?
+									</p>
+									<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
+										<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">1
+											<span x-text="unitLabel(row.unitId)"></span>
+											=</span>
+										<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="row.conversionFactor" style="width:8rem">
+										<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)" x-text="unitLabel(row.conversionToUnitId)"></span>
+									</div>
+								</div>
+							</div></template>
 					</div>
 				</div></template>
 		</div>

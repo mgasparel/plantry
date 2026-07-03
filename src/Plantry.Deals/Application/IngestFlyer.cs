@@ -161,30 +161,50 @@ public sealed class IngestFlyer(
         HouseholdId household, StoreSubscription sub, FlyerPullResult pull, byte[] contentHash, CancellationToken ct)
     {
         var import = FlyerImport.Start(household, sub.StoreId, pull.FlyerExternalId, contentHash, pull.Window!, pull.RawContent, clock);
-        await imports.AddAsync(import, ct);
-        await imports.SaveChangesAsync(ct); // persist the Pulling envelope first so a later parse failure is recordable
 
         try
         {
+            // Stage every deal in-memory first (untrusted normalize + match). Nothing touches the DB until the
+            // whole batch stages cleanly, so a mid-stage parse throw records Failed with zero partial rows.
             var staged = await StageDealsAsync(household, sub, import.Id, pull, frozenNames: null, ct);
 
-            // Nothing is added to the context until the whole batch stages cleanly — a mid-stage throw
-            // leaves zero partial deals (the shared DealsDbContext would otherwise flush tracked adds).
-            foreach (var s in staged.Deals)
-                await deals.AddAsync(s.Deal, ct);
-            await deals.SaveChangesAsync(ct);
+            // ── Atomic materialization (plantry-pwkm, DD15) ─────────────────────────────────────────────
+            // The envelope, its staged Pending deals, and the Parsed transition commit as ONE unit or not at
+            // all. imports + deals wrap the same DealsDbContext, so one transaction spans all three writes; the
+            // FlyerImport is INSERTed before its deals because the deal → flyer_import composite FK is enforced
+            // yet has no EF navigation (EF cannot order the inserts within a single save). A hard crash between
+            // the deal-persist and the Parsed transition rolls the whole write back — no partial FlyerImport row
+            // survives to wedge the (household, store, flyer_external_id) dedup key, so the next pull is a clean
+            // Start with no unique-index collision.
+            await imports.ExecuteInTransactionAsync(async token =>
+            {
+                // MarkParsed in-memory first, so the envelope INSERTs directly as Parsed (Pulling is now a purely
+                // transient in-memory state — no Pulling row is ever written, which is what removes the wedge).
+                var mark = import.MarkParsed(staged.PendingCount, clock);
+                if (mark.IsFailure)
+                    throw new InvalidOperationException($"MarkParsed failed: {mark.Error.Description}");
 
+                await imports.AddAsync(import, token);
+                await imports.SaveChangesAsync(token); // INSERT flyer_import (Parsed) — before its deals (composite FK)
+
+                foreach (var s in staged.Deals)
+                    await deals.AddAsync(s.Deal, token);
+                await deals.SaveChangesAsync(token);   // INSERT deals — same transaction, commits atomically
+            }, ct);
+
+            // Cross-context (writes a Pricing observation) and post-persist by design: each deal is already
+            // committed Pending, so AutoConfirm loads it by id to flip it, and a single auto-confirm failure
+            // simply leaves that deal Pending to resume next cycle — never a wedge (design §2).
             var autoConfirmed = await AutoConfirmAsync(staged, ct);
-
-            var mark = import.MarkParsed(staged.PendingCount, clock);
-            if (mark.IsFailure)
-                throw new InvalidOperationException($"MarkParsed failed: {mark.Error.Description}");
-            await imports.SaveChangesAsync(ct);
 
             return new IngestSummary(0, 1, 0, 0, staged.PendingCount, autoConfirmed);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // A parse/materialize EXCEPTION (not a hard crash): the atomic write rolled back, so record Failed
+            // in its OWN short transaction with error_detail (design §3). A hard crash / abort surfaces as
+            // OperationCanceledException and is excluded here — nothing is recorded and the flyer is cleanly
+            // re-pulled next cycle, with no wedged row to recover.
             await MarkImportFailedAsync(import, ex, ct);
             throw; // surface to the per-subscription isolation boundary (counts as a failed subscription)
         }
@@ -214,18 +234,25 @@ public sealed class IngestFlyer(
         // and add the fresh ones. Items whose normalized name maps to a frozen (resolved) deal are skipped.
         var staged = await StageDealsAsync(household, sub, import.Id, pull, frozenNames, ct);
 
+        // ── Atomic re-pull refresh (plantry-pwkm, DD15) ─────────────────────────────────────────────────
+        // Dropping the superseded Pending deals, adding the fresh ones, and the RecordRepull bookkeeping
+        // collapse into ONE SaveChangesAsync — EF wraps a single save in one transaction, so a hard crash
+        // rolls the whole refresh back to the prior Parsed import with its original Pending deals intact. The
+        // pre-atomic split (a deals-save then a separate import-save) was the wedge window this closes. No FK
+        // insert ordering is needed — the parent FlyerImport already exists from the original pull.
         foreach (var pendingDeal in existingDeals.Where(d => d.Status == DealStatus.Pending))
             deals.Remove(pendingDeal);
         foreach (var s in staged.Deals)
             await deals.AddAsync(s.Deal, ct);
-        await deals.SaveChangesAsync(ct);
-
-        var autoConfirmed = await AutoConfirmAsync(staged, ct);
 
         var mark = import.RecordRepull(contentHash, pull.Window!, staged.PendingCount, clock);
         if (mark.IsFailure)
             throw new InvalidOperationException($"RecordRepull failed: {mark.Error.Description}");
-        await imports.SaveChangesAsync(ct);
+
+        await deals.SaveChangesAsync(ct); // DELETE old Pending + INSERT fresh + UPDATE import → one atomic save
+
+        // Post-persist, cross-context (design §2) — see IngestNewImportAsync for the resumability rationale.
+        var autoConfirmed = await AutoConfirmAsync(staged, ct);
 
         return new IngestSummary(0, 1, 0, 0, staged.PendingCount, autoConfirmed);
     }
@@ -319,15 +346,31 @@ public sealed class IngestFlyer(
 
     private async Task MarkImportFailedAsync(FlyerImport import, Exception ex, CancellationToken ct)
     {
+        // The atomic materialization rolled back (or never reached the DB), so nothing partial is persisted. The
+        // envelope may still be tracked — Unchanged if its INSERT ran inside the now-rolled-back transaction, or
+        // Added if the fault struck during that INSERT — and its staged deals tracked Added. Detach the envelope
+        // (DiscardStagedChanges intentionally skips Unchanged) and discard the staged deals, then record Failed
+        // in its OWN short transaction: a fresh Pulling → Failed envelope built from the same provenance, so the
+        // flyer's dedup key is occupied by a terminal Failed row (DD12) exactly as the pre-atomic path left it —
+        // never a wedged Pulling row. A fresh Start (not the rolled-back aggregate) keeps the transition valid
+        // even when the fault struck after MarkParsed advanced the in-memory status to Parsed; detaching the
+        // original first releases its owned ValidityWindow instance so the fresh envelope can reuse it.
+        imports.Detach(import);
+        deals.DiscardStagedChanges();
         try
         {
-            var mark = import.MarkFailed(Truncate(ex.Message, 1000), clock);
-            if (mark.IsSuccess)
-                await imports.SaveChangesAsync(ct); // only the import status flips — no deals were added to the context
+            var failed = FlyerImport.Start(
+                import.HouseholdId, import.StoreId, import.FlyerExternalId, import.ContentHash,
+                import.ValidityWindow, import.RawFlyer, clock);
+            var mark = failed.MarkFailed(Truncate(ex.Message, 1000), clock);
+            if (mark.IsFailure)
+                return;
+            await imports.AddAsync(failed, ct);
+            await imports.SaveChangesAsync(ct); // its own transaction — the detach + discard left the context clean
         }
         catch (Exception markEx) when (markEx is not OperationCanceledException)
         {
-            logger.LogError(markEx, "IngestFlyer: failed to mark import {ImportId} Failed.", import.Id.Value);
+            logger.LogError(markEx, "IngestFlyer: failed to record a Failed import for store {StoreId}.", import.StoreId);
         }
     }
 

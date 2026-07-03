@@ -12,9 +12,12 @@ namespace Plantry.Shopping.Application;
 /// port implemented by the Web adapter layer. Pantry on-hand quantities and low flags are enriched
 /// via <see cref="IShoppingPantryReader"/> (the Shopping→Inventory ACL port) for product-backed items.
 /// Recipe names for attribution labels are resolved via <see cref="IShoppingRecipeReader"/>
-/// (the Shopping→Recipes ACL port, plantry-26g). Cheapest-active-deal badges are resolved via
+/// (the Shopping→Recipes ACL port, plantry-26g). MealPlan-source attribution labels ("for Mon dinner")
+/// are resolved via <see cref="IShoppingMealPlanReader"/> (the Shopping→Meal Planning ACL port) and
+/// Deal-source attribution labels ("on sale at {store}") via <see cref="IShoppingDealAttributionReader"/>
+/// (the Shopping→Deals ACL port) — both added in plantry-jwyb. Cheapest-active-deal badges are resolved via
 /// <see cref="IShoppingDealReader"/> — the Shopping→<b>Pricing</b> ACL port (P5-9, ADR-010: Shopping reads
-/// Pricing's read model, never Deals) — evaluated against <see cref="IClock"/> today so a badge appears and
+/// Pricing's read model for the badge) — evaluated against <see cref="IClock"/> today so a badge appears and
 /// lapses with the deal's validity window, and never stored.
 ///
 /// <para>Ordering: unchecked items first (ordered by <c>created_at</c> ascending), checked items
@@ -29,6 +32,8 @@ public sealed class ShoppingListQueryService(
     IShoppingCatalogReader catalog,
     IShoppingPantryReader pantry,
     IShoppingRecipeReader recipes,
+    IShoppingMealPlanReader mealPlans,
+    IShoppingDealAttributionReader dealAttribution,
     IShoppingDealReader deals,
     IClock clock,
     ITenantContext tenant)
@@ -103,6 +108,33 @@ public sealed class ShoppingListQueryService(
             ? await recipes.GetRecipeNamesAsync(recipeSourceRefs, ct)
             : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
 
+        // Resolve MealPlan slot labels (day + meal type) for MealPlan-source contributions via the
+        // Shopping→Meal Planning ACL port (plantry-jwyb). SourceRef is a meal-plan slot/entry id.
+        var mealPlanSourceRefs = list.Items
+            .SelectMany(i => i.Contributions)
+            .Where(c => c.Source == ItemSource.MealPlan && c.SourceRef.HasValue)
+            .Select(c => c.SourceRef!.Value)
+            .Distinct()
+            .ToList();
+
+        var mealPlanSlots = mealPlanSourceRefs.Count > 0
+            ? await mealPlans.GetMealPlanSlotsAsync(mealPlanSourceRefs, ct)
+            : (IReadOnlyDictionary<Guid, ShoppingMealPlanSlot>)new Dictionary<Guid, ShoppingMealPlanSlot>();
+
+        // Resolve store names for Deal-source contributions via the Shopping→Deals ACL port (plantry-jwyb).
+        // SourceRef is the deal_id that placed the item on the list — distinct from the product-keyed
+        // cheapest-active-deal badge below.
+        var dealSourceRefs = list.Items
+            .SelectMany(i => i.Contributions)
+            .Where(c => c.Source == ItemSource.Deal && c.SourceRef.HasValue)
+            .Select(c => c.SourceRef!.Value)
+            .Distinct()
+            .ToList();
+
+        var dealStoreNames = dealSourceRefs.Count > 0
+            ? await dealAttribution.GetDealStoreNamesAsync(dealSourceRefs, ct)
+            : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
+
         // Enrich product-backed items with their cheapest active deal via the Shopping→Pricing read port
         // (P5-9). Evaluated against "today" so the badge appears/lapses with the deal's validity window
         // (ADR-010: Shopping reads Pricing's read model, never Deals; the badge is never stored, D11).
@@ -113,7 +145,8 @@ public sealed class ShoppingListQueryService(
 
         // Map all items to view models.
         var itemViews = list.Items
-            .Select(i => MapItem(i, summaries, unitCodes, stockLevels, itemCategories, recipeNames, activeDeals))
+            .Select(i => MapItem(i, summaries, unitCodes, stockLevels, itemCategories, recipeNames,
+                mealPlanSlots, dealStoreNames, activeDeals))
             .ToList();
 
         // Partition: checked items sink to the bottom (SPEC §3c). Only unchecked items
@@ -189,6 +222,8 @@ public sealed class ShoppingListQueryService(
         IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> stockLevels,
         IReadOnlyDictionary<Guid, ShoppingCategoryOption> itemCategories,
         IReadOnlyDictionary<Guid, string> recipeNames,
+        IReadOnlyDictionary<Guid, ShoppingMealPlanSlot> mealPlanSlots,
+        IReadOnlyDictionary<Guid, string> dealStoreNames,
         IReadOnlyDictionary<Guid, ShoppingActiveDeal> activeDeals)
     {
         string? productName = null;
@@ -226,8 +261,8 @@ public sealed class ShoppingListQueryService(
             isLow = stock.IsLow;
         }
 
-        // Build attribution labels from contributions (plantry-26g).
-        var attributionLabels = BuildAttributionLabels(item.Contributions, recipeNames);
+        // Build attribution labels from contributions (plantry-26g, plantry-jwyb).
+        var attributionLabels = BuildAttributionLabels(item.Contributions, recipeNames, mealPlanSlots, dealStoreNames);
 
         // Cheapest-active-deal badge (P5-9): product-backed items only; read from Pricing, never stored.
         string? dealStoreName = null;
@@ -262,20 +297,27 @@ public sealed class ShoppingListQueryService(
     }
 
     /// <summary>
-    /// Builds the ordered list of typed attribution labels for an item's contributions (plantry-26g).
-    /// Each <see cref="AttributionLabel"/> carries a structural <see cref="AttributionKind"/> — set from
-    /// the contribution's <see cref="ItemSource"/>, never inferred from the display text — so presentation
-    /// (e.g. the recipe icon) keys off the kind, not the wording (plantry-1cfl).
+    /// Builds the ordered list of typed attribution labels for an item's contributions (plantry-26g,
+    /// plantry-jwyb). Each <see cref="AttributionLabel"/> carries a structural <see cref="AttributionKind"/>
+    /// — set from the contribution's <see cref="ItemSource"/>, never inferred from the display text — so
+    /// presentation (e.g. the recipe icon) keys off the kind, not the wording (plantry-1cfl).
     ///
     /// <para>
-    /// Rules (per design session 2026-06-30):
+    /// Emission order is fixed <b>Recipe → MealPlan → Deal → Manual</b> so "added by you" stays last as the
+    /// catch-all. Rules:
     /// <list type="bullet">
     ///   <item><description>Recipe contributions: group by resolved recipe name (de-duplication by name),
     ///     count distinct SourceRef values per name. Emit <c>(Recipe, "for {Name}")</c> when count=1,
-    ///     <c>(Recipe, "for {Name} ×N")</c> when count>1. Ordered by first-seen position for stable rendering.</description></item>
+    ///     <c>(Recipe, "for {Name} ×N")</c> when count>1. First-seen order.</description></item>
+    ///   <item><description>MealPlan contributions: one line <b>per distinct meal-plan slot</b> — no ×N roll-up
+    ///     (each slot is its own line). Resolved slot → <c>(MealPlan, "for {Day} {meal}")</c> where Day is the
+    ///     3-letter weekday abbreviation and meal is the lowercased slot label (e.g. "for Mon dinner").
+    ///     Unresolved slots fall back to <c>(MealPlan, "for your meal plan")</c>. De-duplicated by the final
+    ///     display text, first-seen order (so all unresolved refs collapse to a single fallback line).</description></item>
+    ///   <item><description>Deal contributions: resolved store → <c>(Deal, "on sale at {Store}")</c>; unresolved
+    ///     store falls back to <c>(Deal, "on sale")</c>. De-duplicated by display text, first-seen order.</description></item>
     ///   <item><description>Manual contributions: emit <c>(Manual, "added by you")</c> (always exactly once, regardless
     ///     of how many manual contributions exist — currently at most one per domain model).</description></item>
-    ///   <item><description>MealPlan/Deal: omitted (no resolution port yet; additive when future ports land).</description></item>
     /// </list>
     /// </para>
     ///
@@ -283,7 +325,9 @@ public sealed class ShoppingListQueryService(
     /// </summary>
     private static IReadOnlyList<AttributionLabel> BuildAttributionLabels(
         IReadOnlyList<ShoppingListItemContribution> contributions,
-        IReadOnlyDictionary<Guid, string> recipeNames)
+        IReadOnlyDictionary<Guid, string> recipeNames,
+        IReadOnlyDictionary<Guid, ShoppingMealPlanSlot> mealPlanSlots,
+        IReadOnlyDictionary<Guid, string> dealStoreNames)
     {
         var labels = new List<AttributionLabel>();
 
@@ -322,14 +366,58 @@ public sealed class ShoppingListQueryService(
             }
         }
 
+        // ── MealPlan contributions ────────────────────────────────────────────
+        // One line per distinct meal-plan slot (no ×N roll-up). Resolved slots render "for {Day} {meal}";
+        // unresolved slots collapse to a single "for your meal plan" fallback. De-dup by final text.
+        AddDistinctLabels(
+            labels,
+            contributions.Where(c => c.Source == ItemSource.MealPlan),
+            AttributionKind.MealPlan,
+            c => c.SourceRef.HasValue && mealPlanSlots.TryGetValue(c.SourceRef.Value, out var slot)
+                ? $"for {AbbreviateDay(slot.Day)} {slot.MealType.ToLowerInvariant()}"
+                : "for your meal plan");
+
+        // ── Deal contributions ────────────────────────────────────────────────
+        // Resolved store → "on sale at {Store}"; unresolved → plain "on sale". De-dup by final text.
+        AddDistinctLabels(
+            labels,
+            contributions.Where(c => c.Source == ItemSource.Deal),
+            AttributionKind.Deal,
+            c => c.SourceRef.HasValue && dealStoreNames.TryGetValue(c.SourceRef.Value, out var store)
+                ? $"on sale at {store}"
+                : "on sale");
+
         // ── Manual contributions ──────────────────────────────────────────────
         if (contributions.Any(c => c.Source == ItemSource.Manual))
         {
             labels.Add(new AttributionLabel(AttributionKind.Manual, "added by you"));
         }
 
-        // MealPlan / Deal: no port yet — not emitted; additive when future ports land.
-
         return labels;
     }
+
+    /// <summary>
+    /// Appends one <see cref="AttributionLabel"/> of <paramref name="kind"/> per distinct display text
+    /// produced by <paramref name="textFor"/> over <paramref name="source"/>, in first-seen order. Used by
+    /// the MealPlan and Deal branches: each distinct resolved slot/store is its own line (no ×N roll-up),
+    /// and repeated or unresolved refs that map to the same text collapse to a single line (plantry-jwyb).
+    /// </summary>
+    private static void AddDistinctLabels(
+        List<AttributionLabel> labels,
+        IEnumerable<ShoppingListItemContribution> source,
+        AttributionKind kind,
+        Func<ShoppingListItemContribution, string> textFor)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var c in source)
+        {
+            var text = textFor(c);
+            if (seen.Add(text))
+                labels.Add(new AttributionLabel(kind, text));
+        }
+    }
+
+    /// <summary>Three-letter, culture-invariant weekday abbreviation (Mon, Tue, …) for a label.</summary>
+    private static string AbbreviateDay(DayOfWeek day) =>
+        System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.AbbreviatedDayNames[(int)day];
 }
