@@ -254,6 +254,96 @@ uninstrumented code is a DEFER (file a bead, don't expand the diff).
 | Existing, pre-diff code that is uninstrumented and untouched by the diff | **DEFER** — file a bead; do not expand the diff |
 | Unit test asserting on `ILogger` calls as a side-effect proxy | **FIX** (unless the test is explicitly about log output) |
 
+## Gate 10 — Test quality & determinism
+
+Gate 1 asks *"is there coverage?"* — Gate 10 governs whether the tests that exist are
+**sound**: deterministic, at the right altitude, and actually asserting behavior. A test
+that passes or fails on wall-clock time, machine culture, or scheduling luck is worse than
+no test — it erodes trust in the whole suite and trains reviewers to rerun until green.
+Motivating case: `plantry-ouvi` — six Today planned-band tests that intermittently missed
+because the fixture seeded a meal under `DateTime.UtcNow` while the page resolved "today"
+under `LocalDateTime`; no prior gate looked at test *quality*, so nothing flagged it.
+
+### A. Determinism / anti-flake (default **FIX** — a nondeterministic test erodes the gate itself)
+
+- **Ambient time.** A test or fixture that reads `DateTime.Now` / `DateTime.UtcNow` /
+  `DateTimeOffset.Now` / `DateOnly.FromDateTime(DateTime.Now)` at construction or assertion
+  time instead of injecting the house-style `IClock` (prod: `SystemClock.Instance`; tests: a
+  fixed/fake clock). **The UTC-vs-local trap specifically** (the ouvi bug): a fixture seeds
+  date-keyed data under one zone while the SUT resolves "today"/"now" under another, so the
+  test straddles a day boundary near midnight. **Rule:** a fixture must key date/time-scoped
+  data off the *same* clock the SUT reads, and that clock must be **fixed** in the test — a
+  planned-band or expiry test may never depend on when the CI job happens to run.
+- **Shared mutable state / ordering dependence.** `static` fixture singletons that carry
+  mutation between tests or regenerate GUIDs per call; tests that depend on execution order,
+  on xUnit collection/parallel scheduling, or on a class-fixture instance leaking state into
+  the next test. Each test must arrange its own world and pass in isolation and in any order.
+- **Unseeded randomness.** `Guid.NewGuid()` or `Random` where the value is later asserted or
+  determines ordering — use stable, explicit fixture IDs (fixed `Guid`s / a seeded generator)
+  so the assertion is reproducible.
+- **Real waits & timing.** `Thread.Sleep` / `Task.Delay` / wall-clock polling used as a
+  synchronization mechanism, or an assertion that relies on operation latency. Drive time
+  through the injected clock or an awaited signal, never by sleeping.
+- **Unordered-collection assumptions.** Asserting on `.First()` / indexer of a `HashSet`/
+  `Dictionary`, on DB rows fetched without an `ORDER BY`, or on `querySelectorAll()[i]` where
+  DOM order isn't guaranteed. Assert against an explicitly ordered projection or match by key.
+- **Environment coupling.** Culture-sensitive parse/format (decimal separators, date formats,
+  casing) without `CultureInfo.InvariantCulture`; real network / filesystem / environment-
+  variable / clock dependence in a test that claims to be hermetic. An L1/L2 unit test must
+  not touch the machine it runs on.
+- **Async misuse in tests.** A missing `await`, a fire-and-forget task, or `.Result` / `.Wait()`
+  that can deadlock or let the assertion race the operation — the test may pass before the work
+  finishes.
+
+### B. Pyramid altitude (default **FIX or DEFER** per the boundary)
+
+The suite follows the L1–L5 taxonomy in `docs/PHASE-1-PLAN.md`: **L1 domain unit is the
+majority**; L3 integration is one suite per context; **L4 (`WebApplicationFactory`) and L5
+(Playwright + `Aspire.Hosting.Testing`) are deliberately few** because they are slow.
+
+- **Inversion = flag.** Pure domain logic, invariants, or a derivation chain covered *only*
+  through an expensive L4/L5 path when a fast L1/L2 unit test would pin the same assertion —
+  push it down. Fulfillment rollup, FEFO/expiry ordering, unit-conversion resolution, and the
+  Intake `ComputePrefill` priority chain (`user-resolved > receipt-parsed > product-default`)
+  belong at **L1/L2**, not asserted solely via a rendered fragment or a booted service graph.
+- **Don't invert the other way either.** Cross-cutting wiring, routing, RLS isolation, EF
+  mappings, and rendered-fragment contracts are *supposed* to live at L3/L4/L5 — proving them
+  with heavily mocked "unit" tests that stub out the very seam under test proves nothing real.
+- Match the tier to what is actually being verified; a new test at the wrong altitude is a
+  finding even when it is green.
+
+### C. Test value / anti-patterns (**FIX** when in-scope and clearly wrong; else **DEFER**)
+
+- **Assertion-free or tautological tests** — a test that exercises code but asserts nothing,
+  or asserts a constant against itself, is coverage theatre.
+- **Change-detector / over-mocked tests** that restate the implementation's call sequence
+  (asserting *on the mock* — "was method X called with Y") instead of asserting on the SUT's
+  return value or resulting domain state. This generalizes Gate 9's ban on
+  `Mock<ILogger>.Verify` as an execution proxy (cross-reference it): a test coupled to *how*
+  the code runs rather than *what* it produces breaks on every refactor and catches no bug.
+- **Over-specified / brittle assertions** coupling to incidental detail — exact whitespace,
+  full-HTML string equality, an entire serialized blob — where a targeted selector or single
+  value would prove the behavior without breaking on cosmetic edits.
+- **Hidden or invisible paths.** Branching/loops inside a test that silently skip assertions
+  down one path; "magic fixtures" so large the Arrange is unreadable and no one can tell what
+  is actually under test.
+- **Mutation-gap hook (ties to Gate 1).** A test that would still pass if the behavior it
+  claims to cover were broken — an obvious surviving mutant per `stryker-config.json`. If
+  flipping the guard or the operator under test wouldn't turn the test red, the test doesn't
+  assert the behavior.
+
+**Default tier for Gate 10:**
+
+| Scenario | Tier |
+|----------|------|
+| Test/fixture reads ambient `DateTime.Now`/`UtcNow`/`DateOnly.FromDateTime` instead of an injected fixed clock | **FIX** |
+| Fixture seeds date-keyed data under a different zone/clock than the SUT resolves "today"/"now" from (UTC-vs-local trap) | **FIX** |
+| Asserted/order-determining value comes from `Guid.NewGuid()`/`Random`, or `Thread.Sleep`/`Task.Delay` used as sync | **FIX** |
+| Assertion on unordered-collection `.First()`/indexer, DB rows without `ORDER BY`, or DOM `[i]` without guaranteed order | **FIX** |
+| Culture-sensitive parse/format without `InvariantCulture`; real network/fs/env in a "hermetic" test; async misuse (missing `await`, `.Result`) | **FIX** |
+| Pyramid inversion — pure domain logic pinned *only* by an L4/L5 path a fast L1/L2 test would cover | **FIX or DEFER** per boundary (drop the assertion down → FIX; needs new fixture/harness → DEFER) |
+| Assertion-free/tautological, change-detector/over-mocked, or brittle over-specified test | **FIX or DEFER** per boundary (in-scope & clearly wrong → FIX; needs a rewrite escaping the diff → DEFER) |
+
 ---
 
 ## Action tiers
@@ -343,6 +433,8 @@ finding actually lands.
 | 8 | **DEFER or NOTE** — product-alignment judgment; FIX only if egregious and in-scope |
 | 9 — new handler/service with no `ILogger<T>`, new AI call with no `ActivitySource` span, exception path with no `LogWarning`/`LogError`, PII in log parameters | **FIX** |
 | 9 — existing uninstrumented code untouched by the diff | **DEFER** — file a bead; do not expand the diff |
+| 10 — determinism / anti-flake (ambient time, UTC-vs-local fixture trap, unseeded randomness, `Sleep`/`Delay` as sync, unordered-collection assumptions, culture coupling, async misuse) | **FIX** — a nondeterministic test erodes the gate itself |
+| 10 — pyramid altitude (L4/L5-only coverage of pure domain logic) & test-value anti-patterns (change-detector/over-mocked, tautological, brittle) | **FIX or DEFER** per boundary (drop-the-assertion / in-scope rewrite → FIX; needs new harness or escapes the diff → DEFER) |
 
 ### Calibration anchor
 
