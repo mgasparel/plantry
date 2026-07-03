@@ -44,6 +44,7 @@ public sealed class ReviewModel(
     ICreateProductPort createProduct,
     IAddStockPort addStock,
     IRecordPricePort recordPrice,
+    IEnsurePurchaseStorePort ensureStore,
     IClock clock,
     ITenantContext tenant,
     ILogger<CommitSessionCommand> commitLogger,
@@ -215,7 +216,7 @@ public sealed class ReviewModel(
             return JsonError("Unauthorized.");
 
         var result = await new CommitSessionCommand(
-            ImportSessionId.From(Id), sessions, createProduct, addStock, recordPrice, clock, tenant, commitLogger)
+            ImportSessionId.From(Id), sessions, createProduct, addStock, recordPrice, ensureStore, clock, tenant, commitLogger)
             .ExecuteAsync(ct);
 
         if (result.IsFailure)

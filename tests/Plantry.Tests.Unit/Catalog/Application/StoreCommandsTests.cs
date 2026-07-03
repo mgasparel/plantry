@@ -170,6 +170,106 @@ public sealed class StoreCommandsTests
         Assert.Single(repo.Items);
     }
 
+    // ── EnsureStoreByNameCommand (purchase-side, name-only find-or-create) ───────────────────────
+
+    [Fact]
+    public async Task EnsureStoreByNameCommand_Miss_Creates_Manual_Store_With_Null_ExternalRef()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeStoreRepository();
+        var tenant = new FakeTenantContext(householdId);
+
+        var result = await new EnsureStoreByNameCommand("Superstore", repo, tenant, Clock).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var store = Assert.Single(repo.Items);
+        Assert.Equal(result.Value, store.Id);
+        Assert.Equal("Superstore", store.Name);
+        Assert.Null(store.ExternalRef); // manual store — does not weaken the external_ref path
+        Assert.Equal(1, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task EnsureStoreByNameCommand_Name_Hit_Reuses_Existing_Row_Without_Creating()
+    {
+        var householdId = Plantry.SharedKernel.HouseholdId.New();
+        var repo = new FakeStoreRepository();
+        var tenant = new FakeTenantContext(householdId.Value);
+        var existing = Store.Create(householdId, "Superstore", Clock);
+        repo.Items.Add(existing);
+
+        var result = await new EnsureStoreByNameCommand("Superstore", repo, tenant, Clock).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(existing.Id, result.Value);
+        Assert.Single(repo.Items);
+        Assert.Equal(0, repo.SaveChangesCalls); // pure reuse — no write
+    }
+
+    [Fact]
+    public async Task EnsureStoreByNameCommand_Is_Idempotent_Returning_Same_Id()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeStoreRepository();
+        var tenant = new FakeTenantContext(householdId);
+
+        var first = await new EnsureStoreByNameCommand("Superstore", repo, tenant, Clock).ExecuteAsync();
+        var second = await new EnsureStoreByNameCommand("Superstore", repo, tenant, Clock).ExecuteAsync();
+
+        Assert.True(first.IsSuccess);
+        Assert.True(second.IsSuccess);
+        Assert.Equal(first.Value, second.Value);
+        Assert.Single(repo.Items);
+    }
+
+    [Fact]
+    public async Task EnsureStoreByNameCommand_Fails_When_No_Household_In_Context()
+    {
+        var repo = new FakeStoreRepository();
+        var tenant = new FakeTenantContext(null);
+
+        var result = await new EnsureStoreByNameCommand("Superstore", repo, tenant, Clock).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+        Assert.Empty(repo.Items);
+    }
+
+    [Fact]
+    public async Task EnsureStoreByNameCommand_Reuses_Archived_Store_Without_Reactivating_It()
+    {
+        var householdId = Plantry.SharedKernel.HouseholdId.New();
+        var repo = new FakeStoreRepository();
+        var tenant = new FakeTenantContext(householdId.Value);
+        var archived = Store.Create(householdId, "Superstore", Clock);
+        archived.Archive(Clock);
+        repo.Items.Add(archived);
+
+        var result = await new EnsureStoreByNameCommand("Superstore", repo, tenant, Clock).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(archived.Id, result.Value);
+        var store = Assert.Single(repo.Items);
+        Assert.True(store.IsArchived); // a purchase does not resurrect an archived merchant
+    }
+
+    [Fact]
+    public async Task EnsureStoreByNameCommand_Collapses_Internal_Whitespace_So_Variants_Resolve_To_One_Row()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeStoreRepository();
+        var tenant = new FakeTenantContext(householdId);
+
+        var created = await new EnsureStoreByNameCommand("Metro  Etobicoke", repo, tenant, Clock).ExecuteAsync();
+        var reused = await new EnsureStoreByNameCommand("Metro Etobicoke", repo, tenant, Clock).ExecuteAsync();
+
+        Assert.True(created.IsSuccess);
+        Assert.True(reused.IsSuccess);
+        Assert.Equal(created.Value, reused.Value);
+        var store = Assert.Single(repo.Items);
+        Assert.Equal("Metro Etobicoke", store.Name); // stored in the normalized (collapsed) form
+    }
+
     [Fact]
     public async Task ArchiveStoreCommand_Soft_Deletes_Keeping_It_Resolvable()
     {

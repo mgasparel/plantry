@@ -552,6 +552,9 @@ builder.Services.AddScoped<ICatalogHintProvider, CatalogHintProvider>();
 builder.Services.AddScoped<ICreateProductPort, CreateProductAdapter>();
 builder.Services.AddScoped<IAddStockPort, AddStockAdapter>();
 builder.Services.AddScoped<IRecordPricePort, RecordPriceAdapter>();
+// Resolves a receipt merchant → catalog.store on commit so purchase observations carry store_id (DM-16),
+// over Catalog's EnsureStoreByNameCommand (Intake never touches CatalogDbContext directly).
+builder.Services.AddScoped<IEnsurePurchaseStorePort, EnsurePurchaseStoreAdapter>();
 builder.Services.AddScoped<IReviewReferenceDataProvider, ReviewReferenceDataProvider>();
 
 if (builder.Environment.IsDevelopment())

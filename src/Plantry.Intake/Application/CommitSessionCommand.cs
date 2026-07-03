@@ -25,6 +25,7 @@ public sealed class CommitSessionCommand(
     ICreateProductPort createProduct,
     IAddStockPort addStock,
     IRecordPricePort recordPrice,
+    IEnsurePurchaseStorePort ensureStore,
     IClock clock,
     ITenantContext tenant,
     ILogger<CommitSessionCommand> logger)
@@ -41,6 +42,13 @@ public sealed class CommitSessionCommand(
             return Error.Custom("Intake.SessionNotReady", $"Cannot commit a session in status '{session.Status}'.");
 
         var purchasedOn = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+
+        // Merchant → catalog.store identity (DM-16), resolved find-or-create at most once per commit and
+        // reused across the session's priced lines. Blank merchant → null store_id (unchanged); MerchantText
+        // is retained on the observation for provenance. Resolved lazily on the first priced line so a
+        // session with no priced lines mints no store.
+        Guid? purchaseStoreId = null;
+        var storeResolved = false;
 
         try
         {
@@ -69,9 +77,16 @@ public sealed class CommitSessionCommand(
                 Guid? priceObservationId = null;
                 if (line.Price is { } price)
                 {
+                    if (!storeResolved)
+                    {
+                        if (!string.IsNullOrWhiteSpace(session.MerchantText))
+                            purchaseStoreId = await ensureStore.EnsureAsync(session.MerchantText, ct);
+                        storeResolved = true;
+                    }
+
                     priceObservationId = await recordPrice.RecordAsync(
                         productId, line.SkuId, price, line.Quantity!.Value, line.UnitId!.Value,
-                        session.MerchantText, session.Id.Value, clock.UtcNow, session.UserId, ct);
+                        session.MerchantText, purchaseStoreId, session.Id.Value, clock.UtcNow, session.UserId, ct);
                 }
 
                 var mark = line.MarkCommitted(journalId, priceObservationId, createdProductId);
