@@ -672,8 +672,10 @@ button { font-family: inherit; cursor: pointer; }
    The create button sits directly below the listbox as a single demoted affordance,
    per the accepted fuzzy match-suggestion prototype (Option A): a plain demoted row
    spaced below the results — NO divider. Its own sizing matches the prototype's
-   .btn--sm (6px 12px / 13px) without touching the tighter global .btn--sm. */
-.searchable-select__create-btn {
+   .btn--sm (6px 12px / 13px) without touching the tighter global .btn--sm. The
+   compound .btn selector raises specificity to (0,2,0) so this padding/font-size wins
+   over the later-in-source .btn--sm (0,1,0) the button also carries. */
+.btn.searchable-select__create-btn {
   margin-top: var(--space-2);
   padding: 6px 12px;
   font-size: 13px;
