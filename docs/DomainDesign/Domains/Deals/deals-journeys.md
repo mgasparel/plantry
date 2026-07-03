@@ -36,7 +36,7 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 | D8 | Deals **prices**, never **stock** | Deals is a pure price/awareness context. Confirming a deal **never** touches Inventory — a deal is an *advertised price*, not a purchase. Stock only changes when the user actually buys the item and logs it through Intake (§2). The only write Deals makes downstream is the `deal` `PriceObservation` (D6) and, on a stock-up-alert tap, a Shopping list item (D10). |
 | D9 | Deal validity & the "active" lifecycle | A deal carries a **validity window** (`valid_from`/`valid_to`) from the flyer. "**Active**" = `valid_from ≤ today ≤ valid_to` **and** `status = confirmed`. The Deals page (§6a) defaults to active deals; expired deals are **retained** (never deleted) as price history — their `price_observation` stays in Pricing indefinitely, feeding cost trends (SPEC §6 "Deal data stored indefinitely as price history"). |
 | D10 | Stock-up alerts | **Frequently-bought products that have an active confirmed deal** surface as **stock-up alerts** (§6c) — a read model over (purchase-frequency × active-deal). Surfaced as a banner/badge on the Deals page and, optionally, the Home review-banner stack (Phase-5 banner, [plantry-bpw]). Tapping an alert **adds the product to the shopping list** — reusing the **P2-4 `IShoppingListWriter.AddItems` seam** with `source="deal"`. Push notification is an **enhancement** (needs PWA install), not v1 (VISION open question). |
-| D11 | Deal badge on the shopping list (read-time, Shopping-owned) | The deal indicator on a shopping-list item (§3a/§3f) is a **read-time join** computed by **Shopping** against a Deals read model (`IActiveDealReader.ForProducts`), **never stored** on the shopping item ([DM-18](../../DataModels/index.md)). Deals *supplies* the active-deal-per-product read model; it does not own or mutate the shopping list. Same pattern as the recipe cost badge reading Pricing. |
+| D11 | Deal badge on the shopping list (read-time, Shopping-owned) | The deal indicator on a shopping-list item (§3a/§3f) is a **read-time join** computed by **Shopping** against **Pricing's cheapest-active-deal read model** (ADR-010 — Shopping reads Pricing, never Deals), **never stored** on the shopping item ([DM-18](../../DataModels/index.md)). Same pattern as the recipe cost badge reading Pricing. |
 | D12 | Manual deal entry | **Deferred (not v1).** With Flipp as the ingestion mechanism (D1), v1 has no hand-entry form for deals. Manual entry (type in a store/product/price/window) is a clean future extension — it would create a `Deal` with `source = manual` and `flyer_import_id = null`, taking the same confirm path — but it is **out of scope** for the Phase-5 build. Noted so the model leaves room (a nullable `flyer_import_id` + a `source` discriminator), not built. |
 
 ---
@@ -178,8 +178,8 @@ alert surfaces on the Deals page (banner/badge) and optionally the Home banner s
 
 | Step | Actor | Action / System response |
 |------|-------|--------------------------|
-| 1 | System (Shopping) | For the listed products, joins against Deals' **`IActiveDealReader.ForProducts`** at read time; an item with an active deal shows a **deal badge** ("On sale at FreshCo this week"), tappable to deal detail (§3f). **Never stored** on the item (D11 / DM-18). |
-| 2 | System (Recipes / Meal Planning) | Cost-per-serving's **deal-aware tier** (SPEC §4) now resolves a non-null "cheapest active deal" from **Pricing** (because Deals writes deal observations, D6). No new Deals port — the seam was already built; it simply stops returning empty. |
+| 1 | System (Shopping) | For the listed products, joins against **Pricing's "cheapest active deal" read model** at read time (ADR-010 — Shopping reads Pricing, never Deals); an item with an active deal shows a **deal badge** ("On sale at FreshCo this week"), tappable to deal detail (§3f). **Never stored** on the item (D11 / DM-18). |
+| 2 | System (Recipes / Meal Planning) | Cost-per-serving's **deal-aware tier** (SPEC §4) resolves a non-null "cheapest active deal" from **Pricing** (because Deals writes deal observations, D6). No new Deals port — but the Pricing read model + the C7 deal-blind cost readers are **built/wired this phase** (P5-P / P5-9b); it is not free activation. |
 | 3 | System (Meal Planning) | The **`Deals` planning lever** (pinned at 0 / hidden in Phase 3, [C7](../MealPlanning/mealplanning-journeys.md)) **un-pins**: the planner can now bias toward ingredients cheap *this week*, fulfilling the VISION "deal-aware planner" pillar. |
 
 **Domain events emitted:** none (pure reads across contexts).
@@ -206,12 +206,13 @@ the user actually buys and logs it through Intake. The one place Deals touches a
 mutable state is a **stock-up-alert tap** adding to the shopping list (D10) — and even that reuses the
 existing P2-4 write seam.
 
-**Costing "just lights up" — the seam was pre-built (D6).** The hardest integration work was done in
-Phase 1–2: Pricing's `price_observation` already carries `source=deal` + a validity window, and
-"cheapest active deal" is already a Pricing read model that Recipes and Meal Planning consume. Deals'
-job is to **fill that seam** — write deal observations on confirm — after which deal-aware recipe
-cost, the shopping deal badge, and the Meal Planning `Deals` lever activate **with no change to those
-contexts**. This is the payoff of the DM-16/DM-17 phase-inversion-avoidance decisions.
+**Costing routes through Pricing — the seam is *designed*, built this phase (D6 / ADR-010).** ADR-010/DM-17
+specify the target: Pricing's `price_observation` carries `source=deal` + a validity window + `store_id`,
+and "cheapest active deal" is a **Pricing** read model that Recipes, Meal Planning, and Shopping consume —
+so no consumer ever reads Deals. The code never built the deal columns/read models, so Phase 5 does:
+**P5-P** builds them and **P5-9 / P5-9b** wire the consumers. The enduring payoff is the **boundary**, not
+zero work: **no new Deals port** — Deals is a pure writer into Pricing, keeping the dependency graph a
+clean star around Pricing (the DM-16/DM-17 phase-inversion-avoidance decisions).
 
 **Match memory is what makes deals low-friction at steady state (D4).** The first flyer from a new
 store is mostly review; after the household confirms its regulars, `DealMatchMemory` auto-confirms the

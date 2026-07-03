@@ -65,7 +65,7 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | **DealStatus** | Enum **`Pending`** (awaiting review) · **`Confirmed`** (resolved match, written to Pricing — eligible to be active) · **`Rejected`** (not a tracked product; no price observation). Monotonic in the common path; a `Confirmed` auto-match may be **Corrected** (re-resolves product, supersedes the observation) or **Rejected** (DJ3/DJ4 edge cases). |
 | **ValidityWindow** | `ValidFrom` / `ValidTo` dates (N10/D9). A deal is **Active** when `ValidFrom ≤ today ≤ ValidTo` **and** `DealStatus = Confirmed`. Projects onto `price_observation.valid_from`/`valid_to`. |
 | **PullStatus** | Enum on `FlyerImport`: **`Pulling`** · **`Parsed`** · **`Failed`** (+ `error_detail`). The async-ingestion lifecycle (DJ2), mirroring Intake's session `status`. |
-| **ActiveDeal** (read model) | A `Deal` that is `Confirmed` **and** in-window, projected per product for cross-context reads — the surface `IActiveDealReader.ForProducts` exposes to Shopping (the deal badge, D11) and the Deals page (§6a). Read-side, not stored; recomputed from `Deal` + clock. |
+| **ActiveDeal** (read model) | A `Deal` that is `Confirmed` **and** in-window, projected per product — powers the **Deals page** (§6a) and stock-up alerts, **in-context**. **Not exposed to Shopping** (ADR-010): the deal badge (D11) and deal-aware cost read **Pricing's** cheapest-active-deal read model. Read-side, not stored; recomputed from `Deal` + clock. |
 | **StockUpAlert** (read model) | One advisory alert (D10/§6c): a **frequently-bought** product (purchase-frequency over threshold, DL-O4) that currently has an **ActiveDeal**. Read-side, recomputed; never stored. Carries the product, the cheapest active deal's store + price, and the validity window. |
 
 ---
@@ -141,10 +141,10 @@ These are **not** redefined here — this fixes which word Deals uses for each.
 |------|----------------|------|
 | **Store** | Catalog (`catalog.store`, DM-16) | The merchant identity. Deals references `StoreId`; its **table lands this phase** but it is Catalog-owned reference data (D7/N1). Subscribing ensures the row exists. |
 | **Product** | Catalog (DM-10) | A `Deal` resolves to a `ProductId` on confirm; inline create-product reuses the Intake §2d flow (DJ4). Read for name/metadata in browse & review. |
-| **PriceObservation** | Pricing (DM-17) | Deals' single downstream **write** on confirm (`source=deal`, the pre-built seam, D6). "Cheapest active deal" / "latest price" are **Pricing** read models — Deals owns no costing math. |
-| **CostPerServing** / deal-aware tier | Recipes (read model) | Lights up automatically once Deals writes deal observations (DJ6); no new Deals port. |
-| **PlanningLever `Deals`** | Meal Planning (C7/C14) | The lever pinned at 0 in Phase 3 **un-pins** when deal observations exist (DJ6). No Deals code involved — it reads Pricing. |
-| **ShoppingList** / **AddItems** | Shopping (DM-18) | Target of a stock-up-alert "add to list" (D10/DJ5), reusing the P2-4 seam. The deal **badge** is a Shopping read-time join against `IActiveDealReader` (D11/§3f) — Shopping renders it, Deals supplies it. |
+| **PriceObservation** | Pricing (DM-17) | Deals' single downstream **write** on confirm (`source=deal`; the seam designed in DM-17, **built in P5-P**, D6). "Cheapest active deal" / "latest price" are **Pricing** read models — Deals owns no costing math. |
+| **CostPerServing** / deal-aware tier | Recipes (read model) | Reads **Pricing's** cheapest-active-deal read model; **no new Deals port**. Not automatic — the read model is built (P5-P) and the C7 deal-blind cost reader wired (P5-9b) this phase. |
+| **PlanningLever `Deals`** | Meal Planning (C7/C14) | The lever pinned at 0 in Phase 3 **un-pins** by wiring the C7 deal-blind price reader to Pricing (P5-9b). No Deals code — it reads Pricing. |
+| **ShoppingList** / **AddItems** | Shopping (DM-18) | Target of a stock-up-alert "add to list" (D10/DJ5), reusing the P2-4 seam. The deal **badge** is a Shopping read-time join against **Pricing's cheapest-active-deal read model** (D11/§3f, ADR-010) — Shopping reads Pricing, never Deals. |
 | **Purchase frequency** | Inventory journal (`Purchase` rows) **or** Pricing purchase observations | The stock-up "buys this often" signal (DL-O4), read via `IPurchaseFrequencyReader`; owning context settled in the model/app pass. |
 | **Household** / **User** | Identity (DM-6) | Tenancy; `by` attribution on review actions and events. |
 | **AI / household AI key** | per ADR-007 / DM-7 | The stage-2 matcher is an **untrusted function** wrapping the `ChatClient` over the encrypted per-household key, exactly as Intake's matcher — key never client-sent. |

@@ -36,7 +36,7 @@ User Journeys  →  Ubiquitous Language  →  Domain Model (← here)  →  Data
 Deals is a **core** context that turns an untrusted flyer feed into trusted `deal` price observations.
 It owns **four** aggregates — `StoreSubscription`, `FlyerImport`, `Deal`, `DealMatchMemory` — and
 reaches everything else through ports (§8). Its single downstream **write** in the steady state is one
-`price_observation` per confirmed deal (the seam Pricing pre-built, D6); its only other mutable
+`price_observation` per confirmed deal (the Pricing seam — designed DM-17, built in P5-P, D6); its only other mutable
 cross-context write is a stock-up-alert "add to shopping list" (D10).
 
 | Rule | Statement |
@@ -72,7 +72,9 @@ cross-context write is a stock-up-alert "add to shopping list" (D10).
 ## 3. StoreSubscription aggregate
 
 The household's standing choice to pull flyers from a `catalog.store` (§7e / DJ1). One per
-`(household, store)`.
+`(household, store)`. The **postal code lives on the subscription** — Flipp's feed is postal-code-scoped
+(you fetch flyers *near a postal code* and filter by merchant name; there is no stable store-directory
+lookup), so location is captured on the Deals subscription page, **not** as a household-global setting.
 
 ### 3.1 StoreSubscription (root)
 
@@ -81,6 +83,7 @@ The household's standing choice to pull flyers from a `catalog.store` (§7e / DJ
 | `Id` | `StoreSubscriptionId` | |
 | `HouseholdId` | `HouseholdId` | tenancy |
 | `StoreId` | `StoreId` | soft-ref → `catalog.store`; **unique per household** (DD9) |
+| `PostalCode` | `string` | the location the flyer is pulled for (Flipp `/data?postal_code=…`); captured at subscribe (§7e). A household typically uses one, but it is per-subscription so a merchant in a different area still resolves |
 | `IsActive` | `bool` | paused subscriptions are skipped by the worker but retained (with their match memory) |
 | `LastPulledAt` | `DateTimeOffset?` | bookkeeping for the worker / UI "last updated" |
 | `LastFlyerExternalId` | `string?` | the last pulled flyer's external id — the dedup anchor (DD5/DL-O5) |
@@ -90,7 +93,7 @@ The household's standing choice to pull flyers from a `catalog.store` (§7e / DJ
 
 | Method | Effect |
 |---|---|
-| `StoreSubscription.Subscribe(householdId, storeId, clock)` | Factory. Starts active. (Caller ensures the `catalog.store` identity exists first — §8.) |
+| `StoreSubscription.Subscribe(householdId, storeId, postalCode, clock)` | Factory. Starts active. (Caller ensures the `catalog.store` identity exists first — §8.) |
 | `Pause(clock)` / `Resume(clock)` | Toggle `IsActive` without losing history/memory. |
 | `Unsubscribe(clock)` | Soft-deactivate (sets `IsActive = false`); existing confirmed deals + price history + match memory are retained (D9). |
 | `RecordPull(flyerExternalId, clock)` | Stamps `LastPulledAt` / `LastFlyerExternalId` after a successful pull. |
@@ -241,7 +244,7 @@ None lives *on* an aggregate — keeping the roots pure of Flipp/AI/Pricing know
 | **ManageSubscriptions** (application) | DJ1. Subscribe/pause/unsubscribe; on subscribe, **ensure** the `catalog.store` identity exists (`ICatalogStoreReader`/`Writer`) then create the `StoreSubscription`. Store-directory search via `IFlyerSource`. | `ICatalogStoreReader`, `ICatalogStoreWriter`, `IFlyerSource`, in-context |
 | **BrowseDeals** (application/read) | DJ3 / §6a. Lists **active** deals (`Confirmed` ∧ in-window) and the **pending** queue (`Pending` ∧ in-window — expired-unreviewed deals drop off, DD14), with product names (`ICatalogProductReader`). | `ICatalogProductReader`, in-context |
 | **StockUpAlerts** (domain/read + application) | DJ5 / §6c. `Compute() → StockUpAlert[]`: frequently-bought products (`IPurchaseFrequencyReader`, DL-O4) ∩ active deals; recomputed, never stored. "Add to list" → `IShoppingListWriter.AddItems(source="deal", source_ref=deal_id)` (reused P2-4 seam). | `IPurchaseFrequencyReader`, `IShoppingListWriter`, in-context |
-| **ActiveDealReader** (read model, **exposed** to other contexts) | The `IActiveDealReader.ForProducts(productIds) → ActiveDeal[]` surface Shopping joins for the deal badge (D11/§3f) and the Deals page consumes. Read-side over `Deal` + clock; nothing stored. | in-context |
+| **ActiveDeal** (read model, **in-context**) | Confirmed ∧ in-window deals projected per product, over `Deal` + clock — powers the **Deals page** (§6a) and stock-up alerts. **Not exposed cross-context** (ADR-010): the Shopping badge and Recipes/Meal-Planning cost read **Pricing's** cheapest-active-deal read model, not Deals. Nothing stored. | in-context |
 
 **Commit orchestration (note for the schema/app step).** `ConfirmDeal` mirrors Intake: the
 state-flip, the memory upsert, and the price-observation write are **separate transactions** so a
@@ -260,20 +263,23 @@ implement them. All traffic is by ID (DM-3).
 
 | Port | Direction | Used by | Surface |
 |---|---|---|---|
-| **IFlyerSource** | **untrusted, external** (Infrastructure, over Flipp) | IngestFlyer, ManageSubscriptions | R: pull a store's current flyer → `RawDeal[]` + `(flyer_external_id, window, content)`; search the store directory. The single fragile seam (D1); the domain sees only `RawDeal`s. |
+| **IFlyerSource** | **untrusted, external** (Infrastructure, over Flipp) | IngestFlyer, ManageSubscriptions | R: `ListMerchants(postalCode)` → merchant names with active flyers near that postal code (there is **no** store-directory search — Flipp is postal-code-keyed); `PullFlyers(postalCode, merchant)` → per active flyer, `RawDeal[]` + `(flyer_external_id, window, content)`. A merchant may have >1 active flyer. The single fragile seam (D1); the domain sees only `RawDeal`s. |
 | **IDealMatcher** | **untrusted AI** (Infrastructure, `ChatClient`) | IngestFlyer | R: `(RawDeal, candidate products) → (suggested_product_id, confidence, reasoning)`. Wraps the household AI key (DM-7, ADR-007) exactly as Intake's matcher; output quarantined, never trusted. |
 | **ICatalogProductReader** | read | IngestFlyer, ConfirmDeal, BrowseDeals | R: product search + metadata for matching, review correction, "did you mean", inline create-product (Catalog, DM-10). |
 | **ICatalogStoreReader / ICatalogStoreWriter** | read / write | ManageSubscriptions | R: resolve a `catalog.store`; W: ensure a `store` row exists for a subscribed merchant (Catalog-owned reference data, DM-16). |
-| **IPriceObservationWriter** | write | ConfirmDeal | W: `RecordObservation(source=deal, …, valid_from, valid_to, store_id, source_ref=deal_id)` — **the pre-built Pricing seam** (DM-17/D6). Deals' only steady-state downstream write. |
+| **IPriceObservationWriter** | write | ConfirmDeal | W: `RecordObservation(source=deal, …, valid_from, valid_to, store_id, source_ref=deal_id)` — the Pricing seam **designed in DM-17, built in Phase 5** (P5-P adds the window + `store_id` columns and the read models; ADR-010 keeps Pricing the single price owner). Deals' only steady-state downstream write. |
 | **IShoppingListWriter** | write | StockUpAlerts | W: `AddItems(product_id, qty, unit, source="deal", source_ref=deal_id)` — the **P2-4 seam, reused** (DM-18/D10). |
 | **IPurchaseFrequencyReader** | read | StockUpAlerts | R: frequently-bought products per household (DL-O4) — Inventory `Purchase`-journal rows (lean) or Pricing purchase observations; owning context settled in the app pass. |
-| **IActiveDealReader** | read — **Deals implements, others consume** | Shopping (badge, D11/§3f), Deals page | R: `ForProducts(productIds) → ActiveDeal[]`. The read model Deals **exposes**; Shopping joins it at read time, never stores it. |
+| **~~IActiveDealReader~~ — not a Deals port (ADR-010)** | — | — | The "active deal per product" read model lives in **Pricing** ("cheapest active deal", DM-17), **not** Deals: Shopping's badge (D11/§3f) and Recipes/Meal-Planning cost read **Pricing** at read time. Deals' *own* surfaces (Deals page §6a, stock-up alerts) read the `deal` table **in-context**. Deals exposes **no** active-deal port — it is a pure writer into Pricing. |
 
-> **Deals writes *through* Pricing, owning no costing math (D6).** "Cheapest active deal" and "latest
-> price" are **Pricing** read models that Recipes and Meal Planning already consume; Deals merely
-> fills the `source=deal` seam. So deal-aware recipe cost, the shopping deal badge, and the Meal
-> Planning `Deals` lever **activate with no change to those contexts** — the payoff of the
-> DM-16/DM-17 phase-inversion-avoidance decisions.
+> **Deals writes *through* Pricing, owning no costing math (D6 / ADR-010).** "Cheapest active deal" and
+> "latest price" are **Pricing** read models; Deals merely writes the `source=deal` rows. Phase-5
+> reality check: those read models are **designed (DM-17) but were never built** — **P5-P builds them**
+> (window + `store_id` on `price_observation` + source-filtered reads), and **P5-9 / P5-9b wire the
+> consumers** (Shopping badge, recipe / meal-plan cost) to Pricing. The boundary payoff still holds:
+> **no Deals port is needed** — every consumer reads Pricing, keeping the dependency graph a clean star
+> around Pricing (ADR-010). What was overstated in earlier drafts was the *tense* ("already built"), not
+> the boundary.
 
 ---
 
