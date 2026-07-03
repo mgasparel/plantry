@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <!-- For the cross-cutting RLS connection interceptor (DbConnectionInterceptor). -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.8" />
   </ItemGroup>
 
 </Project>

@@ -6,7 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Shopping.Domain;
 
 namespace Plantry.Tests.Web.Infrastructure;
 
@@ -21,6 +23,26 @@ file sealed class NullShoppingListWriter : IShoppingListWriter
     public static readonly NullShoppingListWriter Instance = new();
     public Task AddItemsAsync(IEnumerable<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
         => Task.CompletedTask;
+}
+
+/// <summary>
+/// Empty <see cref="IShoppingListRepository"/> for the recipe Detail L4 snapshot tests.
+/// The Detail GET handler consults <c>ShoppingListQueryService.HasRecipeContributionAsync</c> to
+/// decide the add-to-list buttons' greyed state (plantry-yt0m); returning no list keeps the buttons
+/// in their default enabled state (recipe not yet on the list) so the existing snapshots hold, and
+/// avoids a real Shopping database connection.
+/// </summary>
+file sealed class NullShoppingListRepository : IShoppingListRepository
+{
+    public Task<ShoppingList?> GetForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
+        => Task.FromResult<ShoppingList?>(null);
+
+    public Task<ShoppingList?> GetByIdAsync(ShoppingListId id, CancellationToken ct = default)
+        => Task.FromResult<ShoppingList?>(null);
+
+    public Task AddAsync(ShoppingList list, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task SaveAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 /// <summary>
@@ -100,6 +122,12 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             // Satisfies the AddMissingToShoppingList DI constructor without a real Shopping DB.
             services.RemoveAll<IShoppingListWriter>();
             services.AddSingleton<IShoppingListWriter>(NullShoppingListWriter.Instance);
+
+            // Shopping list repository: empty (no list) so the Detail GET path's
+            // HasRecipeContributionAsync check (plantry-yt0m) resolves to false without a real
+            // Shopping DB — the add-to-list buttons render in their default enabled state.
+            services.RemoveAll<IShoppingListRepository>();
+            services.AddScoped<IShoppingListRepository, NullShoppingListRepository>();
         });
     }
 }

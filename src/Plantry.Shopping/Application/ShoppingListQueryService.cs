@@ -159,6 +159,29 @@ public sealed class ShoppingListQueryService(
             CheckedCount: checkedItems.Count);
     }
 
+    /// <summary>
+    /// Returns true when the current household's shopping list already carries a Recipe-source
+    /// contribution for <paramref name="recipeId"/> (a contribution with
+    /// <see cref="ItemSource.Recipe"/> and <c>SourceRef == recipeId</c>).
+    ///
+    /// <para>Used by the recipe Detail page to server-render the "Add … to shopping list" buttons in
+    /// their already-added (greyed) state so a return visit reflects the true list state and does not
+    /// invite a duplicate add (plantry-yt0m). The check is tenant-scoped via the repository's household
+    /// filter + RLS backstop; it returns false when there is no household context or no list yet.</para>
+    /// </summary>
+    public async Task<bool> HasRecipeContributionAsync(Guid recipeId, CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return false;
+
+        var list = await repository.GetForHouseholdAsync(HouseholdId.From(householdId), ct);
+        if (list is null)
+            return false;
+
+        return list.Items.Any(i => i.Contributions.Any(
+            c => c.Source == ItemSource.Recipe && c.SourceRef == recipeId));
+    }
+
     private static ShoppingListItemView MapItem(
         ShoppingListItem item,
         IReadOnlyDictionary<Guid, ShoppingProductSummary> summaries,
@@ -239,27 +262,30 @@ public sealed class ShoppingListQueryService(
     }
 
     /// <summary>
-    /// Builds the ordered list of attribution label strings for an item's contributions (plantry-26g).
+    /// Builds the ordered list of typed attribution labels for an item's contributions (plantry-26g).
+    /// Each <see cref="AttributionLabel"/> carries a structural <see cref="AttributionKind"/> — set from
+    /// the contribution's <see cref="ItemSource"/>, never inferred from the display text — so presentation
+    /// (e.g. the recipe icon) keys off the kind, not the wording (plantry-1cfl).
     ///
     /// <para>
     /// Rules (per design session 2026-06-30):
     /// <list type="bullet">
     ///   <item><description>Recipe contributions: group by resolved recipe name (de-duplication by name),
-    ///     count distinct SourceRef values per name. Emit "for {Name}" when count=1, "for {Name} ×N" when count>1.
-    ///     Ordered by first-seen position for stable rendering.</description></item>
-    ///   <item><description>Manual contributions: emit "added by you" (always exactly once, regardless of how
-    ///     many manual contributions exist — currently at most one per domain model).</description></item>
+    ///     count distinct SourceRef values per name. Emit <c>(Recipe, "for {Name}")</c> when count=1,
+    ///     <c>(Recipe, "for {Name} ×N")</c> when count>1. Ordered by first-seen position for stable rendering.</description></item>
+    ///   <item><description>Manual contributions: emit <c>(Manual, "added by you")</c> (always exactly once, regardless
+    ///     of how many manual contributions exist — currently at most one per domain model).</description></item>
     ///   <item><description>MealPlan/Deal: omitted (no resolution port yet; additive when future ports land).</description></item>
     /// </list>
     /// </para>
     ///
     /// <para>Returns an empty list when no resolvable attribution exists.</para>
     /// </summary>
-    private static IReadOnlyList<string> BuildAttributionLabels(
+    private static IReadOnlyList<AttributionLabel> BuildAttributionLabels(
         IReadOnlyList<ShoppingListItemContribution> contributions,
         IReadOnlyDictionary<Guid, string> recipeNames)
     {
-        var labels = new List<string>();
+        var labels = new List<AttributionLabel>();
 
         // ── Recipe contributions ──────────────────────────────────────────────
         // Group by resolved recipe name (deduped by name, not by SourceRef).
@@ -291,14 +317,15 @@ public sealed class ShoppingListQueryService(
             foreach (var name in nameOrder)
             {
                 var count = nameToRefCount[name];
-                labels.Add(count > 1 ? $"for {name} ×{count}" : $"for {name}");
+                var text = count > 1 ? $"for {name} ×{count}" : $"for {name}";
+                labels.Add(new AttributionLabel(AttributionKind.Recipe, text));
             }
         }
 
         // ── Manual contributions ──────────────────────────────────────────────
         if (contributions.Any(c => c.Source == ItemSource.Manual))
         {
-            labels.Add("added by you");
+            labels.Add(new AttributionLabel(AttributionKind.Manual, "added by you"));
         }
 
         // MealPlan / Deal: no port yet — not emitted; additive when future ports land.

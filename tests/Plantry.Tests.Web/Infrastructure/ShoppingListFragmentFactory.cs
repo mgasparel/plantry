@@ -61,10 +61,11 @@ public class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IShoppingPantryReader>(
                 new FakeShoppingPantryReaderForSnapshots(stockLevels));
 
-            // Shopping recipe reader: all fixture items are Manual-sourced so no recipe names
-            // are needed; the empty stub satisfies the DI requirement (plantry-26g).
+            // Shopping recipe reader: resolves the fixture's Recipe-source SourceRef to a recipe name so
+            // the Chicken item's attribution renders "for Roast Dinner" with the #i-recipe icon (plantry-1cfl).
             services.RemoveAll<IShoppingRecipeReader>();
-            services.AddSingleton<IShoppingRecipeReader>(new FakeShoppingRecipeReaderForSnapshots());
+            services.AddSingleton<IShoppingRecipeReader>(
+                new FakeShoppingRecipeReaderForSnapshots(ShoppingListFixture.RecipeNames()));
 
             // Shopping deal reader (P5-9): fixture products carry no active deals, so the stub returns
             // empty — the shopping list renders without deal badges (baselines unchanged). The dedicated
@@ -83,14 +84,20 @@ public class ShoppingListFragmentFactory : WebApplicationFactory<Program>
 
 /// <summary>
 /// Stub <see cref="IShoppingRecipeReader"/> for the Shopping L4 snapshot tests.
-/// All fixture items are Manual-sourced so no recipe name resolution is needed;
-/// this stub satisfies the DI requirement without performing any lookup (plantry-26g).
+/// Resolves the registered recipe-id → name map (the fixture's Recipe-source item); unregistered
+/// ids are omitted, mirroring a deleted/foreign recipe (plantry-26g, plantry-1cfl).
 /// </summary>
-internal sealed class FakeShoppingRecipeReaderForSnapshots : IShoppingRecipeReader
+internal sealed class FakeShoppingRecipeReaderForSnapshots(IReadOnlyDictionary<Guid, string> names)
+    : IShoppingRecipeReader
 {
     public Task<IReadOnlyDictionary<Guid, string>> GetRecipeNamesAsync(
-        IReadOnlyList<Guid> recipeIds, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+        IReadOnlyList<Guid> recipeIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, string> result = recipeIds
+            .Where(names.ContainsKey)
+            .ToDictionary(id => id, id => names[id]);
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>

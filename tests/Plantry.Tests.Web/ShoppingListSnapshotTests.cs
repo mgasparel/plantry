@@ -111,6 +111,31 @@ public sealed class ShoppingListSnapshotTests(ShoppingListFragmentFactory factor
         await Verify(writer.ToString().Replace("\r\n", "\n").Trim(), "html");
     }
 
+    // ── Attribution icon keys off the typed AttributionKind (plantry-1cfl) ────
+
+    [Fact(DisplayName = "Shopping — Recipe-source item shows #i-recipe in its attribution; Manual item does not")]
+    public async Task Shopping_recipe_attribution_renders_icon_manual_does_not()
+    {
+        var html = await GetShoppingPageAsync();
+        var doc = Parser.ParseDocument(html);
+
+        var attributions = doc.QuerySelectorAll(".sl-attribution").ToList();
+
+        // Positive: the Recipe-sourced item (Chicken → "for Roast Dinner") renders the recipe icon.
+        var recipeAttribution = attributions
+            .FirstOrDefault(a => a.TextContent.Contains($"for {ShoppingListFixture.RecipeName}"))
+            ?? throw new InvalidOperationException(
+                $"No '.sl-attribution' containing 'for {ShoppingListFixture.RecipeName}' found.");
+        Assert.Contains("#i-recipe", recipeAttribution.InnerHtml);
+
+        // Negative: the Manual item (Milk → "added by you") renders no recipe icon.
+        var manualAttribution = attributions
+            .FirstOrDefault(a => a.TextContent.Contains("added by you"))
+            ?? throw new InvalidOperationException(
+                "No '.sl-attribution' containing 'added by you' found.");
+        Assert.DoesNotContain("#i-recipe", manualAttribution.InnerHtml);
+    }
+
     // ── Unauthenticated request is challenged ─────────────────────────────────
 
     [Fact]

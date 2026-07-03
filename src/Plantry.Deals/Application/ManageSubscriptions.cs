@@ -91,6 +91,7 @@ public sealed class ManageSubscriptions(
         var existing = await subscriptions.FindByStoreAsync(storeId, ct);
         if (existing is not null)
         {
+            existing.UpdatePostalCode(postalCode, clock);
             existing.Resume(clock);
             await subscriptions.SaveChangesAsync(ct);
             logger?.LogInformation(

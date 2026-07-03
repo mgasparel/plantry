@@ -91,7 +91,9 @@ public sealed class ShopForWeekSmokeTests(AppHostFixture appHost) : IAsyncLifeti
             var ingOption = ingSheet.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
             await Assertions.Expect(ingOption).ToBeVisibleAsync();
             await ingOption.ClickAsync();
-            await ingSheet.Locator("input[type='number']").FillAsync("100");
+            // `:visible` targets the search-view Quantity; the create-view Quantity (plantry-guab) is
+            // x-show hidden here, mirroring the `select:visible` disambiguation on the next line.
+            await ingSheet.Locator("input[type='number']:visible").FillAsync("100");
             await ingSheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = "g" });
             // Use .First to target the search-view "Add" button (plantry-nb4x two-view scaffold).
             await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();

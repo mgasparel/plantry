@@ -30,7 +30,11 @@
         DefaultServings: recipe.DefaultServings,
         Fulfillment: recipe.Fulfillment,
         IngredientGroups: recipe.IngredientGroups,
-        Oob: false);
+        Oob: false,
+        AlreadyOnList: Model.AlreadyOnShoppingList);
+
+    // JS boolean literal for seeding the Alpine add-to-list flags below (plantry-yt0m).
+    var alreadyOnListJs = Model.AlreadyOnShoppingList ? "true" : "false";
 }
 
 @* ── Alpine scope: servings stepper + ingredient quantity scaling + add-missing state ─────────── *@
@@ -39,8 +43,8 @@
      x-data="{
          servings: @recipe.DefaultServings,
          defaultServings: @recipe.DefaultServings,
-         missingAdded: false,
-         allAdded: false,
+         missingAdded: @alreadyOnListJs,
+         allAdded: @alreadyOnListJs,
          _fulfTimer: null,
          get scale() { return this.servings / this.defaultServings; },
          fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); },

@@ -112,6 +112,23 @@ public sealed class ManageSubscriptionsTests
         Assert.True(Assert.Single(subs.Items).IsActive);
     }
 
+    [Fact(DisplayName = "Re-subscribe with a different postal code adopts the newly-entered postal (household moved)")]
+    public async Task Resubscribe_Adopts_New_Postal_Code()
+    {
+        var service = Build(out var subs, out _, out _, out _);
+
+        var first = await service.SubscribeAsync("flipp-freshco", "FreshCo", "K1A0B1");
+        await service.UnsubscribeAsync(first.Value);
+
+        // Household moved; re-subscribe to the same merchant with a NEW postal code.
+        var second = await service.SubscribeAsync("flipp-freshco", "FreshCo", "M5V2T6");
+
+        Assert.Equal(first.Value, second.Value);      // same row reused
+        var sub = Assert.Single(subs.Items);
+        Assert.True(sub.IsActive);                    // reactivated
+        Assert.Equal("M5V2T6", sub.PostalCode);       // postal refreshed, not silently kept as K1A0B1
+    }
+
     [Fact(DisplayName = "Pause / Resume / Unsubscribe toggle IsActive without losing the row")]
     public async Task Pause_Resume_Unsubscribe_Toggle_IsActive()
     {

@@ -135,7 +135,7 @@ public sealed class IngestFlyerTests
 
         Assert.Single(h.Imports.Items);            // no duplicate import
         Assert.Equal(1, dealsAfterFirst);
-        Assert.Equal(1, h.Deals.Items.Count);      // no duplicate deal
+        Assert.Single(h.Deals.Items);              // no duplicate deal
         Assert.Equal(1, second.Skipped);
         Assert.Equal(0, second.Pulled);
     }
@@ -161,13 +161,13 @@ public sealed class IngestFlyerTests
         Assert.Single(h.Imports.Items); // same import, updated
 
         // Cheese resolved → frozen: same deal, original price, still Confirmed (not re-priced in v1, DD13).
-        var cheese = Assert.Single(h.Deals.Items.Where(d => d.RawName == "Cheese"));
+        var cheese = Assert.Single(h.Deals.Items, d => d.RawName == "Cheese");
         Assert.Equal(cheeseIdBefore, cheese.Id);
         Assert.Equal(DealStatus.Confirmed, cheese.Status);
         Assert.Equal(5.00m, cheese.Price);
 
         // Yogurt was Pending → refreshed to the new price.
-        var yogurt = Assert.Single(h.Deals.Items.Where(d => d.RawName == "Yogurt"));
+        var yogurt = Assert.Single(h.Deals.Items, d => d.RawName == "Yogurt");
         Assert.Equal(DealStatus.Pending, yogurt.Status);
         Assert.Equal(2.50m, yogurt.Price);
     }
@@ -196,8 +196,8 @@ public sealed class IngestFlyerTests
         Assert.False(string.IsNullOrWhiteSpace(failed.ErrorDetail));
 
         // No partial deals from the failed flyer; the good flyer's deal exists.
-        Assert.Empty(h.Deals.Items.Where(d => d.FlyerImportId == failed.Id));
-        Assert.Single(h.Deals.Items.Where(d => d.RawName == "Apples"));
+        Assert.DoesNotContain(h.Deals.Items, d => d.FlyerImportId == failed.Id);
+        Assert.Single(h.Deals.Items, d => d.RawName == "Apples");
     }
 
     [Fact(DisplayName = "A malformed item on a CHANGED re-pull preserves the prior Pending deal and never blocks the next subscription")]
@@ -224,12 +224,12 @@ public sealed class IngestFlyerTests
 
         // The bad store's prior Pending deal survived at its ORIGINAL price — the failed refresh never
         // mutated the shared context (no partial delete leaked to the good store's save).
-        var yogurt = Assert.Single(h.Deals.Items.Where(d => d.RawName == "Yogurt"));
+        var yogurt = Assert.Single(h.Deals.Items, d => d.RawName == "Yogurt");
         Assert.Equal(DealStatus.Pending, yogurt.Status);
         Assert.Equal(3.00m, yogurt.Price);
 
         // The good store still committed its refresh.
-        var apples = Assert.Single(h.Deals.Items.Where(d => d.RawName == "Apples"));
+        var apples = Assert.Single(h.Deals.Items, d => d.RawName == "Apples");
         Assert.Equal(1.50m, apples.Price);
     }
 

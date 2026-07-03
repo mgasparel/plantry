@@ -51,6 +51,20 @@ public sealed class StoreSubscriptionTests
         Assert.True(sub.UpdatedAt > pausedAt);
     }
 
+    [Fact(DisplayName = "UpdatePostalCode trims, refreshes the postal, and bumps UpdatedAt; rejects a blank one")]
+    public void UpdatePostalCode_TrimsRefreshesAndValidates()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+        var before = sub.UpdatedAt;
+
+        sub.UpdatePostalCode("  M5V 2T6  ", clock.Advance(TimeSpan.FromMinutes(1)));
+        Assert.Equal("M5V 2T6", sub.PostalCode);
+        Assert.True(sub.UpdatedAt > before);
+
+        Assert.Throws<ArgumentException>(() => sub.UpdatePostalCode("   ", clock));
+    }
+
     [Fact(DisplayName = "Unsubscribe soft-deactivates without deleting")]
     public void Unsubscribe_SoftDeactivates()
     {

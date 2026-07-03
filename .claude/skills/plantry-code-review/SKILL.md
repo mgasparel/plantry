@@ -25,7 +25,7 @@ that's the kind of drift this review exists to catch.
 
 ## Criteria
 
-Read `.claude/review-criteria.md` for the full gate definitions (Gates 1–8) **and the
+Read `.claude/review-criteria.md` for the full gate definitions (all gates) **and the
 Action tiers section** before reviewing. Apply all gates, and classify every finding into
 exactly one action tier — **FIX**, **DEFER**, or **NOTE** — using the FIX-vs-DEFER boundary
 in that document (effort/size is never a DEFER reason; an apparent design fork an existing

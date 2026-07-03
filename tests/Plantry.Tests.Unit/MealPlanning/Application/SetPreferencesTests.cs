@@ -41,7 +41,7 @@ public sealed class SetPreferencesTests
         Assert.Equal("Diet", vm.Groups[0].Category);
         Assert.Equal(2, vm.Groups[0].Tags.Count);
         Assert.Equal("Protein", vm.Groups[1].Category);
-        Assert.Equal(1, vm.Groups[1].Tags.Count);
+        Assert.Single(vm.Groups[1].Tags);
     }
 
     [Fact(DisplayName = "GetViewModel: tags with no existing stances default to Neutral")]

@@ -109,7 +109,8 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             await Assertions.Expect(saltRow).ToBeVisibleAsync();
             await saltRow.Locator("button[aria-label='Edit ingredient']").ClickAsync();
             await Assertions.Expect(ingSheet).ToBeVisibleAsync();
-            await ingSheet.Locator("input[type='number']").FillAsync("1");
+            // `:visible` targets the search-view Quantity; the create-view Quantity (plantry-guab) is x-show hidden.
+            await ingSheet.Locator("input[type='number']:visible").FillAsync("1");
             await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 

@@ -16,6 +16,17 @@
         ? (int)Math.Round(100.0 * (inStockCount + lowCount) / totalTracked)
         : 100;
     var lvlClass = pct >= 80 ? "fulf-hi" : pct >= 50 ? "fulf-mid" : "fulf-lo";
+
+    // Server-rendered "already on shopping list" state (plantry-yt0m). When true, the add buttons
+    // paint in their greyed "Added" state on first load (before Alpine hydrates) so a return visit
+    // reflects the true list state and does not invite a duplicate add. The x-cloak swap hides the
+    // active label/icon and reveals the confirm label/icon immediately, avoiding a flash of the
+    // active label; the Alpine flags (seeded to the same value in Details.cshtml) then own the state.
+    // On the servings-refresh partial swap AlreadyOnList is false so the buttons render enabled,
+    // matching the stepper resetting the flags to false before the fetch.
+    var alreadyOnList = vm.AlreadyOnList;
+    var activeCloak = alreadyOnList ? "x-cloak" : null;  // cart icon + "Add …" label
+    var addedCloak  = alreadyOnList ? null : "x-cloak";  // check icon + "Added" label
 }
 
 @* Primary swap target: the fulfillment rail card.
@@ -99,11 +110,12 @@
                     hx-include="#rd-servings-input"
                     hx-swap="none"
                     @@htmx:after-request="if ($event.detail.successful) allAdded = true"
-                    :disabled="allAdded">
-                <svg class="icon" aria-hidden="true" x-show="!allAdded"><use href="#i-cart" /></svg>
-                <svg class="icon" aria-hidden="true" x-show="allAdded" x-cloak><use href="#i-check" /></svg>
-                <span x-show="!allAdded">Add @totalTracked ingredient@(totalTracked == 1 ? "" : "s") to shopping list</span>
-                <span x-show="allAdded" x-cloak>Added</span>
+                    :disabled="allAdded"
+                    disabled="@alreadyOnList">
+                <svg class="icon" aria-hidden="true" x-show="!allAdded" @activeCloak><use href="#i-cart" /></svg>
+                <svg class="icon" aria-hidden="true" x-show="allAdded" @addedCloak><use href="#i-check" /></svg>
+                <span x-show="!allAdded" @activeCloak>Add @totalTracked ingredient@(totalTracked == 1 ? "" : "s") to shopping list</span>
+                <span x-show="allAdded" @addedCloak>Added</span>
             </button>
         }
 
@@ -119,11 +131,12 @@
                     hx-include="#rd-servings-input"
                     hx-swap="none"
                     @@htmx:after-request="if ($event.detail.successful) missingAdded = true"
-                    :disabled="missingAdded">
-                <svg class="icon" aria-hidden="true" x-show="!missingAdded"><use href="#i-cart" /></svg>
-                <svg class="icon" aria-hidden="true" x-show="missingAdded" x-cloak><use href="#i-check" /></svg>
-                <span x-show="!missingAdded">Add @missingCount missing to shopping list</span>
-                <span x-show="missingAdded" x-cloak>Added</span>
+                    :disabled="missingAdded"
+                    disabled="@alreadyOnList">
+                <svg class="icon" aria-hidden="true" x-show="!missingAdded" @activeCloak><use href="#i-cart" /></svg>
+                <svg class="icon" aria-hidden="true" x-show="missingAdded" @addedCloak><use href="#i-check" /></svg>
+                <span x-show="!missingAdded" @activeCloak>Add @missingCount missing to shopping list</span>
+                <span x-show="missingAdded" @addedCloak>Added</span>
             </button>
         }
         <a href="/Recipes/@recipeId/Edit" class="btn btn--secondary">

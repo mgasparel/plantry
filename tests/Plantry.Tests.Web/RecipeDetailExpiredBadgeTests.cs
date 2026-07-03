@@ -7,7 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Shopping.Domain;
 using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web;
@@ -199,6 +201,11 @@ public abstract class RecipeDetailExpiredBadgeFactoryBase : WebApplicationFactor
 
             services.RemoveAll<IShoppingListWriter>();
             services.AddSingleton<IShoppingListWriter>(NullShoppingListWriterForExpiredBadge.Instance);
+
+            // Empty shopping list so the Detail GET path's HasRecipeContributionAsync check
+            // (plantry-yt0m) resolves to false without a real Shopping DB.
+            services.RemoveAll<IShoppingListRepository>();
+            services.AddScoped<IShoppingListRepository, NullShoppingListRepositoryForExpiredBadge>();
         });
     }
 }
@@ -231,4 +238,19 @@ file sealed class NullShoppingListWriterForExpiredBadge : IShoppingListWriter
     public Task AddItemsAsync(
         IEnumerable<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
         => Task.CompletedTask;
+}
+
+/// <summary>Empty shopping list repository (file-scoped) — the Detail GET path treats the recipe as
+/// not yet on the list (plantry-yt0m), avoiding a real Shopping DB connection.</summary>
+file sealed class NullShoppingListRepositoryForExpiredBadge : IShoppingListRepository
+{
+    public Task<ShoppingList?> GetForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
+        => Task.FromResult<ShoppingList?>(null);
+
+    public Task<ShoppingList?> GetByIdAsync(ShoppingListId id, CancellationToken ct = default)
+        => Task.FromResult<ShoppingList?>(null);
+
+    public Task AddAsync(ShoppingList list, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task SaveAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

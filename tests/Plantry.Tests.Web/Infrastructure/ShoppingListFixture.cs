@@ -8,9 +8,11 @@ namespace Plantry.Tests.Web.Infrastructure;
 
 /// <summary>
 /// Deterministic fixture data for the L4 Shopping page snapshot tests (P2-Sc).
-/// Three items exercise all rendering paths:
+/// Four items exercise all rendering paths:
 /// <list type="bullet">
-///   <item>A product-backed item "Milk" in category "Dairy" — unchecked.</item>
+///   <item>A product-backed item "Milk" in category "Dairy" — unchecked, Manual source ("added by you").</item>
+///   <item>A product-backed item "Chicken" in category "Meat" — unchecked, <b>Recipe</b> source
+///     ("for Roast Dinner"), so the <c>#i-recipe</c> attribution branch is exercised (plantry-1cfl).</item>
 ///   <item>A free-text item "Sriracha" — unchecked, falls in Uncategorized.</item>
 ///   <item>A product-backed item "Flour" in category "Baking" — checked, sinks to bottom.</item>
 /// </list>
@@ -23,17 +25,27 @@ public static class ShoppingListFixture
     private static readonly IClock Clock = SystemClock.Instance;
 
     // Fixed product ids for deterministic catalog map
-    public static readonly Guid MilkProductId  = Guid.Parse("33333333-3333-3333-3333-333333333301");
-    public static readonly Guid FlourProductId = Guid.Parse("33333333-3333-3333-3333-333333333302");
-    public static readonly Guid UnitId         = Guid.Parse("33333333-3333-3333-3333-333333333310");
+    public static readonly Guid MilkProductId    = Guid.Parse("33333333-3333-3333-3333-333333333301");
+    public static readonly Guid FlourProductId   = Guid.Parse("33333333-3333-3333-3333-333333333302");
+    public static readonly Guid ChickenProductId = Guid.Parse("33333333-3333-3333-3333-333333333303");
+    public static readonly Guid UnitId           = Guid.Parse("33333333-3333-3333-3333-333333333310");
+
+    // Fixed recipe id + name for the Recipe-sourced attribution item (plantry-1cfl).
+    public static readonly Guid RecipeId = Guid.Parse("55555555-5555-5555-5555-555555555501");
+    public const string RecipeName = "Roast Dinner";
 
     public static ShoppingList BuildList()
     {
         var list = ShoppingList.Create(Household, Clock);
 
-        // Unchecked product-backed item: Milk (Dairy category)
+        // Unchecked product-backed item: Milk (Dairy category), Manual source → "added by you".
         list.AddItem(MilkProductId, quantity: 2m, unitId: UnitId, note: null,
             source: ItemSource.Manual, sourceRef: null, Clock);
+
+        // Unchecked product-backed item: Chicken (Meat category), Recipe source → "for Roast Dinner".
+        // Exercises the #i-recipe attribution icon branch, previously dark in all baselines (plantry-1cfl).
+        list.AddItem(ChickenProductId, quantity: 1m, unitId: UnitId, note: null,
+            source: ItemSource.Recipe, sourceRef: RecipeId, Clock);
 
         // Unchecked free-text item: Sriracha (no category → Uncategorized)
         list.AddFreeTextItem("Sriracha", quantity: null, unitId: null, note: null, Clock);
@@ -49,8 +61,20 @@ public static class ShoppingListFixture
     public static IReadOnlyDictionary<Guid, ShoppingProductSummary> ProductSummaries() =>
         new Dictionary<Guid, ShoppingProductSummary>
         {
-            [MilkProductId]  = new(MilkProductId,  "Milk",  "Dairy"),
-            [FlourProductId] = new(FlourProductId, "Flour", "Baking"),
+            [MilkProductId]    = new(MilkProductId,    "Milk",    "Dairy"),
+            [FlourProductId]   = new(FlourProductId,   "Flour",   "Baking"),
+            [ChickenProductId] = new(ChickenProductId, "Chicken", "Meat"),
+        };
+
+    /// <summary>
+    /// Recipe names resolvable by the snapshot factory's <see cref="IShoppingRecipeReader"/> stub.
+    /// Maps the fixture's Recipe-source SourceRef to a display name so the Chicken item's attribution
+    /// resolves to "for Roast Dinner" and the <c>#i-recipe</c> icon branch renders (plantry-1cfl).
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, string> RecipeNames() =>
+        new Dictionary<Guid, string>
+        {
+            [RecipeId] = RecipeName,
         };
 
     public static IReadOnlyDictionary<Guid, string> UnitCodes() =>

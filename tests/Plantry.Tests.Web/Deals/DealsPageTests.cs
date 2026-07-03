@@ -245,6 +245,7 @@ public sealed class FakeDealBrowseRepo : IDealRepository
 
     public Task AddAsync(Deal deal, CancellationToken ct = default) { Items.Add(deal); return Task.CompletedTask; }
     public void Remove(Deal deal) => Items.Remove(deal);
+    public void DiscardStagedChanges() { } // no deferred change tracker to reset in this browse fake
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 

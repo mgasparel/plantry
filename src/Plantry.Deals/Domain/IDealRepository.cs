@@ -35,5 +35,20 @@ public interface IDealRepository
     /// </summary>
     void Remove(Deal deal);
 
+    /// <summary>
+    /// Per-subscription unit-of-work reset for the ingest cycle (P5-6 isolation, plantry-60p9). Discards
+    /// any <b>uncommitted</b> changes staged in the shared <c>DealsDbContext</c> — every entity currently
+    /// tracked as <c>Added</c>, <c>Modified</c>, or <c>Deleted</c> is detached. The ingest worker calls
+    /// this at each subscription boundary so that a <see cref="SaveChangesAsync"/> fault in one
+    /// subscription — which leaves its <c>Added</c>/<c>Deleted</c> <see cref="Deal"/> rows tracked, since
+    /// EF does <b>not</b> detach on a failed save — cannot ride into the next subscription's commit
+    /// (inserting the failed flyer's deals and/or deleting a household's prior Pending deals meant only to
+    /// be replaced). Already-committed (<c>Unchanged</c>) entities are left tracked and untouched — notably
+    /// the loop's <c>StoreSubscription</c> working set, whose <c>RecordPull</c> write is committed per
+    /// iteration and must survive the reset — so a boundary reset drops nothing legitimate on the success
+    /// path and exactly the stranded partial changes on the failed path.
+    /// </summary>
+    void DiscardStagedChanges();
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }
