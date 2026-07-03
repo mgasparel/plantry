@@ -113,6 +113,54 @@ public sealed class ProductNameMatcherTests
         Assert.Empty(RankCatalog(Catalog, "   "));
     }
 
+    // ─── Single-token cutoff + result cap (plantry-fz3i) ───────────────────────
+
+    [Fact(DisplayName = "Adversarial single-token query 'speaker' does not surface unrelated weak matches")]
+    public void SingleToken_Speaker_DoesNotSurfaceWeakMatches()
+    {
+        // Dogfood regression: 'speaker' cleared the old 0.70 cutoff against these unrelated names via
+        // mean-best Jaro-Winkler. The stricter single-token cutoff (0.85) cuts the noise.
+        var catalog = new (int Id, string Name)[]
+        {
+            (1, "Sea salt"),
+            (2, "Sirloin steak"),
+            (3, "Tuna steak"),
+            (4, "Frozen peas"),
+            (5, "Avocado Spread"),
+            (6, "Sparkling water"),
+            (7, "Bell peppers"),
+        };
+
+        var results = RankCatalog(catalog, "speaker");
+
+        Assert.Empty(results);
+    }
+
+    [Fact(DisplayName = "Single-token query still surfaces a genuine typo/prefix at the strong tier")]
+    public void SingleToken_GenuineTypo_StillSurfaces()
+    {
+        var catalog = new (int Id, string Name)[] { (1, "Milk"), (2, "Salt") };
+
+        // 'milc' → 'Milk' is a one-character typo — a strong (≥ 0.85) Jaro-Winkler hit, so it survives.
+        var results = RankCatalog(catalog, "milc");
+
+        Assert.Contains(results, r => r.Name == "Milk");
+        Assert.DoesNotContain(results, r => r.Name == "Salt");
+    }
+
+    [Fact(DisplayName = "Rank caps the result set at MaxResults even when many candidates clear the cutoff")]
+    public void Rank_CapsAtMaxResults()
+    {
+        // Ten distinct products all carrying the 'oil' token → each clears the subset rung (0.90).
+        var catalog = Enumerable.Range(1, 10)
+            .Select(i => (i, $"Oil Variety {i}"))
+            .ToArray();
+
+        var results = RankCatalog(catalog, "oil");
+
+        Assert.Equal(ProductNameMatcher.MaxResults, results.Count);
+    }
+
     // ─── Ordering: score-desc then alphabetical ────────────────────────────────
 
     [Fact(DisplayName = "Results are ordered score-desc, then alphabetically as a tiebreak")]

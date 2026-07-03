@@ -26,7 +26,12 @@ public sealed class StockUpAlertsTests
     private readonly FakePurchaseFrequencyReader _frequency = new();
     private readonly TestClock _clock = new(new DateTimeOffset(2026, 5, 1, 12, 0, 0, TimeSpan.Zero));
 
-    private StockUpAlerts Sut => new(new BrowseDeals(_deals, _products, _stores, _clock), _frequency, _clock);
+    private StockUpAlerts Sut => new(_frequency, _clock);
+    private BrowseDeals Browse => new(_deals, _products, _stores, _clock);
+
+    /// <summary>Mirrors the Deals page: browse once, then compute alerts over that single active partition.</summary>
+    private async Task<IReadOnlyList<StockUpAlert>> ComputeAsync() =>
+        await Sut.ComputeAsync((await Browse.BrowseAsync()).Active);
 
     public StockUpAlertsTests()
     {
@@ -64,7 +69,7 @@ public sealed class StockUpAlertsTests
         StageActiveDeal(infrequentOnDeal, 9.99m);
         _frequency.Counts[infrequentOnDeal] = 1;
 
-        var alerts = await Sut.ComputeAsync();
+        var alerts = await ComputeAsync();
 
         var alert = Assert.Single(alerts);
         Assert.Equal(frequentOnDeal, alert.ProductId);
@@ -85,7 +90,7 @@ public sealed class StockUpAlertsTests
         _frequency.Counts[atThreshold] = StockUpAlerts.FrequencyThreshold;      // exactly 3 → qualifies
         _frequency.Counts[belowThreshold] = StockUpAlerts.FrequencyThreshold - 1; // 2 → excluded
 
-        var alerts = await Sut.ComputeAsync();
+        var alerts = await ComputeAsync();
 
         var alert = Assert.Single(alerts);
         Assert.Equal(atThreshold, alert.ProductId);
@@ -101,7 +106,7 @@ public sealed class StockUpAlertsTests
         var cheapest = StageActiveDeal(product, 8.49m, store: StoreB); // cheapest, Metro
         _frequency.Counts[product] = 6;
 
-        var alert = Assert.Single(await Sut.ComputeAsync());
+        var alert = Assert.Single(await ComputeAsync());
 
         Assert.Equal(cheapest.Id, alert.DealId);
         Assert.Equal(8.49m, alert.Price);
@@ -118,7 +123,7 @@ public sealed class StockUpAlertsTests
         StageActiveDeal(product, 3m);
         _frequency.Counts[product] = 3;
 
-        await Sut.ComputeAsync();
+        await ComputeAsync();
 
         // today = 2026-05-01 → window start = 2026-05-01 − 120d = 2026-01-01.
         var expected = new DateTimeOffset(new DateOnly(2026, 1, 1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
@@ -131,7 +136,7 @@ public sealed class StockUpAlertsTests
         // A frequent product exists, but there is no active deal to intersect it with.
         _frequency.Counts[Guid.NewGuid()] = 10;
 
-        var alerts = await Sut.ComputeAsync();
+        var alerts = await ComputeAsync();
 
         Assert.Empty(alerts);
         Assert.Empty(_frequency.SinceCalls); // short-circuited before the Inventory read
@@ -149,7 +154,7 @@ public sealed class StockUpAlertsTests
 
         _frequency.Counts[Guid.NewGuid()] = 8;
 
-        Assert.Empty(await Sut.ComputeAsync());
+        Assert.Empty(await ComputeAsync());
     }
 }
 

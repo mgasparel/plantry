@@ -38,7 +38,9 @@ public sealed class IndexModel(
     public async Task OnGetAsync(CancellationToken ct = default)
     {
         Board = await browseDeals.BrowseAsync(ct);
-        Alerts = await stockUpAlerts.ComputeAsync(ct);
+        // Reuse the single Board read above — StockUpAlerts computes over the already-materialised active
+        // partition rather than re-running the whole BrowseDeals pipeline a second time (plantry-k7tc).
+        Alerts = await stockUpAlerts.ComputeAsync(Board.Active, ct);
 
         GroupedByStore = Board.Active
             .GroupBy(d => d.StoreName)

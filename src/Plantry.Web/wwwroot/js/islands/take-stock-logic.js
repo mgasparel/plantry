@@ -274,3 +274,51 @@ export function saveStatusMessage({ ok, status, saved = 0, failed = 0 }) {
   if (saved === 0) return "Save failed — please try again";
   return `${saved} saved, ${failed} failed — retry the highlighted rows`;
 }
+
+// ── mergeSheetUnitIntoRow ──────────────────────────────────────────────────────
+
+/**
+ * The inline-add sheet payload (subset used by the existing-row merge).
+ * @typedef {Object} SheetAddDetail
+ * @property {string} [productId]
+ * @property {string} [productName]
+ * @property {number|string} [addCount]
+ * @property {string} [addUnitId]
+ * @property {string} [addUnitCode]
+ * @property {UnitOption[]} [supportedUnits]
+ */
+
+/**
+ * Merge an inline-add sheet payload onto a row that is ALREADY in the working set
+ * (plantry-3mwx root-cause #1; regression-covered per plantry-1me7).
+ *
+ * Carries the sheet-selected count AND unit onto the existing row. The unit carry is the fix for
+ * plantry-3mwx: previously the chosen unit was dropped here, so a count entered in a non-default unit
+ * was silently recorded in the product default unit. When the chosen unit is not yet in the row's
+ * reachable `supportedUnits` set (the per-row selector is limited to units reachable from the default),
+ * it is appended so the selector can display it.
+ *
+ * Pure transform: mutates only the passed row — signal `.value` writes plus reassignment of the plain
+ * `supportedUnits`/`unitCode` fields. No DOM, no network. The island re-publishes the rows array
+ * afterwards to trigger the re-render.
+ *
+ * @param {Row} row
+ * @param {SheetAddDetail} detail
+ * @returns {void}
+ */
+export function mergeSheetUnitIntoRow(row, detail) {
+  const newCounted = parseFloat(String(detail.addCount ?? 0)) || 0;
+  row.counted.value = newCounted;
+  row.failed.value = false;
+  row.failMsg.value = null;
+  row.needsConversion.value = false;
+  if (detail.addUnitId) {
+    row.unitId.value = detail.addUnitId;
+    // Ensure the selected unit is displayable even if it is not in the reachable set yet.
+    if (detail.addUnitCode
+        && !row.supportedUnits.some((u) => u.unitId === detail.addUnitId)) {
+      row.supportedUnits = [...row.supportedUnits, { unitId: detail.addUnitId, code: detail.addUnitCode }];
+    }
+    if (detail.addUnitCode) row.unitCode = detail.addUnitCode;
+  }
+}

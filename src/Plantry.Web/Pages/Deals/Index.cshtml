@@ -16,7 +16,7 @@
     // Templated delegate — renders one active deal card, reused across the store- and category-grouped
     // views so the same markup never diverges between the two grouping segments.
     Func<DealView, object> dealCard =
-    @<li class="catalog-list__item deal-row">
+    @<li class="catalog-list__item deal-row" id="deal-@item.DealId.Value">
         <div class="deal-row__main">
             <span class="catalog-list__primary">
                 @item.DisplayName

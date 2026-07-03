@@ -37,7 +37,6 @@ public sealed record StockUpAlert(
 /// constants in one place so it is cheap to tune against real data.</para>
 /// </summary>
 public sealed class StockUpAlerts(
-    BrowseDeals browseDeals,
     IPurchaseFrequencyReader purchaseFrequency,
     IClock clock)
 {
@@ -48,15 +47,19 @@ public sealed class StockUpAlerts(
     public const int FrequencyWindowDays = 120;
 
     /// <summary>
-    /// Computes the household's current stock-up alerts. For each frequently-bought product that has at
-    /// least one active deal, emits one alert carrying the <b>cheapest</b> active deal (ties broken by the
-    /// soonest end date, then deal id, for a deterministic pick). Ordered by product name (A→Z).
+    /// Computes the household's current stock-up alerts from an already-computed set of <b>active deals</b>
+    /// (Deals' own P5-7 active partition, e.g. <c>DealsBoard.Active</c>) — the caller owns the single
+    /// <see cref="BrowseDeals"/> read so the Deals page does not query the deal repo twice per request. For
+    /// each frequently-bought product that has at least one active deal, emits one alert carrying the
+    /// <b>cheapest</b> active deal (ties broken by the soonest end date, then deal id, for a deterministic
+    /// pick). Ordered by product name (A→Z).
     /// </summary>
-    public async Task<IReadOnlyList<StockUpAlert>> ComputeAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<StockUpAlert>> ComputeAsync(
+        IReadOnlyList<DealView> activeDeals,
+        CancellationToken ct = default)
     {
         // Active deals from Deals' own data (P5-7 active partition), grouped by their resolved product.
-        var board = await browseDeals.BrowseAsync(ct);
-        var dealsByProduct = board.Active
+        var dealsByProduct = activeDeals
             .Where(d => d.ProductId is not null)
             .GroupBy(d => d.ProductId!.Value)
             .ToDictionary(g => g.Key, g => g.ToList());

@@ -305,8 +305,8 @@ builder.Services.AddScoped<BrowseDeals>();
 // create in the review page runs over Catalog's CreateProductCommand (Web composition root).
 builder.Services.AddScoped<ReviewDeals>();
 
-// Deals — P5-10 stock-up alerts (DJ5). StockUpAlerts intersects Deals' own active partition (BrowseDeals,
-// ADR-010) with Inventory's purchase-journal frequency (IPurchaseFrequencyReader over InventoryQueryService,
+// Deals — P5-10 stock-up alerts (DJ5). StockUpAlerts intersects an active-deal partition the caller supplies
+// (the Deals page's single BrowseDeals read, ADR-010) with Inventory's purchase-journal frequency (IPurchaseFrequencyReader over InventoryQueryService,
 // DL-O4); "Add to list" reuses the P2-4 Shopping AddItems seam via a Deals-side writer port (DM-18). Both
 // adapters live in Web so Plantry.Deals keeps its → SharedKernel-only dependency.
 builder.Services.AddScoped<StockUpAlerts>();
