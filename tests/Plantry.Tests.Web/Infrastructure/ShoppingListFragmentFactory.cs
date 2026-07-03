@@ -73,6 +73,14 @@ public class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IShoppingDealReader>();
             services.AddSingleton<IShoppingDealReader>(new FakeShoppingDealReaderForSnapshots());
 
+            // Shopping meal-plan + deal-attribution readers (plantry-jwyb): the shared fixture has no
+            // MealPlan/Deal-sourced items, so both stubs return empty (baselines unchanged). The dedicated
+            // attribution render test overrides these with resolving fakes.
+            services.RemoveAll<IShoppingMealPlanReader>();
+            services.AddSingleton<IShoppingMealPlanReader>(new FakeShoppingMealPlanReaderForSnapshots());
+            services.RemoveAll<IShoppingDealAttributionReader>();
+            services.AddSingleton<IShoppingDealAttributionReader>(new FakeShoppingDealAttributionReaderForSnapshots());
+
             // Re-register ShoppingListQueryService and PantrySuggestionService so they pick up the fakes.
             services.RemoveAll<ShoppingListQueryService>();
             services.AddScoped<ShoppingListQueryService>();
@@ -109,6 +117,50 @@ internal sealed class FakeShoppingDealReaderForSnapshots : IShoppingDealReader
     public Task<IReadOnlyDictionary<Guid, ShoppingActiveDeal>> GetActiveDealsAsync(
         IReadOnlyList<Guid> productIds, DateOnly today, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, ShoppingActiveDeal>>(new Dictionary<Guid, ShoppingActiveDeal>());
+}
+
+/// <summary>
+/// Stub <see cref="IShoppingMealPlanReader"/> for the Shopping L4 snapshot tests (plantry-jwyb).
+/// Resolves a registered slot-id → (day, meal type) map; unregistered ids are omitted (caller falls back).
+/// Defaults to empty for the shared fixture (no MealPlan-sourced items).
+/// </summary>
+internal sealed class FakeShoppingMealPlanReaderForSnapshots(
+    IReadOnlyDictionary<Guid, ShoppingMealPlanSlot>? slots = null)
+    : IShoppingMealPlanReader
+{
+    private readonly IReadOnlyDictionary<Guid, ShoppingMealPlanSlot> _slots =
+        slots ?? new Dictionary<Guid, ShoppingMealPlanSlot>();
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingMealPlanSlot>> GetMealPlanSlotsAsync(
+        IReadOnlyList<Guid> slotRefs, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, ShoppingMealPlanSlot> result = slotRefs
+            .Where(_slots.ContainsKey)
+            .ToDictionary(id => id, id => _slots[id]);
+        return Task.FromResult(result);
+    }
+}
+
+/// <summary>
+/// Stub <see cref="IShoppingDealAttributionReader"/> for the Shopping L4 snapshot tests (plantry-jwyb).
+/// Resolves a registered deal-id → store-name map; unregistered ids are omitted (caller falls back to "on sale").
+/// Defaults to empty for the shared fixture (no Deal-sourced items).
+/// </summary>
+internal sealed class FakeShoppingDealAttributionReaderForSnapshots(
+    IReadOnlyDictionary<Guid, string>? storeNames = null)
+    : IShoppingDealAttributionReader
+{
+    private readonly IReadOnlyDictionary<Guid, string> _stores =
+        storeNames ?? new Dictionary<Guid, string>();
+
+    public Task<IReadOnlyDictionary<Guid, string>> GetDealStoreNamesAsync(
+        IReadOnlyList<Guid> dealIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, string> result = dealIds
+            .Where(_stores.ContainsKey)
+            .ToDictionary(id => id, id => _stores[id]);
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>

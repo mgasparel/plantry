@@ -452,6 +452,15 @@ builder.Services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>()
 // Recipes EF context directly (ADR-002).
 builder.Services.AddScoped<IShoppingRecipeReader, ShoppingRecipeReaderAdapter>();
 
+// Shopping → Meal Planning ACL adapter (plantry-jwyb). ShoppingMealPlanReaderAdapter resolves a MealPlan
+// contribution's slot SourceRef → (weekday, meal-slot label) for the "for {Day} {meal}" attribution line.
+builder.Services.AddScoped<IShoppingMealPlanReader, ShoppingMealPlanReaderAdapter>();
+
+// Shopping → Deals ACL adapter (plantry-jwyb). ShoppingDealAttributionReaderAdapter resolves a Deal
+// contribution's deal_id SourceRef → store name for the "on sale at {store}" attribution line. This is a
+// NEW port, distinct from the product-keyed cheapest-active-deal badge reader below (ADR-010 DEAL → SHOP).
+builder.Services.AddScoped<IShoppingDealAttributionReader, ShoppingDealAttributionReaderAdapter>();
+
 // Shopping → Pricing ACL adapter (P5-9). ShoppingDealReaderAdapter reads Pricing's cheapest-active-deal
 // read model for the "On sale at {store} this week" badge, resolving the merchant name over Catalog.
 // Shopping reads PRICING, never Deals (ADR-010 boundary); the badge is a read-time join, never stored.

@@ -33,6 +33,48 @@ internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
 }
 
 /// <summary>
+/// In-memory <see cref="IShoppingMealPlanReader"/> for unit tests (plantry-jwyb).
+/// Slot facts are registered per slot/entry id; unregistered ids are omitted (caller falls back).
+/// </summary>
+internal sealed class FakeShoppingMealPlanReader : IShoppingMealPlanReader
+{
+    private readonly Dictionary<Guid, ShoppingMealPlanSlot> _slots = [];
+
+    public void RegisterSlot(Guid slotRef, DayOfWeek day, string mealType) =>
+        _slots[slotRef] = new ShoppingMealPlanSlot(day, mealType);
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingMealPlanSlot>> GetMealPlanSlotsAsync(
+        IReadOnlyList<Guid> slotRefs, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, ShoppingMealPlanSlot> result = slotRefs
+            .Where(_slots.ContainsKey)
+            .ToDictionary(id => id, id => _slots[id]);
+        return Task.FromResult(result);
+    }
+}
+
+/// <summary>
+/// In-memory <see cref="IShoppingDealAttributionReader"/> for unit tests (plantry-jwyb).
+/// Store names are registered per deal id; unregistered ids are omitted (caller falls back to "on sale").
+/// </summary>
+internal sealed class FakeShoppingDealAttributionReader : IShoppingDealAttributionReader
+{
+    private readonly Dictionary<Guid, string> _stores = [];
+
+    public void RegisterDealStore(Guid dealId, string storeName) =>
+        _stores[dealId] = storeName;
+
+    public Task<IReadOnlyDictionary<Guid, string>> GetDealStoreNamesAsync(
+        IReadOnlyList<Guid> dealIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, string> result = dealIds
+            .Where(_stores.ContainsKey)
+            .ToDictionary(id => id, id => _stores[id]);
+        return Task.FromResult(result);
+    }
+}
+
+/// <summary>
 /// In-memory <see cref="IShoppingDealReader"/> for unit tests (P5-9).
 /// Active deals are registered per product id; unregistered products are omitted (no active deal).
 /// Records the last <c>today</c> the query service supplied so tests can assert the clock threads through.

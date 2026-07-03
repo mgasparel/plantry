@@ -45,13 +45,14 @@ public sealed record ShoppingListItemView(
     /// <list type="bullet">
     ///   <item><description>Recipe contributions → <c>(Recipe, "for {RecipeName}")</c>.</description></item>
     ///   <item><description>A Recipe that appears more than once (distinct SourceRef, same name) → <c>(Recipe, "for {RecipeName} ×N")</c>.</description></item>
+    ///   <item><description>MealPlan contributions → one line per distinct slot, <c>(MealPlan, "for {Day} {meal}")</c>, or <c>(MealPlan, "for your meal plan")</c> when the slot is unresolved (plantry-jwyb).</description></item>
+    ///   <item><description>Deal contributions → <c>(Deal, "on sale at {Store}")</c>, or <c>(Deal, "on sale")</c> when the store is unresolved (plantry-jwyb).</description></item>
     ///   <item><description>Manual contributions → <c>(Manual, "added by you")</c>.</description></item>
-    ///   <item><description>MealPlan/Deal → omitted (future ports; no label yet).</description></item>
     /// </list>
+    /// Emission order is Recipe → MealPlan → Deal → Manual.
     /// </para>
     ///
-    /// <para>Empty when the item has no resolvable attribution (e.g. all contributions are MealPlan/Deal
-    /// which have no resolution port yet, or there are no contributions).</para>
+    /// <para>Empty when the item has no contributions.</para>
     /// </summary>
     IReadOnlyList<AttributionLabel>? AttributionLabels = null,
     /// <summary>
