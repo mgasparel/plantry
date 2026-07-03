@@ -71,6 +71,19 @@ public sealed class StoreSubscription : AggregateRoot<StoreSubscriptionId>
         UpdatedAt = clock.UtcNow;
     }
 
+    /// <summary>
+    /// Refreshes the postal code the flyer is pulled for (e.g. when a household moves and re-subscribes
+    /// to the same merchant). Validates non-blank and trims, mirroring the <see cref="Subscribe"/> guard.
+    /// </summary>
+    public void UpdatePostalCode(string postalCode, IClock clock)
+    {
+        if (string.IsNullOrWhiteSpace(postalCode))
+            throw new ArgumentException("Postal code must not be blank.", nameof(postalCode));
+
+        PostalCode = postalCode.Trim();
+        UpdatedAt = clock.UtcNow;
+    }
+
     /// <summary>Soft-deactivates (retains confirmed deals, price history, and match memory — D9).</summary>
     public void Unsubscribe(IClock clock)
     {
