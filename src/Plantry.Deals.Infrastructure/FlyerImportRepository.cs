@@ -17,6 +17,21 @@ public sealed class FlyerImportRepository(DealsDbContext db) : IFlyerImportRepos
     public async Task AddAsync(FlyerImport import, CancellationToken ct = default) =>
         await db.FlyerImports.AddAsync(import, ct);
 
+    public void Detach(FlyerImport import) => db.Entry(import).State = EntityState.Detached;
+
+    public async Task ExecuteInTransactionAsync(Func<CancellationToken, Task> action, CancellationToken ct = default)
+    {
+        // Explicit transaction on the shared DealsDbContext so an import's whole materialization commits
+        // atomically (plantry-pwkm). Two saves live inside it — the FlyerImport INSERT then its deals — because
+        // the deal → flyer_import composite FK is enforced yet unmodelled in EF, so EF cannot order the inserts
+        // within a single save. On any exception the transaction is disposed without a commit and Postgres rolls
+        // the whole write back (no partial, still-Pulling import survives); the exception then propagates to the
+        // caller's Failed-recording path.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await action(ct);
+        await tx.CommitAsync(ct);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);
 }

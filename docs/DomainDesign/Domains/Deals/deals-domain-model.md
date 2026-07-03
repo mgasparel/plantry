@@ -320,6 +320,7 @@ Home banner, audit/attribution, and future consumers (push, analytics).
 | **DD12** | `FlyerImport.Status` is monotonic: `Pulling → Parsed` **or** `Pulling → Failed` | D2 | Aggregate |
 | **DD13** | A re-pull may **refresh only a `Pending` deal**; a `Confirmed`/`Rejected` deal is **frozen** — ingestion never overwrites its status, resolution, raw fields, or `Price`. (A genuine flyer reprice on an already-resolved item is left as-is in v1; auto-supersede-on-reprice is deferred behind a same-id content-churn telemetry trigger.) Prevents a re-pull silently clobbering a human resolution or invalidating a committed observation's provenance | D5, DL-O3 | `IngestFlyer` (state guard) |
 | **DD14** | `Pending` is surfaced in the review queue only **in-window** (`today ≤ ValidTo`); an expired-unreviewed deal is **inert** (not Active, off the queue) but **remains confirmable** as an explicit price-history backfill — and confirmation **always** upserts `DealMatchMemory`, regardless of window | D9 | Read model (`BrowseDeals`) + `Confirm` allows past-window |
+| **DD15** | **One import's materialization is atomic** — the `FlyerImport` envelope, its staged `Pending` `Deal`s, and the `Parsed`/`RecordRepull` bookkeeping commit as **one unit or not at all**. A **hard crash** (OOM/eviction/power-loss — not an exception) mid-materialize leaves **no partial `FlyerImport` row**, so the flyer is cleanly re-pulled next cycle with no wedge (a still-`Pulling` row can no longer exist to block DD5 dedup, the DD13 `Status != Parsed` guard, or a fresh `Start`). A parse **exception** still records `Failed` with `error_detail` in its own short transaction (DD12); the cross-context `AutoConfirm` runs **after** the commit (it writes a Pricing observation, so it cannot share the Deals transaction) and is independently resumable. New path: an explicit transaction spanning the envelope INSERT then its deals (the `deal → flyer_import` composite FK is enforced but unmodelled in EF, so the inserts must be ordered by hand). Re-pull path: a single `SaveChanges` (drop old `Pending` + add fresh + `RecordRepull`) is already atomic. | plantry-pwkm | `IngestFlyer` + `IFlyerImportRepository.ExecuteInTransactionAsync` |
 
 ---
 
@@ -408,6 +409,14 @@ Home banner, audit/attribution, and future consumers (push, analytics).
   most-recently-*recorded* observation" would let such a backfill masquerade as the current price.
   DD10 projects the window unchanged onto the observation, so Pricing has what it needs — confirm its
   "latest"/"current" reads filter on the **window**, not insertion time. **Flag at the App Services step.**
+
+- **Atomic import materialization (DD15) — new policy, no prior decision governed it.** The original P5-6
+  `IngestFlyer` split one import's write across three unguarded `SaveChanges` (envelope → staged deals →
+  `MarkParsed`), so a hard crash between the deal-persist and `MarkParsed` could wedge a `FlyerImport` in
+  `Pulling` forever — walled off from re-pull by the DD5 no-op, the DD13 `Status != Parsed` guard, and the
+  dedup unique index simultaneously. Resolved (plantry-pwkm) by making the whole materialization atomic
+  (DD15): a hard crash now rolls back to nothing and the flyer re-pulls cleanly. Recorded here as the
+  authoritative amendment; no ADR predates it.
 
 - **Phase numbering.** Deals is **build-phase 5**: the sequence is P1 Pantry+Intake · P2 Recipes ·
   P3 Meal Planning · **P4 Take Stock (inventory reconciliation)** · **P5 Deals**. Older docs that

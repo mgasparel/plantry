@@ -48,6 +48,43 @@ internal sealed class FaultOnceDealRepository(IDealRepository inner) : IDealRepo
     }
 }
 
+/// <summary>
+/// Wraps a real <see cref="IDealRepository"/> and throws <see cref="OperationCanceledException"/> on the
+/// <paramref name="abortOnCall"/>th <see cref="SaveChangesAsync"/> — the in-process stand-in for a HARD
+/// CRASH / abort mid-materialize (OOM/eviction/power-loss), NOT a parse exception (plantry-pwkm). OCE is the
+/// faithful signal: <see cref="IngestFlyer"/> excludes it from the Failed-recording path, so nothing is
+/// recorded and the enclosing transaction rolls back — exactly the hard-crash contract. Every other member
+/// delegates, so the real shared change tracker behaves precisely as in production.
+/// </summary>
+internal sealed class AbortOnDealsSaveDealRepository(IDealRepository inner, int abortOnCall = 1) : IDealRepository
+{
+    private int _calls;
+    public bool HasAborted { get; private set; }
+
+    public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) => inner.FindAsync(id, ct);
+
+    public Task<List<Deal>> ListBrowsableAsync(CancellationToken ct = default) => inner.ListBrowsableAsync(ct);
+
+    public Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default) =>
+        inner.ListByFlyerImportAsync(flyerImportId, ct);
+
+    public Task AddAsync(Deal deal, CancellationToken ct = default) => inner.AddAsync(deal, ct);
+
+    public void Remove(Deal deal) => inner.Remove(deal);
+
+    public void DiscardStagedChanges() => inner.DiscardStagedChanges();
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        if (++_calls == abortOnCall)
+        {
+            HasAborted = true;
+            throw new OperationCanceledException("simulated hard crash / abort mid-materialize (plantry-pwkm)");
+        }
+        return inner.SaveChangesAsync(ct);
+    }
+}
+
 /// <summary>Cross-context port fakes for the L3 <see cref="IngestFlyer"/> isolation test — only the Deals
 /// persistence is real (RLS-armed); Catalog/Pricing/Flipp/AI seams are stubbed so the test isolates the
 /// tenancy behaviour of the ingestion writes.</summary>
