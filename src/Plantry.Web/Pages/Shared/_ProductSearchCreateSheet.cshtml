@@ -201,19 +201,60 @@
                 }
 
                 @*
-                    Group heading — Recipes-only concept (ingredient sections). Hidden for Take Stock.
+                    Section picker — Recipes-only concept (ingredient sections). Hidden for Take Stock.
                     Gate: show for tracked rows (productId set) OR for staple/untracked rows
-                    (newStapleName !== null). Previously always-visible; the newStapleName check
-                    restores editability for staple rows that were previously always shown the field.
+                    (newStapleName !== null).
+
+                    plantry-vff8: replaces the old free-text "Group (optional)" input with a picker over
+                    the recipe's EXISTING sections (+ "New section…"). Picking an existing section reuses
+                    its exact heading, so a Sauce/sauce typo can no longer split one section into two on
+                    the add path. The picker writes draft.groupHeading (unchanged post contract). It reads
+                    the host's existingSectionHeadings() (Recipes/Edit x-data); guarded so any other
+                    ShowGroupHeading host degrades to "type a new section" rather than erroring.
                 *@
                 @if (Model.ShowGroupHeading)
                 {
                     <div class="form-grid__field form-grid__field--full"
-                         x-show="draft.productId || draft.newStapleName !== null">
-                        <label class="form-grid__field__label">Group (optional)</label>
-                        <div class="form-grid__field__control">
-                            <input type="text" class="field__input" placeholder="e.g. Sauce, Topping"
-                                   x-model="draft.groupHeading" />
+                         x-show="draft.productId || draft.newStapleName !== null"
+                         x-data="{
+                             secOpen: false,
+                             secQuery: '',
+                             get secOptions() { return typeof existingSectionHeadings === 'function' ? existingSectionHeadings() : []; },
+                             get secFiltered() {
+                                 const q = this.secQuery.trim().toLowerCase();
+                                 return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
+                             },
+                             pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
+                             createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
+                             clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
+                         }"
+                         @@sheet-product-set.window="secQuery = draft.groupHeading || ''"
+                         @@click.outside="secOpen = false">
+                        <label class="form-grid__field__label" for="ingredient-section">Section (optional)</label>
+                        <div class="form-grid__field__control" style="position:relative">
+                            <input type="text" id="ingredient-section" class="field__input"
+                                   placeholder="Ungrouped — pick or type a section…"
+                                   x-model="secQuery"
+                                   autocomplete="off"
+                                   @@focus="secOpen = true"
+                                   @@input="secOpen = true; draft.groupHeading = secQuery.trim()"
+                                   @@keydown.escape.stop="secOpen = false" />
+                            <ul class="searchable-select__listbox" role="listbox"
+                                x-show="secOpen && (secFiltered.length > 0 || secQuery.trim().length > 0)"
+                                x-cloak style="display:none">
+                                @* Existing sections on this recipe *@
+                                <template x-for="h in secFiltered" :key="h">
+                                    <li role="option" class="searchable-select__listbox-item"
+                                        @@click="pickSection(h)" x-text="h"></li>
+                                </template>
+                                @* "+ New section '{name}'" — only when the typed name is not already an existing section *@
+                                <li role="option" class="searchable-select__listbox-item searchable-select__listbox-item--create"
+                                    x-show="secQuery.trim().length > 0 && !secOptions.some(h => h.toLowerCase() === secQuery.trim().toLowerCase())"
+                                    @@click="createSection()">
+                                    <span>+ New section</span>
+                                    <span x-text="' “' + secQuery.trim() + '”'"></span>
+                                </li>
+                            </ul>
                         </div>
                     </div>
                 }

@@ -133,8 +133,14 @@ public sealed class EditModel(
                 .ToList();
             var unitCodeLookup = await products.ResolveUnitCodesAsync(unitIds, ct);
 
-            Input.Lines = recipe.Ingredients
-                .OrderBy(i => i.Ordinal)
+            // Canonicalise ingredient order to match the sectioned editor + Details render
+            // (plantry-vff8): ungrouped ingredients first, then each GroupHeading in first-appearance
+            // order (preserving ordinal order within a section), then reassign contiguous ordinals.
+            // Doing this on load means even a no-change save reconciles a legacy recipe's stored order
+            // with the editor's Ungrouped-first layout — closing the editor-vs-detail snap-back.
+            var canonicalIngredients = CanonicaliseSectionOrder(recipe.Ingredients);
+
+            Input.Lines = canonicalIngredients
                 .Select((ing, idx) =>
                 {
                     productLookup.TryGetValue(ing.ProductId, out var p);
@@ -382,6 +388,32 @@ public sealed class EditModel(
 
         recipe.SetPhoto(buffer, photo.ContentType, sha256: null, clock);
         await recipes.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Orders ingredients into the canonical section layout the sectioned editor and the Details page
+    /// share (plantry-vff8): ungrouped ingredients first, then each distinct <c>GroupHeading</c> in
+    /// first-appearance order (mirroring Details' <c>OrderBy(Ordinal).GroupBy(GroupHeading)</c>),
+    /// preserving each section's members in ordinal order. The caller reassigns contiguous ordinals
+    /// from the returned order, so the editor posts exactly the order Details renders.
+    /// </summary>
+    private static List<Ingredient> CanonicaliseSectionOrder(IEnumerable<Ingredient> ingredients)
+    {
+        var ordered = ingredients.OrderBy(i => i.Ordinal).ToList();
+
+        var headingOrder = new List<string>();
+        foreach (var ing in ordered)
+        {
+            if (!string.IsNullOrWhiteSpace(ing.GroupHeading) && !headingOrder.Contains(ing.GroupHeading))
+                headingOrder.Add(ing.GroupHeading);
+        }
+
+        var result = new List<Ingredient>(ordered.Count);
+        result.AddRange(ordered.Where(i => string.IsNullOrWhiteSpace(i.GroupHeading)));
+        foreach (var heading in headingOrder)
+            result.AddRange(ordered.Where(i => i.GroupHeading == heading));
+
+        return result;
     }
 
     private void RestoreLines()
