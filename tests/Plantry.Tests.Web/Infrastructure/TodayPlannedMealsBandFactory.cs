@@ -50,6 +50,15 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
                 })
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
 
+            // ── Clock ─────────────────────────────────────────────────────────
+            // Pin the host clock to the same fixed instant the fixture keys its plan off
+            // (TodayPlannedBandFixture.Clock). The page computes today as
+            // DateOnly.FromDateTime(clock.UtcNow.LocalDateTime); sharing this exact instance makes
+            // the page's lookup date equal the fixture's seed date deterministically, killing the
+            // UTC-vs-local flakiness (plantry-ouvi).
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock>(TodayPlannedBandFixture.Clock);
+
             // ── Identity ──────────────────────────────────────────────────────
             services.RemoveAll<IHouseholdRepository>();
             services.AddSingleton<IHouseholdRepository>(new FakeTodayHouseholdRepository());
@@ -206,7 +215,15 @@ public static class TodayPlannedBandFixture
     public static readonly Guid HouseholdId = Guid.Parse("aa000001-0000-0000-0000-000000000001");
     private static readonly HouseholdId HhId = Plantry.SharedKernel.HouseholdId.From(HouseholdId);
     public static readonly Guid RecipeId = Guid.Parse("bb000001-0000-0000-0000-000000000001");
-    private static readonly IClock Clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+    /// <summary>
+    /// The pinned "today" instant the fixture and the Today page must agree on. Registered as the
+    /// host <see cref="IClock"/> by <see cref="TodayPlannedMealsBandFactory"/> and used here to key
+    /// the fixture plan's day. Without a fixed clock the fixture seeds under the UTC date while the
+    /// page looks the meal up under the LOCAL date, so the two diverge whenever the test runs in the
+    /// evening of a UTC-negative offset (UTC date != local date) — the flaky window this fixes.
+    /// </summary>
+    public static readonly IClock Clock = new FixedClock(new DateOnly(2026, 6, 15));
 
     /// <summary>
     /// Shared singleton slot config — both the slot-config repo and the meal-plan repo must
@@ -228,7 +245,11 @@ public static class TodayPlannedBandFixture
     /// </summary>
     public static MealPlan BuildPlanWithBreakfast(MealSlotConfig slotConfig)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        // Derive "today" from the fixed host clock using the SAME conversion the Today page applies
+        // (Index.cshtml.cs: DateOnly.FromDateTime(clock.UtcNow.LocalDateTime)). Keying off the shared
+        // clock instead of DateTime.UtcNow guarantees the seeded meal's date matches the page's lookup
+        // date on any machine, at any wall-clock time — eliminating the UTC/local flakiness.
+        var today = DateOnly.FromDateTime(Clock.UtcNow.LocalDateTime);
         var plan = MealPlan.Start(HhId, today, Clock);
 
         // Breakfast slot = first active slot by ordinal
