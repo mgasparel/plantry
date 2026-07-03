@@ -541,7 +541,7 @@ button { font-family: inherit; cursor: pointer; }
 
 .field__input {
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   font-family: inherit;
   font-size: var(--font-size-base);
@@ -2267,7 +2267,7 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .recipes-sort-select {
   height: 38px;
   padding: 0 32px 0 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text);
@@ -3525,7 +3525,7 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 }
 .sl-input {
   font-family: inherit; font-size: 14px; color: var(--color-text); width: 100%;
-  border: 1px solid var(--color-border); background: var(--color-surface);
+  border: 1px solid var(--color-border-strong); background: var(--color-surface);
   border-radius: var(--radius-md); padding: 10px 12px;
 }
 .sl-input::placeholder { color: var(--color-text-faint); }
@@ -3626,7 +3626,7 @@ button.sl-qty:hover { background: var(--color-surface-3, var(--color-surface-2))
 /* ---- inline qty editor (plantry-dem) ----------------------------------- */
 .sl-qtyedit { display: flex; align-items: center; gap: 6px; flex: none; }
 .sl-qsel {
-  height: 40px; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  height: 40px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md);
   background: var(--color-surface); color: var(--color-text); font-family: inherit;
   font-size: 13px; padding: 0 8px; cursor: pointer;
 }
@@ -3639,7 +3639,7 @@ button.sl-qty:hover { background: var(--color-surface-3, var(--color-surface-2))
 .sl-noterow { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
 .sl-noterow form { display: flex; align-items: center; gap: 6px; width: 100%; }
 .sl-noteinput {
-  flex: 1; height: 34px; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  flex: 1; height: 34px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md);
   background: var(--color-surface); color: var(--color-text); font-family: inherit;
   font-size: 13px; padding: 0 10px;
 }
@@ -3863,7 +3863,7 @@ button.sadd svg { width: 13px; height: 13px; }
 .tune-budget .money-input span { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--color-text-faint); font-weight: 600; font-size: 13.5px; }
 .tune-budget input {
   width: 100%; font-family: inherit; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
-  border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-sm);
   padding: 8px 11px 8px 24px; color: var(--color-text);
 }
 .tune-budget input:focus { outline: 2px solid var(--color-accent-subtle); border-color: var(--color-accent); }
@@ -4260,7 +4260,7 @@ button.sadd svg { width: 13px; height: 13px; }
 .tag-cat-badge { font-size: 11px; color: var(--color-text-faint); padding: 2px 7px; background: var(--color-surface-2); border-radius: 99px; white-space: nowrap; }
 .tag-cat-select {
   flex: 0 0 auto; min-width: 120px;
-  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm);
   background: var(--color-surface-1); color: var(--color-text);
   font-size: 13px; padding: 4px 8px;
 }
@@ -4273,7 +4273,7 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .tag-add-name {
   flex: 1 1 auto; min-width: 0;
-  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm);
   background: var(--color-surface-1); color: var(--color-text);
   font-size: 14px; padding: 6px 10px;
 }
@@ -4584,7 +4584,7 @@ button.sadd svg { width: 13px; height: 13px; }
 .ed-note-toggle button:hover { text-decoration: underline; }
 .ed-note-field input {
   width: 100%; font-family: inherit; font-size: 15px; font-weight: 600; color: var(--color-text);
-  border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-sm); padding: 12px 14px;
+  border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-sm); padding: 12px 14px;
 }
 .ed-note-field input:focus { outline: 2px solid var(--color-accent-subtle); border-color: var(--color-accent); }
 .ed-note-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
@@ -5875,7 +5875,7 @@ button.sadd svg { width: 13px; height: 13px; }
 .store-search__postal,
 .store-search__query {
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   font: inherit;
   background: var(--color-surface);
