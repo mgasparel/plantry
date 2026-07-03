@@ -497,7 +497,7 @@
                              }
                          }" @click.outside="groupOpen = false">
 							<label class="form-grid__field__label" for="create-product-group">
-								Group
+								Parent
 								<span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span>
 							</label>
 							<div class="form-grid__field__control" style="position:relative">
@@ -511,7 +511,7 @@
 								</ul>
 							</div>
 							<div class="create-group-preview" x-show="draft.newGroupName &amp;&amp; draft.newGroupName.trim().length > 0" x-cloak="">
-								<p x-show="!draft.newGroupId" class="create-group-preview__text create-group-preview__text--new">
+								<p x-show="!draft.newGroupId" class="create-group-preview__text">
 									<span>Creates a new
 									</span>
 									<strong x-text="'“' + (draft.newGroupName || '') + '”'"></strong>
@@ -522,7 +522,7 @@
 									<span>
 										as its first variant.</span>
 								</p>
-								<p x-show="draft.newGroupId" class="create-group-preview__text create-group-preview__text--join">
+								<p x-show="draft.newGroupId" class="create-group-preview__text">
 									<span>Adds
 									</span>
 									<strong x-text="'“' + ((draft.newStapleName || '').trim() || 'this product') + '”'"></strong>
@@ -536,8 +536,13 @@
 							</div>
 						</div>
 					</div>
-					<details class="sheet-defaults">
-						<summary class="sheet-defaults__summary">Defaults</summary>
+					<details class="sheet-defaults" open="">
+						<summary class="sheet-defaults__summary">
+							<svg class="icon sheet-defaults__chev" aria-hidden="true">
+								<use href="#i-chevron"></use>
+							</svg>
+							<span>Defaults</span>
+						</summary>
 						<div class="sheet-defaults__body">
 							<div class="form-grid__field form-grid__field--full">
 								<label class="form-grid__field__label" for="create-product-unit">Unit</label>

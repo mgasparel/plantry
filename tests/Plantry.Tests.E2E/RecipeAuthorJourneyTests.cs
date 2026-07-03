@@ -147,11 +147,10 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         // and always visible in create mode, so R5 is satisfied without re-opening the row afterwards.
         await sheet.Locator("#create-product-qty").FillAsync(qty);
 
-        // Expand the Defaults collapsible (plantry-y53t) to access the unit select.
-        // The <details class="sheet-defaults"> is collapsed by default; the summary click opens it.
+        // The Defaults collapsible (plantry-y53t) is OPEN by default (plantry-grvy), so the unit
+        // select is directly accessible — no summary click needed.
         var defaultsSummary = sheet.Locator(".sheet-defaults__summary");
         await Assertions.Expect(defaultsSummary).ToBeVisibleAsync();
-        await defaultsSummary.ClickAsync();
         // Select the product's default unit. saveSheet() will pre-populate draft.unitId from this
         // (plantry-orix), so the committed row already has a unitId set.
         await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = unitLabel });
@@ -471,8 +470,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             // covered by the product default (newStapleUnit → unitId fallback in saveSheet()).
             await sheet.Locator("#create-product-qty").FillAsync("1");
 
-            // Open the Defaults collapsible and set the product's default unit.
-            await sheet.Locator(".sheet-defaults__summary").ClickAsync();
+            // The Defaults collapsible is open by default (plantry-grvy); set the product's default unit directly.
             await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
 
             // Commit via create-view "Create" button (.Last targets create-view, .First targets search-view).

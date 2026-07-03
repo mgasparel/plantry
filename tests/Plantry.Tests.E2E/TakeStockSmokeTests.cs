@@ -103,13 +103,12 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await Assertions.Expect(stapleNameInput).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
             await stapleNameInput.FillAsync(productName);
 
-            // Expand the Defaults collapsible (plantry-y53t) to access the Unit select.
-            // The <details class="sheet-defaults"> is collapsed by default; clicking the summary opens it.
+            // The Defaults collapsible (plantry-y53t) is OPEN by default (plantry-grvy), so the Unit
+            // select is directly accessible — no summary click needed.
             var defaultsSummary = sheet.Locator(".sheet-defaults__summary");
             await Assertions.Expect(defaultsSummary).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
-            await defaultsSummary.ClickAsync();
 
-            // Select the product default unit in the create-view unit select (now inside the Defaults collapsible).
+            // Select the product default unit in the create-view unit select (inside the Defaults collapsible).
             var stapleUnitSelect = sheet.Locator("#create-product-unit");
             await stapleUnitSelect.SelectOptionAsync(new SelectOptionValue { Label = "g" });
 

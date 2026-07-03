@@ -357,8 +357,13 @@
                              }
                          }"
                          @@click.outside="groupOpen = false">
+                        @*
+                            Label reads "Parent" (plantry-grvy) — matches the domain term Product.IsParent
+                            ("Parent product" / "Parent / variant group" on the Catalog product detail).
+                            Label-only rename; the draft fields stay newGroupId/newGroupName.
+                        *@
                         <label class="form-grid__field__label" for="create-product-group">
-                            Group <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span>
+                            Parent <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span>
                         </label>
                         <div class="form-grid__field__control" style="position:relative">
                             <input type="text" id="create-product-group" class="field__input"
@@ -407,8 +412,13 @@
                         <div class="create-group-preview"
                              x-show="draft.newGroupName && draft.newGroupName.trim().length > 0"
                              x-cloak>
+                            @*
+                                Both paths share ONE muted/neutral treatment (plantry-grvy, owner decision
+                                2026-07-03): the line describes what WILL happen, so it reads as informational,
+                                not as a success confirmation. No green --new / accent --join split.
+                            *@
                             @* new-group path *@
-                            <p x-show="!draft.newGroupId" class="create-group-preview__text create-group-preview__text--new">
+                            <p x-show="!draft.newGroupId" class="create-group-preview__text">
                                 <span>Creates a new </span>
                                 <strong x-text="'“' + (draft.newGroupName || '') + '”'"></strong>
                                 <span> group and adds </span>
@@ -416,7 +426,7 @@
                                 <span> as its first variant.</span>
                             </p>
                             @* join-existing-group path *@
-                            <p x-show="draft.newGroupId" class="create-group-preview__text create-group-preview__text--join">
+                            <p x-show="draft.newGroupId" class="create-group-preview__text">
                                 <span>Adds </span>
                                 <strong x-text="'“' + ((draft.newStapleName || '').trim() || 'this product') + '”'"></strong>
                                 <span> as a variant of the existing </span>
@@ -441,8 +451,16 @@
                 Both are bound with x-model inside the Alpine x-data of the host, so no inner x-data
                 scope is needed here.
             *@
-            <details class="sheet-defaults">
-                <summary class="sheet-defaults__summary">Defaults</summary>
+            @*
+                Open by default (plantry-grvy) so the Unit/Category defaults are visible without a
+                click — the disclosure marker is the app's canonical chevron (#i-chevron), which rotates
+                on [open]; the native list-style marker is suppressed in CSS.
+            *@
+            <details class="sheet-defaults" open>
+                <summary class="sheet-defaults__summary">
+                    <svg class="icon sheet-defaults__chev" aria-hidden="true"><use href="#i-chevron" /></svg>
+                    <span>Defaults</span>
+                </summary>
                 <div class="sheet-defaults__body">
                     <div class="form-grid__field form-grid__field--full">
                         <label class="form-grid__field__label" for="create-product-unit">Unit</label>
