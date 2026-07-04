@@ -594,6 +594,7 @@ builder.Services.AddScoped<IRecordPricePort, RecordPriceAdapter>();
 // over Catalog's EnsureStoreByNameCommand (Intake never touches CatalogDbContext directly).
 builder.Services.AddScoped<IEnsurePurchaseStorePort, EnsurePurchaseStoreAdapter>();
 builder.Services.AddScoped<IReviewReferenceDataProvider, ReviewReferenceDataProvider>();
+builder.Services.AddScoped<ISeedConversionPort, SeedConversionAdapter>();
 
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();

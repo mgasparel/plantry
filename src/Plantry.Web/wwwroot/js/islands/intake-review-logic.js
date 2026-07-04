@@ -59,6 +59,14 @@
  */
 
 /**
+ * @typedef {Object} EstimateHydration
+ * @property {number} eachCount
+ * @property {number} weight
+ * @property {string} weightUnit
+ * @property {string} confidence   "High" | "Low"
+ */
+
+/**
  * Minimal signal shape used by tests (mirrors the @preact/signals API surface
  * that the logic functions depend on). The island passes real signals; the test
  * rig passes these plain objects.
@@ -93,6 +101,7 @@
  * @property {SignalLike<string>} draftNewName
  * @property {SignalLike<string>} draftNewCategoryId
  * @property {AlternativeHydration[]|null} alternatives
+ * @property {EstimateHydration|null} estimate
  */
 
 // ── makeLine ─────────────────────────────────────────────────────────────────
@@ -112,12 +121,12 @@
  * A High-confidence matched line starts closed (user can open it to adjust).
  *
  * @template {SignalLike<any>} S
- * @param {{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null}} seed
+ * @param {{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null, estimate?: EstimateHydration|null}} seed
  * @param {(v: any) => S} signalFn  — real `signal` from Preact or a plain-object stub for tests
  * @returns {LineState}
  */
 export function makeLine(seed, signalFn) {
-  const { line, prefill, alternatives } = seed;
+  const { line, prefill, alternatives, estimate } = seed;
   const effectivePrice = line.price ?? line.suggestedPrice;
   return {
     lineId: line.lineId,
@@ -151,7 +160,30 @@ export function makeLine(seed, signalFn) {
     draftNewName: signalFn(line.newProductName ?? ""),
     draftNewCategoryId: signalFn(line.newProductCategoryId ?? ""),
     alternatives: alternatives ?? null,
+    estimate: estimate ?? null,
   };
+}
+
+// ── estimateHint ───────────────────────────────────────────────────────────────
+
+/**
+ * Human-readable weight→each affordance for the drawer (plantry-1mu). Returns null when the line
+ * carries no estimate. Pure display formatting — no domain decision (the prefill choice is server-side).
+ *
+ * High confidence → the count is already pre-filled, so we phrase it as a provenance note
+ * ("~7 each · estimated from 1.34 lb"). Low confidence → we phrase it as a soft suggestion
+ * ("Sold by weight (1.34 lb) · ~7 each?") since the drawer left the weight in place.
+ *
+ * @param {EstimateHydration|null} estimate
+ * @returns {string|null}
+ */
+export function estimateHint(estimate) {
+  if (!estimate) return null;
+  const count = `~${estimate.eachCount} each`;
+  const weight = `${estimate.weight} ${estimate.weightUnit}`;
+  return estimate.confidence === "High"
+    ? `${count} · estimated from ${weight}`
+    : `Sold by weight (${weight}) · ${count}?`;
 }
 
 // ── lineSection ───────────────────────────────────────────────────────────────

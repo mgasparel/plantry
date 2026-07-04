@@ -29,6 +29,32 @@ public sealed class ImportLineTests
     }
 
     [Fact]
+    public void Weight_Each_Ground_Truth_Is_Set_At_Parse_And_Survives_Confirm()
+    {
+        var session = ImportSession.Start(Household, ImportSourceType.Receipt, Guid.CreateVersion7(), Clock);
+        var line = session.AddLine(1, "ORG BANANAS 1.34 lb", SuggestedConfidence.High, """{"x":1}""",
+            suggestedProductId: ProductId, suggestedQuantity: 1.34m, suggestedUnitLabel: "lb", suggestedPrice: 0.79m,
+            receiptWeight: 1.34m, receiptWeightUnitLabel: "lb",
+            estimatedEachCount: 7m, estimatedEachConfidence: SuggestedConfidence.High);
+
+        Assert.True(line.HasEachEstimate);
+        Assert.Equal(1.34m, line.ReceiptWeight);
+        Assert.Equal("lb", line.ReceiptWeightUnitLabel);
+        Assert.Equal(7m, line.EstimatedEachCount);
+        Assert.Equal(SuggestedConfidence.High, line.EstimatedEachConfidence);
+
+        // The user accepts the each-count: quantity=7 in the each unit. Ground truth must NOT be clobbered.
+        var eachUnit = Guid.CreateVersion7();
+        line.Confirm(ProductId, null, 7m, eachUnit, LocationId, expiryDate: null, price: 0.79m);
+
+        Assert.Equal(7m, line.Quantity);          // user-resolved each-count
+        Assert.Equal(eachUnit, line.UnitId);
+        Assert.Equal(1.34m, line.ReceiptWeight);  // ground-truth weight preserved through confirm
+        Assert.Equal("lb", line.ReceiptWeightUnitLabel);
+        Assert.Equal(7m, line.EstimatedEachCount);
+    }
+
+    [Fact]
     public void Confirm_Sets_All_User_Resolved_Fields_And_Transitions_To_Confirmed()
     {
         var line = MakeLine();

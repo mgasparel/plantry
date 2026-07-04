@@ -115,6 +115,10 @@ internal sealed class FakeRecordPricePort : IRecordPricePort
     public List<decimal> Prices { get; } = [];
     public List<Guid?> StoreIds { get; } = [];
     public List<string?> MerchantTexts { get; } = [];
+    // Quantity + unit the observation is recorded in — lets tests assert pricing stays in the receipt's
+    // true unit ($/lb) even when stock committed in each (plantry-1mu).
+    public List<decimal> Quantities { get; } = [];
+    public List<Guid> UnitIds { get; } = [];
 
     public Task<Guid> RecordAsync(
         Guid productId, Guid? skuId, decimal price, decimal quantity, Guid unitId,
@@ -123,6 +127,8 @@ internal sealed class FakeRecordPricePort : IRecordPricePort
         Prices.Add(price);
         StoreIds.Add(storeId);
         MerchantTexts.Add(merchantText);
+        Quantities.Add(quantity);
+        UnitIds.Add(unitId);
         return Task.FromResult(Guid.CreateVersion7());
     }
 }
@@ -159,5 +165,18 @@ internal sealed class FakeReviewReferenceDataProvider(ReviewReferenceData? data 
     {
         Calls++;
         return Task.FromResult(data ?? new ReviewReferenceData([], [], [], []));
+    }
+}
+
+/// <summary>Records each seeded weight→each conversion so tests can assert the learned factor, its
+/// unit anchors, and that non-estimated / weight-kept lines seed nothing (plantry-1mu).</summary>
+internal sealed class FakeSeedConversionPort : ISeedConversionPort
+{
+    public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId, decimal Factor)> Seeds { get; } = [];
+
+    public Task SeedAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default)
+    {
+        Seeds.Add((productId, fromUnitId, toUnitId, factor));
+        return Task.CompletedTask;
     }
 }

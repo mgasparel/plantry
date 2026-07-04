@@ -61,6 +61,72 @@ public sealed class GeminiReceiptParserTests
         Assert.Null(milk.UnitLabel);
     }
 
+    // ── Weight→each estimate mapping (plantry-1mu) ──────────────────────────────────────────────
+
+    private const string ResponseWithEachEstimate = """
+        {
+          "merchant": "Whole Foods Market",
+          "lines": [
+            {
+              "line_no": 1,
+              "receipt_text": "ORG BANANAS 1.34 lb @ 0.59/lb",
+              "suggested_product_id": "0193b4a0-1111-7000-8000-000000000001",
+              "suggested_product_name": "Bananas",
+              "quantity": 1.34,
+              "unit": "lb",
+              "price": 0.79,
+              "confidence": "high",
+              "estimated_each_count": 7,
+              "each_confidence": "high"
+            },
+            {
+              "line_no": 2,
+              "receipt_text": "BLACK FOREST HAM 0.35 lb",
+              "suggested_product_id": "0193b4a0-1111-7000-8000-000000000002",
+              "suggested_product_name": "Deli Ham",
+              "quantity": 0.35,
+              "unit": "lb",
+              "price": 4.20,
+              "confidence": "high",
+              "estimated_each_count": null,
+              "each_confidence": null
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public void Maps_Estimated_Each_Count_And_Confidence_For_A_Weight_Priced_Each_Tracked_Line()
+    {
+        var result = GeminiReceiptParser.MapResponse(ResponseWithEachEstimate);
+
+        Assert.False(result.HasError);
+
+        var bananas = result.Lines[0];
+        Assert.Equal(1.34m, bananas.Quantity);           // ground-truth weight preserved
+        Assert.Equal("lb", bananas.UnitLabel);
+        Assert.Equal(7m, bananas.EstimatedEachCount);
+        Assert.Equal("high", bananas.EstimatedEachConfidence);
+
+        // Deli ham is genuinely weight-tracked → no each-count estimate (never converted).
+        var ham = result.Lines[1];
+        Assert.Null(ham.EstimatedEachCount);
+        Assert.Null(ham.EstimatedEachConfidence);
+    }
+
+    [Fact]
+    public void Drops_A_Non_Positive_Estimated_Each_Count()
+    {
+        const string json = """
+            { "merchant": "M", "lines": [ {
+              "line_no": 1, "receipt_text": "X", "quantity": 1.0, "unit": "lb", "price": 1.0,
+              "confidence": "high", "estimated_each_count": 0, "each_confidence": "low" } ] }
+            """;
+
+        var line = Assert.Single(GeminiReceiptParser.MapResponse(json).Lines);
+        Assert.Null(line.EstimatedEachCount); // 0 is not a usable count → dropped
+    }
+
     // ── Receipt metadata mapping ────────────────────────────────────────────────────────────────
 
     private const string ResponseWithMetadata = """

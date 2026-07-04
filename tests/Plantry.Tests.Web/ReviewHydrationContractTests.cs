@@ -54,7 +54,8 @@ public sealed class ReviewHydrationContractTests
                 Prefill: new PrefillData(
                     ProductId: "p1", ProductName: "Milk", Quantity: 2m, UnitId: "u1", LocationId: "loc1",
                     Price: 3.99m, Expiry: "2026-06-22", SkuId: "sku1"),
-                Alternatives: [new AlternativeHydration("p2", "Cheddar, Sharp", 0.72m)]),
+                Alternatives: [new AlternativeHydration("p2", "Cheddar, Sharp", 0.72m)],
+                Estimate: new EstimateHydration(EachCount: 7m, Weight: 1.34m, WeightUnit: "lb", Confidence: "High")),
         ],
         ScanVia: "photo",
         ScannedLabel: "scanned just now",
@@ -100,7 +101,7 @@ public sealed class ReviewHydrationContractTests
     public void Line_prefill_and_alternative_have_exact_keys()
     {
         var item = Serialize(Sample()).GetProperty("lines")[0];
-        HydrationContract.AssertKeys(item, "line", "prefill", "alternatives");
+        HydrationContract.AssertKeys(item, "line", "prefill", "alternatives", "estimate");
         HydrationContract.AssertKeys(item.GetProperty("line"),
             "lineId", "receiptText", "confidence", "status",
             "productId", "skuId", "quantity", "unitId", "locationId",
@@ -110,5 +111,6 @@ public sealed class ReviewHydrationContractTests
             "productId", "productName", "quantity", "unitId", "locationId",
             "price", "expiry", "skuId");
         HydrationContract.AssertKeys(item.GetProperty("alternatives")[0], "productId", "productName", "confidence");
+        HydrationContract.AssertKeys(item.GetProperty("estimate"), "eachCount", "weight", "weightUnit", "confidence");
     }
 }

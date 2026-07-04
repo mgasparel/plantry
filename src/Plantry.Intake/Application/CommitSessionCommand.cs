@@ -26,6 +26,8 @@ public sealed class CommitSessionCommand(
     IAddStockPort addStock,
     IRecordPricePort recordPrice,
     IEnsurePurchaseStorePort ensureStore,
+    IReviewReferenceDataProvider referenceData,
+    ISeedConversionPort seedConversion,
     IClock clock,
     ITenantContext tenant,
     ILogger<CommitSessionCommand> logger)
@@ -42,6 +44,12 @@ public sealed class CommitSessionCommand(
             return Error.Custom("Intake.SessionNotReady", $"Cannot commit a session in status '{session.Status}'.");
 
         var purchasedOn = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+
+        // Weight→each support (plantry-1mu): resolve the household's weight-unit labels ("lb"/"kg") to
+        // their catalog UnitIds once, so a weight-priced line's price observation stays in the receipt's
+        // TRUE unit and any learned conversion is anchored on the real weight unit. Loaded lazily below
+        // only if a line actually needs it, via this cached map.
+        IReadOnlyDictionary<string, Guid>? unitIdByLabel = null;
 
         // Merchant → catalog.store identity (DM-16), resolved find-or-create at most once per commit and
         // reused across the session's priced lines. Blank merchant → null store_id (unchanged); MerchantText
@@ -70,9 +78,20 @@ public sealed class CommitSessionCommand(
                     productId = line.ProductId!.Value;
                 }
 
+                // Stock is added in the unit the user actually committed (each-count or weight — their choice).
                 var journalId = await addStock.AddStockAsync(
                     productId, line.SkuId, line.Quantity!.Value, line.UnitId!.Value, line.LocationId!.Value,
                     line.ExpiryDate, purchasedOn, session.UserId, ct);
+
+                // Resolve the receipt's true weight unit for a weight-priced line (plantry-1mu). Used for
+                // both the price observation (never a $/each estimate) and the learned conversion anchor.
+                Guid? weightUnitId = null;
+                if (line.ReceiptWeight is not null && line.ReceiptWeightUnitLabel is { } weightLabel)
+                {
+                    unitIdByLabel ??= await BuildUnitLabelMapAsync(ct);
+                    if (unitIdByLabel.TryGetValue(weightLabel, out var resolved))
+                        weightUnitId = resolved;
+                }
 
                 Guid? priceObservationId = null;
                 if (line.Price is { } price)
@@ -84,8 +103,15 @@ public sealed class CommitSessionCommand(
                         storeResolved = true;
                     }
 
+                    // Pricing observes in the receipt's TRUE unit: when the line carries a receipt weight,
+                    // record the weight + weight unit regardless of what unit the stock committed in, so an
+                    // accepted each-count never pollutes pricing history with a $/each observation (plantry-1mu).
+                    var (priceQty, priceUnitId) = line.ReceiptWeight is { } w && weightUnitId is { } wuid
+                        ? (w, wuid)
+                        : (line.Quantity!.Value, line.UnitId!.Value);
+
                     priceObservationId = await recordPrice.RecordAsync(
-                        productId, line.SkuId, price, line.Quantity!.Value, line.UnitId!.Value,
+                        productId, line.SkuId, price, priceQty, priceUnitId,
                         session.MerchantText, purchaseStoreId, session.Id.Value, clock.UtcNow, session.UserId, ct);
                 }
 
@@ -94,6 +120,19 @@ public sealed class CommitSessionCommand(
                     return mark.Error;
 
                 await sessions.SaveChangesAsync(ct);
+
+                // Learn the household's weight→each factor when the user accepted an estimated each-count
+                // (committed in a unit different from the receipt weight unit) for an existing product. The
+                // conversion is tagged AiSuggested (plantry-3k44) and re-derivable from the preserved weight.
+                if (!line.IsNewProduct
+                    && line.HasEachEstimate
+                    && weightUnitId is { } fromUnit
+                    && line.UnitId!.Value != fromUnit
+                    && line.ReceiptWeight is { } receiptWeight && receiptWeight > 0m)
+                {
+                    var factor = line.Quantity!.Value / receiptWeight; // each per weight unit
+                    await seedConversion.SeedAsync(productId, fromUnit, line.UnitId!.Value, factor, ct);
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -121,5 +160,16 @@ public sealed class CommitSessionCommand(
             sessionId.Value);
 
         return Result.Success();
+    }
+
+    /// <summary>Builds a case-insensitive weight-unit-label → catalog UnitId map from the household's units,
+    /// so a receipt weight label ("lb"/"kg") resolves to the unit the price observation is recorded in.</summary>
+    private async Task<IReadOnlyDictionary<string, Guid>> BuildUnitLabelMapAsync(CancellationToken ct)
+    {
+        var reference = await referenceData.GetAsync(ct);
+        var map = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var unit in reference.Units)
+            map[unit.Code] = unit.Id; // last-wins; unit codes are unique per household
+        return map;
     }
 }

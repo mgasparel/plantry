@@ -61,9 +61,20 @@ public sealed class ParseSessionCommand(
             var alternatives = line.Alternatives?
                 .Select(a => new AlternativeCandidate(a.ProductId, a.ProductName, a.Confidence))
                 .ToList();
+
+            // Weight→each ground truth (plantry-1mu): an estimate is only carried when the model produced
+            // a positive each-count AND the line was weight-priced (a weight + weight-unit label present),
+            // so the receipt weight is preserved distinctly from the generic Suggested* fields.
+            var hasEachEstimate = line is { EstimatedEachCount: > 0m, Quantity: not null, UnitLabel: not null };
+            var receiptWeight = hasEachEstimate ? line.Quantity : null;
+            var receiptWeightUnitLabel = hasEachEstimate ? line.UnitLabel : null;
+            var estimatedEachCount = hasEachEstimate ? line.EstimatedEachCount : null;
+            var estimatedEachConfidence = hasEachEstimate ? MapConfidence(line.EstimatedEachConfidence) : (SuggestedConfidence?)null;
+
             session.AddLine(line.LineNo, line.ReceiptText, MapConfidence(line.Confidence), line.RawJson,
                 line.SuggestedProductId, line.SuggestedProductName, line.Quantity, line.UnitLabel, line.Price,
-                alternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } ? alternatives : null);
+                alternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } ? alternatives : null,
+                receiptWeight, receiptWeightUnitLabel, estimatedEachCount, estimatedEachConfidence);
         }
 
         session.MarkReady(parse.MerchantText, clock.UtcNow, parse.Metadata);

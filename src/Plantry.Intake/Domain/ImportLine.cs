@@ -35,6 +35,32 @@ public sealed class ImportLine : Entity<ImportLineId>
     public string? SuggestedUnitLabel { get; private set; }
     public decimal? SuggestedPrice { get; private set; }
 
+    // ── Weight→each ground truth (plantry-1mu) — set once at parse, never overwritten by Confirm ──
+
+    /// <summary>
+    /// The receipt's true weight for a weight-priced line whose matched product is tracked by each
+    /// (e.g. 1.34 for "BANANAS 1.34 lb"). Preserved as the source of record so it survives commit and
+    /// the each-count stays re-derivable; <see cref="ReceiptWeightUnitLabel"/> carries its unit. Null
+    /// for a line that was not weight-priced-and-each-estimated.
+    /// </summary>
+    public decimal? ReceiptWeight { get; private set; }
+
+    /// <summary>The unit label ("lb" / "kg") the receipt weight was priced in. Null when no receipt weight.</summary>
+    public string? ReceiptWeightUnitLabel { get; private set; }
+
+    /// <summary>
+    /// The LLM's estimated each-count for this weight-priced, each-tracked line (~7 bananas). A derived,
+    /// re-derivable value — never a stored price input. Null unless the model produced an estimate.
+    /// </summary>
+    public decimal? EstimatedEachCount { get; private set; }
+
+    /// <summary>The model's confidence in <see cref="EstimatedEachCount"/>. High pre-fills the each-count
+    /// in the review drawer; Low merely suggests it. Null when there is no estimate.</summary>
+    public SuggestedConfidence? EstimatedEachConfidence { get; private set; }
+
+    /// <summary>True when this line carries a weight→each estimate the drawer should surface.</summary>
+    public bool HasEachEstimate => EstimatedEachCount is not null && ReceiptWeight is not null;
+
     /// <summary>
     /// AI-ranked alternative product candidates for ambiguous lines — stored once at parse time in
     /// <c>suggested_alternatives</c> jsonb. Null when the parser returned only one match or no match.
@@ -83,7 +109,11 @@ public sealed class ImportLine : Entity<ImportLineId>
         decimal? suggestedQuantity = null,
         string? suggestedUnitLabel = null,
         decimal? suggestedPrice = null,
-        IReadOnlyList<AlternativeCandidate>? suggestedAlternatives = null) =>
+        IReadOnlyList<AlternativeCandidate>? suggestedAlternatives = null,
+        decimal? receiptWeight = null,
+        string? receiptWeightUnitLabel = null,
+        decimal? estimatedEachCount = null,
+        SuggestedConfidence? estimatedEachConfidence = null) =>
         new()
         {
             Id = id,
@@ -99,6 +129,10 @@ public sealed class ImportLine : Entity<ImportLineId>
             SuggestedUnitLabel = suggestedUnitLabel,
             SuggestedPrice = suggestedPrice,
             SuggestedAlternatives = suggestedAlternatives,
+            ReceiptWeight = receiptWeight,
+            ReceiptWeightUnitLabel = receiptWeightUnitLabel,
+            EstimatedEachCount = estimatedEachCount,
+            EstimatedEachConfidence = estimatedEachConfidence,
             Status = LineStatus.Pending,
         };
 

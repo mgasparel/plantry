@@ -1195,6 +1195,23 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   min-width: 0;
 }
 
+/* Weight→each estimate affordance in the intake review drawer (plantry-1mu). A quiet, muted note
+   above the quantity field surfacing the LLM's each-count and the preserved ground-truth weight. */
+.rd-estimate-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.rd-estimate-hint .icon {
+  flex: none;
+  width: 0.9em;
+  height: 0.9em;
+  color: var(--color-accent);
+}
+
 /* Input with a trailing unit/currency badge pinned inside the right edge */
 .form-grid__unit-suffix {
   position: relative;

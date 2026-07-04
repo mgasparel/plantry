@@ -125,6 +125,8 @@ public sealed class DomainTelemetryTests
             new MetricsTestAddStockPort(),
             new MetricsTestRecordPricePort(),
             new MetricsTestEnsurePurchaseStorePort(),
+            new MetricsTestReviewReferenceDataProvider(),
+            new MetricsTestSeedConversionPort(),
             clock, new MetricsTestTenantContext(household),
             NullLogger<CommitSessionCommand>.Instance);
 
@@ -154,6 +156,8 @@ public sealed class DomainTelemetryTests
             new MetricsTestAddStockPort(),
             new MetricsTestRecordPricePort(),
             new MetricsTestEnsurePurchaseStorePort(),
+            new MetricsTestReviewReferenceDataProvider(),
+            new MetricsTestSeedConversionPort(),
             clock, new MetricsTestTenantContext(household),
             NullLogger<CommitSessionCommand>.Instance);
 
@@ -489,6 +493,18 @@ internal sealed class MetricsTestEnsurePurchaseStorePort : IEnsurePurchaseStoreP
 {
     public Task<Guid> EnsureAsync(string merchantName, CancellationToken ct = default) =>
         Task.FromResult(Guid.CreateVersion7());
+}
+
+internal sealed class MetricsTestReviewReferenceDataProvider : IReviewReferenceDataProvider
+{
+    public Task<ReviewReferenceData> GetAsync(CancellationToken ct = default) =>
+        Task.FromResult(new ReviewReferenceData([], [], [], []));
+}
+
+internal sealed class MetricsTestSeedConversionPort : ISeedConversionPort
+{
+    public Task SeedAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default) =>
+        Task.CompletedTask;
 }
 
 // ── Inventory test doubles ───────────────────────────────────────────────────────────────────────

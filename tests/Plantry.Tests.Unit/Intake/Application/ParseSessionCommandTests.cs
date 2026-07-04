@@ -22,6 +22,41 @@ public sealed class ParseSessionCommandTests
         new(_image, "image/jpeg", _userId, repo, parser, hints, Clock, new FakeTenantContext(_household));
 
     [Fact]
+    public async Task Maps_A_Weight_Priced_Each_Estimate_Into_Line_Ground_Truth_Fields()
+    {
+        var bananasId = Guid.CreateVersion7();
+        var parser = new FakeReceiptParser(new ReceiptParseResult("Whole Foods",
+        [
+            // Weight-priced, each-tracked produce → carries an estimated each-count.
+            new ParsedLine(1, "ORG BANANAS 1.34 lb", "Bananas", bananasId, 1.34m, "lb", 0.79m, "high", """{"l":1}""",
+                Alternatives: null, EstimatedEachCount: 7m, EstimatedEachConfidence: "high"),
+            // Genuinely weight-tracked deli line → no estimate.
+            new ParsedLine(2, "DELI HAM 0.35 lb", "Ham", Guid.CreateVersion7(), 0.35m, "lb", 4.20m, "high", """{"l":2}"""),
+        ]));
+        var hints = new FakeCatalogHintProvider(new ProductHint(bananasId, "Bananas", [], TracksEach: true));
+        var repo = new FakeImportSessionRepository();
+
+        var result = await Parse(repo, parser, hints).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var session = Assert.Single(repo.Sessions);
+
+        var bananas = session.Lines.Single(l => l.LineNo == 1);
+        Assert.True(bananas.HasEachEstimate);
+        Assert.Equal(1.34m, bananas.ReceiptWeight);
+        Assert.Equal("lb", bananas.ReceiptWeightUnitLabel);
+        Assert.Equal(7m, bananas.EstimatedEachCount);
+        Assert.Equal(SuggestedConfidence.High, bananas.EstimatedEachConfidence);
+        // The generic weight is still on the Suggested* fields too (unchanged behaviour).
+        Assert.Equal(1.34m, bananas.SuggestedQuantity);
+
+        var ham = session.Lines.Single(l => l.LineNo == 2);
+        Assert.False(ham.HasEachEstimate);
+        Assert.Null(ham.ReceiptWeight);
+        Assert.Null(ham.EstimatedEachCount);
+    }
+
+    [Fact]
     public async Task Lands_A_Ready_Session_With_One_Line_Per_Parsed_Item()
     {
         var milkId = Guid.CreateVersion7();

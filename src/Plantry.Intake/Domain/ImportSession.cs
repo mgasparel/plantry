@@ -57,7 +57,11 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
         decimal? suggestedQuantity = null,
         string? suggestedUnitLabel = null,
         decimal? suggestedPrice = null,
-        IReadOnlyList<AlternativeCandidate>? suggestedAlternatives = null)
+        IReadOnlyList<AlternativeCandidate>? suggestedAlternatives = null,
+        decimal? receiptWeight = null,
+        string? receiptWeightUnitLabel = null,
+        decimal? estimatedEachCount = null,
+        SuggestedConfidence? estimatedEachConfidence = null)
     {
         var line = ImportLine.Create(
             ImportLineId.New(),
@@ -72,7 +76,11 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
             suggestedQuantity,
             suggestedUnitLabel,
             suggestedPrice,
-            suggestedAlternatives);
+            suggestedAlternatives,
+            receiptWeight,
+            receiptWeightUnitLabel,
+            estimatedEachCount,
+            estimatedEachConfidence);
         _lines.Add(line);
         return line;
     }

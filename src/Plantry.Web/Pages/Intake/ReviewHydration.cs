@@ -81,7 +81,19 @@ public sealed record CategoryHydration(
 public sealed record LineHydration(
     LineSeed Line,
     PrefillData Prefill,
-    IReadOnlyList<AlternativeHydration>? Alternatives);
+    IReadOnlyList<AlternativeHydration>? Alternatives,
+    /// <summary>Weight→each estimate affordance (plantry-1mu). Null unless the line carries a preserved
+    /// receipt weight + an LLM each-count estimate; display-only, the drawer renders it as a hint.</summary>
+    EstimateHydration? Estimate = null);
+
+/// <summary>Display-only weight→each estimate the review drawer surfaces (plantry-1mu): the ground-truth
+/// receipt weight, the LLM's each-count, and its confidence. Pure display data — the prefill decision
+/// (whether the each-count is applied) is computed server-side in <c>ComputePrefill</c>.</summary>
+public sealed record EstimateHydration(
+    decimal EachCount,
+    decimal Weight,
+    string WeightUnit,
+    string Confidence);
 
 /// <summary>The persisted line state the island hydrates a row from.</summary>
 public sealed record LineSeed(

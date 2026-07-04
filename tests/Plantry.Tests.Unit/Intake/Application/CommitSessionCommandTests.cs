@@ -28,8 +28,11 @@ public sealed class CommitSessionCommandTests
     private CommitSessionCommand Commit(
         ImportSession session, FakeImportSessionRepository repo,
         FakeCreateProductPort create, FakeAddStockPort add, FakeRecordPricePort price,
-        FakeEnsurePurchaseStorePort? store = null) =>
+        FakeEnsurePurchaseStorePort? store = null,
+        FakeReviewReferenceDataProvider? reference = null,
+        FakeSeedConversionPort? seed = null) =>
         new(session.Id, repo, create, add, price, store ?? new FakeEnsurePurchaseStorePort(),
+            reference ?? new FakeReviewReferenceDataProvider(), seed ?? new FakeSeedConversionPort(),
             Clock, new FakeTenantContext(_household), NullLogger<CommitSessionCommand>.Instance);
 
     [Fact]
@@ -246,6 +249,120 @@ public sealed class CommitSessionCommandTests
         Assert.Equal(ImportStatus.Committed, session.Status);
     }
 
+    // ── Weight→each (plantry-1mu) ──────────────────────────────────────────────────
+
+    private readonly Guid _lbUnitId = Guid.CreateVersion7();
+    private readonly Guid _eachUnitId = Guid.CreateVersion7();
+
+    private FakeReviewReferenceDataProvider WeightUnitReference() =>
+        new(new ReviewReferenceData(
+            Products: [],
+            Units:
+            [
+                new ReviewUnitOption(_lbUnitId, "lb", "Pound"),
+                new ReviewUnitOption(_eachUnitId, "each", "Each"),
+            ],
+            Locations: [],
+            Categories: []));
+
+    /// <summary>Adds a weight-priced, each-tracked line the user accepted as an each-count.</summary>
+    private ImportLine EstimatedEachLine(ImportSession session, Guid productId) =>
+        session.AddLine(1, "ORG BANANAS 1.34 lb", SuggestedConfidence.High, """{"x":1}""",
+            suggestedProductId: productId, suggestedQuantity: 1.34m, suggestedUnitLabel: "lb", suggestedPrice: 0.79m,
+            receiptWeight: 1.34m, receiptWeightUnitLabel: "lb",
+            estimatedEachCount: 7m, estimatedEachConfidence: SuggestedConfidence.High);
+
+    [Fact]
+    public async Task Records_The_Price_In_The_Receipt_Weight_Unit_Even_When_Stock_Committed_In_Each()
+    {
+        var session = ReadySession();
+        var productId = Guid.CreateVersion7();
+        var line = EstimatedEachLine(session, productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(productId, null, 7m, _eachUnitId, _locationId, null, price: 0.79m); // accepted 7 each
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var price = new FakeRecordPricePort();
+
+        var result = await Commit(session, repo, new(), new(), price, reference: WeightUnitReference()).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0.79m, Assert.Single(price.Prices));
+        Assert.Equal(1.34m, Assert.Single(price.Quantities)); // the true weight, not the 7-each count
+        Assert.Equal(_lbUnitId, Assert.Single(price.UnitIds)); // $/lb — never a $/each observation
+    }
+
+    [Fact]
+    public async Task Seeds_An_AiSuggested_Weight_To_Each_Conversion_When_An_Each_Count_Is_Accepted()
+    {
+        var session = ReadySession();
+        var productId = Guid.CreateVersion7();
+        var line = EstimatedEachLine(session, productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(productId, null, 7m, _eachUnitId, _locationId, null, price: 0.79m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var seed = new FakeSeedConversionPort();
+
+        var result = await Commit(session, repo, new(), new(), new(),
+            reference: WeightUnitReference(), seed: seed).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var seeded = Assert.Single(seed.Seeds);
+        Assert.Equal(productId, seeded.ProductId);
+        Assert.Equal(_lbUnitId, seeded.FromUnitId);   // from the receipt weight unit
+        Assert.Equal(_eachUnitId, seeded.ToUnitId);   // to the accepted each unit
+        Assert.Equal(7m / 1.34m, seeded.Factor);      // each per lb, from confirmed count / preserved weight
+    }
+
+    [Fact]
+    public async Task Does_Not_Seed_A_Conversion_When_The_User_Kept_The_Weight_Unit()
+    {
+        var session = ReadySession();
+        var productId = Guid.CreateVersion7();
+        var line = EstimatedEachLine(session, productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        // User rejected the each interpretation and committed in lb → no factor to learn.
+        line.Confirm(productId, null, 1.34m, _lbUnitId, _locationId, null, price: 0.79m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var seed = new FakeSeedConversionPort();
+
+        var result = await Commit(session, repo, new(), new(), new FakeRecordPricePort(),
+            reference: WeightUnitReference(), seed: seed).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(seed.Seeds);
+    }
+
+    [Fact]
+    public async Task Does_Not_Seed_A_Conversion_For_A_Genuinely_Weight_Tracked_Line()
+    {
+        // Deli ham: weight-priced but no each-estimate (parser left it null) → never converted.
+        var session = ReadySession();
+        var productId = Guid.CreateVersion7();
+        var line = session.AddLine(1, "BLACK FOREST HAM 0.35 lb", SuggestedConfidence.High, null,
+            suggestedProductId: productId, suggestedQuantity: 0.35m, suggestedUnitLabel: "lb", suggestedPrice: 4.20m);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(productId, null, 0.35m, _lbUnitId, _locationId, null, price: 4.20m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var seed = new FakeSeedConversionPort();
+        var price = new FakeRecordPricePort();
+
+        var result = await Commit(session, repo, new(), new(), price,
+            reference: WeightUnitReference(), seed: seed).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(seed.Seeds);
+        Assert.Equal(0.35m, Assert.Single(price.Quantities)); // priced in lb as before
+        Assert.Equal(_lbUnitId, Assert.Single(price.UnitIds));
+    }
+
     [Fact]
     public async Task Fails_When_No_Household_In_Context()
     {
@@ -256,7 +373,8 @@ public sealed class CommitSessionCommandTests
 
         var cmd = new CommitSessionCommand(
             session.Id, repo, new FakeCreateProductPort(), new FakeAddStockPort(), new FakeRecordPricePort(),
-            new FakeEnsurePurchaseStorePort(), Clock, new FakeTenantContext(null), NullLogger<CommitSessionCommand>.Instance);
+            new FakeEnsurePurchaseStorePort(), new FakeReviewReferenceDataProvider(), new FakeSeedConversionPort(),
+            Clock, new FakeTenantContext(null), NullLogger<CommitSessionCommand>.Instance);
         var result = await cmd.ExecuteAsync();
 
         Assert.True(result.IsFailure);
