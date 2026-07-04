@@ -164,6 +164,27 @@ public sealed class UnitConverterTests
     }
 
     [Fact]
+    public void AiSuggested_Conversion_Resolves_Like_Any_Other()
+    {
+        // ADR-022: provenance is metadata, not a computation gate. An ai_suggested lb→each
+        // bridge must resolve exactly as a user-confirmed one would.
+        var pounds = MakeUnit("lb", Dimension.Mass, 453.592m);
+        var each = MakeUnit("each", Dimension.Count, 1m, isBase: true);
+        var product = Product.Create(HouseholdId, "Bananas", each.Id, SystemClock.Instance);
+        var suggested = product.AddConversion(pounds.Id, each.Id, 5m, SystemClock.Instance, ConversionSource.AiSuggested);
+
+        Assert.True(suggested.IsAiSuggested); // guard: the bridge really is a suggestion
+
+        var forward = UnitConverter.Convert(2m, pounds.Id.Value, each.Id.Value, [pounds, each], [suggested]);
+        var inverse = UnitConverter.Convert(10m, each.Id.Value, pounds.Id.Value, [pounds, each], [suggested]);
+
+        Assert.True(forward.IsSuccess);
+        Assert.Equal(10m, forward.Value); // 2 lb × 5 each/lb
+        Assert.True(inverse.IsSuccess);
+        Assert.Equal(2m, inverse.Value); // 10 each ÷ 5 each/lb
+    }
+
+    [Fact]
     public void DirectProductConversion_PreferredOver_Inverse_When_Both_Match()
     {
         // Pathological double-entry data: both directions stored. Direct must win, by

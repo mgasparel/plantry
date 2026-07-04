@@ -14,10 +14,10 @@ using Xunit;
 namespace Plantry.Tests.Integration.Recipes;
 
 /// <summary>
-/// L3 integration test proving the <see cref="ShoppingListWriterAdapter"/> wiring (P2-4a):
-/// calling AddItemsAsync routes through Shopping's real add-item path, stamps source=recipe +
-/// source_ref=recipeId, and applies the reconcile rule (plantry-wxho) — adding the same
-/// missing product twice is idempotent rather than inflating the quantity.
+/// L3 integration test proving the <see cref="ShoppingListWriterAdapter"/> wiring (P2-4a, plantry-gsj):
+/// calling SyncSourceContributionAsync routes through Shopping's real SET/sync path, stamps
+/// source=recipe + source_ref=recipeId, and applies idempotent SET semantics — re-syncing the same
+/// target is a no-op (no drift) and re-syncing a lower target sets the slice down (last-press-wins).
 /// </summary>
 [Collection(nameof(PostgresCollection))]
 public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncLifetime
@@ -50,7 +50,7 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         var adapter = BuildAdapter();
         var items = new[] { new ShoppingItem(_product1, 2m, _unitId) };
 
-        await adapter.AddItemsAsync(items, source: "recipe", sourceRef: _recipeId);
+        await adapter.SyncSourceContributionAsync(items, source: "recipe", sourceRef: _recipeId);
 
         await using var ctx = NewShoppingDb();
         var list = await ctx.ShoppingLists
@@ -68,13 +68,13 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
 
     // ── Reconcile rule (plantry-wxho) — idempotent add-missing ──────────────
 
-    [Fact(DisplayName = "L3 — reconcile: adding the same recipe shortfall twice leaves one row with unchanged quantity")]
-    public async Task AddItems_SameShortfallTwice_IsIdempotent()
+    [Fact(DisplayName = "L3 — sync: re-syncing the same recipe shortfall twice leaves one row with unchanged quantity (no drift)")]
+    public async Task Sync_SameShortfallTwice_IsIdempotent()
     {
         var adapter = BuildAdapter();
 
-        // First call — shortfall of 3 units of product1
-        await adapter.AddItemsAsync(
+        // First sync — shortfall of 3 units of product1
+        await adapter.SyncSourceContributionAsync(
             [new ShoppingItem(_product1, 3m, _unitId)],
             source: "recipe",
             sourceRef: _recipeId);
@@ -87,8 +87,8 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
             Assert.Equal(3m, list.Items[0].Quantity);
         }
 
-        // Second call — same shortfall of 3 — already covered, no-op
-        await adapter.AddItemsAsync(
+        // Second sync — same shortfall of 3 — no-op (idempotent SET)
+        await adapter.SyncSourceContributionAsync(
             [new ShoppingItem(_product1, 3m, _unitId)],
             source: "recipe",
             sourceRef: _recipeId);
@@ -102,19 +102,19 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
                 .FirstAsync();
             Assert.Single(list.Items);              // NOT two rows
             Assert.Equal(3m, list.Items[0].Quantity); // unchanged — idempotent
-            // One contribution (same source/sourceRef → no new contribution was added).
+            // One contribution (same source/sourceRef → the slice was SET, not appended).
             var contrib = Assert.Single(list.Items[0].Contributions);
             Assert.Equal(ItemSource.Recipe, contrib.Source);
         }
     }
 
-    [Fact(DisplayName = "L3 — reconcile: larger shortfall tops up the existing row; smaller shortfall is a no-op")]
-    public async Task AddItems_ReconcilesBothLargerAndSmallerShortfall()
+    [Fact(DisplayName = "L3 — sync SET/last-press-wins: a larger target grows the slice, a smaller target sets it back down")]
+    public async Task Sync_SetsSliceToLatestTarget()
     {
         var adapter = BuildAdapter();
 
-        // First call — 2 units on the list
-        await adapter.AddItemsAsync(
+        // First sync — 2 units on the list
+        await adapter.SyncSourceContributionAsync(
             [new ShoppingItem(_product1, 2m, _unitId)],
             source: "recipe",
             sourceRef: _recipeId);
@@ -125,8 +125,8 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
             Assert.Equal(2m, list.Items[0].Quantity);
         }
 
-        // Second call — shortfall grows to 5 — tops up to 5 (toAdd = 3)
-        await adapter.AddItemsAsync(
+        // Second sync — target grows to 5 — slice SET to 5 (not stacked to 7)
+        await adapter.SyncSourceContributionAsync(
             [new ShoppingItem(_product1, 5m, _unitId)],
             source: "recipe",
             sourceRef: _recipeId);
@@ -135,11 +135,11 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         {
             var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);
-            Assert.Equal(5m, list.Items[0].Quantity); // topped up, not stacked to 7
+            Assert.Equal(5m, list.Items[0].Quantity);
         }
 
-        // Third call — shortfall now only 1 — list already exceeds it, no-op
-        await adapter.AddItemsAsync(
+        // Third sync — target drops to 1 — slice SET DOWN to 1 (SET semantics, not a no-op)
+        await adapter.SyncSourceContributionAsync(
             [new ShoppingItem(_product1, 1m, _unitId)],
             source: "recipe",
             sourceRef: _recipeId);
@@ -148,14 +148,14 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         {
             var list = await ctx.ShoppingLists.Include(l => l.Items).ThenInclude(i => i.Contributions).FirstAsync();
             Assert.Single(list.Items);
-            Assert.Equal(5m, list.Items[0].Quantity); // still 5, not reduced
+            Assert.Equal(1m, list.Items[0].Quantity); // set down to the latest target
         }
     }
 
     // ── Multiple items in one batch ────────────────────────────────────────────
 
-    [Fact(DisplayName = "L3 — batch: multiple items in one AddItems call are each persisted")]
-    public async Task AddItems_MultipleDifferentProducts_AllPersisted()
+    [Fact(DisplayName = "L3 — batch: multiple items in one sync call are each persisted")]
+    public async Task Sync_MultipleDifferentProducts_AllPersisted()
     {
         var adapter = BuildAdapter();
         var items = new[]
@@ -164,7 +164,7 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
             new ShoppingItem(_product2, 4m, _unitId),
         };
 
-        await adapter.AddItemsAsync(items, source: "recipe", sourceRef: _recipeId);
+        await adapter.SyncSourceContributionAsync(items, source: "recipe", sourceRef: _recipeId);
 
         await using var ctx = NewShoppingDb();
         var list = await ctx.ShoppingLists
@@ -183,12 +183,12 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
 
     // ── Empty items is a no-op ────────────────────────────────────────────────
 
-    [Fact(DisplayName = "L3 — empty items: AddItemsAsync with empty collection leaves list unchanged")]
-    public async Task AddItems_EmptyCollection_IsNoOp()
+    [Fact(DisplayName = "L3 — empty items: SyncSourceContributionAsync with empty collection leaves list unchanged")]
+    public async Task Sync_EmptyCollection_IsNoOp()
     {
         var adapter = BuildAdapter();
 
-        await adapter.AddItemsAsync([], source: "recipe", sourceRef: _recipeId);
+        await adapter.SyncSourceContributionAsync([], source: "recipe", sourceRef: _recipeId);
 
         await using var ctx = NewShoppingDb();
         var list = await ctx.ShoppingLists.Include(l => l.Items).FirstAsync();

@@ -21,8 +21,9 @@ namespace Plantry.Tests.Web.Infrastructure;
 file sealed class NullShoppingListWriter : IShoppingListWriter
 {
     public static readonly NullShoppingListWriter Instance = new();
-    public Task AddItemsAsync(IEnumerable<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public Task<ShoppingSyncOutcome> SyncSourceContributionAsync(
+        IReadOnlyList<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
+        => Task.FromResult(ShoppingSyncOutcome.None);
 }
 
 /// <summary>
@@ -81,6 +82,7 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme mirrors ReviewFragmentFactory.
             services.AddAuthentication(opts =>
                 {

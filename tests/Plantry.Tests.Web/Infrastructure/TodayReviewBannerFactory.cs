@@ -32,6 +32,7 @@ public sealed class TodayReviewBannerOneFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // ── Auth ─────────────────────────────────────────────────────────
             services.AddAuthentication(opts =>
                 {
@@ -114,6 +115,7 @@ public sealed class TodayReviewBannerManyFactory : WebApplicationFactory<Program
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -188,6 +190,7 @@ public sealed class TodayReviewBannerNoneFactory : WebApplicationFactory<Program
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

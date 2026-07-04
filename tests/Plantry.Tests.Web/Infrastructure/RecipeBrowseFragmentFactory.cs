@@ -32,6 +32,7 @@ public sealed class RecipeBrowseFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme, same pattern as other L4 factories.
             services.AddAuthentication(opts =>
                 {

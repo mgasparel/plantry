@@ -193,26 +193,51 @@ public sealed class ShoppingListQueryService(
     }
 
     /// <summary>
-    /// Returns true when the current household's shopping list already carries a Recipe-source
-    /// contribution for <paramref name="recipeId"/> (a contribution with
-    /// <see cref="ItemSource.Recipe"/> and <c>SourceRef == recipeId</c>).
-    ///
-    /// <para>Used by the recipe Detail page to server-render the "Add … to shopping list" buttons in
-    /// their already-added (greyed) state so a return visit reflects the true list state and does not
-    /// invite a duplicate add (plantry-yt0m). The check is tenant-scoped via the repository's household
-    /// filter + RLS backstop; it returns false when there is no household context or no list yet.</para>
+    /// Reads the current household's shopping list and projects, for <paramref name="recipeId"/>, the
+    /// state the recipe Detail page needs to render the "Add missing" / "Add all" buttons in their true
+    /// per-delta state (plantry-gsj, refining the coarse yt0m boolean):
+    /// <list type="bullet">
+    ///   <item><description><b>ContributedByProduct</b> — this recipe's own contributed quantity on each
+    ///     UNCHECKED product row (Source=Recipe, SourceRef=recipeId). Used to decide, per shortfall line,
+    ///     whether the recipe already covers it (→ "Added"), partially covers it (→ "Add N more"), or has
+    ///     not contributed it yet (→ "Add N missing").</description></item>
+    ///   <item><description><b>CheckedOffProducts</b> — products with a checked-off row (any source). A
+    ///     shortfall line for such a product is treated as covered (the sync will not resurrect a completed
+    ///     intent).</description></item>
+    /// </list>
+    /// Tenant-scoped via the repository's household filter + RLS backstop; returns
+    /// <see cref="RecipeContributionState.Empty"/> when there is no household context or no list yet.
     /// </summary>
-    public async Task<bool> HasRecipeContributionAsync(Guid recipeId, CancellationToken ct = default)
+    public async Task<RecipeContributionState> GetRecipeContributionStateAsync(Guid recipeId, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdId)
-            return false;
+            return RecipeContributionState.Empty;
 
         var list = await repository.GetForHouseholdAsync(HouseholdId.From(householdId), ct);
         if (list is null)
-            return false;
+            return RecipeContributionState.Empty;
 
-        return list.Items.Any(i => i.Contributions.Any(
-            c => c.Source == ItemSource.Recipe && c.SourceRef == recipeId));
+        var contributed = new Dictionary<Guid, decimal>();
+        var checkedProducts = new HashSet<Guid>();
+
+        foreach (var item in list.Items)
+        {
+            if (!item.ProductId.HasValue)
+                continue;
+
+            if (item.IsChecked)
+            {
+                checkedProducts.Add(item.ProductId.Value);
+                continue;
+            }
+
+            var contrib = item.Contributions.FirstOrDefault(
+                c => c.Source == ItemSource.Recipe && c.SourceRef == recipeId);
+            if (contrib is not null)
+                contributed[item.ProductId.Value] = contrib.Quantity ?? 0m;
+        }
+
+        return new RecipeContributionState(contributed, checkedProducts);
     }
 
     private static ShoppingListItemView MapItem(

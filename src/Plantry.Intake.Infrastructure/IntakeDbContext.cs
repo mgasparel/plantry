@@ -105,6 +105,16 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.SuggestedQuantity).HasColumnName("suggested_quantity").HasPrecision(12, 3);
             b.Property(l => l.SuggestedUnitLabel).HasColumnName("suggested_unit_label").HasMaxLength(20);
             b.Property(l => l.SuggestedPrice).HasColumnName("suggested_price").HasPrecision(12, 2);
+            // Weight→each ground truth (plantry-1mu) — set once at parse, preserved through commit.
+            b.Property(l => l.ReceiptWeight).HasColumnName("receipt_weight").HasPrecision(12, 3);
+            b.Property(l => l.ReceiptWeightUnitLabel).HasColumnName("receipt_weight_unit_label").HasMaxLength(20);
+            b.Property(l => l.EstimatedEachCount).HasColumnName("estimated_each_count").HasPrecision(12, 3);
+            b.Property(l => l.EstimatedEachConfidence)
+                .HasColumnName("estimated_each_confidence")
+                .HasMaxLength(10)
+                .HasConversion(
+                    c => c == null ? null : c.Value.ToDbValue(),
+                    v => v == null ? null : SuggestedConfidenceExtensions.Parse(v));
             // suggested_alternatives is stored as jsonb — AI-populated at parse time, never overwritten.
             b.Property(l => l.SuggestedAlternatives)
                 .HasColumnName("suggested_alternatives")

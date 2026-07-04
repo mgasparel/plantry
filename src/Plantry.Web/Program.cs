@@ -196,6 +196,12 @@ builder.Services.AddScoped<ProductQueryService>();
 // Inventory context
 builder.Services.AddScoped<IProductStockRepository, ProductStockRepository>();
 builder.Services.AddScoped<InventoryQueryService>();
+// Per-household "expiring soon" horizon (plantry-5yhd): one settings service backs both the read
+// port (IExpiringSoonHorizon, consumed by InventoryQueryService and the Recipes adapter) and the
+// /Settings/Pantry write path.
+builder.Services.AddScoped<IHouseholdInventorySettingsRepository, HouseholdInventorySettingsRepository>();
+builder.Services.AddScoped<ExpiringSoonSettingsService>();
+builder.Services.AddScoped<IExpiringSoonHorizon>(sp => sp.GetRequiredService<ExpiringSoonSettingsService>());
 // Purchase-frequency read over the stock journal — feeds the Deals stock-up alerts (P5-10 / DL-O4).
 builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
@@ -249,6 +255,14 @@ builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
             sp.GetRequiredService<DomainEventCommitDispatchInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 builder.Services.AddScoped<PendingReviewQuery>();
+
+// Receipt-upload abuse gate (plantry-aij): per-household burst + daily rate limit over the upload POST
+// handler. Singleton so its fixed-window counters persist across requests; limits are tunable via the
+// Intake:UploadRateLimit config section (defaults 10/min + 100/day). The pre-buffer size cap and the
+// magic-byte sniff are enforced on the page model itself (see Pages/Intake/Upload.cshtml.cs).
+builder.Services.Configure<ReceiptUploadRateLimitOptions>(
+    builder.Configuration.GetSection(ReceiptUploadRateLimitOptions.SectionName));
+builder.Services.AddSingleton<ReceiptUploadRateLimiter>();
 
 // Recipes context (Phase 2). P2-1 adds domain behaviour, EF child-collection mapping, and the
 // IRecipeRepository; P2-3a adds ICookEventRepository; later P2 steps add application services.
@@ -502,6 +516,9 @@ builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
 // Consume primitive without the Recipes context touching Inventory tables directly (ADR-011).
 builder.Services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>();
 builder.Services.AddScoped<IInventoryConsumer, InventoryConsumerAdapter>();
+// Read port onto the per-household "expiring soon" horizon so the browse "use soon" filter agrees
+// with Inventory's Today widget by construction (plantry-5yhd, ADR-002).
+builder.Services.AddScoped<IExpiringSoonHorizonReader, ExpiringSoonHorizonReaderAdapter>();
 
 // Recipes → Pricing anti-corruption adapter (P2-2b, recipes-domain-model.md §8). Supplies
 // CostingService with the latest PriceObservation per product from the Pricing context.
@@ -534,8 +551,9 @@ builder.Services.AddScoped<ReconcilePendingCooks>();
 builder.Services.AddScoped<CookRecipe>();
 
 // Recipes → Shopping anti-corruption write adapter (P2-4a, recipes-domain-model.md §8 IShoppingListWriter).
-// ShoppingListWriterAdapter implements the port over Shopping's AddItemCommand, stamping source=recipe +
-// source_ref=recipeId and delegating the merge rule to Shopping (DM-18 / shopping.md resolved call 5).
+// ShoppingListWriterAdapter implements the port over Shopping's SyncSourceContributionCommand, stamping
+// source=recipe + source_ref=recipeId and delegating idempotent SET/sync semantics to Shopping
+// (plantry-gsj; DM-18 / shopping.md resolved call 5).
 builder.Services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
 
 // Add-missing-to-shopping-list application service (P2-4a, recipes-domain-model.md §7, J5).
@@ -576,6 +594,7 @@ builder.Services.AddScoped<IRecordPricePort, RecordPriceAdapter>();
 // over Catalog's EnsureStoreByNameCommand (Intake never touches CatalogDbContext directly).
 builder.Services.AddScoped<IEnsurePurchaseStorePort, EnsurePurchaseStoreAdapter>();
 builder.Services.AddScoped<IReviewReferenceDataProvider, ReviewReferenceDataProvider>();
+builder.Services.AddScoped<ISeedConversionPort, SeedConversionAdapter>();
 
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();

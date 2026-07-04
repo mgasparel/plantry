@@ -34,8 +34,10 @@ public sealed class ExpiringSoonQueryTests
 
     private InventoryQueryService Service(
         FakeProductStockRepository stocks, FakeCatalogReadFacade catalog,
-        IQuantityConverter converter, Guid? household) =>
-        new(stocks, catalog, new FakeConversionProvider(converter), Clock, new FakeTenantContext(household));
+        IQuantityConverter converter, Guid? household,
+        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays) =>
+        new(stocks, catalog, new FakeConversionProvider(converter),
+            new FakeExpiringSoonHorizon(horizonDays), Clock, new FakeTenantContext(household));
 
     private FakeCatalogReadFacade Catalog(params (Guid id, string name)[] products)
     {
@@ -78,6 +80,28 @@ public sealed class ExpiringSoonQueryTests
             .ExpiringSoonAsync();
 
         Assert.Empty(result);
+    }
+
+    [Fact(DisplayName = "ExpiringSoon — the window follows the configured horizon, not the default")]
+    public async Task ExpiringSoon_Honors_Configured_Horizon()
+    {
+        // Configured horizon of 3: a lot 3 days out is in the window, one 4 days out is not.
+        // Under the default (7) both would appear — this passes only if the configured value drives it.
+        var stocks = new FakeProductStockRepository();
+        var within = ProductStock.Start(HouseholdId.From(_household), _product1, Clock);
+        within.AddStock(100m, _grams, _location, _user, Clock, expiryDate: Today.AddDays(3));
+        var beyond = ProductStock.Start(HouseholdId.From(_household), _product2, Clock);
+        beyond.AddStock(100m, _grams, _location, _user, Clock, expiryDate: Today.AddDays(4));
+        stocks.Items.Add(within);
+        stocks.Items.Add(beyond);
+
+        var result = await Service(
+                stocks, Catalog((_product1, "Milk"), (_product2, "Flour")),
+                new IdentityQuantityConverter(), _household, horizonDays: 3)
+            .ExpiringSoonAsync();
+
+        var item = Assert.Single(result);
+        Assert.Equal(_product1, item.ProductId);
     }
 
     [Fact(DisplayName = "ExpiringSoon — product with no dated lots is excluded")]
@@ -198,7 +222,7 @@ public sealed class ExpiringSoonQueryTests
             // Use days 0..totalCount-1 modulo window so all items are within the expiry window.
             // Expired items (i >= 1 → negative offset) and today (i=0) are all in scope.
             stock.AddStock(100m, _grams, _location, _user, Clock,
-                expiryDate: Today.AddDays(-(i % (InventoryQueryService.ExpiringSoonDays + 1))));
+                expiryDate: Today.AddDays(-(i % (HouseholdInventorySettings.DefaultExpiringSoonDays + 1))));
             stocks.Items.Add(stock);
         }
 

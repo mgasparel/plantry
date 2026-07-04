@@ -99,7 +99,16 @@ else
                 </div>
             }
         </div>
-        <div class="today-widget__foot">
+        @* Two-up foot: primary "Use these up" deep-links to the Recipes browse pre-filtered
+           to the "use soon" horizon and sorted by cookability (fulfillment-desc is the browse
+           default), so the user immediately sees recipes that use their expiring items and can
+           mostly make (plantry-w1e). The expiring set and the recipe filter set share one
+           household horizon (plantry-5yhd), so the two surfaces agree by construction. *@
+        <div class="today-widget__foot today-widget__foot--split">
+            <a href="/Recipes?soon=true" class="today-widget__foot-cta">
+                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                Use these up
+            </a>
             <a href="/Pantry">
                 Review all in pantry
                 <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>

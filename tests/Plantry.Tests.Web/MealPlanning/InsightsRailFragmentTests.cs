@@ -165,6 +165,7 @@ public sealed class InsightsRailFragmentFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.RemoveAll<IMealPlanExpiringStockReader>();
             services.AddSingleton<IMealPlanExpiringStockReader>(new OneExpiringProductReader());
 

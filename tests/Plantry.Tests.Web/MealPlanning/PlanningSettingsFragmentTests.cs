@@ -136,6 +136,7 @@ public sealed class BudgetSetPlanningSettingsFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             var householdId = HouseholdId.From(WeekGridFixture.HouseholdId);
             var settings = HouseholdPlanningSettings.Create(householdId);
             settings.SetDefaults(Money.FromDecimal(_budgetDecimal, "USD"), null);
@@ -159,6 +160,7 @@ public sealed class SetPlanningSettingsFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Replace null stubs with mutable in-memory stubs so ExecuteAsync can upsert
             services.RemoveAll<IHouseholdPlanningSettingsRepository>();
             services.AddSingleton<IHouseholdPlanningSettingsRepository>(new MutablePlanningSettingsRepo());

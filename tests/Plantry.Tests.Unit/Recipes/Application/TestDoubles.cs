@@ -10,6 +10,13 @@ internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
     public Guid? HouseholdId { get; } = householdId;
 }
 
+/// <summary>Returns a fixed "expiring soon" horizon for <c>FulfillmentService.ComputeAsync</c>.
+/// Defaults to 7 (the Inventory default) so browse "use soon" behaviour matches the widget.</summary>
+internal sealed class FakeExpiringSoonHorizonReader(int days = 7) : IExpiringSoonHorizonReader
+{
+    public Task<int> GetDaysAsync(CancellationToken ct = default) => Task.FromResult(days);
+}
+
 internal sealed class FakeRecipeRepository : IRecipeRepository
 {
     public List<Recipe> Items { get; } = [];

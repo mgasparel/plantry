@@ -195,6 +195,7 @@ public sealed class PlanCostChipOobFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // POST handlers call GetCurrentUserIdAsync — stub UserManager off Identity DB.
             services.RemoveAll<UserManager<AppUser>>();
             services.AddSingleton<UserManager<AppUser>>(

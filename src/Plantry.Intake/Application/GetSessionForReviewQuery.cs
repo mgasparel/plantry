@@ -36,7 +36,12 @@ public sealed record ReviewLineView(
     string? SuggestedUnitLabel,
     decimal? SuggestedPrice,
     /// <summary>Ranked alternative candidates (best-first). Null when fewer than two credible candidates.</summary>
-    IReadOnlyList<ReviewAlternativeView>? SuggestedAlternatives = null);
+    IReadOnlyList<ReviewAlternativeView>? SuggestedAlternatives = null,
+    // ── Weight→each estimate (plantry-1mu) — ground-truth weight + the LLM's each-count estimate ──
+    decimal? ReceiptWeight = null,
+    string? ReceiptWeightUnitLabel = null,
+    decimal? EstimatedEachCount = null,
+    SuggestedConfidence? EstimatedEachConfidence = null);
 
 /// <summary>
 /// The session header plus its lines and the Catalog reference data (dropdown options) needed to render
@@ -115,7 +120,11 @@ public sealed class GetSessionForReviewQuery(
                     l.SuggestedQuantity,
                     l.SuggestedUnitLabel,
                     l.SuggestedPrice,
-                    alternatives);
+                    alternatives,
+                    l.ReceiptWeight,
+                    l.ReceiptWeightUnitLabel,
+                    l.EstimatedEachCount,
+                    l.EstimatedEachConfidence);
             })
             .ToList();
 

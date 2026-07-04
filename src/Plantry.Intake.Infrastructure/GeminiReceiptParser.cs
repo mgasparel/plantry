@@ -74,6 +74,8 @@ public sealed class GeminiReceiptParser : IReceiptParser
               "unit": "kg or lb for weight-priced items, otherwise null",
               "price": 5.49,
               "confidence": "high | low | none",
+              "estimated_each_count": null,
+              "each_confidence": null,
               "alternatives": [
                 { "product_id": "catalog UUID copied verbatim", "product_name": "catalog name", "confidence": 0.72 }
               ]
@@ -86,6 +88,16 @@ public sealed class GeminiReceiptParser : IReceiptParser
         - price = final amount paid for that line after discounts.
         - quantity = weight (kg/lb) for weight-priced items, otherwise the item count.
         - suggested_product_id MUST be copied verbatim from the catalog list below, or null.
+        - Weight-priced item tracked by EACH (produce → estimate a count): when a line is priced by
+          weight (kg/lb) AND you matched it to a catalog product marked "tracked by: each", the household
+          counts this product in whole units, not by weight. Keep quantity+unit as the true weight, and
+          ALSO set estimated_each_count to your best estimate of how many units that weight represents
+          (e.g. 1.34 lb of bananas ≈ 7), with each_confidence = "high" (confident) or "low" (a rough
+          guess). Estimate from typical unit weights for that product.
+        - Do NOT estimate a count when the matched product is "tracked by: weight/volume" (deli meat,
+          bulk grains, oil) or is unmatched: leave estimated_each_count and each_confidence null. A
+          genuinely weight-tracked product stays in its weight unit.
+        - When a line is NOT weight-priced, leave estimated_each_count and each_confidence null.
         - confidence: "high" = clear match; "low" = plausible but uncertain; "none" = nothing reasonable
           in the catalog (then suggested_product_id and suggested_product_name are null).
         - alternatives: for EVERY line, list the next-best catalog candidates EXCLUDING whichever product
@@ -174,12 +186,15 @@ public sealed class GeminiReceiptParser : IReceiptParser
 
     private static string BuildCatalogBlock(IReadOnlyList<ProductHint> hints)
     {
-        var sb = new StringBuilder("Match against this catalog (id — name — skus):\n");
+        var sb = new StringBuilder("Match against this catalog (id — name — skus — tracking):\n");
         foreach (var h in hints)
         {
             sb.Append('[').Append(h.Id).Append("] ").Append(h.Name);
             if (h.SkuLabels.Count > 0)
                 sb.Append(" — ").Append(string.Join(", ", h.SkuLabels));
+            // Tracking unit tells the model whether a weight-priced match should also be estimated as an
+            // each-count (plantry-1mu): only "tracked by: each" products get an estimated_each_count.
+            sb.Append(" — tracked by: ").Append(h.TracksEach ? "each" : "weight/volume");
             sb.Append('\n');
         }
         return sb.ToString();
@@ -223,7 +238,9 @@ public sealed class GeminiReceiptParser : IReceiptParser
                         Price: GetDecimal(el, "price"),
                         Confidence: GetString(el, "confidence"),
                         RawJson: el.GetRawText(),
-                        Alternatives: MapAlternatives(el, primaryId)));
+                        Alternatives: MapAlternatives(el, primaryId),
+                        EstimatedEachCount: GetPositiveDecimal(el, "estimated_each_count"),
+                        EstimatedEachConfidence: GetString(el, "each_confidence")));
                 }
             }
 
@@ -302,6 +319,11 @@ public sealed class GeminiReceiptParser : IReceiptParser
 
     private static decimal? GetDecimal(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetDecimal(out var v) ? v : null;
+
+    // An each-count estimate is only meaningful when strictly positive — the untrusted model may emit 0,
+    // a negative, or null; all collapse to null (no estimate) rather than seeding a bogus conversion.
+    private static decimal? GetPositiveDecimal(JsonElement el, string name) =>
+        GetDecimal(el, name) is { } v && v > 0m ? v : null;
 
     private static Guid? GetGuid(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String && Guid.TryParse(p.GetString(), out var v) ? v : null;

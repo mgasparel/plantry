@@ -91,14 +91,14 @@ public static class ShoppingListFixture
 
     /// <summary>
     /// Pantry stock levels for the fixture products (plantry-juh).
-    /// Milk: 2 L on-hand (not low). Flour: 0 g on-hand (out, IsLow = true).
-    /// This exercises both "N unit in pantry" and "out / low" render paths.
+    /// Milk: 2 L on-hand (not low). Flour: 0 g on-hand (out; IsLow = false — out is not "running
+    /// low", per plantry-43y). This exercises both the "N unit in pantry" and "out" render paths.
     /// </summary>
     public static IReadOnlyDictionary<Guid, ShoppingPantryStockLevel> StockLevels() =>
         new Dictionary<Guid, ShoppingPantryStockLevel>
         {
             [MilkProductId]  = new(MilkProductId,  OnHand: 2m,   UnitCode: "L",  IsLow: false),
-            [FlourProductId] = new(FlourProductId, OnHand: 0m,   UnitCode: "g",  IsLow: true),
+            [FlourProductId] = new(FlourProductId, OnHand: 0m,   UnitCode: "g",  IsLow: false),
         };
 
     /// <summary>

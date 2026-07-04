@@ -7,7 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Shopping.Domain;
 using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web;
@@ -137,6 +139,7 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -170,6 +173,12 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
 
             services.RemoveAll<IShoppingListWriter>();
             services.AddSingleton<IShoppingListWriter>(NullShoppingListWriterForFulfilment.Instance);
+
+            // The fulfilment handler now reads the recipe's contribution state to compute the
+            // add-button labels (plantry-gsj); stub an empty list so it resolves to "not on the list"
+            // without a real Shopping DB connection.
+            services.RemoveAll<IShoppingListRepository>();
+            services.AddScoped<IShoppingListRepository, NullShoppingListRepositoryForFulfilment>();
         });
     }
 }
@@ -178,6 +187,22 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
 file sealed class NullShoppingListWriterForFulfilment : IShoppingListWriter
 {
     public static readonly NullShoppingListWriterForFulfilment Instance = new();
-    public Task AddItemsAsync(IEnumerable<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public Task<ShoppingSyncOutcome> SyncSourceContributionAsync(
+        IReadOnlyList<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
+        => Task.FromResult(ShoppingSyncOutcome.None);
+}
+
+/// <summary>Empty shopping list repository (file-scoped) — the fulfilment handler treats the recipe as
+/// not yet on the list (plantry-gsj), avoiding a real Shopping DB connection.</summary>
+file sealed class NullShoppingListRepositoryForFulfilment : IShoppingListRepository
+{
+    public Task<ShoppingList?> GetForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
+        => Task.FromResult<ShoppingList?>(null);
+
+    public Task<ShoppingList?> GetByIdAsync(ShoppingListId id, CancellationToken ct = default)
+        => Task.FromResult<ShoppingList?>(null);
+
+    public Task AddAsync(ShoppingList list, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task SaveAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

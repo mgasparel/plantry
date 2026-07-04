@@ -284,6 +284,7 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -429,6 +430,7 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme
             services.AddAuthentication(opts =>
                 {
@@ -538,6 +540,7 @@ public sealed class MultiMealCellFragmentFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Swap out the empty FakeMealPlanRepo with a pre-seeded two-meal variant
             services.RemoveAll<IMealPlanRepository>();
             services.AddScoped<IMealPlanRepository>(_ => new TwoMealCellRepo());
@@ -736,6 +739,7 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

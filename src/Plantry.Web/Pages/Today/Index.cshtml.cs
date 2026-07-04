@@ -113,7 +113,7 @@ public sealed class IndexModel(
     public bool ShowTakeStockCta { get; private set; }
 
     /// <summary>
-    /// Products expiring within the next <see cref="InventoryQueryService.ExpiringSoonDays"/> days
+    /// Products expiring within the household's configured "expiring soon" horizon
     /// (or already expired), ordered soonest-first. Empty when <see cref="IsColdStart"/> is true
     /// or the household has no stock nearing expiry.
     /// </summary>

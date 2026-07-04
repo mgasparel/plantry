@@ -212,7 +212,11 @@ public sealed class ReviewRowModelTests
         string? suggestedProductName = null,
         decimal? suggestedQuantity = null,
         string? suggestedUnitLabel = null,
-        decimal? suggestedPrice = null) =>
+        decimal? suggestedPrice = null,
+        decimal? receiptWeight = null,
+        string? receiptWeightUnitLabel = null,
+        decimal? estimatedEachCount = null,
+        SuggestedConfidence? estimatedEachConfidence = null) =>
         new(
             LineId: Guid.NewGuid(),
             LineNo: 1,
@@ -233,5 +237,73 @@ public sealed class ReviewRowModelTests
             SuggestedProductName: suggestedProductName,
             SuggestedQuantity: suggestedQuantity,
             SuggestedUnitLabel: suggestedUnitLabel,
-            SuggestedPrice: suggestedPrice);
+            SuggestedPrice: suggestedPrice,
+            SuggestedAlternatives: null,
+            ReceiptWeight: receiptWeight,
+            ReceiptWeightUnitLabel: receiptWeightUnitLabel,
+            EstimatedEachCount: estimatedEachCount,
+            EstimatedEachConfidence: estimatedEachConfidence);
+
+    // ── Weight→each estimate gating (plantry-1mu) ──────────────────────────────────
+    // Bananas: a produce product tracked by each. Its default unit is EachId, so a high-confidence
+    // each-count estimate should pre-fill the count in the each unit; a low-confidence one must not.
+    private static readonly Guid BananasId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+    private static readonly IReadOnlyDictionary<string, Guid> EstUnitIdByCode =
+        new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase) { ["L"] = LitreId, ["lb"] = Guid.Parse("77777777-7777-7777-7777-777777777777") };
+    private static readonly IReadOnlyDictionary<Guid, string> EstProductNameById =
+        new Dictionary<Guid, string> { [BananasId] = "Bananas" };
+    private static readonly IReadOnlyDictionary<Guid, Guid?> EstProductDefaultLocationById =
+        new Dictionary<Guid, Guid?> { [BananasId] = FridgeId };
+    private static readonly IReadOnlyDictionary<Guid, Guid> EstProductDefaultUnitById =
+        new Dictionary<Guid, Guid> { [BananasId] = EachId };
+
+    private static (Guid? ProductId, string? ProductName, decimal? Qty, Guid? UnitId, Guid? LocationId, decimal? Price, DateOnly? Expiry) ComputeEst(ReviewLineView line) =>
+        ReviewRowModel.ComputePrefill(line, EstUnitIdByCode, EstProductNameById, EstProductDefaultLocationById,
+            EstProductDefaultUnitById, new Dictionary<Guid, int?> { [BananasId] = null }, Today);
+
+    [Fact]
+    public void High_confidence_each_estimate_prefills_the_count_in_the_each_unit()
+    {
+        var line = Line(LineStatus.Pending,
+            suggestedProductId: BananasId, suggestedProductName: "Bananas",
+            suggestedQuantity: 1.34m, suggestedUnitLabel: "lb", suggestedPrice: 0.79m,
+            receiptWeight: 1.34m, receiptWeightUnitLabel: "lb",
+            estimatedEachCount: 7m, estimatedEachConfidence: SuggestedConfidence.High);
+
+        var (_, _, qty, unitId, _, _, _) = ComputeEst(line);
+
+        Assert.Equal(7m, qty);         // the each-count, not the 1.34 lb weight
+        Assert.Equal(EachId, unitId);  // the product's each unit, not "lb"
+    }
+
+    [Fact]
+    public void Low_confidence_each_estimate_leaves_the_weight_and_merely_suggests()
+    {
+        var line = Line(LineStatus.Pending,
+            suggestedProductId: BananasId, suggestedProductName: "Bananas",
+            suggestedQuantity: 1.34m, suggestedUnitLabel: "lb", suggestedPrice: 0.79m,
+            receiptWeight: 1.34m, receiptWeightUnitLabel: "lb",
+            estimatedEachCount: 7m, estimatedEachConfidence: SuggestedConfidence.Low);
+
+        var (_, _, qty, unitId, _, _, _) = ComputeEst(line);
+
+        Assert.Equal(1.34m, qty);                                       // stays the weight
+        Assert.Equal(EstUnitIdByCode["lb"], unitId);                    // stays "lb"
+    }
+
+    [Fact]
+    public void User_resolved_unit_wins_over_a_high_confidence_each_estimate()
+    {
+        var chosenUnit = Guid.NewGuid();
+        var line = Line(LineStatus.Confirmed,
+            productId: BananasId, quantity: 2m, unitId: chosenUnit, price: 0.79m,
+            suggestedProductId: BananasId,
+            receiptWeight: 1.34m, receiptWeightUnitLabel: "lb",
+            estimatedEachCount: 7m, estimatedEachConfidence: SuggestedConfidence.High);
+
+        var (_, _, qty, unitId, _, _, _) = ComputeEst(line);
+
+        Assert.Equal(2m, qty);          // the user's resolved quantity, not the estimate
+        Assert.Equal(chosenUnit, unitId);
+    }
 }

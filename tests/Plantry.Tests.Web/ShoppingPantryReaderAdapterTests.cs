@@ -50,6 +50,22 @@ public sealed class ShoppingPantryReaderAdapterTests
         return stock;
     }
 
+    /// <summary>Stock with an active lot and a low stock threshold set (for running-low tests).</summary>
+    private static ProductStock MakeStockWithLotAndThreshold(Guid productId, decimal quantity, Guid unitId, decimal threshold)
+    {
+        var stock = MakeStockWithLot(productId, quantity, unitId);
+        stock.SetLowStockThreshold(threshold, Clock);
+        return stock;
+    }
+
+    /// <summary>Stock with a threshold set but no active lots (out, but with a threshold configured).</summary>
+    private static ProductStock MakeStockWithThresholdNoLots(Guid productId, decimal threshold)
+    {
+        var stock = ProductStock.Start(Household, productId, Clock);
+        stock.SetLowStockThreshold(threshold, Clock);
+        return stock;
+    }
+
     // ── Core enrichment ───────────────────────────────────────────────────────
 
     [Fact(DisplayName = "GetStockLevels — product with active lot: OnHand = lot quantity, IsLow = false")]
@@ -71,11 +87,11 @@ public sealed class ShoppingPantryReaderAdapterTests
         Assert.False(level.IsLow);
     }
 
-    [Fact(DisplayName = "GetStockLevels — product with no active lots: OnHand = 0, IsLow = true")]
-    public async Task GetStockLevels_ProductWithNoLots_OnHandZeroIsLowTrue()
+    [Fact(DisplayName = "GetStockLevels — out product, no threshold: OnHand = 0, IsLow = false (out is not running low)")]
+    public async Task GetStockLevels_ProductWithNoLots_OnHandZeroIsLowFalse()
     {
         var stocks = new FakePantryStockRepository();
-        stocks.Add(MakeStock(MilkId)); // no lots
+        stocks.Add(MakeStock(MilkId)); // no lots, no threshold
 
         var catalog = new FakePantryCatalogFacade();
         catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L");
@@ -85,7 +101,109 @@ public sealed class ShoppingPantryReaderAdapterTests
 
         var level = Assert.Single(result).Value;
         Assert.Equal(0m, level.OnHand);
+        // IsLow is running-low only (0 < onHand ≤ threshold). Out (onHand = 0) is NOT running low.
+        Assert.False(level.IsLow);
+    }
+
+    // ── Tri-state IsLow computation (plantry-43y): in-stock / running-low / out ─
+
+    [Fact(DisplayName = "GetStockLevels — in-stock above threshold: IsLow = false")]
+    public async Task GetStockLevels_AboveThreshold_IsLowFalse()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLotAndThreshold(MilkId, quantity: 10m, LitreId, threshold: 3m));
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L");
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetStockLevelsAsync([MilkId]);
+
+        var level = Assert.Single(result).Value;
+        Assert.Equal(10m, level.OnHand);
+        Assert.False(level.IsLow);
+    }
+
+    [Fact(DisplayName = "GetStockLevels — running low (0 < onHand < threshold): IsLow = true")]
+    public async Task GetStockLevels_BelowThreshold_IsLowTrue()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLotAndThreshold(MilkId, quantity: 2m, LitreId, threshold: 3m));
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L");
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetStockLevelsAsync([MilkId]);
+
+        var level = Assert.Single(result).Value;
+        Assert.Equal(2m, level.OnHand);
         Assert.True(level.IsLow);
+    }
+
+    [Fact(DisplayName = "GetStockLevels — onHand exactly at threshold: IsLow = true (inclusive boundary)")]
+    public async Task GetStockLevels_AtThreshold_IsLowTrue()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLotAndThreshold(MilkId, quantity: 3m, LitreId, threshold: 3m));
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L");
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetStockLevelsAsync([MilkId]);
+
+        var level = Assert.Single(result).Value;
+        Assert.Equal(3m, level.OnHand);
+        Assert.True(level.IsLow);
+    }
+
+    [Fact(DisplayName = "GetStockLevels — out with threshold set: OnHand = 0, IsLow = false (out beats low)")]
+    public async Task GetStockLevels_OutWithThreshold_IsLowFalse()
+    {
+        var stocks = new FakePantryStockRepository();
+        // Threshold set but no active lots: IsRunningLow(0) alone would be true (0 ≤ 3); the adapter's
+        // onHand > 0 guard forces IsLow = false so out and low never both fire.
+        stocks.Add(MakeStockWithThresholdNoLots(MilkId, threshold: 3m));
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L");
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetStockLevelsAsync([MilkId]);
+
+        var level = Assert.Single(result).Value;
+        Assert.Equal(0m, level.OnHand);
+        Assert.False(level.IsLow);
+    }
+
+    // ── Restock-candidate predicate (plantry-43y): GetLowStockProductsAsync = low ∪ out ─
+
+    [Fact(DisplayName = "GetLowStockProducts — includes running-low, out, and excludes in-stock")]
+    public async Task GetLowStockProducts_ReturnsLowAndOut_ExcludesInStock()
+    {
+        var eggsId = Guid.Parse("11111111-1111-1111-1111-000000000003");
+
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLotAndThreshold(MilkId, quantity: 2m, LitreId, threshold: 3m));   // running low
+        stocks.Add(MakeStockWithThresholdNoLots(FlourId, threshold: 500m));                        // out
+        stocks.Add(MakeStockWithLotAndThreshold(eggsId, quantity: 10m, LitreId, threshold: 3m));   // in-stock
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L");
+        catalog.AddProduct(FlourId, defaultUnitId: GramId, defaultUnitCode: "g");
+        catalog.AddProduct(eggsId, defaultUnitId: LitreId, defaultUnitCode: "L");
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetLowStockProductsAsync();
+
+        Assert.Equal(2, result.Count);
+        var milk = Assert.Single(result, l => l.ProductId == MilkId);
+        Assert.True(milk.IsLow);   // running low
+        var flour = Assert.Single(result, l => l.ProductId == FlourId);
+        Assert.False(flour.IsLow); // out — surfaced via OnHand ≤ 0, not IsLow
+        Assert.Equal(0m, flour.OnHand);
+        Assert.DoesNotContain(result, l => l.ProductId == eggsId); // in-stock excluded
     }
 
     [Fact(DisplayName = "GetStockLevels — product with multiple lots: OnHand is the sum")]

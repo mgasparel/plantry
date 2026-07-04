@@ -48,7 +48,7 @@
 
 import { render, html, signal, computed, batch } from "./runtime.js?v=1";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBody, commitBarCounts } from "./intake-review-logic.js?v=1";
+import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBody, commitBarCounts, estimateHint } from "./intake-review-logic.js?v=1";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -132,6 +132,16 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
  */
 
 /**
+ * Weight→each estimate affordance (plantry-1mu). Display-only: the drawer renders it as a hint
+ * ("~7 each estimated from 1.34 lb"). Whether the each-count is pre-filled is decided server-side.
+ * @typedef {Object} EstimateHydration
+ * @property {number} eachCount
+ * @property {number} weight
+ * @property {string} weightUnit
+ * @property {string} confidence   "High" | "Low"
+ */
+
+/**
  * @typedef {Object} SessionHydration
  * @property {string} merchantText
  * @property {string} sessionDate
@@ -145,7 +155,7 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
  * @property {UnitHydration[]} units
  * @property {LocationHydration[]} locations
  * @property {CategoryHydration[]} categories
- * @property {Array<{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null}>} lines
+ * @property {Array<{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null, estimate: EstimateHydration|null}>} lines
  * @property {string} scanVia            "photo" | "email" — drives the rcpt-meta-top via tag
  * @property {string} scannedLabel       relative "scanned …" copy for rcpt-meta-top
  * @property {string|null} storeBranch   branch/location line under the store name
@@ -186,6 +196,7 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
  * @property {import("@preact/signals").Signal<string>} draftNewName
  * @property {import("@preact/signals").Signal<string>} draftNewCategoryId
  * @property {AlternativeHydration[]|null} alternatives
+ * @property {EstimateHydration|null} estimate
  */
 
 // ── Line factory ─────────────────────────────────────────────────────────────
@@ -196,7 +207,7 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
 // the real `signal` factory from runtime.js.
 
 /**
- * @param {{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null}} seed
+ * @param {{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null, estimate: EstimateHydration|null}} seed
  * @returns {LineState}
  */
 function makeLine(seed) {
@@ -586,6 +597,12 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
                        ← Use existing product
                      </button>`}
           </div>
+
+          ${ls.estimate && html`
+            <p class="rd-estimate-hint" style="grid-column: span 2">
+              <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg>
+              ${estimateHint(ls.estimate)}
+            </p>`}
 
           <div class="form-grid__field" style="grid-column: span 2">
             <label class="form-grid__field__label">Quantity</label>

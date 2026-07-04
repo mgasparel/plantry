@@ -37,14 +37,17 @@ public sealed class AddMissingToShoppingListTests
     {
         public List<(IReadOnlyList<ShoppingItem> Items, string Source, Guid SourceRef)> Calls { get; } = [];
 
-        public Task AddItemsAsync(
-            IEnumerable<ShoppingItem> items,
+        /// <summary>The outcome the fake returns; defaults to "all added" scaled to the batch size.</summary>
+        public ShoppingSyncOutcome? StubOutcome { get; set; }
+
+        public Task<ShoppingSyncOutcome> SyncSourceContributionAsync(
+            IReadOnlyList<ShoppingItem> items,
             string source,
             Guid sourceRef,
             CancellationToken ct = default)
         {
             Calls.Add((items.ToList(), source, sourceRef));
-            return Task.CompletedTask;
+            return Task.FromResult(StubOutcome ?? new ShoppingSyncOutcome(items.Count, 0, 0));
         }
     }
 
@@ -86,7 +89,7 @@ public sealed class AddMissingToShoppingListTests
         var stock = new FakeInventoryStockReader();
         var writer = new FakeShoppingListWriter();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : (Guid?)null);
-        var fulfillment = new FulfillmentService(stock, catalog, new IdentityUnitConverter());
+        var fulfillment = new FulfillmentService(stock, catalog, new IdentityUnitConverter(), new FakeExpiringSoonHorizonReader());
         var service = new AddMissingToShoppingList(recipes, fulfillment, writer, Clock, tenant);
         return new Harness
         {

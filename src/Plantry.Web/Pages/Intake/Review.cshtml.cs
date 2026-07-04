@@ -45,6 +45,7 @@ public sealed class ReviewModel(
     IAddStockPort addStock,
     IRecordPricePort recordPrice,
     IEnsurePurchaseStorePort ensureStore,
+    ISeedConversionPort seedConversion,
     IClock clock,
     ITenantContext tenant,
     ILogger<CommitSessionCommand> commitLogger,
@@ -216,7 +217,8 @@ public sealed class ReviewModel(
             return JsonError("Unauthorized.");
 
         var result = await new CommitSessionCommand(
-            ImportSessionId.From(Id), sessions, createProduct, addStock, recordPrice, ensureStore, clock, tenant, commitLogger)
+            ImportSessionId.From(Id), sessions, createProduct, addStock, recordPrice, ensureStore,
+            referenceData, seedConversion, clock, tenant, commitLogger)
             .ExecuteAsync(ct);
 
         if (result.IsFailure)
@@ -351,7 +353,10 @@ public sealed class ReviewModel(
                     Price: prefillPrice,
                     Expiry: prefillExpiry?.ToString("yyyy-MM-dd"),
                     SkuId: l.SkuId?.ToString()),
-                Alternatives: alternatives);
+                Alternatives: alternatives,
+                Estimate: l is { ReceiptWeight: { } w, ReceiptWeightUnitLabel: { } wu, EstimatedEachCount: { } ec }
+                    ? new EstimateHydration(ec, w, wu, (l.EstimatedEachConfidence ?? SuggestedConfidence.Low).ToString())
+                    : null);
         }).ToList();
 
         var hydration = new SessionHydration(
@@ -454,11 +459,27 @@ public static class ReviewRowModel
                 ? ppname
                 : (isPending ? line.SuggestedProductName : null);
 
-        var prefillQty = line.Quantity ?? (isPending ? line.SuggestedQuantity : null);
+        // Weight→each high-confidence override (plantry-1mu): for a pending, not-yet-resolved line whose
+        // matched product is tracked by each, a High-confidence LLM estimate pre-fills the each-count in
+        // the each unit (the product's default). Low-confidence estimates fall through to the weight below
+        // — the drawer merely suggests the count. The receipt weight is preserved separately regardless.
+        var eachOverride = isPending
+            && line.UnitId is null
+            && line.EstimatedEachCount is { } && line.EstimatedEachConfidence == SuggestedConfidence.High
+            && prefillProductId is { } eachPid
+            && productDefaultUnitById is not null
+            && productDefaultUnitById.TryGetValue(eachPid, out var eachUnitId)
+            ? (Guid?)eachUnitId
+            : null;
+
+        var prefillQty = line.Quantity
+            ?? (eachOverride is not null ? line.EstimatedEachCount : null)
+            ?? (isPending ? line.SuggestedQuantity : null);
 
         var hasReceiptUnit = isPending && line.SuggestedUnitLabel is not null;
 
         Guid? prefillUnitId = line.UnitId
+            ?? eachOverride
             ?? (isPending && line.SuggestedUnitLabel is { } lbl && unitIdByCode.TryGetValue(lbl, out var sugUid)
                 ? sugUid
                 : (isPending && !hasReceiptUnit && prefillProductId is { } unitPid

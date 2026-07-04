@@ -1,0 +1,39 @@
+@page
+@model Plantry.Web.Pages.Settings.PantryModel
+@{
+    ViewData["Title"] = "Pantry settings";
+}
+
+<div class="cfg-wrap" data-screen-label="Pantry settings">
+    <div class="cfg-head">
+        <div class="eyebrow">Household setup</div>
+        <h1>Pantry settings</h1>
+        <p>
+            Choose how far ahead Plantry looks when flagging stock as expiring soon. This single
+            horizon drives the Today &ldquo;expiring soon&rdquo; list, the pantry expiry badges, and
+            the recipe browse &ldquo;use soon&rdquo; filter &mdash; so every surface agrees.
+        </p>
+    </div>
+
+    <form method="post" class="form-stack">
+        @if (Model.Saved)
+        {
+            <div class="tag-saved show" role="status" aria-live="polite"
+                 style="margin-bottom:14px;display:flex;align-items:center;gap:6px;color:var(--color-success);font-size:13px;font-weight:600">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                Setting saved
+            </div>
+        }
+
+        <div class="field field--inline">
+            <label asp-for="Input.ExpiringSoonDays" class="field__label">Show items as expiring soon within (days)</label>
+            <input asp-for="Input.ExpiringSoonDays" class="field__input" type="number"
+                   min="@Plantry.Inventory.Domain.HouseholdInventorySettings.MinExpiringSoonDays"
+                   max="@Plantry.Inventory.Domain.HouseholdInventorySettings.MaxExpiringSoonDays" />
+            <span asp-validation-for="Input.ExpiringSoonDays" class="field__error"></span>
+        </div>
+
+        <button type="submit" class="btn btn--primary">Save</button>
+    </form>
+</div>

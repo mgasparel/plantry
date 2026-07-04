@@ -18,6 +18,7 @@ import {
   isUnmatched,
   buildSaveLineBody,
   commitBarCounts,
+  estimateHint,
 } from "../intake-review-logic.js";
 
 // ── test helpers ─────────────────────────────────────────────────────────────
@@ -515,5 +516,41 @@ describe("commitBarCounts", () => {
     const r = commitBarCounts(["ready", "skipped", "skipped"]);
     assert.equal(r.remaining, 0);
     assert.equal(r.canCommit, true);
+  });
+});
+
+// ── estimateHint (plantry-1mu) ─────────────────────────────────────────────────
+
+describe("estimateHint", () => {
+  it("returns null when there is no estimate", () => {
+    assert.equal(estimateHint(null), null);
+    assert.equal(estimateHint(undefined ?? null), null);
+  });
+
+  it("high confidence phrases the each-count as a provenance note", () => {
+    const hint = estimateHint({ eachCount: 7, weight: 1.34, weightUnit: "lb", confidence: "High" });
+    assert.equal(hint, "~7 each · estimated from 1.34 lb");
+  });
+
+  it("low confidence phrases it as a soft weight-first suggestion", () => {
+    const hint = estimateHint({ eachCount: 6, weight: 0.9, weightUnit: "kg", confidence: "Low" });
+    assert.equal(hint, "Sold by weight (0.9 kg) · ~6 each?");
+  });
+});
+
+describe("makeLine estimate passthrough", () => {
+  it("carries the estimate object onto line state, defaulting to null", () => {
+    const est = { eachCount: 7, weight: 1.34, weightUnit: "lb", confidence: "High" };
+    const withEst = makeLine(
+      { line: lineSeed(), prefill: /** @type {any} */ ({}), alternatives: null, estimate: est },
+      sig,
+    );
+    assert.deepEqual(withEst.estimate, est);
+
+    const withoutEst = makeLine(
+      { line: lineSeed(), prefill: /** @type {any} */ ({}), alternatives: null },
+      sig,
+    );
+    assert.equal(withoutEst.estimate, null);
   });
 });

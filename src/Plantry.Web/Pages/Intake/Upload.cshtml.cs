@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Security.Claims;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -20,12 +22,19 @@ namespace Plantry.Web.Pages.Intake;
 /// session and routes the user to the review form (Ready) or surfaces a retry affordance (Failed).
 /// </summary>
 [Authorize]
+// Pre-buffer abuse guards: reject an oversized upload at the request level, BEFORE ASP.NET buffers the
+// body, in addition to the post-bind MaxImageBytes check below (defense-in-depth + a friendly message for
+// sub-limit files). RequestSizeLimit caps the whole request body; RequestFormLimits caps the multipart part.
+[RequestSizeLimit(MaxImageBytes)]
+[RequestFormLimits(MultipartBodyLengthLimit = MaxImageBytes)]
 public sealed class UploadModel(
     IImportSessionRepository sessions,
     IReceiptParser parser,
     ICatalogHintProvider hints,
     IClock clock,
     ITenantContext tenant,
+    ReceiptUploadRateLimiter uploadRateLimiter,
+    ILogger<UploadModel> logger,
     ILogger<ParseSessionCommand> parseLogger) : PageModel
 {
     public IReadOnlyList<RecentIntakeRow> RecentIntakes { get; private set; } = [];
@@ -95,6 +104,27 @@ public sealed class UploadModel(
 
     public async Task<IActionResult> OnPostParseAsync(CancellationToken ct)
     {
+        // ── Abuse gate 1: per-household rate limit (burst + daily). Checked before we read the body so a
+        // flood is rejected cheaply. Rejection returns a structured 429 + Retry-After, surfaced coherently
+        // as the upload form fragment (htmx swaps it via the form's before-swap handler). ──
+        var partitionKey = tenant.HouseholdId?.ToString() ?? CurrentUserId.ToString();
+        using (var lease = uploadRateLimiter.AttemptAcquire(partitionKey))
+        {
+            if (!lease.IsAcquired)
+            {
+                var retryAfterSeconds = lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+                    ? (int)Math.Ceiling(retryAfter.TotalSeconds)
+                    : 60;
+                Response.Headers.RetryAfter = retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+                logger.LogWarning(
+                    "Receipt upload rate-limited for {PartitionKey}; retry after {RetryAfterSeconds}s.",
+                    partitionKey, retryAfterSeconds);
+                ModelState.AddModelError(string.Empty,
+                    "You've uploaded a lot of receipts in a short time. Please wait a moment and try again.");
+                return UploadFormResult(StatusCodes.Status429TooManyRequests);
+            }
+        }
+
         if (Receipt is null || Receipt.Length == 0)
             ModelState.AddModelError(nameof(Receipt), "Choose a receipt photo to upload.");
         else if (Receipt.Length > MaxImageBytes)
@@ -103,13 +133,26 @@ public sealed class UploadModel(
             ModelState.AddModelError(nameof(Receipt), "Upload a photo (JPEG, PNG, WebP, or HEIC).");
 
         if (!ModelState.IsValid)
-            return Partial("_UploadForm", this);
+            return UploadFormResult(StatusCodes.Status400BadRequest);
 
         byte[] imageBytes;
         await using (var stream = new MemoryStream())
         {
             await Receipt!.CopyToAsync(stream, ct);
             imageBytes = stream.ToArray();
+        }
+
+        // ── Abuse gate 2: magic-byte sniff. The Content-Type header is spoofable, so confirm the leading
+        // bytes are actually one of the allowed formats (jpeg/png/webp/heic/heif) before staging anything
+        // for the AI pipeline. A header/body mismatch is a structured 400. ──
+        if (!ReceiptImageSignature.IsAllowedImage(imageBytes))
+        {
+            logger.LogWarning(
+                "Rejected receipt upload for {PartitionKey}: declared {ContentType} but the bytes are not a supported image.",
+                partitionKey, Receipt.ContentType);
+            ModelState.AddModelError(nameof(Receipt),
+                "That file doesn't look like a supported image. Upload a JPEG, PNG, WebP, or HEIC photo.");
+            return UploadFormResult(StatusCodes.Status400BadRequest);
         }
 
         var cmd = new ParseSessionCommand(
@@ -142,6 +185,18 @@ public sealed class UploadModel(
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    /// <summary>
+    /// Re-renders the upload form fragment with the given HTTP status. Validation and abuse rejections
+    /// carry a structured 400/429 (rather than a bland 200) while still returning the fragment htmx swaps
+    /// into <c>#upload-region</c>, keeping the page-model validation UX coherent with the status code.
+    /// </summary>
+    private PartialViewResult UploadFormResult(int statusCode)
+    {
+        var result = Partial("_UploadForm", this);
+        result.StatusCode = statusCode;
+        return result;
+    }
 }
 
 /// <summary>View model for the parse-failure fragment: the staged session id (so the user has a record

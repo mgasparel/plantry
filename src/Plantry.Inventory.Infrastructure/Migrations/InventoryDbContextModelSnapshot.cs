@@ -23,6 +23,21 @@ namespace Plantry.Inventory.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Plantry.Inventory.Domain.HouseholdInventorySettings", b =>
+                {
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("household_id");
+
+                    b.Property<int>("ExpiringSoonDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("expiring_soon_days");
+
+                    b.HasKey("HouseholdId");
+
+                    b.ToTable("household_inventory_settings", "inventory");
+                });
+
             modelBuilder.Entity("Plantry.Inventory.Domain.ProductStock", b =>
                 {
                     b.Property<Guid>("HouseholdId")

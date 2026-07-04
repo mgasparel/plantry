@@ -17,19 +17,22 @@ public interface IShoppingPantryReader
     /// Returns on-hand stock level for a set of product ids in one batch call.
     /// Products with no stock record (never stocked) are omitted from the result dictionary.
     /// Products whose household record exists but has no active lots are included with
-    /// <see cref="ShoppingPantryStockLevel.OnHand"/> set to zero and <see cref="ShoppingPantryStockLevel.IsLow"/>
-    /// set to <c>true</c>.
+    /// <see cref="ShoppingPantryStockLevel.OnHand"/> set to zero and
+    /// <see cref="ShoppingPantryStockLevel.IsLow"/> set to <c>false</c> — an out product is not
+    /// "running low" (see the flag's own doc). Out is inferred by the caller from <c>OnHand ≤ 0</c>.
     /// </summary>
     Task<IReadOnlyDictionary<Guid, ShoppingPantryStockLevel>> GetStockLevelsAsync(
         IReadOnlyList<Guid> productIds,
         CancellationToken ct = default);
 
     /// <summary>
-    /// Returns all household pantry products with <see cref="ShoppingPantryStockLevel.IsLow"/> set to
-    /// <c>true</c> (at or below par, or with no active stock). Used by the "Running low in your pantry"
-    /// suggestions strip (plantry-48l) to discover which products to surface regardless of whether they
-    /// are already on the current shopping list. The caller is responsible for excluding products already
-    /// present on the list and for applying the display cap.
+    /// Returns all household pantry products that are restock candidates: running low
+    /// (<see cref="ShoppingPantryStockLevel.IsLow"/> is <c>true</c>, i.e. 0 &lt; onHand ≤ threshold)
+    /// OR out (<c>OnHand ≤ 0</c>). Out products are included even though their <c>IsLow</c> is
+    /// <c>false</c> — a depleted staple is as much a restock candidate as a low one. Used by the
+    /// "Running low in your pantry" suggestions strip (plantry-48l) to discover which products to
+    /// surface regardless of whether they are already on the current shopping list. The caller is
+    /// responsible for excluding products already present on the list and for applying the display cap.
     /// </summary>
     Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
         CancellationToken ct = default);
@@ -49,10 +52,13 @@ public interface IShoppingPantryReader
 /// Matches the product's default unit from the Catalog context.
 /// </param>
 /// <param name="IsLow">
-/// True when on-hand stock is at or below par (or when the product has no active stock at all).
-/// Shopping renders this as the "· low" warning sub-line and highlights low items in the
-/// search dropdown. When a par level is not yet defined for the product, this flag is true
-/// if and only if <see cref="OnHand"/> is zero (out of stock).
+/// True when the product is <em>running low</em> — a positive but low quantity,
+/// 0 &lt; <see cref="OnHand"/> ≤ the household's low stock threshold (see
+/// <c>ProductStock.IsRunningLow</c>). Deliberately <c>false</c> when out
+/// (<see cref="OnHand"/> ≤ 0) so that out and low are distinct, mutually-exclusive states —
+/// Shopping renders low as the "· low" warning sub-line and out as "out", never both together.
+/// A product with no threshold set is never running low, so this flag is <c>false</c> for it
+/// regardless of quantity.
 /// </param>
 public sealed record ShoppingPantryStockLevel(
     Guid ProductId,

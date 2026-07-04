@@ -117,17 +117,19 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
             await Assertions.Expect(addMissingBtn).ToBeEnabledAsync();
 
             // ── Step 5: Tap the button and wait for the htmx POST to round-trip ───
-            // The button keeps BOTH the "Add … missing" and "Added" spans in the DOM permanently
-            // (Alpine x-show/x-cloak only toggle display:none), so a textContent assertion such as
-            // ToContainText("Added") matches the hidden span INSTANTLY and does not wait for the
-            // POST. Gate on the POST response and the user-visible disabled state instead — the
-            // button is disabled (:disabled="missingAdded") only after htmx:after-request fires on a
-            // successful 2xx, which is sent only after the server has committed the write. This
-            // guarantees the row is persisted before we navigate to /Shopping.
+            // The POST idempotently SYNCS the recipe's slice and returns the re-rendered fulfilment
+            // card (server-truth), swapping #rd-fulf-card (plantry-gsj). Once the recipe covers the
+            // shortfall the add button greys to a disabled "Added", and a role=status line announces
+            // the reconciliation. Gate on the POST response (sent only after the write commits), then
+            // assert the server-rendered greyed state — proving the row is persisted before we navigate.
             await page.RunAndWaitForResponseAsync(
                 async () => await addMissingBtn.ClickAsync(),
                 r => r.Url.Contains("handler=AddMissing") && r.Status == 200);
-            await Assertions.Expect(addMissingBtn).ToBeDisabledAsync();
+            // The re-rendered card shows a disabled "Added" add button and the aria-live summary.
+            await Assertions.Expect(
+                page.Locator("#rd-fulf-card button.btn--soft:disabled", new() { HasText = "Added" }).First)
+                .ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator("#rd-fulf-card [role='status']")).ToContainTextAsync("Added");
 
             // ── Step 6: Navigate to Shopping and assert the ingredient appears ─────
             await page.GotoAsync($"{BaseUrl}/Shopping");
@@ -137,14 +139,14 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
             await Assertions.Expect(page.Locator("#shopping-list")).ToContainTextAsync(productName);
 
             // ── Step 6b: Return to the Detail page — button must be greyed on fresh server-render ─
-            // The recipe now has a contribution on the list, so the Detail page must render the
-            // "Add missing" button in its disabled/"Added" state on load (plantry-yt0m). Before the
-            // fix it reset to the active state on return, inviting a duplicate add. A full navigation
-            // (GotoAsync) — not htmx — proves the state is server-rendered, not client-only.
+            // The recipe now covers the shortfall, so the Detail page must render the add button in its
+            // disabled/"Added" state on load (plantry-yt0m / plantry-gsj). A full navigation (GotoAsync)
+            // — not htmx — proves the state is server-rendered, not client-only.
             await page.GotoAsync(detailUrl);
             await page.WaitForURLAsync(DetailUrlPattern);
-            var addMissingOnReturn = page.Locator("button.btn--soft", new() { HasText = "missing to shopping list" });
-            await Assertions.Expect(addMissingOnReturn).ToBeDisabledAsync();
+            await Assertions.Expect(
+                page.Locator("#rd-fulf-card button.btn--soft:disabled", new() { HasText = "Added" }).First)
+                .ToBeVisibleAsync();
 
             // ── Step 7: Assert source=recipe provenance in the DB ────────────────
             var productId = await GetProductIdAsync(productName);

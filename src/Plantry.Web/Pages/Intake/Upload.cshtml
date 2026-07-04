@@ -119,7 +119,8 @@
             <form x-ref="uploadForm" method="post" enctype="multipart/form-data" style="display:none"
                   hx-post="@Url.Page("./Upload", "Parse")"
                   hx-target="#upload-region" hx-swap="innerHTML"
-                  hx-encoding="multipart/form-data">
+                  hx-encoding="multipart/form-data"
+                  hx-on::before-swap="if ([400, 422, 429].indexOf(event.detail.xhr.status) !== -1) { event.detail.shouldSwap = true; event.detail.isError = false; }">
                 @Html.AntiForgeryToken()
                 <input x-ref="fileInput" type="file" name="Receipt"
                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"

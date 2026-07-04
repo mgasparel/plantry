@@ -911,6 +911,7 @@ button { font-family: inherit; cursor: pointer; }
 .catalog-list__secondary { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .catalog-list__meta { color: var(--color-text-muted); font-size: var(--font-size-xs); margin-left: auto; }
 .catalog-list__action { margin-left: auto; }
+.catalog-list__actions { margin-left: auto; display: flex; gap: var(--space-2); }
 
 .catalog-list__drag-handle {
   cursor: grab;
@@ -1192,6 +1193,23 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
+}
+
+/* Weight→each estimate affordance in the intake review drawer (plantry-1mu). A quiet, muted note
+   above the quantity field surfacing the LLM's each-count and the preserved ground-truth weight. */
+.rd-estimate-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.rd-estimate-hint .icon {
+  flex: none;
+  width: 0.9em;
+  height: 0.9em;
+  color: var(--color-accent);
 }
 
 /* Input with a trailing unit/currency badge pinned inside the right edge */
@@ -3090,6 +3108,15 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   cursor: not-allowed;
 }
 
+/* Post-add reconciliation summary (plantry-gsj): "Added 2 · 1 already on your list · 1 checked off".
+   role=status/aria-live line under the rail actions — quiet, secondary text. */
+.rd-fulf-status {
+  margin: -6px 18px 16px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
 /* ── Ingredients rail card ───────────────────────────────────────────────── */
 /*
  * Ingredients card in the right rail. Header: "Ingredients" h3 + spacer +
@@ -3609,6 +3636,8 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 /* Pantry stock sub-line (.sl-instock) and low indicator (.sl-low) */
 .sl-instock { color: var(--color-success); font-variant-numeric: tabular-nums; }
 .sl-instock.out { color: var(--color-text-faint); }
+/* Running-low tone: the whole stock hint turns warning-coloured (matches the alert icon). */
+.sl-instock.low { color: var(--color-warning); }
 .sl-low { color: var(--color-warning); font-weight: 500; }
 /* Search dropdown stock hint (.ostock) inside the searchable-select listbox */
 .ostock { display: block; font-size: 11px; margin-top: 1px; color: var(--color-success); }
@@ -5007,6 +5036,13 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .today-widget__foot a:hover { background: var(--color-surface-2); color: var(--color-accent); text-decoration: none; }
 .today-widget__foot a .icon { width: 15px; height: 15px; }
+
+/* Two-up foot: primary "Use these up" CTA beside the secondary pantry link
+   (expiring-soon widget populated state, plantry-w1e). */
+.today-widget__foot--split { display: flex; }
+.today-widget__foot--split a { flex: 1 1 0; min-width: 0; }
+.today-widget__foot--split a + a { border-left: 1px solid var(--color-border); }
+.today-widget__foot-cta { color: var(--color-accent); }
 
 /* ---- widget header meta label (e.g. "next 7 days") ----------------------- */
 .today-widget__meta { font-size: 13px; color: var(--color-text-faint); font-weight: 500; }

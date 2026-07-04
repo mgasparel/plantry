@@ -100,10 +100,12 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         var recordPrice = new RecordPriceAdapter(
             new PriceObservationRepository(pricingDb), new UnitPriceCalculatorAdapter(units), tenant);
         var ensureStore = new EnsurePurchaseStoreAdapter(new StoreRepository(catalogDb), tenant, Clock);
+        var referenceData = new ReviewReferenceDataProvider(products, units, locations, categories);
+        var seedConversion = new SeedConversionAdapter(products, Clock, NullLogger<SeedConversionAdapter>.Instance);
 
         var command = new CommitSessionCommand(
             sessionId, new ImportSessionRepository(intakeDb), createProduct, addStock, recordPrice, ensureStore,
-            Clock, tenant, NullLogger<CommitSessionCommand>.Instance);
+            referenceData, seedConversion, Clock, tenant, NullLogger<CommitSessionCommand>.Instance);
 
         var result = await command.ExecuteAsync();
 

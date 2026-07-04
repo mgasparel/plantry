@@ -578,6 +578,75 @@ public sealed class ShoppingListTests
         Assert.Equal(5m, item.Quantity);
         Assert.Single(item.Contributions);
     }
+
+    // ── SetSourceContribution (SET/sync verb, plantry-gsj) ────────────────────
+
+    [Fact(DisplayName = "SetSourceContribution — creates the source's slice when absent (Created)")]
+    public void SetSourceContribution_Absent_CreatesSlice()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var recipe = Guid.CreateVersion7();
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null,
+            source: ItemSource.Manual, sourceRef: null, _clock);
+
+        var change = list.SetSourceContribution(item, ItemSource.Recipe, recipe, quantity: 3m, incomingUnitId: null, _clock);
+
+        Assert.Equal(ContributionChange.Created, change);
+        // Manual 2 + Recipe 3 = 5 (sums across sources preserved, plantry-9scq).
+        Assert.Equal(5m, item.Quantity);
+    }
+
+    [Fact(DisplayName = "SetSourceContribution — REPLACES (not increments) the slice; re-set to same value is Unchanged")]
+    public void SetSourceContribution_Existing_Replaces_NoDrift()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var recipe = Guid.CreateVersion7();
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null,
+            source: ItemSource.Recipe, sourceRef: recipe, _clock);
+
+        // Set to 5 (grew), then set to 5 again (no drift), then set down to 1.
+        Assert.Equal(ContributionChange.Increased, list.SetSourceContribution(item, ItemSource.Recipe, recipe, 5m, null, _clock));
+        Assert.Equal(5m, item.Quantity);
+        Assert.Equal(ContributionChange.Unchanged, list.SetSourceContribution(item, ItemSource.Recipe, recipe, 5m, null, _clock));
+        Assert.Equal(5m, item.Quantity);
+        Assert.Equal(ContributionChange.Reduced, list.SetSourceContribution(item, ItemSource.Recipe, recipe, 1m, null, _clock));
+        Assert.Equal(1m, item.Quantity);
+        // Still exactly one contribution — SET never appends.
+        Assert.Single(item.Contributions);
+    }
+
+    // ── RemoveSourceContribution (reconcile-remove, plantry-gsj) ───────────────
+
+    [Fact(DisplayName = "RemoveSourceContribution — a manual slice on the same row survives removing the recipe slice")]
+    public void RemoveSourceContribution_KeepsRowWithOtherSource()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var recipe = Guid.CreateVersion7();
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null,
+            source: ItemSource.Manual, sourceRef: null, _clock);
+        list.SetSourceContribution(item, ItemSource.Recipe, recipe, 3m, null, _clock);
+
+        var removed = list.RemoveSourceContribution(item, ItemSource.Recipe, recipe, _clock);
+
+        Assert.True(removed);
+        Assert.Single(list.Items);              // row survives — manual slice keeps it alive
+        Assert.Equal(2m, item.Quantity);        // only the manual 2 remains
+        Assert.Single(item.Contributions);
+    }
+
+    [Fact(DisplayName = "RemoveSourceContribution — a row left with no contributions is deleted from the list")]
+    public void RemoveSourceContribution_EmptyRow_DeletesItem()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var recipe = Guid.CreateVersion7();
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null,
+            source: ItemSource.Recipe, sourceRef: recipe, _clock);
+
+        var removed = list.RemoveSourceContribution(item, ItemSource.Recipe, recipe, _clock);
+
+        Assert.True(removed);
+        Assert.Empty(list.Items);               // only slice removed → row deleted
+    }
 }
 
 /// <summary>Controllable clock for unit tests.</summary>

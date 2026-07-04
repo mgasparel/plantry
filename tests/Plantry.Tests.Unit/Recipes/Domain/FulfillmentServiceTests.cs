@@ -116,7 +116,16 @@ public sealed class FulfillmentServiceTests
         public FakeCatalogProductReader Catalog { get; } = new();
         public IdentityUnitConverter Converter { get; } = new();
 
-        public FulfillmentService Service => new(Stock, Catalog, Converter);
+        /// <summary>The "expiring soon" horizon the fake reader returns; defaults to 4 so the
+        /// existing boundary tests exercise a 4-day window. Set before reading <see cref="Service"/>.</summary>
+        public int HorizonDays { get; set; } = 4;
+
+        public FulfillmentService Service => new(Stock, Catalog, Converter, new FakeHorizonReader(HorizonDays));
+
+        private sealed class FakeHorizonReader(int days) : IExpiringSoonHorizonReader
+        {
+            public Task<int> GetDaysAsync(CancellationToken ct = default) => Task.FromResult(days);
+        }
     }
 
     /// <summary>Builds a minimal recipe with a single tracked ingredient at the given qty/unit.</summary>
@@ -342,6 +351,26 @@ public sealed class FulfillmentServiceTests
 
         var line = Assert.Single(result.Lines);
         Assert.Null(line.ExpiresWithinDays);
+    }
+
+    [Fact(DisplayName = "ExpiresWithinDays honours the configured horizon from the reader, not a fixed constant")]
+    public async Task Expiring_Soon_Flag_Follows_Configured_Horizon()
+    {
+        // A lot 6 days out is beyond the default 4-day window but inside a configured 10-day horizon.
+        // The flag must follow the household setting the reader supplies (plantry-5yhd).
+        var unit = Guid.CreateVersion7();
+
+        var wide = new Harness { HorizonDays = 10 };
+        var creamWide = wide.Catalog.AddTrackedLeaf(unit);
+        wide.Stock.Add(creamWide.Id, available: 500m, unit, soonestExpiry: Today.AddDays(6));
+        var wideResult = await wide.Service.ComputeAsync(BuildRecipe(creamWide.Id, 100m, unit), 4, Today);
+        Assert.Equal(6, Assert.Single(wideResult.Lines).ExpiresWithinDays);
+
+        var narrow = new Harness { HorizonDays = 4 };
+        var creamNarrow = narrow.Catalog.AddTrackedLeaf(unit);
+        narrow.Stock.Add(creamNarrow.Id, available: 500m, unit, soonestExpiry: Today.AddDays(6));
+        var narrowResult = await narrow.Service.ComputeAsync(BuildRecipe(creamNarrow.Id, 100m, unit), 4, Today);
+        Assert.Null(Assert.Single(narrowResult.Lines).ExpiresWithinDays);
     }
 
     [Fact]
@@ -600,8 +629,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var recipe = Recipe.Create(Household, "Omelette", 2, Clock).Value;
         recipe.ReplaceIngredients([new IngredientLine(productId, null, null, null, 0)], Clock);
 
-        var svc = new FulfillmentService(null!, null!, null!); // ports unused by pure overload
-        var result = svc.Compute(recipe, 2, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!); // ports unused by pure overload
+        var result = svc.Compute(recipe, 2, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         Assert.Equal(IngredientStatus.Untracked, Assert.Single(result.Lines).Status);
         Assert.True(result.Overall.FullyCookable);
@@ -618,8 +647,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 500m, unit) };
 
         var recipe = BuildRecipe(productId, 500m, unit);
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         Assert.Equal(IngredientStatus.InStock, Assert.Single(result.Lines).Status);
         Assert.True(result.Overall.FullyCookable);
@@ -634,8 +663,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 250m, unit) };
 
         var recipe = BuildRecipe(productId, 500m, unit);
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(IngredientStatus.Low, line.Status);
@@ -653,8 +682,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock>();
 
         var recipe = BuildRecipe(productId, 500m, unit);
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
         Assert.Equal(1, result.Overall.MissingCount);
@@ -683,8 +712,8 @@ public sealed class FulfillmentServicePureOverloadTests
         };
 
         var recipe = BuildRecipe(parentId, 500m, unit);
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(IngredientStatus.InStock, line.Status);
@@ -705,8 +734,8 @@ public sealed class FulfillmentServicePureOverloadTests
         };
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(3, line.ExpiresWithinDays);
@@ -724,8 +753,8 @@ public sealed class FulfillmentServicePureOverloadTests
         };
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         Assert.Null(Assert.Single(result.Lines).ExpiresWithinDays);
     }
@@ -742,8 +771,8 @@ public sealed class FulfillmentServicePureOverloadTests
         };
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         Assert.Equal(-3, Assert.Single(result.Lines).ExpiresWithinDays);
     }
@@ -768,8 +797,8 @@ public sealed class FulfillmentServicePureOverloadTests
 
         // Converter: identity only — will fail for stockUnit → ingredientUnit
         var recipe = BuildRecipe(productId, 100m, ingredientUnit); // recipe asks for ingredientUnit
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         // Converter fails → available = 0 → Missing (not an exception)
         Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
@@ -787,8 +816,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock>();
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
     }

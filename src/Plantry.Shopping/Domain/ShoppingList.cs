@@ -89,6 +89,21 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
         _items.FirstOrDefault(i => i.ProductId == productId && !i.IsChecked);
 
     /// <summary>
+    /// Returns the first unchecked item for <paramref name="productId"/> that already carries a
+    /// contribution for the given (source, sourceRef), or null (plantry-gsj). The sync verb prefers
+    /// the row where this source's slice already lives so re-syncing a unit-split product stays
+    /// idempotent (it sets the existing slice rather than spawning a second row each press).
+    /// </summary>
+    public ShoppingListItem? FindUncheckedRowForSource(Guid productId, ItemSource source, Guid? sourceRef) =>
+        _items.FirstOrDefault(i =>
+            i.ProductId == productId && !i.IsChecked && i.FindContribution(source, sourceRef) is not null);
+
+    /// <summary>True when the list has a checked-off item for the product (any source) — a completed
+    /// intent the sync must not resurrect (plantry-gsj).</summary>
+    public bool HasCheckedItemForProduct(Guid productId) =>
+        _items.Any(i => i.ProductId == productId && i.IsChecked);
+
+    /// <summary>
     /// Upserts a per-source contribution on an existing item using (Source, SourceRef) as the match key.
     ///
     /// <para><b>New (Source, SourceRef) pair:</b> adds a new contribution with <paramref name="incomingQuantity"/>.</para>
@@ -128,6 +143,59 @@ public sealed class ShoppingList : AggregateRoot<ShoppingListId>
 
         existing.UpsertContribution(source, sourceRef, delta, incomingUnitId, clock);
         UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Idempotently SETS a source's contribution on an existing item to an absolute quantity
+    /// (plantry-gsj) — the SYNC verb driving "Add missing"/"Add all". Unlike
+    /// <see cref="UpsertContribution"/> (additive top-up), this REPLACES the source's slice, so
+    /// re-syncing the same target is a no-op and a servings change re-sets the slice rather than
+    /// stacking. Other sources' slices are untouched (plantry-9scq sums / plantry-26g attribution
+    /// preserved).
+    ///
+    /// <para>The caller (<see cref="Plantry.Shopping.Application.SyncSourceContributionCommand"/>)
+    /// resolves unit compatibility before calling here — only same-unit sets reach this path.</para>
+    /// </summary>
+    /// <returns>How the slice changed (created / grown / unchanged / reduced).</returns>
+    public ContributionChange SetSourceContribution(
+        ShoppingListItem existing,
+        ItemSource source,
+        Guid? sourceRef,
+        decimal? quantity,
+        Guid? incomingUnitId,
+        IClock clock)
+    {
+        if (!_items.Contains(existing))
+            throw new InvalidOperationException($"Item {existing.Id} does not belong to list {Id}.");
+
+        var change = existing.SetContribution(source, sourceRef, quantity, incomingUnitId, clock);
+        UpdatedAt = clock.UtcNow;
+        return change;
+    }
+
+    /// <summary>
+    /// Removes a source's contribution from an existing item as part of whole-slice reconciliation
+    /// (plantry-gsj): when a sync no longer targets a product, that source's slice is dropped. If the
+    /// item is left with no contributions at all, the item row is removed from the list entirely.
+    /// Other sources' contributions keep the row alive.
+    /// </summary>
+    /// <returns>True if a contribution was removed; false if the item carried none for this source.</returns>
+    public bool RemoveSourceContribution(
+        ShoppingListItem existing,
+        ItemSource source,
+        Guid? sourceRef,
+        IClock clock)
+    {
+        if (!_items.Contains(existing))
+            throw new InvalidOperationException($"Item {existing.Id} does not belong to list {Id}.");
+
+        var removed = existing.RemoveContribution(source, sourceRef, clock);
+        if (removed && !existing.HasContributions)
+            _items.Remove(existing);
+
+        if (removed)
+            UpdatedAt = clock.UtcNow;
+        return removed;
     }
 
     /// <summary>

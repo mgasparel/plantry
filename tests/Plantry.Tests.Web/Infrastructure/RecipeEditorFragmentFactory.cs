@@ -39,6 +39,7 @@ public sealed class RecipeEditorFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme (same pattern as ReviewFragmentFactory).
             services.AddAuthentication(opts =>
                 {
@@ -98,6 +99,7 @@ public sealed class RecipeEditorEmptyTagsFactory : WebApplicationFactory<Program
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -151,6 +153,7 @@ public sealed class RecipeEditorPostFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

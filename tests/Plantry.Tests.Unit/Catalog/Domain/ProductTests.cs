@@ -344,6 +344,118 @@ public sealed class ProductTests
         Assert.Equal(product.HouseholdId, conversion.HouseholdId);
     }
 
+    // ── Provenance: AI-suggested vs user-confirmed (ADR-022) ─────────────────
+
+    [Fact]
+    public void AddConversion_Defaults_To_UserConfirmed()
+    {
+        var product = NewProduct();
+
+        var conversion = product.AddConversion(
+            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 120m, Clock);
+
+        Assert.Equal(ConversionSource.UserConfirmed, conversion.Source);
+        Assert.False(conversion.IsAiSuggested);
+    }
+
+    [Fact]
+    public void AddConversion_Records_AiSuggested_Provenance_When_Requested()
+    {
+        var product = NewProduct();
+
+        var conversion = product.AddConversion(
+            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 5m, Clock,
+            ConversionSource.AiSuggested);
+
+        Assert.Equal(ConversionSource.AiSuggested, conversion.Source);
+        Assert.True(conversion.IsAiSuggested);
+    }
+
+    [Fact]
+    public void PromoteConversion_Flips_AiSuggested_To_UserConfirmed()
+    {
+        var product = NewProduct();
+        var conversion = product.AddConversion(
+            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 5m, Clock,
+            ConversionSource.AiSuggested);
+
+        product.PromoteConversion(conversion.Id, Clock);
+
+        Assert.Equal(ConversionSource.UserConfirmed, conversion.Source);
+        Assert.False(conversion.IsAiSuggested);
+    }
+
+    [Fact]
+    public void PromoteConversion_Is_Idempotent_On_An_Already_Confirmed_Conversion()
+    {
+        var product = NewProduct();
+        var conversion = product.AddConversion(
+            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 120m, Clock);
+
+        // Confirmed already → no-op success, no throw.
+        product.PromoteConversion(conversion.Id, Clock);
+
+        Assert.Equal(ConversionSource.UserConfirmed, conversion.Source);
+    }
+
+    [Fact]
+    public void PromoteConversion_Throws_When_Conversion_Does_Not_Belong_To_Product()
+    {
+        var product = NewProduct();
+
+        Assert.Throws<InvalidOperationException>(() => product.PromoteConversion(ProductConversionId.New(), Clock));
+    }
+
+    [Fact]
+    public void AddConversion_UserConfirmed_Supersedes_An_Existing_Suggested_For_The_Same_Pair()
+    {
+        var product = NewProduct();
+        var from = Plantry.Catalog.Domain.UnitId.New();
+        var to = Plantry.Catalog.Domain.UnitId.New();
+        product.AddConversion(from, to, 5m, Clock, ConversionSource.AiSuggested);
+
+        var confirmed = product.AddConversion(from, to, 6m, Clock, ConversionSource.UserConfirmed);
+
+        // The stale suggestion is dropped; only the confirmed factor remains for that pair.
+        var remaining = Assert.Single(product.Conversions);
+        Assert.Same(confirmed, remaining);
+        Assert.Equal(6m, remaining.Factor);
+        Assert.Equal(ConversionSource.UserConfirmed, remaining.Source);
+    }
+
+    [Fact]
+    public void AddConversion_Suggested_Does_Not_Duplicate_Or_Overwrite_An_Existing_Conversion()
+    {
+        var product = NewProduct();
+        var from = Plantry.Catalog.Domain.UnitId.New();
+        var to = Plantry.Catalog.Domain.UnitId.New();
+        var confirmed = product.AddConversion(from, to, 6m, Clock, ConversionSource.UserConfirmed);
+
+        var returned = product.AddConversion(from, to, 5m, Clock, ConversionSource.AiSuggested);
+
+        // The suggestion neither piles on nor overwrites — the existing entry wins and is returned.
+        var remaining = Assert.Single(product.Conversions);
+        Assert.Same(confirmed, remaining);
+        Assert.Same(confirmed, returned);
+        Assert.Equal(6m, remaining.Factor);
+        Assert.Equal(ConversionSource.UserConfirmed, remaining.Source);
+    }
+
+    [Fact]
+    public void InheritFrom_Preserves_Conversion_Provenance()
+    {
+        var parent = NewProduct("Bananas");
+        var variant = NewProduct("Bananas (organic)");
+        parent.AddConversion(
+            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 5m, Clock,
+            ConversionSource.AiSuggested);
+
+        variant.InheritFrom(parent, Clock);
+
+        var inherited = Assert.Single(variant.Conversions);
+        Assert.Equal(ConversionSource.AiSuggested, inherited.Source);
+    }
+
     [Fact]
     public void RemoveConversion_Removes_Matching_Child()
     {

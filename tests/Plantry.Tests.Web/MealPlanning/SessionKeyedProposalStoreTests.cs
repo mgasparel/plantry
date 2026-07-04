@@ -406,6 +406,7 @@ public sealed class SessionKeyedStoreFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -513,6 +514,7 @@ public sealed class SessionKeyedTwoProposalFactory : WebApplicationFactory<Progr
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

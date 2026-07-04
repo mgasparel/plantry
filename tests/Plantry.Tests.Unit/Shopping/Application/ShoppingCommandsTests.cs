@@ -935,4 +935,135 @@ public sealed class ShoppingCommandsTests
         Assert.Equal(1.5m, list.Items[0].Quantity);  // not doubled
         Assert.Single(list.Items[0].Contributions);  // one contribution (same slot)
     }
+
+    // ── SyncSourceContributionCommand (SET/sync verb, plantry-gsj) ─────────────
+
+    private SyncSourceContributionCommand Sync(
+        FakeShoppingListRepository repo,
+        IReadOnlyList<SyncItem> items,
+        Guid recipeRef,
+        FakeShoppingCatalogReader? catalogReader = null) =>
+        new(items, ItemSource.Recipe, recipeRef,
+            repo, catalogReader ?? new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(_household));
+
+    private SyncItem Item(Guid productId, decimal qty) => new(productId, qty, _unitId);
+
+    [Fact(DisplayName = "Sync — seeds a fresh recipe slice and reports it added")]
+    public async Task Sync_FreshTarget_AddsSlice()
+    {
+        var (repo, list) = SeedList();
+        var recipe = Guid.CreateVersion7();
+
+        var result = await Sync(repo, [Item(_product1, 3m)], recipe).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new SyncSourceOutcome(1, 0, 0), result.Value);
+        Assert.Single(list.Items);
+        Assert.Equal(3m, list.Items[0].Quantity);
+        var contrib = Assert.Single(list.Items[0].Contributions);
+        Assert.Equal(ItemSource.Recipe, contrib.Source);
+        Assert.Equal(recipe, contrib.SourceRef);
+    }
+
+    [Fact(DisplayName = "Sync — re-syncing the same shortfall is a no-op (no drift), reported as already present")]
+    public async Task Sync_SameShortfallTwice_NoDrift()
+    {
+        var (repo, list) = SeedList();
+        var recipe = Guid.CreateVersion7();
+
+        await Sync(repo, [Item(_product1, 3m)], recipe).ExecuteAsync();
+        var second = await Sync(repo, [Item(_product1, 3m)], recipe).ExecuteAsync();
+
+        Assert.Equal(new SyncSourceOutcome(0, 1, 0), second.Value);
+        Assert.Single(list.Items);
+        Assert.Equal(3m, list.Items[0].Quantity);   // unchanged — no drift
+        Assert.Single(list.Items[0].Contributions);
+    }
+
+    [Fact(DisplayName = "Sync — after a servings increase, tops the slice up to the new shortfall only")]
+    public async Task Sync_LargerShortfall_TopsUpToNewTarget()
+    {
+        var (repo, list) = SeedList();
+        var recipe = Guid.CreateVersion7();
+
+        await Sync(repo, [Item(_product1, 2m)], recipe).ExecuteAsync();
+        var grown = await Sync(repo, [Item(_product1, 5m)], recipe).ExecuteAsync();
+
+        Assert.Equal(new SyncSourceOutcome(1, 0, 0), grown.Value);
+        Assert.Equal(5m, list.Items[0].Quantity);    // set to 5, not stacked to 7
+    }
+
+    [Fact(DisplayName = "Sync — 'Add all' then 'Add missing': the in-stock product's recipe slice is reconciled away (last-press-wins)")]
+    public async Task Sync_AddAllThenAddMissing_ReconcilesInStockAway()
+    {
+        var (repo, list) = SeedList();
+        var recipe = Guid.CreateVersion7();
+
+        // "Add all" — full required set for two products.
+        await Sync(repo, [Item(_product1, 2m), Item(_product2, 4m)], recipe).ExecuteAsync();
+        Assert.Equal(2, list.Items.Count);
+
+        // "Add missing" — only product1 is short now; product2's recipe slice must be removed.
+        var missing = await Sync(repo, [Item(_product1, 2m)], recipe).ExecuteAsync();
+
+        Assert.Single(list.Items);                    // product2 row deleted (its only slice was the recipe)
+        Assert.Equal(_product1, list.Items[0].ProductId);
+        Assert.Equal(2m, list.Items[0].Quantity);
+        // product1 was already covered at 2 → already present; product2 was removed (not counted as added).
+        Assert.Equal(new SyncSourceOutcome(0, 1, 0), missing.Value);
+    }
+
+    [Fact(DisplayName = "Sync — a manual-source slice on the same row survives the recipe re-sync")]
+    public async Task Sync_ManualSliceOnSameRow_Survives()
+    {
+        var (repo, list) = SeedList();
+        var recipe = Guid.CreateVersion7();
+
+        // Manual add of product1 (qty 1), then the recipe syncs product1 to 3 → row sums to 4.
+        await AddProduct(repo, _product1, qty: 1m).ExecuteAsync();
+        await Sync(repo, [Item(_product1, 3m)], recipe).ExecuteAsync();
+        Assert.Equal(4m, list.Items[0].Quantity);
+
+        // Now the recipe syncs to a target that no longer includes product1 → recipe slice removed,
+        // but the manual slice keeps the row alive.
+        await Sync(repo, [Item(_product2, 2m)], recipe).ExecuteAsync();
+
+        var product1Row = Assert.Single(list.Items, i => i.ProductId == _product1);
+        Assert.Equal(1m, product1Row.Quantity);       // manual 1 survives
+        var contrib = Assert.Single(product1Row.Contributions);
+        Assert.Equal(ItemSource.Manual, contrib.Source);
+    }
+
+    [Fact(DisplayName = "Sync — a checked-off product is not resurrected; it is reported as checked-off")]
+    public async Task Sync_CheckedOffProduct_NotResurrected()
+    {
+        var (repo, list) = SeedList();
+        var recipe = Guid.CreateVersion7();
+
+        // The recipe previously added product1 and the user checked it off (completed intent).
+        var item = list.AddItem(_product1, quantity: 2m, unitId: _unitId, note: null,
+            source: ItemSource.Recipe, sourceRef: recipe, Clock);
+        list.CheckOff(item.Id, _userId, Clock);
+
+        // Re-syncing the same shortfall must NOT re-add an unchecked row.
+        var result = await Sync(repo, [Item(_product1, 2m)], recipe).ExecuteAsync();
+
+        Assert.Equal(new SyncSourceOutcome(0, 0, 1), result.Value);
+        Assert.Single(list.Items);                    // still just the checked-off row
+        Assert.True(list.Items[0].IsChecked);
+    }
+
+    [Fact(DisplayName = "Sync — Unauthorized when there is no household context")]
+    public async Task Sync_NoHousehold_Unauthorized()
+    {
+        var repo = new FakeShoppingListRepository();
+        var cmd = new SyncSourceContributionCommand(
+            [Item(_product1, 1m)], ItemSource.Recipe, Guid.CreateVersion7(),
+            repo, new FakeShoppingCatalogReader(), Clock, new FakeTenantContext(null));
+
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(Error.Unauthorized.Code, result.Error.Code);
+    }
 }

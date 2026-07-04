@@ -75,6 +75,7 @@ public sealed class ShoppingAttributionRenderTests
             base.ConfigureWebHost(builder);
             builder.ConfigureTestServices(services =>
             {
+                services.AddFakeExpiringSoonHorizon();
                 var list = BuildAttributionList();
 
                 services.RemoveAll<IShoppingListRepository>();

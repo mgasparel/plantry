@@ -37,6 +37,7 @@ public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // ── Auth: replace the Identity cookie scheme with the header-driven test handler. Setting it as the
             // default authenticate + challenge scheme means [Authorize] uses it; a request with no household
             // header is unauthenticated and gets challenged (401).

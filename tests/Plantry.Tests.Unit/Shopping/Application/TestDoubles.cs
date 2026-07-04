@@ -123,8 +123,10 @@ internal sealed class FakeShoppingPantryReader : IShoppingPantryReader
     public Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
         CancellationToken ct = default)
     {
+        // Mirror ShoppingPantryReaderAdapter.GetLowStockProductsAsync: restock candidates are
+        // running-low ∪ out (IsLow means running-low only, false when out — plantry-43y).
         IReadOnlyList<ShoppingPantryStockLevel> result = _levels.Values
-            .Where(l => l.IsLow)
+            .Where(l => l.IsLow || l.OnHand <= 0m)
             .ToList();
         return Task.FromResult(result);
     }

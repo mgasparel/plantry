@@ -9,7 +9,8 @@ namespace Plantry.MealPlanning.Domain;
 /// directly. Note-meals contribute nothing.
 ///
 /// MealPlanning owns no fulfillment engine — it rolls up what Recipes already computes (domain-model §1).
-/// The 4-day "Use soon" threshold mirrors <c>FulfillmentService.ExpiringSoonDays</c> in Recipes.
+/// The plan-level "Use soon" threshold (<see cref="ExpiringSoonDays"/>) is this context's own constant; it
+/// is not yet unified with the per-household Inventory horizon that Recipes/Inventory now read (plantry-5yhd).
 /// </summary>
 public sealed class PlanFulfillmentService(
     IRecipeReadModel recipeReader,

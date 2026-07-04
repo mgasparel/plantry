@@ -41,6 +41,7 @@ public sealed class IndexModel(
     IMealPlanWeekReadModel weekReadModel,
     Plantry.Recipes.Domain.FulfillmentService recipesFulfillmentService,
     Plantry.Recipes.Domain.CostingService recipesCostingService,
+    Plantry.Recipes.Application.IExpiringSoonHorizonReader expiringSoonHorizon,
     ITenantContext tenant,
     UserManager<AppUser> userManager,
     IClock clock,
@@ -920,7 +921,8 @@ public sealed class IndexModel(
         }
 
         var bag = await weekReadModel.LoadAsync(recipeIds.ToList(), productIds.ToList(), ct);
-        var enricher = new WeekBagEnricher(bag, recipesFulfillmentService, recipesCostingService, clock);
+        var expiringSoonDays = await expiringSoonHorizon.GetDaysAsync(ct);
+        var enricher = new WeekBagEnricher(bag, recipesFulfillmentService, recipesCostingService, clock, expiringSoonDays);
 
         // Populate recipe name cache so _WeekGrid.cshtml ghost-cell name resolution
         // uses the in-memory bag instead of per-recipe GetByIdAsync calls (ADR-021).

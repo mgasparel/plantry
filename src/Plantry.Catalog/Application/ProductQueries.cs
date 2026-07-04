@@ -23,7 +23,12 @@ public sealed record ProductConversionDetail(
     ProductConversionId Id,
     string FromUnitCode,
     string ToUnitCode,
-    decimal Factor);
+    decimal Factor,
+    ConversionSource Source)
+{
+    /// <summary>True while this conversion is an unendorsed machine guess (ADR-022) — drives the UI tag + Promote action.</summary>
+    public bool IsAiSuggested => Source == ConversionSource.AiSuggested;
+}
 
 public sealed record ProductDetail(
     ProductId Id,
@@ -108,7 +113,8 @@ public sealed class ProductQueryService(
                 conversion.Id,
                 unitsById.TryGetValue(conversion.FromUnitId, out var fromUnit) ? fromUnit.Code : "?",
                 unitsById.TryGetValue(conversion.ToUnitId, out var toUnit) ? toUnit.Code : "?",
-                conversion.Factor))
+                conversion.Factor,
+                conversion.Source))
             .ToList();
 
         return new ProductDetail(

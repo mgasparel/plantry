@@ -33,6 +33,16 @@ namespace Plantry.Intake.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_product_id");
 
+                    b.Property<string>("EstimatedEachConfidence")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("estimated_each_confidence");
+
+                    b.Property<decimal?>("EstimatedEachCount")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)")
+                        .HasColumnName("estimated_each_count");
+
                     b.Property<DateOnly?>("ExpiryDate")
                         .HasColumnType("date")
                         .HasColumnName("expiry_date");
@@ -89,6 +99,16 @@ namespace Plantry.Intake.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("receipt_text");
+
+                    b.Property<decimal?>("ReceiptWeight")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)")
+                        .HasColumnName("receipt_weight");
+
+                    b.Property<string>("ReceiptWeightUnitLabel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("receipt_weight_unit_label");
 
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid")

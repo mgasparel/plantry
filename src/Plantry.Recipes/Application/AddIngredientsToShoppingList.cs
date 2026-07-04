@@ -58,37 +58,31 @@ public sealed class AddIngredientsToShoppingList(
         if (recipe is null)
             return new AddIngredientsResult.NotFound();
 
-        // Scale factor: desiredServings / defaultServings.
-        var scale = (decimal)servings / recipe.DefaultServings;
-
-        // Candidate ingredients: those carrying a Quantity+UnitId (a null quantity/unit is an
-        // untracked staple with nothing to express as a shopping-list line).
-        var candidates = recipe.Ingredients
+        // Batch-resolve track_stock for every quantity-bearing candidate product in one catalog
+        // round-trip, then keep only the products this household actually stock-tracks (C12, plantry-yukq).
+        var candidateIds = recipe.Ingredients
             .Where(i => i.Quantity.HasValue && i.UnitId.HasValue)
+            .Select(i => i.ProductId)
+            .Distinct()
             .ToList();
-
-        // Batch-resolve track_stock for every candidate product in one catalog round-trip, then
-        // keep only the products this household actually stock-tracks (C12, mirroring CookRecipe.cs:164).
-        // A product absent from the result (unknown to this household) or with TrackStock=false (an
-        // untracked staple) is dropped — this aligns the add-set with the "tracked" definition the
-        // Cook flow and the _DetailsFulfilmentCard label use (plantry-yukq).
-        var candidateIds = candidates.Select(i => i.ProductId).Distinct().ToList();
         var summaries = await products.ResolveSummariesAsync(candidateIds, ct);
+        var trackedProductIds = summaries
+            .Where(kv => kv.Value.TrackStock)
+            .Select(kv => kv.Key)
+            .ToHashSet();
 
-        var itemsToAdd = candidates
-            .Where(i => summaries.TryGetValue(i.ProductId, out var summary) && summary.TrackStock)
-            .Select(i => new ShoppingItem(
-                ProductId: i.ProductId,
-                Quantity: Math.Round(i.Quantity!.Value * scale, 3),
-                UnitId: i.UnitId!.Value))
-            .ToList();
+        // Full required target set (all tracked ingredients scaled to servings) via the shared
+        // calculator so the button label and the synced set cannot diverge (plantry-gsj).
+        var itemsToAdd = RecipeShoppingTargets.All(recipe, trackedProductIds, servings);
 
         if (itemsToAdd.Count == 0)
             return new AddIngredientsResult.NothingToAdd();
 
-        await shoppingWriter.AddItemsAsync(itemsToAdd, RecipeSource, recipeId.Value, ct);
+        // Idempotent SYNC (SET, last-press-wins): pressing "Add all" then "Add missing" (or vice-versa)
+        // leaves the recipe slice equal to the last button's target — no accumulation (plantry-gsj).
+        var outcome = await shoppingWriter.SyncSourceContributionAsync(itemsToAdd, RecipeSource, recipeId.Value, ct);
 
-        return new AddIngredientsResult.Added(itemsToAdd.Count);
+        return new AddIngredientsResult.Added(itemsToAdd.Count, outcome);
     }
 }
 
@@ -99,9 +93,10 @@ public abstract record AddIngredientsResult
 {
     private AddIngredientsResult() { }
 
-    /// <summary>Items were successfully added to the shopping list.</summary>
-    /// <param name="ItemCount">Number of ingredient lines dispatched to Shopping.</param>
-    public sealed record Added(int ItemCount) : AddIngredientsResult;
+    /// <summary>The recipe slice was synced to the shopping list.</summary>
+    /// <param name="ItemCount">Number of ingredient lines in the synced target set.</param>
+    /// <param name="Outcome">Per-target counts (added / already-present / checked-off) for the result summary.</param>
+    public sealed record Added(int ItemCount, ShoppingSyncOutcome Outcome) : AddIngredientsResult;
 
     /// <summary>
     /// No ingredient qualified for the list — every ingredient is either an untracked staple

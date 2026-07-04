@@ -198,6 +198,12 @@ namespace Plantry.Catalog.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("product_id");
 
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("source");
+
                     b.Property<Guid>("ToUnitId")
                         .HasColumnType("uuid")
                         .HasColumnName("to_unit_id");

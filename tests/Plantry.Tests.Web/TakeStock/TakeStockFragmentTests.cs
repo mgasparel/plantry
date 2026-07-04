@@ -1554,6 +1554,7 @@ public sealed class TakeStockConversionFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             TakeStockFragmentFactory.RegisterFakes(services, stockRepo: StockRepository);
 
             services.RemoveAll<IProductRepository>();

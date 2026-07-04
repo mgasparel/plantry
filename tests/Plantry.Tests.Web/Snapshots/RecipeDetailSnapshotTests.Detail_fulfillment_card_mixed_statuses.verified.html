@@ -31,25 +31,17 @@
 			Cook this
 		</a>
 		<input type="hidden" id="rd-servings-input" name="servings" :value="servings">
-		<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddAll" hx-include="#rd-servings-input" hx-swap="none" @htmx:after-request="if ($event.detail.successful) allAdded = true" :disabled="allAdded">
-			<svg class="icon" aria-hidden="true" x-show="!allAdded">
+		<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddAll" hx-include="#rd-servings-input" hx-target="#rd-fulf-card" hx-swap="outerHTML">
+			<svg class="icon" aria-hidden="true">
 				<use href="#i-cart"></use>
 			</svg>
-			<svg class="icon" aria-hidden="true" x-show="allAdded" x-cloak="">
-				<use href="#i-check"></use>
-			</svg>
-			<span x-show="!allAdded">Add 3 ingredients to shopping list</span>
-			<span x-show="allAdded" x-cloak="">Added</span>
+			<span>Add 3 ingredients to shopping list</span>
 		</button>
-		<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddMissing" hx-include="#rd-servings-input" hx-swap="none" @htmx:after-request="if ($event.detail.successful) missingAdded = true" :disabled="missingAdded">
-			<svg class="icon" aria-hidden="true" x-show="!missingAdded">
+		<button type="button" class="btn btn--soft" hx-post="/Recipes/Guid_1?handler=AddMissing" hx-include="#rd-servings-input" hx-target="#rd-fulf-card" hx-swap="outerHTML">
+			<svg class="icon" aria-hidden="true">
 				<use href="#i-cart"></use>
 			</svg>
-			<svg class="icon" aria-hidden="true" x-show="missingAdded" x-cloak="">
-				<use href="#i-check"></use>
-			</svg>
-			<span x-show="!missingAdded">Add 1 missing to shopping list</span>
-			<span x-show="missingAdded" x-cloak="">Added</span>
+			<span>Add 2 missing to shopping list</span>
 		</button>
 		<a href="/Recipes/Guid_1/Edit" class="btn btn--secondary">
 			<svg class="icon" aria-hidden="true">

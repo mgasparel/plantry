@@ -168,6 +168,7 @@ public abstract class RecipeDetailExpiredBadgeFactoryBase : WebApplicationFactor
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -235,9 +236,9 @@ file sealed class NullShoppingListWriterForExpiredBadge : IShoppingListWriter
 {
     public static readonly NullShoppingListWriterForExpiredBadge Instance = new();
 
-    public Task AddItemsAsync(
-        IEnumerable<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public Task<ShoppingSyncOutcome> SyncSourceContributionAsync(
+        IReadOnlyList<ShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
+        => Task.FromResult(ShoppingSyncOutcome.None);
 }
 
 /// <summary>Empty shopping list repository (file-scoped) — the Detail GET path treats the recipe as

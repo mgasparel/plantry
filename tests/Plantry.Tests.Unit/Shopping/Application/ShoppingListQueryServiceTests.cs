@@ -222,15 +222,40 @@ public sealed class ShoppingListQueryServiceTests
         Assert.True(item.HasPantryStock);
     }
 
-    [Fact(DisplayName = "GetList — product with zero stock: IsLow = true")]
-    public async Task GetList_ProductWithZeroStock_IsLowTrue()
+    [Fact(DisplayName = "GetList — running-low product: IsLow flag flows through to the view item")]
+    public async Task GetList_RunningLowProduct_IsLowTrue()
     {
         var repo = new FakeShoppingListRepository();
         var catalog = new FakeShoppingCatalogReaderWithSummaries();
         catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Eggs", "Dairy"));
 
         var pantry = new FakeShoppingPantryReader();
-        pantry.RegisterStock(_productId, new ShoppingPantryStockLevel(_productId, 0m, "ea", IsLow: true));
+        // Running low: positive but low quantity (0 < onHand ≤ threshold). IsLow is running-low
+        // only now (plantry-43y) — the query service passes it straight through to the view.
+        pantry.RegisterStock(_productId, new ShoppingPantryStockLevel(_productId, 1m, "ea", IsLow: true));
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, pantry);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(1m, item.OnHand);
+        Assert.True(item.IsLow);
+        Assert.True(item.HasPantryStock);
+    }
+
+    [Fact(DisplayName = "GetList — out product: IsLow = false (out is not running low), OnHand = 0")]
+    public async Task GetList_OutProduct_IsLowFalse()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Eggs", "Dairy"));
+
+        var pantry = new FakeShoppingPantryReader();
+        // Out: onHand ≤ 0 → IsLow is false (running-low only). The subline renders "out", not "low".
+        pantry.RegisterStock(_productId, new ShoppingPantryStockLevel(_productId, 0m, "ea", IsLow: false));
 
         SeedListWithProductItem(repo, note: null);
 
@@ -240,7 +265,7 @@ public sealed class ShoppingListQueryServiceTests
         Assert.NotNull(view);
         var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
         Assert.Equal(0m, item.OnHand);
-        Assert.True(item.IsLow);
+        Assert.False(item.IsLow);
         Assert.True(item.HasPantryStock);
     }
 
@@ -815,10 +840,10 @@ public sealed class ShoppingListQueryServiceTests
         Assert.Equal(new DateOnly(2026, 7, 4), deals.LastToday);
     }
 
-    // ── HasRecipeContribution (plantry-yt0m) ─────────────────────────────────
+    // ── GetRecipeContributionState (plantry-gsj, refines plantry-yt0m) ─────────
 
-    [Fact(DisplayName = "HasRecipeContribution — true when the list carries a Recipe contribution for the recipe id")]
-    public async Task HasRecipeContribution_RecipeContributionPresent_ReturnsTrue()
+    [Fact(DisplayName = "GetRecipeContributionState — reports this recipe's contributed qty on the unchecked product row")]
+    public async Task GetRecipeContributionState_RecipeContributionPresent_ReportsQuantity()
     {
         var recipeId = Guid.CreateVersion7();
         var repo = new FakeShoppingListRepository();
@@ -831,11 +856,14 @@ public sealed class ShoppingListQueryServiceTests
 
         var svc = BuildService(repo, catalog);
 
-        Assert.True(await svc.HasRecipeContributionAsync(recipeId));
+        var state = await svc.GetRecipeContributionStateAsync(recipeId);
+
+        Assert.Equal(2m, state.ContributedByProduct[_productId]);
+        Assert.Empty(state.CheckedOffProducts);
     }
 
-    [Fact(DisplayName = "HasRecipeContribution — false when only a Manual contribution exists for the product")]
-    public async Task HasRecipeContribution_OnlyManualContribution_ReturnsFalse()
+    [Fact(DisplayName = "GetRecipeContributionState — omits the product when only a Manual contribution exists")]
+    public async Task GetRecipeContributionState_OnlyManualContribution_OmitsProduct()
     {
         var recipeId = Guid.CreateVersion7();
         var repo = new FakeShoppingListRepository();
@@ -846,11 +874,13 @@ public sealed class ShoppingListQueryServiceTests
 
         var svc = BuildService(repo, catalog);
 
-        Assert.False(await svc.HasRecipeContributionAsync(recipeId));
+        var state = await svc.GetRecipeContributionStateAsync(recipeId);
+
+        Assert.False(state.ContributedByProduct.ContainsKey(_productId));
     }
 
-    [Fact(DisplayName = "HasRecipeContribution — false when the Recipe contribution belongs to a different recipe")]
-    public async Task HasRecipeContribution_DifferentRecipeId_ReturnsFalse()
+    [Fact(DisplayName = "GetRecipeContributionState — omits the product when the Recipe contribution belongs to a different recipe")]
+    public async Task GetRecipeContributionState_DifferentRecipeId_OmitsProduct()
     {
         var thisRecipe = Guid.CreateVersion7();
         var otherRecipe = Guid.CreateVersion7();
@@ -864,11 +894,36 @@ public sealed class ShoppingListQueryServiceTests
 
         var svc = BuildService(repo, catalog);
 
-        Assert.False(await svc.HasRecipeContributionAsync(thisRecipe));
+        var state = await svc.GetRecipeContributionStateAsync(thisRecipe);
+
+        Assert.False(state.ContributedByProduct.ContainsKey(_productId));
     }
 
-    [Fact(DisplayName = "HasRecipeContribution — false when the household has no shopping list")]
-    public async Task HasRecipeContribution_NoList_ReturnsFalse()
+    [Fact(DisplayName = "GetRecipeContributionState — a checked-off row is reported as a checked-off product, not an unchecked contribution")]
+    public async Task GetRecipeContributionState_CheckedOffRow_ReportedAsCheckedOff()
+    {
+        var recipeId = Guid.CreateVersion7();
+        var userId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        var item = list.AddItem(_productId, quantity: 2m, unitId: _unitId, note: null,
+            source: ItemSource.Recipe, sourceRef: recipeId, Clock);
+        list.CheckOff(item.Id, userId, Clock);
+        repo.Seed(list);
+
+        var svc = BuildService(repo, catalog);
+
+        var state = await svc.GetRecipeContributionStateAsync(recipeId);
+
+        // The completed intent shows up as checked-off (no resurrection), not as an unchecked contribution.
+        Assert.Contains(_productId, state.CheckedOffProducts);
+        Assert.False(state.ContributedByProduct.ContainsKey(_productId));
+    }
+
+    [Fact(DisplayName = "GetRecipeContributionState — Empty when the household has no shopping list")]
+    public async Task GetRecipeContributionState_NoList_ReturnsEmpty()
     {
         var recipeId = Guid.CreateVersion7();
         var repo = new FakeShoppingListRepository();
@@ -876,11 +931,14 @@ public sealed class ShoppingListQueryServiceTests
 
         var svc = BuildService(repo, catalog);
 
-        Assert.False(await svc.HasRecipeContributionAsync(recipeId));
+        var state = await svc.GetRecipeContributionStateAsync(recipeId);
+
+        Assert.Empty(state.ContributedByProduct);
+        Assert.Empty(state.CheckedOffProducts);
     }
 
-    [Fact(DisplayName = "HasRecipeContribution — false when there is no household context")]
-    public async Task HasRecipeContribution_NoHousehold_ReturnsFalse()
+    [Fact(DisplayName = "GetRecipeContributionState — Empty when there is no household context")]
+    public async Task GetRecipeContributionState_NoHousehold_ReturnsEmpty()
     {
         var recipeId = Guid.CreateVersion7();
         var repo = new FakeShoppingListRepository();
@@ -896,7 +954,10 @@ public sealed class ShoppingListQueryServiceTests
             Clock,
             new FakeTenantContext(null));
 
-        Assert.False(await svc.HasRecipeContributionAsync(recipeId));
+        var state = await svc.GetRecipeContributionStateAsync(recipeId);
+
+        Assert.Empty(state.ContributedByProduct);
+        Assert.Empty(state.CheckedOffProducts);
     }
 }
 
