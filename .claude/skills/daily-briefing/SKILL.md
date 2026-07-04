@@ -3,11 +3,12 @@ name: daily-briefing
 description: >-
   Generate a unified daily operator report: ONE command, ONE tabbed HTML with
   [Briefing | Flow | Backlog | Trend] tabs. The Briefing tab shows factory stall
-  (items stopped on me), overnight recap, runway gauge, replenishment worklist,
-  and the ranked "where to spend attention" call written in chat. The Flow tab
-  shows lead time, throughput, aging WIP, and self-generated-work rate. The
-  Backlog tab shows the full do-now / parked detail. The Trend tab charts each
-  KPI metric across nightly snapshot dates from health-log.jsonl.
+  (items stopped on me), overnight recap, burn-down + backlog health (net burn,
+  days-to-backlog-zero, stale/untriaged signals), the priority queue, and the
+  ranked "where to spend attention" call written in chat. The Flow tab shows
+  lead time, throughput, aging WIP, and self-generated-work rate. The Backlog
+  tab shows the full do-now / parked detail. The Trend tab charts each KPI
+  metric across nightly snapshot dates from health-log.jsonl.
   USE FOR: "daily briefing", "morning report", "what should I do today",
   "run the briefing", "show me the briefing", "operator report",
   "morning standup summary", "what happened since yesterday",
@@ -32,7 +33,7 @@ are now folded into this briefing.
 
 | Tab | Content |
 |-----|---------|
-| **Briefing** | Factory stall, overnight recap, runway, replenishment worklist, the call |
+| **Briefing** | Factory stall, overnight recap, burn-down + backlog health, priority queue, the call |
 | **Flow** | Lead-time scatter, throughput, aging WIP, self-generated work |
 | **Backlog** | Ranked do-now / parked detail |
 | **Trend** | KPI health-over-time charts from `health-log.jsonl` (nightly snapshots) |
@@ -79,12 +80,21 @@ Schema per row:
   "reasonMix": { "total", "inflight", "blocked", "spec", "ready", "parked",
                  "pctInflight", "pctBlocked", "pctSpec", "pctReady", "pctParked" },
   "sgOutstanding": int,
-  "runwayDays": float | null,
+  "netPerDay": float,
+  "burnDownDays": float | null,
+  "creationRate": float,
   "readyDepth": int,
   "consumptionRate": float,
+  "oldestOpenAgeDays": float | null,
+  "staleCount": int,
+  "untriagedCount": int,
   "stallCount": int
 }
 ```
+
+Rows written before the burn-down redesign carry `runwayDays` instead of the
+net-burn / health fields; readers must tolerate both shapes (charts null-gap
+the missing prefix).
 
 ## Data contract (-Json payload)
 
@@ -98,10 +108,19 @@ Schema per row:
   },
   "briefing": {
     "kpis": {
-      "runwayDays":          float | null,   // ready / consumptionRate
-      "readyDepth":          int,
+      "netPerDay":           float,          // closes/day - creates/day, 14-day trailing
+      "burnDownDays":        float | null,   // open / netPerDay; null unless net > 0
+      "creationRate":        float,          // creates/day, 14-day trailing window
       "consumptionRate":     float,          // closes/day, 14-day trailing window
+      "readyDepth":          int,
+      "openNonEpic":         int,
       "trailingDays":        int,
+      "staleDays":           int,            // staleness threshold (-StaleDays, default 30)
+      "staleCount":          int,            // open items older than staleDays
+      "oldestOpenId":        string | null,
+      "oldestOpenTitle":     string | null,
+      "oldestOpenAgeDays":   float | null,
+      "untriagedCount":      int,            // open issues with no class: label
       "stallCount":          int,            // all factory-stall categories
       "overnightCreated":    int,            // last 24h
       "overnightClosed":     int,
@@ -153,9 +172,10 @@ powershell -File "<skill-dir>/briefing.ps1" -Open
 ```
 
 The script reads all beads issues once, computes every slice, writes ONE HTML,
-prints a one-line KPI summary (runway, stall counts, overnight delta, triage
-gate, leak budget), and opens it with `-Open`. If it fails or `bd` is
-unreachable, surface the error -- do not report success without a written file.
+prints a one-line KPI summary (net burn, burn-down horizon, stall counts,
+overnight delta, oldest/stale, triage gate, leak budget), and opens it with
+`-Open`. If it fails or `bd` is unreachable, surface the error -- do not report
+success without a written file.
 
 ### Step 2 -- Read the Briefing tab
 
@@ -164,13 +184,17 @@ Work through the Briefing tab top to bottom. Section order:
 1. **Factory stall** (line stopped on me) -- items the autonomous loop cannot
    clear without human input. Unblock these first. Categories in priority order:
    needs-human > parked-exhausted > blocked > long-in-progress > red-CI.
-2. **Overnight recap** -- KPI strip: stall count, runway, ready depth,
-   consumption rate, created/closed in last 24h, blocked count.
-3. **Runway gauge** -- ready-queue depth / consumption rate = days until the
-   factory starves if the operator does nothing. Thresholds: <3d urgent,
-   3-7d warning, >=7d healthy.
-4. **Replenishment worklist** -- quality leaks first (bugs + UX), then
-   investments. Gate warning if untriaged issues exist (run `groom` first).
+2. **Overnight recap** -- KPI strip: stall count, net burn/day, burn-down
+   horizon, oldest open item, untriaged count, created/closed in last 24h,
+   blocked count.
+3. **Burn-down + backlog health** -- the factory clears ready work nightly, so
+   the goal is a SHRINKING backlog, not a full queue. Headline: net burn
+   (closes/day - creates/day, 14-day trailing) and days-to-backlog-zero.
+   Growth is informational, not an alarm. The warning-bearing signals are the
+   health row: stale items (open > StaleDays, default 30) and untriaged count.
+4. **Priority queue** -- quality leaks first (bugs + UX), then parked
+   investments. The operator's job is ordering and grooming, not feeding.
+   Gate warning if untriaged issues exist (run `groom` first).
 5. **The call** -- see Step 3.
 
 If the user wants flow details, switch to the **Flow** tab.
@@ -188,8 +212,9 @@ Write 1-3 ranked actions (never more than 3). Use this structure:
 ```
 **Attention call -- {date}**
 
-Runway: {runway}d ({state: critical | low | healthy}).
+Backlog: {open} open, net {net:+/-}/day ({shrinking ~{burnDown}d to zero | steady | growing}).
 Stall: {N} item(s) stopped ({category breakdown if > 0}).
+Health: oldest {age}d ({id}), {stale} stale, {untriaged} untriaged.
 Overnight: +{created} / -{closed} (net {net:+/-}).
 
 1. **{most urgent action}** -- {one line: why this first, cite the ID or number}
@@ -199,9 +224,11 @@ Overnight: +{created} / -{closed} (net {net:+/-}).
 
 Ranking logic (apply in order, stop when you have 3):
 - Any needs-human stall item -> unblock it first (name the ID).
-- Runway < 3d -> replenishment is urgent; name the top leak or next item to promote.
-- Open P1 bugs -> fix the highest-priority bug.
-- Runway 3-7d -> watch the queue; name the next item to groom or promote.
+- Open P1 bugs / leak-budget items -> fix the highest-priority leak (name it).
+- Untriaged issues (triage gate FAIL) -> run `groom` so the queue is trustworthy.
+- Stale items (open > StaleDays) -> name the oldest ID; pull, spec, or close it.
+- Backlog growing (net negative) several days running -> mention it as context,
+  not as an action -- growth alone is not an alarm.
 - If all clear -> say so; one sentence is enough.
 
 Do not recompute counts from scratch -- use what the script printed.

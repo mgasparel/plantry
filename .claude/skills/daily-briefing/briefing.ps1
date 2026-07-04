@@ -8,7 +8,7 @@
     a self-contained multi-tab HTML report with four tabs:
 
       [Briefing]  The operator's morning decision surface: factory stall, overnight
-                  recap, runway, replenishment worklist, and the call.
+                  recap, burn-down + backlog health, priority queue, and the call.
 
       [Flow]      The time-series flow view: lead-time scatter, throughput, aging
                   WIP, self-generated work. Full reuse of the flow-report logic.
@@ -44,6 +44,8 @@ param(
     [switch]$Json,
     [switch]$Open,
     [int]$LongInProgressHours = 4,
+    # Age (days) above which an open issue counts as stale in the backlog-health panel.
+    [int]$StaleDays = 30,
     # Path to the git-tracked health snapshot log. Default: same directory as this script.
     # Each run appends ONE dated KPI-vector row; at most one row per calendar day is written.
     [string]$HealthLog = ""
@@ -329,22 +331,36 @@ $perDay    = [math]::Round($leadRows.Count / $spanDays, 1)
 $stuckCount= @($agingRows | Where-Object { $p85 -and $_.ageH -ge $p85 }).Count
 
 # ---------------------------------------------------------------------------
-# 5. Briefing slice: factory stall + runway + overnight window
+# 5. Briefing slice: factory stall + burn-down/backlog health + overnight window
 # ---------------------------------------------------------------------------
 # Exhaustion reason labels set by the auto-park procedure.
 $exhaustionLabels = @("build-loop-exhausted", "test-loop-exhausted", "critic-loop-exhausted")
 
-# Runway = ready-queue depth / consumption rate (closes per day).
-# Consumption rate uses a 14-day trailing window for freshness.
+# Burn-down: the factory clears ready work nightly, so the operator's goal is a
+# SHRINKING backlog, not a full queue. Net burn = closes/day minus creates/day
+# over a 14-day trailing window; burn-down horizon = open count / net burn.
 $trailingDays  = 14
 $trailCutoff   = $now.AddDays(-$trailingDays)
 $trailCloseCount = @($all | Where-Object {
     $cls = Get-SafeProp $_ "closed_at" $null
     $cls -and ([datetime]::Parse($cls)) -ge $trailCutoff
 }).Count
+$trailCreateCount = @($all | Where-Object {
+    $cs = Get-SafeProp $_ "created_at" $null
+    $cs -and ([datetime]::Parse($cs)) -ge $trailCutoff
+}).Count
 $consumptionRate = if ($trailingDays -gt 0) { [math]::Round($trailCloseCount / $trailingDays, 2) } else { 0 }
+$creationRate    = if ($trailingDays -gt 0) { [math]::Round($trailCreateCount / $trailingDays, 2) } else { 0 }
+$netPerDay       = [math]::Round($consumptionRate - $creationRate, 2)
 $readyDepth      = $readyById.Count
-$runwayDays      = if ($consumptionRate -gt 0) { [math]::Round($readyDepth / $consumptionRate, 1) } else { $null }
+$openNonEpic     = $agingRows.Count
+$burnDownDays    = if ($netPerDay -gt 0 -and $openNonEpic -gt 0) { [math]::Round($openNonEpic / $netPerDay, 1) } else { $null }
+
+# Backlog health: staleness. Untriaged count (the other health signal) is
+# computed in section 5c and joined into the payload later.
+$staleCutoffH = $StaleDays * 24
+$staleRows    = @($agingRows | Where-Object { $_.ageH -ge $staleCutoffH })
+$oldestOpen   = if ($agingRows.Count -gt 0) { @($agingRows | Sort-Object -Property ageH -Descending)[0] } else { $null }
 
 # Overnight recap: issues created/closed in last 24 h.
 $overnightCutoff = $now.AddHours(-24)
@@ -524,7 +540,7 @@ foreach ($i in $all) {
 }
 
 # ---------------------------------------------------------------------------
-# 5c. Replenishment worklist: port of triage/prep.py -- leaks-vs-investments
+# 5c. Priority queue: port of triage/prep.py -- leaks-vs-investments
 #
 #   LEAK_CLASSES  = class:bug + class:ux
 #   PARKED_CLASSES = class:improvement + class:tech-debt
@@ -664,8 +680,11 @@ $triageParkedGroups= Group-ByTheme -rows $triageParked
 #   Metrics persisted (snapshot state that cannot be reconstructed later):
 #     date, leadP50h, leadP85h, leadP95h, throughputPerDay, openCount,
 #     reasonMix (inflight/blocked/spec/ready/parked counts + percents),
-#     sgOutstanding (self-gen outstanding now), runwayDays, readyDepth,
-#     consumptionRate, stallCount
+#     sgOutstanding (self-gen outstanding now), netPerDay, burnDownDays,
+#     creationRate, readyDepth, consumptionRate, oldestOpenAgeDays,
+#     staleCount, untriagedCount, stallCount
+#   (runwayDays appears in historical rows only; superseded by netPerDay /
+#    burnDownDays when the burn-down redesign landed.)
 # ---------------------------------------------------------------------------
 if (-not $HealthLog) {
     $HealthLog = Join-Path $PSScriptRoot "health-log.jsonl"
@@ -720,9 +739,14 @@ if (-not $existingDates.ContainsKey($todayKey)) {
             pctParked   = Pct $rmParked   $rmTotal
         }
         sgOutstanding     = ($sgTotalCreated - $sgTotalClosed)
-        runwayDays        = if ($null -ne $runwayDays) { $runwayDays } else { $null }
+        netPerDay         = $netPerDay
+        burnDownDays      = if ($null -ne $burnDownDays) { $burnDownDays } else { $null }
+        creationRate      = $creationRate
         readyDepth        = $readyDepth
         consumptionRate   = $consumptionRate
+        oldestOpenAgeDays = if ($null -ne $oldestOpen) { [math]::Round($oldestOpen.ageH / 24, 1) } else { $null }
+        staleCount        = $staleRows.Count
+        untriagedCount    = $triageUntriaged.Count
         stallCount        = $allStallItems.Count
     }
     $rowJson = ($kpiRow | ConvertTo-Json -Depth 5 -Compress)
@@ -765,10 +789,19 @@ $flowKpis = [PSCustomObject]@{
 }
 
 $briefingKpis = [PSCustomObject]@{
-    runwayDays             = $runwayDays
-    readyDepth             = $readyDepth
+    netPerDay              = $netPerDay
+    burnDownDays           = $burnDownDays
+    creationRate           = $creationRate
     consumptionRate        = $consumptionRate
+    readyDepth             = $readyDepth
+    openNonEpic            = $openNonEpic
     trailingDays           = $trailingDays
+    staleDays              = $StaleDays
+    staleCount             = $staleRows.Count
+    oldestOpenId           = if ($null -ne $oldestOpen) { $oldestOpen.id } else { $null }
+    oldestOpenTitle        = if ($null -ne $oldestOpen) { $oldestOpen.title } else { $null }
+    oldestOpenAgeDays      = if ($null -ne $oldestOpen) { [math]::Round($oldestOpen.ageH / 24, 1) } else { $null }
+    untriagedCount         = $triageUntriaged.Count
     stallCount             = $allStallItems.Count
     overnightCreated       = $overnightCreated
     overnightClosed        = $overnightClosed
@@ -965,50 +998,33 @@ $html = @'
     font-size:12px; color:var(--wait); background:#2a1f0c; border-radius:6px;
     padding:6px 10px; margin-bottom:10px;
   }
-  /* ---------- runway gauge ---------- */
-  .runway-grid {
-    display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:18px;
+  /* ---------- burn-down &amp; backlog health panel ---------- */
+  .bh-grid {
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:14px;
   }
-  .runway-stat { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
-  .runway-stat .rv { font-size:22px; font-weight:600; letter-spacing:-0.02em; }
-  .runway-stat .rl { color:var(--muted); font-size:11px; margin-top:2px; }
-  .runway-stat.rv-warn .rv { color:var(--warn); }
-  .runway-stat.rv-ok   .rv { color:var(--accent); }
-  .runway-bar-wrap {
-    background:var(--panel2); border:1px solid var(--line); border-radius:8px;
-    padding:14px 16px; margin-bottom:14px;
-  }
-  .runway-bar-label {
-    display:flex; justify-content:space-between; align-items:baseline;
-    font-size:12px; color:var(--muted); margin-bottom:7px;
-  }
-  .runway-bar-label .rb-val { font-size:18px; font-weight:600; color:var(--ink); letter-spacing:-0.02em; }
-  .runway-bar-track {
-    height:10px; background:var(--panel); border-radius:5px; overflow:hidden;
-  }
-  .runway-bar-fill {
-    height:100%; border-radius:5px;
-    transition:width .3s ease, background-color .3s ease;
-  }
-  .runway-bar-fill.rw-warn  { background:var(--warn); }
-  .runway-bar-fill.rw-amber { background:var(--wait); }
-  .runway-bar-fill.rw-ok    { background:var(--accent); }
-  .runway-action {
+  .bh-stat { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .bh-stat .rv { font-size:22px; font-weight:600; letter-spacing:-0.02em; }
+  .bh-stat .rl { color:var(--muted); font-size:11px; margin-top:2px; }
+  .bh-stat.rv-warn .rv { color:var(--warn); }
+  .bh-stat.rv-ok   .rv { color:var(--accent); }
+  .bh-stat .rd { color:var(--muted); font-size:11px; margin-top:4px; line-height:1.5; }
+  .bh-action {
     display:flex; align-items:flex-start; gap:10px;
     padding:10px 14px; border-radius:8px; font-size:13px; margin-top:10px;
   }
-  .runway-action.ra-warn  { background:#2e1e1e; border:1px solid #5a2020; color:var(--warn); }
-  .runway-action.ra-amber { background:#2a1f0c; border:1px solid #4a3010; color:var(--wait); }
-  .runway-action.ra-info  { background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
-  .runway-action .ra-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
-  .runway-action .ra-body { line-height:1.5; }
-  .runway-action .ra-title { font-weight:600; display:block; margin-bottom:2px; }
-  .runway-threshold-labels {
-    display:flex; justify-content:space-between;
-    font-size:10px; color:var(--muted); margin-top:5px; padding:0 1px;
+  .bh-action.ba-warn  { background:#2e1e1e; border:1px solid #5a2020; color:var(--warn); }
+  .bh-action.ba-amber { background:#2a1f0c; border:1px solid #4a3010; color:var(--wait); }
+  .bh-action.ba-ok    { background:#16281d; border:1px solid #1f4030; color:var(--accent); }
+  .bh-action.ba-info  { background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
+  .bh-action .ra-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
+  .bh-action .ra-body { line-height:1.5; }
+  .bh-action .ra-title { font-weight:600; display:block; margin-bottom:2px; }
+  .bh-subhead {
+    font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase;
+    color:var(--muted); margin:16px 0 8px;
   }
-  .runway-note { font-size:11.5px; color:var(--muted); margin-top:12px; line-height:1.6; }
-  /* ---------- replenishment worklist ---------- */
+  .bh-note { font-size:11.5px; color:var(--muted); margin-top:12px; line-height:1.6; }
+  /* ---------- priority queue ---------- */
   .worklist-gate-warn {
     font-size:13px; color:var(--warn); background:#2e1e1e;
     border:1px solid #5a2020; border-radius:8px;
@@ -1095,23 +1111,28 @@ $html = @'
     <div id="stall-content"></div>
   </section>
 
-  <!-- Runway gauge (DB-3: plantry-dge7u) -->
-  <section id="runway-section">
-    <h2>Runway &mdash; days until the factory starves</h2>
+  <!-- Burn-down & backlog health (replaces the runway gauge: the factory
+       clears ready work nightly, so the goal is a shrinking, healthy backlog,
+       not a full queue) -->
+  <section id="burndown-section">
+    <h2>Burn-down &mdash; is the backlog shrinking?</h2>
     <p class="desc">
-      Ready-queue depth &divide; consumption rate = days of work queued up if the operator does nothing.
-      Below 3&thinsp;d is urgent; 3&ndash;7&thinsp;d is a warning; above 7&thinsp;d is comfortable.
-      Consumption rate uses a 14-day trailing window.
+      Net burn = closes/day &minus; creates/day over the trailing 14-day window; the horizon is
+      days-to-backlog-zero at that pace. Growth is informational (discovery can outpace closes);
+      the warning signals are <b>stale items</b> and <b>untriaged issues</b> &mdash; a rotting backlog,
+      not a shallow one. Detail lives on the Flow tab (aging WIP) and Trend tab (open-count composition).
     </p>
-    <div id="runway-content"></div>
+    <div id="burndown-content"></div>
   </section>
 
-  <!-- Replenishment worklist (DB-4: plantry-qk49o) -->
+  <!-- Priority queue (formerly "replenishment worklist"): ordering and
+       grooming what the factory eats next, not feeding it -->
   <section id="worklist-section">
-    <h2>Replenishment worklist</h2>
+    <h2>Priority queue &mdash; what the factory eats next</h2>
     <p class="desc" id="worklist-desc">
-      Quality leaks first (bugs + UX), then investments to spec or unblock
-      to keep the queue full. Drive leak count to zero for MVP.
+      Quality leaks first (bugs + UX), then parked investments. The factory clears
+      ready work nightly &mdash; the operator's job is ordering and grooming this queue,
+      not keeping it full. Drive leak count to zero for MVP.
     </p>
     <div id="worklist-content"></div>
   </section>
@@ -1224,7 +1245,7 @@ $html = @'
   <!-- PARKED pool (improvement + tech-debt) grouped by theme -->
   <section id="backlog-parked-section">
     <h2>PARKED pool &mdash; improvements &amp; tech-debt</h2>
-    <p class="desc">Investments deferred until the leak budget is clear. Spec or unblock to refill the queue.</p>
+    <p class="desc">Investments deferred until the leak budget is clear. Spec or unblock to promote.</p>
     <div id="backlog-parked-content"></div>
   </section>
 
@@ -1287,12 +1308,12 @@ $html = @'
     </section>
 
     <section>
-      <h2>Self-gen outstanding &amp; runway</h2>
-      <p class="desc">Left axis: self-generated issues outstanding (code-review + dogfood not yet closed). Right axis: runway in days (ready depth / consumption rate). A falling runway while self-gen outstanding rises is the early warning for a queue starve.</p>
+      <h2>Self-gen outstanding &amp; net burn</h2>
+      <p class="desc">Left axis: self-generated issues outstanding (code-review + dogfood not yet closed). Right axis: net burn per day (closes &minus; creates, 14-day trailing). Positive net burn means the backlog is shrinking; a negative net burn while self-gen outstanding rises means the loop is generating work faster than it clears it. (Rows logged before the burn-down redesign have no net-burn value.)</p>
       <div class="chart"><canvas id="trendSgRunwayChart"></canvas></div>
       <div class="legend">
         <span><i style="background:var(--sg-line)"></i>self-gen outstanding</span>
-        <span><i style="background:var(--accent)"></i>runway (days)</span>
+        <span><i style="background:var(--accent)"></i>net burn (issues/day)</span>
       </div>
     </section>
 
@@ -1363,17 +1384,19 @@ document.querySelectorAll('.gen-ts').forEach(function(el) {
 });
 
 // ---------------------------------------------------------------------------
-// BRIEFING tab: KPI strip + factory stall section + runway preview
+// BRIEFING tab: KPI strip + factory stall section + burn-down preview
 // ---------------------------------------------------------------------------
 var bk = DATA.briefing.kpis;
-var runwayWarn = bk.runwayDays != null && bk.runwayDays < 3;
-var runwayOk   = bk.runwayDays != null && bk.runwayDays >= 7;
+var netStr   = (bk.netPerDay > 0 ? "+" : "") + bk.netPerDay;
+var oldWarn  = bk.oldestOpenAgeDays != null && bk.oldestOpenAgeDays >= bk.staleDays;
 var bCards = [
     { v: bk.stallCount,       l: "line stopped on me",    warn: bk.stallCount > 0, ok: bk.stallCount === 0 },
-    { v: bk.runwayDays != null ? bk.runwayDays + "d" : "n/a",
-                               l: "runway (ready / rate)", warn: runwayWarn, ok: runwayOk },
-    { v: bk.readyDepth,       l: "ready to pull"                                    },
-    { v: bk.consumptionRate,  l: "closes/day (14d)"                                 },
+    { v: netStr,              l: "net burn/day (14d)",     ok: bk.netPerDay > 0 },
+    { v: bk.burnDownDays != null ? "~" + bk.burnDownDays + "d" : "n/a",
+                               l: "to backlog zero",       ok: bk.burnDownDays != null },
+    { v: bk.oldestOpenAgeDays != null ? bk.oldestOpenAgeDays + "d" : "n/a",
+                               l: "oldest open item",      warn: oldWarn, ok: bk.oldestOpenAgeDays != null && !oldWarn },
+    { v: bk.untriagedCount,   l: "untriaged",              warn: bk.untriagedCount > 0, ok: bk.untriagedCount === 0 },
     { v: bk.overnightCreated, l: "created (last 24h)"                               },
     { v: bk.overnightClosed,  l: "closed (last 24h)"                                },
     { v: bk.blockedCount,     l: "blocked items",          warn: bk.blockedCount > 0 },
@@ -1438,127 +1461,114 @@ if (fs && fs.count > 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Runway gauge (DB-3: plantry-dge7u)
-// Thresholds: < 3d = warn (red), 3-7d = amber, >= 7d = ok (green)
-// Edge cases: readyDepth==0 or consumptionRate==0 handled with specific copy.
+// Burn-down & backlog health panel (replaces the runway gauge)
+// Headline: net burn + days-to-backlog-zero. Growth is informational; the
+// warning-bearing signals are staleness and untriaged count.
 // ---------------------------------------------------------------------------
 (function() {
-    var rc = document.getElementById("runway-content");
+    var rc = document.getElementById("burndown-content");
     if (!rc) { return; }
 
-    var rd  = bk.readyDepth;        // int
-    var cr  = bk.consumptionRate;   // float (closes/day, 14d trailing)
-    var rwd = bk.runwayDays;        // float | null
-    var td  = bk.trailingDays;
+    var net  = bk.netPerDay;          // float (closes - creates, per day)
+    var cr   = bk.consumptionRate;    // float closes/day
+    var crt  = bk.creationRate;       // float creates/day
+    var bdd  = bk.burnDownDays;       // float | null
+    var open = bk.openNonEpic;        // int
+    var td   = bk.trailingDays;
+    var netDisplay = (net > 0 ? "+" : "") + net;
 
-    // Classify state
-    var state = "ok";    // "warn" | "amber" | "ok" | "no-rate" | "no-ready"
-    if (rd === 0)                     { state = "no-ready"; }
-    else if (cr === 0)                { state = "no-rate"; }
-    else if (rwd != null && rwd < 3)  { state = "warn"; }
-    else if (rwd != null && rwd < 7)  { state = "amber"; }
-    else                              { state = "ok"; }
-
-    // Format runway display value
-    var rwdDisplay = rwd != null ? rwd + "d" : "n/a";
-
-    // Stat card class by state
-    var rvCls = (state === "warn" || state === "no-ready") ? " rv-warn"
-              : (state === "amber")                        ? ""
-              : " rv-ok";
-
-    // Bar fill: cap at 100% for display; 10d = full bar
-    var CAP_DAYS = 10;
-    var barPct   = 0;
-    var barCls   = "rw-warn";
-    if (state === "ok" || state === "amber") {
-        barPct = Math.min(100, Math.round((rwd / CAP_DAYS) * 100));
-        barCls = state === "ok" ? "rw-ok" : "rw-amber";
-    } else if (state === "no-rate") {
-        // No consumption rate: treat bar as unknown -- show full muted bar
-        barPct = 100;
-        barCls = "rw-amber";
-    } else {
-        barPct = 0;
-        barCls = "rw-warn";
-    }
-
-    // Action banner
+    // Verdict banner
     var actionHtml = "";
-    if (state === "no-ready") {
-        actionHtml = '<div class="runway-action ra-warn">'
-            + '<span class="ra-icon">!</span>'
-            + '<span class="ra-body"><span class="ra-title">Queue is empty &mdash; refill now</span>'
-            + 'There are no ready issues. The factory will stall on the next pull. '
-            + 'Promote issues to ready or groom new work immediately.</span></div>';
-    } else if (state === "no-rate") {
-        actionHtml = '<div class="runway-action ra-amber">'
-            + '<span class="ra-icon">?</span>'
-            + '<span class="ra-body"><span class="ra-title">Consumption rate unavailable</span>'
-            + 'No issues closed in the trailing ' + td + ' days &mdash; runway cannot be computed. '
-            + 'If the factory has been idle, verify the pipeline is running.</span></div>';
-    } else if (state === "warn") {
-        actionHtml = '<div class="runway-action ra-warn">'
-            + '<span class="ra-icon">!</span>'
-            + '<span class="ra-body"><span class="ra-title">Refill the queue &mdash; runway critical (' + rwdDisplay + ')</span>'
-            + 'At the current rate of ' + cr + ' closes/day the ready queue runs dry in under 3 days. '
-            + 'Promote, spec, or groom work now before the factory stalls.</span></div>';
-    } else if (state === "amber") {
-        actionHtml = '<div class="runway-action ra-amber">'
-            + '<span class="ra-icon">~</span>'
-            + '<span class="ra-body"><span class="ra-title">Queue low &mdash; consider replenishing (' + rwdDisplay + ')</span>'
-            + 'Runway is below 7 days. No immediate action required, but plan to groom '
-            + 'or promote work soon to stay ahead of the factory.</span></div>';
-    } else {
-        actionHtml = '<div class="runway-action ra-info">'
+    if (open === 0) {
+        actionHtml = '<div class="bh-action ba-ok">'
             + '<span class="ra-icon">+</span>'
-            + '<span class="ra-body"><span class="ra-title">Queue healthy (' + rwdDisplay + ')</span>'
-            + 'More than 7 days of work queued at the current rate. No replenishment needed today.</span></div>';
+            + '<span class="ra-body"><span class="ra-title">Backlog zero</span>'
+            + 'Nothing open. Go find new work &mdash; dogfood the app or review the roadmap.</span></div>';
+    } else if (cr === 0 && crt === 0) {
+        actionHtml = '<div class="bh-action ba-amber">'
+            + '<span class="ra-icon">?</span>'
+            + '<span class="ra-body"><span class="ra-title">No activity in the trailing ' + td + ' days</span>'
+            + 'Nothing created or closed &mdash; net burn cannot be computed. '
+            + 'If the factory should be running, verify the pipeline.</span></div>';
+    } else if (net > 0) {
+        actionHtml = '<div class="bh-action ba-ok">'
+            + '<span class="ra-icon">+</span>'
+            + '<span class="ra-body"><span class="ra-title">Backlog shrinking (' + netDisplay + '/day)</span>'
+            + 'At this pace the ' + open + ' open items clear in roughly ' + bdd + ' days. '
+            + 'Keep the priority queue ordered and the factory does the rest.</span></div>';
+    } else if (net === 0) {
+        actionHtml = '<div class="bh-action ba-info">'
+            + '<span class="ra-icon">~</span>'
+            + '<span class="ra-body"><span class="ra-title">Backlog holding steady</span>'
+            + 'Creates and closes are balanced over the trailing ' + td + ' days. '
+            + 'Not an alarm &mdash; but nothing is burning down either.</span></div>';
+    } else {
+        actionHtml = '<div class="bh-action ba-info">'
+            + '<span class="ra-icon">~</span>'
+            + '<span class="ra-body"><span class="ra-title">Backlog growing (' + netDisplay + '/day)</span>'
+            + 'Discovery is outpacing closes over the trailing ' + td + ' days. '
+            + 'Not an alarm by itself &mdash; healthy dogfooding looks like this. '
+            + 'Watch the health row below; act if items go stale or untriaged piles up.</span></div>';
     }
 
+    // Headline stat grid
+    var netCls = net > 0 ? " rv-ok" : "";
     var html = ''
-        + '<div class="runway-bar-wrap">'
-        + '  <div class="runway-bar-label">'
-        + '    <span>0</span>'
-        + '    <span class="rb-val">' + rwdDisplay + '</span>'
-        + '    <span>' + CAP_DAYS + 'd+</span>'
+        + '<div class="bh-grid">'
+        + '  <div class="bh-stat' + netCls + '">'
+        + '    <div class="rv">' + netDisplay + '</div>'
+        + '    <div class="rl">net burn/day (' + td + 'd trailing)</div>'
         + '  </div>'
-        + '  <div class="runway-bar-track">'
-        + '    <div class="runway-bar-fill ' + barCls + '" style="width:' + barPct + '%"></div>'
+        + '  <div class="bh-stat' + (bdd != null ? " rv-ok" : "") + '">'
+        + '    <div class="rv">' + (bdd != null ? "~" + bdd + "d" : "n/a") + '</div>'
+        + '    <div class="rl">to backlog zero at this pace</div>'
         + '  </div>'
-        + '  <div class="runway-threshold-labels">'
-        + '    <span>empty</span>'
-        + '    <span style="position:relative;left:' + Math.round((3/CAP_DAYS)*100) + '%">3d (warn)</span>'
-        + '    <span style="position:relative;left:' + Math.round((7/CAP_DAYS)*100) + '%">7d (ok)</span>'
-        + '    <span>10d+</span>'
+        + '  <div class="bh-stat">'
+        + '    <div class="rv">' + open + '</div>'
+        + '    <div class="rl">open (non-epic)</div>'
         + '  </div>'
-        + '</div>'
-        + '<div class="runway-grid">'
-        + '  <div class="runway-stat' + rvCls + '">'
-        + '    <div class="rv">' + rwdDisplay + '</div>'
-        + '    <div class="rl">runway</div>'
-        + '  </div>'
-        + '  <div class="runway-stat">'
-        + '    <div class="rv">' + rd + '</div>'
-        + '    <div class="rl">ready (depth)</div>'
-        + '  </div>'
-        + '  <div class="runway-stat">'
-        + '    <div class="rv">' + cr + '</div>'
-        + '    <div class="rl">closes/day (' + td + 'd trailing)</div>'
+        + '  <div class="bh-stat">'
+        + '    <div class="rv">' + cr + ' / ' + crt + '</div>'
+        + '    <div class="rl">closes / creates per day</div>'
         + '  </div>'
         + '</div>'
-        + actionHtml
-        + '<div class="runway-note">'
-        + 'Runway = ready-queue depth &divide; consumption rate. '
-        + 'Consumption rate is closes-per-day averaged over the trailing ' + td + ' days. '
-        + 'Does not account for epics (containers) or issues currently in-progress.'
+        + actionHtml;
+
+    // Backlog health row: staleness + untriaged (the warning-bearing signals)
+    var oldAge   = bk.oldestOpenAgeDays;   // float | null
+    var oldStale = oldAge != null && oldAge >= bk.staleDays;
+    var oldDetail = bk.oldestOpenId
+        ? '<div class="rd">' + esc(bk.oldestOpenId) + ' &middot; ' + esc((bk.oldestOpenTitle || "").slice(0, 56)) + '</div>'
+        : '';
+    html += '<div class="bh-subhead">Backlog health &mdash; is anything rotting?</div>'
+        + '<div class="bh-grid">'
+        + '  <div class="bh-stat' + (oldStale ? " rv-warn" : (oldAge != null ? " rv-ok" : "")) + '">'
+        + '    <div class="rv">' + (oldAge != null ? oldAge + "d" : "n/a") + '</div>'
+        + '    <div class="rl">oldest open item</div>'
+        + oldDetail
+        + '  </div>'
+        + '  <div class="bh-stat' + (bk.staleCount > 0 ? " rv-warn" : " rv-ok") + '">'
+        + '    <div class="rv">' + bk.staleCount + '</div>'
+        + '    <div class="rl">stale (open &gt; ' + bk.staleDays + 'd)</div>'
+        + (bk.staleCount > 0 ? '<div class="rd">See aging WIP on the Flow tab &mdash; pull, spec, or close them.</div>' : '')
+        + '  </div>'
+        + '  <div class="bh-stat' + (bk.untriagedCount > 0 ? " rv-warn" : " rv-ok") + '">'
+        + '    <div class="rv">' + bk.untriagedCount + '</div>'
+        + '    <div class="rl">untriaged (no class label)</div>'
+        + (bk.untriagedCount > 0 ? '<div class="rd">Run groom before trusting the priority queue below.</div>' : '')
+        + '  </div>'
+        + '</div>'
+        + '<div class="bh-note">'
+        + 'Net burn = closes/day &minus; creates/day over the trailing ' + td + ' days; horizon = open &divide; net burn. '
+        + 'Epics (containers) are excluded from the open count. '
+        + 'Stale threshold: ' + bk.staleDays + ' days (-StaleDays to change).'
         + '</div>';
 
     rc.innerHTML = html;
 })();
 
 // ---------------------------------------------------------------------------
-// Replenishment worklist (DB-4: plantry-qk49o)
+// Priority queue (formerly replenishment worklist, DB-4: plantry-qk49o)
 // Mirrors triage/prep.py render_text semantics; leaks first, then parked.
 // ---------------------------------------------------------------------------
 (function() {
@@ -1639,7 +1649,7 @@ if (fs && fs.count > 0) {
     var html = gateHtml + pillsHtml
         + '<div class="worklist-pool-header pool-leaks">DO-NOW POOL &mdash; bugs + ux (leaks) &mdash; rank and pull these first</div>'
         + renderGroups(T.leakGroups, true)
-        + '<div class="worklist-pool-header pool-parked">PARKED POOL &mdash; improvement + tech-debt &mdash; spec or unblock to refill the queue</div>'
+        + '<div class="worklist-pool-header pool-parked">PARKED POOL &mdash; improvement + tech-debt &mdash; spec or unblock to promote</div>'
         + renderGroups(T.parkedGroups, false);
 
     wc.innerHTML = html;
@@ -2021,7 +2031,7 @@ if (sg && sg.series && sg.series.length) {
         { v: latest.date,    l: "latest snapshot" },
         { v: TD.startDate,   l: "tracking since" },
         { v: latest.openCount != null ? latest.openCount : "n/a", l: "open (latest)" },
-        { v: latest.runwayDays != null ? latest.runwayDays + "d" : "n/a", l: "runway (latest)" },
+        { v: latest.netPerDay != null ? (latest.netPerDay > 0 ? "+" : "") + latest.netPerDay : "n/a", l: "net burn/day (latest)" },
         { v: latest.stallCount != null ? latest.stallCount : "n/a", l: "stall count (latest)", warn: latest.stallCount > 0, ok: latest.stallCount === 0 },
     ];
     if (kpisEl) {
@@ -2189,7 +2199,9 @@ if (sg && sg.series && sg.series.length) {
         }
     }
 
-    // 4. Self-gen outstanding (left) + runway (right) dual-axis
+    // 4. Self-gen outstanding (left) + net burn (right) dual-axis
+    // Rows logged before the burn-down redesign carry runwayDays but no
+    // netPerDay; spanGaps bridges the missing prefix.
     var sgRwEl = document.getElementById("trendSgRunwayChart");
     if (sgRwEl && rows.length >= 1) {
         new Chart(sgRwEl, {
@@ -2205,8 +2217,8 @@ if (sg && sg.series && sg.series.length) {
                     },
                     {
                         type: "line",
-                        label: "runway (days)",
-                        data: rows.map(function(r) { return r.runwayDays != null ? r.runwayDays : null; }),
+                        label: "net burn (issues/day)",
+                        data: rows.map(function(r) { return r.netPerDay != null ? r.netPerDay : null; }),
                         borderColor: css("--accent"), borderWidth: 2, pointRadius: 3,
                         tension: 0.2, fill: false, spanGaps: true,
                         yAxisID: "y1",
@@ -2219,16 +2231,16 @@ if (sg && sg.series && sg.series.length) {
                     x: { grid: { display: false } },
                     y:  { beginAtZero: true, title: { display: true, text: "self-gen outstanding" },
                           grid: { color: css("--grid") }, ticks: { precision: 0 } },
-                    y1: { position: "right", beginAtZero: true,
-                          title: { display: true, text: "runway (days)" },
-                          grid: { display: false }, ticks: { precision: 0 } },
+                    y1: { position: "right",
+                          title: { display: true, text: "net burn (issues/day)" },
+                          grid: { display: false } },
                 },
                 plugins: {
                     legend: { display: true, position: "bottom", labels: { boxWidth: 12 } },
                     tooltip: { callbacks: {
                         label: function(t) {
                             if (t.datasetIndex === 0) { return "self-gen: " + t.parsed.y; }
-                            return "runway: " + t.parsed.y + "d";
+                            return "net burn: " + (t.parsed.y > 0 ? "+" : "") + t.parsed.y + "/day";
                         },
                     } },
                 },
@@ -2278,11 +2290,14 @@ if (-not $Out) { $Out = Join-Path (Get-Location) "daily-briefing.html" }
 $html | Out-File -FilePath $Out -Encoding utf8
 Write-Host "Wrote $Out" -ForegroundColor Green
 $triageGateStr = if ($triageUntriaged.Count -gt 0) { "FAIL($($triageUntriaged.Count) untriaged)" } else { "OK" }
-Write-Host ("  runway={0}d  ready={1}  stall={2} (needs-human={3} exhausted={4} blocked={5} long-ip={6} red-ci={7})  overnight created={8}/closed={9}  flow closed={10}  open={11}  triage gate={12} leaks={13}" -f `
-    $briefingKpis.runwayDays, $briefingKpis.readyDepth, $briefingKpis.stallCount,
+$netStr  = if ($netPerDay -gt 0) { "+$netPerDay" } else { "$netPerDay" }
+$bddStr  = if ($null -ne $burnDownDays) { "~$($burnDownDays)d" } else { "n/a" }
+$oldStr  = if ($null -ne $oldestOpen) { "$([math]::Round($oldestOpen.ageH / 24, 1))d ($($oldestOpen.id))" } else { "n/a" }
+Write-Host ("  net={0}/day  burn-down={1}  open={2}  stall={3} (needs-human={4} exhausted={5} blocked={6} long-ip={7} red-ci={8})  overnight created={9}/closed={10}  oldest={11}  stale(>{12}d)={13}  triage gate={14} leaks={15}" -f `
+    $netStr, $bddStr, $openNonEpic, $briefingKpis.stallCount,
     $stallNeedsHuman.Count, $stallParkedExhausted.Count, $stallBlocked.Count,
     $stallLongInProgress.Count, $stallRedCi.Count,
     $briefingKpis.overnightCreated, $briefingKpis.overnightClosed,
-    $flowKpis.totalClosed, $flowKpis.openCount,
+    $oldStr, $StaleDays, $staleRows.Count,
     $triageGateStr, $triageBudget.open_leaks)
 if ($Open) { Start-Process $Out }
