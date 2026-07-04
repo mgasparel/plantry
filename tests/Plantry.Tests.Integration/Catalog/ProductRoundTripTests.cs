@@ -76,6 +76,73 @@ public sealed class ProductRoundTripTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(_household, conversion.HouseholdId);
     }
 
+    [Fact(DisplayName = "Conversion provenance (ai_suggested) round-trips through EF")]
+    public async Task Conversion_Source_RoundTrips_Through_EfMapping()
+    {
+        ProductId productId;
+
+        await using (var db1 = NewCatalogDb())
+        {
+            var product = Product.Create(_household, "Bananas", _gramsId, SystemClock.Instance);
+            product.AddConversion(_cupsId, _gramsId, 5m, SystemClock.Instance, ConversionSource.AiSuggested);
+            await db1.Products.AddAsync(product);
+            await db1.SaveChangesAsync();
+            productId = product.Id;
+        }
+
+        await using var db2 = NewCatalogDb();
+        var loaded = await db2.Products.Include(p => p.Conversions).SingleAsync(p => p.Id == productId);
+        var conversion = Assert.Single(loaded.Conversions);
+        Assert.Equal(ConversionSource.AiSuggested, conversion.Source);
+    }
+
+    [Fact(DisplayName = "Migration backfills a source-less conversion row to user_confirmed")]
+    public async Task Migration_Backfills_Existing_Conversions_To_UserConfirmed()
+    {
+        // Simulate a pre-migration row: insert omitting the `source` column entirely. The migration's
+        // column default (defaultValue: "user_confirmed") is what an existing row would have received.
+        ProductId productId;
+        await using (var db1 = NewCatalogDb())
+        {
+            var product = Product.Create(_household, "Legacy flour", _gramsId, SystemClock.Instance);
+            await db1.Products.AddAsync(product);
+            await db1.SaveChangesAsync();
+            productId = product.Id;
+
+            await db1.Database.ExecuteSqlRawAsync(
+                """
+                INSERT INTO catalog.product_conversions (id, household_id, product_id, from_unit_id, to_unit_id, factor)
+                VALUES ({0}, {1}, {2}, {3}, {4}, {5})
+                """,
+                Guid.NewGuid(), _household.Value, productId.Value, _cupsId.Value, _gramsId.Value, 120m);
+        }
+
+        await using var db2 = NewCatalogDb();
+        var loaded = await db2.Products.Include(p => p.Conversions).SingleAsync(p => p.Id == productId);
+        var conversion = Assert.Single(loaded.Conversions);
+        Assert.Equal(ConversionSource.UserConfirmed, conversion.Source);
+    }
+
+    [Fact(DisplayName = "CHECK constraint rejects an unknown conversion source value")]
+    public async Task CheckConstraint_Rejects_Unknown_Source_Value()
+    {
+        ProductId productId;
+        await using var db1 = NewCatalogDb();
+        var product = Product.Create(_household, "Constraint flour", _gramsId, SystemClock.Instance);
+        await db1.Products.AddAsync(product);
+        await db1.SaveChangesAsync();
+        productId = product.Id;
+
+        var ex = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db1.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO catalog.product_conversions (id, household_id, product_id, from_unit_id, to_unit_id, factor, source)
+            VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6})
+            """,
+            Guid.NewGuid(), _household.Value, productId.Value, _cupsId.Value, _gramsId.Value, 120m, "nonsense"));
+
+        Assert.Equal("23514", ex.SqlState); // check_violation
+    }
+
     [Fact(DisplayName = "Self-referencing FK enforces parent and variant share a household")]
     public async Task SelfReferencingForeignKey_Requires_Parent_In_Same_Household()
     {

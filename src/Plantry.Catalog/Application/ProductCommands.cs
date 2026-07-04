@@ -209,7 +209,8 @@ public sealed class AddConversionCommand(
     IProductRepository products,
     IUnitRepository units,
     IClock clock,
-    ILogger<AddConversionCommand>? logger = null)
+    ILogger<AddConversionCommand>? logger = null,
+    ConversionSource source = ConversionSource.UserConfirmed)
 {
     public async Task<Result<ProductConversionId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -233,7 +234,7 @@ public sealed class AddConversionCommand(
             return Error.Custom("Catalog.InvalidConversion", "A conversion's from-unit and to-unit must differ.");
         }
 
-        var conversion = product.AddConversion(UnitId.From(fromUnitId), UnitId.From(toUnitId), factor, clock);
+        var conversion = product.AddConversion(UnitId.From(fromUnitId), UnitId.From(toUnitId), factor, clock, source);
 
         if (product.IsParent)
         {
@@ -243,8 +244,45 @@ public sealed class AddConversionCommand(
 
         await products.SaveChangesAsync(ct);
 
-        logger?.LogInformation("Conversion {ConversionId} added to product {ProductId}.", conversion.Id.Value, productId.Value);
+        logger?.LogInformation("Conversion {ConversionId} ({ConversionSource}) added to product {ProductId}.", conversion.Id.Value, source, productId.Value);
         return conversion.Id;
+    }
+}
+
+/// <summary>
+/// Promotes an AI-suggested conversion to user-confirmed (ADR-022) through the Product aggregate
+/// root. Idempotent — promoting an already-confirmed conversion succeeds without change.
+/// </summary>
+public sealed class PromoteConversionCommand(
+    ProductId productId,
+    ProductConversionId conversionId,
+    IProductRepository products,
+    IClock clock,
+    ILogger<PromoteConversionCommand>? logger = null)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        var product = await products.FindAsync(productId, ct);
+        if (product is null)
+        {
+            logger?.LogWarning("PromoteConversion failed — product {ProductId} not found.", productId.Value);
+            return Error.NotFound;
+        }
+
+        try
+        {
+            product.PromoteConversion(conversionId, clock);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger?.LogWarning(ex, "PromoteConversion rejected — conversion {ConversionId} does not belong to product {ProductId}.", conversionId.Value, productId.Value);
+            return Error.NotFound;
+        }
+
+        await products.SaveChangesAsync(ct);
+
+        logger?.LogInformation("Conversion {ConversionId} promoted to user-confirmed on product {ProductId}.", conversionId.Value, productId.Value);
+        return Result.Success();
     }
 }
 

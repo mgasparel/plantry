@@ -25,6 +25,7 @@ public sealed class DetailModel(
     ILogger<UpdateProductCommand> updateProductLogger,
     ILogger<AddSkuCommand> addSkuLogger,
     ILogger<AddConversionCommand> addConversionLogger,
+    ILogger<PromoteConversionCommand> promoteConversionLogger,
     ILogger<MakeVariantCommand> makeVariantLogger,
     ILogger<CreateVariantCommand> createVariantLogger) : PageModel
 {
@@ -205,6 +206,20 @@ public sealed class DetailModel(
     public async Task<IActionResult> OnPostRemoveConversionAsync(Guid id, Guid conversionId)
     {
         await new RemoveConversionCommand(ProductId.From(id), ProductConversionId.From(conversionId), products, clock).ExecuteAsync();
+        return RedirectToPage(new { id });
+    }
+
+    public async Task<IActionResult> OnPostPromoteConversionAsync(Guid id, Guid conversionId)
+    {
+        Id = ProductId.From(id);
+        var cmd = new PromoteConversionCommand(Id, ProductConversionId.From(conversionId), products, clock, promoteConversionLogger);
+        var result = await cmd.ExecuteAsync();
+        if (result.IsFailure)
+        {
+            if (result.Error == Plantry.SharedKernel.Error.NotFound) return NotFound();
+            return await ReloadWithErrorAsync(result.Error);
+        }
+
         return RedirectToPage(new { id });
     }
 

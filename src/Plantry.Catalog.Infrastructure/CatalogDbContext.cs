@@ -239,6 +239,12 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
                 .IsRequired();
             // Conversion-factor scale per catalog.md persistence conventions: numeric(18,6).
             b.Property(c => c.Factor).HasColumnName("factor").HasPrecision(18, 6).IsRequired();
+            // Provenance (ADR-022): C# enum persisted as text + CHECK constraint (Gate 7 convention).
+            b.Property(c => c.Source)
+                .HasConversion(s => s.ToDbValue(), v => ConversionSourceExtensions.Parse(v))
+                .HasColumnName("source")
+                .HasMaxLength(20)
+                .IsRequired();
 
             b.HasIndex(c => c.HouseholdId);
             b.HasIndex(c => c.ProductId);

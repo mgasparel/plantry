@@ -204,9 +204,21 @@
                 {
                     <li class="catalog-list__item">
                         <span class="catalog-list__primary">1 @conversion.FromUnitCode = @conversion.Factor.ToString("0.######") @conversion.ToUnitCode</span>
-                        <form method="post" asp-page-handler="RemoveConversion" asp-route-id="@product.Id.Value" asp-route-conversionId="@conversion.Id.Value" class="catalog-list__action">
-                            <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
-                        </form>
+                        @if (conversion.IsAiSuggested)
+                        {
+                            <span class="badge badge--info" title="Machine-suggested factor — usable now; confirm to endorse it.">AI-suggested</span>
+                        }
+                        <div class="catalog-list__actions">
+                            @if (conversion.IsAiSuggested)
+                            {
+                                <form method="post" asp-page-handler="PromoteConversion" asp-route-id="@product.Id.Value" asp-route-conversionId="@conversion.Id.Value">
+                                    <button type="submit" class="btn btn--secondary btn--sm">Confirm</button>
+                                </form>
+                            }
+                            <form method="post" asp-page-handler="RemoveConversion" asp-route-id="@product.Id.Value" asp-route-conversionId="@conversion.Id.Value">
+                                <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
+                            </form>
+                        </div>
                     </li>
                 }
             </ul>

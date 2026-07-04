@@ -150,7 +150,7 @@ public sealed class Product : AggregateRoot<ProductId>
         if (_conversions.Count == 0 && parent.Conversions.Count > 0)
         {
             foreach (var conversion in parent.Conversions)
-                _conversions.Add(ProductConversion.Create(HouseholdId, Id, conversion.FromUnitId, conversion.ToUnitId, conversion.Factor));
+                _conversions.Add(ProductConversion.Create(HouseholdId, Id, conversion.FromUnitId, conversion.ToUnitId, conversion.Factor, conversion.Source));
             changed = true;
         }
 
@@ -173,12 +173,55 @@ public sealed class Product : AggregateRoot<ProductId>
         Touch(clock);
     }
 
-    public ProductConversion AddConversion(UnitId fromUnitId, UnitId toUnitId, decimal factor, IClock clock)
+    /// <summary>
+    /// Adds a product-specific conversion. <paramref name="source"/> defaults to
+    /// <see cref="ConversionSource.UserConfirmed"/> so existing callers are unchanged; pass
+    /// <see cref="ConversionSource.AiSuggested"/> when the factor is machine-seeded (ADR-022).
+    ///
+    /// <para>Merge rule for a colliding <c>(fromUnit, toUnit)</c> pair (ADR-022): a
+    /// user-confirmed factor <b>supersedes</b> an existing AI-suggested one — the stale suggestion
+    /// is dropped so the two never fight. An AI suggestion never overwrites or duplicates an
+    /// existing conversion (of any provenance) for the same pair; the seed is idempotent, and the
+    /// pre-existing conversion is returned unchanged. This does not dedupe two user-confirmed
+    /// entries for the same pair (unchanged historical behaviour).</para>
+    /// </summary>
+    public ProductConversion AddConversion(UnitId fromUnitId, UnitId toUnitId, decimal factor, IClock clock, ConversionSource source = ConversionSource.UserConfirmed)
     {
-        var conversion = ProductConversion.Create(HouseholdId, Id, fromUnitId, toUnitId, factor);
+        var existingForPair = _conversions.Where(c => c.FromUnitId == fromUnitId && c.ToUnitId == toUnitId).ToList();
+
+        if (source == ConversionSource.AiSuggested)
+        {
+            // A suggestion never fights an existing entry — return whatever is already on file.
+            if (existingForPair.Count > 0)
+                return existingForPair[0];
+        }
+        else
+        {
+            // A user-confirmed factor supersedes stale AI suggestions for the same pair.
+            foreach (var suggested in existingForPair.Where(c => c.IsAiSuggested))
+                _conversions.Remove(suggested);
+        }
+
+        var conversion = ProductConversion.Create(HouseholdId, Id, fromUnitId, toUnitId, factor, source);
         _conversions.Add(conversion);
         Touch(clock);
         return conversion;
+    }
+
+    /// <summary>
+    /// Endorses an AI-suggested conversion, flipping it to <see cref="ConversionSource.UserConfirmed"/>
+    /// (ADR-022). Idempotent — promoting an already-confirmed conversion is a no-op success. The
+    /// conversion must belong to this product (aggregate boundary).
+    /// </summary>
+    public void PromoteConversion(ProductConversionId conversionId, IClock clock)
+    {
+        var conversion = _conversions.SingleOrDefault(c => c.Id == conversionId)
+            ?? throw new InvalidOperationException($"Conversion '{conversionId}' does not belong to product '{Id}'.");
+
+        if (!conversion.IsAiSuggested) return; // idempotent no-op
+
+        conversion.Promote();
+        Touch(clock);
     }
 
     public void RemoveConversion(ProductConversionId conversionId, IClock clock)
