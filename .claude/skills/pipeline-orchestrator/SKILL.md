@@ -78,6 +78,46 @@ bd update <child-B-id> --priority 2   # implement after A is staged
 Use a `blocks` dep when B would fail to build or test without A's code present. Use
 priority when it's an ordering preference and both children are independently buildable.
 
+### Validate a named batch before you build it (batch-closure gate)
+
+When a human hands you a set to ship as one MR ("build A, B, C"), do **not** create the
+epic until the set is **dependency-complete**: every open issue any member depends on must
+also be in the set. (A blocker already on `main`/closed is fine — it's satisfied.) An
+incomplete set silently deadlocks — a member whose blocker isn't in the batch can never
+build, so the epic never reaches 100% and never ships.
+
+Run the deterministic check before authoring the epic branch:
+
+```bash
+python .claude/skills/pipeline-orchestrator/check_batch.py <id> <id> <id>
+```
+
+- **`GATE: VALID`** (exit 0) — complete; it prints the dependency-ordered build order.
+  Author the epic with exactly these children.
+- **`GATE: INCOMPLETE`** (exit 2) — missing dependencies. **Stop and ask the human**,
+  relaying the report's two directions verbatim — never pick for them, never silently
+  expand the set; the batch boundary is the human's call:
+  - **ADD** the missing deps (the report lists the full transitive set and flags any that
+    are `needs-spec`/`parked` — those aren't buildable, so they must be specced first or
+    the dependent dropped), **or**
+  - **DROP** a dependent (the report shows the cascade — everything depending on it goes
+    too).
+
+  Re-run the check on the amended set until it is `VALID`.
+- **`GATE: ERROR`** (exit 1) — none of the named ids are open (typo, or already shipped).
+
+`blocks` is the only edge type that gates a build; `relates_to` is ignored. The check
+reads one `bd graph --all --json` snapshot and does not mutate anything.
+
+### Autonomous planning ("just go")
+
+With no human-named set, `check_batch.py --plan` prints every open connected component as
+a ranked candidate batch, marking each **DRAINABLE** (all members buildable — ship the
+whole component in the printed order) or **BLOCKED** (contains a `needs-spec`/`parked`
+node; only the buildable prefix can ship this round). The loop **never asks a question**
+in this mode — it drains drainable components and skips blocked ones until a human
+unblocks them.
+
 ### Sweep / cleanup children belong as post-epic follow-ups, not batch siblings
 
 A "sweep" child (dead-code removal, final cleanup, doc update) that runs against the
@@ -436,6 +476,11 @@ Log `PARKED: epic <epic-id> — ci-failed (exhausted)`; return to Step 1.
 - **Epics ship complete, never partial.** An epic flushes only when every child is
   `staged`. A parked/failed child blocks its whole epic — uniformly, curated or rollup —
   until a human clears it. Nothing partial reaches `main`.
+- **Named batches are validated before they build.** A human-named batch must pass the
+  batch-closure gate (`check_batch.py`) — every open dependency present in-set — before its
+  epic is created. An incomplete set is refused with an add-or-drop decision, never
+  silently expanded and never half-built. The autonomous loop drains only self-complete,
+  buildable components (`--plan`).
 - **Rollups seal, then ship — and only the human or the auto-seal seals them.** A rollup
   accepts loose one-offs until sealed (human applies label `sealed`, or auto at
   `ROLLUP_MAX_CHILDREN`). The orchestrator adds `sealed` in exactly one place: the Step 4

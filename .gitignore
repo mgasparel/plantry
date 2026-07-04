@@ -62,3 +62,7 @@ backups/
 # Skill-generated HTML reports (data snapshots; only the generators are committed)
 flow-report.html
 daily-briefing.html
+
+# Python bytecode (skill helpers)
+__pycache__/
+*.pyc
