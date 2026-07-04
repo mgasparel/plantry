@@ -122,10 +122,29 @@ public sealed class TodayExpiringSoonSmokeTests(AppHostFixture appHost) : IAsync
             var badgeText = await countBadge.TextContentAsync();
             Assert.NotEqual("0", badgeText?.Trim());
 
-            // The foot link navigates to Pantry
-            var footLink = widget.Locator(".today-widget__foot a");
-            await Assertions.Expect(footLink).ToBeVisibleAsync();
-            await Assertions.Expect(footLink).ToContainTextAsync("pantry", new LocatorAssertionsToContainTextOptions { IgnoreCase = true });
+            // The populated foot offers both actions: the secondary "Review all in pantry"
+            // link and the primary "Use these up" deep-link into the Recipes browse.
+            var pantryLink = widget.Locator(".today-widget__foot a", new() { HasText = "pantry" });
+            await Assertions.Expect(pantryLink).ToBeVisibleAsync();
+
+            // "Use these up" deep-links to the Recipes browse pre-filtered to "use soon"
+            // (plantry-w1e). Confirm the link target carries the soon filter.
+            var useUpLink = widget.Locator(".today-widget__foot a.today-widget__foot-cta");
+            await Assertions.Expect(useUpLink).ToBeVisibleAsync();
+            await Assertions.Expect(useUpLink).ToContainTextAsync("Use these up");
+            await Assertions.Expect(useUpLink).ToHaveAttributeAsync("href", "/Recipes?soon=true");
+
+            // Following it lands on the Recipes browse with the "Use soon" filter active —
+            // the deep-link landing on the correctly-filtered browse (plantry-w1e AC).
+            await useUpLink.ClickAsync();
+            await page.WaitForURLAsync("**/Recipes**");
+            await page.Locator(".recipes-browse-wrap").WaitForAsync();
+
+            // The "Use soon" toggle renders in its active (warning) state, proving the
+            // browse arrived with UseSoon bound on from the deep link.
+            var activeSoonChip = page.Locator(".filter-chip.filter-chip--warning.is-active", new() { HasText = "Use soon" });
+            await Assertions.Expect(activeSoonChip).ToBeVisibleAsync(
+                new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
         }
         finally
         {

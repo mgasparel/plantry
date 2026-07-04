@@ -5037,6 +5037,13 @@ button.sadd svg { width: 13px; height: 13px; }
 .today-widget__foot a:hover { background: var(--color-surface-2); color: var(--color-accent); text-decoration: none; }
 .today-widget__foot a .icon { width: 15px; height: 15px; }
 
+/* Two-up foot: primary "Use these up" CTA beside the secondary pantry link
+   (expiring-soon widget populated state, plantry-w1e). */
+.today-widget__foot--split { display: flex; }
+.today-widget__foot--split a { flex: 1 1 0; min-width: 0; }
+.today-widget__foot--split a + a { border-left: 1px solid var(--color-border); }
+.today-widget__foot-cta { color: var(--color-accent); }
+
 /* ---- widget header meta label (e.g. "next 7 days") ----------------------- */
 .today-widget__meta { font-size: 13px; color: var(--color-text-faint); font-weight: 500; }
 
