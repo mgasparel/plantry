@@ -7,8 +7,9 @@ description: >-
   days-to-backlog-zero, stale/untriaged signals), the priority queue, and the
   ranked "where to spend attention" call written in chat. The Flow tab shows
   lead time, throughput, aging WIP, and self-generated-work rate. The Backlog
-  tab shows the full do-now / parked detail. The Trend tab charts each KPI
-  metric across nightly snapshot dates from health-log.jsonl.
+  tab shows the full do-now / investments detail plus the icebox (status:parked
+  ideas). The Trend tab charts each KPI metric across nightly snapshot dates
+  from health-log.jsonl.
   USE FOR: "daily briefing", "morning report", "what should I do today",
   "run the briefing", "show me the briefing", "operator report",
   "morning standup summary", "what happened since yesterday",
@@ -35,7 +36,7 @@ are now folded into this briefing.
 |-----|---------|
 | **Briefing** | Factory stall, overnight recap, burn-down + backlog health, priority queue, the call |
 | **Flow** | Lead-time scatter, throughput, aging WIP, self-generated work |
-| **Backlog** | Ranked do-now / parked detail |
+| **Backlog** | Ranked do-now / investments detail + icebox (status:parked ideas) |
 | **Trend** | KPI health-over-time charts from `health-log.jsonl` (nightly snapshots) |
 
 Landing tab is **Briefing**.
@@ -88,6 +89,7 @@ Schema per row:
   "oldestOpenAgeDays": float | null,
   "staleCount": int,
   "untriagedCount": int,
+  "iceboxCount": int,
   "stallCount": int
 }
 ```
@@ -95,6 +97,28 @@ Schema per row:
 Rows written before the burn-down redesign carry `runwayDays` instead of the
 net-burn / health fields; readers must tolerate both shapes (charts null-gap
 the missing prefix).
+
+## Icebox semantics (status:parked)
+
+The beads status `parked` marks ICEBOX issues: future-facing ideas
+deliberately not planned yet, to be triaged and prioritised later. The
+briefing treats them as outside the working backlog entirely:
+
+- **Exempt from the triage gate and both pools** -- an unlabelled iced idea
+  does not fail the gate.
+- **Never a factory stall** -- even if it carries needs-human or exhaustion
+  labels from an earlier life.
+- **Outside burn-down math** -- currently-iced issues do not count as creates
+  in the trailing window, and they are excluded from open count, aging WIP,
+  and the stale/oldest rot signals.
+- **Listed on the Backlog tab** in the Icebox section (flat, priority-sorted);
+  `iceboxCount` is logged nightly so a silently swelling icebox shows on Trend.
+
+Disambiguation, since "parked" is overloaded: the *investments pool*
+(class:improvement + class:tech-debt) was formerly called the "parked pool";
+the aging-reason fallback formerly displayed as "parked" is now shown as
+"idle" (its `reasonMix` key stays `parked` for log continuity); the
+pipeline's "parked-exhausted" stall category is displayed as "exhausted".
 
 ## Data contract (-Json payload)
 
@@ -138,7 +162,7 @@ the missing prefix).
       "redCi":           [{ ... }],
       "all":             [{ ... }]
     },
-    "parked": [{ "id", "title", "status" }]
+    "blockedItems": [{ "id", "title", "status" }]
   },
   "flow": {
     "kpis":        { ... },               // lead p50/85/95, perDay, openCount, stuckCount
@@ -153,12 +177,14 @@ the missing prefix).
     "blocked": [ blockedItems ]
   },
   "triage": {
-    "gateOk":      bool,
-    "totalOpen":   int,
-    "untriaged":   [{ id, title }],
-    "budget":      { open_leaks, bugs, ux, improvements, tech_debt },
-    "leakGroups":  [ { theme, rows } ],
-    "parkedGroups":[ { theme, rows } ]
+    "gateOk":          bool,
+    "totalOpen":       int,             // open issues, icebox excluded
+    "untriaged":       [{ id, title }],
+    "budget":          { open_leaks, bugs, ux, improvements, tech_debt },
+    "leakGroups":      [ { theme, rows } ],
+    "investmentGroups":[ { theme, rows } ],
+    "icebox":          [ rows ],        // status:parked ideas, flat
+    "iceboxCount":     int
   }
 }
 ```
@@ -192,8 +218,8 @@ Work through the Briefing tab top to bottom. Section order:
    (closes/day - creates/day, 14-day trailing) and days-to-backlog-zero.
    Growth is informational, not an alarm. The warning-bearing signals are the
    health row: stale items (open > StaleDays, default 30) and untriaged count.
-4. **Priority queue** -- quality leaks first (bugs + UX), then parked
-   investments. The operator's job is ordering and grooming, not feeding.
+4. **Priority queue** -- quality leaks first (bugs + UX), then investments.
+   The operator's job is ordering and grooming, not feeding.
    Gate warning if untriaged issues exist (run `groom` first).
 5. **The call** -- see Step 3.
 
