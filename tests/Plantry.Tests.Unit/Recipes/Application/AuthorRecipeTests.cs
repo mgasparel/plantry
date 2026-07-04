@@ -312,6 +312,38 @@ public sealed class AuthorRecipeTests
     }
 
     [Fact]
+    public async Task Saves_Existing_Untracked_Staple_With_Null_Quantity_R5()
+    {
+        // Regression for plantry-4udr: a seed recipe references an *existing* untracked staple
+        // (e.g. Sea salt) as a "to taste" line — a resolved product id with null qty + unit. Once
+        // the seeder mints such staples trackStock:false, this shape must load and save through
+        // AuthorRecipe without tripping R5 (which only fires for a TRACKED product with null qty).
+        var h = BuildHarness();
+        var trackedUnit = Guid.CreateVersion7();
+        var tracked = h.Products.AddTracked(trackedUnit, "Chicken breast");
+        var saltId = Guid.CreateVersion7();
+        h.Products.RegisterUntracked(saltId, "Sea salt");
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null, Name: "Chicken & Chickpea Curry", DefaultServings: 4,
+            Lines:
+            [
+                new AuthorIngredientLine(tracked.Id, 600m, trackedUnit, null, 0),
+                // "to taste" — null qty + unit, permitted because Sea salt is untracked.
+                new AuthorIngredientLine(saltId, Quantity: null, UnitId: null, null, 1),
+            ],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        var recipe = Assert.Single(h.Recipes.Items);
+        var salt = recipe.Ingredients.Single(i => i.ProductId == saltId);
+        Assert.Null(salt.Quantity);
+        Assert.Null(salt.UnitId);
+    }
+
+    [Fact]
     public async Task Fails_When_No_Household_In_Context()
     {
         var h = BuildHarness(authenticated: false);
