@@ -79,7 +79,8 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         var serviceProvider = new ServiceCollection()
             .AddSingleton<IDomainEventHandler<ImportSessionCommittedEvent>>(handler)
             .BuildServiceProvider();
-        var interceptor = new DomainEventDispatchInterceptor(new DomainEventDispatcher(serviceProvider));
+        var interceptor = new DomainEventDispatchInterceptor(
+            new DomainEventDispatcher(serviceProvider), new TransactionalDomainEventBuffer());
 
         var tenant = new TestTenant(_household.Value);
 
