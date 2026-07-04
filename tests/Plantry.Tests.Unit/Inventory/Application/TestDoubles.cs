@@ -82,6 +82,34 @@ internal sealed class FakeCatalogReadFacade : ICatalogReadFacade
         Task.FromResult((IReadOnlyDictionary<Guid, string>)LocationNames);
 }
 
+/// <summary>Returns a fixed "expiring soon" horizon (defaults to the Inventory default of 7).</summary>
+internal sealed class FakeExpiringSoonHorizon(int days = HouseholdInventorySettings.DefaultExpiringSoonDays) : IExpiringSoonHorizon
+{
+    public Task<int> GetDaysAsync(CancellationToken ct = default) => Task.FromResult(days);
+}
+
+/// <summary>In-memory <see cref="IHouseholdInventorySettingsRepository"/> keyed by household.</summary>
+internal sealed class FakeHouseholdInventorySettingsRepository : IHouseholdInventorySettingsRepository
+{
+    public List<HouseholdInventorySettings> Items { get; } = [];
+    public int SaveChangesCalls { get; private set; }
+
+    public Task<HouseholdInventorySettings?> FindByHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(s => s.HouseholdId == householdId));
+
+    public Task AddAsync(HouseholdInventorySettings settings, CancellationToken ct = default)
+    {
+        Items.Add(settings);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveChangesCalls++;
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>Hands out a single converter for every product.</summary>
 internal sealed class FakeConversionProvider(IQuantityConverter converter) : IProductConversionProvider
 {

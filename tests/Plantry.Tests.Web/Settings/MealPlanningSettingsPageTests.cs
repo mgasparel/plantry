@@ -149,6 +149,7 @@ public class MealPlanningSettingsFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme
             services.AddAuthentication(opts =>
                 {
@@ -189,6 +190,7 @@ public sealed class MealPlanningSettingsSeededFactory : MealPlanningSettingsFact
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             var householdId = HouseholdId.From(MealPlanningSettingsFixture.HouseholdId);
             var settings = HouseholdPlanningSettings.Create(householdId);
             settings.SetDefaults(Money.FromDecimal(_budget, "USD"), null);
@@ -214,6 +216,7 @@ public sealed class MealPlanningSettingsMutableFactory : MealPlanningSettingsFac
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.RemoveAll<IHouseholdPlanningSettingsRepository>();
             services.AddSingleton<IHouseholdPlanningSettingsRepository>(new MutableSettingsRepo());
 

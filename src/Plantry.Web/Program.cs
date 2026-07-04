@@ -196,6 +196,12 @@ builder.Services.AddScoped<ProductQueryService>();
 // Inventory context
 builder.Services.AddScoped<IProductStockRepository, ProductStockRepository>();
 builder.Services.AddScoped<InventoryQueryService>();
+// Per-household "expiring soon" horizon (plantry-5yhd): one settings service backs both the read
+// port (IExpiringSoonHorizon, consumed by InventoryQueryService and the Recipes adapter) and the
+// /Settings/Pantry write path.
+builder.Services.AddScoped<IHouseholdInventorySettingsRepository, HouseholdInventorySettingsRepository>();
+builder.Services.AddScoped<ExpiringSoonSettingsService>();
+builder.Services.AddScoped<IExpiringSoonHorizon>(sp => sp.GetRequiredService<ExpiringSoonSettingsService>());
 // Purchase-frequency read over the stock journal — feeds the Deals stock-up alerts (P5-10 / DL-O4).
 builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
@@ -502,6 +508,9 @@ builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
 // Consume primitive without the Recipes context touching Inventory tables directly (ADR-011).
 builder.Services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>();
 builder.Services.AddScoped<IInventoryConsumer, InventoryConsumerAdapter>();
+// Read port onto the per-household "expiring soon" horizon so the browse "use soon" filter agrees
+// with Inventory's Today widget by construction (plantry-5yhd, ADR-002).
+builder.Services.AddScoped<IExpiringSoonHorizonReader, ExpiringSoonHorizonReaderAdapter>();
 
 // Recipes → Pricing anti-corruption adapter (P2-2b, recipes-domain-model.md §8). Supplies
 // CostingService with the latest PriceObservation per product from the Pricing context.

@@ -113,7 +113,7 @@ public sealed class BrowseRecipesQueryTests
         public Harness()
         {
             var tenant = new FakeTenantContext(HouseholdGuid);
-            var fulfillmentSvc = new FulfillmentService(Stock, Catalog, Converter);
+            var fulfillmentSvc = new FulfillmentService(Stock, Catalog, Converter, new FakeExpiringSoonHorizonReader());
             var costingSvc = new CostingService(Prices, Converter);
             Query = new BrowseRecipesQuery(Recipes, Tags, fulfillmentSvc, costingSvc, tenant);
         }

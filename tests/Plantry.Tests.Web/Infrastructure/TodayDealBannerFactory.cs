@@ -29,6 +29,7 @@ public sealed class TodayDealBannerFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             TodayBannerCommon.ConfigureAuthAndSeams(services, withIntakeSession: true);
             TodayDealsStubs.RegisterWithPendingDeal(services, inWindow: true);
         });
@@ -48,6 +49,7 @@ public sealed class TodayDealBannerExpiredFactory : WebApplicationFactory<Progra
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             TodayBannerCommon.ConfigureAuthAndSeams(services, withIntakeSession: false);
             TodayDealsStubs.RegisterWithPendingDeal(services, inWindow: false);
         });

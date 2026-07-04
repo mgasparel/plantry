@@ -14,6 +14,7 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
     public DbSet<ProductStock> ProductStocks => Set<ProductStock>();
     public DbSet<StockEntry> StockEntries => Set<StockEntry>();
     public DbSet<StockJournalEntry> StockJournalEntries => Set<StockJournalEntry>();
+    public DbSet<HouseholdInventorySettings> HouseholdInventorySettings => Set<HouseholdInventorySettings>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -155,6 +156,22 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
                 .HasDatabaseName("ix_stock_journal_idempotency");
 
             b.HasQueryFilter(j => j.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── HouseholdInventorySettings aggregate root (plantry-5yhd) ─────────────
+        // One row per household, seeded lazily on first write. HouseholdId is both the PK and the
+        // aggregate identity (mirrors HouseholdPlanningSettings in the meal_planning context).
+        builder.Entity<HouseholdInventorySettings>(b =>
+        {
+            b.ToTable("household_inventory_settings");
+            b.HasKey(s => s.HouseholdId);
+            b.Property(s => s.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .ValueGeneratedNever();
+            b.Property(s => s.ExpiringSoonDays).HasColumnName("expiring_soon_days").IsRequired();
+
+            b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });
     }
 

@@ -16,22 +16,23 @@ namespace Plantry.Recipes.Domain;
 ///   <item>Tracked, parent product (DM-19): sum available stock across ALL variant children before comparing.</item>
 ///   <item>Tracked, leaf product: compare available vs scaled required (scaled = required × desired / default_servings).</item>
 ///   <item>InStock when available &gt;= required; Low when 0 &lt; available &lt; required; Missing when available == 0.</item>
-///   <item>ExpiresWithinDays is a <b>signed</b> integer set when soonest expiry ≤ 4 days from today (J1/J3): negative = days past use-by (expired); 0 = expires today; positive = days until expiry.</item>
+///   <item>ExpiresWithinDays is a <b>signed</b> integer set when soonest expiry is within the household's
+///     configured "expiring soon" horizon of today (J1/J3): negative = days past use-by (expired); 0 = expires
+///     today; positive = days until expiry. The horizon is the single per-household setting owned by Inventory
+///     and read through <see cref="IExpiringSoonHorizonReader"/> (plantry-5yhd), so the recipe "use soon" set
+///     agrees with the Today expiring-soon widget by construction.</item>
 /// </list>
 /// </summary>
 public sealed class FulfillmentService(
     IInventoryStockReader stockReader,
     ICatalogProductReader catalogReader,
-    IUnitConverter unitConverter)
+    IUnitConverter unitConverter,
+    IExpiringSoonHorizonReader horizonReader)
 {
-    /// <summary>
-    /// Days threshold for the "Use soon" expiry warning (J1/J3).
-    /// </summary>
-    public const int ExpiringSoonDays = 4;
-
     /// <summary>
     /// Computes the <see cref="FulfillmentResult"/> for <paramref name="recipe"/> at
     /// <paramref name="desiredServings"/>. All stock reads are performed in one batch round-trip.
+    /// The "expiring soon" horizon is read once via <see cref="IExpiringSoonHorizonReader"/>.
     /// </summary>
     public async Task<FulfillmentResult> ComputeAsync(
         Recipe recipe,
@@ -40,6 +41,7 @@ public sealed class FulfillmentService(
         CancellationToken ct = default)
     {
         var scale = (decimal)desiredServings / recipe.DefaultServings;
+        var expiringSoonDays = await horizonReader.GetDaysAsync(ct);
 
         // Collect all distinct product ids from the ingredient list so we can batch-resolve
         // catalog facts (track_stock, parent/variant tree) and stock snapshots.
@@ -92,7 +94,7 @@ public sealed class FulfillmentService(
         foreach (var ingredient in recipe.Ingredients)
         {
             var fulfillment = await ComputeIngredientAsync(
-                ingredient, scale, catalogById, stockById, today, ct);
+                ingredient, scale, catalogById, stockById, today, expiringSoonDays, ct);
             lines.Add(fulfillment);
         }
 
@@ -119,20 +121,23 @@ public sealed class FulfillmentService(
     /// <param name="stockById">Pre-loaded stock snapshots keyed by product id — includes variant
     /// children; products with no active stock are absent (treated as zero).</param>
     /// <param name="converter">Sync unit conversion delegate: (productId, amount, fromUnitId, toUnitId) → Result.</param>
+    /// <param name="expiringSoonDays">The household's "expiring soon" horizon in days — the caller reads it
+    /// once via <see cref="IExpiringSoonHorizonReader"/> and passes it in (ADR-021: the pure overload does no IO).</param>
     public FulfillmentResult Compute(
         Recipe recipe,
         int desiredServings,
         DateOnly today,
         IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
         IReadOnlyDictionary<Guid, ProductStock> stockById,
-        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter)
+        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter,
+        int expiringSoonDays)
     {
         var scale = (decimal)desiredServings / recipe.DefaultServings;
 
         var lines = new List<IngredientFulfillment>(recipe.Ingredients.Count);
         foreach (var ingredient in recipe.Ingredients)
         {
-            var fulfillment = ComputeIngredientPure(ingredient, scale, catalogById, stockById, today, converter);
+            var fulfillment = ComputeIngredientPure(ingredient, scale, catalogById, stockById, today, converter, expiringSoonDays);
             lines.Add(fulfillment);
         }
 
@@ -146,7 +151,8 @@ public sealed class FulfillmentService(
         IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
         IReadOnlyDictionary<Guid, ProductStock> stockById,
         DateOnly today,
-        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter)
+        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter,
+        int expiringSoonDays)
     {
         // If we can't resolve the product from catalog, treat as Missing.
         if (!catalogById.TryGetValue(ingredient.ProductId, out var catalogProduct))
@@ -228,7 +234,7 @@ public sealed class FulfillmentService(
         if (soonestExpiry.HasValue)
         {
             var daysUntilExpiry = soonestExpiry.Value.DayNumber - today.DayNumber;
-            if (daysUntilExpiry <= ExpiringSoonDays)
+            if (daysUntilExpiry <= expiringSoonDays)
                 expiresWithinDays = daysUntilExpiry;
         }
 
@@ -245,6 +251,7 @@ public sealed class FulfillmentService(
         IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
         IReadOnlyDictionary<Guid, Application.ProductStock> stockById,
         DateOnly today,
+        int expiringSoonDays,
         CancellationToken ct)
     {
         // If we can't resolve the product from catalog, treat as Missing.
@@ -334,12 +341,12 @@ public sealed class FulfillmentService(
         else
             status = IngredientStatus.InStock;
 
-        // Expiry-soon flag (J1/J3): soonest expiry within 4 days from today.
+        // Expiry-soon flag (J1/J3): soonest expiry within the household's configured horizon of today.
         int? expiresWithinDays = null;
         if (soonestExpiry.HasValue)
         {
             var daysUntilExpiry = soonestExpiry.Value.DayNumber - today.DayNumber;
-            if (daysUntilExpiry <= ExpiringSoonDays)
+            if (daysUntilExpiry <= expiringSoonDays)
                 expiresWithinDays = daysUntilExpiry;
         }
 
@@ -397,8 +404,8 @@ public enum IngredientStatus
 /// <param name="IngredientId">The local ingredient this result covers.</param>
 /// <param name="Status">Availability classification.</param>
 /// <param name="ExpiresWithinDays">
-/// Signed integer set when the soonest active lot's expiry is within <see cref="FulfillmentService.ExpiringSoonDays"/>
-/// days of today (including past dates); null when no expiry applies or expiry is beyond the threshold.
+/// Signed integer set when the soonest active lot's expiry is within the household's configured
+/// "expiring soon" horizon of today (including past dates); null when no expiry applies or expiry is beyond it.
 /// Negative = days past use-by (expired); 0 = expires today; positive = days until expiry.
 /// </param>
 /// <param name="AvailableQuantity">

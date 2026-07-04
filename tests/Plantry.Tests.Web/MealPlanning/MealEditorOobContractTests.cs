@@ -355,6 +355,7 @@ public sealed class MealEditorOobContractFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // POST AssignJson and POST ClearJson resolve the current user — stub UserManager.
             services.RemoveAll<UserManager<AppUser>>();
             services.AddSingleton<UserManager<AppUser>>(
@@ -421,6 +422,7 @@ public sealed class ExistingDishMealEditorFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Seed a plan with one recipe-dish meal
             services.RemoveAll<IMealPlanRepository>();
             services.AddScoped<IMealPlanRepository>(_ => Repo);

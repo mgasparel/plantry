@@ -31,6 +31,7 @@ public class ShoppingListFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme.
             services.AddAuthentication(opts =>
                 {

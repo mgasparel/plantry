@@ -161,6 +161,7 @@ internal sealed class DonePageFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(options =>
                 {
                     options.DefaultScheme = TestAuthHandler.SchemeName;

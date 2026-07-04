@@ -259,6 +259,7 @@ public sealed class StoresAndDealsFragmentFactory : WebApplicationFactory<Progra
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

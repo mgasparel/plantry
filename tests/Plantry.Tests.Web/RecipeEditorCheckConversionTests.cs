@@ -177,6 +177,7 @@ internal sealed class ConversionCheckFactory(bool alwaysSucceeds) : WebApplicati
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

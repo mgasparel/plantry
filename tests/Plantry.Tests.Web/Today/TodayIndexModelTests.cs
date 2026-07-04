@@ -164,6 +164,7 @@ public sealed class TodayIndexModelTests
             stockRepo,
             new FakeEmptyCatalogReadFacade(),
             new FakeNullConversionProvider(),
+            new FakeExpiringHorizon(),
             FixedClock,
             expiringSoon is null ? tenant : new FakeStaticTenantContext(TestHousehold.Value));
 
@@ -306,6 +307,13 @@ public sealed class TodayIndexModelTests
         }
     }
 
+    /// <summary>Returns the default "expiring soon" horizon — these tests don't vary it.</summary>
+    private sealed class FakeExpiringHorizon : IExpiringSoonHorizon
+    {
+        public Task<int> GetDaysAsync(CancellationToken ct = default) =>
+            Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
+    }
+
     /// <summary>Null meal plan repo — returns no plan (simulates no meal plan created yet).</summary>
     private sealed class NullMealPlanRepo : IMealPlanRepository
     {
@@ -382,6 +390,7 @@ public sealed class ExpiringWidgetModelTests
                 stockRepo,
                 new FakeEmptyCatalog(),
                 new FakeConvProvider(),
+                new FakeExpiringHorizon(),
                 FixedClock,
                 tenant)
             : (InventoryQueryService)new FakeInventoryQueryService2(expiringSoon, tenant);
@@ -575,6 +584,12 @@ public sealed class ExpiringWidgetModelTests
         public Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
     }
 
+    private sealed class FakeExpiringHorizon : IExpiringSoonHorizon
+    {
+        public Task<int> GetDaysAsync(CancellationToken ct = default) =>
+            Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
+    }
+
     private sealed class FakeConvProvider : IProductConversionProvider
     {
         public Task<IQuantityConverter> ForProductAsync(Guid productId, CancellationToken ct = default) =>
@@ -591,6 +606,7 @@ public sealed class ExpiringWidgetModelTests
             new FakeStockRepo(hasStock: true),
             new FakeEmptyCatalog(),
             new FakeConvProvider(),
+            new FakeExpiringHorizon(),
             new FakeClock2(new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero)),
             tenant)
     {

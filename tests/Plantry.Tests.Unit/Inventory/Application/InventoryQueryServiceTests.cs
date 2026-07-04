@@ -18,8 +18,10 @@ public sealed class InventoryQueryServiceTests
     private readonly Guid _user = Guid.CreateVersion7();
 
     private InventoryQueryService Service(
-        FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, IQuantityConverter converter, Guid? household) =>
-        new(stocks, catalog, new FakeConversionProvider(converter), Clock, new FakeTenantContext(household));
+        FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, IQuantityConverter converter, Guid? household,
+        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays) =>
+        new(stocks, catalog, new FakeConversionProvider(converter),
+            new FakeExpiringSoonHorizon(horizonDays), Clock, new FakeTenantContext(household));
 
     private FakeCatalogReadFacade Catalog()
     {
@@ -82,6 +84,32 @@ public sealed class InventoryQueryServiceTests
         var item = Assert.Single(pantry);
         Assert.Equal(Today.AddDays(daysFromToday), item.SoonestExpiry);
         Assert.Equal(expected, item.ExpiryTone);
+    }
+
+    [Fact(DisplayName = "ExpiryTone.Soon boundary follows the configured horizon (3 days), not the default")]
+    public async Task ListPantry_ExpiryTone_Soon_Honors_Configured_Horizon()
+    {
+        // With a configured horizon of 3, a lot 3 days out is Soon and one 4 days out is Ok.
+        // Under the default (7) both would be Soon — so this passes only if the configured value is read.
+        var withinId = _productId;
+        var beyondId = Guid.CreateVersion7();
+
+        var catalog = Catalog();
+        catalog.Products.Add(new CatalogProductInfo(beyondId, "Sugar", "Baking", _grams, "g", CanHoldStock: true));
+
+        var stocks = new FakeProductStockRepository();
+        var within = ProductStock.Start(HouseholdId.From(_household), withinId, Clock);
+        within.AddStock(100m, _grams, _location, _user, Clock, expiryDate: Today.AddDays(3));
+        var beyond = ProductStock.Start(HouseholdId.From(_household), beyondId, Clock);
+        beyond.AddStock(100m, _grams, _location, _user, Clock, expiryDate: Today.AddDays(4));
+        stocks.Items.Add(within);
+        stocks.Items.Add(beyond);
+
+        var pantry = await Service(stocks, catalog, new IdentityQuantityConverter(), _household, horizonDays: 3)
+            .ListPantryAsync();
+
+        Assert.Equal(ExpiryTone.Soon, pantry.Single(i => i.ProductId == withinId).ExpiryTone);
+        Assert.Equal(ExpiryTone.Ok, pantry.Single(i => i.ProductId == beyondId).ExpiryTone);
     }
 
     [Fact]

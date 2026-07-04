@@ -1,3 +1,4 @@
+using Plantry.Tests.Web.Infrastructure;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -362,6 +363,7 @@ public sealed class TakeStockNoLocationFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             TakeStockFragmentFactory.RegisterFakes(
                 services,
                 stockRepo: StockRepository,
@@ -421,6 +423,7 @@ public sealed class TakeStockNoLocationZeroCountFactory : WebApplicationFactory<
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             TakeStockFragmentFactory.RegisterFakes(services, hasNoLocationProducts: true);
 
             services.RemoveAll<IProductStockRepository>();

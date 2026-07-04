@@ -34,9 +34,10 @@ public sealed class WeekBagEnricherTests
     /// </summary>
     private static WeekBagEnricher MakeEnricher(WeekBag bag) =>
         new(bag,
-            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter()),
+            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader()),
             new CostingService(new NullPriceReader(), new NullConverter()),
-            SystemClock.Instance);
+            SystemClock.Instance,
+            expiringSoonDays: 7);
 
     // ── Multi-unit lot summing ────────────────────────────────────────────────────
 
@@ -180,6 +181,11 @@ public sealed class WeekBagEnricherTests
             Task.FromResult<ProductStock?>(null);
         public Task<IReadOnlyDictionary<Guid, ProductStock>> FindStockBatchAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyDictionary<Guid, ProductStock>>(new Dictionary<Guid, ProductStock>());
+    }
+
+    private sealed class NullExpiringSoonHorizonReader : IExpiringSoonHorizonReader
+    {
+        public Task<int> GetDaysAsync(CancellationToken ct = default) => Task.FromResult(7);
     }
 
     private sealed class NullCatalogReader : ICatalogProductReader

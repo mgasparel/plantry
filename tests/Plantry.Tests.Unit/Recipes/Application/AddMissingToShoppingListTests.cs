@@ -86,7 +86,7 @@ public sealed class AddMissingToShoppingListTests
         var stock = new FakeInventoryStockReader();
         var writer = new FakeShoppingListWriter();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : (Guid?)null);
-        var fulfillment = new FulfillmentService(stock, catalog, new IdentityUnitConverter());
+        var fulfillment = new FulfillmentService(stock, catalog, new IdentityUnitConverter(), new FakeExpiringSoonHorizonReader());
         var service = new AddMissingToShoppingList(recipes, fulfillment, writer, Clock, tenant);
         return new Harness
         {

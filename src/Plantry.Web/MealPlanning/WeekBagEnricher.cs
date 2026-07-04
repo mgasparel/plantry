@@ -21,6 +21,7 @@ internal sealed class WeekBagEnricher
     private readonly FulfillmentService _fulfillmentService;
     private readonly CostingService _costingService;
     private readonly IClock _clock;
+    private readonly int _expiringSoonDays;
 
     // Memo cache: keyed by (recipeId, servings). Populated on first call, reused on subsequent ones.
     private readonly Dictionary<(Guid RecipeId, int Servings), RecipeDishEnrichment?> _memo = [];
@@ -29,12 +30,14 @@ internal sealed class WeekBagEnricher
         WeekBag bag,
         FulfillmentService fulfillmentService,
         CostingService costingService,
-        IClock clock)
+        IClock clock,
+        int expiringSoonDays)
     {
         _bag = bag;
         _fulfillmentService = fulfillmentService;
         _costingService = costingService;
         _clock = clock;
+        _expiringSoonDays = expiringSoonDays;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -96,7 +99,7 @@ internal sealed class WeekBagEnricher
         var priceById = BuildPriceById(ingredients);
 
         // Fulfillment (pure — zero round-trips).
-        var fulfillment = _fulfillmentService.Compute(recipe, servings, today, catalogById, stockById, converter);
+        var fulfillment = _fulfillmentService.Compute(recipe, servings, today, catalogById, stockById, converter, _expiringSoonDays);
 
         // Cost (pure — zero round-trips).
         var cost = _costingService.Compute(recipe, servings, priceById, converter);

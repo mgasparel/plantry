@@ -137,6 +137,7 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

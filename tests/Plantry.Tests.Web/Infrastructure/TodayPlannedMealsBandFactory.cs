@@ -41,6 +41,7 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // ── Auth ─────────────────────────────────────────────────────────
             services.AddAuthentication(opts =>
                 {
@@ -144,6 +145,7 @@ public sealed class TodayPlannedMealsBandNoSlotsFactory : WebApplicationFactory<
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

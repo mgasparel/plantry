@@ -98,12 +98,10 @@ public class InventoryQueryService(
     IProductStockRepository stocks,
     ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
+    IExpiringSoonHorizon horizon,
     IClock clock,
     ITenantContext tenant)
 {
-    /// <summary>Lots expiring within this many days of today render as <see cref="ExpiryTone.Soon"/> (SPEC §1d default).</summary>
-    public const int ExpiringSoonDays = 7;
-
     /// <summary>Maximum number of rows returned by <see cref="ExpiringSoonAsync"/> (top-N soonest-first).</summary>
     public const int ExpiringSoonMaxItems = 10;
 
@@ -116,6 +114,7 @@ public class InventoryQueryService(
         var locationNames = await catalog.GetLocationNamesAsync(ct);
         var unitCodes = await catalog.GetUnitCodesAsync(ct);
         var today = Today();
+        var expiringSoonDays = await horizon.GetDaysAsync(ct);
 
         var convertersByProduct = await conversions.ForProductsAsync(allStock.Select(s => s.ProductId), ct);
 
@@ -150,7 +149,7 @@ public class InventoryQueryService(
                 displayUnitCode,
                 activeLots.Count,
                 soonest,
-                ToneFor(soonest, today),
+                ToneFor(soonest, today, expiringSoonDays),
                 CategoryHue: product.CategoryHue,
                 LowStockThreshold: stock.LowStockThreshold,
                 IsRunningLow: stock.IsRunningLow(total)));
@@ -163,7 +162,7 @@ public class InventoryQueryService(
 
     /// <summary>
     /// Returns up to <see cref="ExpiringSoonMaxItems"/> products with active lots whose soonest expiry
-    /// is within the next <see cref="ExpiringSoonDays"/> days (or already past), ordered soonest-first
+    /// is within the household's configured "expiring soon" horizon (or already past), ordered soonest-first
     /// (expired first, then by date ascending). Only products with at least one dated lot are included.
     /// Household-scoped via the tenant context.
     /// </summary>
@@ -176,7 +175,7 @@ public class InventoryQueryService(
         var locationNames = await catalog.GetLocationNamesAsync(ct);
         var unitCodes = await catalog.GetUnitCodesAsync(ct);
         var today = Today();
-        var windowEnd = today.AddDays(ExpiringSoonDays);
+        var windowEnd = today.AddDays(await horizon.GetDaysAsync(ct));
 
         var convertersByProduct = await conversions.ForProductsAsync(allStock.Select(s => s.ProductId), ct);
 
@@ -315,11 +314,11 @@ public class InventoryQueryService(
         return total;
     }
 
-    private static ExpiryTone ToneFor(DateOnly? soonest, DateOnly today)
+    private static ExpiryTone ToneFor(DateOnly? soonest, DateOnly today, int expiringSoonDays)
     {
         if (soonest is not { } date) return ExpiryTone.None;
         if (date < today) return ExpiryTone.Expired;
-        if (date <= today.AddDays(ExpiringSoonDays)) return ExpiryTone.Soon;
+        if (date <= today.AddDays(expiringSoonDays)) return ExpiryTone.Soon;
         return ExpiryTone.Ok;
     }
 

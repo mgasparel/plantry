@@ -50,6 +50,7 @@ public sealed class ShoppingDealBadgeTests
             base.ConfigureWebHost(builder);
             builder.ConfigureTestServices(services =>
             {
+                services.AddFakeExpiringSoonHorizon();
                 services.RemoveAll<IShoppingDealReader>();
                 services.AddSingleton<IShoppingDealReader>(new FakeDealReaderWithMilkDeal());
             });

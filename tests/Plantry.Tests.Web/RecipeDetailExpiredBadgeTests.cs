@@ -168,6 +168,7 @@ public abstract class RecipeDetailExpiredBadgeFactoryBase : WebApplicationFactor
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

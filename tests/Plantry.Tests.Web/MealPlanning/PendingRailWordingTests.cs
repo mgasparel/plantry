@@ -292,6 +292,7 @@ public sealed class BudgetAndGhostFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Seed a pending proposal (same as GhostCellFactory)
             services.RemoveAll<IPendingProposalStore>();
             services.AddSingleton<IPendingProposalStore>(new PrimedPendingProposalStore());

@@ -81,6 +81,7 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme mirrors ReviewFragmentFactory.
             services.AddAuthentication(opts =>
                 {
