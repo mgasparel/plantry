@@ -68,15 +68,26 @@
                 @* Pantry stock sub-line peer *@
                 @if (item.HasPantryStock)
                 {
+                    @* Tri-state pantry stock (plantry-43y), matching ClaudeDesignProto shopping-list.jsx:
+                       in-stock → check icon + success tone; running low → alert icon + warning tone
+                       plus a "· low" peer; out → alert icon + faint tone. IsLow is running-low only
+                       (0 < onHand ≤ threshold) so out and low can never both fire. *@
+                    var isLow = item.IsLow == true;
                     if (item.OnHand > 0)
                     {
-                        <span class="sl-instock">@(item.OnHand!.Value.ToString("0.###")) @item.PantryUnitCode in pantry</span>
+                        <span class="sl-instock@(isLow ? " low" : "")">
+                            <svg class="icon" aria-hidden="true"><use href="#i-@(isLow ? "alert" : "check")" /></svg>
+                            @(item.OnHand!.Value.ToString("0.###")) @item.PantryUnitCode in pantry
+                        </span>
                     }
                     else
                     {
-                        <span class="sl-instock out">out</span>
+                        <span class="sl-instock out">
+                            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+                            out
+                        </span>
                     }
-                    @if (item.IsLow == true)
+                    @if (isLow)
                     {
                         <span class="dot" aria-hidden="true"></span>
                         <span class="sl-low">low</span>

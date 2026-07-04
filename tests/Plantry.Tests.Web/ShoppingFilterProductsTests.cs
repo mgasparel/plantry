@@ -21,7 +21,7 @@ namespace Plantry.Tests.Web;
 /// wired), the matched option carries a <c>.rk</c> label, and a blank query (browse-on-focus)
 /// still renders unranked with no <c>.rk</c> span at all.
 /// Uses the same <see cref="ShoppingListFragmentFactory"/> fixture as the snapshot tests, which
-/// seeds Milk (2 L, not low) and Flour (0 g, out/low) via <see cref="ShoppingListFixture.StockLevels"/>.
+/// seeds Milk (2 L, not low) and Flour (0 g, out) via <see cref="ShoppingListFixture.StockLevels"/>.
 /// </summary>
 public sealed class ShoppingFilterProductsTests(ShoppingListFragmentFactory factory)
     : IClassFixture<ShoppingListFragmentFactory>
@@ -72,7 +72,7 @@ public sealed class ShoppingFilterProductsTests(ShoppingListFragmentFactory fact
         Assert.Equal("Milk", labelSpan.TextContent.Trim());
     }
 
-    // ── Out-of-stock product (Flour: 0 g, IsLow = true) ─────────────────────
+    // ── Out-of-stock product (Flour: 0 g, out — IsLow = false) ──────────────
 
     [Fact(DisplayName = "FilterProducts — out-of-stock product emits ostock out span")]
     public async Task FilterProducts_OutOfStockProduct_EmitsOstockOutSpan()

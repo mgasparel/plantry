@@ -222,15 +222,40 @@ public sealed class ShoppingListQueryServiceTests
         Assert.True(item.HasPantryStock);
     }
 
-    [Fact(DisplayName = "GetList — product with zero stock: IsLow = true")]
-    public async Task GetList_ProductWithZeroStock_IsLowTrue()
+    [Fact(DisplayName = "GetList — running-low product: IsLow flag flows through to the view item")]
+    public async Task GetList_RunningLowProduct_IsLowTrue()
     {
         var repo = new FakeShoppingListRepository();
         var catalog = new FakeShoppingCatalogReaderWithSummaries();
         catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Eggs", "Dairy"));
 
         var pantry = new FakeShoppingPantryReader();
-        pantry.RegisterStock(_productId, new ShoppingPantryStockLevel(_productId, 0m, "ea", IsLow: true));
+        // Running low: positive but low quantity (0 < onHand ≤ threshold). IsLow is running-low
+        // only now (plantry-43y) — the query service passes it straight through to the view.
+        pantry.RegisterStock(_productId, new ShoppingPantryStockLevel(_productId, 1m, "ea", IsLow: true));
+
+        SeedListWithProductItem(repo, note: null);
+
+        var svc = BuildService(repo, catalog, pantry);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
+        Assert.Equal(1m, item.OnHand);
+        Assert.True(item.IsLow);
+        Assert.True(item.HasPantryStock);
+    }
+
+    [Fact(DisplayName = "GetList — out product: IsLow = false (out is not running low), OnHand = 0")]
+    public async Task GetList_OutProduct_IsLowFalse()
+    {
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Eggs", "Dairy"));
+
+        var pantry = new FakeShoppingPantryReader();
+        // Out: onHand ≤ 0 → IsLow is false (running-low only). The subline renders "out", not "low".
+        pantry.RegisterStock(_productId, new ShoppingPantryStockLevel(_productId, 0m, "ea", IsLow: false));
 
         SeedListWithProductItem(repo, note: null);
 
@@ -240,7 +265,7 @@ public sealed class ShoppingListQueryServiceTests
         Assert.NotNull(view);
         var item = Assert.Single(view.Groups.SelectMany(g => g.Items));
         Assert.Equal(0m, item.OnHand);
-        Assert.True(item.IsLow);
+        Assert.False(item.IsLow);
         Assert.True(item.HasPantryStock);
     }
 

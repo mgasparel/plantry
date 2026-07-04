@@ -3610,6 +3610,8 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 /* Pantry stock sub-line (.sl-instock) and low indicator (.sl-low) */
 .sl-instock { color: var(--color-success); font-variant-numeric: tabular-nums; }
 .sl-instock.out { color: var(--color-text-faint); }
+/* Running-low tone: the whole stock hint turns warning-coloured (matches the alert icon). */
+.sl-instock.low { color: var(--color-warning); }
 .sl-low { color: var(--color-warning); font-weight: 500; }
 /* Search dropdown stock hint (.ostock) inside the searchable-select listbox */
 .ostock { display: block; font-size: 11px; margin-top: 1px; color: var(--color-success); }

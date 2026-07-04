@@ -66,7 +66,10 @@ public sealed class ShoppingPantryReaderAdapter(
             return [];
 
         var levels = await AggregateStockLevelsAsync(allStock, ct);
-        return levels.Where(l => l.IsLow).ToList();
+        // Restock candidates = running-low ∪ out. IsLow now means running-low only (false when out),
+        // so out products (OnHand ≤ 0) must be re-included explicitly — a fully-depleted staple is
+        // just as much a restock candidate as one that is merely low.
+        return levels.Where(l => l.IsLow || l.OnHand <= 0m).ToList();
     }
 
     // ── Shared aggregation helper ─────────────────────────────────────────────
@@ -113,9 +116,13 @@ public sealed class ShoppingPantryReaderAdapter(
                 // On conversion failure the lot contributes 0; honest degradation preferred over crash.
             }
 
-            // IsLow: true when on-hand is zero (out of stock / no active lots). When par levels
-            // are added to the domain, this computation extends to also flag onHand <= par.
-            var isLow = total <= 0m;
+            // IsLow means "running low" only: a positive but low quantity, 0 < onHand ≤ threshold
+            // (per ProductStock.IsRunningLow). It is deliberately false when out (onHand ≤ 0) so the
+            // Shopping subline renders out and low as distinct, mutually-exclusive states and never
+            // shows "out · low" together. Out is surfaced separately via OnHand ≤ 0. The extra
+            // total > 0m guard excludes the out-with-threshold case, which IsRunningLow alone treats
+            // as low (onHand ≤ threshold is satisfied by onHand = 0).
+            var isLow = total > 0m && productStock.IsRunningLow(total);
 
             result.Add(new ShoppingPantryStockLevel(
                 ProductId: productStock.ProductId,

@@ -21,8 +21,13 @@ public sealed class PantrySuggestionServiceTests
         FakeShoppingCatalogReaderWithSummaries? catalog = null)
         => new(pantry, catalog ?? new FakeShoppingCatalogReaderWithSummaries());
 
+    /// <summary>
+    /// Builds a restock candidate (a product <see cref="PantrySuggestionService"/> should surface).
+    /// IsLow is running-low only (plantry-43y): true iff onHand &gt; 0 (running low), false when
+    /// onHand = 0 (out — which still surfaces as a candidate via the OnHand ≤ 0 predicate).
+    /// </summary>
     private static ShoppingPantryStockLevel LowStock(Guid productId, decimal onHand = 0m) =>
-        new(productId, OnHand: onHand, UnitCode: "ea", IsLow: true);
+        new(productId, OnHand: onHand, UnitCode: "ea", IsLow: onHand > 0m);
 
     // ── Exclusion logic ───────────────────────────────────────────────────────
 
@@ -133,13 +138,15 @@ public sealed class PantrySuggestionServiceTests
         var normalId = Guid.NewGuid();
 
         var pantry = new FakeShoppingPantryReader();
-        pantry.RegisterStock(lowId,    new ShoppingPantryStockLevel(lowId,    OnHand: 0m,   UnitCode: "ea", IsLow: true));
+        // outId is a restock candidate (out → IsLow false, surfaced via OnHand ≤ 0);
+        // normalId is genuinely in-stock (OnHand > 0, not low) and must NOT be suggested.
+        pantry.RegisterStock(lowId,    new ShoppingPantryStockLevel(lowId,    OnHand: 0m,   UnitCode: "ea", IsLow: false));
         pantry.RegisterStock(normalId, new ShoppingPantryStockLevel(normalId, OnHand: 3m,   UnitCode: "ea", IsLow: false));
 
         var svc = BuildService(pantry);
         var suggestions = await svc.GetSuggestionsAsync(new HashSet<Guid>());
 
-        // GetLowStockProductsAsync on FakeShoppingPantryReader filters to IsLow=true.
+        // GetLowStockProductsAsync surfaces running-low ∪ out; the in-stock product is excluded.
         Assert.Single(suggestions);
         Assert.Equal(lowId, suggestions[0].ProductId);
     }
@@ -216,7 +223,7 @@ public sealed class PantrySuggestionServiceTests
 
         var pantry = new FakeShoppingPantryReader();
         pantry.RegisterStock(lowId, new ShoppingPantryStockLevel(lowId, OnHand: 0.5m, UnitCode: "ea", IsLow: true));
-        pantry.RegisterStock(outId, new ShoppingPantryStockLevel(outId, OnHand: 0m,   UnitCode: "ea", IsLow: true));
+        pantry.RegisterStock(outId, new ShoppingPantryStockLevel(outId, OnHand: 0m,   UnitCode: "ea", IsLow: false));
 
         var catalog = new FakeShoppingCatalogReaderWithSummaries();
         catalog.RegisterSummary(lowId, new ShoppingProductSummary(lowId, "Apple", null, null));
@@ -239,9 +246,9 @@ public sealed class PantrySuggestionServiceTests
         var idB = Guid.NewGuid();
 
         var pantry = new FakeShoppingPantryReader();
-        pantry.RegisterStock(idC, new ShoppingPantryStockLevel(idC, OnHand: 0m, UnitCode: "ea", IsLow: true));
-        pantry.RegisterStock(idA, new ShoppingPantryStockLevel(idA, OnHand: 0m, UnitCode: "ea", IsLow: true));
-        pantry.RegisterStock(idB, new ShoppingPantryStockLevel(idB, OnHand: 0m, UnitCode: "ea", IsLow: true));
+        pantry.RegisterStock(idC, new ShoppingPantryStockLevel(idC, OnHand: 0m, UnitCode: "ea", IsLow: false));
+        pantry.RegisterStock(idA, new ShoppingPantryStockLevel(idA, OnHand: 0m, UnitCode: "ea", IsLow: false));
+        pantry.RegisterStock(idB, new ShoppingPantryStockLevel(idB, OnHand: 0m, UnitCode: "ea", IsLow: false));
 
         var catalog = new FakeShoppingCatalogReaderWithSummaries();
         catalog.RegisterSummary(idC, new ShoppingProductSummary(idC, "Cheddar", null, null));
@@ -268,7 +275,7 @@ public sealed class PantrySuggestionServiceTests
         foreach (var name in names)
         {
             var id = Guid.NewGuid();
-            pantry.RegisterStock(id, new ShoppingPantryStockLevel(id, OnHand: 0m, UnitCode: "ea", IsLow: true));
+            pantry.RegisterStock(id, new ShoppingPantryStockLevel(id, OnHand: 0m, UnitCode: "ea", IsLow: false));
             catalog.RegisterSummary(id, new ShoppingProductSummary(id, name, null, null));
         }
 

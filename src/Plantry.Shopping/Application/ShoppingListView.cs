@@ -31,8 +31,10 @@ public sealed record ShoppingListItemView(
     /// </summary>
     string? PantryUnitCode = null,
     /// <summary>
-    /// True when the pantry stock is at or below par (or zero). Null when <see cref="OnHand"/> is null.
-    /// Shopping renders this as the "· low" warning sub-line.
+    /// True when the product is running low — a positive but low quantity,
+    /// 0 &lt; <see cref="OnHand"/> ≤ the household's low stock threshold; <c>false</c> when out
+    /// (<see cref="OnHand"/> ≤ 0), so out and low never render together. Null when
+    /// <see cref="OnHand"/> is null. Shopping renders this as the "· low" warning sub-line.
     /// </summary>
     bool? IsLow = null,
     /// <summary>
@@ -114,15 +116,17 @@ public sealed record ShoppingCategoryGroup(
 
 /// <summary>
 /// One chip in the "Running low in your pantry" suggestions strip (plantry-48l).
-/// Represents a pantry product that is at or below par and NOT already on the active shopping list.
-/// Resolved by the page model by joining low-stock products from <see cref="IShoppingPantryReader"/>
+/// Represents a pantry restock candidate — running low (0 &lt; OnHand ≤ threshold) OR out
+/// (OnHand ≤ 0) — that is NOT already on the active shopping list.
+/// Resolved by the page model by joining restock candidates from <see cref="IShoppingPantryReader"/>
 /// with catalog summaries from <see cref="IShoppingCatalogReader"/>.
 /// </summary>
 /// <param name="ProductId">Catalog product id — used as the hidden input value for the one-click add.</param>
 /// <param name="Name">Product display name.</param>
 /// <param name="OnHand">On-hand quantity in <see cref="UnitCode"/> units. Zero means "out of stock".</param>
 /// <param name="UnitCode">Display unit code (e.g. "g", "ea").</param>
-/// <param name="IsLow">True when on-hand is at or below par (always true for suggestions).</param>
+/// <param name="IsLow">True when the product is running low (0 &lt; OnHand ≤ threshold); false for out
+/// products, which are surfaced as suggestions via OnHand ≤ 0. Not always true for suggestions.</param>
 /// <param name="CategoryName">Category name for the colour chip. Null when uncategorised.</param>
 /// <param name="CategoryHue">Hue in degrees (0–359) for the colour dot. Null when uncategorised.</param>
 public sealed record PantrySuggestion(
