@@ -183,6 +183,9 @@ public sealed class DealAwareCostingAdapterTests
         }
 
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<PriceObservation>>([]);
     }
 
     /// <summary>Identity unit converter — the recipe ingredient and price share a unit here.</summary>

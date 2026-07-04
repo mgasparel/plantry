@@ -212,6 +212,14 @@ builder.Services.AddScoped<IPriceObservationRepository, PriceObservationReposito
 builder.Services.AddScoped<IUnitPriceCalculator, UnitPriceCalculatorAdapter>();
 builder.Services.AddScoped<PricingQueries>();
 
+// DM-16 part D: one-time backfill stamping store_id onto historical purchase observations recorded before
+// the intake write-path resolved it. PurchaseStoreBackfill is the per-household unit of work (scoped);
+// PurchaseStoreBackfillCycle arms tenancy per household and opens a fresh scope itself, so — like
+// FlyerIngestionCycle — it is a singleton, driven only by the dev-only manual endpoint below (no worker,
+// never at boot). See Pricing/PurchaseStoreBackfill*.cs.
+builder.Services.AddScoped<PurchaseStoreBackfill>();
+builder.Services.AddSingleton<PurchaseStoreBackfillCycle>();
+
 // Intake context (hero AI receipt flow — ADR-007/ADR-010). The dispatch interceptor drains domain
 // events (e.g. ImportSessionCommittedEvent) after a successful SaveChanges; the AI parser, the four
 // cross-context port adapters, and the event handler are the seams ParseSessionCommand /
@@ -597,6 +605,15 @@ if (app.Environment.IsDevelopment())
     // Deals §7e "pull now": drive one full flyer-ingestion sweep on demand instead of waiting for the
     // daily timer (P5-6). Dev-only (gated by DevPagesGateMiddleware); the sweep arms tenancy per household.
     app.MapPost("/Dev/Deals/PullNow", async (FlyerIngestionCycle cycle, CancellationToken ct) =>
+    {
+        await cycle.RunAsync(ct);
+        return Results.Ok();
+    });
+
+    // DM-16 part D "backfill now": drive the one-time store-id backfill across every household on demand
+    // (the sweep is not scheduled and never runs at boot). Dev-only (gated by DevPagesGateMiddleware);
+    // idempotent + re-runnable, so re-triggering is safe. Mirrors /Dev/Deals/PullNow.
+    app.MapPost("/Dev/Pricing/BackfillPurchaseStores", async (PurchaseStoreBackfillCycle cycle, CancellationToken ct) =>
     {
         await cycle.RunAsync(ct);
         return Results.Ok();

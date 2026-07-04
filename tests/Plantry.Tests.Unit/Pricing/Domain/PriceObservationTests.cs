@@ -130,4 +130,59 @@ public sealed class PriceObservationTests
         Assert.Null(obs.ValidTo);
         Assert.Null(obs.StoreId);
     }
+
+    [Fact]
+    public void ResolveStore_Binds_StoreId_When_Currently_Null()
+    {
+        var storeId = Guid.CreateVersion7();
+        var obs = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 3.99m, quantity: 500m, unitId: UnitId,
+            unitPrice: 0.00798m, source: PriceSource.Purchase,
+            merchantText: "Superstore", sourceRef: SourceRef, observedAt: Now, userId: UserId);
+
+        var bound = obs.ResolveStore(storeId);
+
+        Assert.True(bound);
+        Assert.Equal(storeId, obs.StoreId);
+    }
+
+    [Fact]
+    public void ResolveStore_Is_A_NoOp_When_StoreId_Already_Set()
+    {
+        var original = Guid.CreateVersion7();
+        var obs = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 2.50m, quantity: 1m, unitId: UnitId,
+            unitPrice: 2.50m, source: PriceSource.Deal,
+            merchantText: "Flyer", sourceRef: SourceRef, observedAt: Now, userId: UserId,
+            validFrom: new DateOnly(2026, 7, 1), validTo: new DateOnly(2026, 7, 7), storeId: original);
+
+        var bound = obs.ResolveStore(Guid.CreateVersion7());
+
+        Assert.False(bound);
+        Assert.Equal(original, obs.StoreId); // unchanged — the second call never overwrites
+    }
+
+    [Fact]
+    public void ResolveStore_Leaves_The_Immutable_Price_Event_Untouched()
+    {
+        var obs = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 3.99m, quantity: 500m, unitId: UnitId,
+            unitPrice: 0.00798m, source: PriceSource.Purchase,
+            merchantText: "Superstore", sourceRef: SourceRef, observedAt: Now, userId: UserId);
+
+        obs.ResolveStore(Guid.CreateVersion7());
+
+        Assert.Equal(3.99m, obs.Price);
+        Assert.Equal(500m, obs.Quantity);
+        Assert.Equal(UnitId, obs.UnitId);
+        Assert.Equal(0.00798m, obs.UnitPrice);
+        Assert.Equal(PriceSource.Purchase, obs.Source);
+        Assert.Equal("Superstore", obs.MerchantText);
+        Assert.Equal(SourceRef, obs.SourceRef);
+        Assert.Equal(Now, obs.ObservedAt);
+        Assert.Equal(UserId, obs.UserId);
+    }
 }
