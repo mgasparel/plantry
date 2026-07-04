@@ -640,10 +640,16 @@ function Group-ByTheme {
     foreach ($t in $tmpSorted) {
         $g = New-Object PSObject
         Add-Member -InputObject $g -MemberType NoteProperty -Name "theme" -Value $t.theme
-        Add-Member -InputObject $g -MemberType NoteProperty -Name "rows"  -Value $t.items.ToArray()
+        # Keep rows as a List[object] (NOT .ToArray()): ConvertTo-Json in PS 5.1
+        # unwraps a single-element object[] into a bare object, which breaks the
+        # JS group renderers (groups.forEach / g.rows iteration).
+        Add-Member -InputObject $g -MemberType NoteProperty -Name "rows"  -Value $t.items
         $result.Add($g)
     }
-    return $result.ToArray()
+    # -NoEnumerate so the caller receives the List instance itself (a single-element
+    # List stays a JSON array); returning .ToArray() here would let ConvertTo-Json
+    # unwrap a one-theme group into a bare object and blank the whole report.
+    Write-Output -NoEnumerate $result
 }
 
 $triageLeakGroups  = Group-ByTheme -rows $triageLeaks
@@ -1657,6 +1663,22 @@ var fCards = [
 document.getElementById("flow-kpis").innerHTML = fCards.map(function(c) {
     return '<div class="kpi' + (c.warn ? " warn" : "") + '"><div class="v">' + c.v + '</div><div class="l">' + c.l + '</div></div>';
 }).join("");
+
+// Graceful degradation: chart.js is loaded from a CDN, which can be blocked
+// offline, by a proxy, or by a file:// CSP. If it failed to load, stub Chart so
+// every chart block below no-ops with an inline notice instead of throwing an
+// uncaught ReferenceError that would halt the rest of the script (Flow charts,
+// Backlog detail, Trend tab). The text content of every tab still renders.
+if (typeof Chart === "undefined") {
+    window.Chart = function(canvas) {
+        try {
+            var box = canvas && canvas.closest ? canvas.closest(".chart") : null;
+            if (box) { box.innerHTML = '<p class="worklist-empty">Chart unavailable &mdash; chart.js did not load (offline / blocked CDN).</p>'; }
+        } catch (e) {}
+        return { destroy: function() {}, update: function() {} };
+    };
+    window.Chart.defaults = { color: "", font: {} };
+}
 
 Chart.defaults.color = css("--muted");
 Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
