@@ -142,6 +142,14 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>(Items
+            .Where(p => p.Source == PriceSource.Purchase
+                && p.StoreId is null
+                && !string.IsNullOrWhiteSpace(p.MerchantText))
+            .OrderBy(p => p.ObservedAt)
+            .ToList());
+
     public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(Items
             .Where(p => p.ProductId == productId && p.Source == PriceSource.Purchase)

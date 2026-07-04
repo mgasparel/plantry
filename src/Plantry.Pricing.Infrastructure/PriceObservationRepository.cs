@@ -11,6 +11,15 @@ public sealed class PriceObservationRepository(PricingDbContext db) : IPriceObse
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);
 
+    public async Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default) =>
+        await db.PriceObservations
+            .Where(p => p.Source == PriceSource.Purchase
+                && p.StoreId == null
+                && p.MerchantText != null
+                && p.MerchantText.Trim() != "")
+            .OrderBy(p => p.ObservedAt)
+            .ToListAsync(ct);
+
     public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
         db.PriceObservations
             .Where(p => p.ProductId == productId && p.Source == PriceSource.Purchase)

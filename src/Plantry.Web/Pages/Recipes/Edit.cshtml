@@ -282,7 +282,7 @@
                  return;
              }
              this._convCheckTimer = setTimeout(async () => {
-                 const url = `@Url.Page("./Edit", "CheckConversion")?productId=${encodeURIComponent(draft.productId)}&fromUnitId=${encodeURIComponent(draft.unitId)}`;
+                 const url = `@Url.Page("./Edit", "CheckConversion")&productId=${encodeURIComponent(draft.productId)}&fromUnitId=${encodeURIComponent(draft.unitId)}`;
                  try {
                      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                      if (!res.ok) return;

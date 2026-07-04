@@ -5886,7 +5886,20 @@ button.sadd svg { width: 13px; height: 13px; }
 .store-search__hint { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: 0; }
 
 .store-results { margin-top: var(--space-1); }
-.store-result__action { margin-left: auto; }
+.store-result__action {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+.store-result__error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-xs);
+  text-align: right;
+  max-width: 18rem;
+}
 
 /* ── Deals page (§6a / DJ3 / P5-7) ─────────────────────────────────────────── */
 /* Page-specific layout composing the shared card / catalog-list / badge / btn /  */

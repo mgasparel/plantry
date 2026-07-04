@@ -10,6 +10,7 @@ using Plantry.Shopping.Infrastructure;
 using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Tests.Integration.Shopping;
 using Plantry.Web.MealPlanning;
+using Plantry.Web.Shopping;
 using Xunit;
 
 namespace Plantry.Tests.Integration.MealPlanning;
@@ -183,6 +184,72 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         // Source is now on the contribution (plantry-9scq).
         var contrib = Assert.Single(item.Contributions);
         Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, contrib.Source);
+    }
+
+    // ── L3-e: same product across two slots → ONE line, two per-slot contributions that SUM,
+    //          and the contribution SourceRefs resolve through GetMealPlanSlotsAsync (plantry-jie7) ──
+
+    [Fact(DisplayName = "L3-e — ShopForWeek: same product on two slots → one line, two summing per-slot contributions; slot refs resolve to labels")]
+    public async Task ShopForWeek_SameProductAcrossTwoSlots_SumsToOneLine_AndSlotRefsResolve()
+    {
+        // Same recipe planned on Monday and Thursday (two distinct planned_meal slots), each missing
+        // 1.5 units of the product. Contribution model: one product line, two contributions that sum.
+        var thursday = Monday.AddDays(3);
+        var plan = MealPlan.Start(_household, Monday, Clock);
+        plan.AssignMeal(Monday, _slotId,
+            [new DishSpec(DishKind.Recipe, _recipeId, 2)], null, "manual", Guid.Empty, Clock);
+        plan.AssignMeal(thursday, _slotId,
+            [new DishSpec(DishKind.Recipe, _recipeId, 2)], null, "manual", Guid.Empty, Clock);
+        await SeedMealPlanAsync(plan);
+
+        // Expected slot ids (the two planned_meal ids), reloaded from persistence.
+        Guid mondayMealId, thursdayMealId;
+        await using (var mpCtx = NewMealPlanningDb())
+        {
+            var reloaded = await new MealPlanRepository(mpCtx).FindByWeekAsync(_household, Monday);
+            mondayMealId = reloaded!.PlannedMeals.Single(m => m.Date == Monday).Id.Value;
+            thursdayMealId = reloaded.PlannedMeals.Single(m => m.Date == thursday).Id.Value;
+        }
+
+        var (mealPlanRepo, shopWriter) = BuildAdapters();
+        var recipeReader = new FakeMissingReader(_recipeId,
+            [new RecipeMissingIngredient(_productId, 1.5m, _unitId)]);
+        var stockReader = new NullMealPlanStockReader();
+
+        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
+        var result = await svc.ExecuteAsync(_household, Monday);
+
+        // User-facing count is distinct product LINES, not contributions.
+        Assert.Equal(1, result.ItemsAdded);
+
+        // ONE product line whose Quantity is the SUM of the two per-slot contributions (no fan-out).
+        await using var shopCtx = NewShoppingDb();
+        var list = await shopCtx.ShoppingLists
+            .Include(l => l.Items)
+            .ThenInclude(i => i.Contributions)
+            .FirstAsync();
+        var item = Assert.Single(list.Items);
+        Assert.Equal(_productId, item.ProductId);
+        Assert.Equal(3.0m, item.Quantity); // 1.5 (Mon) + 1.5 (Thu)
+
+        // Two distinct MealPlan contributions, keyed by the two planned_meal slot ids (NOT plan.Id, NOT recipeId).
+        Assert.Equal(2, item.Contributions.Count);
+        Assert.All(item.Contributions, c => Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, c.Source));
+        var contribRefs = item.Contributions.Select(c => c.SourceRef).ToHashSet();
+        Assert.Equal(new HashSet<Guid?> { mondayMealId, thursdayMealId }, contribRefs);
+        Assert.DoesNotContain((Guid?)plan.Id.Value, contribRefs);
+        Assert.DoesNotContain((Guid?)_recipeId, contribRefs);
+
+        // The contribution SourceRefs resolve through the plantry-jwyb read port to the per-slot labels.
+        await using var readerCtx = NewMealPlanningDb();
+        var slotReader = new ShoppingMealPlanReaderAdapter(readerCtx);
+        var resolved = await slotReader.GetMealPlanSlotsAsync(
+            [mondayMealId, thursdayMealId]);
+        Assert.Equal(2, resolved.Count);
+        Assert.Equal(DayOfWeek.Monday, resolved[mondayMealId].Day);
+        Assert.Equal(DayOfWeek.Thursday, resolved[thursdayMealId].Day);
+        Assert.Equal("Dinner", resolved[mondayMealId].MealType);
+        Assert.Equal("Dinner", resolved[thursdayMealId].MealType);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

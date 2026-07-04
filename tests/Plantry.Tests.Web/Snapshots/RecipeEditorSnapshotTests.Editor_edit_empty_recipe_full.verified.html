@@ -180,7 +180,7 @@
                  return;
              }
              this._convCheckTimer = setTimeout(async () => {
-                 const url = `/Recipes/New?handler=CheckConversion?productId=${encodeURIComponent(draft.productId)}&amp;fromUnitId=${encodeURIComponent(draft.unitId)}`;
+                 const url = `/Recipes/New?handler=CheckConversion&amp;productId=${encodeURIComponent(draft.productId)}&amp;fromUnitId=${encodeURIComponent(draft.unitId)}`;
                  try {
                      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                      if (!res.ok) return;

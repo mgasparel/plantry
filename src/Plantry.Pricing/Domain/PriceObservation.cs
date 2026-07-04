@@ -4,7 +4,11 @@ using Plantry.SharedKernel.Domain;
 namespace Plantry.Pricing.Domain;
 
 /// <summary>
-/// Flat, append-only aggregate root. One row per observed price event — never mutated after creation.
+/// Flat, append-only aggregate root. One row per observed price event — the immutable price event
+/// (price/quantity/unit/source/observed_at/…) is never mutated after creation. The sole sanctioned
+/// carve-out is <see cref="StoreId"/>: a late-resolved soft-reference (see its own note) that may be
+/// bound once, after the fact, via <see cref="ResolveStore"/> (DM-16 backfill). Nothing else on the row
+/// is ever updated.
 /// <see cref="UnitPrice"/> is null when the calculator could not normalize (soft-fail, pricing.md resolved-call #2).
 /// </summary>
 public sealed class PriceObservation : AggregateRoot<PriceObservationId>
@@ -72,4 +76,20 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
             ObservedAt = observedAt,
             UserId = userId,
         };
+
+    /// <summary>
+    /// One-time DM-16 late-bind of the resolved merchant identity: sets <see cref="StoreId"/> <b>only</b>
+    /// when it is currently null, and touches nothing else on the row (the immutable price event is left
+    /// intact). A no-op when a store is already resolved, so the backfill sweep is idempotent and
+    /// re-runnable. Returns <see langword="true"/> when it bound a store, <see langword="false"/> when the
+    /// observation was already resolved.
+    /// </summary>
+    public bool ResolveStore(Guid storeId)
+    {
+        if (StoreId is not null)
+            return false;
+
+        StoreId = storeId;
+        return true;
+    }
 }

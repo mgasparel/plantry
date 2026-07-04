@@ -231,6 +231,9 @@ public sealed class FakeDataSeeder(
             var lines = seed.Lines.Select((l, i) =>
             {
                 var product = products[l.Product];
+                // Fail-loud seed guard: a tracked product with a null ("to taste") quantity would
+                // yield a recipe AuthorRecipe's R5 rule rejects on save. Catch it here, not at Save.
+                AssertSeedLineSatisfiesR5(product, l.Qty, seed.Name);
                 Guid? unit = l.Qty.HasValue ? product.DefaultUnitId.Value : null;
                 return new IngredientLine(product.Id.Value, l.Qty, unit, l.Group, i);
             }).ToList();
@@ -269,7 +272,11 @@ public sealed class FakeDataSeeder(
 
             foreach (var name in tmpl.Names)
             {
-                var product = Product.Create(householdId, name, unit.Id, clock);
+                // Untracked staples (salt/pepper "to taste") are derived from recipe usage — see
+                // UntrackedStapleNames. Minting them tracked would produce seed recipes that
+                // AuthorRecipe's R5 rule rejects on save (a tracked line needs qty + unit).
+                var product = Product.Create(householdId, name, unit.Id, clock,
+                    trackStock: !UntrackedStapleNames.Contains(name));
                 product.SetCategory(cat.Id, clock);
 
                 if (tmpl.DefaultLocation is { } locName && locations.TryGetValue(locName, out var loc))
@@ -853,4 +860,38 @@ public sealed class FakeDataSeeder(
             Eat straight from the fridge in the morning.
             """),
     ];
+
+    // ── Derived untracked-staple set + fail-loud seed guard ─────────────────────────
+
+    /// <summary>
+    /// Product names that appear in <see cref="RecipeSeeds"/> ONLY as null-quantity ("to taste")
+    /// lines. These are untracked staples: minting them tracked would produce seed recipes that
+    /// <c>AuthorRecipe</c>'s R5 rule rejects on save (a tracked ingredient needs both quantity and
+    /// unit). Derived from usage — not a hard-coded name list — so new seed recipes stay
+    /// self-consistent. On the current seed data this set is exactly {Sea salt, Black pepper}.
+    /// A product used with a real quantity anywhere is excluded (stays tracked), so there is never
+    /// a both-ways conflict. Declared after <see cref="RecipeSeeds"/> so the static field it reads
+    /// is already initialised.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> UntrackedStapleNames =
+        RecipeSeeds
+            .SelectMany(r => r.Lines)
+            .GroupBy(l => l.Product)
+            .Where(g => g.All(l => l.Qty is null))
+            .Select(g => g.Key)
+            .ToHashSet();
+
+    /// <summary>
+    /// Fail-loud seed guard for the R5 invariant. A tracked product paired with a null ("to taste")
+    /// quantity would yield a recipe that <c>AuthorRecipe</c> rejects on save; asserting at seed time
+    /// makes a mis-seeded staple fail fast, naming the offending product and recipe.
+    /// </summary>
+    internal static void AssertSeedLineSatisfiesR5(Product product, decimal? quantity, string recipeName)
+    {
+        if (product.TrackStock && quantity is null)
+            throw new InvalidOperationException(
+                $"Seed data violates R5: tracked product '{product.Name}' has a null (\"to taste\") " +
+                $"quantity in recipe '{recipeName}'. Mint it with trackStock:false (an untracked " +
+                $"staple, see UntrackedStapleNames) or give the seed line a quantity.");
+    }
 }

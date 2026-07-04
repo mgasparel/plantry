@@ -1,6 +1,11 @@
 @model Plantry.Web.Pages.Settings.StoresAndDealsModel
+@{
+    // When ListOob is set (Subscribe-success response), this card rides along as an out-of-band swap so
+    // the subscription list updates in place; the stable id is its OOB target. plantry-b9wd criterion 2.
+    var listOob = ViewData["ListOob"] as bool? == true;
+}
 
-<div class="card">
+<div class="card" id="stores-list-card" hx-swap-oob="@(listOob ? "true" : null)">
     <div class="card__head">
         <h3 class="card__head-title">Your stores</h3>
         <span class="ch-sub">&middot; @Model.ActiveSubscriptions.Count active</span>

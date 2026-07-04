@@ -212,25 +212,41 @@ builder.Services.AddScoped<IPriceObservationRepository, PriceObservationReposito
 builder.Services.AddScoped<IUnitPriceCalculator, UnitPriceCalculatorAdapter>();
 builder.Services.AddScoped<PricingQueries>();
 
+// DM-16 part D: one-time backfill stamping store_id onto historical purchase observations recorded before
+// the intake write-path resolved it. PurchaseStoreBackfill is the per-household unit of work (scoped);
+// PurchaseStoreBackfillCycle arms tenancy per household and opens a fresh scope itself, so — like
+// FlyerIngestionCycle — it is a singleton, driven only by the dev-only manual endpoint below (no worker,
+// never at boot). See Pricing/PurchaseStoreBackfill*.cs.
+builder.Services.AddScoped<PurchaseStoreBackfill>();
+builder.Services.AddSingleton<PurchaseStoreBackfillCycle>();
+
 // Intake context (hero AI receipt flow — ADR-007/ADR-010). The dispatch interceptor drains domain
 // events (e.g. ImportSessionCommittedEvent) after a successful SaveChanges; the AI parser, the four
 // cross-context port adapters, and the event handler are the seams ParseSessionCommand /
 // CommitSessionCommand are constructed over.
 builder.Services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
+builder.Services.AddScoped<TransactionalDomainEventBuffer>();
 builder.Services.AddScoped<DomainEventDispatchInterceptor>();
+builder.Services.AddScoped<DomainEventCommitDispatchInterceptor>();
 builder.Services.AddScoped<IDomainEventHandler<ImportSessionCommittedEvent>, ImportSessionCommittedLogHandler>();
-// GUARDRAIL (ADR-014): domain events dispatch AFTER SaveChanges with no transactional outbox, so a
-// dispatch failure is a lost-event window. RecipeCookedEvent has no subscriber today, so the window
-// is latent. Before registering the FIRST RecipeCookedEvent handler here, either build the outbox or
-// explicitly accept that handler as at-most-once — if it produces durable, reconcilable output,
-// prefer self-reconciliation (the plantry-292 saga pattern) over a generic outbox.
+// GUARDRAIL (ADR-014): domain events dispatch on COMMIT with no transactional outbox. The dispatch
+// interceptor pair (DomainEventDispatchInterceptor + DomainEventCommitDispatchInterceptor) makes dispatch
+// transaction-aware (plantry-jvzk): a bare SaveChanges dispatches immediately post-commit, while events
+// raised INSIDE an explicit multi-save transaction are buffered and dispatched only when that transaction
+// commits — so a rolled-back transaction dispatches NOTHING (the pre-commit "phantom event on rollback"
+// window is CLOSED). What remains latent is the OTHER window: a process crash AFTER commit but before a
+// handler runs is still an at-most-once lost event — this is not an outbox. RecipeCookedEvent has no
+// subscriber today, so that window is harmless. Before registering the FIRST RecipeCookedEvent handler
+// here, either build the outbox or explicitly accept that handler as at-most-once — if it produces durable,
+// reconcilable output, prefer self-reconciliation (the plantry-292 saga pattern) over a generic outbox.
 
 builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
         .AddInterceptors(
             sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
-            sp.GetRequiredService<DomainEventDispatchInterceptor>()));
+            sp.GetRequiredService<DomainEventDispatchInterceptor>(),
+            sp.GetRequiredService<DomainEventCommitDispatchInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 builder.Services.AddScoped<PendingReviewQuery>();
 
@@ -267,15 +283,19 @@ builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>(
 // Deals context (Phase 5 / P5-0). DbContext + schema (P5-0); store subscriptions + §7e management (P5-2).
 // DealsDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0
 // gotcha: omit it and every Deals query filter returns nothing while writes silently succeed.
-// DealConfirmed/DealRejected (P5-5) dispatch through the same post-save interceptor as Intake — no
-// subscriber today (latent, like RecipeCookedEvent; see the ADR-014 guardrail above), but the interceptor
-// drains + clears the buffered events on every save so they can't accumulate.
+// DealConfirmed/DealRejected (P5-5) and FlyerImportedEvent (P5-6) dispatch through the same interceptor pair
+// as Intake — no subscriber today (latent, like RecipeCookedEvent; see the ADR-014 guardrail above). The
+// dispatch interceptor drains + clears the buffered events on every save so they can't accumulate; because
+// FlyerImportedEvent is raised inside IngestFlyer's explicit two-save materialization transaction, the
+// transaction-aware pair holds it until COMMIT so an aborted import (rollback) fires no phantom event
+// (plantry-jvzk).
 builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Deals.Infrastructure"))
         .AddInterceptors(
             sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
-            sp.GetRequiredService<DomainEventDispatchInterceptor>()));
+            sp.GetRequiredService<DomainEventDispatchInterceptor>(),
+            sp.GetRequiredService<DomainEventCommitDispatchInterceptor>()));
 
 // Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
 // ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters
@@ -597,6 +617,15 @@ if (app.Environment.IsDevelopment())
     // Deals §7e "pull now": drive one full flyer-ingestion sweep on demand instead of waiting for the
     // daily timer (P5-6). Dev-only (gated by DevPagesGateMiddleware); the sweep arms tenancy per household.
     app.MapPost("/Dev/Deals/PullNow", async (FlyerIngestionCycle cycle, CancellationToken ct) =>
+    {
+        await cycle.RunAsync(ct);
+        return Results.Ok();
+    });
+
+    // DM-16 part D "backfill now": drive the one-time store-id backfill across every household on demand
+    // (the sweep is not scheduled and never runs at boot). Dev-only (gated by DevPagesGateMiddleware);
+    // idempotent + re-runnable, so re-triggering is safe. Mirrors /Dev/Deals/PullNow.
+    app.MapPost("/Dev/Pricing/BackfillPurchaseStores", async (PurchaseStoreBackfillCycle cycle, CancellationToken ct) =>
     {
         await cycle.RunAsync(ct);
         return Results.Ok();

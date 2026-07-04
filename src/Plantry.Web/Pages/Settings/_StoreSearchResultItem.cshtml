@@ -1,0 +1,33 @@
+@model Plantry.Web.Pages.Settings.StoreResultItem
+@*
+    One directory search result. The Subscribe form retargets THIS <li> (closest .store-result,
+    outerHTML) so a successful subscribe flips it to the "Subscribed" badge at the point of action;
+    hx-disabled-elt disables the button in-flight so repeated clicks can't fire duplicate subscribes;
+    a failed subscribe re-renders this item with the button retained and an inline error. DJ1/plantry-b9wd.
+*@
+<li class="catalog-list__item store-result" data-merchant="@Model.Name">
+    <span class="catalog-list__primary">@Model.Name</span>
+    <div class="store-result__action">
+        @if (Model.IsSubscribed)
+        {
+            <span class="badge badge--success">Subscribed</span>
+        }
+        else
+        {
+            <form hx-post="/Settings/StoresAndDeals?handler=Subscribe"
+                  hx-target="closest .store-result"
+                  hx-swap="outerHTML"
+                  hx-disabled-elt="find button"
+                  style="display:contents">
+                <input type="hidden" name="externalRef" value="@Model.ExternalRef" />
+                <input type="hidden" name="name" value="@Model.Name" />
+                <input type="hidden" name="postalCode" value="@Model.PostalCode" />
+                <button type="submit" class="btn btn--primary btn--sm">Subscribe</button>
+            </form>
+            @if (!string.IsNullOrWhiteSpace(Model.Error))
+            {
+                <p class="store-result__error" role="alert">@Model.Error</p>
+            }
+        }
+    </div>
+</li>

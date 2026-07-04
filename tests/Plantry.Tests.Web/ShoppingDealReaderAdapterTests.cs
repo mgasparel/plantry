@@ -137,6 +137,8 @@ public sealed class ShoppingDealReaderAdapterTests
             Task.FromResult<PriceObservation?>(null);
         public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
             Task.FromResult<PriceObservation?>(null);
+        public Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<PriceObservation>>([]);
     }
 
     /// <summary>In-memory <see cref="IStoreRepository"/> over a fixed store list.</summary>

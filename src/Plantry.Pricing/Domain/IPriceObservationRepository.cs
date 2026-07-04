@@ -7,6 +7,13 @@ public interface IPriceObservationRepository
     Task AddAsync(PriceObservation observation, CancellationToken ct = default);
     Task SaveChangesAsync(CancellationToken ct = default);
 
+    /// <summary>Purchase observations awaiting store resolution (DM-16 backfill): <c>source = Purchase</c>,
+    /// <c>store_id IS NULL</c>, and a non-blank <c>merchant_text</c>. Household-scoped by the EF query
+    /// filter + RLS; entities are tracked so <see cref="PriceObservation.ResolveStore"/> mutations persist
+    /// on the next <see cref="SaveChangesAsync"/>. Blank-merchant rows are excluded — they have no name to
+    /// resolve a store from.</summary>
+    Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default);
+
     /// <summary>Latest <c>purchase</c> observation for a product (source-filtered — a deal row never
     /// contaminates purchase costing).</summary>
     Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default);

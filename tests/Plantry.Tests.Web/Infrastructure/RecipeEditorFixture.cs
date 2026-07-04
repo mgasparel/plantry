@@ -33,6 +33,10 @@ public static class RecipeEditorFixture
         Guid.Parse("cccccccc-0000-0000-0000-000000000003"));
     public static readonly RecipeId RichRecipeId = RecipesDomain.RecipeId.From(
         Guid.Parse("dddddddd-0000-0000-0000-000000000004"));
+    // Non-canonical recipe — stored ingredient order deliberately defeats the CanonicaliseSectionOrder
+    // no-op so the edit-GET reorder path (plantry-21if) is exercised end-to-end.
+    public static readonly RecipeId NonCanonicalRecipeId = RecipesDomain.RecipeId.From(
+        Guid.Parse("ffffffff-0000-0000-0000-000000000006"));
 
     // Product ids.
     public static readonly Guid TomatoId  = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -95,6 +99,46 @@ public static class RecipeEditorFixture
             new IngredientLine(ChiliId,   2m,   EachUnitId, GroupHeading: "Sauce",  Ordinal: 3),
             // Untracked staple — no qty/unit (C12 "to taste")
             new IngredientLine(SaltId, Quantity: null, UnitId: null, GroupHeading: "Sauce", Ordinal: 4),
+        ], clock);
+
+        return recipe;
+    }
+
+    /// <summary>
+    /// A recipe whose STORED ingredient order is deliberately non-canonical, so the edit-GET
+    /// <c>CanonicaliseSectionOrder</c> pass (Edit.cshtml.cs) is forced to actually reorder — unlike
+    /// <see cref="BuildRich"/>, which is already canonical and leaves that method a no-op.
+    ///
+    /// <para>Stored order (by <c>Ordinal</c>) interleaves headings Sauce / Ungrouped / Topping / Sauce
+    /// and places ungrouped ingredients at Ordinal &gt; 0:</para>
+    /// <list type="number">
+    ///   <item>Ordinal 0 — Tomato, heading "Sauce"</item>
+    ///   <item>Ordinal 1 — Pasta, ungrouped (ungrouped at Ordinal &gt; 0)</item>
+    ///   <item>Ordinal 2 — Chili, heading "Topping"</item>
+    ///   <item>Ordinal 3 — Garlic, heading "Sauce"</item>
+    ///   <item>Ordinal 4 — Salt, ungrouped (untracked staple, no qty/unit)</item>
+    /// </list>
+    /// <para>The canonical edit-GET output must therefore be: ungrouped first (Pasta, Salt), then the
+    /// "Sauce" section in first-appearance order (Tomato, Garlic), then "Topping" (Chili), with ordinals
+    /// renumbered contiguous 0..4. Removing the ungrouped-first hoist or the first-seen heading pass
+    /// changes this order, turning the load-bearing test red.</para>
+    /// </summary>
+    public static Recipe BuildNonCanonical()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Non-Canonical Order", defaultServings: 3, clock).Value;
+        SetId(recipe, NonCanonicalRecipeId);
+
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(TomatoId, 300m, GramUnitId, GroupHeading: "Sauce",   Ordinal: 0),
+            new IngredientLine(PastaId,  400m, GramUnitId, GroupHeading: null,      Ordinal: 1), // ungrouped @ ord>0
+            new IngredientLine(ChiliId,  2m,   EachUnitId, GroupHeading: "Topping", Ordinal: 2),
+            new IngredientLine(GarlicId, 3m,   EachUnitId, GroupHeading: "Sauce",   Ordinal: 3),
+            // Untracked staple — no qty/unit (C12 "to taste"), second ungrouped row.
+            new IngredientLine(SaltId, Quantity: null, UnitId: null, GroupHeading: null, Ordinal: 4),
         ], clock);
 
         return recipe;

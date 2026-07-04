@@ -22,27 +22,9 @@ else
         @foreach (var merchant in Model.SearchResults)
         {
             var alreadySubscribed = subscribedStoreNames.Contains(merchant.Name);
-            <li class="catalog-list__item store-result" data-merchant="@merchant.Name">
-                <span class="catalog-list__primary">@merchant.Name</span>
-                <div class="store-result__action">
-                    @if (alreadySubscribed)
-                    {
-                        <span class="badge badge--success">Subscribed</span>
-                    }
-                    else
-                    {
-                        <form hx-post="/Settings/StoresAndDeals?handler=Subscribe"
-                              hx-target="#subs-region"
-                              hx-swap="innerHTML"
-                              style="display:contents">
-                            <input type="hidden" name="externalRef" value="@merchant.ExternalRef" />
-                            <input type="hidden" name="name" value="@merchant.Name" />
-                            <input type="hidden" name="postalCode" value="@Model.PostalCode" />
-                            <button type="submit" class="btn btn--primary btn--sm">Subscribe</button>
-                        </form>
-                    }
-                </div>
-            </li>
+            <partial name="_StoreSearchResultItem"
+                     model="new Plantry.Web.Pages.Settings.StoreResultItem(
+                         merchant.ExternalRef, merchant.Name, Model.PostalCode, alreadySubscribed)" />
         }
     </ul>
 }
