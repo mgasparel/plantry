@@ -256,6 +256,14 @@ builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 builder.Services.AddScoped<PendingReviewQuery>();
 
+// Receipt-upload abuse gate (plantry-aij): per-household burst + daily rate limit over the upload POST
+// handler. Singleton so its fixed-window counters persist across requests; limits are tunable via the
+// Intake:UploadRateLimit config section (defaults 10/min + 100/day). The pre-buffer size cap and the
+// magic-byte sniff are enforced on the page model itself (see Pages/Intake/Upload.cshtml.cs).
+builder.Services.Configure<ReceiptUploadRateLimitOptions>(
+    builder.Configuration.GetSection(ReceiptUploadRateLimitOptions.SectionName));
+builder.Services.AddSingleton<ReceiptUploadRateLimiter>();
+
 // Recipes context (Phase 2). P2-1 adds domain behaviour, EF child-collection mapping, and the
 // IRecipeRepository; P2-3a adds ICookEventRepository; later P2 steps add application services.
 builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>

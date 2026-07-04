@@ -2,10 +2,13 @@
 
 @* Upload form fragment. Re-rendered into #upload-region on validation/pre-parse errors; on success
    the handler returns HX-Redirect (Ready) or swaps in _UploadFailed (Failed). *@
+@* The upload handler returns a structured 400 (bad/oversized/wrong-type) or 429 (rate-limited) carrying
+   this same fragment; htmx would treat those as errors and skip the swap, so opt them back in here. *@
 <form class="form-stack" method="post" enctype="multipart/form-data"
       hx-post="@Url.Page("./Upload", "Parse")"
       hx-target="#upload-region" hx-swap="innerHTML"
-      hx-encoding="multipart/form-data">
+      hx-encoding="multipart/form-data"
+      hx-on::before-swap="if ([400, 422, 429].indexOf(event.detail.xhr.status) !== -1) { event.detail.shouldSwap = true; event.detail.isError = false; }">
     @Html.AntiForgeryToken()
     <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
