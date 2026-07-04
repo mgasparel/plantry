@@ -570,12 +570,16 @@ function Get-IssueTheme {
     return "(no theme)"
 }
 
-# Gather blocked-by information from bd blocked
+# Gather blocked-by information from bd blocked (no --limit flag: unpaginated)
 $blockedById = @{}
-foreach ($b in (Invoke-BdJson @("blocked", "--limit", "0"))) {
+foreach ($b in (Invoke-BdJson @("blocked"))) {
     $bid = Get-SafeProp $b "id" ""
     if (-not $bid) { continue }
-    $blockedBy = @(Get-SafeProp $b "blocked_by" @())
+    # List[object], not object[]: ConvertTo-Json in PS 5.1 unwraps a
+    # single-element array property into a bare string (same class of bug as
+    # the theme-group fix); a List survives serialisation as a JSON array.
+    $blockedBy = New-Object System.Collections.Generic.List[object]
+    foreach ($dep in @(Get-SafeProp $b "blocked_by" @())) { $blockedBy.Add([string]$dep) }
     $blockedById[$bid] = $blockedBy
 }
 
@@ -603,7 +607,11 @@ foreach ($i in $openIssues) {
     $isParked    = $parkedClasses -contains $classLabel
     if (-not $isLeak -and -not $isParked) { continue }  # unexpected class; skip
 
-    $blockedBy = if ($blockedById.ContainsKey($iid)) { $blockedById[$iid] } else { @() }
+    # Plain assignments only: routing a collection through an if-EXPRESSION
+    # pipeline-enumerates it (empty list -> {} in JSON, one-element list ->
+    # bare string). Hashtable indexing assigned directly keeps the List intact.
+    $blockedBy = New-Object System.Collections.Generic.List[object]
+    if ($blockedById.ContainsKey($iid)) { $blockedBy = $blockedById[$iid] }
 
     $triageRows.Add([PSCustomObject]@{
         id         = $iid
@@ -1051,28 +1059,49 @@ $html = @'
   .worklist-pool-header.pool-parked  { color:var(--accent); }
   .worklist-theme-header {
     font-size:12px; font-weight:600; color:var(--ink);
-    margin:12px 0 4px; padding:0;
+    margin:16px 0 2px; padding:0;
   }
   .worklist-theme-header span { color:var(--muted); font-weight:400; }
+  .wl-header-counts { font-size:11px; font-weight:400; }
   .worklist-list { list-style:none; margin:0 0 6px; padding:0; }
+  /* Row anatomy: [prio chip | title ......... | badges + class + id]
+     with an optional muted detail line under the title. The fixed-width
+     prio column keeps titles vertically aligned across every row. */
   .worklist-list li {
     display:grid;
-    grid-template-columns:auto auto 1fr;
+    grid-template-columns:38px minmax(0,1fr) auto;
     grid-template-rows:auto auto;
-    gap:2px 8px;
-    padding:8px 0; border-bottom:1px solid var(--line); font-size:13px;
-    align-items:start;
+    column-gap:10px; row-gap:2px;
+    padding:9px 6px; border-bottom:1px solid var(--line); font-size:13px;
+    align-items:center; border-radius:6px;
   }
+  .worklist-list li:hover { background:var(--panel2); }
   .worklist-list li:last-child { border-bottom:none; }
-  .wl-id    { color:var(--muted); font-family:monospace; font-size:11px; white-space:nowrap; grid-row:1; grid-column:1; padding-top:2px; }
-  .wl-cls   { font-size:10px; padding:2px 7px; border-radius:20px; white-space:nowrap;
-              grid-row:1; grid-column:2; align-self:center; }
+  .wl-prio {
+    grid-row:1; grid-column:1;
+    font-size:10px; font-weight:700; font-family:monospace; text-align:center;
+    padding:2px 0; border-radius:5px;
+    background:var(--panel2); color:var(--muted); border:1px solid var(--line);
+  }
+  .wl-prio.pr-hot  { background:#2e1e1e; color:var(--warn); border-color:#5a2020; }
+  .wl-prio.pr-warm { background:#2a1f0c; color:var(--wait); border-color:#4a3010; }
+  .wl-title { font-weight:500; grid-row:1; grid-column:2; min-width:0; }
+  .wl-title.wl-clip { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wl-side {
+    grid-row:1; grid-column:3;
+    display:flex; gap:6px; align-items:center; justify-content:flex-end; flex-wrap:wrap;
+  }
+  .wl-id    { color:var(--muted); opacity:.75; font-family:monospace; font-size:10.5px; white-space:nowrap; }
+  .wl-cls   { font-size:10px; padding:2px 7px; border-radius:20px; white-space:nowrap; }
   .wl-cls.cls-bug  { background:#2e1e1e; color:var(--warn); }
   .wl-cls.cls-ux   { background:#2a1f2e; color:#c98bd6; }
   .wl-cls.cls-improvement { background:#1a2e1f; color:var(--accent); }
   .wl-cls.cls-tech-debt   { background:#1e2032; color:#5aa9e6; }
-  .wl-title { font-weight:500; grid-row:1; grid-column:3; }
-  .wl-flags { color:var(--muted); font-size:11.5px; grid-row:2; grid-column:2 / span 2; line-height:1.5; }
+  .wl-detail { grid-row:2; grid-column:2 / span 2; color:var(--muted); font-size:11.5px; line-height:1.5; }
+  .badge.b-ready   { background:#16281d; color:var(--accent); }
+  .badge.b-blocked { background:var(--cat-needs-human-bg); color:var(--cat-needs-human-fg); }
+  .badge.b-spec    { background:#2a1f0c; color:var(--wait); }
+  .badge.b-quick   { background:transparent; border:1px solid var(--line); color:var(--accent); }
   .wl-flag-warn { color:var(--warn); }
   .wl-flag-spec { color:var(--wait); }
   .worklist-empty { color:var(--muted); font-size:13px; padding:10px 0; font-style:italic; }
@@ -1568,6 +1597,85 @@ if (fs && fs.count > 0) {
 })();
 
 // ---------------------------------------------------------------------------
+// Shared queue-row renderers (Briefing priority queue + Backlog pools).
+// Row anatomy: prio chip | title | badges + class pill + id, with a muted
+// blocked-by detail line when present. Rows sort by priority within a theme.
+// ---------------------------------------------------------------------------
+function sortQueueRows(rows) {
+    return rows.slice().sort(function(a, b) {
+        var pa = a.priority != null ? a.priority : 9;
+        var pb = b.priority != null ? b.priority : 9;
+        if (pa !== pb) { return pa - pb; }
+        if (!!a.ready !== !!b.ready) { return a.ready ? -1 : 1; }
+        return (a.id || "").localeCompare(b.id || "");
+    });
+}
+
+function renderQueueRow(r, clip) {
+    var prioCls = "wl-prio";
+    if (r.priority != null && r.priority <= 1) { prioCls += " pr-hot"; }
+    else if (r.priority === 2)                 { prioCls += " pr-warm"; }
+    var prioTxt = r.priority != null ? "P" + r.priority : "&ndash;";
+
+    // Normalise: PS 5.1 serialisation can leave a lone blocker as a bare string.
+    var blockedBy = r.blocked_by ? [].concat(r.blocked_by) : [];
+
+    var badges = [];
+    if (r.ready)      { badges.push('<span class="badge b-ready">ready</span>'); }
+    if (blockedBy.length) {
+        badges.push('<span class="badge b-blocked">blocked</span>');
+    }
+    if (r.quick_win)  { badges.push('<span class="badge b-quick">quick-win</span>'); }
+    if (r.needs_spec) { badges.push('<span class="badge b-spec" title="Define before pulling">needs-spec</span>'); }
+    if (r.needs_split){ badges.push('<span class="badge b-spec" title="Split before pulling">needs-split</span>'); }
+
+    var detail = "";
+    if (blockedBy.length) {
+        detail = '<span class="wl-detail">blocked by '
+            + blockedBy.map(function(id) { return '<code>' + esc(id) + '</code>'; }).join(", ")
+            + '</span>';
+    }
+
+    return '<li>'
+        + '<span class="' + prioCls + '">' + prioTxt + '</span>'
+        + '<span class="wl-title' + (clip ? ' wl-clip' : '') + '" title="' + esc(r.title || '') + '">'
+        + esc(r.title || '') + '</span>'
+        + '<span class="wl-side">'
+        + badges.join('')
+        + '<span class="wl-cls cls-' + (r.cls || '') + '">' + esc(r.cls || '') + '</span>'
+        + '<span class="wl-id">' + esc(r.id) + '</span>'
+        + '</span>'
+        + detail
+        + '</li>';
+}
+
+function renderQueueGroups(groups, opts) {
+    if (!groups || groups.length === 0) {
+        return '<p class="worklist-empty">'
+            + (opts.isLeak ? '(none &mdash; leak budget is zero)' : '(none)')
+            + '</p>';
+    }
+    var html = '';
+    groups.forEach(function(g) {
+        var rows = sortQueueRows(g.rows || []);
+        var readyCount   = rows.filter(function(r) { return r.ready; }).length;
+        var blockedCount = rows.filter(function(r) { return r.blocked_by && r.blocked_by.length; }).length;
+        var counts = [];
+        if (readyCount)   { counts.push('<span style="color:var(--accent)">' + readyCount + ' ready</span>'); }
+        if (blockedCount) { counts.push('<span class="wl-flag-warn">' + blockedCount + ' blocked</span>'); }
+        html += '<div class="worklist-theme-header">' + esc(g.theme)
+            + ' <span>&middot; ' + rows.length
+            + (opts.isLeak ? ' leak' : ' item') + (rows.length === 1 ? '' : 's') + '</span>'
+            + (counts.length ? ' <span class="wl-header-counts">' + counts.join(' &nbsp;') + '</span>' : '')
+            + '</div>';
+        html += '<ul class="worklist-list">';
+        rows.forEach(function(r) { html += renderQueueRow(r, opts.clip); });
+        html += '</ul>';
+    });
+    return html;
+}
+
+// ---------------------------------------------------------------------------
 // Priority queue (formerly replenishment worklist, DB-4: plantry-qk49o)
 // Mirrors triage/prep.py render_text semantics; leaks first, then parked.
 // ---------------------------------------------------------------------------
@@ -1608,49 +1716,11 @@ if (fs && fs.count > 0) {
         gateHtml += '</ul></div>';
     }
 
-    // Row renderer: mirrors prep.py flags()
-    function renderRow(r) {
-        var clsCss = 'cls-' + (r.cls || '');
-        var flags = [];
-        if (r.ready) { flags.push('<span>ready</span>'); }
-        if (r.blocked_by && r.blocked_by.length) {
-            flags.push('<span class="wl-flag-warn">blocked by ' + r.blocked_by.map(esc).join(', ') + '</span>');
-        }
-        if (r.quick_win) { flags.push('<span>quick-win</span>'); }
-        if (r.needs_spec) { flags.push('<span class="wl-flag-spec">[!] needs-spec (define first)</span>'); }
-        if (r.needs_split){ flags.push('<span class="wl-flag-spec">[!] needs-split (split first)</span>'); }
-        var flagsHtml = flags.length ? '<span class="wl-flags">' + flags.join(' &nbsp;|&nbsp; ') + '</span>' : '';
-        var prio = r.priority != null ? ' P' + r.priority : '';
-        return '<li>'
-            + '<span class="wl-id">' + esc(r.id) + '</span>'
-            + '<span class="wl-cls ' + clsCss + '">' + esc(r.cls || '') + '</span>'
-            + '<span class="wl-title">' + esc((r.title || '').slice(0, 64)) + prio + '</span>'
-            + flagsHtml
-            + '</li>';
-    }
-
-    // Group renderer (leaks or parked)
-    function renderGroups(groups, isLeak) {
-        if (!groups || groups.length === 0) {
-            return '<p class="worklist-empty">' + (isLeak ? '(none &mdash; leak budget is zero)' : '(none)') + '</p>';
-        }
-        var html = '';
-        groups.forEach(function(g) {
-            var rows = g.rows || [];
-            html += '<div class="worklist-theme-header">theme:' + esc(g.theme)
-                + ' <span>(' + rows.length + (isLeak ? ' leak' + (rows.length === 1 ? '' : 's') : ' item' + (rows.length === 1 ? '' : 's')) + ')</span></div>';
-            html += '<ul class="worklist-list">';
-            rows.forEach(function(r) { html += renderRow(r); });
-            html += '</ul>';
-        });
-        return html;
-    }
-
     var html = gateHtml + pillsHtml
         + '<div class="worklist-pool-header pool-leaks">DO-NOW POOL &mdash; bugs + ux (leaks) &mdash; rank and pull these first</div>'
-        + renderGroups(T.leakGroups, true)
+        + renderQueueGroups(T.leakGroups, { isLeak: true, clip: true })
         + '<div class="worklist-pool-header pool-parked">PARKED POOL &mdash; improvement + tech-debt &mdash; spec or unblock to promote</div>'
-        + renderGroups(T.parkedGroups, false);
+        + renderQueueGroups(T.parkedGroups, { isLeak: false, clip: true });
 
     wc.innerHTML = html;
 })();
@@ -1933,75 +2003,17 @@ if (sg && sg.series && sg.series.length) {
     }
     budgetBarHtml += '</div>';
 
-    // Full row renderer with all flags (mirrors Briefing worklist but no truncation on title)
-    function renderFullRow(r) {
-        var clsCss = 'cls-' + (r.cls || '');
-        var flags = [];
-        if (r.ready) { flags.push('<span style="color:var(--accent)">ready</span>'); }
-        if (r.blocked_by && r.blocked_by.length) {
-            flags.push('<span class="wl-flag-warn">blocked by '
-                + r.blocked_by.map(function(id) {
-                    return '<code>' + esc(id) + '</code>';
-                }).join(', ')
-                + '</span>');
-        }
-        if (r.quick_win)  { flags.push('<span>quick-win</span>'); }
-        if (r.needs_spec) { flags.push('<span class="wl-flag-spec">[!] needs-spec (define first)</span>'); }
-        if (r.needs_split){ flags.push('<span class="wl-flag-spec">[!] needs-split (split first)</span>'); }
-        var flagsHtml = flags.length
-            ? '<span class="wl-flags">' + flags.join(' &nbsp;|&nbsp; ') + '</span>'
-            : '';
-        var prio = r.priority != null ? ' <span style="color:var(--muted);font-size:11px">P' + r.priority + '</span>' : '';
-        return '<li>'
-            + '<span class="wl-id">' + esc(r.id) + '</span>'
-            + '<span class="wl-cls ' + clsCss + '">' + esc(r.cls || '') + '</span>'
-            + '<span class="wl-title">' + esc(r.title || '') + prio + '</span>'
-            + flagsHtml
-            + '</li>';
-    }
-
-    // Group renderer: full list, no truncation
-    function renderFullGroups(groups, isLeak) {
-        if (!groups || groups.length === 0) {
-            return '<p class="worklist-empty">'
-                + (isLeak ? '(none &mdash; leak budget is zero)' : '(none)')
-                + '</p>';
-        }
-        var html = '';
-        groups.forEach(function(g) {
-            var rows = g.rows || [];
-            var readyCount   = rows.filter(function(r){ return r.ready; }).length;
-            var blockedCount = rows.filter(function(r){ return r.blocked_by && r.blocked_by.length; }).length;
-            var suffix = [];
-            if (readyCount)   { suffix.push('<span style="color:var(--accent)">' + readyCount + ' ready</span>'); }
-            if (blockedCount) { suffix.push('<span class="wl-flag-warn">' + blockedCount + ' blocked</span>'); }
-            var suffixHtml = suffix.length
-                ? ' &nbsp;<span style="font-size:11px;font-weight:400">' + suffix.join(' &nbsp;') + '</span>'
-                : '';
-            html += '<div class="worklist-theme-header">theme:' + esc(g.theme)
-                + ' <span>(' + rows.length
-                + (isLeak ? ' leak' + (rows.length === 1 ? '' : 's') : ' item' + (rows.length === 1 ? '' : 's'))
-                + ')</span>'
-                + suffixHtml
-                + '</div>';
-            html += '<ul class="worklist-list">';
-            rows.forEach(function(r) { html += renderFullRow(r); });
-            html += '</ul>';
-        });
-        return html;
-    }
-
-    // Render DO-NOW pool (leaks)
+    // Render DO-NOW pool (leaks) -- shared queue renderer, full titles
     var leaksEl = document.getElementById("backlog-leaks-content");
     if (leaksEl) {
         leaksEl.innerHTML = budgetBarHtml
-            + renderFullGroups(T.leakGroups, true);
+            + renderQueueGroups(T.leakGroups, { isLeak: true, clip: false });
     }
 
     // Render PARKED pool
     var parkedEl = document.getElementById("backlog-parked-content");
     if (parkedEl) {
-        parkedEl.innerHTML = renderFullGroups(T.parkedGroups, false);
+        parkedEl.innerHTML = renderQueueGroups(T.parkedGroups, { isLeak: false, clip: false });
     }
 })();
 
