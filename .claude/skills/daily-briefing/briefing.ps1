@@ -558,8 +558,8 @@ foreach ($i in $all) {
 #   Iced issues are exempt from the triage gate and both pools; they are
 #   listed separately on the Backlog tab.
 #
-#   Gate: if any open non-iced issue has no class: label, surface a
-#   "groom first" warning (mirrors prep.py GATE: FAIL behaviour).
+#   Untriaged: if any open non-iced issue has no class: label, surface an
+#   amber "run groom" warning (informational, not a failure state).
 #   Rows carry: id, title, cls, theme, priority, ready, blocked_by,
 #               quick_win, needs_spec, needs_split
 #   Groups by theme, leaks first.
@@ -974,8 +974,9 @@ $html = @'
   .kpi { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
   .kpi .v { font-size:24px; font-weight:600; letter-spacing:-0.02em; }
   .kpi .l { color:var(--muted); font-size:12px; margin-top:2px; }
-  .kpi.warn .v { color:var(--warn); }
-  .kpi.ok   .v { color:var(--accent); }
+  .kpi.warn  .v { color:var(--warn); }
+  .kpi.amber .v { color:var(--wait); }
+  .kpi.ok    .v { color:var(--accent); }
   section { background:var(--panel); border:1px solid var(--line); border-radius:12px;
             padding:20px 22px; margin-top:20px; }
   section h2 { margin:0 0 2px; font-size:16px; }
@@ -1048,8 +1049,9 @@ $html = @'
   .bh-stat { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
   .bh-stat .rv { font-size:22px; font-weight:600; letter-spacing:-0.02em; }
   .bh-stat .rl { color:var(--muted); font-size:11px; margin-top:2px; }
-  .bh-stat.rv-warn .rv { color:var(--warn); }
-  .bh-stat.rv-ok   .rv { color:var(--accent); }
+  .bh-stat.rv-warn  .rv { color:var(--warn); }
+  .bh-stat.rv-amber .rv { color:var(--wait); }
+  .bh-stat.rv-ok    .rv { color:var(--accent); }
   .bh-stat .rd { color:var(--muted); font-size:11px; margin-top:4px; line-height:1.5; }
   .bh-action {
     display:flex; align-items:flex-start; gap:10px;
@@ -1068,14 +1070,14 @@ $html = @'
   }
   .bh-note { font-size:11.5px; color:var(--muted); margin-top:12px; line-height:1.6; }
   /* ---------- priority queue ---------- */
-  .worklist-gate-warn {
-    font-size:13px; color:var(--warn); background:#2e1e1e;
-    border:1px solid #5a2020; border-radius:8px;
+  .untriaged-warn {
+    font-size:13px; color:var(--wait); background:#2a1f0c;
+    border:1px solid #4a3010; border-radius:8px;
     padding:10px 14px; margin-bottom:14px; line-height:1.6;
   }
-  .worklist-gate-warn strong { display:block; font-size:14px; margin-bottom:4px; }
-  .worklist-gate-warn ul { margin:6px 0 0 16px; padding:0; }
-  .worklist-gate-warn li { margin:2px 0; font-size:12px; font-family:monospace; }
+  .untriaged-warn strong { display:block; font-size:14px; margin-bottom:4px; }
+  .untriaged-warn ul { margin:6px 0 0 16px; padding:0; }
+  .untriaged-warn li { margin:2px 0; font-size:12px; font-family:monospace; }
   .worklist-budget {
     display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;
   }
@@ -1471,13 +1473,13 @@ var bCards = [
                                l: "to backlog zero",       ok: bk.burnDownDays != null },
     { v: bk.oldestOpenAgeDays != null ? bk.oldestOpenAgeDays + "d" : "n/a",
                                l: "oldest open item",      warn: oldWarn, ok: bk.oldestOpenAgeDays != null && !oldWarn },
-    { v: bk.untriagedCount,   l: "untriaged",              warn: bk.untriagedCount > 0, ok: bk.untriagedCount === 0 },
+    { v: bk.untriagedCount,   l: "untriaged",              amber: bk.untriagedCount > 0, ok: bk.untriagedCount === 0 },
     { v: bk.overnightCreated, l: "created (last 24h)"                               },
     { v: bk.overnightClosed,  l: "closed (last 24h)"                                },
     { v: bk.blockedCount,     l: "blocked items",          warn: bk.blockedCount > 0 },
 ];
 document.getElementById("briefing-kpis").innerHTML = bCards.map(function(c) {
-    var cls = "kpi" + (c.warn ? " warn" : "") + (c.ok ? " ok" : "");
+    var cls = "kpi" + (c.warn ? " warn" : "") + (c.amber ? " amber" : "") + (c.ok ? " ok" : "");
     return '<div class="' + cls + '"><div class="v">' + c.v + '</div><div class="l">' + c.l + '</div></div>';
 }).join("");
 
@@ -1627,7 +1629,7 @@ if (fs && fs.count > 0) {
         + '    <div class="rl">stale (open &gt; ' + bk.staleDays + 'd)</div>'
         + (bk.staleCount > 0 ? '<div class="rd">See aging WIP on the Flow tab &mdash; pull, spec, or close them.</div>' : '')
         + '  </div>'
-        + '  <div class="bh-stat' + (bk.untriagedCount > 0 ? " rv-warn" : " rv-ok") + '">'
+        + '  <div class="bh-stat' + (bk.untriagedCount > 0 ? " rv-amber" : " rv-ok") + '">'
         + '    <div class="rv">' + bk.untriagedCount + '</div>'
         + '    <div class="rl">untriaged (no class label)</div>'
         + (bk.untriagedCount > 0 ? '<div class="rd">Run groom before trusting the priority queue below.</div>' : '')
@@ -1750,12 +1752,12 @@ function renderQueueGroups(groups, opts) {
     }
     pillsHtml += '</div>';
 
-    // Gate warning
+    // Untriaged warning (amber): informational, not a failure state
     var gateHtml = '';
     if (!T.gateOk && T.untriaged && T.untriaged.length > 0) {
-        gateHtml = '<div class="worklist-gate-warn">'
-            + '<strong>GATE: FAIL &mdash; ' + T.untriaged.length + ' of ' + T.totalOpen + ' open issues untriaged &mdash; run groom first</strong>'
-            + 'The worklist below is partial. These issues have no class: label:<ul>';
+        gateHtml = '<div class="untriaged-warn">'
+            + '<strong>Untriaged &mdash; ' + T.untriaged.length + ' of ' + T.totalOpen + ' open issues have no class label</strong>'
+            + 'They are missing from the pools below. Run groom to fold them in:<ul>';
         T.untriaged.forEach(function(u) {
             gateHtml += '<li>' + esc(u.id) + '  ' + esc((u.title || '').slice(0, 72)) + '</li>';
         });
@@ -2021,13 +2023,13 @@ if (sg && sg.series && sg.series.length) {
             + ' <span style="font-size:14px;font-weight:400;color:var(--muted)">(' + leakCount + ' open)</span>';
     }
 
-    // Gate warning
+    // Untriaged warning (amber): informational, not a failure state
     var gateEl = document.getElementById("backlog-gate");
     if (gateEl && !T.gateOk && T.untriaged && T.untriaged.length > 0) {
-        var gHtml = '<div class="worklist-gate-warn">'
-            + '<strong>GATE: FAIL &mdash; ' + T.untriaged.length + ' of ' + T.totalOpen
-            + ' open issues untriaged &mdash; run groom first</strong>'
-            + 'The pools below are partial. These issues have no class: label:<ul>';
+        var gHtml = '<div class="untriaged-warn">'
+            + '<strong>Untriaged &mdash; ' + T.untriaged.length + ' of ' + T.totalOpen
+            + ' open issues have no class label</strong>'
+            + 'They are missing from the pools below. Run groom to fold them in:<ul>';
         T.untriaged.forEach(function(u) {
             gHtml += '<li>' + esc(u.id) + '  ' + esc((u.title || '').slice(0, 72)) + '</li>';
         });
@@ -2362,11 +2364,11 @@ $html = $html.Replace('__DATA_JSON__', $dataJson)
 if (-not $Out) { $Out = Join-Path (Get-Location) "daily-briefing.html" }
 $html | Out-File -FilePath $Out -Encoding utf8
 Write-Host "Wrote $Out" -ForegroundColor Green
-$triageGateStr = if ($triageUntriaged.Count -gt 0) { "FAIL($($triageUntriaged.Count) untriaged)" } else { "OK" }
+$triageGateStr = if ($triageUntriaged.Count -gt 0) { "$($triageUntriaged.Count) (run groom)" } else { "0" }
 $netStr  = if ($netPerDay -gt 0) { "+$netPerDay" } else { "$netPerDay" }
 $bddStr  = if ($null -ne $burnDownDays) { "~$($burnDownDays)d" } else { "n/a" }
 $oldStr  = if ($null -ne $oldestOpen) { "$([math]::Round($oldestOpen.ageH / 24, 1))d ($($oldestOpen.id))" } else { "n/a" }
-Write-Host ("  net={0}/day  burn-down={1}  open={2}  stall={3} (needs-human={4} exhausted={5} blocked={6} long-ip={7} red-ci={8})  overnight created={9}/closed={10}  oldest={11}  stale(>{12}d)={13}  triage gate={14} leaks={15}" -f `
+Write-Host ("  net={0}/day  burn-down={1}  open={2}  stall={3} (needs-human={4} exhausted={5} blocked={6} long-ip={7} red-ci={8})  overnight created={9}/closed={10}  oldest={11}  stale(>{12}d)={13}  untriaged={14} leaks={15}" -f `
     $netStr, $bddStr, $openNonEpic, $briefingKpis.stallCount,
     $stallNeedsHuman.Count, $stallParkedExhausted.Count, $stallBlocked.Count,
     $stallLongInProgress.Count, $stallRedCi.Count,

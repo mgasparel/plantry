@@ -199,7 +199,7 @@ powershell -File "<skill-dir>/briefing.ps1" -Open
 
 The script reads all beads issues once, computes every slice, writes ONE HTML,
 prints a one-line KPI summary (net burn, burn-down horizon, stall counts,
-overnight delta, oldest/stale, triage gate, leak budget), and opens it with
+overnight delta, oldest/stale, untriaged, leak budget), and opens it with
 `-Open`. If it fails or `bd` is unreachable, surface the error -- do not report
 success without a written file.
 
@@ -220,7 +220,8 @@ Work through the Briefing tab top to bottom. Section order:
    health row: stale items (open > StaleDays, default 30) and untriaged count.
 4. **Priority queue** -- quality leaks first (bugs + UX), then investments.
    The operator's job is ordering and grooming, not feeding.
-   Gate warning if untriaged issues exist (run `groom` first).
+   An amber untriaged warning appears when open issues lack a class label
+   (run `groom` to fold them in) -- informational, not a failure state.
 5. **The call** -- see Step 3.
 
 If the user wants flow details, switch to the **Flow** tab.
@@ -251,7 +252,7 @@ Overnight: +{created} / -{closed} (net {net:+/-}).
 Ranking logic (apply in order, stop when you have 3):
 - Any needs-human stall item -> unblock it first (name the ID).
 - Open P1 bugs / leak-budget items -> fix the highest-priority leak (name it).
-- Untriaged issues (triage gate FAIL) -> run `groom` so the queue is trustworthy.
+- Untriaged issues -> run `groom` so the queue is trustworthy.
 - Stale items (open > StaleDays) -> name the oldest ID; pull, spec, or close it.
 - Backlog growing (net negative) several days running -> mention it as context,
   not as an action -- growth alone is not an alarm.
