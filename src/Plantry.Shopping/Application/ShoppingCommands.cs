@@ -132,6 +132,148 @@ public sealed class AddItemCommand(
 }
 
 /// <summary>
+/// Idempotently SYNCS a single source's contribution slice across the household's shopping list to
+/// exactly the supplied target set (plantry-gsj). This is the SET verb behind the recipe Detail
+/// "Add missing" / "Add all" buttons, as opposed to the additive <see cref="AddItemCommand"/> merge.
+///
+/// <para>For the given (<paramref name="source"/>, <paramref name="sourceRef"/>):</para>
+/// <list type="number">
+///   <item><description><b>Reconcile-remove:</b> every unchecked item carrying this source's slice
+///     whose product is NOT in the target set has that slice removed (a row left with zero
+///     contributions is deleted). This is what makes "Add all" then "Add missing" last-press-wins —
+///     the in-stock products Add-all placed are dropped when Add-missing re-syncs to the shortfall.</description></item>
+///   <item><description><b>Set each target:</b> the source's slice on the product's unchecked row is
+///     SET (created or replaced, never incremented) to the target quantity. Re-pressing at the same
+///     servings is a no-op; a servings increase tops the slice up to the new shortfall only. Other
+///     sources' slices on the row are untouched (plantry-9scq sums / plantry-26g attribution kept).</description></item>
+///   <item><description><b>No resurrection:</b> a target product with no unchecked row but a
+///     checked-off row is skipped (counted as "checked off"), never re-added.</description></item>
+/// </list>
+///
+/// <para>Unit handling mirrors <see cref="AddItemCommand"/>: a target whose unit differs from the
+/// existing unchecked row is converted via <paramref name="catalogReader"/> when possible, else a
+/// separate row is inserted (the recipe's stable per-product unit means this edge is rare).</para>
+///
+/// <para>Returns a <see cref="SyncSourceOutcome"/> of per-target counts for the result summary.</para>
+/// </summary>
+public sealed class SyncSourceContributionCommand(
+    IReadOnlyList<SyncItem> items,
+    ItemSource source,
+    Guid sourceRef,
+    IShoppingListRepository repository,
+    IShoppingCatalogReader catalogReader,
+    IClock clock,
+    ITenantContext tenant,
+    ILogger<SyncSourceContributionCommand>? logger = null)
+{
+    public async Task<Result<SyncSourceOutcome>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var list = await repository.GetForHouseholdAsync(HouseholdId.From(householdId), ct);
+        if (list is null)
+        {
+            logger?.LogWarning("SyncSourceContribution failed — no shopping list found for household {HouseholdId}.", householdId);
+            return Error.Custom("Shopping.NoList", "No shopping list found for this household.");
+        }
+
+        var targetProductIds = items.Select(i => i.ProductId).ToHashSet();
+
+        // ── Phase 1: reconcile-remove ────────────────────────────────────────────
+        // Drop this source's slice from any unchecked row whose product is no longer targeted
+        // (enables Add-all → Add-missing last-press-wins). Snapshot first — RemoveSourceContribution
+        // may delete the row from the collection being enumerated.
+        var stale = list.Items
+            .Where(i => !i.IsChecked
+                        && i.ProductId.HasValue
+                        && !targetProductIds.Contains(i.ProductId.Value)
+                        && i.FindContribution(source, sourceRef) is not null)
+            .ToList();
+        foreach (var item in stale)
+            list.RemoveSourceContribution(item, source, sourceRef, clock);
+
+        // ── Phase 2: set each target ─────────────────────────────────────────────
+        var added = 0;
+        var alreadyPresent = 0;
+        var checkedOff = 0;
+
+        foreach (var target in items)
+        {
+            // Prefer the row already holding this source's slice (idempotent across unit splits),
+            // then any unchecked row for the product.
+            var row = list.FindUncheckedRowForSource(target.ProductId, source, sourceRef)
+                      ?? list.FindUncheckedByProduct(target.ProductId);
+
+            if (row is not null)
+            {
+                // Unit gate (mirrors AddItemCommand): same unit → set directly; convertible → set in
+                // the row's unit; otherwise fall through to a separate row.
+                if (row.UnitId == target.UnitId)
+                {
+                    Tally(list.SetSourceContribution(row, source, sourceRef, target.Quantity, target.UnitId, clock));
+                    continue;
+                }
+
+                if (row.UnitId.HasValue && target.UnitId.HasValue && target.Quantity.HasValue)
+                {
+                    var converted = await catalogReader.TryConvertAsync(
+                        target.Quantity.Value, target.UnitId.Value, row.UnitId.Value, target.ProductId, ct);
+                    if (converted.HasValue)
+                    {
+                        Tally(list.SetSourceContribution(row, source, sourceRef, converted.Value, row.UnitId, clock));
+                        continue;
+                    }
+                    // No conversion path → insert a separate row below.
+                }
+                // One side unitless, or no conversion → insert a separate row below.
+            }
+            else if (list.HasCheckedItemForProduct(target.ProductId))
+            {
+                // No unchecked row, but a checked-off completed intent exists — do not resurrect it.
+                checkedOff++;
+                continue;
+            }
+
+            // No usable row (or a unit-incompatible split) → create a fresh row seeded with this slice.
+            list.AddItem(target.ProductId, target.Quantity, target.UnitId, note: null, source, sourceRef, clock);
+            added++;
+        }
+
+        await repository.SaveAsync(ct);
+
+        logger?.LogInformation(
+            "Synced {Source} contribution {SourceRef} for household {HouseholdId}: {Added} added, {AlreadyPresent} already present, {CheckedOff} checked-off skipped.",
+            source, sourceRef, householdId, added, alreadyPresent, checkedOff);
+
+        return new SyncSourceOutcome(added, alreadyPresent, checkedOff);
+
+        void Tally(ContributionChange change)
+        {
+            if (change is ContributionChange.Created or ContributionChange.Increased)
+                added++;
+            else
+                alreadyPresent++;
+        }
+    }
+}
+
+/// <summary>One target line for <see cref="SyncSourceContributionCommand"/> (plantry-gsj).</summary>
+/// <param name="ProductId">Soft ref → catalog.product.</param>
+/// <param name="Quantity">The absolute quantity this source's slice should be SET to, in <paramref name="UnitId"/>.</param>
+/// <param name="UnitId">Soft ref → catalog.unit.</param>
+public sealed record SyncItem(Guid ProductId, decimal? Quantity, Guid? UnitId);
+
+/// <summary>
+/// Per-target counts from a <see cref="SyncSourceContributionCommand"/> (plantry-gsj), surfaced to
+/// the user as "Added X · Y already on your list · Z checked off".
+/// </summary>
+/// <param name="Added">Targets whose slice was created or grown.</param>
+/// <param name="AlreadyPresent">Targets whose slice already covered the shortfall (no change).</param>
+/// <param name="CheckedOff">Targets skipped because only a checked-off row exists (no resurrection).</param>
+public sealed record SyncSourceOutcome(int Added, int AlreadyPresent, int CheckedOff);
+
+/// <summary>
 /// Checks off a shopping list item: stamps <c>checked_at</c> and <c>checked_by</c> (SPEC §3c).
 /// Idempotent — checking off an already-checked item re-stamps the time.
 /// </summary>

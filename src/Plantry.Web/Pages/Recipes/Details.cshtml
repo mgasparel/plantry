@@ -21,30 +21,18 @@
     // Cost: total = per serving * defaultServings (Alpine rescales client-side via scale).
     decimal? costTotal = cost.Amount.HasValue ? cost.Amount.Value * recipe.DefaultServings : null;
 
-    // Initial fulfillment card model (rendered at default servings on first load).
-    // Oob: false — the OOB attribute must NOT be emitted on initial render; htmx does not
-    // process hx-swap-oob on elements already in the DOM. The stepper triggers
-    // OnGetFulfilmentAsync (Oob: true) to recompute and swap at the selected servings.
-    var initialFulfilmentModel = new Plantry.Web.Pages.Recipes.DetailsFulfilmentCardModel(
-        RecipeId: recipe.Id,
-        DefaultServings: recipe.DefaultServings,
-        Fulfillment: recipe.Fulfillment,
-        IngredientGroups: recipe.IngredientGroups,
-        Oob: false,
-        AlreadyOnList: Model.AlreadyOnShoppingList);
-
-    // JS boolean literal for seeding the Alpine add-to-list flags below (plantry-yt0m).
-    var alreadyOnListJs = Model.AlreadyOnShoppingList ? "true" : "false";
+    // Initial fulfillment card model (rendered at default servings on first load), built by the page
+    // model so the add-to-shopping button labels carry their server-computed state (plantry-gsj).
+    var initialFulfilmentModel = Model.FulfilmentCard;
 }
 
-@* ── Alpine scope: servings stepper + ingredient quantity scaling + add-missing state ─────────── *@
-@* _fulfTimer: debounce handle so rapid stepper taps fire only one htmx request (J3). *@
+@* ── Alpine scope: servings stepper + ingredient quantity scaling ─────────────────────────────── *@
+@* _fulfTimer: debounce handle so rapid stepper taps fire only one htmx request (J3). The add-to-list
+   button states are server-truth (swapped in via the card partial), so no Alpine flags live here. *@
 <div id="recipe-detail"
      x-data="{
          servings: @recipe.DefaultServings,
          defaultServings: @recipe.DefaultServings,
-         missingAdded: @alreadyOnListJs,
-         allAdded: @alreadyOnListJs,
          _fulfTimer: null,
          get scale() { return this.servings / this.defaultServings; },
          fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); },
@@ -212,8 +200,8 @@
                                  group-label="Servings"
                                  x-text="servings"
                                  display-fallback="@recipe.DefaultServings"
-                                 decrease-click="servings = Math.max(1, servings - 1); missingAdded = false; allAdded = false; refreshFulfilment()"
-                                 increase-click="servings = Math.min(24, servings + 1); missingAdded = false; allAdded = false; refreshFulfilment()"
+                                 decrease-click="servings = Math.max(1, servings - 1); refreshFulfilment()"
+                                 increase-click="servings = Math.min(24, servings + 1); refreshFulfilment()"
                                  decrease-disabled="servings <= 1"
                                  increase-disabled="servings >= 24"
                                  decrease-label="Fewer servings"

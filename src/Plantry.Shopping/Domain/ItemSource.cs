@@ -12,6 +12,26 @@ public enum ItemSource
     Deal,
 }
 
+/// <summary>
+/// Outcome of a <see cref="ShoppingListItem.SetContribution"/> SET (plantry-gsj): how the source's
+/// slice changed. Drives the sync result summary — Created/Increased count as "added", Unchanged/Reduced
+/// as "already on your list".
+/// </summary>
+public enum ContributionChange
+{
+    /// <summary>No contribution for this source existed; a fresh one was created.</summary>
+    Created,
+
+    /// <summary>An existing contribution's quantity grew to meet the new target.</summary>
+    Increased,
+
+    /// <summary>An existing contribution already covered the target — no change.</summary>
+    Unchanged,
+
+    /// <summary>An existing contribution's quantity shrank (e.g. servings reduced).</summary>
+    Reduced,
+}
+
 public static class ItemSourceExtensions
 {
     public static string ToDbValue(this ItemSource source) => source switch

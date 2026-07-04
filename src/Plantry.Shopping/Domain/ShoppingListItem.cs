@@ -198,6 +198,75 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     }
 
     /// <summary>
+    /// Idempotently SETS a source's contribution to an absolute quantity (plantry-gsj) — the
+    /// SYNC verb, as opposed to the additive <see cref="UpsertContribution"/> top-up.
+    ///
+    /// <para>When no contribution matches (Source, SourceRef), a fresh one is created with
+    /// <paramref name="quantity"/>. When one exists, its quantity is REPLACED (not incremented)
+    /// with <paramref name="quantity"/>. Re-syncing the same target is therefore a no-op, and a
+    /// servings change re-sets this source's slice rather than stacking onto it. Other sources'
+    /// contributions on the same item are untouched, so cross-source sums (plantry-9scq) and the
+    /// board's per-source attribution (plantry-26g) are preserved.</para>
+    ///
+    /// <para>Called exclusively by <see cref="ShoppingList.SetSourceContribution"/>.</para>
+    /// </summary>
+    /// <returns>Whether the slice was created, grown, left unchanged, or reduced.</returns>
+    internal ContributionChange SetContribution(
+        ItemSource source,
+        Guid? sourceRef,
+        decimal? quantity,
+        Guid? incomingUnitId,
+        IClock clock)
+    {
+        var existing = FindContribution(source, sourceRef);
+        if (existing is null)
+        {
+            _contributions.Add(ShoppingListItemContribution.Create(Id, source, sourceRef, quantity, incomingUnitId));
+
+            // Adopt canonical unit if not yet set (mirrors UpsertContribution).
+            if (incomingUnitId.HasValue && UnitId is null)
+                UnitId = incomingUnitId;
+
+            UpdatedAt = clock.UtcNow;
+            return ContributionChange.Created;
+        }
+
+        var before = existing.Quantity ?? 0m;
+        var after = quantity ?? 0m;
+
+        // Absolute set — the recipe slice becomes exactly this shortfall, in the item's canonical unit.
+        existing.ReplaceQuantity(quantity, incomingUnitId ?? UnitId);
+        if (incomingUnitId.HasValue && UnitId is null)
+            UnitId = incomingUnitId;
+
+        UpdatedAt = clock.UtcNow;
+        return after > before ? ContributionChange.Increased
+             : after < before ? ContributionChange.Reduced
+             : ContributionChange.Unchanged;
+    }
+
+    /// <summary>
+    /// Removes a source's contribution from this item, if present (plantry-gsj). Used by the
+    /// whole-slice reconciliation: when a sync no longer targets a product, this source's slice on
+    /// that row is dropped (a row left with zero contributions is then deleted by the caller).
+    /// Other sources' contributions are untouched.
+    /// </summary>
+    /// <returns>True if a matching contribution was removed; false if none existed.</returns>
+    internal bool RemoveContribution(ItemSource source, Guid? sourceRef, IClock clock)
+    {
+        var existing = FindContribution(source, sourceRef);
+        if (existing is null)
+            return false;
+
+        _contributions.Remove(existing);
+        UpdatedAt = clock.UtcNow;
+        return true;
+    }
+
+    /// <summary>True when this item has at least one per-source contribution.</summary>
+    public bool HasContributions => _contributions.Count > 0;
+
+    /// <summary>
     /// Finds the contribution for a given (Source, SourceRef) pair.
     /// </summary>
     internal ShoppingListItemContribution? FindContribution(ItemSource source, Guid? sourceRef) =>

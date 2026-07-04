@@ -143,3 +143,21 @@ public sealed record PantrySuggestion(
         ? $"{OnHand:0.###} {UnitCode} left"
         : "out";
 }
+
+/// <summary>
+/// Per-recipe contribution state read from the shopping list, driving the recipe Detail
+/// "Add missing" / "Add all" button labels (plantry-gsj). Produced by
+/// <see cref="ShoppingListQueryService.GetRecipeContributionStateAsync"/>.
+/// </summary>
+/// <param name="ContributedByProduct">This recipe's contributed quantity on each UNCHECKED product row
+/// (keyed by productId, in the row's canonical unit). Absent products have no recipe contribution yet.</param>
+/// <param name="CheckedOffProducts">Products with a checked-off row (any source) — treated as covered so
+/// the sync never resurrects a completed intent.</param>
+public sealed record RecipeContributionState(
+    IReadOnlyDictionary<Guid, decimal> ContributedByProduct,
+    IReadOnlySet<Guid> CheckedOffProducts)
+{
+    /// <summary>Empty state — no household context, or no list yet.</summary>
+    public static readonly RecipeContributionState Empty =
+        new(new Dictionary<Guid, decimal>(), new HashSet<Guid>());
+}

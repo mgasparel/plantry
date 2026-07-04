@@ -14,26 +14,46 @@ namespace Plantry.Recipes.Application;
 public interface IShoppingListWriter
 {
     /// <summary>
-    /// Adds a batch of items to the household's shopping list with the specified provenance.
+    /// Idempotently SYNCS this source's contribution slice on the household's shopping list to
+    /// exactly <paramref name="items"/> (plantry-gsj). Unlike an additive add, re-syncing the same
+    /// target set is a no-op (no quantity drift): the source's own slice is SET to each item's
+    /// quantity, products no longer targeted have this source's slice removed, and other sources'
+    /// slices on the same rows are preserved (plantry-9scq sums / plantry-26g attribution).
     /// <para>
     /// Each item carries a <see cref="ShoppingItem.ProductId"/>, <see cref="ShoppingItem.Quantity"/>
     /// (scaled to the desired serving count), and <see cref="ShoppingItem.UnitId"/>. The
-    /// <paramref name="source"/> and <paramref name="sourceRef"/> are stamped uniformly on every
-    /// row in the batch.
+    /// <paramref name="source"/> and <paramref name="sourceRef"/> identify the slice to reconcile.
     /// </para>
-    /// <para>Duplicate-handling (merge vs insert) is delegated to Shopping's add-item service. The
-    /// Recipes caller does not control that policy; it simply passes all missing lines without
-    /// pre-filtering for duplicates (DM-18).</para>
+    /// <para>Merge/idempotency/no-resurrection policy is Shopping's concern (ADR-002, DM-18); the
+    /// Recipes caller passes the full target set and reads back the outcome counts.</para>
     /// </summary>
-    /// <param name="items">The items to add. Empty collections are a no-op.</param>
-    /// <param name="source">Provenance string — <c>"recipe"</c> for the J5 flow.</param>
-    /// <param name="sourceRef">Soft ref to the originating entity; for J5 this is the <c>recipeId</c>.</param>
+    /// <param name="items">The full target set for this slice. An empty set reconciles the slice away.</param>
+    /// <param name="source">Provenance string — <c>"recipe"</c> for the recipe flows.</param>
+    /// <param name="sourceRef">Soft ref identifying the slice; for recipes this is the <c>recipeId</c>.</param>
     /// <param name="ct">Cancellation token.</param>
-    Task AddItemsAsync(
-        IEnumerable<ShoppingItem> items,
+    /// <returns>Per-target counts (added / already-present / checked-off) for the result summary.</returns>
+    Task<ShoppingSyncOutcome> SyncSourceContributionAsync(
+        IReadOnlyList<ShoppingItem> items,
         string source,
         Guid sourceRef,
         CancellationToken ct = default);
+}
+
+/// <summary>
+/// Per-target outcome counts returned by <see cref="IShoppingListWriter.SyncSourceContributionAsync"/>
+/// (plantry-gsj) — surfaced to the user as "Added X · Y already on your list · Z checked off". A neutral
+/// Recipes-side DTO so the port stays free of any Shopping type dependency (SharedKernel-only).
+/// </summary>
+/// <param name="Added">Targets whose slice was created or grown.</param>
+/// <param name="AlreadyPresent">Targets whose slice already covered the shortfall (no change).</param>
+/// <param name="CheckedOff">Targets skipped because only a checked-off row exists (no resurrection).</param>
+public sealed record ShoppingSyncOutcome(int Added, int AlreadyPresent, int CheckedOff)
+{
+    /// <summary>A zero outcome — nothing added, already present, or skipped (e.g. a no-op press).</summary>
+    public static readonly ShoppingSyncOutcome None = new(0, 0, 0);
+
+    /// <summary>True when nothing at all was reconciled — used to suppress an empty summary line.</summary>
+    public bool IsEmpty => Added == 0 && AlreadyPresent == 0 && CheckedOff == 0;
 }
 
 /// <summary>

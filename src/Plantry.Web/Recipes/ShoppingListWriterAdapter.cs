@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -24,41 +25,37 @@ public sealed class ShoppingListWriterAdapter(
     IShoppingListRepository repository,
     IShoppingCatalogReader catalogReader,
     IClock clock,
-    ITenantContext tenant) : IShoppingListWriter
+    ITenantContext tenant,
+    ILogger<SyncSourceContributionCommand>? syncLogger = null) : IShoppingListWriter
 {
-    public async Task AddItemsAsync(
-        IEnumerable<ShoppingItem> items,
+    public async Task<ShoppingSyncOutcome> SyncSourceContributionAsync(
+        IReadOnlyList<ShoppingItem> items,
         string source,
         Guid sourceRef,
         CancellationToken ct = default)
     {
         var itemSource = ParseSource(source);
 
-        foreach (var item in items)
-        {
-            var command = new AddItemCommand(
-                productId: item.ProductId,
-                freeText: null,
-                quantity: item.Quantity,
-                unitId: item.UnitId,
-                note: null,
-                source: itemSource,
-                sourceRef: sourceRef,
-                intentionalDuplicate: false,
-                repository: repository,
-                catalogReader: catalogReader,
-                clock: clock,
-                tenant: tenant);
+        var command = new SyncSourceContributionCommand(
+            items: items.Select(i => new SyncItem(i.ProductId, i.Quantity, i.UnitId)).ToList(),
+            source: itemSource,
+            sourceRef: sourceRef,
+            repository: repository,
+            catalogReader: catalogReader,
+            clock: clock,
+            tenant: tenant,
+            logger: syncLogger);
 
-            // On failure (e.g. no shopping list for the household), abort — the caller should not
-            // partially add items if the list cannot be found. A missing list is a setup/seeding
-            // problem, not an expected runtime condition.
-            var result = await command.ExecuteAsync(ct);
-            if (result.IsFailure)
-                throw new InvalidOperationException(
-                    $"ShoppingListWriterAdapter.AddItemsAsync failed for product {item.ProductId}: " +
-                    $"{result.Error.Code} — {result.Error.Description}");
-        }
+        // On failure (e.g. no shopping list for the household), abort — a missing list is a
+        // setup/seeding problem, not an expected runtime condition.
+        var result = await command.ExecuteAsync(ct);
+        if (result.IsFailure)
+            throw new InvalidOperationException(
+                $"ShoppingListWriterAdapter.SyncSourceContributionAsync failed for source '{source}' ref {sourceRef}: " +
+                $"{result.Error.Code} — {result.Error.Description}");
+
+        var outcome = result.Value;
+        return new ShoppingSyncOutcome(outcome.Added, outcome.AlreadyPresent, outcome.CheckedOff);
     }
 
     private static ItemSource ParseSource(string source) => source switch

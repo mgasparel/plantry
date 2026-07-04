@@ -551,8 +551,9 @@ builder.Services.AddScoped<ReconcilePendingCooks>();
 builder.Services.AddScoped<CookRecipe>();
 
 // Recipes → Shopping anti-corruption write adapter (P2-4a, recipes-domain-model.md §8 IShoppingListWriter).
-// ShoppingListWriterAdapter implements the port over Shopping's AddItemCommand, stamping source=recipe +
-// source_ref=recipeId and delegating the merge rule to Shopping (DM-18 / shopping.md resolved call 5).
+// ShoppingListWriterAdapter implements the port over Shopping's SyncSourceContributionCommand, stamping
+// source=recipe + source_ref=recipeId and delegating idempotent SET/sync semantics to Shopping
+// (plantry-gsj; DM-18 / shopping.md resolved call 5).
 builder.Services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
 
 // Add-missing-to-shopping-list application service (P2-4a, recipes-domain-model.md §7, J5).

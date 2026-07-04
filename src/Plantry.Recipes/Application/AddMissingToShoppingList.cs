@@ -59,20 +59,20 @@ public sealed class AddMissingToShoppingList(
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var fulfillment = await fulfillmentService.ComputeAsync(recipe, desiredServings, today, ct);
 
-        // Compute shortfall lines (Missing + Low, shortfall = scaledRequired − available)
-        // via the shared calculator so J5 and J6 cannot diverge.
-        var shortfallLines = RecipeShortfallCalculator.Compute(recipe, fulfillment, desiredServings);
+        // Compute the "Add missing" target set (Missing + Low shortfall lines) via the shared
+        // target calculator so the button label and the synced set cannot diverge (plantry-gsj).
+        var itemsToAdd = RecipeShoppingTargets.Missing(recipe, fulfillment, desiredServings);
 
-        var itemsToAdd = shortfallLines
-            .Select(s => new ShoppingItem(ProductId: s.ProductId, Quantity: s.ShortfallQuantity, UnitId: s.UnitId))
-            .ToList();
-
+        // Nothing to buy: a no-op, NOT a reconcile-away. The button is hidden when there is no
+        // shortfall, so an empty target here must not strip an existing recipe slice (plantry-gsj).
         if (itemsToAdd.Count == 0)
             return new AddMissingResult.NothingMissing();
 
-        await shoppingWriter.AddItemsAsync(itemsToAdd, RecipeSource, recipeId.Value, ct);
+        // Idempotent SYNC: SET the recipe's own slice to exactly this shortfall (no drift on re-press),
+        // reconciling away any in-stock products a prior "Add all" contributed (last-press-wins).
+        var outcome = await shoppingWriter.SyncSourceContributionAsync(itemsToAdd, RecipeSource, recipeId.Value, ct);
 
-        return new AddMissingResult.Added(itemsToAdd.Count);
+        return new AddMissingResult.Added(itemsToAdd.Count, outcome);
     }
 }
 
@@ -83,9 +83,10 @@ public abstract record AddMissingResult
 {
     private AddMissingResult() { }
 
-    /// <summary>Items were successfully added to the shopping list.</summary>
-    /// <param name="ItemCount">Number of missing-ingredient lines dispatched to Shopping.</param>
-    public sealed record Added(int ItemCount) : AddMissingResult;
+    /// <summary>The recipe slice was synced to the shopping list.</summary>
+    /// <param name="ItemCount">Number of shortfall lines in the synced target set.</param>
+    /// <param name="Outcome">Per-target counts (added / already-present / checked-off) for the result summary.</param>
+    public sealed record Added(int ItemCount, ShoppingSyncOutcome Outcome) : AddMissingResult;
 
     /// <summary>No tracked ingredient has a positive shortfall (all are InStock, or Low with sufficient stock to cover the need, or Untracked).</summary>
     public sealed record NothingMissing : AddMissingResult;

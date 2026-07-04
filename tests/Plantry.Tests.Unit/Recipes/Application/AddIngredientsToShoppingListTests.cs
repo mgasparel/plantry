@@ -35,14 +35,14 @@ public sealed class AddIngredientsToShoppingListTests
     {
         public List<(IReadOnlyList<ShoppingItem> Items, string Source, Guid SourceRef)> Calls { get; } = [];
 
-        public Task AddItemsAsync(
-            IEnumerable<ShoppingItem> items,
+        public Task<ShoppingSyncOutcome> SyncSourceContributionAsync(
+            IReadOnlyList<ShoppingItem> items,
             string source,
             Guid sourceRef,
             CancellationToken ct = default)
         {
             Calls.Add((items.ToList(), source, sourceRef));
-            return Task.CompletedTask;
+            return Task.FromResult(new ShoppingSyncOutcome(items.Count, 0, 0));
         }
     }
 

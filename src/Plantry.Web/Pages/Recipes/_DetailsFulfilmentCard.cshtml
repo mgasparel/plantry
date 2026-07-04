@@ -1,5 +1,6 @@
 @model Plantry.Web.Pages.Recipes.DetailsFulfilmentCardModel
 @using System.Globalization
+@using Plantry.Recipes.Application
 @using Plantry.Recipes.Domain
 @using Plantry.Web.Pages.Shared
 @{
@@ -17,16 +18,34 @@
         : 100;
     var lvlClass = pct >= 80 ? "fulf-hi" : pct >= 50 ? "fulf-mid" : "fulf-lo";
 
-    // Server-rendered "already on shopping list" state (plantry-yt0m). When true, the add buttons
-    // paint in their greyed "Added" state on first load (before Alpine hydrates) so a return visit
-    // reflects the true list state and does not invite a duplicate add. The x-cloak swap hides the
-    // active label/icon and reveals the confirm label/icon immediately, avoiding a flash of the
-    // active label; the Alpine flags (seeded to the same value in Details.cshtml) then own the state.
-    // On the servings-refresh partial swap AlreadyOnList is false so the buttons render enabled,
-    // matching the stepper resetting the flags to false before the fetch.
-    var alreadyOnList = vm.AlreadyOnList;
-    var activeCloak = alreadyOnList ? "x-cloak" : null;  // cart icon + "Add …" label
-    var addedCloak  = alreadyOnList ? null : "x-cloak";  // check icon + "Added" label
+    // Server-truth add-to-shopping button states (plantry-gsj). The label reflects the real delta
+    // between the recipe's shortfall/required set and its existing contribution slice — computed in
+    // the page model on every render (initial load, servings refresh, post-add swap), so there is no
+    // client-side flag flip and no flash. Covered → greyed "Added"; Fresh → "Add N missing/ingredients";
+    // Partial → "Add N more" (servings grew).
+    var missingBtn = vm.MissingButton ?? new Plantry.Web.Pages.Recipes.AddButtonView(false, AddButtonState.Fresh, 0);
+    var allBtn = vm.AllButton ?? new Plantry.Web.Pages.Recipes.AddButtonView(false, AddButtonState.Fresh, 0);
+
+    // Label for a button: the noun ("missing to shopping list" / "ingredient…") applies only to a
+    // fresh add; a top-up is always "Add N more to shopping list"; a covered button reads "Added".
+    string AddLabel(Plantry.Web.Pages.Recipes.AddButtonView b, string freshNoun) => b.State switch
+    {
+        AddButtonState.Covered => "Added",
+        AddButtonState.Partial => $"Add {b.PendingLines} more to shopping list",
+        _                      => $"Add {b.PendingLines} {freshNoun}",
+    };
+
+    // Reconciliation summary (plantry-gsj), rendered only after an add action. Zero segments are
+    // omitted so an all-already-present press reads "N already on your list" rather than "Added 0 · …".
+    string? summaryText = null;
+    if (vm.Summary is { IsEmpty: false } s)
+    {
+        var parts = new List<string>();
+        if (s.Added > 0) parts.Add($"Added {s.Added}");
+        if (s.AlreadyPresent > 0) parts.Add($"{s.AlreadyPresent} already on your list");
+        if (s.CheckedOff > 0) parts.Add($"{s.CheckedOff} checked off");
+        summaryText = string.Join(" · ", parts);
+    }
 }
 
 @* Primary swap target: the fulfillment rail card.
@@ -99,44 +118,35 @@
            Alpine's :value binding keeps it in sync whenever the servings stepper changes. *@
         <input type="hidden" id="rd-servings-input" name="servings" :value="servings" />
 
-        @* Add ALL tracked ingredients to shopping list — plantry-s1z.
-           Emits Source=Recipe + SourceRef=recipeId for every quantity-bearing ingredient,
-           merging duplicates via the per-source contribution model (plantry-9scq).
-           allAdded mirrors the missingAdded pattern — an Alpine flag flipped on 2xx response. *@
-        @if (totalTracked > 0)
+        @* Add ALL tracked ingredients to shopping list — plantry-s1z, idempotent SET/sync (plantry-gsj).
+           On press, the POST returns this whole card re-rendered with server-truth labels + a role=status
+           summary, swapping #rd-fulf-card — no client-side flag flip. Covered → greyed "Added". *@
+        @if (allBtn.Show)
         {
+            var allCovered = allBtn.State == AddButtonState.Covered;
             <button type="button" class="btn btn--soft"
                     hx-post="/Recipes/@recipeId?handler=AddAll"
                     hx-include="#rd-servings-input"
-                    hx-swap="none"
-                    @@htmx:after-request="if ($event.detail.successful) allAdded = true"
-                    :disabled="allAdded"
-                    disabled="@alreadyOnList">
-                <svg class="icon" aria-hidden="true" x-show="!allAdded" @activeCloak><use href="#i-cart" /></svg>
-                <svg class="icon" aria-hidden="true" x-show="allAdded" @addedCloak><use href="#i-check" /></svg>
-                <span x-show="!allAdded" @activeCloak>Add @totalTracked ingredient@(totalTracked == 1 ? "" : "s") to shopping list</span>
-                <span x-show="allAdded" @addedCloak>Added</span>
+                    hx-target="#rd-fulf-card"
+                    hx-swap="outerHTML"
+                    disabled="@(allCovered ? "disabled" : null)">
+                <svg class="icon" aria-hidden="true"><use href="@(allCovered ? "#i-check" : "#i-cart")" /></svg>
+                <span>@AddLabel(allBtn, allBtn.PendingLines == 1 ? "ingredient to shopping list" : "ingredients to shopping list")</span>
             </button>
         }
 
-        @* Add missing to shopping list — J5 step 6 (P2-4b). *@
-        @if (missingCount > 0)
+        @* Add missing to shopping list — J5 step 6 (P2-4b), idempotent SET/sync (plantry-gsj). *@
+        @if (missingBtn.Show)
         {
-            @* On success, flip to the "Added" confirm state. The flag lives in the
-               #recipe-detail Alpine scope, so we bridge htmx's afterRequest event via an
-               alpine listener (@@htmx:after-request) — NOT hx-on, which runs in global JS
-               scope and cannot see Alpine component state. Mirrors Intake/Upload.cshtml. *@
+            var missingCovered = missingBtn.State == AddButtonState.Covered;
             <button type="button" class="btn btn--soft"
                     hx-post="/Recipes/@recipeId?handler=AddMissing"
                     hx-include="#rd-servings-input"
-                    hx-swap="none"
-                    @@htmx:after-request="if ($event.detail.successful) missingAdded = true"
-                    :disabled="missingAdded"
-                    disabled="@alreadyOnList">
-                <svg class="icon" aria-hidden="true" x-show="!missingAdded" @activeCloak><use href="#i-cart" /></svg>
-                <svg class="icon" aria-hidden="true" x-show="missingAdded" @addedCloak><use href="#i-check" /></svg>
-                <span x-show="!missingAdded" @activeCloak>Add @missingCount missing to shopping list</span>
-                <span x-show="missingAdded" @addedCloak>Added</span>
+                    hx-target="#rd-fulf-card"
+                    hx-swap="outerHTML"
+                    disabled="@(missingCovered ? "disabled" : null)">
+                <svg class="icon" aria-hidden="true"><use href="@(missingCovered ? "#i-check" : "#i-cart")" /></svg>
+                <span>@AddLabel(missingBtn, "missing to shopping list")</span>
             </button>
         }
         <a href="/Recipes/@recipeId/Edit" class="btn btn--secondary">
@@ -144,6 +154,14 @@
             Edit recipe
         </a>
     </div>
+
+    @* Reconciliation summary — announced via role=status/aria-live after an add action (plantry-gsj).
+       Reuses the existing aria-live status pattern (cf. Intake/Upload, MealPlan _PendingBar). Rendered
+       only on a post-add swap; absent on initial load and servings refreshes. *@
+    @if (summaryText is not null)
+    {
+        <p class="rd-fulf-status" role="status" aria-live="polite">@summaryText</p>
+    }
 </div>
 
 @* OOB swap: per-ingredient status dots and sub-labels in the ingredients card.
