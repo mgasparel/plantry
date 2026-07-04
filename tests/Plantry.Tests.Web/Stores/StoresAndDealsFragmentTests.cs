@@ -92,6 +92,104 @@ public sealed class StoresAndDealsFragmentTests(StoresAndDealsFragmentFactory fa
         Assert.Single(factory.Repo.Items);
     }
 
+    [Fact(DisplayName = "POST Subscribe flips the clicked result to the 'Subscribed' badge and OOB-syncs the list")]
+    public async Task Post_Subscribe_Flips_Result_And_Syncs_List_Oob()
+    {
+        factory.Repo.Items.Clear();
+        var client = AuthedClient();
+        var token = await GetTokenAsync(client);
+
+        var response = await client.PostAsync("/Settings/StoresAndDeals?handler=Subscribe",
+            new FormUrlEncodedContent([
+                new("__RequestVerificationToken", token),
+                new("externalRef", "flipp-freshco"),
+                new("name", "FreshCo"),
+                new("postalCode", "K1A0B1"),
+            ]));
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        // Criterion 1 — the clicked result flips to the reused badge--success "Subscribed" at the point of action.
+        Assert.Contains("data-merchant=\"FreshCo\"", html);
+        Assert.Contains("badge badge--success", html);
+        Assert.Contains("Subscribed", html);
+        // Criterion 2 — the subscription list rides along as an out-of-band swap (no re-search needed).
+        Assert.Contains("id=\"stores-list-card\"", html);
+        Assert.Contains("hx-swap-oob=\"true\"", html);
+        Assert.Contains("Not pulled yet", html);
+        Assert.Single(factory.Repo.Items);
+    }
+
+    [Fact(DisplayName = "Search results retarget the clicked result and disable the button in-flight")]
+    public async Task Search_Results_Retarget_And_Disable_In_Flight()
+    {
+        factory.Repo.Items.Clear();
+        var client = AuthedClient();
+
+        var response = await client.GetAsync("/Settings/StoresAndDeals?handler=Search&postalCode=K1A0B1");
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        // Criterion 1 — the subscribe form's primary swap targets the clicked result, not #subs-region.
+        Assert.Contains("hx-target=\"closest .store-result\"", html);
+        Assert.DoesNotContain("hx-target=\"#subs-region\"", html);
+        // Criterion 3 — the button disables for the request duration so repeated clicks can't duplicate-subscribe.
+        Assert.Contains("hx-disabled-elt=\"find button\"", html);
+    }
+
+    [Fact(DisplayName = "POST Subscribe with a blank postal code renders an inline error and retains the Subscribe button")]
+    public async Task Post_Subscribe_Blank_Postal_Renders_Inline_Error_And_Retains_Button()
+    {
+        factory.Repo.Items.Clear();
+        var client = AuthedClient();
+        var token = await GetTokenAsync(client);
+
+        var response = await client.PostAsync("/Settings/StoresAndDeals?handler=Subscribe",
+            new FormUrlEncodedContent([
+                new("__RequestVerificationToken", token),
+                new("externalRef", "flipp-freshco"),
+                new("name", "FreshCo"),
+                new("postalCode", ""),
+            ]));
+
+        // Criterion 4 — the error fragment returns 200 so htmx actually swaps it (non-2xx bodies are ignored).
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("store-result__error", html);
+        Assert.Contains("postal code", html, StringComparison.OrdinalIgnoreCase);
+        // The Subscribe button is retained for retry; the result did NOT flip to the Subscribed badge.
+        Assert.Contains(">Subscribe<", html);
+        Assert.DoesNotContain("badge badge--success", html);
+        Assert.Empty(factory.Repo.Items);
+    }
+
+    [Fact(DisplayName = "Searching after subscribing shows the already-subscribed result as a 'Subscribed' badge")]
+    public async Task Search_After_Subscribe_Shows_Subscribed_Badge()
+    {
+        factory.Repo.Items.Clear();
+        var client = AuthedClient();
+        var token = await GetTokenAsync(client);
+
+        await client.PostAsync("/Settings/StoresAndDeals?handler=Subscribe",
+            new FormUrlEncodedContent([
+                new("__RequestVerificationToken", token),
+                new("externalRef", "flipp-freshco"),
+                new("name", "FreshCo"),
+                new("postalCode", "K1A0B1"),
+            ]));
+
+        var response = await client.GetAsync("/Settings/StoresAndDeals?handler=Search&postalCode=K1A0B1");
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        // Criterion 5 — the already-subscribed search-result branch is unchanged: badge, no Subscribe form.
+        var freshcoBlock = html[html.IndexOf("data-merchant=\"FreshCo\"", StringComparison.Ordinal)..];
+        freshcoBlock = freshcoBlock[..freshcoBlock.IndexOf("</li>", StringComparison.Ordinal)];
+        Assert.Contains("badge badge--success", freshcoBlock);
+        Assert.DoesNotContain("handler=Subscribe", freshcoBlock);
+    }
+
     [Fact(DisplayName = "POST Pause moves the subscription into the Paused section")]
     public async Task Post_Pause_Shows_Paused()
     {

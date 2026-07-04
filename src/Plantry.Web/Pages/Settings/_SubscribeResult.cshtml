@@ -1,0 +1,12 @@
+@model Plantry.Web.Pages.Settings.SubscribeResult
+@*
+    Subscribe-success response. Two fragments in one response:
+      1. _StoreSearchResultItem — the clicked result flipped to the "Subscribed" badge, swapped into
+         the form's hx-target (closest .store-result, the main swap).
+      2. _StoresList (#stores-list-card) — the subscription list re-rendered with hx-swap-oob so it
+         updates in the same response without a re-search. ViewData["ListOob"] triggers the OOB marker.
+    DJ1/plantry-b9wd criteria 1 (point-of-action flip) & 2 (OOB list sync).
+*@
+<partial name="_StoreSearchResultItem" model="Model.Item" />
+@{ ViewData["ListOob"] = true; }
+<partial name="_StoresList" model="Model.Page" />
