@@ -45,8 +45,15 @@
     }
     var crumbIcon = parents.Length > 0 ? crumbIcons.GetValueOrDefault(parents[0]) : crumbIcons.GetValueOrDefault(segments.FirstOrDefault() ?? "");
 
-    string NavActive(string prefix) =>
-        ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith(prefix) == true ? " sidebar__link--active" : "";
+    string NavActive(string prefix, string? except = null)
+    {
+        var page = ViewContext.RouteData.Values["page"]?.ToString();
+        if (page is null || !page.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return "";
+        if (except is not null && page.StartsWith(except, StringComparison.OrdinalIgnoreCase))
+            return "";
+        return " sidebar__link--active";
+    }
     string BottomNavActive(string prefix) =>
         ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith(prefix) == true ? " bottom-nav__item--active" : "";
 }
@@ -220,12 +227,12 @@
         <ul class="sidebar__nav sidebar__nav--band" role="list">
             <li class="sidebar__band-label">Manage</li>
             <li>
-                <a href="/Pantry" class="sidebar__link@(NavActive("/Pantry"))">
+                <a href="/Pantry" class="sidebar__link@(NavActive("/Pantry", except: "/Pantry/TakeStock"))">
                     <svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg> Pantry
                 </a>
             </li>
             <li>
-                <a href="/pantry/take-stock" class="sidebar__link@(NavActive("/pantry/take-stock"))">
+                <a href="/pantry/take-stock" class="sidebar__link@(NavActive("/Pantry/TakeStock"))">
                     <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Take Stock
                 </a>
             </li>
