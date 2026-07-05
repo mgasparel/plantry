@@ -5550,6 +5550,18 @@ button.sadd svg { width: 13px; height: 13px; }
 
 /* ---- walk row ---------------------------------------------------------- */
 .ts-rows { display: flex; flex-direction: column; gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
+
+/* Added-items section (plantry-5os5): the inline-add flow appends newly created/selected
+   rows in a second list below the recorded rows. Without separation the first added row
+   butts against the recorded list. The "Added" subheading carries the separation from the
+   recorded list; the modifier holds the gap between the subheading and its rows. */
+.ts-added-head {
+  display: flex; align-items: center; gap: 7px; margin: var(--space-5) 0 0;
+  font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+.ts-added-head .icon { width: 13px; height: 13px; color: var(--color-accent); }
+.ts-rows--added { margin-top: var(--space-3); }
 .ts-row {
   background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
   transition: border-color .14s, box-shadow .14s; overflow: hidden;
