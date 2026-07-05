@@ -174,13 +174,27 @@ public sealed class AuthorRecipe(
                 missing.Add(new ConversionNeeded(r.Line.Ordinal, r.ProductId, r.Line.UnitId!.Value, r.DefaultUnitId));
         }
 
-        if (missing.Count > 0)
+        // A missing conversion is a cross-dimension unit gap (same-dimension pairs resolve via universal
+        // factor_to_base and never reach here). By default the save is blocked so the editor can prompt for
+        // the factor inline (R7/C10). When the caller opts into deferral (edit-moment AI assistance is on
+        // and a conversion seeder is available, plantry-qll2.4) the recipe instead saves WITH the gap and
+        // carries the gaps out on Saved, so the caller can seed an ai_suggested factor asynchronously
+        // (ADR-022) — the user is never prompted and the save never waits.
+        if (missing.Count > 0 && !command.DeferMissingConversions)
         {
             logger.LogWarning(
                 "AuthorRecipe for '{RecipeName}' requires {ConversionCount} unit conversion(s) before saving.",
                 name, missing.Count);
             return new AuthorRecipeResult.NeedsConversion(missing);
         }
+
+        var deferredConversions = command.DeferMissingConversions
+            ? (IReadOnlyList<ConversionNeeded>)missing
+            : [];
+        if (deferredConversions.Count > 0)
+            logger.LogInformation(
+                "AuthorRecipe for '{RecipeName}' saving with {ConversionCount} deferred unit gap(s) for async AI seeding.",
+                name, deferredConversions.Count);
 
         // ── Tag resolution — resolve each submitted TagId to an existing household tag; drop unknowns ──
         // The picker posts closed-vocabulary TagIds; no minting occurs. Unknown/foreign ids are dropped
@@ -250,7 +264,7 @@ public sealed class AuthorRecipe(
         logger.LogInformation(
             "Recipe '{RecipeName}' {Action} with id {RecipeId}.",
             name, existing is null ? "created" : "updated", recipe.Id.Value);
-        return new AuthorRecipeResult.Saved(recipe.Id);
+        return new AuthorRecipeResult.Saved(recipe.Id) { DeferredConversions = deferredConversions };
     }
 
     private void ApplyScalars(Recipe recipe, AuthorRecipeCommand command)
@@ -284,7 +298,8 @@ public sealed record AuthorRecipeCommand(
     string? Source = null,
     int? CookTimeMinutes = null,
     string? Directions = null,
-    ScaleMode ScaleMode = ScaleMode.Keep);
+    ScaleMode ScaleMode = ScaleMode.Keep,
+    bool DeferMissingConversions = false);
 
 /// <summary>
 /// One authored ingredient row. Carries <b>either</b> a chosen <see cref="ProductId"/> (search/select)
@@ -343,7 +358,16 @@ public abstract record AuthorRecipeResult
 {
     private AuthorRecipeResult() { }
 
-    public sealed record Saved(RecipeId RecipeId) : AuthorRecipeResult;
+    /// <summary>
+    /// The recipe was saved. <see cref="DeferredConversions"/> is empty on the normal path; when the
+    /// command set <see cref="AuthorRecipeCommand.DeferMissingConversions"/> it lists the cross-dimension
+    /// unit gaps the recipe saved <b>with</b> (instead of blocking on <see cref="NeedsConversion"/>), so
+    /// the caller can seed an <c>ai_suggested</c> factor for each asynchronously (plantry-qll2.4 / ADR-022).
+    /// </summary>
+    public sealed record Saved(RecipeId RecipeId) : AuthorRecipeResult
+    {
+        public IReadOnlyList<ConversionNeeded> DeferredConversions { get; init; } = [];
+    }
 
     public sealed record NeedsConversion(IReadOnlyList<ConversionNeeded> Conversions) : AuthorRecipeResult;
 

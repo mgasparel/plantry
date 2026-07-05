@@ -35,6 +35,7 @@ using Plantry.Shopping.Domain;
 using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Background;
 using Plantry.Web.Deals;
 using Plantry.Web.Dev;
 using Plantry.Web.Events;
@@ -381,6 +382,12 @@ builder.Services.Configure<FlyerIngestionOptions>(builder.Configuration.GetSecti
 builder.Services.AddSingleton<FlyerIngestionCycle>();
 builder.Services.AddHostedService<FlyerIngestionWorker>();
 
+// Generic in-process fire-and-forget work queue (plantry-qll2.4): a request can enqueue post-response work
+// (the async ai_suggested conversion seed) that runs on QueuedHostedService's single drain loop, each item
+// in its own fresh DI scope with tenancy armed by the item. Singleton queue shared by producers + consumer.
+builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
+builder.Services.AddHostedService<QueuedHostedService>();
+
 // IFlyerSource is the untrusted Flipp seam (D1). Production wires the real Flipp adapter (P5-3): a typed
 // HttpClient (base URL + locale + browser UA from the Deals:Flipp config; standard resilience — timeout +
 // retry — applied to every HttpClient by ServiceDefaults) mapping raw Flipp payloads to RawDeal/DirectoryMerchant.
@@ -547,6 +554,23 @@ if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:Ap
 else
     builder.Services.AddScoped<IDietTagContradictionChecker, DietTagContradictionChecker>();
 
+// Edit-moment AI unit-conversion resolution (plantry-qll2.4, ADR-022). When the household AI toggle is on
+// and a real inferrer is configured, a recipe saved with a cross-dimension unit gap fires a fire-and-forget
+// background seed of an ai_suggested ProductConversion (RecipeConversionSeedTrigger enqueues onto the
+// shared IBackgroundTaskQueue; RecipeConversionSeeder does the Catalog re-check + AddConversion inside a
+// fresh armed scope). IngredientConversionInferrer builds a ChatClient at construction (needs a non-empty
+// key), so with no key configured we register DisabledIngredientConversionInferrer (IsAvailable=false →
+// the editor keeps today's manual C10 prompt) — mirroring RecipeTagSuggester/DietTagContradictionChecker.
+if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IIngredientConversionInferrer, DisabledIngredientConversionInferrer>();
+else
+    builder.Services.AddScoped<IIngredientConversionInferrer, IngredientConversionInferrer>();
+builder.Services.AddScoped<RecipeConversionSeeder>();
+builder.Services.AddScoped<RecipeConversionSeedTrigger>();
+// One-shot rollout backfill (dev-only endpoint below) — a singleton like the other backfill cycles; it
+// opens its own per-household scopes and never runs at boot.
+builder.Services.AddSingleton<RecipeConversionBackfillCycle>();
+
 // Recipe browse query (P2-2c, J1/J2). Assembles the browse view model: lean recipe list + live
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
@@ -660,6 +684,17 @@ if (app.Environment.IsDevelopment())
         await cycle.RunAsync(ct);
         return Results.Ok();
     }, "Run the one-time purchase-store-id backfill across every household (DM-16 part D; idempotent, re-runnable).");
+
+    // plantry-qll2.4 "backfill now": drive the one-shot AI-suggested conversion backfill across every
+    // household on demand — scans existing recipes for cross-dimension unit gaps and seeds ai_suggested
+    // conversions the same way the post-save trigger does (ADR-022). Kept OUT of the save path (the
+    // ticket's constraint); idempotent + re-runnable (the seeder skips already-bridged pairs). Mirrors
+    // /Dev/Deals/PullNow. Seeds only when a real AI inferrer is configured; otherwise a harmless no-op.
+    app.MapDevPost("/Dev/Recipes/BackfillConversions", async (RecipeConversionBackfillCycle cycle, CancellationToken ct) =>
+    {
+        await cycle.RunAsync(ct);
+        return Results.Ok();
+    }, "Seed AI-suggested conversions for existing recipes' cross-dimension unit gaps across every household (plantry-qll2.4; idempotent, re-runnable).");
 }
 
 app.MapStaticAssets();

@@ -452,6 +452,63 @@ public sealed class AuthorRecipeTests
     }
 
     /// <summary>
+    /// plantry-qll2.4: when the command opts into deferral (edit-moment AI assistance on + a seeder
+    /// available), a cross-dimension unit gap no longer blocks the save. The recipe is persisted WITH the
+    /// gap and the gap is carried out on <see cref="AuthorRecipeResult.Saved.DeferredConversions"/> (line
+    /// unit → product default) so the caller can seed an ai_suggested factor asynchronously — instead of
+    /// the NeedsConversion prompt. No conversion is written inline.
+    /// </summary>
+    [Fact]
+    public async Task DeferMissingConversions_Saves_With_Gap_And_Reports_Deferred_Instead_Of_Blocking()
+    {
+        var h = BuildHarness();
+        var defaultUnit = Guid.CreateVersion7();
+        var lineUnit = Guid.CreateVersion7(); // cross-dimension: no path seeded on the fake converter
+        var product = h.Products.AddTracked(defaultUnit);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null, Name: "Cashew Bowl", DefaultServings: 2,
+            Lines: [new AuthorIngredientLine(product.Id, 1m, lineUnit, null, 0)],
+            TagIds: [],
+            DeferMissingConversions: true);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var saved = Assert.IsType<AuthorRecipeResult.Saved>(result);
+        var deferred = Assert.Single(saved.DeferredConversions);
+        Assert.Equal(0, deferred.Ordinal);
+        Assert.Equal(product.Id, deferred.ProductId);
+        Assert.Equal(lineUnit, deferred.FromUnitId);
+        Assert.Equal(defaultUnit, deferred.ToUnitId);
+        Assert.Single(h.Recipes.Items);           // recipe persisted despite the gap
+        Assert.Empty(h.Writer.ConversionsAdded);  // no inline factor written — that is the async seed's job
+    }
+
+    /// <summary>
+    /// plantry-qll2.4: a saved recipe with no unit gap reports no deferred conversions even when deferral
+    /// is enabled — the flag only changes behaviour when a gap actually exists (a same-unit line converts
+    /// trivially on the fake converter, so nothing is missing).
+    /// </summary>
+    [Fact]
+    public async Task DeferMissingConversions_With_No_Gap_Reports_No_Deferred()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var product = h.Products.AddTracked(unit);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null, Name: "Simple", DefaultServings: 1,
+            Lines: [new AuthorIngredientLine(product.Id, 100m, unit, null, 0)],
+            TagIds: [],
+            DeferMissingConversions: true);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var saved = Assert.IsType<AuthorRecipeResult.Saved>(result);
+        Assert.Empty(saved.DeferredConversions);
+    }
+
+    /// <summary>
     /// plantry-qno9: when the line carries an explicit conversion unit pair (the four-field equation —
     /// e.g. "1 kg = 8 cups"), the service writes THAT pair verbatim (from = left unit, to = right unit,
     /// factor = supplied), not the legacy recipeUnit→productDefault assumption. The recipe-line unit

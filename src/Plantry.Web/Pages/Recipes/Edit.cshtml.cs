@@ -9,7 +9,9 @@ using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Pages.Shared;
+using Plantry.Web.Recipes;
 
 namespace Plantry.Web.Pages.Recipes;
 
@@ -42,7 +44,10 @@ public sealed class EditModel(
     IUnitConverter unitConverter,
     SuggestRecipeTags suggestRecipeTags,
     DietTagNudgeService dietTagNudge,
-    ManageTagsService manageTags) : PageModel
+    ManageTagsService manageTags,
+    IAiAssistanceGateReader aiGate,
+    RecipeConversionSeedTrigger conversionSeedTrigger,
+    ITenantContext tenant) : PageModel
 {
     // ── Route ────────────────────────────────────────────────────────────────────
 
@@ -402,6 +407,14 @@ public sealed class EditModel(
             .Distinct()
             .ToList();
 
+        // Edit-moment AI conversion resolution (plantry-qll2.4): when the household's assistive-AI toggle is
+        // on AND a conversion seeder is actually configured, a cross-dimension unit gap (weight-stocked
+        // product used by volume) no longer blocks with the inline C10 prompt — the recipe saves WITH the
+        // gap and an ai_suggested factor is seeded asynchronously (ADR-022). Both conditions are required:
+        // with the toggle off, or on a keyless host where no seeder can run, we keep today's manual prompt
+        // (acceptance criterion 4). The gate check is one cheap read per save; recipe saves are infrequent.
+        var deferConversions = conversionSeedTrigger.Available && await aiGate.IsEnabledAsync(ct);
+
         var command = new AuthorRecipeCommand(
             RecipeId: Id.HasValue ? RecipeId.From(Id.Value) : null,
             Name: Input.Name?.Trim() ?? "",
@@ -411,7 +424,8 @@ public sealed class EditModel(
             Source: string.IsNullOrWhiteSpace(Input.Source) ? null : Input.Source.Trim(),
             CookTimeMinutes: Input.CookTimeMinutes,
             Directions: string.IsNullOrWhiteSpace(Input.Directions) ? null : Input.Directions,
-            ScaleMode: Input.ScaleMode);
+            ScaleMode: Input.ScaleMode,
+            DeferMissingConversions: deferConversions);
 
         // Diet-tag nudge guard (plantry-qll2.3): capture the recipe's ingredient ProductId set BEFORE the save,
         // for edits only, so the post-save trigger can tell whether the ingredient set actually changed (an
@@ -432,6 +446,12 @@ public sealed class EditModel(
                 // Photo upload — applied after the recipe is saved so we have the aggregate id.
                 if (photo is { Length: > 0 })
                     await ApplyPhotoAsync(saved.RecipeId, photo, ct);
+
+                // plantry-qll2.4: the recipe saved with one or more cross-dimension unit gaps (deferral was
+                // on). Fire a fire-and-forget async seed of an ai_suggested conversion for each — the user
+                // is never prompted and this never delays the redirect.
+                if (saved.DeferredConversions.Count > 0)
+                    await EnqueueConversionSeedsAsync(saved.DeferredConversions, ct);
 
                 // Diet-tag nudge (plantry-qll2.3): on an edit whose ingredient set changed to a not-yet-reconciled
                 // set on a Diet-tagged recipe, flag the post-save Details landing to run the deferred contradiction
@@ -569,6 +589,46 @@ public sealed class EditModel(
         CategoryOptions = categoryOptions
             .Select(c => new SelectListItem(c.Name, c.Id.ToString()))
             .ToList();
+    }
+
+    /// <summary>
+    /// Resolves the deferred cross-dimension unit gaps (plantry-qll2.4) into <see cref="ConversionSeedRequest"/>s
+    /// — product name + unit codes for the LLM prompt — and hands them to the async seed trigger. Only
+    /// genuine cross-dimension gaps are enqueued: a same-dimension pair (which would resolve via universal
+    /// conversions and never reach here) is defensively dropped so a nonsensical density factor is never
+    /// requested. No-op when there is no household in context.
+    /// </summary>
+    private async Task EnqueueConversionSeedsAsync(
+        IReadOnlyList<ConversionNeeded> deferred, CancellationToken ct)
+    {
+        if (tenant.HouseholdId is not { } householdGuid || deferred.Count == 0)
+            return;
+
+        var productIds = deferred.Select(d => d.ProductId).Distinct().ToList();
+        var productLookup = await products.ResolveSummariesAsync(productIds, ct);
+
+        // ListUnitsAsync carries each unit's Dimension + Code — used both to build the prompt and to keep
+        // only true cross-dimension gaps.
+        var units = await products.ListUnitsAsync(ct);
+        var unitById = units.ToDictionary(u => u.Id);
+
+        var requests = new List<ConversionSeedRequest>(deferred.Count);
+        foreach (var gap in deferred)
+        {
+            if (!productLookup.TryGetValue(gap.ProductId, out var product)) continue;
+            if (!unitById.TryGetValue(gap.FromUnitId, out var fromUnit)) continue;
+            if (!unitById.TryGetValue(gap.ToUnitId, out var toUnit)) continue;
+
+            // Cross-dimension only — a same-dimension pair never needs a product-specific density factor.
+            if (!string.IsNullOrEmpty(fromUnit.Dimension)
+                && string.Equals(fromUnit.Dimension, toUnit.Dimension, StringComparison.Ordinal))
+                continue;
+
+            requests.Add(new ConversionSeedRequest(
+                gap.ProductId, product.Name, gap.FromUnitId, fromUnit.Code, gap.ToUnitId, toUnit.Code));
+        }
+
+        await conversionSeedTrigger.EnqueueAsync(HouseholdId.From(householdGuid), requests, ct);
     }
 
     private async Task ApplyPhotoAsync(RecipeId recipeId, IFormFile photo, CancellationToken ct)
