@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Routing;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -40,6 +41,7 @@ public sealed class EditModel(
     AuthorRecipe authorRecipe,
     IUnitConverter unitConverter,
     SuggestRecipeTags suggestRecipeTags,
+    DietTagNudgeService dietTagNudge,
     ManageTagsService manageTags) : PageModel
 {
     // ── Route ────────────────────────────────────────────────────────────────────
@@ -411,6 +413,17 @@ public sealed class EditModel(
             Directions: string.IsNullOrWhiteSpace(Input.Directions) ? null : Input.Directions,
             ScaleMode: Input.ScaleMode);
 
+        // Diet-tag nudge guard (plantry-qll2.3): capture the recipe's ingredient ProductId set BEFORE the save,
+        // for edits only, so the post-save trigger can tell whether the ingredient set actually changed (an
+        // ingredient-neutral edit must fire nothing). Create (J6) is owned by the qll2.2 tag chips, never nudged.
+        IReadOnlySet<Guid> previousProductIds = new HashSet<Guid>();
+        if (Id is { } nudgeEditId)
+        {
+            var preSave = await recipes.GetByIdAsync(RecipeId.From(nudgeEditId), ct);
+            if (preSave is not null)
+                previousProductIds = preSave.Ingredients.Select(i => i.ProductId).Distinct().ToHashSet();
+        }
+
         var result = await authorRecipe.ExecuteAsync(command, ct);
 
         switch (result)
@@ -419,7 +432,19 @@ public sealed class EditModel(
                 // Photo upload — applied after the recipe is saved so we have the aggregate id.
                 if (photo is { Length: > 0 })
                     await ApplyPhotoAsync(saved.RecipeId, photo, ct);
-                return RedirectToPage("./Details", new { id = saved.RecipeId.Value });
+
+                // Diet-tag nudge (plantry-qll2.3): on an edit whose ingredient set changed to a not-yet-reconciled
+                // set on a Diet-tagged recipe, flag the post-save Details landing to run the deferred contradiction
+                // check by tagging the redirect with ?dietNudge=true. The cheap guard runs here (no LLM); the gate +
+                // LLM run later on the Details landing, only if the flag is present — so most saves cost nothing and
+                // the AI stays confined to the edit moment (a plain recipe view carries no flag, so never a sweep).
+                var offerNudge = !IsCreate
+                    && await dietTagNudge.ShouldOfferAfterSaveAsync(saved.RecipeId, previousProductIds, ct);
+
+                var detailsRoute = new RouteValueDictionary { ["id"] = saved.RecipeId.Value };
+                if (offerNudge)
+                    detailsRoute["dietNudge"] = true;
+                return RedirectToPage("./Details", detailsRoute);
 
             case AuthorRecipeResult.NeedsConversion needs:
                 // Surface the inline ProductConversion form on the affected rows (C10).

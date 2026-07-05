@@ -520,4 +520,63 @@ public sealed class RecipeTests
 
         Assert.Equal(Later, recipe.UpdatedAt);
     }
+
+    // ── Diet-tag nudge reconciliation (plantry-qll2.3) ─────────────────────────
+
+    [Fact]
+    public void IngredientProductHash_Is_Order_Independent_Over_Distinct_ProductIds()
+    {
+        var a = Guid.CreateVersion7();
+        var b = Guid.CreateVersion7();
+        var c = Guid.CreateVersion7();
+
+        // Same distinct set in different orders + a duplicate hash to the same value.
+        Assert.Equal(
+            Recipe.IngredientProductHash([a, b, c]),
+            Recipe.IngredientProductHash([c, a, b, a]));
+
+        // A different set hashes differently.
+        Assert.NotEqual(
+            Recipe.IngredientProductHash([a, b]),
+            Recipe.IngredientProductHash([a, b, c]));
+
+        // The empty set hashes to the empty string.
+        Assert.Equal(string.Empty, Recipe.IngredientProductHash([]));
+    }
+
+    [Fact]
+    public void DismissDietNudge_Stamps_The_Current_Ingredient_Set_Hash()
+    {
+        var pasta = Guid.CreateVersion7();
+        var cheese = Guid.CreateVersion7();
+        var recipe = NewRecipe();
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(pasta, 200m, Guid.CreateVersion7(), null, 0),
+            new IngredientLine(cheese, 50m, Guid.CreateVersion7(), null, 1),
+        ], Clock);
+        Assert.Null(recipe.DietNudgeDismissedHash);
+
+        recipe.DismissDietNudge(Clock);
+
+        Assert.Equal(Recipe.IngredientProductHash([pasta, cheese]), recipe.DietNudgeDismissedHash);
+        Assert.Equal(recipe.CurrentIngredientProductHash(), recipe.DietNudgeDismissedHash);
+    }
+
+    [Fact]
+    public void RemoveTag_Drops_Only_The_Named_Tag()
+    {
+        var keep = TagId.New();
+        var drop = TagId.New();
+        var recipe = NewRecipe();
+        recipe.SetTags([keep, drop], Clock);
+
+        recipe.RemoveTag(drop, Clock);
+
+        Assert.Equal([keep], recipe.Tags.Select(rt => rt.TagId));
+
+        // Removing a tag that is not applied is a harmless no-op.
+        recipe.RemoveTag(TagId.New(), Clock);
+        Assert.Equal([keep], recipe.Tags.Select(rt => rt.TagId));
+    }
 }

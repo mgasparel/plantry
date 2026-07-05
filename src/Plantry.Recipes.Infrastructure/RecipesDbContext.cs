@@ -48,6 +48,8 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             b.Property(r => r.ArchivedAt).HasColumnName("archived_at");
             b.Property(r => r.CreatedAt).HasColumnName("created_at");
             b.Property(r => r.UpdatedAt).HasColumnName("updated_at");
+            // Reconciled ingredient-set hash for the edit-moment diet-tag nudge (plantry-qll2.3); nullable.
+            b.Property(r => r.DietNudgeDismissedHash).HasColumnName("diet_nudge_dismissed_hash");
 
             // Child ingredient collection — backed by _ingredients field.
             b.HasMany(r => r.Ingredients)

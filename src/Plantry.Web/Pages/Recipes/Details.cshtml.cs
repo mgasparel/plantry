@@ -28,6 +28,15 @@ public sealed class DetailsModel(
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
 
+    /// <summary>
+    /// Set to <c>true</c> only by the editor's post-save redirect after a qualifying edit (plantry-qll2.3): a
+    /// change to the ingredient ProductId set on a Diet-tagged recipe. Drives the deferred diet-tag nudge
+    /// placeholder. A plain recipe view carries no such flag, so the LLM check runs only on the post-save
+    /// landing — never on a browse (no corpus sweep).
+    /// </summary>
+    [BindProperty(SupportsGet = true, Name = "dietNudge")]
+    public bool DietNudge { get; set; }
+
     public RecipeDetailView Recipe { get; private set; } = null!;
 
     /// <summary>
@@ -38,11 +47,23 @@ public sealed class DetailsModel(
     /// </summary>
     public DetailsFulfilmentCardModel FulfilmentCard { get; private set; } = null!;
 
+    /// <summary>
+    /// True when the user has just saved an edit that warrants a diet-tag contradiction check (plantry-qll2.3):
+    /// the editor's post-save redirect set the <c>?dietNudge=true</c> flag (bound into <see cref="DietNudge"/>) for
+    /// this recipe. Drives the deferred htmx nudge placeholder in the view — the LLM runs only on this post-save
+    /// landing, never on a plain recipe view (no corpus sweep).
+    /// </summary>
+    public bool ShowDietNudgeCheck { get; private set; }
+
     public async Task<IActionResult> OnGetAsync(CancellationToken ct)
     {
         var id = RecipeId.From(Id);
         var recipe = await recipes.GetByIdAsync(id, ct);
         if (recipe is null) return NotFound();
+
+        // Diet-tag nudge (plantry-qll2.3): render the deferred check only when the editor's post-save redirect set
+        // ?dietNudge=true. A plain view of the recipe carries no flag, so no LLM check runs on a browse.
+        ShowDietNudgeCheck = DietNudge;
 
         // Batch-resolve the ingredient list in a fixed number of round-trips (no per-row N+1):
         // one query for product display facts, one for the unit codes the quantities render with.

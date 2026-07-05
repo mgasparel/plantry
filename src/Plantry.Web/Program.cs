@@ -535,6 +535,18 @@ if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:Ap
 else
     builder.Services.AddScoped<IRecipeTagSuggester, RecipeTagSuggester>();
 
+// Edit-moment diet-tag contradiction nudge (plantry-qll2.3). DietTagNudgeService orchestrates the cheap
+// ProductId-set guard + the deferred gate check + ingredient-name resolution over the Recipes ACL ports;
+// IDietTagContradictionChecker is the untrusted LLM seam. It reuses the same IAiAssistanceGateReader adapter
+// (Plantry.Composition) as qll2.2. DietTagContradictionChecker builds a ChatClient at construction (needs a
+// non-empty key), so with no key configured we register DisabledDietTagContradictionChecker (soft-fails to no
+// nudge) — mirroring RecipeTagSuggester/DealMatcher — so a keyless dev/E2E host still resolves the port.
+builder.Services.AddScoped<DietTagNudgeService>();
+if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IDietTagContradictionChecker, DisabledDietTagContradictionChecker>();
+else
+    builder.Services.AddScoped<IDietTagContradictionChecker, DietTagContradictionChecker>();
+
 // Recipe browse query (P2-2c, J1/J2). Assembles the browse view model: lean recipe list + live
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
