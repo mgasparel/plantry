@@ -77,9 +77,11 @@ public sealed class PlanInsightsJourneyTests(AppHostFixture appHost) : IAsyncLif
             await page.ClickAsync("button:has-text('Add product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
-            // ── Add stock with expiry date within 4 days ──────────────────────────
-            // The expiring-stock window is 4 days (PlanInsightsService.ExpiringSoonDays).
-            var expiryDate = DateOnly.FromDateTime(DateTime.Today.AddDays(2)); // within 4-day window
+            // ── Add stock with expiry date within the expiring-soon horizon ───────
+            // The expiring-stock window is the per-household horizon (default 7 days, owned by
+            // Inventory, read via IExpiringSoonHorizonReader — plantry-qexh/plantry-5yhd). A +2 day
+            // expiry lands well inside the default horizon.
+            var expiryDate = DateOnly.FromDateTime(DateTime.Today.AddDays(2)); // within default 7-day horizon
             await page.GotoAsync($"{BaseUrl}/Pantry");
             await page.WaitForURLAsync("**/Pantry**");
             await page.ClickAsync("button:has-text('Add stock')");

@@ -202,7 +202,7 @@ public sealed class TodayIndexModelTests
     }
 
     private static PlanFulfillmentService BuildNullFulfillmentService() =>
-        new PlanFulfillmentService(new NullRecipeReadModelStub(), new NullMealPlanStockReader());
+        new PlanFulfillmentService(new NullRecipeReadModelStub(), new NullMealPlanStockReader(), new NullExpiringSoonHorizonReader());
 
     // ── Fakes -----------------------------------------------------------------
 
@@ -355,6 +355,13 @@ public sealed class TodayIndexModelTests
             => Task.FromResult<MealPlanProductStock?>(null);
     }
 
+    /// <summary>Stub horizon reader — returns the Inventory default so the roll-up window is well-defined.</summary>
+    private sealed class NullExpiringSoonHorizonReader : Plantry.MealPlanning.Application.IExpiringSoonHorizonReader
+    {
+        public Task<int> GetDaysAsync(CancellationToken ct = default)
+            => Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
+    }
+
     /// <summary>Null member reader — returns empty list (no attendee avatars in model tests).</summary>
     private sealed class NullMemberReader : IHouseholdMemberReader
     {
@@ -398,7 +405,7 @@ public sealed class ExpiringWidgetModelTests
         var mealPlanRepo = new NullMealPlanRepo2();
         var slotConfigRepo = new NullSlotConfigRepo2();
         var recipeReadModel = new NullRecipeReadModelStub2();
-        var fulfillmentService = new PlanFulfillmentService(recipeReadModel, new NullMealPlanStockReader2());
+        var fulfillmentService = new PlanFulfillmentService(recipeReadModel, new NullMealPlanStockReader2(), new NullExpiringSoonHorizonReader2());
 
         // Deals seam (plantry-bpw): empty repo → BrowseDeals reports zero pending → no deal banner.
         var browseDeals = new Plantry.Deals.Application.BrowseDeals(
@@ -649,6 +656,13 @@ public sealed class ExpiringWidgetModelTests
     {
         public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
             => Task.FromResult<MealPlanProductStock?>(null);
+    }
+
+    /// <summary>Stub horizon reader — returns the Inventory default so the roll-up window is well-defined.</summary>
+    private sealed class NullExpiringSoonHorizonReader2 : Plantry.MealPlanning.Application.IExpiringSoonHorizonReader
+    {
+        public Task<int> GetDaysAsync(CancellationToken ct = default)
+            => Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
     }
 
     private sealed class NullMemberReader2 : IHouseholdMemberReader
