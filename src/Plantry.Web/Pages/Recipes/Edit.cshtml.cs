@@ -65,6 +65,13 @@ public sealed class EditModel(
     /// <summary>True when editing a recipe that already has at least one ingredient (enabling scale offer).</summary>
     public bool HasExistingIngredients { get; private set; }
 
+    /// <summary>
+    /// True when editing a recipe that already has a stored photo. Drives the current-photo preview in the
+    /// editor's Photo block (plantry-nj0e). Mirrors how Details resolves photo presence
+    /// (<see cref="RecipePhoto"/> non-null; see Details.cshtml.cs). False on create and photoless recipes.
+    /// </summary>
+    public bool HasPhoto { get; private set; }
+
     // ── Reference data for dropdowns ─────────────────────────────────────────────
 
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
@@ -191,6 +198,7 @@ public sealed class EditModel(
 
             OriginalServings = recipe.DefaultServings;
             HasExistingIngredients = recipe.Ingredients.Count > 0;
+            HasPhoto = recipe.Photo is not null;
         }
         else
         {

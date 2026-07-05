@@ -282,10 +282,20 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // Two active lot rows should appear (the panel also contains a .ts-lot.found row for adding found stock).
             await Assertions.Expect(page.Locator(".ts-lot:not(.found)")).ToHaveCountAsync(2, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
 
+            // ── Regression (plantry-hl6u): each lot input is pre-filled with its current ──────
+            // quantity, not 0. The two lots are 200 g and 300 g, so no input may read "0".
+            var firstLotInput = page.Locator(".ts-lot:not(.found) .ts-lot-qty input").First;
+            await Assertions.Expect(firstLotInput).Not.ToHaveValueAsync("0", new LocatorAssertionsToHaveValueOptions { Timeout = 15000 });
+
             // ── Adjust Alpine state and trigger save via $data.save() directly ──────────
             // Alpine.$data(panel) returns a reactive proxy of the merged data stack.
             // setLotAmount and save() are accessible directly. This is more reliable than
             // synthetic button click events for testing async Alpine methods.
+            //
+            // Take Stock semantics (plantry-hl6u): setLotAmount now sets the *counted* quantity
+            // (pre-filled with each lot's on-hand amount), and Save posts the reduction delta
+            // (original − counted). To remove 50 g from lot 0 and 80 g (spoiled) from lot 1 —
+            // order-independently — we count each lot down from its own seeded original.
             var saveUrl = await page.EvaluateAsync<string>(@"
                 () => {
                     const panel = document.querySelector('.ts-hatch');
@@ -293,10 +303,14 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
                     const data = window.Alpine.$data(panel);
                     if (!data || typeof data.setLotAmount !== 'function') return null;
                     const lotIds = Object.keys(data.lots ?? {});
-                    if (lotIds.length >= 1) data.setLotAmount(lotIds[0], 50);
+                    if (lotIds.length >= 1) {
+                        const o0 = data.lots[lotIds[0]].original;
+                        data.setLotAmount(lotIds[0], o0 - 50);   // remove 50 g (Correction)
+                    }
                     if (lotIds.length >= 2) {
-                        data.setLotAmount(lotIds[1], 80);
-                        data.setSpoiled(lotIds[1], true);
+                        const o1 = data.lots[lotIds[1]].original;
+                        data.setLotAmount(lotIds[1], o1 - 80);   // remove 80 g …
+                        data.setSpoiled(lotIds[1], true);        // … as Discarded (spoiled)
                     }
                     // Extract the save URL from the button's x-on:click attribute.
                     const btn = panel.querySelector('button[x-on\\:click]');

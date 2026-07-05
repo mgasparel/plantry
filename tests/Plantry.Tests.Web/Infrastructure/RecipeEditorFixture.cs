@@ -37,6 +37,9 @@ public static class RecipeEditorFixture
     // no-op so the edit-GET reorder path (plantry-21if) is exercised end-to-end.
     public static readonly RecipeId NonCanonicalRecipeId = RecipesDomain.RecipeId.From(
         Guid.Parse("ffffffff-0000-0000-0000-000000000006"));
+    // Recipe with a stored photo — exercises the editor's current-photo preview (plantry-nj0e).
+    public static readonly RecipeId PhotoRecipeId = RecipesDomain.RecipeId.From(
+        Guid.Parse("0a000000-0000-0000-0000-000000000008"));
 
     // Product ids.
     public static readonly Guid TomatoId  = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -66,6 +69,22 @@ public static class RecipeEditorFixture
         var recipe = Recipe.Create(hid, "Empty Recipe", defaultServings: 2, Plantry.SharedKernel.Domain.SystemClock.Instance).Value;
         // Use a fixed id via reflection to keep snapshots stable.
         SetId(recipe, EmptyRecipeId);
+        return recipe;
+    }
+
+    /// <summary>
+    /// A recipe that carries a stored photo (plantry-nj0e). Mirrors <see cref="BuildEmpty"/> but calls
+    /// <see cref="Recipe.SetPhoto"/> so <c>recipe.Photo is not null</c> — driving the editor's
+    /// current-photo preview branch (<c>!IsCreate &amp;&amp; HasPhoto</c>). SetPhoto runs after
+    /// <see cref="SetId"/> because <see cref="RecipePhoto"/> is keyed on the recipe id.
+    /// </summary>
+    public static Recipe BuildWithPhoto()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+        var recipe = Recipe.Create(hid, "Photo Recipe", defaultServings: 2, clock).Value;
+        SetId(recipe, PhotoRecipeId);
+        recipe.SetPhoto(new byte[] { 1, 2, 3, 4 }, "image/png", sha256: null, clock);
         return recipe;
     }
 

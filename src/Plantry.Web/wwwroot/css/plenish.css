@@ -562,6 +562,33 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--color-danger);
 }
 
+/* ── File upload ───────────────────────────────────────────────────────────── */
+/* Compose with `.field__input` (the shared input frame): `.file-field` restyles the
+   native `::file-selector-button` to match `.btn--secondary` so a file picker sits
+   flush with the rest of a form. Token-driven, so it tracks every theme; CSS-only, so
+   it degrades to the native control where `::file-selector-button` is unsupported. */
+.file-field {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.file-field::file-selector-button {
+  margin-right: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.file-field::file-selector-button:hover {
+  background: var(--color-bg-subtle);
+}
+
 /* ── Field rows ────────────────────────────────────────────────────────────── */
 /* A fixed label column keeps every row's control aligned, unlike `.field--inline`
    (a row flexbox where each label is sized to its own text). */
@@ -5550,6 +5577,18 @@ button.sadd svg { width: 13px; height: 13px; }
 
 /* ---- walk row ---------------------------------------------------------- */
 .ts-rows { display: flex; flex-direction: column; gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
+
+/* Added-items section (plantry-5os5): the inline-add flow appends newly created/selected
+   rows in a second list below the recorded rows. Without separation the first added row
+   butts against the recorded list. The "Added" subheading carries the separation from the
+   recorded list; the modifier holds the gap between the subheading and its rows. */
+.ts-added-head {
+  display: flex; align-items: center; gap: 7px; margin: var(--space-5) 0 0;
+  font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+.ts-added-head .icon { width: 13px; height: 13px; color: var(--color-accent); }
+.ts-rows--added { margin-top: var(--space-3); }
 .ts-row {
   background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
   transition: border-color .14s, box-shadow .14s; overflow: hidden;

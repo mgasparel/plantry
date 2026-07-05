@@ -300,7 +300,11 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
             </ul>`}
 
         ${allRows.some(r => r.isNewRow) && html`
-          <ul class="ts-rows" role="list" aria-label="Added items">
+          <div class="ts-added-head">
+            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+            <span>Added</span>
+          </div>
+          <ul class="ts-rows ts-rows--added" role="list" aria-label="Added items">
             ${allRows.filter(r => r.isNewRow).map((row) =>
               html`<${CountRow} key=${row.productId} row=${row}
                      expandedLots=${expandedLots}
@@ -531,10 +535,16 @@ export function mountTakeStockWalk(root, config) {
         }
 
         const pid = data.productId;
+        // Seed the row like the existing-product add path above (recorded 0, counted = the
+        // entered quantity) so it renders dirty and a Save button appears (plantry-5os5).
+        // /AddItem has already persisted the opening balance, but re-saving is safe:
+        // SaveCountsCommand → RecordCountCommand is idempotent by construction (TS-7 — it
+        // recomputes `recorded` from current stock and applies an absolute delta, so re-saving
+        // the same count yields delta 0 / NoOp). The count is therefore never double-recorded.
         const newRow = makeRow({
           productId: pid,
           productName: data.productName,
-          recorded: data.countedValue,
+          recorded: 0,
           unitCode: data.unitCode,
           unitId: data.unitId,
           hasActiveStock: false,
@@ -542,6 +552,7 @@ export function mountTakeStockWalk(root, config) {
           supportedUnits: [],
           isNewRow: true,
         });
+        newRow.counted.value = data.countedValue;
         rowsSignal.value = [...rowsSignal.value, newRow];
         toast.value = data.productName + " added" + (data.countedValue > 0 ? " with " + data.countedValue + " " + data.unitCode : "") + ".";
       } catch {

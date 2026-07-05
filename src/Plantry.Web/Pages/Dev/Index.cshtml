@@ -48,6 +48,26 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">File upload</h2>
+    </div>
+    <p>
+        A file input styled to match the rest of a form: compose <code>.field__input</code>
+        (the shared input frame) with <code>.file-field</code>, which restyles the native
+        <code>::file-selector-button</code> to look like a <code>.btn--secondary</code>.
+        CSS-only — no JS — so it degrades to the native control where
+        <code>::file-selector-button</code> is unsupported, and it tracks every theme
+        because it is token-driven.
+    </p>
+
+    <div class="form-stack">
+        <input type="file" accept="image/*" class="field__input file-field" />
+    </div>
+
+    <pre class="code-sample"><code>@("<input type=\"file\" name=\"photo\" accept=\"image/*\" class=\"field__input file-field\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Card</h2>
     </div>
     <p>

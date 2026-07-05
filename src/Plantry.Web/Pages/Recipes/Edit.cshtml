@@ -9,6 +9,10 @@
     // hosts the testable pure logic the Alpine handlers call at interaction time.
     var recipeSectionsSrc = FileVersionProvider.AddFileVersionToPath(
         ViewContext.HttpContext.Request.PathBase, "/js/recipe-sections.js");
+    // Canonical amount formatter (plantry-jun6) — bridged onto window.IngredientAmount below so
+    // fmtQty() cleans row quantities with the same rule Details/Cook render with.
+    var ingredientAmountSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/ingredient-amount.js");
 }
 
 @*
@@ -101,7 +105,10 @@
                  ordinal = l.Ordinal,
                  productId = l.ProductId?.ToString() ?? "",
                  productName = l.ProductName ?? "",
-                 qty = l.Quantity?.ToString() ?? "",
+                 @* Seed the row's qty already cleaned (plantry-jun6): a stored decimal carrying scale
+                    (e.g. 500.000m) would otherwise stringify as "500.000" and render "500.000 g" in
+                    rowSummary. IngredientAmount.Format is the same rule Details/Cook render with. *@
+                 qty = l.Quantity.HasValue ? IngredientAmount.Format(l.Quantity.Value) : "",
                  unitId = l.UnitId?.ToString() ?? "",
                  defaultUnitId = l.ConversionToUnitId.ToString(),
                  defaultUnitCode = l.ConversionToUnitId != Guid.Empty
@@ -190,11 +197,18 @@
          rowNeedsQtyUnit(row) {
              return !row.isUntracked && !!row.productId && (!row.qty || !row.unitId);
          },
+         // Canonical amount rendering (plantry-jun6) — mirrors C# IngredientAmount.Format via the
+         // ingredient-amount.js twin bridged onto window.IngredientAmount below. Cleans a raw qty the
+         // author may have typed in the sheet (e.g. 500.000) for the read-only row summary. Falls back
+         // to the raw value if the module has not resolved yet; seeded rows are already server-cleaned.
+         fmtQty(qty) {
+             return window.IngredientAmount ? window.IngredientAmount.formatAmount(qty) : String(qty);
+         },
          rowSummary(row) {
              // Group heading is NO LONGER crammed into the summary — it is the section header now.
              const name = row.newStapleName ? row.newStapleName : row.productName;
              const parts = [];
-             if (!row.isUntracked && row.qty) parts.push(row.qty + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
+             if (!row.isUntracked && row.qty) parts.push(this.fmtQty(row.qty) + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
              if (row.isUntracked) parts.push('untracked');
              return parts.length ? name + ' · ' + parts.join(' · ') : name;
          },
@@ -358,7 +372,16 @@
 
                     <div style="grid-column: 1 / -1">
                         <label class="form-grid__field__label" style="font-size:var(--font-size-sm);color:var(--color-text-muted);display:block;margin-bottom:var(--space-1)">Photo</label>
-                        <input type="file" name="photo" accept="image/*" class="field__input" />
+                        @if (!Model.IsCreate && Model.HasPhoto)
+                        {
+                            <a href="/Recipes/@Model.Id?handler=Photo" target="_blank" rel="noopener"
+                               title="Open full image"
+                               style="display:inline-block;margin-bottom:var(--space-2);border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--color-border);line-height:0">
+                                <img src="/Recipes/@Model.Id?handler=Photo" alt="Current recipe photo" loading="lazy"
+                                     style="display:block;width:120px;height:120px;object-fit:cover" />
+                            </a>
+                        }
+                        <input type="file" name="photo" accept="image/*" class="field__input file-field" />
                         @if (!Model.IsCreate)
                         {
                             <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-1) 0 0">Upload a new photo to replace the existing one. Leave blank to keep it.</p>
@@ -399,7 +422,9 @@
         }
 
         @* ── Tags type-to-filter multi-select (read-only vocabulary) ──────────── *@
-        <div class="card">
+        @* card--overflow-visible: the tag picker dropdown is position:absolute inside the
+           card body; without it the dropdown is clipped at the card's overflow:hidden edge. *@
+        <div class="card card--overflow-visible">
             <div class="card__head">
                 <div>
                     <h3 class="card__head-title">Tags</h3>
@@ -786,5 +811,6 @@
        time, so it is guaranteed present by then. Not an island — no reactive runtime here. *@
     <script type="module">
         window.RecipeSections = await import('@Html.Raw(recipeSectionsSrc)');
+        window.IngredientAmount = await import('@Html.Raw(ingredientAmountSrc)');
     </script>
 }

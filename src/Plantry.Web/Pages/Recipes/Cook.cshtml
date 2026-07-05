@@ -311,10 +311,8 @@
 </div>@* /cook-confirm *@
 
 @functions {
-    private static string FormatQty(decimal qty) =>
-        qty % 1 == 0
-            ? qty.ToString("G29", CultureInfo.InvariantCulture)
-            : qty.ToString("G4", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.');
+    // Canonical amount rendering (plantry-jun6) — one rule shared with Details and the editor.
+    private static string FormatQty(decimal qty) => IngredientAmount.Format(qty);
 }
 
 @section Scripts {

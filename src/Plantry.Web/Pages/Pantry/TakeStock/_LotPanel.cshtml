@@ -34,7 +34,7 @@
                         <input type="number" min="0" step="any"
                                :value="lots['@eid']?.amount ?? 0"
                                x-on:input="setLotAmount('@eid', $event.target.value)"
-                               aria-label="Amount to reduce for this lot" />
+                               aria-label="Counted quantity for this lot" />
                         <span class="lq-unit">@lot.UnitCode</span>
                     </div>
                     <div class="ts-lot-meta">
@@ -102,9 +102,12 @@
     /// <summary>Serialises initial lot state for the Alpine data function.</summary>
     string BuildLotJson(LotPanelModel m)
     {
+        // Take Stock semantics: each lot's input is the *counted* quantity, pre-filled with the
+        // lot's current on-hand amount (plantry-hl6u). `original` is the recorded baseline used to
+        // compute the reduction delta (original − counted) posted to SaveLots, and to decide dirty.
         var lots = m.Lots.ToDictionary(
             l => l.EntryId.ToString(),
-            l => new { amount = 0m, unitId = l.UnitId.ToString(), spoiled = false, failed = false, failMsg = (string?)null });
+            l => new { amount = l.Quantity, original = l.Quantity, unitId = l.UnitId.ToString(), spoiled = false, failed = false, failMsg = (string?)null });
         // found.unitId defaults to the first lot's unit Guid (the display unit for this product/location).
         var foundUnitId = m.Lots.Count > 0 ? m.Lots[0].UnitId.ToString() : "";
         var json = System.Text.Json.JsonSerializer.Serialize(new

@@ -87,7 +87,7 @@
             <div class="rd-ing-amt">
                 @if (!item.IsUntracked && item.Quantity.HasValue)
                 {
-                    <span class="rd-ing-qty" x-text="fmt(@(item.Quantity.Value.ToString(CultureInfo.InvariantCulture)))">@item.Quantity.Value.ToString("G29", CultureInfo.InvariantCulture)</span>
+                    <span class="rd-ing-qty" x-text="fmt(@(item.Quantity.Value.ToString(CultureInfo.InvariantCulture)))">@IngredientAmount.Format(item.Quantity.Value)</span>
                     @if (!string.IsNullOrEmpty(item.UnitCode))
                     {
                         <span> @item.UnitCode</span>
