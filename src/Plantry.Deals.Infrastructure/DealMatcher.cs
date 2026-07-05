@@ -7,9 +7,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
+using Plantry.Ai.Infrastructure;
 using Plantry.Deals.Application;
 using Plantry.Deals.Domain;
-using Plantry.Intake.Infrastructure;
 
 namespace Plantry.Deals.Infrastructure;
 
@@ -28,7 +28,7 @@ namespace Plantry.Deals.Infrastructure;
 ///
 /// Observability (Gate 9): each call is wrapped in an <see cref="Activity"/> span (<c>deal_match</c>) with
 /// <c>ai.model</c>, <c>ai.usage.input_tokens</c>, and <c>ai.usage.output_tokens</c> attributes; the
-/// resulting confidence is recorded on <see cref="AiTelemetry.DealMatchConfidence"/>. Failures set the span
+/// resulting confidence is recorded on <see cref="DealMatchTelemetry.DealMatchConfidence"/>. Failures set the span
 /// to <see cref="ActivityStatusCode.Error"/> and emit a <c>LogError</c>. No advertised text, candidate
 /// content, prompt, or API key is written to any log or span attribute.
 /// </summary>
@@ -109,7 +109,7 @@ public sealed class DealMatcher : IDealMatcher
 
             var proposal = MapResponse(rawText, candidates);
 
-            AiTelemetry.DealMatchConfidence.Record(ConfidenceScore(proposal.Confidence));
+            DealMatchTelemetry.DealMatchConfidence.Record(ConfidenceScore(proposal.Confidence));
 
             sw.Stop();
             _logger.LogInformation(

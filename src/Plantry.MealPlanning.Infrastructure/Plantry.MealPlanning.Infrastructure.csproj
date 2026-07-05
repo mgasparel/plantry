@@ -18,8 +18,9 @@
     <ProjectReference Include="..\Plantry.MealPlanning\Plantry.MealPlanning.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
     <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />
-    <!-- AiOptions lives in Plantry.Intake.Infrastructure (shared AI config) -->
-    <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
+    <!-- Generic AI client config + OTEL source (plantry-ew5). Replaces the former cross-context
+         reference to Plantry.Intake.Infrastructure, which only existed to reuse AiOptions/AiTelemetry. -->
+    <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

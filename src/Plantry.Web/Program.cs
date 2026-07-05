@@ -2,12 +2,15 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Plantry.Ai.Infrastructure;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.Deals.Application;
 using Plantry.Deals.Domain;
 using Plantry.Deals.Infrastructure;
+using Plantry.Composition;
+using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
 using Plantry.Inventory.Application;
@@ -185,6 +188,19 @@ builder.Services.ConfigureApplicationCookie(opts =>
 
 builder.Services.AddScoped<IClock, SystemClock>();
 builder.Services.AddScoped<IHouseholdRepository, HouseholdRepository>();
+
+// plantry-m1u: cross-context ACL adapters + the domain-event dispatch machinery (dispatcher +
+// interceptor pair + transactional buffer) are wired from the dedicated Plantry.Composition assembly
+// (CompositionServiceCollectionExtensions) — "how bounded contexts are wired together" lives outside
+// this web/UI host. The DbContext .AddInterceptors(...) calls below resolve the interceptors this
+// registers. Two composition bindings deliberately stay in this host: the Identity read-port impl
+// (just below — ASP.NET-coupled, must not enter Composition) and the feature-flagged IFlyerSource seam.
+builder.Services.AddCrossContextAdapters();
+// Identity read-port implementation backing the moved MealPlanning HouseholdMemberReaderAdapter.
+// HouseholdDirectory is ASP.NET-Identity-coupled (UserManager<AppUser>), so it stays in the host and
+// Plantry.Composition depends only on the Plantry.Identity.Application IHouseholdDirectory port.
+builder.Services.AddScoped<IHouseholdDirectory, HouseholdDirectory>();
+
 builder.Services.AddScoped<IReferenceDataSeeder, CatalogReferenceDataSeeder>();
 builder.Services.AddScoped<IUnitRepository, UnitRepository>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
@@ -206,8 +222,7 @@ builder.Services.AddScoped<IExpiringSoonHorizon>(sp => sp.GetRequiredService<Exp
 builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
-builder.Services.AddScoped<ITakeStockReader, TakeStockReaderAdapter>();
-builder.Services.AddScoped<ITakeStockCatalogWriter, TakeStockCatalogWriterAdapter>();
+// ITakeStockReader/ITakeStockCatalogWriter adapters → Plantry.Composition (AddCrossContextAdapters).
 
 // Pricing context
 builder.Services.AddDbContext<PricingDbContext>((sp, opts) =>
@@ -215,7 +230,7 @@ builder.Services.AddDbContext<PricingDbContext>((sp, opts) =>
             npgsql => npgsql.MigrationsAssembly("Plantry.Pricing.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IPriceObservationRepository, PriceObservationRepository>();
-builder.Services.AddScoped<IUnitPriceCalculator, UnitPriceCalculatorAdapter>();
+// IUnitPriceCalculator adapter → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<PricingQueries>();
 
 // DM-16 part D: one-time backfill stamping store_id onto historical purchase observations recorded before
@@ -230,10 +245,9 @@ builder.Services.AddSingleton<PurchaseStoreBackfillCycle>();
 // events (e.g. ImportSessionCommittedEvent) after a successful SaveChanges; the AI parser, the four
 // cross-context port adapters, and the event handler are the seams ParseSessionCommand /
 // CommitSessionCommand are constructed over.
-builder.Services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
-builder.Services.AddScoped<TransactionalDomainEventBuffer>();
-builder.Services.AddScoped<DomainEventDispatchInterceptor>();
-builder.Services.AddScoped<DomainEventCommitDispatchInterceptor>();
+// IDomainEventDispatcher + TransactionalDomainEventBuffer + the DomainEventDispatchInterceptor /
+// DomainEventCommitDispatchInterceptor pair → Plantry.Composition (AddCrossContextAdapters). The
+// DbContext .AddInterceptors(...) calls below resolve them. Event HANDLERS stay in this host:
 builder.Services.AddScoped<IDomainEventHandler<ImportSessionCommittedEvent>, ImportSessionCommittedLogHandler>();
 // GUARDRAIL (ADR-014): domain events dispatch on COMMIT with no transactional outbox. The dispatch
 // interceptor pair (DomainEventDispatchInterceptor + DomainEventCommitDispatchInterceptor) makes dispatch
@@ -321,16 +335,14 @@ builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
 // implement them over Catalog's IStoreRepository / EnsureStoreCommand so Deals never touches CatalogDbContext
 // (ADR-010/DM-3).
 builder.Services.AddScoped<IStoreSubscriptionRepository, StoreSubscriptionRepository>();
-builder.Services.AddScoped<ICatalogStoreReader, CatalogStoreReaderAdapter>();
-builder.Services.AddScoped<ICatalogStoreWriter, CatalogStoreWriterAdapter>();
+// ICatalogStoreReader/ICatalogStoreWriter adapters → Plantry.Composition (AddCrossContextAdapters).
 
 // Deals — P5-5 confirm/reject orchestration (DJ4). The Deal + DealMatchMemory repos, the Pricing observation
 // writer (deal-sourced observation over P5-P's RecordObservationCommand; Deals never touches PricingDbContext),
 // and the Catalog product-existence check (ADR-010/DM-3).
 builder.Services.AddScoped<IDealRepository, DealRepository>();
 builder.Services.AddScoped<IDealMatchMemoryRepository, DealMatchMemoryRepository>();
-builder.Services.AddScoped<IPriceObservationWriter, RecordDealObservationAdapter>();
-builder.Services.AddScoped<Plantry.Deals.Application.ICatalogProductReader, DealCatalogProductReaderAdapter>();
+// IPriceObservationWriter + Deals ICatalogProductReader adapters → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<ConfirmDeal>();
 builder.Services.AddScoped<RejectDeal>();
 
@@ -349,8 +361,7 @@ builder.Services.AddScoped<ReviewDeals>();
 // DL-O4); "Add to list" reuses the P2-4 Shopping AddItems seam via a Deals-side writer port (DM-18). Both
 // adapters live in Web so Plantry.Deals keeps its → SharedKernel-only dependency.
 builder.Services.AddScoped<StockUpAlerts>();
-builder.Services.AddScoped<IPurchaseFrequencyReader, PurchaseFrequencyReaderAdapter>();
-builder.Services.AddScoped<IDealShoppingListWriter, DealShoppingListWriterAdapter>();
+// IPurchaseFrequencyReader + IDealShoppingListWriter adapters → Plantry.Composition (AddCrossContextAdapters).
 
 // Deals — P5-6 IngestFlyer worker (DJ2). IngestFlyer is the per-household unit of work (pull → dedup →
 // normalize → match → materialize → auto-confirm); IFlyerImportRepository is the new dedup/provenance
@@ -405,8 +416,7 @@ builder.Services.AddScoped<IReferenceDataSeeder, MealPlanningReferenceDataSeeder
 // TagReaderAdapter supplies grouped tag vocabulary from Recipes; HouseholdMemberReaderAdapter
 // supplies household member display facts from Identity. SetPreferences orchestrates the
 // lazy-create aggregate and stance mutations.
-builder.Services.AddScoped<ITagReader, TagReaderAdapter>();
-builder.Services.AddScoped<IHouseholdMemberReader, HouseholdMemberReaderAdapter>();
+// ITagReader + IHouseholdMemberReader adapters → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<SetPreferences>();
 
 // Meal Planning — P3-3 week grid services (plantry-7oy).
@@ -416,8 +426,7 @@ builder.Services.AddScoped<SetPreferences>();
 // MealConstraintResolver is a stateless domain service; AssignMealService / MoveMealService
 // are the application-layer orchestrators for the two write paths.
 builder.Services.AddScoped<IMealPlanRepository, MealPlanRepository>();
-builder.Services.AddScoped<IRecipeReadModel, RecipeReadModelAdapter>();
-builder.Services.AddScoped<IMealPlanCatalogProductReader, MealPlanCatalogProductReaderAdapter>();
+// IRecipeReadModel + IMealPlanCatalogProductReader adapters → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<MealConstraintResolver>();
 builder.Services.AddScoped<AssignMealService>();
 builder.Services.AddScoped<MoveMealService>();
@@ -428,9 +437,7 @@ builder.Services.AddScoped<MoveMealService>();
 // IMealPlanShoppingWriter wraps Shopping's AddItemCommand with source="meal_plan" (DM-18).
 // PlanFulfillmentService / PlanCostingService are stateless domain services that roll up
 // Recipes' enrichment across a meal's dishes — MealPlanning never recomputes these (domain-model §1).
-builder.Services.AddScoped<IMealPlanStockReader, MealPlanStockReaderAdapter>();
-builder.Services.AddScoped<IMealPlanPriceReader, MealPlanPriceReaderAdapter>();
-builder.Services.AddScoped<IMealPlanShoppingWriter, MealPlanShoppingWriterAdapter>();
+// IMealPlanStockReader + IMealPlanPriceReader + IMealPlanShoppingWriter adapters → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<PlanFulfillmentService>();
 builder.Services.AddScoped<PlanCostingService>();
 builder.Services.AddScoped<ShopForWeekService>();
@@ -438,13 +445,8 @@ builder.Services.AddScoped<ShopForWeekService>();
 // Meal Planning — P3-5 Plan insights (plantry-6si).
 // IMealPlanExpiringStockReader is the insights-specific ACL port onto Inventory; adapter is in Web.
 // PlanInsightsService is a stateless read-side domain service recomputed on every page load.
-builder.Services.AddScoped<IMealPlanExpiringStockReader, MealPlanExpiringStockReaderAdapter>();
-// Read port onto the per-household "expiring soon" horizon so the plan roll-up "use soon" flag and
-// the weekly insights engine both honour the same value as Inventory's Today widget (plantry-qexh,
-// plantry-5yhd, ADR-002). Fully qualified: the same interface/adapter name also exists in the
-// Recipes namespaces imported above.
-builder.Services.AddScoped<Plantry.MealPlanning.Application.IExpiringSoonHorizonReader,
-    Plantry.Web.MealPlanning.ExpiringSoonHorizonReaderAdapter>();
+// IMealPlanExpiringStockReader + the MealPlanning IExpiringSoonHorizonReader adapter →
+// Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<PlanInsightsService>();
 
 // Meal Planning — ADR-021 cross-schema read model (plantry-nz3u.1).
@@ -475,66 +477,34 @@ builder.Services.AddScoped<IWeekPlanningOverrideRepository, WeekPlanningOverride
 builder.Services.AddScoped<SetPlanningSettingsService>();
 
 // IMealPlanner: FakeMealPlanner for test/no-key, real AI otherwise.
-if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseFakePlanner")
+if (builder.Configuration.GetValue<bool>($"{MealPlanningAiOptions.SectionName}:UseFakePlanner")
     || string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
     builder.Services.AddScoped<IMealPlanner, FakeMealPlanner>();
 else
     builder.Services.AddScoped<IMealPlanner, MealPlannerAiService>();
 
-// Shopping → Catalog ACL adapter (P2-Sc). ShoppingCatalogReaderAdapter implements the Shopping
-// anti-corruption port over Catalog repositories so Shopping.Application never takes a direct
-// dependency on the Catalog EF context (Gate 2). ShoppingListQueryService assembles the read model.
-builder.Services.AddScoped<IShoppingCatalogReader, ShoppingCatalogReaderAdapter>();
-
-// Shopping → Inventory ACL adapter (plantry-juh). ShoppingPantryReaderAdapter implements the
-// Shopping anti-corruption port over Inventory's persistence layer so Shopping.Application never
-// reads Inventory tables directly (ADR-002). Supplies on-hand quantities and low flags for the
-// item subline and search-dropdown stock hints.
-builder.Services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>();
-
-// Shopping → Recipes ACL adapter (plantry-26g). ShoppingRecipeReaderAdapter resolves recipe names
-// by id for the attribution sub-line on the shopping board. Shopping.Application never reads the
-// Recipes EF context directly (ADR-002).
-builder.Services.AddScoped<IShoppingRecipeReader, ShoppingRecipeReaderAdapter>();
-
-// Shopping → Meal Planning ACL adapter (plantry-jwyb). ShoppingMealPlanReaderAdapter resolves a MealPlan
-// contribution's slot SourceRef → (weekday, meal-slot label) for the "for {Day} {meal}" attribution line.
-builder.Services.AddScoped<IShoppingMealPlanReader, ShoppingMealPlanReaderAdapter>();
-
-// Shopping → Deals ACL adapter (plantry-jwyb). ShoppingDealAttributionReaderAdapter resolves a Deal
-// contribution's deal_id SourceRef → store name for the "on sale at {store}" attribution line. This is a
-// NEW port, distinct from the product-keyed cheapest-active-deal badge reader below (ADR-010 DEAL → SHOP).
-builder.Services.AddScoped<IShoppingDealAttributionReader, ShoppingDealAttributionReaderAdapter>();
-
-// Shopping → Pricing ACL adapter (P5-9). ShoppingDealReaderAdapter reads Pricing's cheapest-active-deal
-// read model for the "On sale at {store} this week" badge, resolving the merchant name over Catalog.
-// Shopping reads PRICING, never Deals (ADR-010 boundary); the badge is a read-time join, never stored.
-builder.Services.AddScoped<IShoppingDealReader, ShoppingDealReaderAdapter>();
-
+// Shopping ACL adapters → Plantry.Composition (AddCrossContextAdapters): IShoppingCatalogReader (→ Catalog,
+// P2-Sc), IShoppingPantryReader (→ Inventory, plantry-juh), IShoppingRecipeReader (→ Recipes, plantry-26g),
+// IShoppingMealPlanReader + IShoppingDealAttributionReader (attribution lines, plantry-jwyb), and
+// IShoppingDealReader (→ Pricing cheapest-active-deal badge, P5-9). All keep Shopping.Application off the
+// other contexts' EF contexts (ADR-002 / ADR-010 / Gate 2).
 builder.Services.AddScoped<ShoppingListQueryService>();
 builder.Services.AddScoped<PantrySuggestionService>();
 
 // Recipes → Catalog anti-corruption adapters (P2-1b, recipes-domain-model.md §8). The Port +
 // Web-adapter seam: Recipes.Application owns the interfaces, these implement them over Catalog's
 // repositories/commands and pure UnitConverter, so the Recipes projects stay → SharedKernel only.
-builder.Services.AddScoped<Plantry.Recipes.Application.ICatalogProductReader, CatalogProductReaderAdapter>();
-builder.Services.AddScoped<ICatalogWriter, CatalogWriterAdapter>();
-builder.Services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
+// Recipes ICatalogProductReader + ICatalogWriter + IUnitConverter adapters → Plantry.Composition (AddCrossContextAdapters).
 
 // Recipes → Inventory anti-corruption adapters (P2-2a / P2-3b, recipes-domain-model.md §8).
 // Read port supplies FulfillmentService with live stock snapshots (available qty + soonest expiry).
 // Write port (IInventoryConsumer) lets the Cook flow decrement the pantry via Inventory's single
 // Consume primitive without the Recipes context touching Inventory tables directly (ADR-011).
-builder.Services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>();
-builder.Services.AddScoped<IInventoryConsumer, InventoryConsumerAdapter>();
-// Read port onto the per-household "expiring soon" horizon so the browse "use soon" filter agrees
-// with Inventory's Today widget by construction (plantry-5yhd, ADR-002).
-builder.Services.AddScoped<Plantry.Recipes.Application.IExpiringSoonHorizonReader,
-    Plantry.Web.Recipes.ExpiringSoonHorizonReaderAdapter>();
+// IInventoryStockReader + IInventoryConsumer + the Recipes IExpiringSoonHorizonReader adapters →
+// Plantry.Composition (AddCrossContextAdapters).
 
-// Recipes → Pricing anti-corruption adapter (P2-2b, recipes-domain-model.md §8). Supplies
-// CostingService with the latest PriceObservation per product from the Pricing context.
-builder.Services.AddScoped<IPriceReader, PriceReaderAdapter>();
+// Recipes → Pricing IPriceReader adapter → Plantry.Composition (AddCrossContextAdapters): supplies
+// CostingService with the latest PriceObservation per product from the Pricing context (P2-2b).
 
 // Recipe domain services (P2-2a/P2-2b). Both are pure domain computations over their ports.
 builder.Services.AddScoped<FulfillmentService>();
@@ -563,10 +533,8 @@ builder.Services.AddScoped<ReconcilePendingCooks>();
 builder.Services.AddScoped<CookRecipe>();
 
 // Recipes → Shopping anti-corruption write adapter (P2-4a, recipes-domain-model.md §8 IShoppingListWriter).
-// ShoppingListWriterAdapter implements the port over Shopping's SyncSourceContributionCommand, stamping
-// source=recipe + source_ref=recipeId and delegating idempotent SET/sync semantics to Shopping
-// (plantry-gsj; DM-18 / shopping.md resolved call 5).
-builder.Services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
+// ShoppingListWriterAdapter (implements IShoppingListWriter over Shopping's SyncSourceContributionCommand,
+// stamping source=recipe + source_ref=recipeId; plantry-gsj / DM-18) → Plantry.Composition (AddCrossContextAdapters).
 
 // Add-missing-to-shopping-list application service (P2-4a, recipes-domain-model.md §7, J5).
 // Computes a fresh FulfillmentResult at the displayed servings, takes Missing lines (excluding untracked),
@@ -590,23 +558,19 @@ builder.Services.AddGrocyImport(builder.Configuration);
 //  • AI:UseFakeParser=true   → FakeReceiptParser, the fixed E2E journey fixture (set only by the E2E AppHost).
 //  • no AI:ApiKey configured → DisabledReceiptParser, lets the app start with a locked-feature UI instead of crashing.
 // Sample takes precedence over fake. Never enable either seam outside dev/test.
-if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseSampleParser"))
+if (builder.Configuration.GetValue<bool>($"{IntakeAiOptions.SectionName}:UseSampleParser"))
     builder.Services.AddScoped<IReceiptParser, SampleReceiptParser>();
-else if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseFakeParser"))
+else if (builder.Configuration.GetValue<bool>($"{IntakeAiOptions.SectionName}:UseFakeParser"))
     builder.Services.AddScoped<IReceiptParser, FakeReceiptParser>();
 else if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
     builder.Services.AddScoped<IReceiptParser, DisabledReceiptParser>();
 else
     builder.Services.AddScoped<IReceiptParser, GeminiReceiptParser>();
 builder.Services.AddScoped<ICatalogHintProvider, CatalogHintProvider>();
-builder.Services.AddScoped<ICreateProductPort, CreateProductAdapter>();
-builder.Services.AddScoped<IAddStockPort, AddStockAdapter>();
-builder.Services.AddScoped<IRecordPricePort, RecordPriceAdapter>();
-// Resolves a receipt merchant → catalog.store on commit so purchase observations carry store_id (DM-16),
-// over Catalog's EnsureStoreByNameCommand (Intake never touches CatalogDbContext directly).
-builder.Services.AddScoped<IEnsurePurchaseStorePort, EnsurePurchaseStoreAdapter>();
+// Intake cross-context write adapters → Plantry.Composition (AddCrossContextAdapters): ICreateProductPort,
+// IAddStockPort, IRecordPricePort, IEnsurePurchaseStorePort (receipt merchant → catalog.store on commit,
+// DM-16), and ISeedConversionPort. All keep Intake off the other contexts' EF contexts (ADR-010).
 builder.Services.AddScoped<IReviewReferenceDataProvider, ReviewReferenceDataProvider>();
-builder.Services.AddScoped<ISeedConversionPort, SeedConversionAdapter>();
 
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();

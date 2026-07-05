@@ -8,6 +8,7 @@ using Microsoft.Extensions.ServiceDiscovery;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Plantry.Ai.Infrastructure;
 
 namespace Microsoft.Extensions.Hosting;
 
@@ -60,10 +61,10 @@ public static class Extensions
                     // plantry.inventory.stock_consumed, plantry.inventory.low_stock_events,
                     // plantry.recipes.cooked. Emitted via DomainTelemetry counters.
                     .AddMeter("Plantry.Domain")
-                    // AI pipeline metrics: ai.parse.confidence histogram (receipt parse confidence
-                    // scores per line — high=1.0, low=0.5, none=0.0). Emitted by GeminiReceiptParser
-                    // via AiTelemetry.ParseConfidence.
-                    .AddMeter("Plantry.AI");
+                    // AI pipeline metrics: ai.parse.confidence (IntakeAiTelemetry, receipt parse
+                    // confidence per line) and ai.deal_match.confidence (DealMatchTelemetry). Both are
+                    // created against the shared AiTelemetry.Meter so this single AddMeter sees them.
+                    .AddMeter(AiTelemetry.SourceName);
             })
             .WithTracing(tracing =>
             {
@@ -82,11 +83,11 @@ public static class Extensions
                     // Registering the source here causes those spans to appear nested under
                     // the EF Core command span, giving the full wire-level waterfall.
                     .AddSource("Npgsql")
-                    // AI pipeline spans: receipt_parse (GeminiReceiptParser) and
-                    // meal_plan_propose (MealPlannerAiService). Both carry ai.model and
+                    // AI pipeline spans: receipt_parse (GeminiReceiptParser), meal_plan_propose
+                    // (MealPlannerAiService), and deal_match (DealMatcher). All carry ai.model and
                     // ai.usage.input_tokens / ai.usage.output_tokens attributes.
                     // Error-status spans + LogError fire on failure, timeout, or empty response.
-                    .AddSource("Plantry.AI")
+                    .AddSource(AiTelemetry.SourceName)
                     // Deals' fragile external seam: flyer_directory_search / flyer_pull spans from the
                     // Flipp FlyerSource (FlyerTelemetry). Carry the store ref + result counts only — no
                     // postal code, PII, or secret. Error-status spans fire on failure/soft-fail.

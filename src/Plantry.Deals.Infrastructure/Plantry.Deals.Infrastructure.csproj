@@ -22,10 +22,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Plantry.Deals\Plantry.Deals.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
-    <!-- AiOptions + AiTelemetry live in Plantry.Intake.Infrastructure (shared AI config/telemetry);
-         DealMatcher consumes the same global setup as MealPlanning's MealPlannerAiService (plantry-ew5
-         tracks relocating AiOptions to clean all three consumers at once). -->
-    <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
+    <!-- Generic AI client config + OTEL source/meter (plantry-ew5). Replaces the former cross-context
+         reference to Plantry.Intake.Infrastructure, which only existed to reuse AiOptions/AiTelemetry. -->
+    <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

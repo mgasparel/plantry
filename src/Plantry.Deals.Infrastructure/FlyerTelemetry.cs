@@ -3,8 +3,8 @@ using System.Diagnostics;
 namespace Plantry.Deals.Infrastructure;
 
 /// <summary>
-/// Telemetry primitives for the Deals context's fragile external seam (Flipp). Mirrors
-/// <c>AiTelemetry</c> (Intake): each pull/directory call is wrapped in an <see cref="Activity"/> span so
+/// Telemetry primitives for the Deals context's fragile external seam (Flipp). Mirrors the shared
+/// <c>AiTelemetry</c> pattern: each pull/directory call is wrapped in an <see cref="Activity"/> span so
 /// the most-likely-to-fail, latency-sensitive network hop is individually traceable (Gate 9).
 /// <para>
 /// <strong>Guard:</strong> no PII or secrets are captured — spans carry only the store ref (a merchant

@@ -20,4 +20,10 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Shared AI source/meter name (AiTelemetry.SourceName) for the single AddSource/AddMeter
+         subscription (plantry-ew5). Cross-cutting by definition — ServiceDefaults owns the OTEL wiring. -->
+    <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Intake.Application;
