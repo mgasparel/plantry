@@ -127,6 +127,54 @@ public sealed class RecipeEditorSnapshotTests(RecipeEditorFragmentFactory factor
         await Verify(Extract(html, "#recipe-editor"), "html");
     }
 
+    // ── Photo preview (plantry-nj0e) ──────────────────────────────────────────────
+
+    private const string PhotoPreviewSelector = "a[href$='handler=Photo'] img";
+
+    /// <summary>
+    /// Editing a recipe that HAS a photo renders a thumbnail preview wrapped in an anchor that opens the
+    /// full image (href → the Photo handler, opened in a new tab). Pins the primary acceptance criterion.
+    /// </summary>
+    [Fact]
+    public async Task Editor_edit_recipe_with_photo_shows_clickable_preview()
+    {
+        var html = await GetEditPageAsync(factory.PhotoRecipe.Id.Value);
+        var doc = Parser.ParseDocument(html);
+
+        var previewImg = doc.QuerySelector(PhotoPreviewSelector);
+        Assert.NotNull(previewImg);
+
+        // The wrapping anchor points at the Photo handler and opens the full image in a new tab.
+        var anchor = previewImg!.Closest("a");
+        Assert.NotNull(anchor);
+        Assert.Equal($"/Recipes/{factory.PhotoRecipe.Id.Value}?handler=Photo", anchor!.GetAttribute("href"));
+        Assert.Equal("_blank", anchor.GetAttribute("target"));
+        // The thumbnail itself is served from the same Photo handler.
+        Assert.Equal($"/Recipes/{factory.PhotoRecipe.Id.Value}?handler=Photo", previewImg.GetAttribute("src"));
+    }
+
+    /// <summary>
+    /// Editing a photoless recipe shows NO preview (the other half of the acceptance criterion).
+    /// </summary>
+    [Fact]
+    public async Task Editor_edit_recipe_without_photo_shows_no_preview()
+    {
+        var html = await GetEditPageAsync(factory.EmptyRecipe.Id.Value);
+        var doc = Parser.ParseDocument(html);
+        Assert.Null(doc.QuerySelector(PhotoPreviewSelector));
+    }
+
+    /// <summary>
+    /// Create mode shows NO photo preview (there is no recipe id / photo yet).
+    /// </summary>
+    [Fact]
+    public async Task Editor_create_shows_no_photo_preview()
+    {
+        var html = await GetCreatePageAsync();
+        var doc = Parser.ParseDocument(html);
+        Assert.Null(doc.QuerySelector(PhotoPreviewSelector));
+    }
+
     // ── Edit mode — rich recipe ───────────────────────────────────────────────────
 
     /// <summary>

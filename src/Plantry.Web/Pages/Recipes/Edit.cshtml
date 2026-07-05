@@ -372,6 +372,15 @@
 
                     <div style="grid-column: 1 / -1">
                         <label class="form-grid__field__label" style="font-size:var(--font-size-sm);color:var(--color-text-muted);display:block;margin-bottom:var(--space-1)">Photo</label>
+                        @if (!Model.IsCreate && Model.HasPhoto)
+                        {
+                            <a href="/Recipes/@Model.Id?handler=Photo" target="_blank" rel="noopener"
+                               title="Open full image"
+                               style="display:inline-block;margin-bottom:var(--space-2);border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--color-border);line-height:0">
+                                <img src="/Recipes/@Model.Id?handler=Photo" alt="Current recipe photo" loading="lazy"
+                                     style="display:block;width:120px;height:120px;object-fit:cover" />
+                            </a>
+                        }
                         <input type="file" name="photo" accept="image/*" class="field__input file-field" />
                         @if (!Model.IsCreate)
                         {
