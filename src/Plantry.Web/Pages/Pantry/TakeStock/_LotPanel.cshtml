@@ -3,8 +3,9 @@
 @*
     Lot escape-hatch panel (P4-5, J3).
     Rendered by WalkModel.OnGetLotsAsync into the lot-panel-{productId} placeholder beneath a count row.
-    Alpine component: takeStockLotPanel — tracks per-lot reduce inputs, spoiled toggle, and the
-    "add found stock" form; POSTs to /SaveLots on submit.
+    Alpine component: takeStockLotPanel — tracks per-lot reduce inputs, a per-lot disposition
+    reason (Correction / Used it / Spoiled), and the "add found stock" form; POSTs to /SaveLots
+    on submit.
 *@
 <div class="ts-hatch"
      x-data='takeStockLotPanel(@Html.Raw(BuildLotJson(Model)))'
@@ -52,12 +53,34 @@
                                 @lot.Quantity.ToString("0.###") @lot.UnitCode · No expiry
                             </span>
                         }
-                        <label class="ts-lot-spoiled">
-                            <input type="checkbox"
-                                   :checked="lots['@eid']?.spoiled ?? false"
-                                   x-on:change="setSpoiled('@eid', $event.target.checked)" />
-                            Spoiled (discard)
-                        </label>
+                    </div>
+                </div>
+                @* Disposition reason — only relevant once the count drops below the recorded
+                   amount, mirroring how the parent count row asks "Why the drop?" after a
+                   decrease. Same options and CSS classes as the parent island (take-stock.js),
+                   re-expressed in Alpine because the lot panel is server-rendered Razor. *@
+                <div class="ts-reason" role="group" aria-label="Disposition reason for this lot"
+                     x-show="(lots['@eid']?.original ?? 0) - (lots['@eid']?.amount ?? 0) > 0"
+                     x-cloak>
+                    <span class="ts-reason-lbl">
+                        <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg> Why the drop?
+                    </span>
+                    <div class="ts-reason-opts">
+                        <button type="button" class="ts-reason-opt correction"
+                                :class="{ sel: (lots['@eid']?.reason ?? 'Correction') === 'Correction' }"
+                                x-on:click="setReason('@eid', 'Correction')">
+                            <span class="rdot"></span> Correction
+                        </button>
+                        <button type="button" class="ts-reason-opt consumed"
+                                :class="{ sel: lots['@eid']?.reason === 'Consumed' }"
+                                x-on:click="setReason('@eid', 'Consumed')">
+                            <span class="rdot"></span> Used it
+                        </button>
+                        <button type="button" class="ts-reason-opt discarded"
+                                :class="{ sel: lots['@eid']?.reason === 'Discarded' }"
+                                x-on:click="setReason('@eid', 'Discarded')">
+                            <span class="rdot"></span> Spoiled
+                        </button>
                     </div>
                 </div>
                 <span class="ts-lot-fail"
@@ -107,7 +130,7 @@
         // compute the reduction delta (original − counted) posted to SaveLots, and to decide dirty.
         var lots = m.Lots.ToDictionary(
             l => l.EntryId.ToString(),
-            l => new { amount = l.Quantity, original = l.Quantity, unitId = l.UnitId.ToString(), spoiled = false, failed = false, failMsg = (string?)null });
+            l => new { amount = l.Quantity, original = l.Quantity, unitId = l.UnitId.ToString(), reason = "Correction", failed = false, failMsg = (string?)null });
         // found.unitId defaults to the first lot's unit Guid (the display unit for this product/location).
         var foundUnitId = m.Lots.Count > 0 ? m.Lots[0].UnitId.ToString() : "";
         var json = System.Text.Json.JsonSerializer.Serialize(new

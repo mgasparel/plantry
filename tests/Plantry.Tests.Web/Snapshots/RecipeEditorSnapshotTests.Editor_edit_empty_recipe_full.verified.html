@@ -38,7 +38,9 @@
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
                  newIsTracked: false,
                  newStapleCategoryId: '', newGroupId: '', newGroupName: '',
-                 needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '' };
+                 needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '',
+                 convLeftAmount: '', convLeftUnitId: '', convRightAmount: '', convRightUnitId: '',
+                 convFor: '', stockUnits: [], recipeUnits: [] };
          },
          openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
          // editingIdx carries the row's stable _id while editing (null while adding). The shared
@@ -53,6 +55,11 @@
          },
          saveSheet() {
              if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetOpen = false; return; }
+             // The in-sheet four-field equation (plantry-qno9) is the author's entry point; the committed
+             // row must NOT also show the single-factor row-level backstop. Clear needsConversion on commit —
+             // the raw equation values still POST via hidden inputs, and AuthorRecipe's post-write re-check
+             // re-surfaces the row-level backstop only if the entry genuinely does not connect.
+             this.draft.needsConversion = false;
              // When saving from the create view, mark the row as a tracked product create
              // (plantry-orix). The untracked-staple path (C12) is now only used when newIsTracked
              // is false — which is the legacy path kept for backward compatibility in the data model;
@@ -78,6 +85,32 @@
              this.sheetOpen = false;
          },
          unitLabel(id) { return this.unitCodes[id] || ''; },
+         // ── Four-field conversion equation (plantry-qno9) ──────────────────────────
+         // Looks a unit up in one of the axis lists returned by CheckConversion (each item carries
+         // {id, code, factorToBase}). Returns null when absent so callers stay quiet.
+         _convUnitMeta(id, list) {
+             if (!id || !Array.isArray(list)) return null;
+             return list.find(u => u.id === id) || null;
+         },
+         // Derived echo: translates the entered equation into stock terms, e.g. so 1 cup of Cashews is
+         // about 125 g. Returns '' while either amount is incomplete/invalid so nothing is shown
+         // mid-typing. Pure client-side courtesy; the server re-check remains authoritative.
+         conversionEcho() {
+             const d = this.draft;
+             if (!d || !d.needsConversion || !window.IngredientConversion) return '';
+             const lu = this._convUnitMeta(d.convLeftUnitId, d.stockUnits);
+             const ru = this._convUnitMeta(d.convRightUnitId, d.recipeUnits);
+             const stockDefault = this._convUnitMeta(d.defaultUnitId, d.stockUnits);
+             const recipeLine = this._convUnitMeta(d.unitId, d.recipeUnits);
+             if (!lu || !ru || !stockDefault || !recipeLine) return '';
+             const per = window.IngredientConversion.stockPerRecipeUnit({
+                 leftAmount: d.convLeftAmount, rightAmount: d.convRightAmount,
+                 leftFactor: lu.factorToBase, rightFactor: ru.factorToBase,
+                 recipeLineFactor: recipeLine.factorToBase, stockDefaultFactor: stockDefault.factorToBase });
+             const num = window.IngredientConversion.formatEchoAmount(per);
+             if (num === '') return '';
+             return `Got it — so 1 ${this.unitLabel(d.unitId)} of ${d.productName} ≈ ${num} ${d.defaultUnitCode}.`;
+         },
          // plantry-429l: a tracked (stock-tracked) ingredient row that is missing a quantity or a unit
          // will be rejected by R5 on save. Flag it in-place so the author sees WHICH row is broken
          // instead of dead-ending on the opaque global save error. Computed reactively so it clears the
@@ -204,6 +237,21 @@
                          draft.needsConversion = true;
                          draft.defaultUnitId = data.defaultUnitId || draft.defaultUnitId;
                          draft.defaultUnitCode = data.defaultUnitCode || draft.defaultUnitCode;
+                         // Axis-locked unit lists for the four-field equation (plantry-qno9): LEFT lists
+                         // stock-dimension units, RIGHT lists recipe-line-dimension units.
+                         draft.stockUnits = data.stockUnits || [];
+                         draft.recipeUnits = data.recipeUnits || [];
+                         // Prefill the simplest one-number case (blank stock amount = 1 recipe unit).
+                         // Only (re)prefill when the equation hasn't been built for THIS recipe-line unit yet
+                         // (convFor tracks that) — so switching the recipe unit resets it, but merely
+                         // re-opening a row (or a debounced re-check) preserves the author's in-progress entry.
+                         if (draft.convFor !== draft.unitId) {
+                             draft.convFor = draft.unitId;
+                             draft.convLeftUnitId = draft.defaultUnitId;
+                             draft.convLeftAmount = '';
+                             draft.convRightUnitId = draft.unitId;
+                             draft.convRightAmount = '1';
+                         }
                      } else {
                          draft.needsConversion = false;
                      }
@@ -333,6 +381,10 @@
 							<input type="hidden" :name="'Input.Lines[' + idx + '].IsUntracked'" :value="row.isUntracked">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].GroupHeading'" :value="row.groupHeading">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionFactor'" :value="row.conversionFactor">
+							<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionLeftAmount'" :value="row.convLeftAmount">
+							<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionLeftUnitId'" :value="row.convLeftUnitId">
+							<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionRightAmount'" :value="row.convRightAmount">
+							<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionRightUnitId'" :value="row.convRightUnitId">
 						</div></template>
 				</div>
 				<div id="ingredient-rows" :class="{ 'ingredient-sections--dragging': _dragActive }">
@@ -591,24 +643,32 @@
 					</details>
 				</div>
 				<template x-if="draft.needsConversion"><div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)">
-						<p style="margin:0 0 var(--space-1);font-size:var(--font-size-sm)">
+						<p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
 							Plantry stocks
 							<strong x-text="draft.productName"></strong>
 							in
-							<strong x-text="draft.defaultUnitCode"></strong>.             How much is 1
-							<span x-text="unitLabel(draft.unitId)"></span>?
+							<strong x-text="draft.defaultUnitCode"></strong>.             How does 1
+							<span x-text="unitLabel(draft.unitId)"></span>
+							relate?
 						</p>
-						<div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);flex-wrap:wrap">
-							<span style="font-size:var(--font-size-sm)">1
-								<span x-text="unitLabel(draft.unitId)"></span>
-								=</span>
-							<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="draft.conversionFactor" style="width:8rem">
-							<span style="font-size:var(--font-size-sm)" x-text="draft.defaultUnitCode"></span>
+						<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
+							<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="e.g. 120" x-model="draft.convLeftAmount" aria-label="Stock amount" style="width:5.5rem">
+							<select class="field__input conv-eq__unit" x-model="draft.convLeftUnitId" aria-label="Stock unit" style="width:auto;min-width:5rem">
+								<template x-for="u in (draft.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+							</select>
+							<span style="font-size:var(--font-size-base);color:var(--color-text-muted)">=</span>
+							<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="e.g. 1" x-model="draft.convRightAmount" aria-label="Recipe amount" style="width:5.5rem">
+							<select class="field__input conv-eq__unit" x-model="draft.convRightUnitId" aria-label="Recipe unit" style="width:auto;min-width:5rem">
+								<template x-for="u in (draft.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+							</select>
 						</div>
-						<p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-							Saved to your catalog — you only set this once, and every future recipe reuses it.
+						<p x-show="conversionEcho() !== ''" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+							<span x-text="conversionEcho()"></span>
 						</p>
-						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.conversionFactor = ''">
+						<p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+							Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
+						</p>
+						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''">
 							Measure in
 							<span x-text="draft.defaultUnitCode"></span>
 							instead

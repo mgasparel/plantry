@@ -3358,6 +3358,24 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .cook-shortfall-notice .icon { flex-shrink: 0; width: 16px; height: 16px; margin-top: 1px; }
 .cook-shortfall-notice b { font-weight: 700; }
 
+/* Unit-gap notice — info tone (plantry-qll2.5). Not a warning: the pantry is fine, we just
+   can't convert the stock unit to the recipe unit yet. Same shape as the shortfall notice. */
+.cook-unitgap-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  margin-bottom: var(--space-4);
+}
+.cook-unitgap-notice .icon { flex-shrink: 0; width: 16px; height: 16px; margin-top: 1px; }
+.cook-unitgap-notice b { font-weight: 700; }
+
 /* ── Ingredient list in the card body ────────────────────────────────── */
 .cook-ing-list { padding: 0; }
 
@@ -3410,6 +3428,7 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .cook-ing-status .icon { width: 11px; height: 11px; }
 .cook-ing-status--ok       { background: var(--color-success-bg); color: var(--color-success); }
 .cook-ing-status--shortfall { background: var(--color-warning-bg); color: var(--color-warning); }
+.cook-ing-status--unitgap  { background: var(--color-info-bg);    color: var(--color-info); }
 
 .cook-ing-row__body { min-width: 0; }
 
@@ -3435,6 +3454,34 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   border-radius: 4px;
   white-space: nowrap;
 }
+
+/* Unit-gap tag — same mono shape as the shortfall tag but info tone (plantry-qll2.5).
+   Reads e.g. "480 g on hand · no cup↔g conversion". */
+.cook-unitgap-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--color-info);
+  background: var(--color-info-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* Inline "Add conversion →" link on a unit-gap line. */
+.cook-unitgap-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-info);
+  text-decoration: none;
+}
+.cook-unitgap-link:hover { text-decoration: underline; }
+.cook-unitgap-link .icon { width: 12px; height: 12px; }
 
 .cook-ing-row__qty-edit {
   display: flex;
@@ -6065,3 +6112,77 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .deal-review-row__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .deal-review-row__reject { margin-left: auto; }
+
+/* ── Dev endpoints reference (Dev/Endpoints, development-only) ─────────────────── */
+.dev-endpoints {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.dev-endpoint {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+.dev-endpoint:first-child { border-top: none; }
+.dev-endpoint--danger { background: var(--color-danger-bg); }
+
+.dev-endpoint__meta { min-width: 0; }
+
+.dev-endpoint__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.dev-endpoint__method { font-family: var(--font-mono); }
+
+.dev-endpoint__path {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.dev-endpoint__desc {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.dev-endpoint__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.dev-endpoint__status {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  min-width: 0;
+}
+.dev-endpoint__status[data-state="pending"] { color: var(--color-text-muted); }
+.dev-endpoint__status[data-state="ok"]      { color: var(--color-success); }
+.dev-endpoint__status[data-state="error"]   { color: var(--color-danger); }
+
+.dev-endpoint__invoke--danger {
+  background: var(--color-surface);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+.dev-endpoint__invoke--danger:hover { background: var(--color-danger-bg); }
+
+/* htmx disables the invoke button (hx-disabled-elt) during the request — show the in-flight state. */
+.dev-endpoint__actions .btn:disabled { opacity: 0.6; cursor: progress; }

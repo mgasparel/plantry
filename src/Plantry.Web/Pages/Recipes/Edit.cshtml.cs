@@ -276,15 +276,32 @@ public sealed class EditModel(
         if (path.IsSuccess)
             return new JsonResult(new { needsConversion = false });
 
-        // No path — resolve the default unit code for the prompt display.
+        // No path — resolve the two axis-locked unit lists the four-field equation editor needs
+        // (plantry-qno9). LEFT lists only units sharing the product stock/default-unit dimension;
+        // RIGHT lists only units sharing the chosen recipe-line unit's dimension. Because the two
+        // axes always differ (that is exactly why the prompt appears), the pair always bridges — a
+        // same-dimension "nonsense" entry is impossible by construction, so no live guard is needed.
         var allUnits = await products.ListUnitsAsync(ct);
-        var defaultUnitCode = allUnits.FirstOrDefault(u => u.Id == defaultUnitId)?.Code ?? "";
+        var defaultUnit = allUnits.FirstOrDefault(u => u.Id == defaultUnitId);
+        var recipeUnit  = allUnits.FirstOrDefault(u => u.Id == fromUnitId);
+        var defaultUnitCode = defaultUnit?.Code ?? "";
+
+        var stockUnits = allUnits
+            .Where(u => defaultUnit is not null && u.Dimension == defaultUnit.Dimension)
+            .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
+            .ToList();
+        var recipeUnits = allUnits
+            .Where(u => recipeUnit is not null && u.Dimension == recipeUnit.Dimension)
+            .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
+            .ToList();
 
         return new JsonResult(new
         {
             needsConversion = true,
             defaultUnitId = defaultUnitId.ToString(),
             defaultUnitCode,
+            stockUnits,
+            recipeUnits,
         });
     }
 
@@ -304,19 +321,32 @@ public sealed class EditModel(
         // Build the ingredient lines from form input
         var lines = Input.Lines
             .Where(l => l.ProductId.HasValue || !string.IsNullOrWhiteSpace(l.NewStapleName))
-            .Select(l => new AuthorIngredientLine(
-                ProductId: l.ProductId,
-                Quantity: l.Quantity,
-                UnitId: l.UnitId,
-                GroupHeading: string.IsNullOrWhiteSpace(l.GroupHeading) ? null : l.GroupHeading.Trim(),
-                Ordinal: l.Ordinal,
-                NewStapleName: l.NewStapleName,
-                NewStapleDefaultUnitId: l.NewStapleDefaultUnitId,
-                ConversionFactor: l.ConversionFactor,
-                NewIsTracked: l.NewIsTracked,
-                NewGroupId: l.NewGroupId,
-                NewGroupName: l.NewGroupName,
-                NewStapleCategoryId: l.NewStapleCategoryId))
+            .Select(l =>
+            {
+                // plantry-qno9: the four-field in-sheet equation posts raw amounts + units on each side.
+                // The server is authoritative for the factor: factor = rightAmount / leftAmount (decimal),
+                // from = left unit, to = right unit. Amounts <= 0 (or missing) never produce a factor, so
+                // no ProductConversion is written and AuthorRecipe's post-write re-check re-surfaces
+                // NeedsConversion (no broken recipe saved). When the four-field values are absent (the
+                // single-factor post-save backstop), fall back to the posted ConversionFactor with no
+                // explicit from/to, and AuthorRecipe assumes recipeUnit→productDefault.
+                var (convFactor, convFrom, convTo) = ResolveConversion(l);
+                return new AuthorIngredientLine(
+                    ProductId: l.ProductId,
+                    Quantity: l.Quantity,
+                    UnitId: l.UnitId,
+                    GroupHeading: string.IsNullOrWhiteSpace(l.GroupHeading) ? null : l.GroupHeading.Trim(),
+                    Ordinal: l.Ordinal,
+                    NewStapleName: l.NewStapleName,
+                    NewStapleDefaultUnitId: l.NewStapleDefaultUnitId,
+                    ConversionFactor: convFactor,
+                    NewIsTracked: l.NewIsTracked,
+                    NewGroupId: l.NewGroupId,
+                    NewGroupName: l.NewGroupName,
+                    NewStapleCategoryId: l.NewStapleCategoryId,
+                    ConversionFromUnitId: convFrom,
+                    ConversionToUnitId: convTo);
+            })
             .ToList();
 
         if (lines.Count == 0)
@@ -382,6 +412,26 @@ public sealed class EditModel(
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Server-authoritative resolution of a row's conversion (plantry-qno9). Prefers the four-field
+    /// equation (left/right amounts + units): computes <c>factor = rightAmount / leftAmount</c> with
+    /// <c>from = left unit</c>, <c>to = right unit</c>, and returns no factor when either amount is
+    /// missing or ≤ 0 (so nothing is written and the post-write re-check re-surfaces NeedsConversion).
+    /// Falls back to the single posted <see cref="IngredientRowInput.ConversionFactor"/> (the post-save
+    /// row-level backstop) with no explicit from/to, letting AuthorRecipe assume recipeUnit→productDefault.
+    /// </summary>
+    private static (decimal? Factor, Guid? From, Guid? To) ResolveConversion(IngredientRowInput l)
+    {
+        if (l.ConversionLeftUnitId is { } from && l.ConversionRightUnitId is { } to
+            && l.ConversionLeftAmount is { } left && l.ConversionRightAmount is { } right
+            && left > 0 && right > 0)
+        {
+            return (right / left, from, to);
+        }
+
+        return (l.ConversionFactor, null, null);
+    }
 
     private async Task LoadReferenceDataAsync(CancellationToken ct)
     {
@@ -626,4 +676,14 @@ public sealed class IngredientRowInput
     public Guid ConversionFromUnitId { get; set; }
     public Guid ConversionToUnitId { get; set; }
     public decimal? ConversionFactor { get; set; }
+
+    // ── Four-field equation editor (plantry-qno9) ─────────────────────────────────
+    // The in-sheet prompt lets the author state the cross-measure fact against ANY unit pair
+    // ("1 kg = 8 cups"): LEFT amount+unit (product stock dimension) = RIGHT amount+unit (recipe-line
+    // dimension). The server computes factor = right/left, from = left unit, to = right unit
+    // (see ResolveConversion). These round-trip via hidden inputs so a failed-save re-render keeps them.
+    public decimal? ConversionLeftAmount { get; set; }
+    public Guid? ConversionLeftUnitId { get; set; }
+    public decimal? ConversionRightAmount { get; set; }
+    public Guid? ConversionRightUnitId { get; set; }
 }

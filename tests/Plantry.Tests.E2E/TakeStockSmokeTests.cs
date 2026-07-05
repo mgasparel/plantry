@@ -197,7 +197,7 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
         }
     }
 
-    [Fact(DisplayName = "Take Stock: lot escape hatch — expand lots, adjust two lots, save reflects each (J3/P4-5)")]
+    [Fact(DisplayName = "Take Stock: lot escape hatch — mixed save adjusts two lots, skips a third untouched lot (delta-0 guard) (J3/P4-5, plantry-lawx)")]
     public async Task TakeStock_LotEscapeHatch_ExpandAndAdjustTwoLots()
     {
         var uniqueEmail = $"ts-lot-{Guid.NewGuid():N}@test.local";
@@ -231,7 +231,12 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.ClickAsync("button:has-text('Add product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
-            // ── Add two lots of stock in Pantry (200g + 300g = 500g) ──────────────
+            // ── Add three lots of stock in Pantry (200g + 300g + 100g = 600g) ─────
+            // Two lots will be adjusted in the mixed save; the third is left completely
+            // untouched so its reduction delta stays 0 and the save() loop's
+            // `if (delta <= 0) continue` skip guard (Walk.cshtml) is actually exercised
+            // — a broken guard would post amount:0 for the untouched lot, which the
+            // server rejects, leaving the panel open instead of collapsing (plantry-lawx).
             // Lot 1: 200g, no expiry
             await page.GotoAsync($"{BaseUrl}/Pantry");
             await page.WaitForURLAsync("**/Pantry**");
@@ -261,6 +266,18 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.ClickAsync("button:has-text('Add to pantry')");
             await Assertions.Expect(pantryRow).ToContainTextAsync("500 g", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
 
+            // Lot 3: 100g, no expiry — this lot is left UNTOUCHED during the mixed save.
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            await productSearch.FillAsync(productName);
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "100");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            await Assertions.Expect(pantryRow).ToContainTextAsync("600 g", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+
             // ── Navigate to Take Stock → open Pantry walk ─────────────────────────
             await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
             await page.WaitForURLAsync("**/pantry/take-stock**");
@@ -279,8 +296,8 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // The lot panel should appear with both lots.
             var lotPanel = page.Locator(".ts-hatch");
             await Assertions.Expect(lotPanel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            // Two active lot rows should appear (the panel also contains a .ts-lot.found row for adding found stock).
-            await Assertions.Expect(page.Locator(".ts-lot:not(.found)")).ToHaveCountAsync(2, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
+            // Three active lot rows should appear (the panel also contains a .ts-lot.found row for adding found stock).
+            await Assertions.Expect(page.Locator(".ts-lot:not(.found)")).ToHaveCountAsync(3, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
 
             // ── Regression (plantry-hl6u): each lot input is pre-filled with its current ──────
             // quantity, not 0. The two lots are 200 g and 300 g, so no input may read "0".
@@ -296,29 +313,31 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // (pre-filled with each lot's on-hand amount), and Save posts the reduction delta
             // (original − counted). To remove 50 g from lot 0 and 80 g (spoiled) from lot 1 —
             // order-independently — we count each lot down from its own seeded original.
-            var saveUrl = await page.EvaluateAsync<string>(@"
+            //
+            // plantry-lawx: lot 2 (lotIds[2]) is deliberately left AS-IS so its counted value
+            // equals its original → delta 0 → the save() loop's `if (delta <= 0) continue`
+            // skip guard fires for it. We capture that untouched lot's on-hand so we can assert
+            // afterwards that it was neither reduced nor rejected. Returns the untouched lot's
+            // original on-hand (grams), or -1 if the panel/Alpine state was not as expected.
+            var untouchedOriginal = await page.EvaluateAsync<double>(@"
                 () => {
                     const panel = document.querySelector('.ts-hatch');
-                    if (!panel || !window.Alpine) return null;
+                    if (!panel || !window.Alpine) return -1;
                     const data = window.Alpine.$data(panel);
-                    if (!data || typeof data.setLotAmount !== 'function') return null;
+                    if (!data || typeof data.setLotAmount !== 'function') return -1;
                     const lotIds = Object.keys(data.lots ?? {});
-                    if (lotIds.length >= 1) {
-                        const o0 = data.lots[lotIds[0]].original;
-                        data.setLotAmount(lotIds[0], o0 - 50);   // remove 50 g (Correction)
-                    }
-                    if (lotIds.length >= 2) {
-                        const o1 = data.lots[lotIds[1]].original;
-                        data.setLotAmount(lotIds[1], o1 - 80);   // remove 80 g …
-                        data.setSpoiled(lotIds[1], true);        // … as Discarded (spoiled)
-                    }
-                    // Extract the save URL from the button's x-on:click attribute.
-                    const btn = panel.querySelector('button[x-on\\:click]');
-                    const clickAttr = btn ? btn.getAttribute('x-on:click') : '';
-                    const m = clickAttr && clickAttr.match(/save\('([^']+)'\)/);
-                    return m ? m[1] : null;
+                    if (lotIds.length < 3) return -1;
+                    const o0 = data.lots[lotIds[0]].original;
+                    data.setLotAmount(lotIds[0], o0 - 50);   // remove 50 g (Correction)
+                    const o1 = data.lots[lotIds[1]].original;
+                    data.setLotAmount(lotIds[1], o1 - 80);          // remove 80 g …
+                    data.setReason(lotIds[1], 'Discarded');         // … as Discarded (spoiled)
+                    // lotIds[2] intentionally untouched → delta 0 → skipped by the save guard.
+                    return data.lots[lotIds[2]].original;
                 }
             ");
+            Assert.True(untouchedOriginal > 0,
+                $"expected a third untouched lot with positive on-hand, got {untouchedOriginal}");
 
             // Wait for button to enable (isDirty() reactive update).
             var saveBtn = page.Locator(".ts-hatch button:has-text('Save lot changes')");
@@ -329,14 +348,54 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             // After a successful save, the panel is collapsed by onLotsSaved (parent removes innerHTML).
             // Wait for the lot panel to disappear as a proxy for save success.
+            //
+            // plantry-lawx: this collapse is now a real test of the delta-0 skip guard. The mixed
+            // save posted adjustments for only the two changed lots; the untouched lot was skipped
+            // client-side. If the guard were broken and had posted amount:0 for the untouched lot,
+            // the server would reject it (Amount<=0), the save() result would carry failed > 0, the
+            // `failed === 0` branch would not run, lots-saved would never dispatch, and this panel
+            // would stay OPEN — failing here.
             await Assertions.Expect(lotPanel).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
 
-            // ── Verify Pantry reflects each lot change ────────────────────────────
-            // Stock was 500g; lot 1 reduced by 50 + lot 2 reduced by 80 = 130g removed → 370g
+            // ── Verify Pantry reflects ONLY the two intended reductions ───────────
+            // Stock was 600g; lot A reduced by 50 + lot B reduced by 80 = 130g removed → 470g.
+            // The untouched lot contributes its full on-hand — so 470g proves it was not reduced.
             await page.GotoAsync($"{BaseUrl}/Pantry");
             await page.WaitForURLAsync("**/Pantry**");
             var updatedRow = page.Locator("tr", new() { HasText = productName });
-            await Assertions.Expect(updatedRow).ToContainTextAsync("370 g", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+            await Assertions.Expect(updatedRow).ToContainTextAsync("470 g", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+
+            // ── (b) Re-open the lot panel and confirm the untouched lot is unchanged ──
+            // Re-expanding re-fetches lots fresh from the server. Three active lots must still
+            // exist (none consumed to zero), and the untouched lot's on-hand must still equal the
+            // value we captured before the save — pinning that the delta-0 skip left it intact.
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            await pantryLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+            var reExpandBtn = page.Locator("button.ts-expand").First;
+            await Assertions.Expect(reExpandBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await reExpandBtn.ClickAsync();
+            await Assertions.Expect(lotPanel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".ts-lot:not(.found)")).ToHaveCountAsync(3, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
+
+            // Read the freshly-fetched lot on-hand values from Alpine and assert the untouched
+            // lot's original is still present among them.
+            await page.WaitForFunctionAsync(@"
+                () => {
+                    const panel = document.querySelector('.ts-hatch');
+                    const data = panel && window.Alpine && window.Alpine.$data(panel);
+                    return data && data.lots && Object.keys(data.lots).length === 3;
+                }
+            ");
+            var lotOnHands = await page.EvaluateAsync<double[]>(@"
+                () => {
+                    const panel = document.querySelector('.ts-hatch');
+                    const data = window.Alpine.$data(panel);
+                    return Object.values(data.lots).map(l => Number(l.original));
+                }
+            ");
+            Assert.Contains(untouchedOriginal, lotOnHands);
         }
         finally
         {

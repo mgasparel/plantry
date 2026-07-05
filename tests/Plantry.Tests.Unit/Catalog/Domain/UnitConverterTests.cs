@@ -73,6 +73,29 @@ public sealed class UnitConverterTests
         Assert.Equal(240m, result.Value);
     }
 
+    /// <summary>
+    /// plantry-qno9 AC1: an author who states the fact against ANY unit pair — "1 kg = 8 cups", stored
+    /// as (kg → cup, 8) with NEITHER anchor being the product default (g) — still resolves a recipe
+    /// measured in cups against stock in g. The converter bridges the stock side (kg → g, ×1000) and
+    /// inverts the conversion, so 2 cup → 250 g. Regression cover for the "define against any unit" flow.
+    /// </summary>
+    [Fact]
+    public void ProductConversion_AnchoredOnNonDefaultUnits_ResolvesRecipeUnitAgainstStock()
+    {
+        var cups = MakeUnit("cup", Dimension.Volume, 240m);
+        var grams = MakeUnit("g", Dimension.Mass, 1m, isBase: true);
+        var kilograms = MakeUnit("kg", Dimension.Mass, 1000m);
+        var product = Product.Create(HouseholdId, "Cashews", grams.Id, SystemClock.Instance);
+        // The author's verbatim fact: "1 kg = 8 cups" → (from = kg, to = cup, factor = 8).
+        var conversion = MakeConversion(product, kilograms.Id, cups.Id, 8m);
+
+        var result = UnitConverter.Convert(
+            2m, cups.Id.Value, grams.Id.Value, [cups, grams, kilograms], [conversion]);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(250m, result.Value);
+    }
+
     [Fact]
     public void ProductConversion_InverseDirection_Divides_By_Factor()
     {

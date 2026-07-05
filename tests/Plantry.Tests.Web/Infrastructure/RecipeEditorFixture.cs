@@ -207,11 +207,15 @@ public static class RecipeEditorFixture
             [EachUnitId] = "ea",
         };
 
-    /// <summary>Unit options for the unit dropdown in the ingredient rows.</summary>
+    /// <summary>
+    /// Unit options for the unit dropdown in the ingredient rows. Carries Dimension + FactorToBase
+    /// (plantry-qno9) so the CheckConversion handler can build the axis-locked stock/recipe unit lists:
+    /// gram is mass, each is count — a cross-dimension pair, so a conversion is always required between them.
+    /// </summary>
     public static IReadOnlyList<CatalogUnitOption> UnitOptions() =>
     [
-        new(GramUnitId, "g"),
-        new(EachUnitId, "ea"),
+        new(GramUnitId, "g",  "mass",  1m),
+        new(EachUnitId, "ea", "count", 1m),
     ];
 
     /// <summary>

@@ -150,8 +150,18 @@ public sealed class AuthorRecipe(
         // then collect the lines that still have no path. Save is blocked while any remain.
         foreach (var r in resolved)
         {
-            if (NeedsConversionCheck(r) && r.Line.ConversionFactor is { } factor)
-                await catalogWriter.AddConversionAsync(r.ProductId, r.Line.UnitId!.Value, r.DefaultUnitId, factor, ct);
+            if (NeedsConversionCheck(r) && r.Line.ConversionFactor is { } factor && factor > 0)
+            {
+                // plantry-qno9: the author can now define the conversion against ANY unit pair
+                // ("1 kg = 8 cups"), not just recipeUnit→productDefault. When the line carries an
+                // explicit from/to (the four-field in-sheet equation), honour it verbatim; otherwise
+                // fall back to the legacy assumption (from = the recipe line unit, to = product default)
+                // used by the post-save row-level backstop's single-factor form.
+                var fromUnitId = r.Line.ConversionFromUnitId ?? r.Line.UnitId!.Value;
+                var toUnitId = r.Line.ConversionToUnitId ?? r.DefaultUnitId;
+                if (fromUnitId != toUnitId)
+                    await catalogWriter.AddConversionAsync(r.ProductId, fromUnitId, toUnitId, factor, ct);
+            }
         }
 
         var missing = new List<ConversionNeeded>();
@@ -298,9 +308,12 @@ public sealed record AuthorRecipeCommand(
 ///     </description>
 ///   </item>
 /// </list>
-/// <see cref="ConversionFactor"/> is the author-supplied factor (from <see cref="UnitId"/> to the
-/// product's default unit) returned on the retry after a <see cref="AuthorRecipeResult.NeedsConversion"/>
-/// outcome (C10).
+/// <see cref="ConversionFactor"/> is the author-supplied factor written to Catalog when a unit→product
+/// conversion path is missing (C10). <see cref="ConversionFromUnitId"/> / <see cref="ConversionToUnitId"/>
+/// carry the explicit unit pair the author defined the conversion against (plantry-qno9 four-field
+/// equation — e.g. from = kg, to = cup for "1 kg = 8 cups"); when null the service falls back to the
+/// legacy assumption (from = <see cref="UnitId"/>, to = product default) used by the single-factor
+/// post-save backstop.
 /// </summary>
 public sealed record AuthorIngredientLine(
     Guid? ProductId,
@@ -314,7 +327,9 @@ public sealed record AuthorIngredientLine(
     bool NewIsTracked = false,
     string? NewGroupId = null,
     string? NewGroupName = null,
-    Guid? NewStapleCategoryId = null);
+    Guid? NewStapleCategoryId = null,
+    Guid? ConversionFromUnitId = null,
+    Guid? ConversionToUnitId = null);
 
 // ── Result ──────────────────────────────────────────────────────────────────────────────────────
 

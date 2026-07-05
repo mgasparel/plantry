@@ -1,0 +1,67 @@
+@page
+@model Plantry.Web.Pages.Settings.AiModel
+@{
+    ViewData["Title"] = "AI assistance";
+}
+
+<div class="cfg-wrap" data-screen-label="AI assistance">
+    <div class="cfg-head">
+        <div class="eyebrow">Household setup</div>
+        <h1>AI assistance</h1>
+        <p>
+            Plantry uses AI to take the busywork out of a few flows &mdash; suggesting recipe tags,
+            flagging diet-tag contradictions, and working out unit conversions. Turn it off and every
+            one of these keeps working; you just handle that step yourself.
+        </p>
+    </div>
+
+    <form method="post" class="form-stack">
+        <div class="card" style="max-width: 40rem">
+            <div class="card__head">
+                <div>
+                    <h3 class="card__head-title">AI assistance</h3>
+                    <p class="card__head-sub">Applies household-wide to everything listed below.</p>
+                </div>
+                <div class="card__head-actions">
+                    <div class="seg-ctrl" role="group" aria-label="AI assistance">
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="Enabled" value="true" checked="@Model.Enabled" />
+                            <span>On</span>
+                        </label>
+                        <label class="seg-ctrl__item">
+                            <input type="radio" name="Enabled" value="false" checked="@(!Model.Enabled)" />
+                            <span>Off</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="card__body">
+                <p>When on, Plantry helps you with:</p>
+                <ul>
+                    <li>Recipe tag suggestions when you create or import a recipe</li>
+                    <li>The diet-tag contradiction nudge when you save a recipe</li>
+                    <li>Weight-to-volume conversions when a recipe needs one</li>
+                    <li>Weight-to-each conversions while you review a scanned receipt</li>
+                </ul>
+                <p style="margin:var(--space-3) 0 0;color:var(--color-text-muted);font-size:13px;line-height:1.5">
+                    Turning this off never blocks you &mdash; each of these has a manual path, and Plantry
+                    won&rsquo;t nag you to switch it back on. Receipt scanning isn&rsquo;t governed here:
+                    reading a receipt <em>is</em> the scan feature, so you control that cost simply by
+                    choosing whether to scan.
+                </p>
+            </div>
+        </div>
+
+        @if (Model.Saved)
+        {
+            <div class="tag-saved show" role="status" aria-live="polite"
+                 style="margin-bottom:14px;display:flex;align-items:center;gap:6px;color:var(--color-success);font-size:13px;font-weight:600">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                Setting saved
+            </div>
+        }
+
+        <button type="submit" class="btn btn--primary">Save</button>
+    </form>
+</div>

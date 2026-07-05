@@ -96,7 +96,7 @@ public sealed class CatalogProductReaderAdapter(
         var all = await units.ListAsync(ct);
         return all
             .OrderBy(u => u.Code)
-            .Select(u => new CatalogUnitOption(u.Id.Value, u.Code))
+            .Select(u => new CatalogUnitOption(u.Id.Value, u.Code, u.Dimension.ToDbValue(), u.FactorToBase))
             .ToList();
     }
 
