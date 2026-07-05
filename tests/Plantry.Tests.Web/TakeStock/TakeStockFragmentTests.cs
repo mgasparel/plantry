@@ -520,6 +520,65 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
             keys);
     }
 
+    [Fact(DisplayName = "POST AddItem returns the count unit (not the product default) when they differ (plantry-8hic)")]
+    public async Task Post_AddItem_DivergentCountUnit_ReturnsCountUnit_NotDefault()
+    {
+        // Regression for plantry-8hic. The inline-add sheet lets a user pick an opening-count unit
+        // distinct from the new product's default unit (e.g. create Flour with default kg but count
+        // the opening balance in g). The opening lot is recorded in the COUNT unit; the client seeds
+        // the injected row dirty and re-saves it posting countedUnitId = row.unitId. If the response
+        // returned the DEFAULT unit while it differs from the count unit, the re-save would recompute
+        // the recorded sum in the wrong unit — a spurious 'Failed to save' (no conversion path) or a
+        // large erroneous delta (a global mass conversion resolves). The response must therefore carry
+        // the count unit so the row unit matches the recorded lot and RecordCountCommand stays NoOp.
+        //
+        // A dedicated factory gives an isolated stock repository so the persisted opening lot can be
+        // inspected without colliding with the shared class-fixture repo.
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name          = "Divergent Unit Flour",
+            defaultUnitId = TakeStockFixture.KgUnitId,   // product default = kg
+            countedValue  = 500m,
+            countedUnitId = TakeStockFixture.GramUnitId, // opening count entered in g
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess, $"Expected success but got error: {data.Error}");
+
+        // The row unit is the count unit (what the opening lot was recorded in), NOT the default unit.
+        Assert.Equal(TakeStockFixture.GramUnitId, data.UnitId);
+        Assert.NotEqual(TakeStockFixture.KgUnitId, data.UnitId);
+
+        // End-to-end proof: the persisted opening lot is in the count unit, so the row unit the client
+        // re-posts matches the recorded lot — the invariant that keeps the re-save a NoOp.
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == data.ProductId);
+        var lot = stock.Entries.Single(e => e.IsActive);
+        Assert.Equal(TakeStockFixture.GramUnitId, lot.UnitId);
+        Assert.Equal(data.UnitId, lot.UnitId);
+    }
+
     // ── J5: Category forwarding on standalone Path C (plantry-l92u) ──────────
 
     [Fact(DisplayName = "POST AddItem with categoryId on standalone path routes to CreateTrackedProductAsync with category (J5, plantry-l92u)")]
@@ -1061,6 +1120,7 @@ public static class TakeStockFixture
     public static readonly Guid FridgeLocId   = Guid.Parse("11111111-0000-0000-0000-100000000002");
     public static readonly Guid FlourId       = Guid.Parse("22222222-0000-0000-0000-200000000001");
     public static readonly Guid GramUnitId    = Guid.Parse("33333333-0000-0000-0000-300000000001");
+    public static readonly Guid KgUnitId      = Guid.Parse("33333333-0000-0000-0000-300000000002");
     public static readonly Guid LotAId        = Guid.Parse("44444444-0000-0000-0000-400000000001");
     public static readonly Guid LotBId        = Guid.Parse("44444444-0000-0000-0000-400000000002");
 
@@ -1498,11 +1558,18 @@ public sealed class TakeStockGroupedProductFactory : WebApplicationFactory<Progr
     /// <summary>Exposed so tests can assert on which creation path was invoked.</summary>
     public FakeTsCatalogWriter CatalogWriter { get; } = new FakeTsCatalogWriter();
 
+    /// <summary>
+    /// Exposed so inline-add tests can inspect the opening-balance lot that was persisted (e.g. to
+    /// assert the lot was recorded in the count unit). A dedicated instance per factory keeps the
+    /// stock isolated from the shared class-fixture repository (plantry-8hic).
+    /// </summary>
+    public FakeTsStockRepository StockRepository { get; } = new FakeTsStockRepository();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
-            TakeStockFragmentFactory.RegisterFakes(services, catalogWriter: CatalogWriter));
+            TakeStockFragmentFactory.RegisterFakes(services, StockRepository, CatalogWriter));
     }
 
     public HttpClient CreateAuthClient(Guid householdId)

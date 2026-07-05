@@ -212,8 +212,19 @@ public sealed class WalkModel(
         var productId = result.Value;
 
         // Resolve the unit code for the response — the client needs it to display the row.
+        //
+        // The row must carry the unit the opening balance was ACTUALLY recorded in (countUnit),
+        // not the product default unit (plantry-8hic). RecordCountCommand persisted the opening lot
+        // in countUnit, and the client seeds the injected row dirty (recorded 0, counted = value)
+        // then re-saves it posting countedUnitId = row.unitId. If the row carried the default unit
+        // while it differs from countUnit, the re-save would recompute the recorded sum in the
+        // default unit: with no conversion path it fails ('Failed to save' on the just-added
+        // product); with a global mass conversion it would treat the counted value as being in the
+        // default unit and post a large erroneous delta. Returning countUnit makes the re-saved
+        // unit match the recorded lot, so RecordCountCommand's NoOp idempotency holds regardless of
+        // whether the user chose an opening-count unit distinct from the product default.
         var units = await unitRepository.ListAsync(ct);
-        var unitCode = units.FirstOrDefault(u => u.Id.Value == payload.DefaultUnitId)?.Code ?? "?";
+        var unitCode = units.FirstOrDefault(u => u.Id.Value == countUnit)?.Code ?? "?";
 
         return new JsonResult(new
         {
@@ -221,7 +232,7 @@ public sealed class WalkModel(
             productId,
             productName = payload.Name.Trim(),
             unitCode,
-            unitId = payload.DefaultUnitId,
+            unitId = countUnit,
             countedValue = payload.CountedValue,
         });
     }
