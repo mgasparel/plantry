@@ -1,0 +1,66 @@
+@page
+@model Plantry.Web.Pages.Dev.EndpointsModel
+@{
+    ViewData["Title"] = "Dev endpoints";
+}
+
+@* Antiforgery token — htmx-antiforgery.js attaches it as a header to every POST invoke below. *@
+@Html.AntiForgeryToken()
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Dev endpoints</h2>
+        <a class="btn btn--ghost btn--sm" asp-page="./Index">&larr; Component gallery</a>
+    </div>
+    <p>
+        Every dev-only <code>/Dev/*</code> endpoint, sourced from the app's own routing registry
+        (<code>MapDevPost</code>) &mdash; a new endpoint mapped through that helper appears here with
+        no edit to this page. Development-only: <code>DevPagesGateMiddleware</code> 404s all
+        <code>/Dev</code> paths outside <code>Development</code>. Invoke a row to POST to it and see
+        the response status inline.
+    </p>
+</section>
+
+<section class="catalog-section">
+    @if (Model.Endpoints.Count == 0)
+    {
+        <p class="dev-endpoints__empty">No dev endpoints are registered.</p>
+    }
+    else
+    {
+        <ul class="dev-endpoints">
+            @foreach (var e in Model.Endpoints)
+            {
+                var confirm = e.Destructive
+                    ? $"Run {e.Path}? This wipes data and cannot be undone."
+                    : null;
+                <li class="dev-endpoint@(e.Destructive ? " dev-endpoint--danger" : "")">
+                    <div class="dev-endpoint__meta">
+                        <div class="dev-endpoint__head">
+                            <span class="badge badge--neutral dev-endpoint__method">@e.Method</span>
+                            <code class="dev-endpoint__path">@e.Path</code>
+                            @if (e.Destructive)
+                            {
+                                <span class="badge badge--danger">destructive</span>
+                            }
+                        </div>
+                        <p class="dev-endpoint__desc">@e.Description</p>
+                    </div>
+                    <div class="dev-endpoint__actions">
+                        <span class="dev-endpoint__status" role="status" aria-live="polite"></span>
+                        <button type="button"
+                                class="btn btn--sm @(e.Destructive ? "dev-endpoint__invoke--danger" : "btn--secondary")"
+                                hx-post="@e.Path"
+                                hx-swap="none"
+                                hx-disabled-elt="this"
+                                hx-confirm="@confirm"
+                                hx-on::before-request="var s = this.closest('.dev-endpoint').querySelector('.dev-endpoint__status'); s.textContent = 'Running…'; s.dataset.state = 'pending';"
+                                hx-on::after-request="var s = this.closest('.dev-endpoint').querySelector('.dev-endpoint__status'); s.textContent = event.detail.xhr.status + ' ' + (event.detail.xhr.statusText || (event.detail.successful ? 'OK' : 'Error')); s.dataset.state = event.detail.successful ? 'ok' : 'error';">
+                            Invoke
+                        </button>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+</section>

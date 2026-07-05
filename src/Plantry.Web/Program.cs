@@ -575,6 +575,11 @@ builder.Services.AddScoped<IReviewReferenceDataProvider, ReviewReferenceDataProv
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<FakeDataSeeder>();
 
+// Registry of dev-only endpoints, populated by MapDevPost as routes are mapped and rendered by the
+// /Dev/Endpoints reference page. Registered unconditionally (harmless when empty) so the page model
+// can always resolve it; the endpoints themselves are still only mapped in Development below.
+builder.Services.AddSingleton<DevEndpointRegistry>();
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -595,36 +600,37 @@ app.UseRls();
 
 if (app.Environment.IsDevelopment())
 {
-    // Dev-only endpoints for the Aspire dashboard seed commands.
-    // Gated by DevPagesGateMiddleware above (returns 404 in non-Development).
-    app.MapPost("/Dev/Seed", async (FakeDataSeeder seeder, CancellationToken ct) =>
+    // Dev-only endpoints, each mapped via MapDevPost so it auto-appears on the /Dev/Endpoints
+    // reference page (registry-sourced — a new endpoint added through the helper needs no page edit).
+    // All are gated by DevPagesGateMiddleware above (returns 404 outside Development).
+    app.MapDevPost("/Dev/Seed", async (FakeDataSeeder seeder, CancellationToken ct) =>
     {
         await seeder.SeedAsync(ct);
         return Results.Ok();
-    });
+    }, "Additively seed fake demo data (products, recipes, inventory) without wiping what's already there.");
 
-    app.MapPost("/Dev/Reset", async (FakeDataSeeder seeder, CancellationToken ct) =>
+    app.MapDevPost("/Dev/Reset", async (FakeDataSeeder seeder, CancellationToken ct) =>
     {
         await seeder.ResetAndSeedAsync(ct);
         return Results.Ok();
-    });
+    }, "Wipe ALL data, then reseed the fake demo data set from scratch.", destructive: true);
 
     // Deals §7e "pull now": drive one full flyer-ingestion sweep on demand instead of waiting for the
     // daily timer (P5-6). Dev-only (gated by DevPagesGateMiddleware); the sweep arms tenancy per household.
-    app.MapPost("/Dev/Deals/PullNow", async (FlyerIngestionCycle cycle, CancellationToken ct) =>
+    app.MapDevPost("/Dev/Deals/PullNow", async (FlyerIngestionCycle cycle, CancellationToken ct) =>
     {
         await cycle.RunAsync(ct);
         return Results.Ok();
-    });
+    }, "Drive one full flyer-ingestion sweep on demand (Deals §7e) instead of waiting for the daily timer.");
 
     // DM-16 part D "backfill now": drive the one-time store-id backfill across every household on demand
     // (the sweep is not scheduled and never runs at boot). Dev-only (gated by DevPagesGateMiddleware);
     // idempotent + re-runnable, so re-triggering is safe. Mirrors /Dev/Deals/PullNow.
-    app.MapPost("/Dev/Pricing/BackfillPurchaseStores", async (PurchaseStoreBackfillCycle cycle, CancellationToken ct) =>
+    app.MapDevPost("/Dev/Pricing/BackfillPurchaseStores", async (PurchaseStoreBackfillCycle cycle, CancellationToken ct) =>
     {
         await cycle.RunAsync(ct);
         return Results.Ok();
-    });
+    }, "Run the one-time purchase-store-id backfill across every household (DM-16 part D; idempotent, re-runnable).");
 }
 
 app.MapStaticAssets();

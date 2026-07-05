@@ -6,11 +6,16 @@
 }
 
 <section class="catalog-section">
-    <h2 class="catalog-section__heading">Component gallery</h2>
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Component gallery</h2>
+        <a class="btn btn--ghost btn--sm" asp-page="./Endpoints">Dev endpoints &rarr;</a>
+    </div>
     <p>
         Development-only page (hidden and 404'd outside <code>Development</code> — see
         <code>DevPagesGateMiddleware</code>) for building and browsing reusable UI primitives
         away from any real feature page. Demo data only — nothing here touches Catalog.
+        For the dev-only <code>/Dev/*</code> action endpoints (seed, reset, …), see
+        <a asp-page="./Endpoints">Dev endpoints</a>.
     </p>
 </section>
 
