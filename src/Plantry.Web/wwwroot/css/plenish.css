@@ -562,6 +562,33 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--color-danger);
 }
 
+/* ── File upload ───────────────────────────────────────────────────────────── */
+/* Compose with `.field__input` (the shared input frame): `.file-field` restyles the
+   native `::file-selector-button` to match `.btn--secondary` so a file picker sits
+   flush with the rest of a form. Token-driven, so it tracks every theme; CSS-only, so
+   it degrades to the native control where `::file-selector-button` is unsupported. */
+.file-field {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.file-field::file-selector-button {
+  margin-right: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.file-field::file-selector-button:hover {
+  background: var(--color-bg-subtle);
+}
+
 /* ── Field rows ────────────────────────────────────────────────────────────── */
 /* A fixed label column keeps every row's control aligned, unlike `.field--inline`
    (a row flexbox where each label is sized to its own text). */
