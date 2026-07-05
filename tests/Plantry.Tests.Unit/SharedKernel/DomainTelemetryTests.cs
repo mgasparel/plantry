@@ -371,6 +371,7 @@ public sealed class DomainTelemetryTests
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
         var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
         products.AddTracked(productId, unitId);
 
@@ -379,7 +380,7 @@ public sealed class DomainTelemetryTests
         recipes.Items.Add(recipe);
 
         var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, clock, tenant, reconciler,
-            NullLogger<CookRecipe>.Instance);
+            deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
         await service.ExecuteAsync(new CookRecipeCommand(recipe.Id, 4, userId, []));
@@ -404,9 +405,10 @@ public sealed class DomainTelemetryTests
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
         var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
         var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, clock, tenant, reconciler,
-            NullLogger<CookRecipe>.Instance);
+            deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
         await service.ExecuteAsync(new CookRecipeCommand(RecipeId.New(), 4, userId, []));
@@ -614,6 +616,9 @@ internal sealed class MetricsTestCookEventRepository : ICookEventRepository
     public Task<IReadOnlyList<CookEvent>> ListByRecipeAsync(RecipeId recipeId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CookEvent>>([]);
     public Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CookEvent>>([]);
+    public Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CookEvent>>([]);
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

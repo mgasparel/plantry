@@ -1,5 +1,7 @@
 using Plantry.Catalog.Infrastructure;
+using Plantry.Inventory.Infrastructure;
 using Plantry.Recipes.Application;
+using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Background;
@@ -42,13 +44,24 @@ public sealed class RecipeConversionSeedTrigger(
         await queue.EnqueueAsync(async (sp, workCt) =>
         {
             // Arm tenancy with no HTTP request, exactly as FlyerIngestionCycle does: the Postgres RLS GUC
-            // plus the Catalog EF query filter. The seeder only touches Catalog (products/conversions), so
-            // those two are sufficient.
+            // plus the EF query filters. The seeder touches Catalog (products/conversions); the deferred
+            // unit-gap follow-up below also reads Recipes (cook_consume_line) and drives an Inventory
+            // consume, so all three query filters must be armed or the follow-up is a silent no-op / leak.
             sp.GetRequiredService<TenantContext>().Set(householdId);
             sp.GetRequiredService<CatalogDbContext>().SetHouseholdId(householdId);
+            sp.GetRequiredService<RecipesDbContext>().SetHouseholdId(householdId);
+            sp.GetRequiredService<InventoryDbContext>().SetHouseholdId(householdId);
 
             var seeder = sp.GetRequiredService<RecipeConversionSeeder>();
             await seeder.SeedAsync(gaps, workCt);
+
+            // Composition-layer trigger for plantry-qll2.6: a conversion just landed for these products, so
+            // retro-apply any DeferredUnitGap consume lines waiting on them (whatever their provenance — this
+            // is the AI-seed path; the manual add/promote paths call ApplyDeferredUnitGaps directly). Cheap
+            // and idempotent: a product with no deferred line, or whose seed was skipped/unfilled, is a no-op.
+            var applier = sp.GetRequiredService<ApplyDeferredUnitGaps>();
+            var productIds = gaps.Select(g => g.ProductId).Distinct().ToList();
+            await applier.ExecuteAsync(productIds, workCt);
         }, ct);
 
         logger.LogInformation(

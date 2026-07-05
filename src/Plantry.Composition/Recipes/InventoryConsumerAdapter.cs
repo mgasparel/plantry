@@ -63,8 +63,23 @@ public sealed class InventoryConsumerAdapter(
         var result = await command.ExecuteAsync(ct);
 
         if (result.IsFailure)
+        {
+            // Discriminate the unit-gap case from a genuine no-stock shortfall by Error.Code
+            // (plantry-qll2.6). Inventory's Consume returns Catalog.UnresolvableConversion when no
+            // ProductConversion bridges the ingredient unit to the stock unit — the consume planning
+            // pass fails atomically before any lot mutation, so the pantry is untouched and the consume
+            // is merely owed until a conversion lands. Surface that as DeferredUnitGapException so the
+            // cook flow records the line DeferredUnitGap (retriable), not Shorted. Every other failure
+            // — including Inventory.NoStock (no stock record at all) — keeps the plain
+            // InvalidOperationException the port has always thrown, which the cook flow treats as a hard
+            // shortfall that must never be retried.
+            if (result.Error.Code == "Catalog.UnresolvableConversion")
+                throw new DeferredUnitGapException(
+                    $"Inventory consume deferred — no conversion bridges the unit gap ({result.Error.Code}): {result.Error.Description}");
+
             throw new InvalidOperationException(
                 $"Inventory consume failed ({result.Error.Code}): {result.Error.Description}");
+        }
 
         var outcome = result.Value;
         return new ConsumeResult(outcome.ShortfallAmount, outcome.RequestUnitId);

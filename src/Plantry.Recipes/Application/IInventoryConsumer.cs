@@ -19,7 +19,11 @@ public interface IInventoryConsumer
     /// <paramref name="reason"/>, <paramref name="userId"/>, and <paramref name="cookEventId"/> as
     /// the source reference. Returns a <see cref="ConsumeResult"/> that reports any shortfall; never
     /// throws on shortfall. Throws <see cref="InvalidOperationException"/> when the product has no
-    /// stock record at all (no lots ever added).
+    /// stock record at all (no lots ever added). Throws <see cref="DeferredUnitGapException"/> when the
+    /// product HAS stock but no <c>ProductConversion</c> bridges <paramref name="unitId"/> to the stock
+    /// unit (Inventory's <c>Catalog.UnresolvableConversion</c>) — the pantry is untouched and the consume
+    /// is owed until a conversion lands; the two failure modes are deliberately distinct types so the
+    /// cook flow can record a retriable unit gap separately from a hard no-stock shortfall (plantry-qll2.6).
     ///
     /// <paramref name="sourceLineRef"/> is the per-consume-operation idempotency token (plantry-292a /
     /// plantry-fks): the <c>CookConsumeLine.Id</c> (a per-cook-unique <see cref="Guid"/>) that

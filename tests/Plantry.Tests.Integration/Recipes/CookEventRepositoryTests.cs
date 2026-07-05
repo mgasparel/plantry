@@ -105,6 +105,91 @@ public sealed class CookEventRepositoryTests(PostgresFixture db) : IAsyncLifetim
         Assert.Empty(events);
     }
 
+    // ── DeferredUnitGap persistence + query (plantry-qll2.6) ────────────────────
+
+    [Fact(DisplayName = "DeferredUnitGap line persists (CHECK admits it) and reloads with its status")]
+    public async Task DeferredUnitGap_Line_Persists_And_Reloads()
+    {
+        var userId = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new CookEventRepository(ctx);
+            var cookEvent = CookEvent.Record(_recipeId, _household, 2, userId, _clock).Value;
+            var line = cookEvent.AddConsumeLine(Guid.CreateVersion7(), productId, 150m, unitId);
+            line.MarkDeferredUnitGap(); // the widened ck_cook_consume_line_status CHECK must admit this
+            await repo.AddAsync(cookEvent);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var events = await new CookEventRepository(ctx2)
+            .ListWithDeferredUnitGapLinesForProductsAsync([productId]);
+
+        var loaded = Assert.Single(events);
+        var loadedLine = Assert.Single(loaded.ConsumeLines);
+        Assert.Equal(CookConsumeLineStatus.DeferredUnitGap, loadedLine.Status);
+        Assert.Equal(productId, loadedLine.ProductId);
+        Assert.Equal(150m, loadedLine.Shortfall);
+    }
+
+    [Fact(DisplayName = "SupersededByCount line persists (CHECK admits it)")]
+    public async Task SupersededByCount_Line_Persists()
+    {
+        var userId = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new CookEventRepository(ctx);
+            var cookEvent = CookEvent.Record(_recipeId, _household, 2, userId, _clock).Value;
+            var line = cookEvent.AddConsumeLine(Guid.CreateVersion7(), productId, 50m, Guid.CreateVersion7());
+            line.MarkDeferredUnitGap();
+            line.MarkSupersededByCount();
+            await repo.AddAsync(cookEvent);
+            await repo.SaveChangesAsync(); // must not violate the status CHECK
+        }
+
+        // A voided line is not returned by the deferred-line query.
+        await using var ctx2 = NewContext();
+        var events = await new CookEventRepository(ctx2)
+            .ListWithDeferredUnitGapLinesForProductsAsync([productId]);
+        Assert.Empty(events);
+    }
+
+    [Fact(DisplayName = "ListWithDeferredUnitGapLinesForProductsAsync filters by product and status")]
+    public async Task ListWithDeferredUnitGapLines_Filters_By_Product_And_Status()
+    {
+        var userId = Guid.CreateVersion7();
+        var deferredProduct = Guid.CreateVersion7();
+        var otherProduct = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new CookEventRepository(ctx);
+            var cookEvent = CookEvent.Record(_recipeId, _household, 2, userId, _clock).Value;
+            // Deferred line for the product we query.
+            cookEvent.AddConsumeLine(Guid.CreateVersion7(), deferredProduct, 20m, unitId).MarkDeferredUnitGap();
+            // An Applied line on a different product must not match.
+            cookEvent.AddConsumeLine(Guid.CreateVersion7(), otherProduct, 30m, unitId).MarkApplied(0m);
+            await repo.AddAsync(cookEvent);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var repo2 = new CookEventRepository(ctx2);
+
+        // Querying the OTHER (applied) product returns nothing.
+        Assert.Empty(await repo2.ListWithDeferredUnitGapLinesForProductsAsync([otherProduct]));
+        // Empty product set returns nothing.
+        Assert.Empty(await repo2.ListWithDeferredUnitGapLinesForProductsAsync([]));
+        // Querying the deferred product returns the event.
+        Assert.Single(await repo2.ListWithDeferredUnitGapLinesForProductsAsync([deferredProduct]));
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private RecipesDbContext NewContext()

@@ -580,6 +580,15 @@ builder.Services.AddScoped<BrowseRecipesQuery>();
 // endpoint. No background poller (ADR-010 defers infra until needed).
 builder.Services.AddScoped<ReconcilePendingCooks>();
 
+// Deferred unit-gap convergence (plantry-qll2.6). ApplyDeferredUnitGaps retro-applies DeferredUnitGap
+// consume lines once a conversion for their (product, unit-pair) lands — called synchronously from the
+// Composition layer after a conversion is added/promoted (manual product-detail add/promote + the qll2.4
+// AI-seed trigger) and opportunistically at CookRecipe entry as a self-heal. VoidDeferredUnitGapLines
+// supersedes them when an absolute Take Stock count observes the product's real level. Both re-use the
+// idempotent IInventoryConsumer path and the ICookEventRepository — same shape as ReconcilePendingCooks.
+builder.Services.AddScoped<ApplyDeferredUnitGaps>();
+builder.Services.AddScoped<VoidDeferredUnitGapLines>();
+
 // Cook-a-recipe application service (P2-3c, recipes-domain-model.md §7). Drives the J4 cook flow:
 // ServingsScale + variant resolution (C7/C11) + atomic consume + cook event write (§7/§8).
 // Runs an opportunistic reconciliation sweep (292c) at entry before starting the new cook.

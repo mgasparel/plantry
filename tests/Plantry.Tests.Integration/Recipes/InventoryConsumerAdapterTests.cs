@@ -187,6 +187,50 @@ public sealed class InventoryConsumerAdapterTests(PostgresFixture db) : IAsyncLi
                 ConsumeReason.Recipe, cookEventId, _userId, sourceLineRef: Guid.CreateVersion7()));
     }
 
+    // ── Unit gap is discriminated from no-stock by Error.Code (plantry-qll2.6) ──────
+
+    [Fact(DisplayName = "Consume throws DeferredUnitGapException (not InvalidOperationException) when no conversion bridges the unit gap")]
+    public async Task Consume_Throws_DeferredUnitGap_When_No_Conversion_Bridges_And_Leaves_Pantry_Untouched()
+    {
+        var cookEventId = Guid.CreateVersion7();
+
+        // A volume unit with no conversion path to the product's gram stock unit.
+        Guid cupUnitId;
+        await using (var catalogDb = NewCatalogDb())
+        {
+            var cup = CatalogUnit.Create(_household, "cup", "cup", Dimension.Volume, 1m, isBase: true);
+            await catalogDb.Units.AddAsync(cup);
+            await catalogDb.SaveChangesAsync();
+            cupUnitId = cup.Id.Value;
+        }
+
+        // The product HAS a stock record (a 500 g lot) — this is a unit gap, NOT a no-stock shortfall.
+        await using (var invDb = NewInventoryDb())
+        {
+            var stock = InventoryProductStock.Start(_household, _productId, Clock);
+            stock.AddStock(500m, _unitId, locationId: Guid.CreateVersion7(), _userId, Clock);
+            await invDb.ProductStocks.AddAsync(stock);
+            await invDb.SaveChangesAsync();
+        }
+
+        // Consuming in cups with no cup↔g conversion surfaces Catalog.UnresolvableConversion, which the
+        // adapter maps to DeferredUnitGapException — distinct from the no-stock InvalidOperationException.
+        await Assert.ThrowsAsync<DeferredUnitGapException>(() =>
+            BuildAdapter().ConsumeAsync(
+                _productId, quantity: 1m, cupUnitId,
+                ConsumeReason.Recipe, cookEventId, _userId, sourceLineRef: Guid.CreateVersion7()));
+
+        // Pantry untouched: the gram lot is intact (the consume planning pass fails before any mutation).
+        await using var verify = NewInventoryDb();
+        var loaded = await verify.ProductStocks
+            .Include(p => p.Entries)
+            .Include(p => p.Journal)
+            .SingleAsync(p => p.ProductId == _productId);
+        var lot = Assert.Single(loaded.Entries);
+        Assert.Equal(500m, lot.Quantity);
+        Assert.DoesNotContain(loaded.Journal, j => j.Reason == StockReason.Consumed);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private IInventoryConsumer BuildAdapter()

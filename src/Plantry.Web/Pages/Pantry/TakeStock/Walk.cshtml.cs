@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Catalog.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
+using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -43,6 +44,7 @@ public sealed class WalkModel(
     IProductConversionProvider conversions,
     IClock clock,
     ITenantContext tenant,
+    VoidDeferredUnitGapLines voidDeferredUnitGaps,
     ILogger<WalkModel> logger) : PageModel
 {
     // ── Read model ────────────────────────────────────────────────────────────
@@ -354,6 +356,22 @@ public sealed class WalkModel(
                 logger.LogWarning(
                     "SaveCounts failed at location {LocationId}: {ErrorCode}.", LocationId, result.Error.Code);
                 return StatusCode(500, new { error = result.Error.Description });
+            }
+
+            // Each successful count is an absolute observation of the product's real level → void any
+            // deferred unit-gap consume for that product (plantry-qll2.6). The count already reflects
+            // reality; retro-applying a deferred delta afterwards would double-count. Best-effort — the
+            // counts are already committed, so a void failure must not fail the save response.
+            try
+            {
+                foreach (var counted in result.Value.Where(r => r.IsSuccess))
+                    await voidDeferredUnitGaps.ExecuteAsync(counted.ProductId, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Voiding deferred unit-gap consume lines after Take Stock counts at location {LocationId} failed.", LocationId);
             }
 
             perRowResults.AddRange(result.Value.Select(r => (object)new

@@ -188,6 +188,25 @@ public sealed class ReconcilePendingCooksTests
         Assert.Equal(150m, line.Shortfall); // MarkShorted sets Shortfall = Quantity
     }
 
+    // ── Unit gap during reconciliation → DeferredUnitGap, not Shorted (plantry-qll2.6) ───
+
+    [Fact]
+    public async Task Reconciled_Line_Transitions_To_DeferredUnitGap_When_No_Conversion_Bridges()
+    {
+        var h = BuildHarness();
+        var (cookEvent, productId, _) = SeedPendingCook(h, quantity: 150m);
+        // The product HAS stock but no conversion bridges the unit gap — the consumer surfaces this as
+        // DeferredUnitGapException, distinct from the no-stock InvalidOperationException.
+        h.Consumer.ThrowUnitGap(productId);
+
+        await h.Service.ExecuteAsync();
+
+        var line = Assert.Single(cookEvent.ConsumeLines);
+        // Deferred, NOT Shorted — a genuine no-stock shortfall must stay distinct so it is never retried.
+        Assert.Equal(CookConsumeLineStatus.DeferredUnitGap, line.Status);
+        Assert.Equal(150m, line.Shortfall);
+    }
+
     // ── Idempotency: only Pending lines are re-driven ──────────────────────────────
 
     [Fact]

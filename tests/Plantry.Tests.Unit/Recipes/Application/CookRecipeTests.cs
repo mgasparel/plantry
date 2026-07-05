@@ -46,8 +46,9 @@ public sealed class CookRecipeTests
         var dispatcher = new FakeDomainEventDispatcher();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
         var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
         var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, Clock, tenant, reconciler,
-            NullLogger<CookRecipe>.Instance);
+            deferredUnitGaps, NullLogger<CookRecipe>.Instance);
         return new Harness
         {
             Recipes = recipes,
@@ -490,6 +491,75 @@ public sealed class CookRecipeTests
         Assert.Equal(150m, line.Shortfall);
     }
 
+    // ── Unit gap → DeferredUnitGap, not Shorted (plantry-qll2.6) ─────────────────────
+
+    [Fact]
+    public async Task Cook_Unreachable_Conversion_Lands_As_DeferredUnitGap_Not_Shorted()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, unitId) = BuildTrackedRecipe(h, quantity: 150m);
+        // Product has stock but no conversion bridges the ingredient unit → DeferredUnitGapException.
+        h.Consumer.ThrowUnitGap(productId);
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+        var result = await h.Service.ExecuteAsync(command);
+
+        // Cook still completes (never blocks, never asks) and the CookEvent is written.
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        var evt = Assert.Single(h.CookEvents.Items);
+        var line = Assert.Single(evt.ConsumeLines);
+        Assert.Equal(CookConsumeLineStatus.DeferredUnitGap, line.Status);
+        // The full requested quantity is owed; the pantry was untouched.
+        Assert.Equal(150m, line.Shortfall);
+    }
+
+    // ── Opportunistic deferred self-heal at cook entry (plantry-qll2.6 acceptance #6) ───
+
+    [Fact]
+    public async Task Cook_SelfHeals_Prior_Deferred_Line_For_A_Product_In_This_Cooks_Set()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, unitId) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 100m);
+
+        // Seed a PRIOR cook that deferred a consume for the SAME product (unit gap at the time).
+        var priorCook = CookEvent.Record(RecipeId.New(), Household, servingsCooked: 1, _userId, Clock).Value;
+        var deferredLine = priorCook.AddConsumeLine(Guid.CreateVersion7(), productId, 80m, unitId);
+        deferredLine.MarkDeferredUnitGap();
+        h.CookEvents.Items.Add(priorCook);
+
+        // A conversion has since landed — the consumer now succeeds for this product.
+        // (No unit-gap throw configured, so ConsumeAsync returns normally.)
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        // The prior deferred line was retro-applied by the opportunistic self-heal before the new cook ran.
+        Assert.Equal(CookConsumeLineStatus.Applied, deferredLine.Status);
+    }
+
+    [Fact]
+    public async Task Cook_SelfHeal_Leaves_Deferred_Line_When_Conversion_Still_Missing()
+    {
+        var h = BuildHarness();
+        var (recipe, productId, unitId) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 100m);
+
+        // Prior deferred line for the same product, and the conversion STILL has not landed.
+        var priorCook = CookEvent.Record(RecipeId.New(), Household, servingsCooked: 1, _userId, Clock).Value;
+        var deferredLine = priorCook.AddConsumeLine(Guid.CreateVersion7(), productId, 80m, unitId);
+        deferredLine.MarkDeferredUnitGap();
+        h.CookEvents.Items.Add(priorCook);
+
+        // The unit gap persists — both the self-heal re-drive and the new cook's own consume defer.
+        h.Consumer.ThrowUnitGap(productId);
+
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        // Still deferred — the self-heal did not fabricate an application without a conversion.
+        Assert.Equal(CookConsumeLineStatus.DeferredUnitGap, deferredLine.Status);
+    }
+
     [Fact]
     public async Task AfterCook_No_Lines_Remain_Pending()
     {
@@ -749,6 +819,16 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
             .ToList());
     }
 
+    public Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+    {
+        var set = productIds as HashSet<Guid> ?? [.. productIds];
+        return Task.FromResult<IReadOnlyList<CookEvent>>(Items
+            .Where(e => e.ConsumeLines.Any(l =>
+                l.Status == CookConsumeLineStatus.DeferredUnitGap && set.Contains(l.ProductId)))
+            .ToList());
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
         OnSaveChanges?.Invoke();
@@ -766,6 +846,7 @@ internal sealed class FakeInventoryConsumer : IInventoryConsumer
     public List<ConsumeCall> Calls { get; } = [];
     private readonly Dictionary<Guid, decimal> _shortfalls = [];
     private readonly HashSet<Guid> _noStockThrows = [];
+    private readonly HashSet<Guid> _unitGapThrows = [];
 
     /// <summary>
     /// Optional callback invoked at the start of each <see cref="ConsumeAsync"/> call.
@@ -784,6 +865,21 @@ internal sealed class FakeInventoryConsumer : IInventoryConsumer
     public void ThrowNoStock(Guid productId) =>
         _noStockThrows.Add(productId);
 
+    /// <summary>
+    /// Configures the fake to throw <see cref="DeferredUnitGapException"/> for
+    /// <paramref name="productId"/> — simulating the no-conversion unit-gap case (plantry-qll2.6):
+    /// the product HAS stock but no ProductConversion bridges the ingredient unit to the stock unit.
+    /// </summary>
+    public void ThrowUnitGap(Guid productId) =>
+        _unitGapThrows.Add(productId);
+
+    /// <summary>
+    /// Simulates a conversion landing for <paramref name="productId"/>: subsequent consumes no longer
+    /// throw the unit gap and instead succeed (with any configured shortfall).
+    /// </summary>
+    public void ResolveUnitGap(Guid productId) =>
+        _unitGapThrows.Remove(productId);
+
     public Task<ConsumeResult> ConsumeAsync(
         Guid productId, decimal quantity, Guid unitId,
         ConsumeReason reason, Guid cookEventId, Guid userId,
@@ -793,6 +889,9 @@ internal sealed class FakeInventoryConsumer : IInventoryConsumer
 
         if (_noStockThrows.Contains(productId))
             throw new InvalidOperationException($"No stock record for product {productId}.");
+
+        if (_unitGapThrows.Contains(productId))
+            throw new DeferredUnitGapException($"No conversion bridges the unit gap for product {productId}.");
 
         Calls.Add(new ConsumeCall(productId, quantity, unitId, reason, cookEventId, userId, sourceLineRef));
         var shortfall = _shortfalls.GetValueOrDefault(productId, 0m);

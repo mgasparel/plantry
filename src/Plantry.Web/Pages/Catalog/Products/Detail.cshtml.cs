@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Inventory.Domain;
+using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -27,7 +28,9 @@ public sealed class DetailModel(
     ILogger<AddConversionCommand> addConversionLogger,
     ILogger<PromoteConversionCommand> promoteConversionLogger,
     ILogger<MakeVariantCommand> makeVariantLogger,
-    ILogger<CreateVariantCommand> createVariantLogger) : PageModel
+    ILogger<CreateVariantCommand> createVariantLogger,
+    ApplyDeferredUnitGaps deferredUnitGaps,
+    ILogger<DetailModel> logger) : PageModel
 {
     public ProductId Id { get; private set; }
     public ProductDetail? Product { get; private set; }
@@ -200,6 +203,10 @@ public sealed class DetailModel(
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
 
+        // A landed conversion may bridge a unit gap a prior cook deferred — retro-apply now (plantry-qll2.6).
+        // Not gated by the AI toggle: a manually-entered conversion settles deferred consumes just the same.
+        await TryApplyDeferredUnitGapsAsync(id);
+
         return RedirectToPage(new { id });
     }
 
@@ -219,6 +226,10 @@ public sealed class DetailModel(
             if (result.Error == Plantry.SharedKernel.Error.NotFound) return NotFound();
             return await ReloadWithErrorAsync(result.Error);
         }
+
+        // Promoting an ai_suggested factor to user_confirmed keeps the pair bridged — settle any deferred
+        // consume lines waiting on it now (plantry-qll2.6), matching the manual-add path above.
+        await TryApplyDeferredUnitGapsAsync(id);
 
         return RedirectToPage(new { id });
     }
@@ -309,6 +320,28 @@ public sealed class DetailModel(
     {
         ModelState.AddModelError(string.Empty, error.Description);
         return await ReloadAsync();
+    }
+
+    /// <summary>
+    /// Best-effort retro-apply of deferred unit-gap consume lines after a conversion lands (plantry-qll2.6).
+    /// A convergence follow-up, not part of the conversion write: the conversion is already durably saved,
+    /// so a failure here must never fail the request — the opportunistic self-heal at cook entry recovers
+    /// any missed application from durable state (ADR-014). Mirrors <c>CookRecipe</c>'s best-effort
+    /// reconciliation sweep. <see cref="OperationCanceledException"/> propagates.
+    /// </summary>
+    private async Task TryApplyDeferredUnitGapsAsync(Guid id)
+    {
+        try
+        {
+            await deferredUnitGaps.ExecuteAsync([id], HttpContext.RequestAborted);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Deferred unit-gap retro-apply failed after a conversion landed for product {ProductId}; the next cook of the product self-heals.",
+                id);
+        }
     }
 
     private async Task<IActionResult> ReloadAsync(bool keepInput = false)
