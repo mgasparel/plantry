@@ -48,7 +48,7 @@ public sealed class ReviewReferenceDataProvider(
             .ToList();
 
         var unitOptions = activeUnits
-            .Select(u => new ReviewUnitOption(u.Id.Value, u.Code, u.Name))
+            .Select(u => new ReviewUnitOption(u.Id.Value, u.Code, u.Name, MapDimension(u.Dimension)))
             .ToList();
 
         var locationOptions = activeLocations
@@ -61,4 +61,14 @@ public sealed class ReviewReferenceDataProvider(
 
         return new ReviewReferenceData(productOptions, unitOptions, locationOptions, categoryOptions);
     }
+
+    /// <summary>Maps Catalog's <see cref="Dimension"/> onto Intake's local <see cref="ReviewUnitDimension"/>
+    /// so Plantry.Intake never references the Catalog enum. Exhaustive — a new Catalog dimension throws.</summary>
+    private static ReviewUnitDimension MapDimension(Dimension dimension) => dimension switch
+    {
+        Dimension.Mass => ReviewUnitDimension.Mass,
+        Dimension.Volume => ReviewUnitDimension.Volume,
+        Dimension.Count => ReviewUnitDimension.Count,
+        _ => throw new ArgumentOutOfRangeException(nameof(dimension), dimension, "Unknown catalog unit dimension."),
+    };
 }
