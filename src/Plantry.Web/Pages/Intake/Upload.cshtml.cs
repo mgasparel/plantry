@@ -34,6 +34,7 @@ public sealed class UploadModel(
     IClock clock,
     ITenantContext tenant,
     ReceiptUploadRateLimiter uploadRateLimiter,
+    IReceiptImagePreprocessor imagePreprocessor,
     ILogger<UploadModel> logger,
     ILogger<ParseSessionCommand> parseLogger) : PageModel
 {
@@ -155,8 +156,22 @@ public sealed class UploadModel(
             return UploadFormResult(StatusCodes.Status400BadRequest);
         }
 
+        // ── Preprocess (plantry-v8vw): downscale an oversized photo (longest edge > 2048px) to a JPEG q85
+        // before staging, so the stored ImportReceipt and the AI parse both work off the smaller image. An
+        // in-bounds image passes through byte-identical. A decode failure here (corrupt/unsupported despite
+        // the magic-byte gate) is surfaced as the same structured 400 fragment, never a downstream crash. ──
+        var preprocessed = imagePreprocessor.Process(imageBytes, Receipt.ContentType);
+        if (preprocessed.IsFailure)
+        {
+            logger.LogWarning(
+                "Rejected receipt upload for {PartitionKey}: image failed preprocessing ({ErrorCode}).",
+                partitionKey, preprocessed.Error.Code);
+            ModelState.AddModelError(nameof(Receipt), preprocessed.Error.Description);
+            return UploadFormResult(StatusCodes.Status400BadRequest);
+        }
+
         var cmd = new ParseSessionCommand(
-            imageBytes, Receipt.ContentType, CurrentUserId,
+            preprocessed.Value.Bytes, preprocessed.Value.ContentType, CurrentUserId,
             sessions, parser, hints, clock, tenant, parseLogger);
 
         var result = await cmd.ExecuteAsync(ct);

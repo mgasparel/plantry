@@ -23,11 +23,9 @@ namespace Plantry.MealPlanning.Domain;
 /// </summary>
 public sealed class PlanInsightsService(
     IMealPlanExpiringStockReader expiringStockReader,
-    IRecipeReadModel recipeReader)
+    IRecipeReadModel recipeReader,
+    IExpiringSoonHorizonReader horizonReader)
 {
-    /// <summary>Days-before-expiry threshold for the "Use soon" window (mirrors Recipes/Inventory).</summary>
-    public const int ExpiringSoonDays = 4;
-
     /// <summary>
     /// Inspects <paramref name="plan"/> and returns advisory insights.
     ///
@@ -59,8 +57,13 @@ public sealed class PlanInsightsService(
     {
         var callouts = new List<PlanInsight>();
 
+        // Read the per-household "expiring soon" horizon once at the IO boundary and thread the
+        // int into the pure rule computation (ADR-021, plantry-5yhd). This is the same value that
+        // drives the plan roll-up "use soon" flag and Inventory's Today widget.
+        var expiringSoonDays = await horizonReader.GetDaysAsync(ct);
+
         // ── Rule 1: Unused expiring stock ──────────────────────────────────────
-        var unusedExpiringInsights = await GetUnusedExpiringAsync(plan, today, ct);
+        var unusedExpiringInsights = await GetUnusedExpiringAsync(plan, today, expiringSoonDays, ct);
         callouts.AddRange(unusedExpiringInsights);
 
         // ── Rule 2: Over budget ────────────────────────────────────────────────
@@ -109,10 +112,11 @@ public sealed class PlanInsightsService(
     private async Task<IReadOnlyList<PlanInsight>> GetUnusedExpiringAsync(
         MealPlan plan,
         DateOnly today,
+        int expiringSoonDays,
         CancellationToken ct)
     {
         // Get all product IDs whose stock is expiring soon.
-        var expiringProductIds = await expiringStockReader.GetExpiringProductIdsAsync(today, ExpiringSoonDays, ct);
+        var expiringProductIds = await expiringStockReader.GetExpiringProductIdsAsync(today, expiringSoonDays, ct);
         if (expiringProductIds.Count == 0) return [];
 
         // Collect all recipe IDs planned this week.

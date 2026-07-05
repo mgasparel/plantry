@@ -66,8 +66,8 @@ public static class ReviewSessionFixture
         ],
         Units:
         [
-            new ReviewUnitOption(EachUnitId, "ea", "Each"),
-            new ReviewUnitOption(LitreUnitId, "L", "Litre"),
+            new ReviewUnitOption(EachUnitId, "ea", "Each", ReviewUnitDimension.Count),
+            new ReviewUnitOption(LitreUnitId, "L", "Litre", ReviewUnitDimension.Volume),
         ],
         Locations:
         [

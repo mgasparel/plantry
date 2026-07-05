@@ -26,10 +26,12 @@ public sealed class PlanInsightsServiceTests
 
     private static PlanInsightsService BuildService(
         IMealPlanExpiringStockReader? expiringReader = null,
-        IRecipeReadModel? recipeReader = null)
+        IRecipeReadModel? recipeReader = null,
+        int horizonDays = 7)
         => new(
             expiringReader ?? new FakeExpiringStockReader([]),
-            recipeReader ?? new FakeNoOpRecipeReader());
+            recipeReader ?? new FakeNoOpRecipeReader(),
+            new FakeExpiringSoonHorizonReader(horizonDays));
 
     /// <summary>
     /// Builds the all-cell list for a 7-day plan with the given slots.
@@ -96,6 +98,20 @@ public sealed class PlanInsightsServiceTests
         var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
 
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.UnusedExpiring);
+    }
+
+    [Theory(DisplayName = "Rule 1 — the per-household horizon (not a hardcoded window) reaches GetExpiringProductIdsAsync")]
+    [InlineData(4)]
+    [InlineData(10)]
+    public async Task Rule1_PerHouseholdHorizon_ReachesExpiringStockReader(int horizonDays)
+    {
+        var expiringReader = new FakeExpiringStockReader([]);
+        var svc = BuildService(expiringReader, horizonDays: horizonDays);
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+
+        await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
+
+        Assert.Equal(horizonDays, expiringReader.LastWithinDays);
     }
 
     // ── Rule 2: OverBudget ────────────────────────────────────────────────────
@@ -246,7 +262,7 @@ public sealed class PlanInsightsServiceTests
         var recipeReader = new FakeEnrichmentRecipeReader(recipeId,
             new RecipeDishEnrichment(80, null, false, HasExpiringIngredients: false));
 
-        var svc = new PlanInsightsService(expiringReader, recipeReader);
+        var svc = new PlanInsightsService(expiringReader, recipeReader, new FakeExpiringSoonHorizonReader(7));
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
 
         // Assign the recipe twice (triggers RepetitionThisWeek)
@@ -321,11 +337,21 @@ public sealed class PlanInsightsServiceTests
 
 // ── test doubles ──────────────────────────────────────────────────────────────
 
-/// <summary>Fake <see cref="IMealPlanExpiringStockReader"/> that returns a fixed list of product IDs.</summary>
+/// <summary>
+/// Fake <see cref="IMealPlanExpiringStockReader"/> that returns a fixed list of product IDs and
+/// records the <c>withinDays</c> horizon it was called with (so tests can assert the per-household
+/// horizon reaches the port).
+/// </summary>
 internal sealed class FakeExpiringStockReader(IReadOnlyList<Guid> productIds) : IMealPlanExpiringStockReader
 {
+    /// <summary>The <c>withinDays</c> value of the most recent call, or null if never called.</summary>
+    public int? LastWithinDays { get; private set; }
+
     public Task<IReadOnlyList<Guid>> GetExpiringProductIdsAsync(DateOnly today, int withinDays, CancellationToken ct = default)
-        => Task.FromResult(productIds);
+    {
+        LastWithinDays = withinDays;
+        return Task.FromResult(productIds);
+    }
 }
 
 /// <summary>Fake <see cref="IRecipeReadModel"/> that returns no enrichment for any recipe (default stub).</summary>

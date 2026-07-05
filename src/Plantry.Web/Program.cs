@@ -264,6 +264,11 @@ builder.Services.Configure<ReceiptUploadRateLimitOptions>(
     builder.Configuration.GetSection(ReceiptUploadRateLimitOptions.SectionName));
 builder.Services.AddSingleton<ReceiptUploadRateLimiter>();
 
+// Receipt image downscaling (plantry-v8vw): oversized uploads are auto-oriented, resized to a 2048px
+// longest edge and re-encoded JPEG q85 before ParseSessionCommand — cutting AI token cost, latency, and
+// stored image size with no OCR loss. Stateless (Magick.NET native codec) → singleton.
+builder.Services.AddSingleton<IReceiptImagePreprocessor, ReceiptImagePreprocessor>();
+
 // Recipes context (Phase 2). P2-1 adds domain behaviour, EF child-collection mapping, and the
 // IRecipeRepository; P2-3a adds ICookEventRepository; later P2 steps add application services.
 builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>
@@ -434,6 +439,12 @@ builder.Services.AddScoped<ShopForWeekService>();
 // IMealPlanExpiringStockReader is the insights-specific ACL port onto Inventory; adapter is in Web.
 // PlanInsightsService is a stateless read-side domain service recomputed on every page load.
 builder.Services.AddScoped<IMealPlanExpiringStockReader, MealPlanExpiringStockReaderAdapter>();
+// Read port onto the per-household "expiring soon" horizon so the plan roll-up "use soon" flag and
+// the weekly insights engine both honour the same value as Inventory's Today widget (plantry-qexh,
+// plantry-5yhd, ADR-002). Fully qualified: the same interface/adapter name also exists in the
+// Recipes namespaces imported above.
+builder.Services.AddScoped<Plantry.MealPlanning.Application.IExpiringSoonHorizonReader,
+    Plantry.Web.MealPlanning.ExpiringSoonHorizonReaderAdapter>();
 builder.Services.AddScoped<PlanInsightsService>();
 
 // Meal Planning — ADR-021 cross-schema read model (plantry-nz3u.1).
@@ -518,7 +529,8 @@ builder.Services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>()
 builder.Services.AddScoped<IInventoryConsumer, InventoryConsumerAdapter>();
 // Read port onto the per-household "expiring soon" horizon so the browse "use soon" filter agrees
 // with Inventory's Today widget by construction (plantry-5yhd, ADR-002).
-builder.Services.AddScoped<IExpiringSoonHorizonReader, ExpiringSoonHorizonReaderAdapter>();
+builder.Services.AddScoped<Plantry.Recipes.Application.IExpiringSoonHorizonReader,
+    Plantry.Web.Recipes.ExpiringSoonHorizonReaderAdapter>();
 
 // Recipes → Pricing anti-corruption adapter (P2-2b, recipes-domain-model.md §8). Supplies
 // CostingService with the latest PriceObservation per product from the Pricing context.

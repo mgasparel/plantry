@@ -31,7 +31,20 @@ public sealed record ReviewProductOption(
     /// <summary>Hue in degrees (0–359) from the product's category. Null when uncategorised or no hue assigned.</summary>
     int? CategoryHue = null);
 
-public sealed record ReviewUnitOption(Guid Id, string Code, string Name);
+/// <summary>
+/// The measurement dimension a unit belongs to, as needed by Intake's commit-time gating. An
+/// Intake-local mirror of Catalog's <c>Dimension</c> (Mass / Volume / Count) — deliberately *not* a
+/// reference to it, so Plantry.Intake stays free of any Catalog dependency (the web adapter maps
+/// Catalog's enum onto this one).
+/// </summary>
+public enum ReviewUnitDimension
+{
+    Mass,
+    Volume,
+    Count,
+}
+
+public sealed record ReviewUnitOption(Guid Id, string Code, string Name, ReviewUnitDimension Dimension);
 
 public sealed record ReviewLocationOption(Guid Id, string Name);
 

@@ -9,16 +9,16 @@ namespace Plantry.MealPlanning.Domain;
 /// directly. Note-meals contribute nothing.
 ///
 /// MealPlanning owns no fulfillment engine — it rolls up what Recipes already computes (domain-model §1).
-/// The plan-level "Use soon" threshold (<see cref="ExpiringSoonDays"/>) is this context's own constant; it
-/// is not yet unified with the per-household Inventory horizon that Recipes/Inventory now read (plantry-5yhd).
+/// The plan-level "Use soon" threshold is the single per-household Inventory horizon, read through
+/// <see cref="IExpiringSoonHorizonReader"/> (plantry-5yhd), so the roll-up agrees with the Recipes
+/// per-cell fulfillment and Inventory's Today widget by construction. The horizon is read once at the
+/// IO boundary of each roll-up and threaded into the pure per-dish comparison (ADR-021).
 /// </summary>
 public sealed class PlanFulfillmentService(
     IRecipeReadModel recipeReader,
-    IMealPlanStockReader stockReader)
+    IMealPlanStockReader stockReader,
+    IExpiringSoonHorizonReader horizonReader)
 {
-    /// <summary>Days before expiry to flag as "Use soon" (mirrors Recipes FulfillmentService).</summary>
-    public const int ExpiringSoonDays = 4;
-
     /// <summary>
     /// Computes the rolled-up fulfillment for a single <see cref="PlannedMeal"/>.
     /// Note-meals return <see cref="MealFulfillment.None"/>.
@@ -32,10 +32,12 @@ public sealed class PlanFulfillmentService(
         if (meal.Note is not null || meal.PlannedDishes.Count == 0)
             return MealFulfillment.None;
 
+        var expiringSoonDays = await horizonReader.GetDaysAsync(ct);
+
         var parts = new List<DishFulfillment>(meal.PlannedDishes.Count);
         foreach (var dish in meal.PlannedDishes)
         {
-            var df = await ComputeDishFulfillmentAsync(dish, today, ct);
+            var df = await ComputeDishFulfillmentAsync(dish, today, expiringSoonDays, ct);
             parts.Add(df);
         }
 
@@ -50,6 +52,8 @@ public sealed class PlanFulfillmentService(
         DateOnly today,
         CancellationToken ct = default)
     {
+        var expiringSoonDays = await horizonReader.GetDaysAsync(ct);
+
         var parts = new List<DishFulfillment>();
         foreach (var meal in plan.PlannedMeals)
         {
@@ -58,7 +62,7 @@ public sealed class PlanFulfillmentService(
 
             foreach (var dish in meal.PlannedDishes)
             {
-                var df = await ComputeDishFulfillmentAsync(dish, today, ct);
+                var df = await ComputeDishFulfillmentAsync(dish, today, expiringSoonDays, ct);
                 parts.Add(df);
             }
         }
@@ -74,6 +78,7 @@ public sealed class PlanFulfillmentService(
     private async Task<DishFulfillment> ComputeDishFulfillmentAsync(
         PlannedDish dish,
         DateOnly today,
+        int expiringSoonDays,
         CancellationToken ct)
     {
         if (dish.RecipeId.HasValue)
@@ -95,7 +100,7 @@ public sealed class PlanFulfillmentService(
 
             bool inStock = stock.AvailableQuantity >= dish.Servings;
             bool useSoon = stock.SoonestExpiry.HasValue &&
-                           (stock.SoonestExpiry.Value.DayNumber - today.DayNumber) <= ExpiringSoonDays;
+                           (stock.SoonestExpiry.Value.DayNumber - today.DayNumber) <= expiringSoonDays;
 
             return new DishFulfillment(inStock ? 100 : 0, useSoon);
         }
@@ -128,8 +133,9 @@ public sealed class PlanFulfillmentService(
 /// 100 = every dish's ingredients are fully in stock at the planned servings.
 /// </param>
 /// <param name="HasExpiringIngredients">
-/// True when any recipe ingredient or product has stock expiring within
-/// <see cref="PlanFulfillmentService.ExpiringSoonDays"/> days.
+/// True when any recipe ingredient or product has stock expiring within the household's
+/// per-household "expiring soon" horizon (owned by Inventory, read via
+/// <see cref="IExpiringSoonHorizonReader"/>).
 /// </param>
 public sealed record MealFulfillment(int FulfillmentPercent, bool HasExpiringIngredients)
 {

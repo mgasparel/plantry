@@ -396,7 +396,7 @@ public sealed class ReviewCommandsTests
 
         var reference = new ReviewReferenceData(
             [new ReviewProductOption(_productId, "Flour", "kg", DefaultUnitId: _unitId, DefaultLocationId: null, Skus: [])],
-            [new ReviewUnitOption(_unitId, "kg", "Kilogram")],
+            [new ReviewUnitOption(_unitId, "kg", "Kilogram", ReviewUnitDimension.Mass)],
             [new ReviewLocationOption(_locationId, "Pantry")],
             [new ReviewCategoryOption(_categoryId, "Baking")]);
         var refProvider = new FakeReviewReferenceDataProvider(reference);

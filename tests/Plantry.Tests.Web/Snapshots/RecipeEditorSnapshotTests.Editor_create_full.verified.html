@@ -78,6 +78,14 @@
              this.sheetOpen = false;
          },
          unitLabel(id) { return this.unitCodes[id] || ''; },
+         // plantry-429l: a tracked (stock-tracked) ingredient row that is missing a quantity or a unit
+         // will be rejected by R5 on save. Flag it in-place so the author sees WHICH row is broken
+         // instead of dead-ending on the opaque global save error. Computed reactively so it clears the
+         // instant the author supplies the missing value. Inline-create rows (no productId yet) are the
+         // create-view's own concern and are excluded here.
+         rowNeedsQtyUnit(row) {
+             return !row.isUntracked &amp;&amp; !!row.productId &amp;&amp; (!row.qty || !row.unitId);
+         },
          rowSummary(row) {
              // Group heading is NO LONGER crammed into the summary — it is the section header now.
              const name = row.newStapleName ? row.newStapleName : row.productName;
@@ -294,6 +302,7 @@
 							<input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleCategoryId'" :value="row.newStapleCategoryId ?? ''">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId">
+							<input type="hidden" :name="'Input.Lines[' + idx + '].IsUntracked'" :value="row.isUntracked">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].GroupHeading'" :value="row.groupHeading">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionFactor'" :value="row.conversionFactor">
 						</div></template>
@@ -311,7 +320,7 @@
 									</button></template>
 							</div>
 							<div class="ing-rows">
-								<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion, 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
+								<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion, 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
 										<div class="ingredient-row__body">
 											<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
 												<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -332,6 +341,15 @@
 													<use href="#i-minus"></use>
 												</svg>
 											</button>
+										</div>
+										<div x-show="rowNeedsQtyUnit(row)" class="ingredient-row__needs-qty" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
+											<p style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:center;gap:var(--space-2);color:var(--color-text)">
+												<svg class="icon" aria-hidden="true">
+													<use href="#i-alert"></use>
+												</svg>
+												<span>This ingredient is now stock-tracked and needs a quantity and unit.</span>
+												<button type="button" class="btn btn--ghost btn--sm" @click="openEdit(row)">Add quantity</button>
+											</p>
 										</div>
 										<div x-show="row.needsConversion" class="ingredient-row__conversion" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
 											<p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">

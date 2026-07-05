@@ -312,6 +312,61 @@ public sealed class AuthorRecipeTests
     }
 
     [Fact]
+    public async Task Rejects_Tracked_Line_With_Null_Quantity_Message_Names_Product_And_Line_R5()
+    {
+        // plantry-429l: the R5 rejection must name WHICH row is broken (product + 1-based line number)
+        // so the editor can surface the offending line instead of an opaque global error. The error CODE
+        // stays Recipes.TrackedRequiresQuantity (existing handling/tests key on it).
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var okProduct = h.Products.AddTracked(unit, "Flour");
+        var saltId = Guid.CreateVersion7();
+        // A product that is now tracked but referenced with null qty/unit (untracked→tracked flip).
+        h.Products.RegisterTracked(saltId, "Sea salt");
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null, Name: "Bread", DefaultServings: 2,
+            Lines:
+            [
+                new AuthorIngredientLine(okProduct.Id, 200m, unit, null, 0),
+                new AuthorIngredientLine(saltId, Quantity: null, UnitId: null, null, 1),
+            ],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var invalid = Assert.IsType<AuthorRecipeResult.Invalid>(result);
+        Assert.Equal("Recipes.TrackedRequiresQuantity", invalid.Error.Code);
+        Assert.Contains("Sea salt", invalid.Error.Description);
+        // 1-based line number — the offending line is the second row (Ordinal 1).
+        Assert.Contains("line 2", invalid.Error.Description);
+        Assert.Empty(h.Recipes.Items);
+    }
+
+    [Fact]
+    public async Task Rejects_Inline_Tracked_Product_Null_Quantity_Message_Names_Product_And_Line_R5()
+    {
+        // plantry-429l: the inline tracked-create pre-check message is enriched the same way for consistency.
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null, Name: "Test Recipe", DefaultServings: 1,
+            Lines: [new AuthorIngredientLine(
+                ProductId: null, Quantity: null, UnitId: null, GroupHeading: null, Ordinal: 0,
+                NewStapleName: "Butter", NewStapleDefaultUnitId: unit, NewIsTracked: true)],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var invalid = Assert.IsType<AuthorRecipeResult.Invalid>(result);
+        Assert.Equal("Recipes.TrackedRequiresQuantity", invalid.Error.Code);
+        Assert.Contains("Butter", invalid.Error.Description);
+        Assert.Contains("line 1", invalid.Error.Description);
+        Assert.Empty(h.Recipes.Items);
+    }
+
+    [Fact]
     public async Task Saves_Existing_Untracked_Staple_With_Null_Quantity_R5()
     {
         // Regression for plantry-4udr: a seed recipe references an *existing* untracked staple

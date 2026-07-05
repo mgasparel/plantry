@@ -144,6 +144,31 @@ public static class RecipeEditorFixture
         return recipe;
     }
 
+    /// <summary>
+    /// plantry-429l: a recipe with a single ingredient referencing a now-<b>tracked</b> product
+    /// (<see cref="TomatoId"/>, TrackStock:true in <see cref="ProductSummaries"/>) but stored with a null
+    /// quantity and unit — the shape produced when a line authored while its product was untracked has its
+    /// product later flipped tracked. The edit GET must flag this row (tracked + missing qty/unit) and
+    /// prefill its unit from the product default, rather than dead-ending on an opaque global save error.
+    /// </summary>
+    public static readonly RecipeId FlipToTrackedRecipeId = RecipesDomain.RecipeId.From(
+        Guid.Parse("cafe0000-0000-0000-0000-000000000007"));
+
+    public static Recipe BuildFlipToTracked()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Flipped Staple Recipe", defaultServings: 2, clock).Value;
+        SetId(recipe, FlipToTrackedRecipeId);
+        recipe.ReplaceIngredients(
+        [
+            // Authored while untracked (null qty/unit legal); the product is now tracked → R5 would reject.
+            new IngredientLine(TomatoId, Quantity: null, UnitId: null, GroupHeading: null, Ordinal: 0),
+        ], clock);
+        return recipe;
+    }
+
     /// <summary>Products the editor resolves ingredient names + unit codes from (used in edit GET).</summary>
     public static IReadOnlyDictionary<Guid, CatalogProductSummary> ProductSummaries() =>
         new Dictionary<Guid, CatalogProductSummary>

@@ -128,17 +128,43 @@ public sealed class PlanFulfillmentServiceTests
     {
         var productId = Guid.NewGuid();
         var unitId = Guid.NewGuid();
-        var expiry = Today.AddDays(PlanFulfillmentService.ExpiringSoonDays - 1); // within window
+        const int horizonDays = 7;
+        var expiry = Today.AddDays(horizonDays - 1); // within window
         var fakeStock = new FakeStockReader(
             new MealPlanProductStock(productId, 10m, unitId, expiry));
 
-        var svc = BuildService(stockReader: fakeStock);
+        var svc = BuildService(stockReader: fakeStock, horizonDays: horizonDays);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0], Today);
 
         Assert.True(result.HasExpiringIngredients);
+    }
+
+    // ── RollUpMealAsync — product dish — horizon is the per-household setting ─────
+
+    // Guards against re-hardcoding a MealPlanning-specific window: an expiry 6 days out is OUTSIDE
+    // a 4-day horizon (no "use soon") but INSIDE a non-default 10-day horizon (flagged). The flag
+    // must follow whatever the household horizon reader returns.
+    [Theory]
+    [InlineData(4, false)]  // expiry 6 days out, horizon 4 → not flagged
+    [InlineData(10, true)]  // same expiry, horizon 10 → flagged
+    public async Task RollUpMealAsync_UseSoon_FollowsHouseholdHorizon(int horizonDays, bool expectedUseSoon)
+    {
+        var productId = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+        var expiry = Today.AddDays(6); // fixed expiry; only the horizon changes between cases
+        var fakeStock = new FakeStockReader(
+            new MealPlanProductStock(productId, 10m, unitId, expiry));
+
+        var svc = BuildService(stockReader: fakeStock, horizonDays: horizonDays);
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+
+        var result = await svc.RollUpMealAsync(plan.PlannedMeals[0], Today);
+
+        Assert.Equal(expectedUseSoon, result.HasExpiringIngredients);
     }
 
     // ── RollUpMealAsync — multi-dish average ─────────────────────────────────
@@ -205,10 +231,12 @@ public sealed class PlanFulfillmentServiceTests
 
     private static PlanFulfillmentService BuildService(
         IRecipeReadModel? recipeReader = null,
-        IMealPlanStockReader? stockReader = null)
+        IMealPlanStockReader? stockReader = null,
+        int horizonDays = 7)
         => new(
             recipeReader ?? new FakeEnrichmentRecipeReader(Guid.Empty, null),
-            stockReader ?? new FakeStockReader(null));
+            stockReader ?? new FakeStockReader(null),
+            new FakeExpiringSoonHorizonReader(horizonDays));
 }
 
 // ── test doubles ──────────────────────────────────────────────────────────────
@@ -260,4 +288,13 @@ internal sealed class FakeStockReader(MealPlanProductStock? stock) : IMealPlanSt
 {
     public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
         => Task.FromResult(stock);
+}
+
+/// <summary>
+/// Fake <see cref="IExpiringSoonHorizonReader"/> that returns a fixed per-household horizon (days).
+/// Shared across the MealPlanning domain-service tests in this namespace.
+/// </summary>
+internal sealed class FakeExpiringSoonHorizonReader(int days) : IExpiringSoonHorizonReader
+{
+    public Task<int> GetDaysAsync(CancellationToken ct = default) => Task.FromResult(days);
 }

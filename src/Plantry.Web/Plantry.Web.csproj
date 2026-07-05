@@ -19,6 +19,11 @@
 
   <ItemGroup>
     <PackageReference Include="Bogus" Version="35.*" />
+    <!-- Server-side receipt image downscaling before the AI parse (plantry-v8vw). Q8-AnyCPU bundles
+         libheif for HEIC/HEIF DECODE on Windows + Linux (the iPhone camera default) with no native/apt
+         step; a single Apache-2.0 dependency. HEIC ENCODE (x265) is intentionally not relied upon —
+         downscaled output is always JPEG. -->
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.14.0" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="10.0.7" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

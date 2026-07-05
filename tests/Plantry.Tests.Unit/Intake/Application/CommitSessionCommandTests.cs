@@ -252,6 +252,7 @@ public sealed class CommitSessionCommandTests
     // ── Weight→each (plantry-1mu) ──────────────────────────────────────────────────
 
     private readonly Guid _lbUnitId = Guid.CreateVersion7();
+    private readonly Guid _kgUnitId = Guid.CreateVersion7();
     private readonly Guid _eachUnitId = Guid.CreateVersion7();
 
     private FakeReviewReferenceDataProvider WeightUnitReference() =>
@@ -259,8 +260,9 @@ public sealed class CommitSessionCommandTests
             Products: [],
             Units:
             [
-                new ReviewUnitOption(_lbUnitId, "lb", "Pound"),
-                new ReviewUnitOption(_eachUnitId, "each", "Each"),
+                new ReviewUnitOption(_lbUnitId, "lb", "Pound", ReviewUnitDimension.Mass),
+                new ReviewUnitOption(_kgUnitId, "kg", "Kilogram", ReviewUnitDimension.Mass),
+                new ReviewUnitOption(_eachUnitId, "each", "Each", ReviewUnitDimension.Count),
             ],
             Locations: [],
             Categories: []));
@@ -361,6 +363,92 @@ public sealed class CommitSessionCommandTests
         Assert.Empty(seed.Seeds);
         Assert.Equal(0.35m, Assert.Single(price.Quantities)); // priced in lb as before
         Assert.Equal(_lbUnitId, Assert.Single(price.UnitIds));
+    }
+
+    [Fact]
+    public async Task Does_Not_Seed_A_Conversion_When_The_User_Committed_A_Different_Weight_Unit()
+    {
+        // lb-priced line; the user overrides the pre-filled each-count to 0.6 kg — still a weight unit.
+        // A quantity-derived "lb→kg" factor would be garbage (real cross-weight conversion is a fixed
+        // constant), so nothing is seeded — yet the price still observes in the receipt's true unit (lb).
+        var session = ReadySession();
+        var productId = Guid.CreateVersion7();
+        var line = EstimatedEachLine(session, productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(productId, null, 0.6m, _kgUnitId, _locationId, null, price: 0.79m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var seed = new FakeSeedConversionPort();
+        var price = new FakeRecordPricePort();
+
+        var result = await Commit(session, repo, new(), new(), price,
+            reference: WeightUnitReference(), seed: seed).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(seed.Seeds);                              // no bogus lb→kg conversion seeded
+        Assert.Equal(1.34m, Assert.Single(price.Quantities)); // observed in the receipt weight, not 0.6
+        Assert.Equal(_lbUnitId, Assert.Single(price.UnitIds)); // $/lb — the receipt's true unit
+    }
+
+    [Fact]
+    public async Task Skips_The_Price_Observation_When_The_Receipt_Weight_Label_Resolves_To_No_Unit()
+    {
+        // Receipt weight priced in "oz" — a label no household unit matches. Recording it would fall back
+        // to the committed each-unit ($/each), which plantry-1mu forbids, so the observation is skipped
+        // entirely (a wrong-unit price is worse than a missing one). Stock is still added and no
+        // conversion is seeded because the weight unit never resolved.
+        var session = ReadySession();
+        var productId = Guid.CreateVersion7();
+        var line = session.AddLine(1, "BULK ALMONDS 12 oz", SuggestedConfidence.High, """{"x":1}""",
+            suggestedProductId: productId, suggestedQuantity: 12m, suggestedUnitLabel: "oz", suggestedPrice: 5.00m,
+            receiptWeight: 12m, receiptWeightUnitLabel: "oz",
+            estimatedEachCount: 3m, estimatedEachConfidence: SuggestedConfidence.High);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(productId, null, 3m, _eachUnitId, _locationId, null, price: 5.00m); // accepted 3 each
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var add = new FakeAddStockPort();
+        var price = new FakeRecordPricePort();
+        var seed = new FakeSeedConversionPort();
+
+        var result = await Commit(session, repo, new(), add, price,
+            reference: WeightUnitReference(), seed: seed).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(price.Prices);            // no wrong-unit ($/each) observation persisted
+        Assert.Single(add.ProductIds);         // stock IS still added
+        Assert.Empty(seed.Seeds);              // no conversion seeded — weight unit never resolved
+        Assert.Null(line.PriceObservationId);  // line records no observation ref
+        Assert.Equal(LineStatus.Committed, line.Status);
+    }
+
+    [Fact]
+    public async Task Records_A_Non_Weight_Line_In_Its_Committed_Quantity_And_Unit()
+    {
+        // Fallback-path regression guard: a plain each line (no receipt weight) still observes in the
+        // committed qty/unit and seeds nothing.
+        var session = ReadySession();
+        var productId = Guid.CreateVersion7();
+        var line = session.AddLine(1, "EGGS DOZEN", SuggestedConfidence.High, null,
+            suggestedProductId: productId, suggestedQuantity: 2m, suggestedUnitLabel: "each", suggestedPrice: 3.50m);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(productId, null, 2m, _eachUnitId, _locationId, null, price: 3.50m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var price = new FakeRecordPricePort();
+        var seed = new FakeSeedConversionPort();
+
+        var result = await Commit(session, repo, new(), new(), price,
+            reference: WeightUnitReference(), seed: seed).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3.50m, Assert.Single(price.Prices));
+        Assert.Equal(2m, Assert.Single(price.Quantities));       // committed quantity
+        Assert.Equal(_eachUnitId, Assert.Single(price.UnitIds)); // committed unit
+        Assert.Empty(seed.Seeds);                                // no receipt weight → nothing to learn
     }
 
     [Fact]
