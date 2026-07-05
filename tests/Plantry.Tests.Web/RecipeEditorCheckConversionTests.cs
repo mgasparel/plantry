@@ -139,6 +139,49 @@ public sealed class RecipeEditorCheckConversionTests : IDisposable
     }
 
     /// <summary>
+    /// plantry-qno9: on a cross-dimension gap the handler also returns the two axis-locked unit lists
+    /// that drive the four-field equation editor — <c>stockUnits</c> (units sharing the product default
+    /// unit's dimension) and <c>recipeUnits</c> (units sharing the chosen recipe-line unit's dimension) —
+    /// each carrying <c>id</c>, <c>code</c>, and <c>factorToBase</c>. In the fixture gram is mass and each
+    /// is count, so the lists are disjoint: stock = [g], recipe = [ea], and neither leaks across axes.
+    /// </summary>
+    [Fact]
+    public async Task CheckConversion_cross_dimension_returns_axis_locked_unit_lists()
+    {
+        var client = AuthenticatedClient(_crossDimensionFactory);
+        var productId  = RecipeEditorFixture.PastaId;      // default unit = g (mass)
+        var fromUnitId = RecipeEditorFixture.EachUnitId;   // ea (count) → cross-dimension gap
+
+        var response = await client.GetAsync(
+            $"/Recipes/New?handler=CheckConversion&productId={productId}&fromUnitId={fromUnitId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("needsConversion").GetBoolean(), json);
+
+        // LEFT axis: only the product stock dimension (mass) — g, and NOT ea.
+        var stockUnits = root.GetProperty("stockUnits").EnumerateArray().ToList();
+        var stockCodes = stockUnits.Select(u => u.GetProperty("code").GetString()).ToList();
+        Assert.Contains("g", stockCodes);
+        Assert.DoesNotContain("ea", stockCodes);
+        // Each entry carries the metadata the client echo line needs.
+        Assert.All(stockUnits, u =>
+        {
+            Assert.True(u.TryGetProperty("id", out _));
+            Assert.True(u.TryGetProperty("factorToBase", out _));
+        });
+
+        // RIGHT axis: only the recipe-line dimension (count) — ea, and NOT g.
+        var recipeCodes = root.GetProperty("recipeUnits").EnumerateArray()
+            .Select(u => u.GetProperty("code").GetString()).ToList();
+        Assert.Contains("ea", recipeCodes);
+        Assert.DoesNotContain("g", recipeCodes);
+    }
+
+    /// <summary>
     /// Unknown product id returns <c>{"needsConversion":false}</c> — the handler treats a missing
     /// product as a no-op rather than an error, because the client validation and server-side R7
     /// backstop will catch it.

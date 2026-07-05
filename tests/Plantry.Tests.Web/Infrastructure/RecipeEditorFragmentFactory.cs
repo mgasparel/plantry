@@ -151,6 +151,12 @@ public sealed class RecipeEditorPostFactory : WebApplicationFactory<Program>
     public FakeEditorRecipeRepository RecipeRepo { get; } =
         new(new ConstantTenantContext(RecipeEditorFixture.HouseholdAId));
 
+    /// <summary>
+    /// Singleton catalog writer exposed so the four-field conversion POST test (plantry-qno9) can assert
+    /// the server-computed (productId, from = left unit, to = right unit, factor = right/left) triple.
+    /// </summary>
+    internal FakeCatalogWriter CatalogWriter { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -185,7 +191,7 @@ public sealed class RecipeEditorPostFactory : WebApplicationFactory<Program>
                     RecipeEditorFixture.ProductDefaultUnits()));
 
             services.RemoveAll<ICatalogWriter>();
-            services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+            services.AddSingleton<ICatalogWriter>(CatalogWriter);
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeUnitConverter());
@@ -195,9 +201,16 @@ public sealed class RecipeEditorPostFactory : WebApplicationFactory<Program>
 
 // ── Additional fakes needed to satisfy AuthorRecipe's dependency graph ────────────────────────────
 
-/// <summary>No-op <see cref="ICatalogWriter"/> — the L4 tests never exercise the POST path.</summary>
+/// <summary>
+/// <see cref="ICatalogWriter"/> test double for the editor L4 tests. Creates are no-ops returning a
+/// fresh id; <see cref="AddConversionAsync"/> records its arguments in <see cref="ConversionsAdded"/>
+/// so the plantry-qno9 four-field POST test can assert the server computed factor = right/left and
+/// wrote (from = left unit, to = right unit).
+/// </summary>
 internal sealed class FakeCatalogWriter : ICatalogWriter
 {
+    public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId, decimal Factor)> ConversionsAdded { get; } = [];
+
     public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
@@ -210,8 +223,11 @@ internal sealed class FakeCatalogWriter : ICatalogWriter
     public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
-    public Task AddConversionAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default) =>
-        Task.CompletedTask;
+    public Task AddConversionAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default)
+    {
+        ConversionsAdded.Add((productId, fromUnitId, toUnitId, factor));
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>Always-succeeds <see cref="IUnitConverter"/> — the L4 tests never exercise the POST path.</summary>

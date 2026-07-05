@@ -59,8 +59,14 @@ public interface ICatalogProductReader
 /// <summary>The display slice of a Catalog product for a recipe ingredient row (name + stock-tracking).</summary>
 public sealed record CatalogProductSummary(Guid Id, string Name, bool TrackStock);
 
-/// <summary>A unit option for the ingredient editor dropdown.</summary>
-public sealed record CatalogUnitOption(Guid Id, string Code);
+/// <summary>
+/// A unit option for the ingredient editor dropdown. <see cref="Dimension"/> (e.g. "mass", "volume",
+/// "count") and <see cref="FactorToBase"/> let the editor build the axis-locked conversion dropdowns
+/// (LEFT = stock-dimension units, RIGHT = recipe-line-dimension units) and derive the client-side echo
+/// line, without a per-unit round-trip (plantry-qno9). Both carry backwards-compatible defaults so
+/// callers that only need id + code are unaffected.
+/// </summary>
+public sealed record CatalogUnitOption(Guid Id, string Code, string Dimension = "", decimal FactorToBase = 1m);
 
 /// <summary>
 /// The slice of a Catalog product Recipes depends on, including the depth-1 parent/variant tree.

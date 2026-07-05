@@ -1,33 +1,46 @@
 @*
-    In-sheet unit-conversion prompt for the recipe ingredient editor (C10 early UX, plantry-c9s2).
+    In-sheet unit-conversion prompt for the recipe ingredient editor (C10 early UX, plantry-c9s2;
+    four-field equation editor, plantry-qno9).
 
     Shown when the author picks a cross-dimension unit (e.g. "cup" for a product catalogued in "g"):
     the Alpine $watch on draft.unitId detects the gap live via OnGetCheckConversionAsync and sets
-    draft.needsConversion = true. This partial renders the inline ask, styled as an informational prompt
-    (not an error).
+    draft.needsConversion = true. This partial renders the inline ask as a two-sided equation so the
+    author can state the fact they already know ("1 kg = 8 cups") verbatim, instead of being forced to
+    express it as "1 {recipeUnit} = ___ {stockDefault}" and do the arithmetic themselves.
 
-    Framing follows Option 1 (agreed in .preview/recipe-conversion-prompt-options.html):
-      "Plantry stocks {ProductName} in {defaultUnitCode}. How much is 1 {fromUnitCode}?"
-      1 {fromUnitCode} = [ input ] {defaultUnitCode}
-      Saved to your catalog — you only set this once, and every future recipe reuses it.
-      [Measure in {defaultUnitCode} instead]
+    The equation, each dropdown constrained to ONE axis:
+
+        [amount] [ unit ▾ ]   =   [amount] [ unit ▾ ]
+          LEFT: product STOCK dimension   RIGHT: recipe-line dimension
+          (units from draft.stockUnits)   (units from draft.recipeUnits)
+
+    Because the two axes always differ (that is exactly why the prompt appears), the pair ALWAYS
+    bridges — a same-dimension "nonsense" entry is impossible by construction, so there is NO live
+    non-bridging guard. The server computes factor = rightAmount / leftAmount, from = left unit,
+    to = right unit; UnitConverter bridges same-dimension hops on each side and in both directions, so
+    storing (kg → cup, 8) resolves a recipe in cups (or tbsp) against stock in g.
+
+    Prefill keeps the common path to a single keystroke: LEFT amount blank + LEFT unit = the product
+    stock default; RIGHT amount = 1 + RIGHT unit = the recipe line unit — i.e. "[__] {default} = 1 {unit}".
 
     Alpine contract (reads from the host's draft object):
-      draft.needsConversion     — controls x-if on the outer template (DOM is truly absent when false,
-                                   so strict-mode Playwright locators never find the hidden input)
-      draft.productName         — product display name (e.g. "Flour")
-      draft.unitId              — the chosen from-unit id
-      draft.defaultUnitId       — the product's default unit id
+      draft.needsConversion     — controls x-if on the outer template (DOM truly absent when false,
+                                   so strict-mode Playwright locators never find the extra inputs)
+      draft.productName         — product display name (e.g. "Cashews")
+      draft.unitId              — the chosen recipe-line unit id
+      draft.defaultUnitId       — the product's default (stock) unit id
       draft.defaultUnitCode     — the product's default unit code (e.g. "g")
-      draft.conversionFactor    — two-way bound to the factor input
-      unitLabel(id)             — host helper: unitId → code string (e.g. "cup")
+      draft.stockUnits          — [{id, code, factorToBase}] units on the product stock dimension (LEFT)
+      draft.recipeUnits         — [{id, code, factorToBase}] units on the recipe-line dimension (RIGHT)
+      draft.convLeftAmount / draft.convLeftUnitId   — two-way bound to the LEFT amount + unit
+      draft.convRightAmount / draft.convRightUnitId — two-way bound to the RIGHT amount + unit
+      unitLabel(id)             — host helper: unitId → code string
+      conversionEcho()          — host helper: derived stock-terms line, or '' while amounts incomplete
 
-    Why x-if (template) not x-show:
-      - x-show renders the div but hides it with CSS. Playwright strict-mode locator("input[type='number']")
-        finds ALL DOM inputs including hidden ones, breaking existing E2E tests that expect exactly one
-        number input in the sheet.
-      - x-if on a <template> only inserts the child elements when truthy — the input is genuinely absent
-        from the DOM when draft.needsConversion is false, keeping the E2E locators unambiguous.
+    Why x-if (template) not x-show: x-show renders the inputs but hides them with CSS, so a
+    Playwright strict-mode locator("input[type='number']") would find them and break existing E2E
+    tests that expect exactly one number input in the sheet. x-if only inserts the children when
+    truthy — the amount inputs are genuinely absent from the DOM until a conversion is actually needed.
 
     The "Measure in {default} instead" escape sets draft.unitId = draft.defaultUnitId, which clears
     the $watch trigger and removes this block from the DOM.
@@ -35,24 +48,52 @@
 
 <template x-if="draft.needsConversion">
     <div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)">
-        <p style="margin:0 0 var(--space-1);font-size:var(--font-size-sm)">
+        <p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
             Plantry stocks <strong x-text="draft.productName"></strong> in <strong x-text="draft.defaultUnitCode"></strong>.
-            How much is 1 <span x-text="unitLabel(draft.unitId)"></span>?
+            How does 1 <span x-text="unitLabel(draft.unitId)"></span> relate?
         </p>
-        <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);flex-wrap:wrap">
-            <span style="font-size:var(--font-size-sm)">1 <span x-text="unitLabel(draft.unitId)"></span> =</span>
-            <input type="number" class="field__input" step="any" min="0"
+
+        @* Two-sided equation: LEFT (stock dimension) = RIGHT (recipe-line dimension). Each select is
+           locked to a single axis, so no cross-dimension "nonsense" pair can be entered. *@
+        <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
+            <input type="number" class="field__input conv-eq__amount" step="any" min="0"
                    placeholder="e.g. 120"
-                   x-model="draft.conversionFactor"
-                   style="width:8rem" />
-            <span style="font-size:var(--font-size-sm)" x-text="draft.defaultUnitCode"></span>
+                   x-model="draft.convLeftAmount"
+                   aria-label="Stock amount"
+                   style="width:5.5rem" />
+            <select class="field__input conv-eq__unit" x-model="draft.convLeftUnitId"
+                    aria-label="Stock unit" style="width:auto;min-width:5rem">
+                <template x-for="u in (draft.stockUnits || [])" :key="u.id">
+                    <option :value="u.id" x-text="u.code"></option>
+                </template>
+            </select>
+            <span style="font-size:var(--font-size-base);color:var(--color-text-muted)">=</span>
+            <input type="number" class="field__input conv-eq__amount" step="any" min="0"
+                   placeholder="e.g. 1"
+                   x-model="draft.convRightAmount"
+                   aria-label="Recipe amount"
+                   style="width:5.5rem" />
+            <select class="field__input conv-eq__unit" x-model="draft.convRightUnitId"
+                    aria-label="Recipe unit" style="width:auto;min-width:5rem">
+                <template x-for="u in (draft.recipeUnits || [])" :key="u.id">
+                    <option :value="u.id" x-text="u.code"></option>
+                </template>
+            </select>
         </div>
-        <p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-            Saved to your catalog — you only set this once, and every future recipe reuses it.
+
+        @* Derived echo — translates the entered fact into stock terms once both amounts are filled.
+           Nothing is shown while the amounts are incomplete (no scolding while typing). *@
+        <p x-show="conversionEcho() !== ''" x-cloak
+           style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+            <span x-text="conversionEcho()"></span>
+        </p>
+
+        <p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+            Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
         </p>
         <button type="button"
                 class="btn btn--ghost btn--sm"
-                @@click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.conversionFactor = ''">
+                @@click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''">
             Measure in <span x-text="draft.defaultUnitCode"></span> instead
         </button>
     </div>

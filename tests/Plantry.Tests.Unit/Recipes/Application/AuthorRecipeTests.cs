@@ -451,6 +451,46 @@ public sealed class AuthorRecipeTests
         Assert.Single(h.Recipes.Items);
     }
 
+    /// <summary>
+    /// plantry-qno9: when the line carries an explicit conversion unit pair (the four-field equation —
+    /// e.g. "1 kg = 8 cups"), the service writes THAT pair verbatim (from = left unit, to = right unit,
+    /// factor = supplied), not the legacy recipeUnit→productDefault assumption. The recipe-line unit
+    /// (cup) still differs from the product default (g), so a path is required; here the re-check path is
+    /// pre-seeded so the save completes, letting the test assert the exact written triple.
+    /// </summary>
+    [Fact]
+    public async Task NeedsConversion_Honours_Explicit_From_To_Unit_Pair()
+    {
+        var h = BuildHarness();
+        var gram = Guid.CreateVersion7();   // product default (stock)
+        var kilogram = Guid.CreateVersion7(); // LEFT unit (stock dimension), not the default
+        var cup = Guid.CreateVersion7();     // RIGHT unit = the recipe line unit (recipe dimension)
+        var product = h.Products.AddTracked(gram);
+
+        // Pre-seed the recipe-line unit → product-default path so the post-write re-check (cup → g) passes
+        // once the author's conversion has been applied — isolating the assertion to the WRITTEN triple.
+        h.Converter.AddPath(product.Id, cup, gram, 125m);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null, Name: "Cashew Bowl", DefaultServings: 4,
+            Lines:
+            [
+                new AuthorIngredientLine(
+                    product.Id, 2m, cup, null, 0,
+                    ConversionFactor: 8m,
+                    ConversionFromUnitId: kilogram,
+                    ConversionToUnitId: cup),
+            ],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        // The verbatim author fact "1 kg = 8 cup" is stored — NOT (cup → g).
+        var written = Assert.Single(h.Writer.ConversionsAdded);
+        Assert.Equal((product.Id, kilogram, cup, 8m), written);
+    }
+
     // ── Ordinal assembly ─────────────────────────────────────────────────────────
 
     [Fact]
