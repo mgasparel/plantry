@@ -31,6 +31,7 @@ public sealed class RecipeEditorFragmentFactory : WebApplicationFactory<Program>
     public Recipe RichRecipe            { get; } = RecipeEditorFixture.BuildRich();
     public Recipe RichArchivedTagRecipe { get; } = RecipeEditorFixture.BuildRichWithArchivedTag();
     public Recipe NonCanonicalRecipe    { get; } = RecipeEditorFixture.BuildNonCanonical();
+    public Recipe FlipToTrackedRecipe   { get; } = RecipeEditorFixture.BuildFlipToTracked();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -57,7 +58,8 @@ public sealed class RecipeEditorFragmentFactory : WebApplicationFactory<Program>
                     EmptyRecipe,
                     RichRecipe,
                     RichArchivedTagRecipe,
-                    NonCanonicalRecipe));
+                    NonCanonicalRecipe,
+                    FlipToTrackedRecipe));
 
             // Tag repository: resolves the fixture tag id → name mapping for the edit GET, and
             // serves the full tag list (active + archived) for FakeTagRepository.

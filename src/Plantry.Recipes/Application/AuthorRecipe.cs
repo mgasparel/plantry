@@ -69,7 +69,7 @@ public sealed class AuthorRecipe(
                 if (product is null)
                     return new AuthorRecipeResult.Invalid(
                         Error.Custom("Recipes.UnknownProduct", "A chosen ingredient product does not exist."));
-                resolved.Add(new ResolvedLine(product.Id, product.TrackStock, product.DefaultUnitId, line));
+                resolved.Add(new ResolvedLine(product.Id, product.Name, product.TrackStock, product.DefaultUnitId, line));
             }
             else if (line.NewIsTracked && !string.IsNullOrWhiteSpace(line.NewStapleName))
             {
@@ -89,7 +89,7 @@ public sealed class AuthorRecipe(
                 if (line.Quantity is null || line.UnitId is null)
                     return new AuthorRecipeResult.Invalid(Error.Custom(
                         "Recipes.TrackedRequiresQuantity",
-                        "A tracked ingredient must have both a quantity and a unit."));
+                        $"'{line.NewStapleName.Trim()}' (line {line.Ordinal + 1}) is tracked and needs a quantity and unit."));
 
                 var trackedName = line.NewStapleName.Trim();
                 Guid newTrackedId;
@@ -117,7 +117,7 @@ public sealed class AuthorRecipe(
                 }
 
                 // A freshly created tracked product has trackStock: true; its default unit is the supplied unit.
-                resolved.Add(new ResolvedLine(newTrackedId, TrackStock: true, trackedUnit, line));
+                resolved.Add(new ResolvedLine(newTrackedId, trackedName, TrackStock: true, trackedUnit, line));
             }
             else if (!string.IsNullOrWhiteSpace(line.NewStapleName))
             {
@@ -127,7 +127,7 @@ public sealed class AuthorRecipe(
                         Error.Custom("Recipes.MissingStapleUnit", "An inline staple needs a default unit."));
                 var newId = await catalogWriter.CreateUntrackedStapleAsync(line.NewStapleName.Trim(), stapleUnit, ct);
                 // An inline staple is untracked (track_stock = false) by construction (C12).
-                resolved.Add(new ResolvedLine(newId, TrackStock: false, stapleUnit, line));
+                resolved.Add(new ResolvedLine(newId, line.NewStapleName.Trim(), TrackStock: false, stapleUnit, line));
             }
             else
             {
@@ -142,7 +142,7 @@ public sealed class AuthorRecipe(
             if (r.TrackStock && (r.Line.Quantity is null || r.Line.UnitId is null))
                 return new AuthorRecipeResult.Invalid(Error.Custom(
                     "Recipes.TrackedRequiresQuantity",
-                    "A tracked ingredient must have both a quantity and a unit."));
+                    $"'{r.ProductName}' (line {r.Line.Ordinal + 1}) is tracked and needs a quantity and unit."));
         }
 
         // ── R7/C10 — unit→product-default conversion path for each tracked line ──
@@ -254,7 +254,7 @@ public sealed class AuthorRecipe(
     private static bool NeedsConversionCheck(ResolvedLine r) =>
         r.TrackStock && r.Line.UnitId is { } unit && unit != r.DefaultUnitId;
 
-    private readonly record struct ResolvedLine(Guid ProductId, bool TrackStock, Guid DefaultUnitId, AuthorIngredientLine Line);
+    private readonly record struct ResolvedLine(Guid ProductId, string ProductName, bool TrackStock, Guid DefaultUnitId, AuthorIngredientLine Line);
 }
 
 // ── Command / DTOs ──────────────────────────────────────────────────────────────────────────────

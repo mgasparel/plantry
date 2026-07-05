@@ -140,20 +140,52 @@ public sealed class EditModel(
             // with the editor's Ungrouped-first layout — closing the editor-vs-detail snap-back.
             var canonicalIngredients = CanonicaliseSectionOrder(recipe.Ingredients);
 
+            // plantry-429l: a line authored while its product was untracked (null qty/unit legal) whose
+            // product was LATER flipped tracked (Product.SetTrackStock) is retroactively condemned by R5
+            // on the next save. Detect such "needs qty/unit" rows at load so the editor can flag them and
+            // prefill the missing unit, rather than dead-ending on an opaque global save error. A row is
+            // flagged when the product is live-tracked AND the stored qty or unit is null. The product's
+            // default unit (for the prefill) is not carried on the summary, so resolve it via FindAsync for
+            // the flagged products only (rare — requires a deliberate untracked→tracked flip).
+            var flaggedDefaultUnits = new Dictionary<Guid, Guid>();
+            foreach (var ing in canonicalIngredients)
+            {
+                if (flaggedDefaultUnits.ContainsKey(ing.ProductId)) continue;
+                var isTracked = productLookup.TryGetValue(ing.ProductId, out var s) && s.TrackStock;
+                if (isTracked && (ing.Quantity is null || ing.UnitId is null))
+                {
+                    var full = await products.FindAsync(ing.ProductId, ct);
+                    if (full is not null)
+                        flaggedDefaultUnits[ing.ProductId] = full.DefaultUnitId;
+                }
+            }
+
             Input.Lines = canonicalIngredients
                 .Select((ing, idx) =>
                 {
                     productLookup.TryGetValue(ing.ProductId, out var p);
-                    var unitCode = ing.UnitId.HasValue ? unitCodeLookup.GetValueOrDefault(ing.UnitId.Value) : null;
+                    var isTracked = p?.TrackStock ?? false;
+                    var needsQtyUnit = isTracked && (ing.Quantity is null || ing.UnitId is null);
+
+                    // Part A (plantry-429l): prefill the unit for a flagged row that has no unit, using the
+                    // product's default unit. The user then only supplies a quantity. Quantity is never
+                    // prefilled (no sane default) — the null qty keeps the row flagged until the user acts.
+                    var unitId = ing.UnitId;
+                    if (needsQtyUnit && unitId is null
+                        && flaggedDefaultUnits.TryGetValue(ing.ProductId, out var defUnit) && defUnit != Guid.Empty)
+                        unitId = defUnit;
+
+                    var unitCode = unitId.HasValue ? unitCodeLookup.GetValueOrDefault(unitId.Value) : null;
                     return new IngredientRowInput
                     {
                         Ordinal = idx,
                         ProductId = ing.ProductId,
                         ProductName = p?.Name ?? "",
                         Quantity = ing.Quantity,
-                        UnitId = ing.UnitId,
+                        UnitId = unitId,
                         UnitCode = unitCode,
                         GroupHeading = ing.GroupHeading,
+                        IsUntracked = !isTracked,
                     };
                 }).ToList();
 
@@ -567,6 +599,16 @@ public sealed class IngredientRowInput
     public Guid? UnitId { get; set; }
     /// <summary>Display-only — the unit code string (e.g. "g") for pre-populating the select label on edit.</summary>
     public string? UnitCode { get; set; }
+
+    /// <summary>
+    /// The product's live <c>track_stock = false</c> state, hydrated on GET from the resolved Catalog
+    /// summary (plantry-429l — previously hard-coded false, a latent hydration lie). Posted as a hidden
+    /// input so it round-trips through a failed-save re-render; display-only (the server re-resolves
+    /// <c>TrackStock</c> from the product for the R5 decision, never trusting this client value). The
+    /// editor derives the "needs a quantity and unit" warning reactively from this plus the row's qty/unit,
+    /// so it self-clears the moment the author supplies the missing value.
+    /// </summary>
+    public bool IsUntracked { get; set; }
 
     // ── Optional group heading ─────────────────────────────────────────────────────
     public string? GroupHeading { get; set; }
