@@ -125,6 +125,13 @@ public sealed class CookModel(
             ? await stockReader.FindStockBatchAsync(stockIds.ToList(), ct)
             : new Dictionary<Guid, ProductStock>();
 
+        // Unit codes for the stock default units — needed to render the real on-hand amount in the
+        // stock's own unit when a recipe unit can't be converted to it (unit-gap display, plantry-qll2.5).
+        var stockUnitIds = stockById.Values.Select(s => s.DefaultUnitId).Distinct().ToList();
+        var stockUnitCodes = stockUnitIds.Count > 0
+            ? await catalog.ResolveUnitCodesAsync(stockUnitIds, ct)
+            : new Dictionary<Guid, string>();
+
         // Unit codes for variant products.
         var variantUnitIds = variantDefaultUnits.Values.Distinct().ToList();
         var variantUnitCodes = variantUnitIds.Count > 0
@@ -243,17 +250,40 @@ public sealed class CookModel(
                 stockById.TryGetValue(ingredient.ProductId, out var stock);
                 var availableRaw = stock?.AvailableQuantity ?? 0m;
                 var availableInIngUnit = availableRaw;
+                var isUnitGap = false;
+                decimal? stockQuantity = null;
+                string? stockUnitCode = null;
 
                 if (stock is not null && ingredient.UnitId.HasValue
                     && stock.DefaultUnitId != ingredient.UnitId.Value)
                 {
                     var conv = await unitConverter.ConvertAsync(
                         ingredient.ProductId, availableRaw, stock.DefaultUnitId, ingredient.UnitId.Value, ct);
-                    if (conv.IsSuccess) availableInIngUnit = conv.Value;
-                    else availableInIngUnit = 0m;
+                    if (conv.IsSuccess)
+                    {
+                        availableInIngUnit = conv.Value;
+                    }
+                    else
+                    {
+                        // No conversion path between the stock unit and the recipe unit. When there is
+                        // real stock on hand this is a DISTINCT state from an empty pantry
+                        // (plantry-qll2.5): the user may be holding a full bag we simply cannot compare.
+                        // Surface the honest on-hand amount in the stock unit rather than collapsing to a
+                        // "have 0 / need N" shortfall. Consume-path is unchanged — the POST still shorts
+                        // the line (ProductStock.Consume fails loud on the unreachable conversion).
+                        availableInIngUnit = 0m;
+                        if (availableRaw > 0m)
+                        {
+                            isUnitGap = true;
+                            stockQuantity = availableRaw;
+                            stockUnitCode = stockUnitCodes.GetValueOrDefault(stock.DefaultUnitId);
+                        }
+                    }
                 }
 
-                var isShortfall = scaledQty.HasValue && availableInIngUnit < scaledQty.Value;
+                // A unit gap is not a shortfall — we cannot make the comparison at all, so we do not
+                // claim the pantry is short.
+                var isShortfall = !isUnitGap && scaledQty.HasValue && availableInIngUnit < scaledQty.Value;
 
                 lines.Add(new CookLineView(
                     IngredientId: ingredient.Id.Value,
@@ -266,7 +296,10 @@ public sealed class CookModel(
                     IsParent: false,
                     VariantOptions: [],
                     AvailableQuantity: availableInIngUnit,
-                    IsShortfall: isShortfall));
+                    IsShortfall: isShortfall,
+                    IsUnitGap: isUnitGap,
+                    StockQuantity: stockQuantity,
+                    StockUnitCode: stockUnitCode));
             }
         }
 
@@ -367,6 +400,16 @@ public sealed record CookViewModel(
     IReadOnlyList<CookLineView> Lines);
 
 /// <summary>One ingredient line on the Cook confirmation page.</summary>
+/// <param name="IsUnitGap">
+/// True when the product has real stock on hand but its stock unit cannot be converted to the recipe
+/// unit (plantry-qll2.5). Mutually exclusive with <paramref name="IsShortfall"/> — a unit gap is an
+/// honest "can't compare" state, not an empty pantry. Rendered in info tone with the real on-hand
+/// amount and an "Add conversion" link, never as a "have 0 / need N" warning.
+/// </param>
+/// <param name="StockQuantity">The real on-hand quantity in the stock's own unit — set only when
+/// <paramref name="IsUnitGap"/> is true.</param>
+/// <param name="StockUnitCode">The stock unit's display code (e.g. "g") — set only when
+/// <paramref name="IsUnitGap"/> is true.</param>
 public sealed record CookLineView(
     Guid IngredientId,
     Guid ProductId,
@@ -378,7 +421,10 @@ public sealed record CookLineView(
     bool IsParent,
     IReadOnlyList<VariantOptionView> VariantOptions,
     decimal? AvailableQuantity,
-    bool IsShortfall);
+    bool IsShortfall,
+    bool IsUnitGap = false,
+    decimal? StockQuantity = null,
+    string? StockUnitCode = null);
 
 /// <summary>One variant option within a parent-product ingredient's Variant Disambiguation Picker (C7/C11).</summary>
 public sealed record VariantOptionView(

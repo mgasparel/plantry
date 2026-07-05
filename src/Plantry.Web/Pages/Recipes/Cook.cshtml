@@ -6,6 +6,7 @@
     ViewData["ContentClass"] = "page-content--wide";
     var cook = Model.Cook;
     var hasShortfall = cook.Lines.Any(l => l.IsShortfall);
+    var hasUnitGap = cook.Lines.Any(l => l.IsUnitGap);
     var trackedLines = cook.Lines.Where(l => !l.IsUntracked).ToList();
 }
 
@@ -59,6 +60,20 @@
                     </div>
                 }
 
+                @* Unit-gap notice — honest "can't compare units" state, info tone, a promise not an
+                   apology (plantry-qll2.5). Nothing is wrong with the pantry; we just can't convert
+                   the stock unit to the recipe unit yet. *@
+                @if (hasUnitGap)
+                {
+                    <div class="cook-unitgap-notice" role="status">
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                        <span>
+                            <b>Some ingredients need a unit conversion.</b>
+                            You can still confirm — they'll be deducted automatically once the conversion is known.
+                        </span>
+                    </div>
+                }
+
                 <div class="card">
                     <div class="card__head">
                         <div>
@@ -105,7 +120,13 @@
                                      x-data="{}">
 
                                     @* Status indicator *@
-                                    @if (line.IsShortfall)
+                                    @if (line.IsUnitGap)
+                                    {
+                                        <div class="cook-ing-status cook-ing-status--unitgap" aria-label="Needs unit conversion">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                                        </div>
+                                    }
+                                    else if (line.IsShortfall)
                                     {
                                         <div class="cook-ing-status cook-ing-status--shortfall" aria-label="Shortfall">
                                             <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
@@ -127,7 +148,24 @@
                                                     have @(FormatQty(line.AvailableQuantity.Value)) / need @(FormatQty(line.ScaledQuantity.Value)) @line.UnitCode
                                                 </span>
                                             }
+                                            else if (line.IsUnitGap && line.StockQuantity.HasValue)
+                                            {
+                                                <span class="cook-unitgap-tag">
+                                                    @(FormatQty(line.StockQuantity.Value)) @line.StockUnitCode on hand · no @line.UnitCode↔@line.StockUnitCode conversion
+                                                </span>
+                                            }
                                         </div>
+
+                                        @* Unit gap: honest state — link out to the product page where the
+                                           Add-conversion / ADR-022 Confirm affordance already lives (plantry-qll2.5).
+                                           Stays a plain link; timing is irrelevant (sibling plantry-qll2.6 settles the ledger later). *@
+                                        @if (line.IsUnitGap)
+                                        {
+                                            <a href="/Catalog/Products/@line.ProductId" class="cook-unitgap-link">
+                                                Add conversion
+                                                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                                            </a>
+                                        }
 
                                         @* Quantity stepper (C9 modify) — only when ScaledQuantity known.
                                            Uses value-bind/:value + input-handler/@input (not x-model) because
@@ -258,6 +296,10 @@
                             @if (hasShortfall)
                             {
                                 <p class="card__head-sub" style="color:var(--color-warning)">Some ingredients are short — you can still proceed.</p>
+                            }
+                            else if (hasUnitGap)
+                            {
+                                <p class="card__head-sub" style="color:var(--color-info)">Some ingredients need a conversion — you can still proceed.</p>
                             }
                             else
                             {
