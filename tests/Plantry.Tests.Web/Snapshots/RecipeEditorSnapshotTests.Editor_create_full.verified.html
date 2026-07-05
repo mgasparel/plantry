@@ -86,11 +86,18 @@
          rowNeedsQtyUnit(row) {
              return !row.isUntracked &amp;&amp; !!row.productId &amp;&amp; (!row.qty || !row.unitId);
          },
+         // Canonical amount rendering (plantry-jun6) — mirrors C# IngredientAmount.Format via the
+         // ingredient-amount.js twin bridged onto window.IngredientAmount below. Cleans a raw qty the
+         // author may have typed in the sheet (e.g. 500.000) for the read-only row summary. Falls back
+         // to the raw value if the module has not resolved yet; seeded rows are already server-cleaned.
+         fmtQty(qty) {
+             return window.IngredientAmount ? window.IngredientAmount.formatAmount(qty) : String(qty);
+         },
          rowSummary(row) {
              // Group heading is NO LONGER crammed into the summary — it is the section header now.
              const name = row.newStapleName ? row.newStapleName : row.productName;
              const parts = [];
-             if (!row.isUntracked &amp;&amp; row.qty) parts.push(row.qty + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
+             if (!row.isUntracked &amp;&amp; row.qty) parts.push(this.fmtQty(row.qty) + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
              if (row.isUntracked) parts.push('untracked');
              return parts.length ? name + ' · ' + parts.join(' · ') : name;
          },

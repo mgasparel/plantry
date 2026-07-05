@@ -3,7 +3,16 @@
          defaultServings: 4,
          _fulfTimer: null,
          get scale() { return this.servings / this.defaultServings; },
-         fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); },
+         // Canonical amount rendering (plantry-jun6) — mirrors C# IngredientAmount.Format via the
+         // ingredient-amount.js twin bridged onto window.IngredientAmount below. Falls back to a plain
+         // round+string on the off-chance the module has not resolved yet on first paint; the server
+         // already emitted the cleaned value as the x-text fallback text, so nothing shows unformatted.
+         fmt(qty) {
+             const v = qty * this.scale;
+             return window.IngredientAmount
+                 ? window.IngredientAmount.formatAmount(v)
+                 : Number(v.toFixed(4)).toString();
+         },
          refreshFulfilment() {
              clearTimeout(this._fulfTimer);
              this._fulfTimer = setTimeout(() => {

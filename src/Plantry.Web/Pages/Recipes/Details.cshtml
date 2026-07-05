@@ -1,10 +1,16 @@
 @page "/Recipes/{id:guid}"
 @inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @using System.Globalization
 @using Plantry.Recipes.Domain
 @model Plantry.Web.Pages.Recipes.DetailsModel
 @{
     ViewData["Title"] = Model.Recipe.Name;
+    // Canonical amount formatter (plantry-jun6): the servings-scaled ingredient quantities are
+    // rendered client-side, so bridge the ingredient-amount.js twin onto window.IngredientAmount
+    // (see the Scripts section) so fmt() agrees with the C# IngredientAmount.Format server render.
+    var ingredientAmountSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/ingredient-amount.js");
     // Two-column detail grid (.rd-wrap, max-width 1180px) sets its own width; opt out of the
     // default 900px .page-content cap so the rail isn't squeezed into a single narrow column.
     ViewData["ContentClass"] = "page-content--wide";
@@ -35,7 +41,16 @@
          defaultServings: @recipe.DefaultServings,
          _fulfTimer: null,
          get scale() { return this.servings / this.defaultServings; },
-         fmt(qty) { let v = qty * this.scale; return v % 1 === 0 ? v.toString() : v.toPrecision(3).replace(/\\.?0+$/, ''); },
+         // Canonical amount rendering (plantry-jun6) — mirrors C# IngredientAmount.Format via the
+         // ingredient-amount.js twin bridged onto window.IngredientAmount below. Falls back to a plain
+         // round+string on the off-chance the module has not resolved yet on first paint; the server
+         // already emitted the cleaned value as the x-text fallback text, so nothing shows unformatted.
+         fmt(qty) {
+             const v = qty * this.scale;
+             return window.IngredientAmount
+                 ? window.IngredientAmount.formatAmount(v)
+                 : Number(v.toFixed(4)).toString();
+         },
          refreshFulfilment() {
              clearTimeout(this._fulfTimer);
              this._fulfTimer = setTimeout(() => {
@@ -224,3 +239,13 @@
     </div>@* /rd-wrap *@
 
 </div>@* /recipe-detail *@
+
+@section Scripts {
+    @* Bridge the canonical amount formatter onto window.IngredientAmount so the Alpine fmt() renders
+       servings-scaled quantities with the same trailing-zero rule as C# IngredientAmount.Format
+       (plantry-jun6). Not an island — no reactive runtime here; fmt() has a synchronous fallback for
+       the first paint before this resolves, and the server already emitted the cleaned amount text. *@
+    <script type="module">
+        window.IngredientAmount = await import('@Html.Raw(ingredientAmountSrc)');
+    </script>
+}
