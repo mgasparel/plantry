@@ -186,12 +186,18 @@ function takeStockSheetBridge() {
 // dynamically injected _LotPanel partial markup. Scripts inside innerHTML fragments
 // are never executed by browsers (HTML spec §4.12.1 / fetch-and-run semantics).
 function takeStockLotPanel(data) {
-    // data: { lots: { [entryId]: { unitId } }, foundUnitId }
+    // data: { lots: { [entryId]: { amount, original, unitId } }, foundUnitId }
+    // Take Stock semantics (plantry-hl6u): `amount` is the *counted* quantity, pre-filled with the
+    // lot's current on-hand quantity; `original` is the recorded baseline. A lot is dirty when the
+    // count differs from the original, and Save posts the reduction delta (original − counted).
     const initialLots = {};
     for (const eid of Object.keys(data.lots ?? {})) {
+        const seed = data.lots[eid] ?? {};
+        const original = Number(seed.original ?? seed.amount ?? 0);
         initialLots[eid] = {
-            amount: 0,
-            unitId: (data.lots[eid]?.unitId ?? ''),
+            amount: Number(seed.amount ?? original),
+            original,
+            unitId: (seed.unitId ?? ''),
             spoiled: false,
             failed: false,
             failMsg: null,
@@ -212,7 +218,11 @@ function takeStockLotPanel(data) {
             const lot = this.lots[entryId];
             if (!lot) return;
             const parsed = parseFloat(rawValue);
-            lot.amount = isNaN(parsed) ? 0 : Math.max(0, parsed);
+            // Clamp the counted quantity to [0, original]: a single lot can only be reduced
+            // (targeted Consume). Counting above the recorded amount isn't a supported lot op —
+            // upward corrections go through the Found-stock path (plantry-hl6u).
+            const clamped = isNaN(parsed) ? lot.original : Math.min(lot.original, Math.max(0, parsed));
+            lot.amount = clamped;
             lot.failed = false;
             lot.failMsg = null;
         },
@@ -224,7 +234,10 @@ function takeStockLotPanel(data) {
         },
 
         isDirty() {
-            const anyLot = Object.values(this.lots).some(l => l.amount > 0);
+            // A lot is dirty when its counted quantity differs from the recorded original
+            // (plantry-hl6u). Spoiled alone is not dirty — it only changes the reason of a
+            // reduction, so count down (or to 0) to discard.
+            const anyLot = Object.values(this.lots).some(l => l.amount !== l.original);
             const foundDirty = this.found.amount != null && this.found.amount > 0;
             return anyLot || foundDirty;
         },
@@ -237,10 +250,13 @@ function takeStockLotPanel(data) {
             const adjustments = [];
 
             for (const [entryId, lot] of Object.entries(this.lots)) {
-                if (lot.amount <= 0) continue;
+                // Post the reduction delta (recorded original − counted). Unchanged lots
+                // (delta 0) and the clamped-impossible negative case are skipped (plantry-hl6u).
+                const delta = lot.original - lot.amount;
+                if (delta <= 0) continue;
                 adjustments.push({
                     entryId,
-                    amount: lot.amount,
+                    amount: delta,
                     unitId: lot.unitId,
                     reason: lot.spoiled ? 'Discarded' : 'Correction',
                 });
@@ -282,7 +298,12 @@ function takeStockLotPanel(data) {
                         if (lot) {
                             lot.failed = !r.isSuccess;
                             lot.failMsg = r.isSuccess ? null : r.error ?? 'Failed';
-                            if (r.isSuccess) lot.amount = 0;
+                            if (r.isSuccess) {
+                                // The lot now holds the counted quantity — rebaseline so it reads
+                                // as clean (not zero) and clear the spoiled flag (plantry-hl6u).
+                                lot.original = lot.amount;
+                                lot.spoiled = false;
+                            }
                         }
                     }
                     if (r.isSuccess) saved++; else failed++;

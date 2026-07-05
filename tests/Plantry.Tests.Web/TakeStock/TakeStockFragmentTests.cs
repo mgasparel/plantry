@@ -229,6 +229,26 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.Contains("Found stock", html);
     }
 
+    [Fact(DisplayName = "GET /Lots seeds each lot input with its current quantity, not zero (plantry-hl6u)")]
+    public async Task Get_Lots_SeedsInputWithCurrentQuantity()
+    {
+        var client = AuthClient();
+        var url = $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Lots&productId={TakeStockFixture.FlourId}";
+        var resp = await client.GetAsync(url);
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        // The Alpine seed JSON (x-data) must carry the lot's current quantity as both the counted
+        // amount and the original baseline — a lot input pre-filled with the on-hand qty, not 0.
+        Assert.Contains("\"amount\":300,\"original\":300", html);  // lot A
+        Assert.Contains("\"amount\":200,\"original\":200", html);  // lot B
+        // Regression guard for the reported bug: no lot may seed amount 0 against a live quantity.
+        Assert.DoesNotContain("\"amount\":0,\"original\":300", html);
+        // The input is now labelled as a counted quantity, not a reduction.
+        Assert.Contains("Counted quantity for this lot", html);
+        Assert.DoesNotContain("Amount to reduce for this lot", html);
+    }
+
     [Fact(DisplayName = "GET /Lots for a location with no lots renders empty state")]
     public async Task Get_Lots_EmptyLocationRendersEmptyState()
     {
