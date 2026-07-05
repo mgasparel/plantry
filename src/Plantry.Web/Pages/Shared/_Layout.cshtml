@@ -45,15 +45,10 @@
     }
     var crumbIcon = parents.Length > 0 ? crumbIcons.GetValueOrDefault(parents[0]) : crumbIcons.GetValueOrDefault(segments.FirstOrDefault() ?? "");
 
-    string NavActive(string prefix, string? except = null)
-    {
-        var page = ViewContext.RouteData.Values["page"]?.ToString();
-        if (page is null || !page.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            return "";
-        if (except is not null && page.StartsWith(except, StringComparison.OrdinalIgnoreCase))
-            return "";
-        return " sidebar__link--active";
-    }
+    string NavActive(string prefix, string? except = null) =>
+        NavHighlight.IsActive(ViewContext.RouteData.Values["page"]?.ToString(), prefix, except)
+            ? " sidebar__link--active"
+            : "";
     string BottomNavActive(string prefix) =>
         ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith(prefix) == true ? " bottom-nav__item--active" : "";
 }
