@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Web.Events;

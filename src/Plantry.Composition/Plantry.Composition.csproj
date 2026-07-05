@@ -1,13 +1,19 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- The AI:ApiKey is supplied via user-secrets (dev) / env config (prod), never committed. -->
-    <UserSecretsId>plantry-web-2026</UserSecretsId>
   </PropertyGroup>
 
+  <!--
+    Plantry.Composition (plantry-m1u): the cross-context composition seam. Houses the ~ACL adapters
+    that translate between bounded contexts and the domain-event dispatch machinery, so "how bounded
+    contexts are wired together" is separated from "the web/UI host" (Plantry.Web references THIS, never
+    the reverse). Hard invariant, enforced by Plantry.Tests.Architecture: this assembly must NOT depend
+    on Plantry.Web and must NOT depend on any Microsoft.AspNetCore.* — the one ASP.NET-Identity-coupled
+    adapter reads through the Plantry.Identity.Application IHouseholdDirectory port instead of UserManager.
+  -->
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Plantry.Tests.Web</_Parameter1>
@@ -18,30 +24,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Bogus" Version="35.*" />
-    <!-- Server-side receipt image downscaling before the AI parse (plantry-v8vw). Q8-AnyCPU bundles
-         libheif for HEIC/HEIF DECODE on Windows + Linux (the iPhone camera default) with no native/apt
-         step; a single Apache-2.0 dependency. HEIC ENCODE (x265) is intentionally not relied upon —
-         downscaled output is always JPEG. -->
-    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.14.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="10.0.7" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
-    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.2.2" />
+    <!-- ILogger<T> in a handful of adapters; DI extension method surface for AddCrossContextAdapters.
+         Both are framework-shared in Plantry.Web but must be declared for this plain class library. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
-    <!-- Cross-context ACL adapters + domain-event dispatch machinery (plantry-m1u): the composition seam,
-         extracted out of this host so "how contexts are wired" is separate from "the web/UI host." -->
-    <ProjectReference Include="..\Plantry.Composition\Plantry.Composition.csproj" />
-    <!-- Generic AI client config (AiOptions) consumed directly by composition root wiring (plantry-ew5). -->
-    <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
+    <!-- Identity application port only (IHouseholdDirectory) — NOT Identity.Infrastructure, which would
+         drag in ASP.NET Identity and break the no-AspNetCore invariant. -->
     <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />
-    <ProjectReference Include="..\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Catalog\Plantry.Catalog.csproj" />
     <ProjectReference Include="..\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Inventory\Plantry.Inventory.csproj" />
@@ -58,8 +51,6 @@
     <ProjectReference Include="..\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Deals\Plantry.Deals.csproj" />
     <ProjectReference Include="..\Plantry.Deals.Infrastructure\Plantry.Deals.Infrastructure.csproj" />
-    <ProjectReference Include="..\Plantry.ServiceDefaults\Plantry.ServiceDefaults.csproj" />
-    <ProjectReference Include="..\Plantry.Migration.Grocy\Plantry.Migration.Grocy.csproj" />
   </ItemGroup>
 
 </Project>
