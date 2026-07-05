@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using Plantry.Ai.Infrastructure;
 using Plantry.Intake.Infrastructure;
 
 namespace Plantry.Tests.Unit.Intake.Infrastructure;
 
 /// <summary>
-/// Unit tests for <see cref="AiTelemetry"/> primitives and the
+/// Unit tests for the shared <see cref="AiTelemetry"/> primitives, the Intake-owned
+/// <see cref="IntakeAiTelemetry"/> instruments, and the
 /// <see cref="GeminiReceiptParser.ConfidenceScore"/> mapping.
 ///
 /// Span emission and log calls require a live <c>ChatClient</c> and cannot be exercised here
@@ -38,7 +40,15 @@ public sealed class AiTelemetryTests
     {
         // The histogram name becomes the metric name in the OTEL backend.
         // Changing it is a breaking change to dashboards / alerts.
-        Assert.Equal("ai.parse.confidence", AiTelemetry.ParseConfidence.Name);
+        Assert.Equal("ai.parse.confidence", IntakeAiTelemetry.ParseConfidence.Name);
+    }
+
+    [Fact]
+    public void ParseConfidence_Is_Registered_On_The_Shared_AI_Meter()
+    {
+        // The Intake-owned histogram must be created against the shared "Plantry.AI" meter so the
+        // single AddMeter(AiTelemetry.SourceName) subscription in ServiceDefaults captures it.
+        Assert.Equal(AiTelemetry.SourceName, IntakeAiTelemetry.ParseConfidence.Meter.Name);
     }
 
     // ── ConfidenceScore mapping ──────────────────────────────────────────────────────────────────

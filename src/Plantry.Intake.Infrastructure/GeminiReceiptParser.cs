@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
 using System.Globalization;
+using Plantry.Ai.Infrastructure;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 
@@ -27,7 +28,7 @@ namespace Plantry.Intake.Infrastructure;
 /// Observability (Gate 9): each call is wrapped in an <see cref="Activity"/> span
 /// (<c>receipt_parse</c>) with <c>ai.model</c>, <c>ai.usage.input_tokens</c>,
 /// and <c>ai.usage.output_tokens</c> attributes. Per-line confidence scores are recorded on
-/// <see cref="AiTelemetry.ParseConfidence"/>. Failures set the span to
+/// <see cref="IntakeAiTelemetry.ParseConfidence"/>. Failures set the span to
 /// <see cref="ActivityStatusCode.Error"/> and emit a <c>LogError</c>. No receipt content, prompt
 /// text, or API key is written to any log or span attribute.
 /// </summary>
@@ -165,7 +166,7 @@ public sealed class GeminiReceiptParser : IReceiptParser
 
             // Record per-line confidence histogram (Gate 9 metric requirement).
             foreach (var line in result.Lines)
-                AiTelemetry.ParseConfidence.Record(ConfidenceScore(line.Confidence));
+                IntakeAiTelemetry.ParseConfidence.Record(ConfidenceScore(line.Confidence));
 
             sw.Stop();
             _logger.LogInformation(

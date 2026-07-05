@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
-using Plantry.Intake.Infrastructure;
+using Plantry.Ai.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 

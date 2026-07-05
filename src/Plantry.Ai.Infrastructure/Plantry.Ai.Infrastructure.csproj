@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Shared, generic AI infrastructure library (plantry-ew5). Holds only provider-agnostic AI
+    plumbing — OpenAI-compatible client config (AiOptions) and the single OTEL source/meter
+    (AiTelemetry) — with NO bounded-context knowledge. Architecturally equivalent to a NuGet
+    dependency: consumed by Intake / MealPlanning / Deals Infrastructure (and ServiceDefaults for
+    the OTEL subscription) without coupling those contexts to each other. Future home for the
+    per-household encrypted API key (Slice 8 / DM-7). Keep it context-free.
+  -->
+
+</Project>

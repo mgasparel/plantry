@@ -35,6 +35,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+    <!-- Generic AI client config (AiOptions) consumed directly by composition root wiring (plantry-ew5). -->
+    <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />
     <ProjectReference Include="..\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Catalog\Plantry.Catalog.csproj" />

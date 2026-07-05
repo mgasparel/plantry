@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Plantry.Ai.Infrastructure;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
@@ -475,7 +476,7 @@ builder.Services.AddScoped<IWeekPlanningOverrideRepository, WeekPlanningOverride
 builder.Services.AddScoped<SetPlanningSettingsService>();
 
 // IMealPlanner: FakeMealPlanner for test/no-key, real AI otherwise.
-if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseFakePlanner")
+if (builder.Configuration.GetValue<bool>($"{MealPlanningAiOptions.SectionName}:UseFakePlanner")
     || string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
     builder.Services.AddScoped<IMealPlanner, FakeMealPlanner>();
 else
@@ -590,9 +591,9 @@ builder.Services.AddGrocyImport(builder.Configuration);
 //  • AI:UseFakeParser=true   → FakeReceiptParser, the fixed E2E journey fixture (set only by the E2E AppHost).
 //  • no AI:ApiKey configured → DisabledReceiptParser, lets the app start with a locked-feature UI instead of crashing.
 // Sample takes precedence over fake. Never enable either seam outside dev/test.
-if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseSampleParser"))
+if (builder.Configuration.GetValue<bool>($"{IntakeAiOptions.SectionName}:UseSampleParser"))
     builder.Services.AddScoped<IReceiptParser, SampleReceiptParser>();
-else if (builder.Configuration.GetValue<bool>($"{AiOptions.SectionName}:UseFakeParser"))
+else if (builder.Configuration.GetValue<bool>($"{IntakeAiOptions.SectionName}:UseFakeParser"))
     builder.Services.AddScoped<IReceiptParser, FakeReceiptParser>();
 else if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
     builder.Services.AddScoped<IReceiptParser, DisabledReceiptParser>();

@@ -540,4 +540,56 @@ public sealed class BoundaryTests
             "Domain type extends IdentityUser:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
+
+    // Every bounded context that has an Infrastructure assembly. Shared infra libraries
+    // (Plantry.Ai.Infrastructure, Plantry.SharedKernel) belong to no context and are intentionally
+    // absent — they are the sanctioned homes for cross-cutting infra concerns.
+    private static readonly string[] InfrastructureContexts =
+    [
+        "Identity",
+        "Catalog",
+        "Inventory",
+        "Pricing",
+        "Shopping",
+        "Intake",
+        "Recipes",
+        "MealPlanning",
+        "Deals",
+    ];
+
+    // Regression lock (plantry-ew5): no bounded context's *.Infrastructure assembly may reference
+    // another bounded context's *.Infrastructure assembly. MealPlanning.Infrastructure and
+    // Deals.Infrastructure once referenced Plantry.Intake.Infrastructure solely to reuse the AiOptions /
+    // AiTelemetry POCOs (Gate 2 violation); those primitives now live in the shared, context-free
+    // Plantry.Ai.Infrastructure. This test fails the moment any such cross-context infra dependency is
+    // reintroduced. The shared Plantry.Ai.Infrastructure and Plantry.SharedKernel are exempt by
+    // construction (they are not in the context list, so they are never treated as a forbidden target).
+    [Fact]
+    public void Infrastructure_Should_Not_Reference_Sibling_Context_Infrastructure()
+    {
+        var failures = new List<string>();
+
+        foreach (var context in InfrastructureContexts)
+        {
+            var ownNamespace = $"Plantry.{context}.Infrastructure";
+            var siblingInfrastructureNamespaces = InfrastructureContexts
+                .Where(other => other != context)
+                .Select(other => $"Plantry.{other}.Infrastructure")
+                .ToArray();
+
+            var result = Types.InCurrentDomain()
+                .That()
+                .ResideInNamespace(ownNamespace)
+                .Should().NotHaveDependencyOnAny(siblingInfrastructureNamespaces)
+                .GetResult();
+
+            if (!result.IsSuccessful)
+                failures.Add($"{ownNamespace} → {string.Join(", ", result.FailingTypeNames ?? [])}");
+        }
+
+        Assert.True(failures.Count == 0,
+            "Cross-context *.Infrastructure references found (plantry-ew5 boundary — move shared AI/infra " +
+            "concerns to Plantry.Ai.Infrastructure or another context-free shared library instead):\n" +
+            string.Join("\n", failures));
+    }
 }

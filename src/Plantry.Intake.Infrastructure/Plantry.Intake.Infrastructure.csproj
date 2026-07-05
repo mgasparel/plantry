@@ -16,6 +16,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Plantry.Intake\Plantry.Intake.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+    <!-- Generic AI client config + OTEL source/meter (plantry-ew5). Shared, context-free library. -->
+    <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
