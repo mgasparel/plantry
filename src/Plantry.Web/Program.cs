@@ -188,6 +188,11 @@ builder.Services.ConfigureApplicationCookie(opts =>
 
 builder.Services.AddScoped<IClock, SystemClock>();
 builder.Services.AddScoped<IHouseholdRepository, HouseholdRepository>();
+// Per-household "AI assistance" switch (plantry-qll2.1): one settings service backs both the read
+// gate (IAiAssistanceGate — the single point of truth governed call sites query) and the
+// /Settings/Ai write path. The setting lives on the Household aggregate (identity schema).
+builder.Services.AddScoped<AiAssistanceSettingsService>();
+builder.Services.AddScoped<IAiAssistanceGate>(sp => sp.GetRequiredService<AiAssistanceSettingsService>());
 
 // plantry-m1u: cross-context ACL adapters + the domain-event dispatch machinery (dispatcher +
 // interceptor pair + transactional buffer) are wired from the dedicated Plantry.Composition assembly

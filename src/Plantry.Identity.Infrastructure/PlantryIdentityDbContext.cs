@@ -34,6 +34,11 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
             b.Property(h => h.EmailIntakeAddress).HasColumnName("email_intake_address").HasMaxLength(254);
             b.Property(h => h.ExpiryWarningDays).HasColumnName("expiry_warning_days");
             b.Property(h => h.Theme).HasColumnName("theme").HasMaxLength(20);
+            // Household-wide assistive-AI switch (plantry-qll2.1). Store default true backfills
+            // pre-existing households to ON; new households are inserted with the aggregate default (true).
+            b.Property(h => h.AiAssistanceEnabled)
+                .HasColumnName("ai_assistance_enabled")
+                .HasDefaultValue(true);
             b.Property(h => h.CreatedAt).HasColumnName("created_at");
 
             // App-layer half of the defense-in-depth pair (the Postgres RLS policy is the other).
