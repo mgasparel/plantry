@@ -330,8 +330,8 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
                     const o0 = data.lots[lotIds[0]].original;
                     data.setLotAmount(lotIds[0], o0 - 50);   // remove 50 g (Correction)
                     const o1 = data.lots[lotIds[1]].original;
-                    data.setLotAmount(lotIds[1], o1 - 80);   // remove 80 g …
-                    data.setSpoiled(lotIds[1], true);        // … as Discarded (spoiled)
+                    data.setLotAmount(lotIds[1], o1 - 80);          // remove 80 g …
+                    data.setReason(lotIds[1], 'Discarded');         // … as Discarded (spoiled)
                     // lotIds[2] intentionally untouched → delta 0 → skipped by the save guard.
                     return data.lots[lotIds[2]].original;
                 }

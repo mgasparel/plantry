@@ -186,7 +186,7 @@ function takeStockSheetBridge() {
 // dynamically injected _LotPanel partial markup. Scripts inside innerHTML fragments
 // are never executed by browsers (HTML spec §4.12.1 / fetch-and-run semantics).
 function takeStockLotPanel(data) {
-    // data: { lots: { [entryId]: { amount, original, unitId } }, foundUnitId }
+    // data: { lots: { [entryId]: { amount, original, unitId, reason } }, foundUnitId }
     // Take Stock semantics (plantry-hl6u): `amount` is the *counted* quantity, pre-filled with the
     // lot's current on-hand quantity; `original` is the recorded baseline. A lot is dirty when the
     // count differs from the original, and Save posts the reduction delta (original − counted).
@@ -198,7 +198,7 @@ function takeStockLotPanel(data) {
             amount: Number(seed.amount ?? original),
             original,
             unitId: (seed.unitId ?? ''),
-            spoiled: false,
+            reason: (seed.reason ?? 'Correction'),
             failed: false,
             failMsg: null,
         };
@@ -227,16 +227,16 @@ function takeStockLotPanel(data) {
             lot.failMsg = null;
         },
 
-        setSpoiled(entryId, checked) {
+        setReason(entryId, value) {
             const lot = this.lots[entryId];
             if (!lot) return;
-            lot.spoiled = checked;
+            lot.reason = value;
         },
 
         isDirty() {
             // A lot is dirty when its counted quantity differs from the recorded original
-            // (plantry-hl6u). Spoiled alone is not dirty — it only changes the reason of a
-            // reduction, so count down (or to 0) to discard.
+            // (plantry-hl6u). The disposition reason alone is not dirty — it only changes the
+            // reason of a reduction, so count down (or to 0) to record a Used/Spoiled drop.
             const anyLot = Object.values(this.lots).some(l => l.amount !== l.original);
             const foundDirty = this.found.amount != null && this.found.amount > 0;
             return anyLot || foundDirty;
@@ -258,7 +258,7 @@ function takeStockLotPanel(data) {
                     entryId,
                     amount: delta,
                     unitId: lot.unitId,
-                    reason: lot.spoiled ? 'Discarded' : 'Correction',
+                    reason: lot.reason ?? 'Correction',
                 });
             }
 
@@ -300,9 +300,10 @@ function takeStockLotPanel(data) {
                             lot.failMsg = r.isSuccess ? null : r.error ?? 'Failed';
                             if (r.isSuccess) {
                                 // The lot now holds the counted quantity — rebaseline so it reads
-                                // as clean (not zero) and clear the spoiled flag (plantry-hl6u).
+                                // as clean (not zero) and reset the disposition reason to the
+                                // neutral default (plantry-hl6u).
                                 lot.original = lot.amount;
-                                lot.spoiled = false;
+                                lot.reason = 'Correction';
                             }
                         }
                     }

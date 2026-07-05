@@ -225,7 +225,14 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.Contains("ts-hatch", html);
         Assert.Contains("300", html);    // lot A quantity
         Assert.Contains("200", html);    // lot B quantity
+        // plantry-337x: each lot now carries the full three-option disposition reason picker
+        // (same markup/CSS as the parent count row), not the old "Spoiled (discard)" checkbox.
+        Assert.Contains("ts-reason", html);
+        Assert.Contains("Correction", html);
+        Assert.Contains("Used it", html);
         Assert.Contains("Spoiled", html);
+        Assert.DoesNotContain("ts-lot-spoiled", html);
+        Assert.DoesNotContain("Spoiled (discard)", html);
         Assert.Contains("Found stock", html);
     }
 
