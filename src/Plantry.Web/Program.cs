@@ -264,6 +264,11 @@ builder.Services.Configure<ReceiptUploadRateLimitOptions>(
     builder.Configuration.GetSection(ReceiptUploadRateLimitOptions.SectionName));
 builder.Services.AddSingleton<ReceiptUploadRateLimiter>();
 
+// Receipt image downscaling (plantry-v8vw): oversized uploads are auto-oriented, resized to a 2048px
+// longest edge and re-encoded JPEG q85 before ParseSessionCommand — cutting AI token cost, latency, and
+// stored image size with no OCR loss. Stateless (Magick.NET native codec) → singleton.
+builder.Services.AddSingleton<IReceiptImagePreprocessor, ReceiptImagePreprocessor>();
+
 // Recipes context (Phase 2). P2-1 adds domain behaviour, EF child-collection mapping, and the
 // IRecipeRepository; P2-3a adds ICookEventRepository; later P2 steps add application services.
 builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>

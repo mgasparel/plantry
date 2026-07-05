@@ -38,4 +38,11 @@
     <None Update="Snapshots\**\*.verified.*" CopyToOutputDirectory="Never" />
   </ItemGroup>
 
+  <!-- Committed binary receipt-image fixtures (plantry-v8vw). The HEIC fixture in particular must be a
+       real checked-in asset: Magick.NET-Q8 decodes HEIC but cannot ENCODE it, so it cannot be generated
+       at test time — the decode→JPEG transcode path is proven against this file. -->
+  <ItemGroup>
+    <None Update="Intake\Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

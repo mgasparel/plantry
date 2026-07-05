@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
+using ImageMagick;
 using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web.Intake;
@@ -20,12 +21,15 @@ public sealed class UploadAbuseGuardTests(UploadFragmentFactory factory) : IClas
     private const string UploadUrl = "/Intake/Upload";
     private const string ParseUrl = "/Intake/Upload?handler=Parse";
 
-    // Valid PNG signature + a little payload.
-    private static byte[] ValidPng() =>
-    [
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-    ];
+    // A real, decodable in-bounds PNG. Since plantry-v8vw the upload handler decodes the image (to downscale
+    // oversized photos) before staging it, so an "admitted" upload must be a genuine image, not a bare magic
+    // prefix. Kept small (in-bounds) so it passes through the preprocessor byte-identical.
+    private static byte[] ValidPng()
+    {
+        using var image = new MagickImage(new MagickColor("white"), 64, 64);
+        image.Format = MagickFormat.Png;
+        return image.ToByteArray();
+    }
 
     [Fact]
     public async Task Valid_png_clears_the_abuse_gates()
@@ -61,11 +65,10 @@ public sealed class UploadAbuseGuardTests(UploadFragmentFactory factory) : IClas
     {
         var (client, token) = await AuthedClientWithTokenAsync(factory);
 
-        // ISO-BMFF ftyp box with the "heic" major brand (iPhone still photo).
-        var heic = new byte[16];
-        heic[3] = 0x10;
-        "ftyp"u8.CopyTo(heic.AsSpan(4));
-        "heic"u8.CopyTo(heic.AsSpan(8));
+        // A real HEIC photo (the iPhone default). Since the handler now decodes to downscale, this proves
+        // HEIC clears both the magic-byte gate AND the preprocessor's decode/transcode step end-to-end.
+        var heic = File.ReadAllBytes(
+            Path.Combine(AppContext.BaseDirectory, "Intake", "Fixtures", "receipt-oversized.heic"));
 
         var response = await client.PostAsync(ParseUrl,
             BuildUpload(token, heic, "image/heic", "receipt.heic"));
