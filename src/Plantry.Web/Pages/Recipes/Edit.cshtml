@@ -100,6 +100,44 @@
              this.tagDropOpen = false;
              this.$nextTick(() => this.$refs.tagInput.focus());
          },
+         // AI tag suggestions (plantry-qll2.2) — create-moment only. Fires ONCE per create, the first
+         // time an ingredient exists (not on every save; the contradiction nudge covers edits). The
+         // server gate check + LLM call live behind SuggestTags; a suggestion NEVER auto-applies —
+         // acceptSuggestion runs only on a tap.
+         isCreate: @(Model.IsCreate ? "true" : "false"),
+         tagSuggestFetched: false,
+         tagSuggestDismissed: false,
+         tagSuggestions: [],   // [{ name, category, existingTagId, isNew }]
+         newTags: [],          // accepted new-tag chips (minted on save): [{ name, category }]
+         async maybeSuggestTags() {
+             if (!this.isCreate || this.tagSuggestFetched || this.tagSuggestDismissed) return;
+             const productIds = this.rows.map(r => r.productId).filter(id => id);
+             if (productIds.length === 0) return;
+             this.tagSuggestFetched = true; // fire-once latch, set before await so re-entry is a no-op
+             try {
+                 const params = productIds.map(id => 'productIds=' + encodeURIComponent(id)).join('&');
+                 const url = `@Url.Page("./Edit", "SuggestTags")&${params}`;
+                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                 if (!res.ok) return;
+                 const data = await res.json();
+                 // Drop any suggestion already applied (existing tag already a chip, or new tag already accepted).
+                 this.tagSuggestions = (data.suggestions || []).filter(s =>
+                     s.isNew
+                         ? !this.newTags.some(t => t.name.toLowerCase() === s.name.toLowerCase())
+                         : !this.tags.some(t => t.id === s.existingTagId));
+             } catch (e) { /* soft-fail: no chips, editor unchanged */ }
+         },
+         acceptSuggestion(sug) {
+             if (sug.isNew) {
+                 if (!this.newTags.some(t => t.name.toLowerCase() === sug.name.toLowerCase()))
+                     this.newTags.push({ name: sug.name, category: sug.category || '' });
+             } else {
+                 this.addTagFromOption({ id: sug.existingTagId, name: sug.name });
+             }
+             this.tagSuggestions = this.tagSuggestions.filter(s => s !== sug);
+         },
+         removeNewTag(i) { this.newTags.splice(i, 1); },
+         dismissSuggestions() { this.tagSuggestDismissed = true; this.tagSuggestions = []; },
          servings: @Model.Input.DefaultServings,
          origServings: @Model.OriginalServings,
          hasIngredients: @(Model.HasExistingIngredients ? "true" : "false"),
@@ -207,6 +245,8 @@
              // and reassign ordinals so the posted order equals what Details renders.
              this.rows = window.RecipeSections.normalizeRows(this.rows);             this.sheetView = 'search';
              this.sheetOpen = false;
+             // Create-moment tag suggestions (plantry-qll2.2): fire once now that an ingredient exists.
+             this.maybeSuggestTags();
          },
          unitLabel(id) { return this.unitCodes[id] || ''; },
          // ── Four-field conversion equation (plantry-qno9) ──────────────────────────
@@ -498,6 +538,15 @@
                     <input type="hidden" name="Input.TagIds" :value="tag.id" />
                 </template>
 
+                @* Accepted AI new-tag chips (plantry-qll2.2) — minted on save then applied. Indexed hidden
+                   inputs so the page model binds Input.NewTags[i].Name / .Category. *@
+                <template x-for="(nt, ni) in newTags" :key="'newtag-' + ni">
+                    <span>
+                        <input type="hidden" :name="'Input.NewTags[' + ni + '].Name'" :value="nt.name" />
+                        <input type="hidden" :name="'Input.NewTags[' + ni + '].Category'" :value="nt.category" />
+                    </span>
+                </template>
+
                 @* Empty-household guidance: shown when no active tags are defined *@
                 @if (!Model.TagOptions.Any())
                 {
@@ -515,6 +564,14 @@
                                 <span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
                                     <span x-text="tag.name"></span>
                                     <button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @@click.stop="removeTag(ti)">×</button>
+                                </span>
+                            </template>
+                            @* Accepted new-tag chips (plantry-qll2.2) — visually flagged 'new' until minted on save. *@
+                            <template x-for="(nt, ni) in newTags" :key="'newchip-' + ni">
+                                <span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
+                                    <span x-text="nt.name"></span>
+                                    <span class="ai-chip__new-hint">new tag</span>
+                                    <button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @@click.stop="removeNewTag(ni)">×</button>
                                 </span>
                             </template>
                             <input type="text" x-ref="tagInput" x-model="tagQuery"
@@ -538,6 +595,32 @@
                                         @@mousedown.prevent="addTagFromOption(opt)"
                                         x-text="opt.name"></button>
                             </template>
+                        </div>
+                    </div>
+
+                    @* ── AI tag suggestions row (plantry-qll2.2) ─────────────────────
+                       Sits directly under the tag editor. Populated once per create when the first
+                       ingredient is added (maybeSuggestTags); renders nothing when there are no
+                       suggestions or the user dismissed them (no empty-state noise). Each chip applies
+                       ONLY on tap — never auto-applied. Dashed .ai-chip--new chips would mint a new tag. *@
+                    <div x-cloak x-show="tagSuggestions.length > 0 && !tagSuggestDismissed" class="ai-suggest-row">
+                        <div class="ai-suggest-row__label">
+                            <span aria-hidden="true">✨</span>
+                            <span>Suggested from ingredients</span>
+                        </div>
+                        <div class="ai-suggest-row__chips">
+                            <template x-for="sug in tagSuggestions" :key="(sug.isNew ? 'new:' : 'tag:') + sug.name">
+                                <button type="button"
+                                        class="ai-chip"
+                                        :class="{ 'ai-chip--new': sug.isNew }"
+                                        @@click="acceptSuggestion(sug)">
+                                    <span aria-hidden="true">＋</span>
+                                    <span x-text="sug.name"></span>
+                                    <span class="ai-chip__new-hint" x-show="sug.isNew">new tag</span>
+                                </button>
+                            </template>
+                            <button type="button" class="btn btn--ghost btn--sm ai-suggest-row__dismiss"
+                                    @@click="dismissSuggestions()">Dismiss</button>
                         </div>
                     </div>
                 }
@@ -870,6 +953,20 @@
 
     .recipe-tag-editor:focus-within { border-color: var(--color-accent); }
     .tag-picker-option:hover { background: var(--color-surface-2) !important; }
+
+    /* AI tag-suggestion row (plantry-qll2.2) — sits under the tag editor. Page-specific layout that
+       composes the shared .ai-chip primitive (defined in plenish.css). */
+    .ai-suggest-row { margin-top: var(--space-3); }
+    .ai-suggest-row__label {
+        display: flex; align-items: center; gap: var(--space-1);
+        font-family: var(--font-mono, var(--font-sans));
+        font-size: var(--font-size-xs);
+        text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--color-text-muted);
+        margin-bottom: var(--space-2);
+    }
+    .ai-suggest-row__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+    .ai-suggest-row__dismiss { color: var(--color-text-muted); }
 </style>
 
 @section Scripts {

@@ -8,12 +8,22 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageReference Include="OpenAI" Version="2.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exposes internal MapResponse/ParseCategory on RecipeTagSuggester to the L1 mapping tests
+         (mirrors Plantry.Deals.Infrastructure → DealMatcher). -->
+    <InternalsVisibleTo Include="Plantry.Tests.Unit" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Plantry.Recipes\Plantry.Recipes.csproj" />
     <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
     <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />
+    <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

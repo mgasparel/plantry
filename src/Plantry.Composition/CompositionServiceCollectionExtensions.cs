@@ -97,6 +97,10 @@ public static class CompositionServiceCollectionExtensions
             Plantry.Web.Recipes.ExpiringSoonHorizonReaderAdapter>();
         services.AddScoped<IPriceReader, PriceReaderAdapter>();
         services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
+        // Recipes → Identity assistive-AI gate ACL (plantry-qll2.2): the edit-moment AI features
+        // (tag suggestions today; nudge/conversion as qll2.3/qll2.4 land) read the household toggle
+        // through this port rather than depending on Identity directly.
+        services.AddScoped<IAiAssistanceGateReader, AiAssistanceGateReaderAdapter>();
 
         // Intake ACLs onto Catalog (create product, ensure purchase store, seed conversion), Inventory
         // (add stock), and Pricing (record price) — the receipt-commit cross-context write seams.

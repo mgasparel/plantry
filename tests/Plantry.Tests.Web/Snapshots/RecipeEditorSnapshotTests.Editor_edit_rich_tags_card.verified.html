@@ -7,16 +7,39 @@
 	</div>
 	<div class="card__body">
 		<template x-for="(tag, ti) in tags" :key="tag.id"><input type="hidden" name="Input.TagIds" :value="tag.id"></template>
+		<template x-for="(nt, ni) in newTags" :key="'newtag-' + ni"><span>
+				<input type="hidden" :name="'Input.NewTags[' + ni + '].Name'" :value="nt.name">
+				<input type="hidden" :name="'Input.NewTags[' + ni + '].Category'" :value="nt.category">
+			</span></template>
 		<div style="position:relative">
 			<div class="recipe-tag-editor" style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text" @click="$refs.tagInput.focus()">
 				<template x-for="(tag, ti) in tags" :key="tag.id"><span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
 						<span x-text="tag.name"></span>
 						<button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @click.stop="removeTag(ti)">×</button>
 					</span></template>
+				<template x-for="(nt, ni) in newTags" :key="'newchip-' + ni"><span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
+						<span x-text="nt.name"></span>
+						<span class="ai-chip__new-hint">new tag</span>
+						<button type="button" class="btn btn--ghost btn--sm" style="padding:0 2px;line-height:1;font-size:inherit" aria-label="Remove tag" @click.stop="removeNewTag(ni)">×</button>
+					</span></template>
 				<input type="text" x-ref="tagInput" x-model="tagQuery" placeholder="Filter tags…" class="field__input" style="border:none;outline:none;box-shadow:none;padding:0;min-width:8rem;flex:1" @focus="tagDropOpen = true" @input="tagDropOpen = true" @keydown.escape="tagDropOpen = false; tagQuery = ''" @keydown.backspace="if (!tagQuery &amp;&amp; tags.length) removeTag(tags.length - 1)" autocomplete="off">
 			</div>
 			<div x-show="tagDropOpen &amp;&amp; filteredTagOptions().length > 0" x-cloak="" @click.outside="tagDropOpen = false" style="position:absolute;z-index:50;left:0;right:0;margin-top:2px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:12rem;overflow-y:auto;box-shadow:var(--shadow-md)">
 				<template x-for="opt in filteredTagOptions()" :key="opt.id"><button type="button" class="tag-picker-option" style="display:block;width:100%;text-align:left;padding:var(--space-2) var(--space-3);background:none;border:none;cursor:pointer;font:inherit;color:var(--color-text)" @mousedown.prevent="addTagFromOption(opt)" x-text="opt.name"></button></template>
+			</div>
+		</div>
+		<div x-cloak="" x-show="tagSuggestions.length > 0 &amp;&amp; !tagSuggestDismissed" class="ai-suggest-row">
+			<div class="ai-suggest-row__label">
+				<span aria-hidden="true">✨</span>
+				<span>Suggested from ingredients</span>
+			</div>
+			<div class="ai-suggest-row__chips">
+				<template x-for="sug in tagSuggestions" :key="(sug.isNew ? 'new:' : 'tag:') + sug.name"><button type="button" class="ai-chip" :class="{ 'ai-chip--new': sug.isNew }" @click="acceptSuggestion(sug)">
+						<span aria-hidden="true">＋</span>
+						<span x-text="sug.name"></span>
+						<span class="ai-chip__new-hint" x-show="sug.isNew">new tag</span>
+					</button></template>
+				<button type="button" class="btn btn--ghost btn--sm ai-suggest-row__dismiss" @click="dismissSuggestions()">Dismiss</button>
 			</div>
 		</div>
 	</div>

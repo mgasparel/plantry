@@ -523,6 +523,18 @@ builder.Services.AddScoped<AuthorRecipe>();
 // create/rename/set-category/archive/unarchive over the ITagRepository.
 builder.Services.AddScoped<ManageTagsService>();
 
+// Edit-moment AI tag suggestions (plantry-qll2.2). SuggestRecipeTags orchestrates the gate check +
+// ingredient-name resolution + vocabulary load over the Recipes ACL ports; IRecipeTagSuggester is the
+// untrusted LLM seam. IAiAssistanceGateReader adapter → Plantry.Composition (AddCrossContextAdapters).
+// RecipeTagSuggester builds a ChatClient at construction (needs a non-empty key), so with no key
+// configured we register DisabledRecipeTagSuggester (soft-fails to no suggestions) — mirrors DealMatcher
+// — so a keyless dev/E2E host still resolves the port the editor consumes.
+builder.Services.AddScoped<SuggestRecipeTags>();
+if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IRecipeTagSuggester, DisabledRecipeTagSuggester>();
+else
+    builder.Services.AddScoped<IRecipeTagSuggester, RecipeTagSuggester>();
+
 // Recipe browse query (P2-2c, J1/J2). Assembles the browse view model: lean recipe list + live
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
