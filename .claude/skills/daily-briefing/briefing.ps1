@@ -57,6 +57,31 @@ $ErrorActionPreference = "Stop"
 # ---------------------------------------------------------------------------
 # 1. Helpers (reused verbatim from flow-report; do NOT diverge)
 # ---------------------------------------------------------------------------
+
+# Normalise any collection-ish value to a clean [object[]] so ConvertTo-Json
+# ALWAYS emits a JSON array -- even for zero or one element. Without this the
+# client-side JS (.slice/.map/.forEach over payload arrays) throws on low-data
+# days: PS 5.1 serialises an empty pipeline result to `null` or `{}` and a
+# single element to a bare object, and `@()` around an empty generic List even
+# breaks the [PSCustomObject] cast. [object[]] on the raw value is the one form
+# that is correct for List/array/scalar/single-object alike; $null maps to [].
+function AsArr($x) {
+    # Unary comma stops PowerShell's return-value unrolling: without it an empty
+    # [object[]] returned from a function collapses to nothing (value serialises
+    # to {} again) and a single element is returned bare. The comma preserves the
+    # array wrapper through the return; the caller's assignment unrolls one level.
+    if ($null -eq $x) { return ,([object[]]@()) }
+    return ,([object[]]$x)
+}
+
+# Progress/status output. Goes to stderr, NOT stdout: under `powershell -File ...`
+# a child process routes Write-Host to its stdout handle, which would pollute the
+# -Json payload (a parser piping `-Json` would choke on the status preamble).
+# [Console]::Error is stdout-independent, so -Json stdout stays pure JSON.
+function Write-Status([string]$msg) {
+    [Console]::Error.WriteLine($msg)
+}
+
 function Invoke-BdJson {
     param([string[]]$BdArgs)
     try {
@@ -159,7 +184,7 @@ function Invoke-GhJson {
 # ---------------------------------------------------------------------------
 # 2. Gather all issues (single query -- all tabs share this)
 # ---------------------------------------------------------------------------
-Write-Host "Reading beads issues..." -ForegroundColor Cyan
+Write-Status "Reading beads issues..."
 $all = Invoke-BdJson @("list", "--all", "--limit", "0")
 if (-not $all -or $all.Count -eq 0) {
     Write-Error "No issues returned from bd. Is bd on PATH and a workspace resolved?"
@@ -792,9 +817,9 @@ if (-not $existingDates.ContainsKey($todayKey)) {
     }
     $rowJson = ($kpiRow | ConvertTo-Json -Depth 5 -Compress)
     Add-Content -Path $HealthLog -Value $rowJson -Encoding UTF8
-    Write-Host "  health-log: appended row for $todayKey -> $HealthLog" -ForegroundColor Cyan
+    Write-Status "  health-log: appended row for $todayKey -> $HealthLog"
 } else {
-    Write-Host "  health-log: row for $todayKey already exists, skipping append" -ForegroundColor Cyan
+    Write-Status "  health-log: row for $todayKey already exists, skipping append"
 }
 
 # Read the full health-log for trend data (all historical rows)
@@ -852,7 +877,7 @@ $briefingKpis = [PSCustomObject]@{
 }
 
 $trendData = [PSCustomObject]@{
-    rows      = $healthRowsSorted
+    rows      = AsArr $healthRowsSorted
     rowCount  = $healthRowsSorted.Count
     # Note: trend builds from first run forward; no backfill from bd history.
     # The first row date is the start of the tracked window.
@@ -867,16 +892,16 @@ $payload = [PSCustomObject]@{
         factoryStall = [PSCustomObject]@{
             count            = $allStallItems.Count
             ghWarning        = $ghWarning
-            needsHuman       = $stallNeedsHuman
-            parkedExhausted  = $stallParkedExhausted
-            blocked          = $stallBlocked
-            longInProgress   = $stallLongInProgress
-            redCi            = $stallRedCi
-            all              = $allStallItems
+            needsHuman       = AsArr $stallNeedsHuman
+            parkedExhausted  = AsArr $stallParkedExhausted
+            blocked          = AsArr $stallBlocked
+            longInProgress   = AsArr $stallLongInProgress
+            redCi            = AsArr $stallRedCi
+            all              = AsArr $allStallItems
         }
         # Legacy field kept for backward compat (DB-0 script used stallItems)
-        stallItems   = $allStallItems
-        blockedItems = $blockedItems
+        stallItems   = AsArr $allStallItems
+        blockedItems = AsArr $blockedItems
     }
     flow         = [PSCustomObject]@{
         kpis        = $flowKpis
@@ -885,28 +910,28 @@ $payload = [PSCustomObject]@{
             p85 = if ($null -ne $p85) { [math]::Round($p85, 3) } else { $null }
             p95 = if ($null -ne $p95) { [math]::Round($p95, 3) } else { $null }
         }
-        lead        = $leadRows
-        throughput  = $throughput
-        aging       = ($agingRows | Sort-Object -Property ageH -Descending)
+        lead        = AsArr $leadRows
+        throughput  = AsArr $throughput
+        aging       = AsArr ($agingRows | Sort-Object -Property ageH -Descending)
         selfGen     = [PSCustomObject]@{
-            series         = $sgSeries
+            series         = AsArr $sgSeries
             totalCreated   = $sgTotalCreated
             totalClosed    = $sgTotalClosed
             outstandingNow = ($sgTotalCreated - $sgTotalClosed)
         }
     }
     backlog      = [PSCustomObject]@{
-        ready   = @($all | Where-Object { $readyById.ContainsKey((Get-SafeProp $_ "id" "")) })
-        blocked = $blockedItems
+        ready   = AsArr ($all | Where-Object { $readyById.ContainsKey((Get-SafeProp $_ "id" "")) })
+        blocked = AsArr $blockedItems
     }
     triage       = [PSCustomObject]@{
         gateOk          = ($triageUntriaged.Count -eq 0)
         totalOpen       = $openIssues.Count
-        untriaged       = $triageUntriaged
+        untriaged       = AsArr $triageUntriaged
         budget          = $triageBudget
-        leakGroups      = $triageLeakGroups
-        investmentGroups= $triageInvestmentGroups
-        icebox          = $iceboxRows
+        leakGroups      = AsArr $triageLeakGroups
+        investmentGroups= AsArr $triageInvestmentGroups
+        icebox          = AsArr $iceboxRows
         iceboxCount     = $iceboxRows.Count
     }
 }
