@@ -422,7 +422,9 @@
         }
 
         @* ── Tags type-to-filter multi-select (read-only vocabulary) ──────────── *@
-        <div class="card">
+        @* card--overflow-visible: the tag picker dropdown is position:absolute inside the
+           card body; without it the dropdown is clipped at the card's overflow:hidden edge. *@
+        <div class="card card--overflow-visible">
             <div class="card__head">
                 <div>
                     <h3 class="card__head-title">Tags</h3>
