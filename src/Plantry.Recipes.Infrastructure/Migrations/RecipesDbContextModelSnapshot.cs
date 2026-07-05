@@ -174,6 +174,10 @@ namespace Plantry.Recipes.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("default_servings");
 
+                    b.Property<string>("DietNudgeDismissedHash")
+                        .HasColumnType("text")
+                        .HasColumnName("diet_nudge_dismissed_hash");
+
                     b.Property<string>("Directions")
                         .HasColumnType("text")
                         .HasColumnName("directions");

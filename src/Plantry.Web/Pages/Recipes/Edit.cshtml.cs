@@ -4,11 +4,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Routing;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Pages.Shared;
+using Plantry.Web.Recipes;
 
 namespace Plantry.Web.Pages.Recipes;
 
@@ -38,7 +41,13 @@ public sealed class EditModel(
     ICatalogProductReader products,
     IClock clock,
     AuthorRecipe authorRecipe,
-    IUnitConverter unitConverter) : PageModel
+    IUnitConverter unitConverter,
+    SuggestRecipeTags suggestRecipeTags,
+    DietTagNudgeService dietTagNudge,
+    ManageTagsService manageTags,
+    IAiAssistanceGateReader aiGate,
+    RecipeConversionSeedTrigger conversionSeedTrigger,
+    ITenantContext tenant) : PageModel
 {
     // ── Route ────────────────────────────────────────────────────────────────────
 
@@ -248,6 +257,36 @@ public sealed class EditModel(
         return Content(html, "text/html");
     }
 
+    // ── AI tag suggestions (plantry-qll2.2) ──────────────────────────────────────
+
+    /// <summary>
+    /// Returns AI-proposed tag chips for the recipe currently being authored, given its chosen product
+    /// ids. Called by the editor once per create (client-triggered when the first ingredient is added —
+    /// never on every save; the contradiction nudge, sibling bead qll2.3, covers edits).
+    ///
+    /// <para>All the read-side work — the household assistive-AI gate check, resolving product ids to
+    /// ingredient names via the Catalog ACL, loading the tag vocabulary, and the untrusted LLM call —
+    /// lives in <see cref="SuggestRecipeTags"/>. When the gate is off, no product resolves, or the
+    /// suggester soft-fails, this returns <c>{"suggestions":[]}</c> and the editor renders nothing (no
+    /// empty-state noise). A suggestion NEVER auto-applies: it becomes a tag only when the user taps its
+    /// chip (Gate 5 / ADR-007).</para>
+    /// </summary>
+    public async Task<IActionResult> OnGetSuggestTagsAsync(Guid[] productIds, CancellationToken ct)
+    {
+        var suggestions = await suggestRecipeTags.ExecuteAsync(productIds ?? [], ct);
+
+        return new JsonResult(new
+        {
+            suggestions = suggestions.Select(s => new
+            {
+                name = s.Name,
+                category = s.Category?.ToDbValue(),
+                existingTagId = s.ExistingTagId?.ToString(),
+                isNew = s.IsNew,
+            }),
+        });
+    }
+
     // ── Conversion-gap check (live C10 pre-check) ────────────────────────────────
 
     /// <summary>
@@ -356,9 +395,25 @@ public sealed class EditModel(
             return Page();
         }
 
+        // Mint any AI-suggested new-tag chips the user accepted (plantry-qll2.2). Minting happens here,
+        // only once we are committing a valid recipe (past the ingredient guard) — a suggestion becomes a
+        // tag solely through the user's tap (Gate 5). The freshly-minted ids join the closed-vocabulary
+        // TagIds so AuthorRecipe resolves them exactly as picker-selected tags; its "unknown ids dropped,
+        // never mints" contract is untouched.
+        var mintedTagIds = await MintAcceptedNewTagsAsync(ct);
+
         var tagIds = (Input.TagIds ?? [])
+            .Concat(mintedTagIds)
             .Distinct()
             .ToList();
+
+        // Edit-moment AI conversion resolution (plantry-qll2.4): when the household's assistive-AI toggle is
+        // on AND a conversion seeder is actually configured, a cross-dimension unit gap (weight-stocked
+        // product used by volume) no longer blocks with the inline C10 prompt — the recipe saves WITH the
+        // gap and an ai_suggested factor is seeded asynchronously (ADR-022). Both conditions are required:
+        // with the toggle off, or on a keyless host where no seeder can run, we keep today's manual prompt
+        // (acceptance criterion 4). The gate check is one cheap read per save; recipe saves are infrequent.
+        var deferConversions = conversionSeedTrigger.Available && await aiGate.IsEnabledAsync(ct);
 
         var command = new AuthorRecipeCommand(
             RecipeId: Id.HasValue ? RecipeId.From(Id.Value) : null,
@@ -369,7 +424,19 @@ public sealed class EditModel(
             Source: string.IsNullOrWhiteSpace(Input.Source) ? null : Input.Source.Trim(),
             CookTimeMinutes: Input.CookTimeMinutes,
             Directions: string.IsNullOrWhiteSpace(Input.Directions) ? null : Input.Directions,
-            ScaleMode: Input.ScaleMode);
+            ScaleMode: Input.ScaleMode,
+            DeferMissingConversions: deferConversions);
+
+        // Diet-tag nudge guard (plantry-qll2.3): capture the recipe's ingredient ProductId set BEFORE the save,
+        // for edits only, so the post-save trigger can tell whether the ingredient set actually changed (an
+        // ingredient-neutral edit must fire nothing). Create (J6) is owned by the qll2.2 tag chips, never nudged.
+        IReadOnlySet<Guid> previousProductIds = new HashSet<Guid>();
+        if (Id is { } nudgeEditId)
+        {
+            var preSave = await recipes.GetByIdAsync(RecipeId.From(nudgeEditId), ct);
+            if (preSave is not null)
+                previousProductIds = preSave.Ingredients.Select(i => i.ProductId).Distinct().ToHashSet();
+        }
 
         var result = await authorRecipe.ExecuteAsync(command, ct);
 
@@ -379,7 +446,25 @@ public sealed class EditModel(
                 // Photo upload — applied after the recipe is saved so we have the aggregate id.
                 if (photo is { Length: > 0 })
                     await ApplyPhotoAsync(saved.RecipeId, photo, ct);
-                return RedirectToPage("./Details", new { id = saved.RecipeId.Value });
+
+                // plantry-qll2.4: the recipe saved with one or more cross-dimension unit gaps (deferral was
+                // on). Fire a fire-and-forget async seed of an ai_suggested conversion for each — the user
+                // is never prompted and this never delays the redirect.
+                if (saved.DeferredConversions.Count > 0)
+                    await EnqueueConversionSeedsAsync(saved.DeferredConversions, ct);
+
+                // Diet-tag nudge (plantry-qll2.3): on an edit whose ingredient set changed to a not-yet-reconciled
+                // set on a Diet-tagged recipe, flag the post-save Details landing to run the deferred contradiction
+                // check by tagging the redirect with ?dietNudge=true. The cheap guard runs here (no LLM); the gate +
+                // LLM run later on the Details landing, only if the flag is present — so most saves cost nothing and
+                // the AI stays confined to the edit moment (a plain recipe view carries no flag, so never a sweep).
+                var offerNudge = !IsCreate
+                    && await dietTagNudge.ShouldOfferAfterSaveAsync(saved.RecipeId, previousProductIds, ct);
+
+                var detailsRoute = new RouteValueDictionary { ["id"] = saved.RecipeId.Value };
+                if (offerNudge)
+                    detailsRoute["dietNudge"] = true;
+                return RedirectToPage("./Details", detailsRoute);
 
             case AuthorRecipeResult.NeedsConversion needs:
                 // Surface the inline ProductConversion form on the affected rows (C10).
@@ -433,6 +518,48 @@ public sealed class EditModel(
         return (l.ConversionFactor, null, null);
     }
 
+    /// <summary>
+    /// Mints the AI-suggested new tags the author accepted (the dashed <c>.ai-chip--new</c> chips,
+    /// plantry-qll2.2) and returns their resolved household tag ids. Each proposed name is created via
+    /// <see cref="ManageTagsService.CreateAsync"/> (which enforces per-household name uniqueness — an
+    /// already-existing active name is a harmless <c>Conflict</c>). We then re-read the active vocabulary
+    /// once and resolve every proposed name (whether just-minted or already active) to its id, so callers
+    /// get back exactly the ids to apply. A name matching only an <b>archived</b> tag is absent from the
+    /// active set and silently dropped — consistent with AuthorRecipe's "unknown ids dropped" contract.
+    /// The AI-proposed category (cosmetic only) is applied when it maps to a known <see cref="TagCategory"/>.
+    /// </summary>
+    private async Task<IReadOnlyList<Guid>> MintAcceptedNewTagsAsync(CancellationToken ct)
+    {
+        var newTags = (Input.NewTags ?? [])
+            .Where(t => !string.IsNullOrWhiteSpace(t.Name))
+            .ToList();
+        if (newTags.Count == 0)
+            return [];
+
+        foreach (var nt in newTags)
+            await manageTags.CreateAsync(nt.Name!.Trim(), ParseTagCategory(nt.Category), ct);
+
+        var active = await tags.ListAllAsync(activeOnly: true, ct);
+        var byName = active.ToDictionary(t => t.Name, t => t.Id.Value, StringComparer.OrdinalIgnoreCase);
+
+        return newTags
+            .Select(t => byName.TryGetValue(t.Name!.Trim(), out var id) ? (Guid?)id : null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+    }
+
+    /// <summary>Safely maps a posted category label to <see cref="TagCategory"/>; unknown/blank ⇒ null (cosmetic only).</summary>
+    private static TagCategory? ParseTagCategory(string? label) => label switch
+    {
+        "Diet" => TagCategory.Diet,
+        "Protein" => TagCategory.Protein,
+        "Flavor" => TagCategory.Flavor,
+        "Cuisine" => TagCategory.Cuisine,
+        _ => null,
+    };
+
     private async Task LoadReferenceDataAsync(CancellationToken ct)
     {
         // Unit list via the anti-corruption port — never through IUnitRepository directly (Gate 2).
@@ -462,6 +589,46 @@ public sealed class EditModel(
         CategoryOptions = categoryOptions
             .Select(c => new SelectListItem(c.Name, c.Id.ToString()))
             .ToList();
+    }
+
+    /// <summary>
+    /// Resolves the deferred cross-dimension unit gaps (plantry-qll2.4) into <see cref="ConversionSeedRequest"/>s
+    /// — product name + unit codes for the LLM prompt — and hands them to the async seed trigger. Only
+    /// genuine cross-dimension gaps are enqueued: a same-dimension pair (which would resolve via universal
+    /// conversions and never reach here) is defensively dropped so a nonsensical density factor is never
+    /// requested. No-op when there is no household in context.
+    /// </summary>
+    private async Task EnqueueConversionSeedsAsync(
+        IReadOnlyList<ConversionNeeded> deferred, CancellationToken ct)
+    {
+        if (tenant.HouseholdId is not { } householdGuid || deferred.Count == 0)
+            return;
+
+        var productIds = deferred.Select(d => d.ProductId).Distinct().ToList();
+        var productLookup = await products.ResolveSummariesAsync(productIds, ct);
+
+        // ListUnitsAsync carries each unit's Dimension + Code — used both to build the prompt and to keep
+        // only true cross-dimension gaps.
+        var units = await products.ListUnitsAsync(ct);
+        var unitById = units.ToDictionary(u => u.Id);
+
+        var requests = new List<ConversionSeedRequest>(deferred.Count);
+        foreach (var gap in deferred)
+        {
+            if (!productLookup.TryGetValue(gap.ProductId, out var product)) continue;
+            if (!unitById.TryGetValue(gap.FromUnitId, out var fromUnit)) continue;
+            if (!unitById.TryGetValue(gap.ToUnitId, out var toUnit)) continue;
+
+            // Cross-dimension only — a same-dimension pair never needs a product-specific density factor.
+            if (!string.IsNullOrEmpty(fromUnit.Dimension)
+                && string.Equals(fromUnit.Dimension, toUnit.Dimension, StringComparison.Ordinal))
+                continue;
+
+            requests.Add(new ConversionSeedRequest(
+                gap.ProductId, product.Name, gap.FromUnitId, fromUnit.Code, gap.ToUnitId, toUnit.Code));
+        }
+
+        await conversionSeedTrigger.EnqueueAsync(HouseholdId.From(householdGuid), requests, ct);
     }
 
     private async Task ApplyPhotoAsync(RecipeId recipeId, IFormFile photo, CancellationToken ct)
@@ -579,6 +746,15 @@ public sealed class RecipeEditInput
     public List<string> TagNames { get; set; } = [];
 
     /// <summary>
+    /// AI-suggested NEW tags the author accepted from the suggestion row (plantry-qll2.2) — tags not in the
+    /// household vocabulary, posted by name (+ optional cosmetic category) as indexed hidden inputs. The page
+    /// model mints these on save (<see cref="EditModel.MintAcceptedNewTagsAsync"/>) and folds their ids into
+    /// the submitted tag set; existing-vocabulary suggestions ride in <see cref="TagIds"/> like any picker
+    /// selection. Empty unless the user tapped a dashed new-tag chip.
+    /// </summary>
+    public List<NewTagInput> NewTags { get; set; } = [];
+
+    /// <summary>
     /// Scale mode for the J7 servings change — Proportional scales ingredient quantities;
     /// Keep preserves them. Only meaningful when DefaultServings differs from the recipe's
     /// current value on an edit.
@@ -586,6 +762,17 @@ public sealed class RecipeEditInput
     public ScaleMode ScaleMode { get; set; } = ScaleMode.Keep;
 
     public List<IngredientRowInput> Lines { get; set; } = [];
+}
+
+/// <summary>
+/// One accepted AI-suggested new tag (plantry-qll2.2) — a tag name not in the household vocabulary that the
+/// author confirmed with a tap, to be minted on save. <see cref="Category"/> carries the model's proposed
+/// cosmetic grouping (Diet/Protein/Flavor/Cuisine) or null.
+/// </summary>
+public sealed class NewTagInput
+{
+    public string? Name { get; set; }
+    public string? Category { get; set; }
 }
 
 /// <summary>

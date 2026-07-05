@@ -928,6 +928,38 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">AI suggestion chip (<code>.ai-chip</code>)</h2>
+    </div>
+    <p>
+        A tappable chip for an AI proposal the user confirms with one tap (plantry-qll2.2 — recipe tag
+        suggestions from ingredients). Accent-tinted to read as assistive/provisional, distinct from the
+        solid neutral <code>.badge</code> it becomes once accepted. The dashed <code>.ai-chip--new</code>
+        modifier flags a chip that would <em>mint</em> a new tag rather than apply an existing one, and
+        carries a small uppercase <code>.ai-chip__new-hint</code>. Chips are prefixed with
+        <code>＋</code> and <strong>never auto-apply</strong> — a suggestion becomes a value only on tap.
+        Zero suggestions render nothing (no empty state).
+    </p>
+    <div class="card">
+        <div class="card__body">
+            <div style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center">
+                <button type="button" class="ai-chip">
+                    <span aria-hidden="true">＋</span><span>Chicken</span>
+                </button>
+                <button type="button" class="ai-chip">
+                    <span aria-hidden="true">＋</span><span>Quick</span>
+                </button>
+                <button type="button" class="ai-chip ai-chip--new">
+                    <span aria-hidden="true">＋</span><span>Creamy</span>
+                    <span class="ai-chip__new-hint">new tag</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("// Accent-tinted tappable chip (applies on tap only — never auto-applied):\n<button type=\"button\" class=\"ai-chip\" @click=\"acceptSuggestion(sug)\">\n  <span aria-hidden=\"true\">＋</span><span x-text=\"sug.name\"></span>\n</button>\n\n// Would mint a NEW tag — dashed variant + hint:\n<button type=\"button\" class=\"ai-chip ai-chip--new\">\n  <span aria-hidden=\"true\">＋</span><span x-text=\"sug.name\"></span>\n  <span class=\"ai-chip__new-hint\">new tag</span>\n</button>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Servings scale offer (J7 step 3)</h2>
     </div>
     <p>

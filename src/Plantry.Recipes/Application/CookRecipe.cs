@@ -26,7 +26,9 @@ namespace Plantry.Recipes.Application;
 /// <item>Persists the <see cref="CookEvent"/> + its Pending lines in ONE Recipes transaction
 /// (the anchor commit) — before any Inventory consume call runs (292b L2).</item>
 /// <item>For each Pending line: calls <see cref="IInventoryConsumer.ConsumeAsync"/>; marks the
-/// line <see cref="CookConsumeLineStatus.Applied"/> (with any shortfall) on success, or
+/// line <see cref="CookConsumeLineStatus.Applied"/> (with any shortfall) on success,
+/// <see cref="CookConsumeLineStatus.DeferredUnitGap"/> on <see cref="DeferredUnitGapException"/>
+/// (no conversion bridges the unit gap — owed until a conversion lands, plantry-qll2.6), or
 /// <see cref="CookConsumeLineStatus.Shorted"/> on <see cref="InvalidOperationException"/>
 /// (no-stock). Persists the updated statuses in a second Recipes transaction.</item>
 /// <item>Skips untracked staples entirely (C12).</item>
@@ -43,6 +45,7 @@ public sealed class CookRecipe(
     IClock clock,
     ITenantContext tenant,
     ReconcilePendingCooks reconciler,
+    ApplyDeferredUnitGaps deferredUnitGaps,
     ILogger<CookRecipe> logger)
 {
     public async Task<CookRecipeResult> ExecuteAsync(CookRecipeCommand command, CancellationToken ct = default)
@@ -105,6 +108,27 @@ public sealed class CookRecipe(
         }
 
         var catalogSummaries = await products.ResolveSummariesAsync(allCandidateIds.ToList(), ct);
+
+        // ── Opportunistic deferred unit-gap self-heal (plantry-qll2.6) ────────────
+        // Alongside the reconciliation sweep above, retro-apply any DeferredUnitGap consume lines from
+        // prior cooks whose product is in THIS cook's candidate set — a conversion for the pair may have
+        // landed since (AI-seeded or user-entered) without the Composition-layer trigger firing (e.g. a
+        // failed background step). This is the self-healing net (ADR-014 "recoverable from durable state"):
+        // any missed trigger settles on the next cook that touches the product. Best-effort — a failure
+        // here must never block the new cook; OperationCanceledException still propagates.
+        if (allCandidateIds.Count > 0)
+        {
+            try { await deferredUnitGaps.ExecuteAsync(allCandidateIds, ct); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                // Best-effort: never block the new cook. Logged (not swallowed silently) so a systematically
+                // failing self-heal — which would leave stock quietly diverging — is visible to operators.
+                logger.LogWarning(ex,
+                    "Opportunistic deferred unit-gap self-heal failed at cook entry for recipe {RecipeId}; a Composition-layer trigger or the next cook recovers from durable state.",
+                    command.RecipeId.Value);
+            }
+        }
 
         // ── Mint CookEvent up-front — its Id is the sourceRef on every consume ───
         var cookEventResult = CookEvent.Record(
@@ -208,6 +232,17 @@ public sealed class CookRecipe(
                 shortfall = consumeResult.ShortfallAmount;
                 shortfallUnit = consumeResult.RequestUnitId;
                 line.MarkApplied(shortfall);
+            }
+            catch (DeferredUnitGapException)
+            {
+                // No conversion bridges the ingredient unit to the product's stock unit (plantry-qll2.6).
+                // This is NOT a shortfall — the consume planning pass failed atomically before touching any
+                // lot, so the pantry is untouched. Record it as a deferred unit gap: the consume is owed and
+                // will be retro-applied automatically when a conversion for the pair lands (never Shorted,
+                // which is reserved for a genuine no-stock product and is never retried).
+                shortfall = line.Quantity;
+                shortfallUnit = line.UnitId;
+                line.MarkDeferredUnitGap();
             }
             catch (InvalidOperationException)
             {

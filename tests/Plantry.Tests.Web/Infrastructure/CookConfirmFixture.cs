@@ -214,6 +214,10 @@ public sealed class FakeCookEventRepository : ICookEventRepository
     public Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CookEvent>>([]);
 
+    public Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CookEvent>>([]);
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 

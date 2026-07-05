@@ -1,0 +1,35 @@
+@page "/Recipes/DietNudge"
+@model Plantry.Web.Pages.Recipes.DietNudgeModel
+@{
+    Layout = null;
+}
+@* Edit-moment diet-tag contradiction nudge (plantry-qll2.3). Rendered as a bare fragment swapped into the
+   post-save Details rail by a deferred htmx load. Uses the existing .callout data-tone="warn" primitive — no
+   new CSS. Advisory only: the save already landed (C9). Acting on it is the USER's choice; the AI never edits
+   the tag list. When Model.Nudge is null the fragment is empty, so the placeholder is swapped away to nothing. *@
+@if (Model.Nudge is { } n)
+{
+    <div class="callout" data-tone="warn" id="diet-nudge">
+        <span class="co-ico">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+        </span>
+        <div>
+            <div class="co-title">Still @n.DietTagName?</div>
+            <div class="co-body">You added @n.IngredientName — still @n.DietTagName?</div>
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <button type="button" class="co-link"
+                        hx-post="/Recipes/DietNudge?handler=RemoveTag&id=@n.RecipeId&tagId=@n.DietTagId"
+                        hx-target="#diet-nudge"
+                        hx-swap="outerHTML">
+                    Remove @n.DietTagName tag
+                </button>
+                <button type="button" class="co-link"
+                        hx-post="/Recipes/DietNudge?handler=Dismiss&id=@n.RecipeId"
+                        hx-target="#diet-nudge"
+                        hx-swap="outerHTML">
+                    Keep it
+                </button>
+            </div>
+        </div>
+    </div>
+}

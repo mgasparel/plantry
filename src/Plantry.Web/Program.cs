@@ -35,6 +35,7 @@ using Plantry.Shopping.Domain;
 using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Background;
 using Plantry.Web.Deals;
 using Plantry.Web.Dev;
 using Plantry.Web.Events;
@@ -381,6 +382,12 @@ builder.Services.Configure<FlyerIngestionOptions>(builder.Configuration.GetSecti
 builder.Services.AddSingleton<FlyerIngestionCycle>();
 builder.Services.AddHostedService<FlyerIngestionWorker>();
 
+// Generic in-process fire-and-forget work queue (plantry-qll2.4): a request can enqueue post-response work
+// (the async ai_suggested conversion seed) that runs on QueuedHostedService's single drain loop, each item
+// in its own fresh DI scope with tenancy armed by the item. Singleton queue shared by producers + consumer.
+builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
+builder.Services.AddHostedService<QueuedHostedService>();
+
 // IFlyerSource is the untrusted Flipp seam (D1). Production wires the real Flipp adapter (P5-3): a typed
 // HttpClient (base URL + locale + browser UA from the Deals:Flipp config; standard resilience — timeout +
 // retry — applied to every HttpClient by ServiceDefaults) mapping raw Flipp payloads to RawDeal/DirectoryMerchant.
@@ -523,6 +530,47 @@ builder.Services.AddScoped<AuthorRecipe>();
 // create/rename/set-category/archive/unarchive over the ITagRepository.
 builder.Services.AddScoped<ManageTagsService>();
 
+// Edit-moment AI tag suggestions (plantry-qll2.2). SuggestRecipeTags orchestrates the gate check +
+// ingredient-name resolution + vocabulary load over the Recipes ACL ports; IRecipeTagSuggester is the
+// untrusted LLM seam. IAiAssistanceGateReader adapter → Plantry.Composition (AddCrossContextAdapters).
+// RecipeTagSuggester builds a ChatClient at construction (needs a non-empty key), so with no key
+// configured we register DisabledRecipeTagSuggester (soft-fails to no suggestions) — mirrors DealMatcher
+// — so a keyless dev/E2E host still resolves the port the editor consumes.
+builder.Services.AddScoped<SuggestRecipeTags>();
+if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IRecipeTagSuggester, DisabledRecipeTagSuggester>();
+else
+    builder.Services.AddScoped<IRecipeTagSuggester, RecipeTagSuggester>();
+
+// Edit-moment diet-tag contradiction nudge (plantry-qll2.3). DietTagNudgeService orchestrates the cheap
+// ProductId-set guard + the deferred gate check + ingredient-name resolution over the Recipes ACL ports;
+// IDietTagContradictionChecker is the untrusted LLM seam. It reuses the same IAiAssistanceGateReader adapter
+// (Plantry.Composition) as qll2.2. DietTagContradictionChecker builds a ChatClient at construction (needs a
+// non-empty key), so with no key configured we register DisabledDietTagContradictionChecker (soft-fails to no
+// nudge) — mirroring RecipeTagSuggester/DealMatcher — so a keyless dev/E2E host still resolves the port.
+builder.Services.AddScoped<DietTagNudgeService>();
+if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IDietTagContradictionChecker, DisabledDietTagContradictionChecker>();
+else
+    builder.Services.AddScoped<IDietTagContradictionChecker, DietTagContradictionChecker>();
+
+// Edit-moment AI unit-conversion resolution (plantry-qll2.4, ADR-022). When the household AI toggle is on
+// and a real inferrer is configured, a recipe saved with a cross-dimension unit gap fires a fire-and-forget
+// background seed of an ai_suggested ProductConversion (RecipeConversionSeedTrigger enqueues onto the
+// shared IBackgroundTaskQueue; RecipeConversionSeeder does the Catalog re-check + AddConversion inside a
+// fresh armed scope). IngredientConversionInferrer builds a ChatClient at construction (needs a non-empty
+// key), so with no key configured we register DisabledIngredientConversionInferrer (IsAvailable=false →
+// the editor keeps today's manual C10 prompt) — mirroring RecipeTagSuggester/DietTagContradictionChecker.
+if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
+    builder.Services.AddScoped<IIngredientConversionInferrer, DisabledIngredientConversionInferrer>();
+else
+    builder.Services.AddScoped<IIngredientConversionInferrer, IngredientConversionInferrer>();
+builder.Services.AddScoped<RecipeConversionSeeder>();
+builder.Services.AddScoped<RecipeConversionSeedTrigger>();
+// One-shot rollout backfill (dev-only endpoint below) — a singleton like the other backfill cycles; it
+// opens its own per-household scopes and never runs at boot.
+builder.Services.AddSingleton<RecipeConversionBackfillCycle>();
+
 // Recipe browse query (P2-2c, J1/J2). Assembles the browse view model: lean recipe list + live
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
@@ -531,6 +579,15 @@ builder.Services.AddScoped<BrowseRecipesQuery>();
 // interrupted cooks — called opportunistically at CookRecipe entry and on-demand via the dedicated
 // endpoint. No background poller (ADR-010 defers infra until needed).
 builder.Services.AddScoped<ReconcilePendingCooks>();
+
+// Deferred unit-gap convergence (plantry-qll2.6). ApplyDeferredUnitGaps retro-applies DeferredUnitGap
+// consume lines once a conversion for their (product, unit-pair) lands — called synchronously from the
+// Composition layer after a conversion is added/promoted (manual product-detail add/promote + the qll2.4
+// AI-seed trigger) and opportunistically at CookRecipe entry as a self-heal. VoidDeferredUnitGapLines
+// supersedes them when an absolute Take Stock count observes the product's real level. Both re-use the
+// idempotent IInventoryConsumer path and the ICookEventRepository — same shape as ReconcilePendingCooks.
+builder.Services.AddScoped<ApplyDeferredUnitGaps>();
+builder.Services.AddScoped<VoidDeferredUnitGapLines>();
 
 // Cook-a-recipe application service (P2-3c, recipes-domain-model.md §7). Drives the J4 cook flow:
 // ServingsScale + variant resolution (C7/C11) + atomic consume + cook event write (§7/§8).
@@ -636,6 +693,17 @@ if (app.Environment.IsDevelopment())
         await cycle.RunAsync(ct);
         return Results.Ok();
     }, "Run the one-time purchase-store-id backfill across every household (DM-16 part D; idempotent, re-runnable).");
+
+    // plantry-qll2.4 "backfill now": drive the one-shot AI-suggested conversion backfill across every
+    // household on demand — scans existing recipes for cross-dimension unit gaps and seeds ai_suggested
+    // conversions the same way the post-save trigger does (ADR-022). Kept OUT of the save path (the
+    // ticket's constraint); idempotent + re-runnable (the seeder skips already-bridged pairs). Mirrors
+    // /Dev/Deals/PullNow. Seeds only when a real AI inferrer is configured; otherwise a harmless no-op.
+    app.MapDevPost("/Dev/Recipes/BackfillConversions", async (RecipeConversionBackfillCycle cycle, CancellationToken ct) =>
+    {
+        await cycle.RunAsync(ct);
+        return Results.Ok();
+    }, "Seed AI-suggested conversions for existing recipes' cross-dimension unit gaps across every household (plantry-qll2.4; idempotent, re-runnable).");
 }
 
 app.MapStaticAssets();

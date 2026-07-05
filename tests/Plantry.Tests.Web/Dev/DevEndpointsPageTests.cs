@@ -63,10 +63,11 @@ public sealed class DevEndpointsPageTests
         ("/Dev/Reset", "Wipe ALL data", true),
         ("/Dev/Deals/PullNow", "flyer-ingestion sweep", false),
         ("/Dev/Pricing/BackfillPurchaseStores", "purchase-store-id backfill", false),
+        ("/Dev/Recipes/BackfillConversions", "AI-suggested conversions", false),
     ];
 
     [Fact]
-    public async Task Development_Page_Renders_All_Four_Endpoints_With_Method_Path_Description_And_Invoke()
+    public async Task Development_Page_Renders_All_Endpoints_With_Method_Path_Description_And_Invoke()
     {
         await using var factory = new DevEnvironmentFactory();
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = true });

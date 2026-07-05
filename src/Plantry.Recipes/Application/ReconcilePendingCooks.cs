@@ -92,6 +92,17 @@ public sealed class ReconcilePendingCooks(
 
                     line.MarkApplied(result.ShortfallAmount);
                 }
+                catch (DeferredUnitGapException)
+                {
+                    // No conversion bridges the ingredient unit to the stock unit (plantry-qll2.6). This is
+                    // NOT a shortfall — the pantry is untouched — so record it as a deferred unit gap, to be
+                    // retro-applied when a conversion lands, rather than Shorted. Caught before the no-stock
+                    // catch below so the discrimination is preserved through reconciliation too.
+                    logger.LogInformation(
+                        "Reconcile line {LineId} for cook {CookEventId} deferred — no conversion bridges the unit gap for product {ProductId}.",
+                        line.Id.Value, cookEvent.Id.Value, line.ProductId);
+                    line.MarkDeferredUnitGap();
+                }
                 catch (InvalidOperationException)
                 {
                     // Product has no stock record — fully short. Mark Shorted so this line

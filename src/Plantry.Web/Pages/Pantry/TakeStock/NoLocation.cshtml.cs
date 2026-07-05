@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
+using Plantry.Recipes.Application;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
@@ -33,7 +34,9 @@ public sealed class NoLocationModel(
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
-    ITenantContext tenant) : PageModel
+    ITenantContext tenant,
+    VoidDeferredUnitGapLines voidDeferredUnitGaps,
+    ILogger<NoLocationModel> logger) : PageModel
 {
     // ── Read model ────────────────────────────────────────────────────────────
 
@@ -140,6 +143,21 @@ public sealed class NoLocationModel(
                             error = countResult.Error.Description
                         });
                         continue;
+                    }
+
+                    // Absolute observation recorded → void any deferred unit-gap consume for this product
+                    // (plantry-qll2.6). The count already reflects reality; a later retro-apply would double-count.
+                    // Best-effort: the count is already committed, so a void failure must not fail the save.
+                    try
+                    {
+                        await voidDeferredUnitGaps.ExecuteAsync(item.ProductId, ct);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex,
+                            "Voiding deferred unit-gap consume lines after a No-location count for product {ProductId} failed.",
+                            item.ProductId);
                     }
                 }
 

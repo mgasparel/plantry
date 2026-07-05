@@ -92,4 +92,35 @@ public sealed class CookConsumeLine : Entity<CookConsumeLineId>
         Status = CookConsumeLineStatus.Shorted;
         Shortfall = Quantity;
     }
+
+    /// <summary>
+    /// Transitions the line to <see cref="CookConsumeLineStatus.DeferredUnitGap"/> when the consume
+    /// could not run because no <c>ProductConversion</c> bridged the ingredient unit to the product's
+    /// stock unit (<c>Catalog.UnresolvableConversion</c>) — plantry-qll2.6. This is NOT a shortfall:
+    /// the consume planning pass fails atomically before any lot mutation, so the pantry is untouched.
+    /// The full requested quantity is recorded as the outstanding amount owed; it is overwritten by
+    /// <see cref="MarkApplied"/> when the deferred consume is retro-applied once a conversion lands.
+    /// Idempotent if already <see cref="CookConsumeLineStatus.DeferredUnitGap"/>.
+    /// </summary>
+    public void MarkDeferredUnitGap()
+    {
+        Status = CookConsumeLineStatus.DeferredUnitGap;
+        Shortfall = Quantity;
+    }
+
+    /// <summary>
+    /// Voids a <see cref="CookConsumeLineStatus.DeferredUnitGap"/> line by transitioning it to the
+    /// terminal <see cref="CookConsumeLineStatus.SupersededByCount"/> state (plantry-qll2.6). Called
+    /// when an absolute observation (Take Stock count / manual absolute adjustment) on the product
+    /// captured reality directly, superseding this relative deferred delta — retro-applying afterwards
+    /// would double-count. Only a currently-deferred line is voided; no-op otherwise so an already
+    /// Applied/Shorted/superseded line is never disturbed.
+    /// </summary>
+    public void MarkSupersededByCount()
+    {
+        if (Status != CookConsumeLineStatus.DeferredUnitGap)
+            return;
+        Status = CookConsumeLineStatus.SupersededByCount;
+        Shortfall = 0m;
+    }
 }

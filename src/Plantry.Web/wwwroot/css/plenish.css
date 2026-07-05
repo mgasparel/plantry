@@ -890,6 +890,33 @@ button { font-family: inherit; cursor: pointer; }
 .badge--warning { background: var(--color-warning-bg); color: var(--color-warning); }
 .badge--danger  { background: var(--color-danger-bg);  color: var(--color-danger); }
 
+/* ── AI suggestion chip (tappable) ─────────────────────────────────────────── */
+/* A tappable chip for an AI proposal the user confirms with one tap (plantry-qll2.2 —
+   recipe tag suggestions). Accent-tinted to read as assistive/provisional, distinct from the
+   solid neutral .badge it becomes once accepted. `.ai-chip--new` (dashed) flags a chip that would
+   MINT a new tag rather than apply an existing one. */
+.ai-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 600 var(--font-size-sm)/1 var(--font-sans);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, var(--color-border));
+  border-radius: var(--radius-full);
+  padding: 5px 12px 5px 9px;
+  cursor: pointer;
+}
+.ai-chip:hover { border-color: var(--color-accent); }
+.ai-chip--new { background: transparent; border-style: dashed; }
+/* Small uppercase 'new tag' hint carried by a new-tag chip (and its accepted badge). */
+.ai-chip__new-hint {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
 /* ── Confidence badge (AI catalog-match) ───────────────────────────────────── */
 /* Reuses the existing tonal `--color-*-bg` tokens — no new colour tokens. */
 .badge-confidence--high { background: var(--color-success-bg); color: var(--color-success); }

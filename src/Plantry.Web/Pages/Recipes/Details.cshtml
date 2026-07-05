@@ -205,6 +205,18 @@
                    call swaps this via OnGetFulfilmentAsync recomputed at the selected servings (J3). *@
                 <partial name="_DetailsFulfilmentCard" model="initialFulfilmentModel" />
 
+                @* ── Diet-tag contradiction nudge (plantry-qll2.3) ───────────────
+                   Deferred htmx swap after a qualifying edit-save: the placeholder loads the /Recipes/DietNudge
+                   fragment, which runs the household assistive-AI gate + the untrusted LLM check and returns the
+                   one-line .callout (or nothing). Rendered only when the editor flagged this save, so the LLM
+                   never runs on a plain recipe view. The save is already committed — this is advisory only (C9). *@
+                @if (Model.ShowDietNudgeCheck)
+                {
+                    <div hx-get="/Recipes/DietNudge?id=@recipe.Id"
+                         hx-trigger="load"
+                         hx-swap="outerHTML"></div>
+                }
+
                 @* ── Ingredients card with servings stepper in header ────────── *@
                 <div class="rd-ing-card">
                     <div class="rd-ing-head">

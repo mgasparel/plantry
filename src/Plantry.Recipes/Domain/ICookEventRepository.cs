@@ -23,5 +23,16 @@ public interface ICookEventRepository
     /// </summary>
     Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Returns all <see cref="CookEvent"/> aggregates for the household that have at least one
+    /// <see cref="CookConsumeLine"/> in <see cref="CookConsumeLineStatus.DeferredUnitGap"/> state whose
+    /// <see cref="CookConsumeLine.ProductId"/> is in <paramref name="productIds"/>, with their
+    /// <see cref="CookEvent.ConsumeLines"/> eagerly loaded. Used by <c>ApplyDeferredUnitGaps</c> (retro-
+    /// apply once a conversion lands) and <c>VoidDeferredUnitGapLines</c> (void on an absolute
+    /// observation) — plantry-qll2.6. Empty <paramref name="productIds"/> returns nothing.
+    /// </summary>
+    Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }
