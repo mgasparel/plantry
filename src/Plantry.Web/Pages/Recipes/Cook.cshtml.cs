@@ -269,8 +269,11 @@ public sealed class CookModel(
                         // real stock on hand this is a DISTINCT state from an empty pantry
                         // (plantry-qll2.5): the user may be holding a full bag we simply cannot compare.
                         // Surface the honest on-hand amount in the stock unit rather than collapsing to a
-                        // "have 0 / need N" shortfall. Consume-path is unchanged — the POST still shorts
-                        // the line (ProductStock.Consume fails loud on the unreachable conversion).
+                        // "have 0 / need N" shortfall. The consume-path mirrors this: after plantry-qll2.6
+                        // a unit-gap POST lands the cook consume line as DeferredUnitGap — the full
+                        // requested quantity is recorded as owed and retro-applied once a conversion
+                        // bridges the unit pair — NOT Shorted (which would be a genuine, never-retried
+                        // no-stock outcome).
                         availableInIngUnit = 0m;
                         if (availableRaw > 0m)
                         {
