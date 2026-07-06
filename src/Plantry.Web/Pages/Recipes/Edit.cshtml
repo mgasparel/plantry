@@ -267,14 +267,24 @@
          // mid-typing. Pure client-side courtesy; the server re-check remains authoritative.
          // Shared by the in-sheet prompt (draft) and the landed-row block (row) via _convEchoText.
          _convEchoText(d) {
-             if (!d || !window.IngredientConversion) return '';
+             if (!d) return '';
+             // Read every reactive equation field BEFORE the module guard so Alpine's effect tracking
+             // captures them as dependencies even on the first evaluation — plantry-ac23. A server-seeded
+             // row (a save bounce, or editing a recipe with a pending gap) renders before the awaited
+             // dynamic import bridges window.IngredientConversion (the Scripts section runs after Alpine
+             // starts). If the guard short-circuited first, this effect would capture ZERO row deps and
+             // freeze the row's tone bindings (:class, saved-note/ask x-show) permanently — so the later
+             // inline edit would never live-flip MISSING→FILLED. window is not reactive, so we still bail
+             // when the module is absent; the captured deps guarantee a re-run once the author edits.
+             const leftAmount = d.convLeftAmount, rightAmount = d.convRightAmount;
              const lu = this._convUnitMeta(d.convLeftUnitId, d.stockUnits);
              const ru = this._convUnitMeta(d.convRightUnitId, d.recipeUnits);
              const stockDefault = this._convUnitMeta(d.defaultUnitId, d.stockUnits);
              const recipeLine = this._convUnitMeta(d.unitId, d.recipeUnits);
+             if (!window.IngredientConversion) return '';
              if (!lu || !ru || !stockDefault || !recipeLine) return '';
              const per = window.IngredientConversion.stockPerRecipeUnit({
-                 leftAmount: d.convLeftAmount, rightAmount: d.convRightAmount,
+                 leftAmount, rightAmount,
                  leftFactor: lu.factorToBase, rightFactor: ru.factorToBase,
                  recipeLineFactor: recipeLine.factorToBase, stockDefaultFactor: stockDefault.factorToBase });
              const num = window.IngredientConversion.formatEchoAmount(per);
