@@ -41,7 +41,7 @@
 							</button></template>
 					</div>
 					<div class="ing-rows">
-						<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion, 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
+						<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion &amp;&amp; !rowConvFilled(row), 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
 								<div class="ingredient-row__body">
 									<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
 										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -72,18 +72,34 @@
 										<button type="button" class="btn btn--ghost btn--sm" @click="openEdit(row)">Add quantity</button>
 									</p>
 								</div>
-								<div x-show="row.needsConversion" class="ingredient-row__conversion" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
-									<p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
-										No conversion path found. How much is 1
-										<span x-text="unitLabel(row.unitId)"></span>?
+								<div x-show="rowShowConversion(row)" x-init="maybeHydrateRowConversion(row)" class="ingredient-row__conversion" :style="rowConvFilled(row)
+                                                ? 'background:var(--color-surface-2);border-top:1px solid var(--color-border);padding:var(--space-3) var(--space-4)'
+                                                : 'background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)'">
+									<p x-show="!rowConvFilled(row)" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+										Plantry stocks
+										<strong x-text="row.productName"></strong>
+										in
+										<strong x-text="row.defaultUnitCode"></strong>.                                                 How does 1
+										<span x-text="unitLabel(row.unitId)"></span>
+										relate?
 									</p>
 									<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-										<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">1
-											<span x-text="unitLabel(row.unitId)"></span>
-											=</span>
-										<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="row.conversionFactor" style="width:8rem">
-										<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)" x-text="unitLabel(row.conversionToUnitId)"></span>
+										<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="e.g. 120" x-model="row.convLeftAmount" aria-label="Stock amount" style="width:5.5rem">
+										<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit" style="width:auto;min-width:5rem">
+											<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+										</select>
+										<span style="font-size:var(--font-size-base);color:var(--color-text-muted)">=</span>
+										<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="e.g. 1" x-model="row.convRightAmount" aria-label="Recipe amount" style="width:5.5rem">
+										<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit" style="width:auto;min-width:5rem">
+											<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+										</select>
 									</div>
+									<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+										<span x-text="rowConversionEcho(row)"></span>
+									</p>
+									<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-1) 0 0;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+										Saved to your catalog when you save the recipe.
+									</p>
 								</div>
 							</div></template>
 					</div>
