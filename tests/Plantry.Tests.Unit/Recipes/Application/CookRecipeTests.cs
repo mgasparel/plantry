@@ -660,6 +660,160 @@ public sealed class CookRecipeTests
         Assert.Equal(60m, call.Quantity);
     }
 
+    // ── Ad-hoc added products (plantry-7zjm) ─────────────────────────────────────
+
+    /// <summary>
+    /// AC1/AC6: an added existing product is consumed as part of the cook (ConsumeReason.Recipe,
+    /// sourceRef → this cook) at the entered quantity + unit, and its consume line carries the
+    /// Guid.Empty ingredient sentinel — nothing resolves it against a recipe ingredient.
+    /// </summary>
+    [Fact]
+    public async Task Cook_AddsAdHocProduct_ConsumesAsRecipe_WithEmptyIngredientSentinel()
+    {
+        var h = BuildHarness();
+        var (recipe, recipeProductId, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m);
+
+        // An existing catalog product the user adds to just this cook.
+        var addedUnit = Guid.CreateVersion7();
+        var added = h.Products.AddTracked(addedUnit, "Added Product");
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            AdHocLines: [new AdHocLine(added.Id, 3m, addedUnit)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+        var cooked = Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        // The added product was consumed at the entered qty + unit, attributed to this cook.
+        var addedCall = Assert.Single(h.Consumer.Calls, c => c.ProductId == added.Id);
+        Assert.Equal(3m, addedCall.Quantity);
+        Assert.Equal(addedUnit, addedCall.UnitId);
+        Assert.Equal(ConsumeReason.Recipe, addedCall.Reason);
+        Assert.Equal(cooked.CookEventId.Value, addedCall.CookEventId); // sourceRef → this cook
+
+        // The recipe's own ingredient is still consumed — the add is additive, not a replacement.
+        Assert.Contains(h.Consumer.Calls, c => c.ProductId == recipeProductId);
+
+        // The added line carries the Guid.Empty ingredient sentinel and is Applied…
+        var evt = Assert.Single(h.CookEvents.Items);
+        var addedLine = Assert.Single(evt.ConsumeLines, l => l.ProductId == added.Id);
+        Assert.Equal(Guid.Empty, addedLine.IngredientId);
+        Assert.Equal(CookConsumeLineStatus.Applied, addedLine.Status);
+        // …and its idempotency token is its OWN line id, NOT the empty ingredient id (plantry-fks).
+        Assert.Equal(addedLine.Id.Value, addedCall.SourceLineRef);
+        Assert.NotEqual(Guid.Empty, addedCall.SourceLineRef);
+    }
+
+    /// <summary>
+    /// AC2: removing a recipe ingredient (skip) and adding a different product composes an on-the-fly
+    /// substitution with no dedicated substitute mode — only the replacement is consumed.
+    /// </summary>
+    [Fact]
+    public async Task Cook_SkipPlusAdd_ComposesSubstitution_WithoutDedicatedMode()
+    {
+        var h = BuildHarness();
+        var (recipe, originalProductId, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m);
+        var ingredientId = recipe.Ingredients[0].Id;
+
+        var replacementUnit = Guid.CreateVersion7();
+        var replacement = h.Products.AddTracked(replacementUnit, "Replacement");
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId,
+            Resolutions: [new IngredientResolution(ingredientId, IsSkipped: true, Allocations: [])],
+            AdHocLines: [new AdHocLine(replacement.Id, 1m, replacementUnit)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        // The original recipe product was skipped — not consumed.
+        Assert.DoesNotContain(h.Consumer.Calls, c => c.ProductId == originalProductId);
+        // Only the replacement was consumed.
+        var call = Assert.Single(h.Consumer.Calls);
+        Assert.Equal(replacement.Id, call.ProductId);
+        Assert.Equal(1m, call.Quantity);
+        Assert.Equal(replacementUnit, call.UnitId);
+    }
+
+    /// <summary>
+    /// AC3: an added product whose stock unit cannot convert to the entered unit defers
+    /// (DeferredUnitGap) exactly like a recipe ingredient would — never Shorted — with the full
+    /// requested quantity recorded as owed and the Guid.Empty ingredient sentinel intact.
+    /// </summary>
+    [Fact]
+    public async Task Cook_AdHocProduct_UnitGap_DefersLikeIngredient()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m);
+
+        var addedUnit = Guid.CreateVersion7();
+        var added = h.Products.AddTracked(addedUnit, "Added");
+        h.Consumer.ThrowUnitGap(added.Id);
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            AdHocLines: [new AdHocLine(added.Id, 5m, addedUnit)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        var evt = Assert.Single(h.CookEvents.Items);
+        var addedLine = Assert.Single(evt.ConsumeLines, l => l.ProductId == added.Id);
+        Assert.Equal(CookConsumeLineStatus.DeferredUnitGap, addedLine.Status);
+        Assert.Equal(Guid.Empty, addedLine.IngredientId);
+        Assert.Equal(5m, addedLine.Shortfall); // full requested quantity owed
+    }
+
+    /// <summary>
+    /// C12 consistency (interpretation, plantry-7zjm): an added product that is untracked has no stock
+    /// to consume, so it is skipped exactly as an untracked recipe ingredient would be — no consume, no
+    /// doomed consume line minted.
+    /// </summary>
+    [Fact]
+    public async Task Cook_AdHocUntrackedProduct_IsSkipped()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m);
+
+        var addedUnit = Guid.CreateVersion7();
+        var untrackedId = Guid.CreateVersion7();
+        h.Products.RegisterUntracked(untrackedId, "Untracked Add");
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            AdHocLines: [new AdHocLine(untrackedId, 2m, addedUnit)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        Assert.DoesNotContain(h.Consumer.Calls, c => c.ProductId == untrackedId);
+        var evt = Assert.Single(h.CookEvents.Items);
+        Assert.DoesNotContain(evt.ConsumeLines, l => l.ProductId == untrackedId);
+    }
+
+    /// <summary>
+    /// A malformed added row (non-positive quantity or empty unit) never mints a consume line — the
+    /// service guards it defensively even though the Web layer already filters such rows.
+    /// </summary>
+    [Fact]
+    public async Task Cook_AdHocProduct_WithNonPositiveQuantity_IsSkipped()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m);
+
+        var addedUnit = Guid.CreateVersion7();
+        var added = h.Products.AddTracked(addedUnit, "Added");
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            AdHocLines: [new AdHocLine(added.Id, 0m, addedUnit)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        Assert.DoesNotContain(h.Consumer.Calls, c => c.ProductId == added.Id);
+    }
+
     // ── Opportunistic reconciliation sweep (292c) ────────────────────────────────
 
     /// <summary>

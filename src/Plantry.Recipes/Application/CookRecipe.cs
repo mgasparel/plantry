@@ -107,6 +107,14 @@ public sealed class CookRecipe(
                     allCandidateIds.Add(alloc.VariantProductId);
         }
 
+        // Ad-hoc added products (plantry-7zjm): existing catalog products the user added to THIS cook
+        // via the Cook-page search picker. They carry their own ProductId candidate so they participate
+        // in the same catalog TrackStock resolution and opportunistic deferred-unit-gap self-heal
+        // round-trip below as recipe ingredients — no special-casing.
+        var adHocLines = command.AdHocLines ?? [];
+        foreach (var adHoc in adHocLines)
+            allCandidateIds.Add(adHoc.ProductId);
+
         var catalogSummaries = await products.ResolveSummariesAsync(allCandidateIds.ToList(), ct);
 
         // ── Opportunistic deferred unit-gap self-heal (plantry-qll2.6) ────────────
@@ -195,6 +203,30 @@ public sealed class CookRecipe(
                 ingredient.Id));
         }
 
+        // ── Ad-hoc added products (plantry-7zjm) ──────────────────────────────────
+        // Materialize each user-added product into a consume target with NO source recipe ingredient:
+        // its IngredientId is the Guid.Empty sentinel ("ad-hoc line — render/label from ProductId").
+        // This is a bare soft-ref with no FK to recipe_ingredient (DM-3) and is NOT the idempotency
+        // token (that rides on the line's own Id, plantry-fks); the deferred/unit-gap + reconciliation
+        // services key on ProductId, never IngredientId — so an ad-hoc line flows through the identical
+        // consume path (Pending → Applied/Shorted/DeferredUnitGap) as a recipe ingredient. C12 is
+        // applied uniformly: an added product that is untracked or unknown in the catalog is skipped
+        // exactly as an untracked recipe ingredient would be (there is no stock to consume). Guards
+        // against non-positive quantity or a missing unit so a malformed row never mints a doomed line.
+        foreach (var adHoc in adHocLines)
+        {
+            if (adHoc.Quantity <= 0m || adHoc.UnitId == Guid.Empty)
+                continue;
+            if (!catalogSummaries.TryGetValue(adHoc.ProductId, out var adHocSummary) || !adHocSummary.TrackStock)
+                continue; // untracked or unknown added product — skip (C12)
+
+            consumeTargets.Add(new ConsumeTarget(
+                adHoc.ProductId,
+                adHoc.Quantity,
+                adHoc.UnitId,
+                IngredientId.From(Guid.Empty)));
+        }
+
         // ── Anchor-first: add all consume lines as Pending, then commit (292b) ───
         // Stage the CookEvent and all Pending CookConsumeLines in a single Recipes
         // transaction BEFORE any inventory call runs. If the process dies mid-cook,
@@ -281,8 +313,8 @@ public sealed class CookRecipe(
 
         var shortedCount = lineResults.Count(l => l.ShortfallAmount == l.RequestedQuantity);
         logger.LogInformation(
-            "Recipe cooked. CookEventId: {CookEventId}, RecipeId: {RecipeId}, Servings: {Servings}, Lines: {LineCount}, Shorted: {ShortedCount}.",
-            cookEvent.Id.Value, recipe.Id.Value, servingsCooked, lineResults.Count, shortedCount);
+            "Recipe cooked. CookEventId: {CookEventId}, RecipeId: {RecipeId}, Servings: {Servings}, Lines: {LineCount}, Shorted: {ShortedCount}, AdHocAdded: {AdHocAdded}.",
+            cookEvent.Id.Value, recipe.Id.Value, servingsCooked, lineResults.Count, shortedCount, adHocLines.Count);
 
         return new CookRecipeResult.Cooked(cookEvent.Id, servingsCooked, lineResults);
     }
@@ -321,11 +353,35 @@ public sealed class CookRecipe(
 /// within the array does not matter — the service indexes by
 /// <see cref="IngredientResolution.IngredientId"/>.
 /// </param>
+/// <param name="AdHocLines">
+/// Existing catalog products the user added to THIS cook via the Cook-page search picker (plantry-7zjm).
+/// Each is consumed as part of the cook with no source recipe ingredient (the recipe is untouched).
+/// Optional — <c>null</c> or empty means no added products. Kept distinct from
+/// <see cref="Resolutions"/> (which is keyed by recipe <see cref="IngredientId"/>) precisely because an
+/// added line has no ingredient to key on; it materializes into a <see cref="CookConsumeLine"/> with
+/// <see cref="CookConsumeLine.IngredientId"/> = <see cref="Guid.Empty"/>.
+/// </param>
 public sealed record CookRecipeCommand(
     RecipeId RecipeId,
     int DesiredServings,
     Guid UserId,
-    IReadOnlyList<IngredientResolution> Resolutions);
+    IReadOnlyList<IngredientResolution> Resolutions,
+    IReadOnlyList<AdHocLine>? AdHocLines = null);
+
+/// <summary>
+/// One existing catalog product added to a single cook via the Cook-page search picker (plantry-7zjm).
+/// Search-only: the product must already exist in the catalog (no net-new product creation from the
+/// Cook page). Consumed as part of the cook (<see cref="ConsumeReason.Recipe"/>, sourceRef → the cook)
+/// with no source recipe ingredient. Transient — never persisted as an entity; it becomes a
+/// <see cref="CookConsumeLine"/> with a <see cref="Guid.Empty"/> ingredient sentinel.
+/// </summary>
+/// <param name="ProductId">Soft ref → catalog.product (DM-3). Must be an existing, tracked product.</param>
+/// <param name="Quantity">Quantity to consume in <paramref name="UnitId"/> — must be &gt; 0.</param>
+/// <param name="UnitId">Soft ref → catalog.unit (DM-3) for <paramref name="Quantity"/>.</param>
+public sealed record AdHocLine(
+    Guid ProductId,
+    decimal Quantity,
+    Guid UnitId);
 
 // ── Resolution DTOs ─────────────────────────────────────────────────────────────────────────────
 

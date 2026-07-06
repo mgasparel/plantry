@@ -294,10 +294,21 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
     }
 
     /// <summary>
-    /// Directly sets the quantity and unit on the Manual contribution (inline qty/unit editor, plantry-dem).
-    /// Quantity may be null (clears the quantity). UnitId may be null (no unit).
-    /// If no Manual contribution exists, one is created.
-    /// This replaces (not adds to) the Manual bucket's quantity — it is a direct user edit, not a top-up.
+    /// Sets the item's TOTAL quantity from the inline qty/unit editor (plantry-dem, plantry-5j2d).
+    ///
+    /// <para>The qty pill displays the item's derived TOTAL (<see cref="Quantity"/> — the sum of all
+    /// contributions), so the editor submits a desired total, not a Manual-bucket value. The Manual
+    /// contribution absorbs the difference above the non-Manual floor:
+    ///   Manual := max(0, entered − sum(non-Manual contributions)).
+    /// Recipe / MealPlan contributions are NEVER mutated — they set a floor the total cannot go below.
+    /// A recipe-driven quantity is not user-editable, so clamping Manual at 0 (editing below the floor
+    /// leaves the total at the non-Manual sum) is intended behaviour, not an edge case (plantry-5j2d).</para>
+    ///
+    /// <para>For a purely-Manual item the non-Manual floor is 0, so the entered value becomes the Manual
+    /// quantity unchanged — submitting the pre-filled total is a true no-op. Quantity may be null
+    /// (clears the Manual portion; the total then floors at the non-Manual sum). UnitId may be null
+    /// (no unit). If no Manual contribution exists, one is created.</para>
+    ///
     /// Called exclusively by <see cref="ShoppingList.EditItemQuantity"/>.
     /// </summary>
     internal void EditQuantity(decimal? quantity, Guid? unitId, IClock clock)
@@ -305,14 +316,30 @@ public sealed class ShoppingListItem : Entity<ShoppingListItemId>
         // Update the item's canonical unit (all contributions share this).
         UnitId = unitId;
 
-        var manual = FindContribution(ItemSource.Manual, null);
-        if (manual is null)
+        // Treat the entered value as the desired TOTAL; Manual absorbs whatever exceeds the
+        // non-Manual floor. Clearing (null) drops the Manual portion entirely.
+        decimal? manualTarget;
+        if (quantity is null)
         {
-            _contributions.Add(ShoppingListItemContribution.Create(Id, ItemSource.Manual, null, quantity, unitId));
+            manualTarget = null;
         }
         else
         {
-            manual.ReplaceQuantity(quantity, unitId);
+            var nonManualSum = _contributions
+                .Where(c => c.Source != ItemSource.Manual)
+                .Sum(c => c.Quantity ?? 0m);
+            var absorbed = quantity.Value - nonManualSum;
+            manualTarget = absorbed > 0m ? absorbed : 0m;
+        }
+
+        var manual = FindContribution(ItemSource.Manual, null);
+        if (manual is null)
+        {
+            _contributions.Add(ShoppingListItemContribution.Create(Id, ItemSource.Manual, null, manualTarget, unitId));
+        }
+        else
+        {
+            manual.ReplaceQuantity(manualTarget, unitId);
         }
 
         UpdatedAt = clock.UtcNow;

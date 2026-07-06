@@ -290,6 +290,93 @@ public sealed class CookOnPostResolutionTests : IDisposable
         Assert.Equal(400m, pastaCall.Quantity);
         Assert.Equal(CookConfirmFixture.GramUnitId, pastaCall.UnitId);
     }
+
+    /// <summary>
+    /// AC (plantry-7zjm) AddedLines binding: posting an existing catalog product as an AddedLines row
+    /// produces a ConsumeAsync call targeting that product at the entered quantity + unit — the added
+    /// line flows through the real CookRecipe consume path. Uses Garlic, Fresh (a tracked catalog
+    /// product not directly a recipe ingredient) as the added product.
+    /// </summary>
+    [Fact]
+    public async Task Added_line_consumes_the_added_product_at_entered_quantity_and_unit()
+    {
+        var client = AuthenticatedClient();
+
+        var response = await PostCookAsync(client,
+        [
+            new("AddedLines[0].ProductId", CookConfirmFixture.GarlicFreshId.ToString()),
+            new("AddedLines[0].Quantity",  "2"),
+            new("AddedLines[0].UnitId",    CookConfirmFixture.EachUnitId.ToString()),
+        ]);
+
+        Assert.True(
+            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
+            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
+
+        var addedCall = _factory.Consumer.Calls.Single(c => c.ProductId == CookConfirmFixture.GarlicFreshId);
+        Assert.Equal(2m, addedCall.Quantity);
+        Assert.Equal(CookConfirmFixture.EachUnitId, addedCall.UnitId);
+    }
+
+    /// <summary>
+    /// AC2 (plantry-7zjm) substitution at the Web seam: skipping a recipe ingredient and adding a
+    /// different product in the same POST composes an on-the-fly substitution — the skipped product is
+    /// not consumed and the added product is.
+    /// </summary>
+    [Fact]
+    public async Task Skip_plus_added_line_composes_substitution()
+    {
+        var client = AuthenticatedClient();
+
+        var pastaIngredientId = _factory.Recipe.Ingredients
+            .Single(i => i.ProductId == CookConfirmFixture.PastaId)
+            .Id.Value;
+
+        var response = await PostCookAsync(client,
+        [
+            new("SkippedIngredientIds[0]", pastaIngredientId.ToString()),
+            new("AddedLines[0].ProductId", CookConfirmFixture.GarlicFreshId.ToString()),
+            new("AddedLines[0].Quantity",  "1"),
+            new("AddedLines[0].UnitId",    CookConfirmFixture.EachUnitId.ToString()),
+        ]);
+
+        Assert.True(
+            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
+            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
+
+        var calls = _factory.Consumer.Calls;
+        // Original (skipped) product is not consumed; the replacement is.
+        Assert.DoesNotContain(calls, c => c.ProductId == CookConfirmFixture.PastaId);
+        Assert.Contains(calls, c => c.ProductId == CookConfirmFixture.GarlicFreshId);
+    }
+
+    /// <summary>
+    /// A blank/partial AddedLines row (empty product id) is filtered by OnPostAsync and never reaches
+    /// the consumer — guards the model-binding edge where Alpine emits an unfilled row.
+    /// </summary>
+    [Fact]
+    public async Task Added_line_with_empty_product_is_ignored()
+    {
+        var client = AuthenticatedClient();
+
+        var before = _factory.Consumer.Calls.Count;
+
+        var response = await PostCookAsync(client,
+        [
+            new("AddedLines[0].ProductId", Guid.Empty.ToString()),
+            new("AddedLines[0].Quantity",  "3"),
+            new("AddedLines[0].UnitId",    CookConfirmFixture.EachUnitId.ToString()),
+        ]);
+
+        Assert.True(
+            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
+            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
+
+        // No consume call carries the empty sentinel product id.
+        Assert.DoesNotContain(_factory.Consumer.Calls, c => c.ProductId == Guid.Empty);
+        // The recipe's own ingredients still cooked (the empty added row did not abort the cook).
+        Assert.True(_factory.Consumer.Calls.Count > before);
+    }
 }
 
 // ── WAF factory for OnPostAsync resolution-mapping tests ─────────────────────────────────────────

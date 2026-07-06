@@ -1,10 +1,13 @@
 using System.Globalization;
 using System.Security.Claims;
+using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
+using Plantry.SharedKernel;
 
 namespace Plantry.Web.Pages.Recipes;
 
@@ -65,6 +68,52 @@ public sealed class CookModel(
     /// </summary>
     [BindProperty]
     public Dictionary<Guid, decimal> QuantityOverrides { get; set; } = [];
+
+    /// <summary>
+    /// Existing catalog products the user added to THIS cook via the Add-product search picker
+    /// (plantry-7zjm). Each is consumed as part of the cook with no source recipe ingredient (the
+    /// recipe definition is untouched). Posted as <c>AddedLines[N].ProductId</c> /
+    /// <c>AddedLines[N].Quantity</c> / <c>AddedLines[N].UnitId</c> hidden inputs emitted by Alpine.
+    /// Search-only — there is no create-new-product path from the Cook page.
+    /// </summary>
+    [BindProperty]
+    public List<AddedLineInput> AddedLines { get; set; } = [];
+
+    /// <summary>
+    /// Unit options for the added-product rows' unit selector (plantry-7zjm). Loaded on GET via the
+    /// Catalog anti-corruption port; the Cook page never queries Catalog repositories directly (Gate 2).
+    /// </summary>
+    public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
+
+    /// <summary>
+    /// Returns <c>&lt;li role="option"&gt;</c> markup for the Add-product searchable-select
+    /// (plantry-7zjm). Called by htmx on keyup in the Cook-page product search field. Search-only:
+    /// each option dispatches <c>pick-product</c> with the product's id, name, and default unit so the
+    /// Cook page can append an editable added-product row. Mirrors the Recipes/Edit ingredient search
+    /// handler; the <c>data-track</c> flag lets the page skip untracked products (there is no stock to
+    /// consume). No "create new product" affordance is emitted — the picker is deliberately search-only.
+    /// </summary>
+    public async Task<IActionResult> OnGetSearchProductsAsync(string q, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(q))
+            return Content("", "text/html");
+
+        var hits = await catalog.SearchAsync(q.Trim(), ct);
+        var enc = HtmlEncoder.Default;
+
+        var defaultUnitIds = hits.Select(p => p.DefaultUnitId).Distinct().ToList();
+        var unitCodes = defaultUnitIds.Count > 0
+            ? await catalog.ResolveUnitCodesAsync(defaultUnitIds, ct)
+            : (IReadOnlyDictionary<Guid, string>)new Dictionary<Guid, string>();
+
+        var html = string.Join("", hits.Select((p, i) =>
+        {
+            var label = ProductNameMatcher.RankLabel(p.Score, isTopHit: i == 0);
+            var unitCode = unitCodes.GetValueOrDefault(p.DefaultUnitId, "");
+            return $$"""<li role="option" data-value="{{p.Id}}" data-name="{{enc.Encode(p.Name)}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" data-default-unit-code="{{enc.Encode(unitCode)}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit, defaultUnitCode: $el.dataset.defaultUnitCode})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+        }));
+        return Content(html, "text/html");
+    }
 
     public async Task<IActionResult> OnGetAsync(CancellationToken ct)
     {
@@ -269,8 +318,11 @@ public sealed class CookModel(
                         // real stock on hand this is a DISTINCT state from an empty pantry
                         // (plantry-qll2.5): the user may be holding a full bag we simply cannot compare.
                         // Surface the honest on-hand amount in the stock unit rather than collapsing to a
-                        // "have 0 / need N" shortfall. Consume-path is unchanged — the POST still shorts
-                        // the line (ProductStock.Consume fails loud on the unreachable conversion).
+                        // "have 0 / need N" shortfall. The consume-path mirrors this: after plantry-qll2.6
+                        // a unit-gap POST lands the cook consume line as DeferredUnitGap — the full
+                        // requested quantity is recorded as owed and retro-applied once a conversion
+                        // bridges the unit pair — NOT Shorted (which would be a genuine, never-retried
+                        // no-stock outcome).
                         availableInIngUnit = 0m;
                         if (availableRaw > 0m)
                         {
@@ -302,6 +354,12 @@ public sealed class CookModel(
                     StockUnitCode: stockUnitCode));
             }
         }
+
+        // Unit options for the Add-product rows (plantry-7zjm) — via the anti-corruption port (Gate 2).
+        var unitOptions = await catalog.ListUnitsAsync(ct);
+        UnitOptions = unitOptions
+            .Select(u => new SelectListItem(u.Code, u.Id.ToString()))
+            .ToList();
 
         Cook = new CookViewModel(
             RecipeId: recipe.Id.Value,
@@ -371,11 +429,20 @@ public sealed class CookModel(
             // No entry for this ingredient → default auto-selection in CookRecipe service.
         }
 
+        // Ad-hoc added products (plantry-7zjm): existing catalog products the user added to this cook.
+        // Filter malformed rows (no product, no unit, or a non-positive quantity) so a blank/partial
+        // row never reaches the service. The server re-validates TrackStock in CookRecipe (C12).
+        var adHocLines = AddedLines
+            .Where(a => a.ProductId != Guid.Empty && a.UnitId != Guid.Empty && a.Quantity > 0m)
+            .Select(a => new AdHocLine(a.ProductId, a.Quantity, a.UnitId))
+            .ToList();
+
         var command = new CookRecipeCommand(
             RecipeId: id,
             DesiredServings: desiredServings,
             UserId: Guid.Parse(userId),
-            Resolutions: resolutions);
+            Resolutions: resolutions,
+            AdHocLines: adHocLines);
 
         var result = await cookService.ExecuteAsync(command, ct);
 
@@ -440,4 +507,16 @@ public sealed record PickerSelectionInput
 {
     public Guid IngredientId { get; set; }
     public Guid VariantId { get; set; }
+}
+
+/// <summary>
+/// Form input model for one added product on the Cook page (plantry-7zjm). Bound from the
+/// <c>AddedLines[N].*</c> hidden inputs the Alpine <c>x-for</c> emits per added row. Search-only —
+/// <see cref="ProductId"/> always references an existing catalog product.
+/// </summary>
+public sealed record AddedLineInput
+{
+    public Guid ProductId { get; set; }
+    public decimal Quantity { get; set; }
+    public Guid UnitId { get; set; }
 }

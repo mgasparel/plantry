@@ -204,7 +204,7 @@ function CountRow({ row, expandedLots, onExpandLots, onCollapseLots, onAddConver
              aria-label=${"Conversion factor for " + row.productName}>
           <p class="ts-conversion-lbl">
             <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
-            No conversion path found. How much is 1 ${row.convFromCode.value}?
+            How much is 1 ${row.convFromCode.value}? Plantry stocks this in ${row.convToCode.value}.
           </p>
           <div class="ts-conversion-row">
             <span class="ts-conversion-eq">1 ${row.convFromCode.value} =</span>

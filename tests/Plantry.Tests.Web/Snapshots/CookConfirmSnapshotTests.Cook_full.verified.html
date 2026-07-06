@@ -1,4 +1,4 @@
-﻿<div id="cook-confirm" x-data="cookConfirm([{&quot;id&quot;:&quot;Guid_1&quot;,&quot;variantId&quot;:null,&quot;qty&quot;:400},{&quot;id&quot;:&quot;Guid_2&quot;,&quot;variantId&quot;:null,&quot;qty&quot;:500},{&quot;id&quot;:&quot;Guid_3&quot;,&quot;variantId&quot;:&quot;Guid_4&quot;,&quot;qty&quot;:3}])">
+﻿<div id="cook-confirm" x-data="cookConfirm([{&quot;id&quot;:&quot;Guid_1&quot;,&quot;variantId&quot;:null,&quot;qty&quot;:400},{&quot;id&quot;:&quot;Guid_2&quot;,&quot;variantId&quot;:null,&quot;qty&quot;:500},{&quot;id&quot;:&quot;Guid_3&quot;,&quot;variantId&quot;:&quot;Guid_4&quot;,&quot;qty&quot;:3}], [])">
 	<div class="rd-wrap">
 		<a href="/Recipes/Guid_5" class="rd-back">
 			<svg class="icon" aria-hidden="true">
@@ -173,6 +173,52 @@
 						</div>
 					</div>
 				</div>
+				<div class="card cook-add" @pick-product="addProduct($event.detail)">
+					<div class="card__head">
+						<div>
+							<h3 class="card__head-title">Add a product</h3>
+							<p class="card__head-sub">
+								Add an existing product to just this cook — it's consumed with the recipe                                 but doesn't change the recipe itself.
+							</p>
+						</div>
+					</div>
+					<div class="card__body">
+						<div class="cook-add__search">
+							<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" data-create-label="as a new product" @click.outside="open = false" @keydown.escape="open = false">
+								<div class="searchable-select__control">
+									<input type="text" class="field__input" role="combobox" aria-controls="cook-add-search-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Search products to add…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Recipes/Guid_5/Cook?handler=SearchProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#cook-add-search-listbox" hx-swap="innerHTML" hx-params="q">
+								</div>
+								<ul class="searchable-select__listbox" id="cook-add-search-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="" style="display: none"></ul>
+							</div>
+						</div>
+						<template x-for="p in addedProducts" :key="p.key"><div class="cook-added-row">
+								<div class="cook-added-row__body">
+									<span class="cook-added-row__name" x-text="p.name"></span>
+									<span class="cook-added-row__badge">added</span>
+								</div>
+								<div class="cook-added-row__qty">
+									<div class="stepper" role="group">
+										<button type="button" class="stepper__btn" aria-label="Decrease quantity" @click="p.qty = Math.max(0, (parseFloat(p.qty) || 0) - 1)">
+											<svg class="icon" aria-hidden="true">
+												<use href="#i-minus"></use>
+											</svg>
+										</button>
+										<input class="stepper__val" type="number" name="" min="0" step="any" aria-label="Added product quantity" x-model="p.qty">
+										<button type="button" class="stepper__btn" aria-label="Increase quantity" @click="p.qty = (parseFloat(p.qty) || 0) + 1">
+											<svg class="icon" aria-hidden="true">
+												<use href="#i-plus"></use>
+											</svg>
+										</button>
+									</div>
+									<select class="field__input cook-added-row__unit-sel" x-model="p.unitId" aria-label="Added product unit">
+									</select>
+								</div>
+								<button type="button" class="btn btn--ghost btn--sm cook-added-row__remove" @click="removeAdded(p.key)" aria-label="Remove added product">
+									Remove
+								</button>
+							</div></template>
+					</div>
+				</div>
 			</div>
 			<div class="cook-rail">
 				<div class="card">
@@ -187,6 +233,11 @@
 							<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
 							<template x-for="ingId in skippedIds" :key="ingId"><input type="hidden" name="SkippedIngredientIds" :value="ingId"></template>
 							<template x-for="m in modifiedQuantities" :key="m.id"><input type="hidden" :name="`QuantityOverrides[${m.id}]`" :value="m.qty"></template>
+							<template x-for="(p, i) in addedProducts" :key="p.key"><span>
+									<input type="hidden" :name="`AddedLines[${i}].ProductId`" :value="p.productId">
+									<input type="hidden" :name="`AddedLines[${i}].Quantity`" :value="p.qty">
+									<input type="hidden" :name="`AddedLines[${i}].UnitId`" :value="p.unitId">
+								</span></template>
 							<div class="cook-rail-summary">
 								<div class="cook-rail-stat">
 									<span class="cook-rail-stat__val" x-text="activeCount">3</span>

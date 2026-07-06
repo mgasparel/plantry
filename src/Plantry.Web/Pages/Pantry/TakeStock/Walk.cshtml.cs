@@ -362,16 +362,26 @@ public sealed class WalkModel(
             // deferred unit-gap consume for that product (plantry-qll2.6). The count already reflects
             // reality; retro-applying a deferred delta afterwards would double-count. Best-effort — the
             // counts are already committed, so a void failure must not fail the save response.
-            try
+            //
+            // The try/catch is INSIDE the loop (mirroring NoLocation.cshtml.cs) so one product's void
+            // failure is logged and skipped without abandoning the remaining products' voids. Wrapping
+            // the whole loop in a single try/catch would let one product's failure (e.g. a
+            // DbUpdateConcurrencyException on its save) leave every later product's deferred lines live,
+            // which a subsequent conversion landing would then double-count against a level Take Stock
+            // already set absolutely — and voids, unlike applies, have no cook-entry self-heal net.
+            foreach (var counted in result.Value.Where(r => r.IsSuccess))
             {
-                foreach (var counted in result.Value.Where(r => r.IsSuccess))
+                try
+                {
                     await voidDeferredUnitGaps.ExecuteAsync(counted.ProductId, ct);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "Voiding deferred unit-gap consume lines after Take Stock counts at location {LocationId} failed.", LocationId);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex,
+                        "Voiding deferred unit-gap consume lines after Take Stock counts for product {ProductId} at location {LocationId} failed.",
+                        counted.ProductId, LocationId);
+                }
             }
 
             perRowResults.AddRange(result.Value.Select(r => (object)new

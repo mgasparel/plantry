@@ -145,6 +145,30 @@ public sealed class CookConfirmSnapshotTests(CookConfirmFragmentFactory factory)
         await Verify(Extract(html, ".cook-rail"), "html");
     }
 
+    // ── Add-product affordance present (plantry-7zjm) ─────────────────────────
+
+    [Fact]
+    public async Task Cook_add_product_affordance_present()
+    {
+        var html = await GetCookPageAsync();
+        // The "Add a product" search picker renders, wired to the search-only handler.
+        Assert.Contains("cook-add", html, StringComparison.Ordinal);
+        Assert.Contains("Search products to add", html, StringComparison.Ordinal);
+        Assert.Contains("handler=SearchProducts", html, StringComparison.Ordinal);
+    }
+
+    // ── AC5: no create-new-product path from the Cook page ────────────────────
+
+    [Fact]
+    public async Task Cook_add_product_has_no_create_path()
+    {
+        var html = await GetCookPageAsync();
+        // The searchable-select is rendered search-only (no allow-create), so neither the create
+        // button markup nor the product-search-create event contract may appear anywhere on the page.
+        Assert.DoesNotContain("product-search-create", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("searchable-select__create-btn", html, StringComparison.Ordinal);
+    }
+
     // ── Unauthenticated request is challenged ──────────────────────────────────
 
     [Fact]

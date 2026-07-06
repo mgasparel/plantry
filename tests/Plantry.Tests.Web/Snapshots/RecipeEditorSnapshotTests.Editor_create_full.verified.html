@@ -135,9 +135,9 @@
          // Derived echo: translates the entered equation into stock terms, e.g. so 1 cup of Cashews is
          // about 125 g. Returns '' while either amount is incomplete/invalid so nothing is shown
          // mid-typing. Pure client-side courtesy; the server re-check remains authoritative.
-         conversionEcho() {
-             const d = this.draft;
-             if (!d || !d.needsConversion || !window.IngredientConversion) return '';
+         // Shared by the in-sheet prompt (draft) and the landed-row block (row) via _convEchoText.
+         _convEchoText(d) {
+             if (!d || !window.IngredientConversion) return '';
              const lu = this._convUnitMeta(d.convLeftUnitId, d.stockUnits);
              const ru = this._convUnitMeta(d.convRightUnitId, d.recipeUnits);
              const stockDefault = this._convUnitMeta(d.defaultUnitId, d.stockUnits);
@@ -150,6 +150,52 @@
              const num = window.IngredientConversion.formatEchoAmount(per);
              if (num === '') return '';
              return `Got it — so 1 ${this.unitLabel(d.unitId)} of ${d.productName} ≈ ${num} ${d.defaultUnitCode}.`;
+         },
+         conversionEcho() {
+             // In-sheet prompt only echoes while the sheet actively asks (draft.needsConversion).
+             if (!this.draft || !this.draft.needsConversion) return '';
+             return this._convEchoText(this.draft);
+         },
+         // ── Landed-row conversion block (plantry-wq9s) ─────────────────────────────
+         // The block under an ingredient row has two tones, keyed off whether the row's four-field
+         // equation is complete — NOT off needsConversion (which the sheet's Add clears on commit).
+         //   FILLED   : the author already stated the fact (in the sheet, or via this block) — show a
+         //              neutral confirmation with the derived echo + a saved-on-save note, no warning.
+         //   MISSING  : needsConversion is set (a save bounced, or the sheet ask was skipped) and no
+         //              valid equation yet — show the warning-accented informational ask in the same
+         //              voice as the in-sheet prompt, so the blocked save is findable and fixable inline.
+         // rowConvFilled reuses the sheet's echo-based validity: a non-empty echo means the equation
+         // both parses and bridges, exactly the condition the in-sheet prompt treats as complete.
+         rowConversionEcho(row) { return this._convEchoText(row); },
+         rowConvFilled(row) { return this.rowConversionEcho(row) !== ''; },
+         rowShowConversion(row) { return !!row &amp;&amp; (row.needsConversion || this.rowConvFilled(row)); },
+         // A landed row carrying needsConversion after a server bounce was rendered without the axis
+         // unit lists the four-field editor needs (they are populated live during the sheet check, but
+         // server-seeded rows start empty). Lazily fetch them from the same CheckConversion GET used by
+         // the sheet — no new server behaviour — and mirror the sheet's one-number prefill. Runs once per
+         // row via x-init; a cheap no-op for every non-conversion row.
+         async maybeHydrateRowConversion(row) {
+             if (!row || !row.needsConversion) return;
+             if (row.stockUnits &amp;&amp; row.stockUnits.length) return;
+             if (!row.productId || !row.unitId) return;
+             try {
+                 const url = `/Recipes/New?handler=CheckConversion&amp;productId=${encodeURIComponent(row.productId)}&amp;fromUnitId=${encodeURIComponent(row.unitId)}`;
+                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                 if (!res.ok) return;
+                 const data = await res.json();
+                 if (!data.needsConversion) { row.needsConversion = false; return; }
+                 row.defaultUnitId = data.defaultUnitId || row.defaultUnitId;
+                 row.defaultUnitCode = data.defaultUnitCode || row.defaultUnitCode;
+                 row.stockUnits = data.stockUnits || [];
+                 row.recipeUnits = data.recipeUnits || [];
+                 // Only prefill when the author has not already entered amounts (a round-tripped entry
+                 // must survive): blank stock amount + 1 recipe unit, same as the sheet.
+                 if (row.convLeftAmount === '' &amp;&amp; row.convRightAmount === '') {
+                     row.convLeftUnitId = row.defaultUnitId;
+                     row.convRightUnitId = row.unitId;
+                     row.convRightAmount = '1';
+                 }
+             } catch (_) { /* network error — silently ignore, server backstop still highlights the row */ }
          },
          // plantry-429l: a tracked (stock-tracked) ingredient row that is missing a quantity or a unit
          // will be rejected by R5 on save. Flag it in-place so the author sees WHICH row is broken
@@ -442,7 +488,7 @@
 									</button></template>
 							</div>
 							<div class="ing-rows">
-								<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion, 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
+								<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion &amp;&amp; !rowConvFilled(row), 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
 										<div class="ingredient-row__body">
 											<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
 												<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -473,18 +519,34 @@
 												<button type="button" class="btn btn--ghost btn--sm" @click="openEdit(row)">Add quantity</button>
 											</p>
 										</div>
-										<div x-show="row.needsConversion" class="ingredient-row__conversion" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
-											<p style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
-												No conversion path found. How much is 1
-												<span x-text="unitLabel(row.unitId)"></span>?
+										<div x-show="rowShowConversion(row)" x-init="maybeHydrateRowConversion(row)" class="ingredient-row__conversion" :style="rowConvFilled(row)
+                                                ? 'background:var(--color-surface-2);border-top:1px solid var(--color-border);padding:var(--space-3) var(--space-4)'
+                                                : 'background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)'">
+											<p x-show="!rowConvFilled(row)" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+												Plantry stocks
+												<strong x-text="row.productName"></strong>
+												in
+												<strong x-text="row.defaultUnitCode"></strong>.                                                 How does 1
+												<span x-text="unitLabel(row.unitId)"></span>
+												relate?
 											</p>
 											<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-												<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">1
-													<span x-text="unitLabel(row.unitId)"></span>
-													=</span>
-												<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 120" x-model="row.conversionFactor" style="width:8rem">
-												<span style="font-size:var(--font-size-sm);color:var(--color-text-muted)" x-text="unitLabel(row.conversionToUnitId)"></span>
+												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="e.g. 120" x-model="row.convLeftAmount" aria-label="Stock amount" style="width:5.5rem">
+												<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit" style="width:auto;min-width:5rem">
+													<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+												</select>
+												<span style="font-size:var(--font-size-base);color:var(--color-text-muted)">=</span>
+												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="e.g. 1" x-model="row.convRightAmount" aria-label="Recipe amount" style="width:5.5rem">
+												<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit" style="width:auto;min-width:5rem">
+													<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+												</select>
 											</div>
+											<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+												<span x-text="rowConversionEcho(row)"></span>
+											</p>
+											<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-1) 0 0;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+												Saved to your catalog when you save the recipe.
+											</p>
 										</div>
 									</div></template>
 							</div>
@@ -710,7 +772,7 @@
 						<p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
 							Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
 						</p>
-						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''">
+						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''; draft.convFor = ''">
 							Measure in
 							<span x-text="draft.defaultUnitCode"></span>
 							instead

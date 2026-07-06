@@ -24,7 +24,8 @@ namespace Plantry.Tests.Web;
 ///   ("Keep it") makes a re-check show nothing (criterion 1).</item>
 ///   <item>A recipe with no Diet-category tag never calls the checker (criterion 3).</item>
 ///   <item>Toggle off ⇒ no checker call, no notice (criterion 4).</item>
-///   <item>"Remove &lt;tag&gt; tag" drops the tag the user chose — the AI never mutates it.</item>
+///   <item>"Remove &lt;tag&gt; tag" drops the tag the user chose — the AI never mutates it — and returns the
+///   out-of-band fragment that live-removes that tag's chip from the Details header (plantry-klvd).</item>
 /// </list>
 /// </summary>
 public sealed class RecipeDietNudgeTests
@@ -149,6 +150,13 @@ public sealed class RecipeDietNudgeTests
         Assert.Equal(HttpStatusCode.OK, remove.StatusCode);
 
         Assert.DoesNotContain(DietNudgeFactory.DairyFreeTagId, factory.DietRecipe.Tags.Select(rt => rt.TagId));
+
+        // The response carries a lone out-of-band fragment that deletes just the removed tag's hero chip on the
+        // Details page (plantry-klvd), keyed by the SAME stable id the chip carries there (recipe-tag-{tagId}); the
+        // empty primary body still removes the #diet-nudge callout in place. Nothing else is re-rendered.
+        var body = await remove.Content.ReadAsStringAsync();
+        Assert.Contains($"id=\"recipe-tag-{DietNudgeFactory.DairyFreeTagId.Value}\"", body);
+        Assert.Contains("hx-swap-oob=\"delete\"", body);
     }
 
     // ── Editor → Details trigger wiring (criteria 1 & 2, end-to-end) ─────────
