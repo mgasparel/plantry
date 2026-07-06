@@ -217,11 +217,17 @@
          },
          saveSheet() {
              if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetOpen = false; return; }
-             // The in-sheet four-field equation (plantry-qno9) is the author's entry point; the committed
-             // row must NOT also show the single-factor row-level backstop. Clear needsConversion on commit —
-             // the raw equation values still POST via hidden inputs, and AuthorRecipe's post-write re-check
-             // re-surfaces the row-level backstop only if the entry genuinely does not connect.
-             this.draft.needsConversion = false;
+             // The in-sheet four-field equation (plantry-qno9) is the author's entry point. Clear
+             // needsConversion on commit ONLY when the author actually filled a valid equation
+             // (rowConvFilled) — then the landed row shows the neutral FILLED confirmation, and the raw
+             // equation values still POST via hidden inputs for AuthorRecipe's authoritative re-check.
+             // If the author saw the cross-dimension prompt but clicked Add without completing it, leave
+             // needsConversion set (plantry-mfoe): the committed row lands showing the MISSING ask
+             // immediately, not only after a later save bounce — matching plantry-wq9s's stated intent
+             // that MISSING covers the author-skipped-the-sheet-prompt case as well as the server bounce.
+             if (this.rowConvFilled(this.draft)) {
+                 this.draft.needsConversion = false;
+             }
              // When saving from the create view, mark the row as a tracked product create
              // (plantry-orix). The untracked-staple path (C12) is now only used when newIsTracked
              // is false — which is the legacy path kept for backward compatibility in the data model;
