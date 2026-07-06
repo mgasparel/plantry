@@ -94,7 +94,9 @@
                                 @foreach (var tag in recipe.Tags)
                                 {
                                     var tagName = tag.Name ?? tag.Id.ToString("N")[..8];
-                                    <span class="recipe-tag-mini" role="listitem">
+                                    @* Stable per-tag id so the diet-nudge "Remove tag" action can drop just this
+                                       chip in place via an hx-swap-oob="delete" fragment (plantry-klvd). *@
+                                    <span id="recipe-tag-@tag.Id" class="recipe-tag-mini" role="listitem">
                                         <span class="recipe-tag-mini__dot" style="background:@IndexModel.TagColor(tagName)"></span>
                                         @tagName
                                     </span>
