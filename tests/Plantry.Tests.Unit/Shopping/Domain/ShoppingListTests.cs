@@ -308,6 +308,122 @@ public sealed class ShoppingListTests
         Assert.Equal(5m, itemB.Quantity);
     }
 
+    // ── EditItemQuantity treats the entered value as the TOTAL (plantry-5j2d) ──
+    // The qty pill shows the derived TOTAL (sum of all contributions), so the editor
+    // submits a total. Manual absorbs (entered − non-Manual floor); recipe/meal-plan
+    // slices are never mutated. Regression for the double-count bug: submitting a
+    // multi-contribution item's total unchanged used to write the total into Manual on
+    // TOP of the recipe slice, doubling the quantity on every submit.
+
+    private ShoppingListItem AddRecipeOnlyItem(ShoppingList list, decimal recipeQty) =>
+        list.AddItem(ProductA, quantity: recipeQty, unitId: null, note: null,
+            ItemSource.Recipe, sourceRef: Guid.CreateVersion7(), _clock);
+
+    private static decimal? ManualQty(ShoppingListItem item) =>
+        item.Contributions.SingleOrDefault(c => c.Source == ItemSource.Manual)?.Quantity;
+
+    [Fact(DisplayName = "EditItemQuantity — recipe-only, submit unchanged is a no-op (does not double)")]
+    public void EditItemQuantity_RecipeOnly_SubmitUnchanged_IsNoOp()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = AddRecipeOnlyItem(list, recipeQty: 3m);
+
+        // User opens the editor (pre-filled with the total, 3) and submits without changing it.
+        list.EditItemQuantity(item.Id, quantity: 3m, unitId: null, _clock);
+
+        Assert.Equal(3m, item.Quantity);          // total unchanged — no double-count
+        Assert.Equal(0m, ManualQty(item));         // Manual clamps to the difference (0)
+
+        // The reported symptom: repeated submits keep inflating. They must not.
+        list.EditItemQuantity(item.Id, quantity: 3m, unitId: null, _clock);
+        list.EditItemQuantity(item.Id, quantity: 3m, unitId: null, _clock);
+        Assert.Equal(3m, item.Quantity);
+    }
+
+    [Fact(DisplayName = "EditItemQuantity — recipe-only, submit higher tops up Manual to the difference")]
+    public void EditItemQuantity_RecipeOnly_SubmitHigher_TopsUpManual()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = AddRecipeOnlyItem(list, recipeQty: 3m);
+
+        list.EditItemQuantity(item.Id, quantity: 5m, unitId: null, _clock);
+
+        Assert.Equal(5m, item.Quantity);   // total == entered
+        Assert.Equal(2m, ManualQty(item)); // Manual absorbs 5 − 3
+    }
+
+    [Fact(DisplayName = "EditItemQuantity — recipe-only, submit below floor clamps to the recipe sum")]
+    public void EditItemQuantity_RecipeOnly_SubmitBelowFloor_ClampsToRecipeSum()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = AddRecipeOnlyItem(list, recipeQty: 3m);
+
+        list.EditItemQuantity(item.Id, quantity: 1m, unitId: null, _clock);
+
+        Assert.Equal(3m, item.Quantity);   // total floors at the recipe sum
+        Assert.Equal(0m, ManualQty(item)); // Manual clamps to 0 — recipe qty is not user-editable
+    }
+
+    [Fact(DisplayName = "EditItemQuantity — recipe+manual, submit unchanged is a no-op (does not double)")]
+    public void EditItemQuantity_RecipeAndManual_SubmitUnchanged_IsNoOp()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = AddRecipeOnlyItem(list, recipeQty: 3m);
+        // Add a Manual contribution of 2 → total 5.
+        list.UpsertContribution(item, ItemSource.Manual, sourceRef: null,
+            incomingQuantity: 2m, incomingUnitId: null, _clock);
+        Assert.Equal(5m, item.Quantity);
+
+        // Submit the pre-filled total (5) unchanged.
+        list.EditItemQuantity(item.Id, quantity: 5m, unitId: null, _clock);
+
+        Assert.Equal(5m, item.Quantity);   // total unchanged — recipe slice untouched, Manual reset to 2
+        Assert.Equal(2m, ManualQty(item));
+    }
+
+    [Fact(DisplayName = "EditItemQuantity — recipe+manual, submit higher tops up only Manual")]
+    public void EditItemQuantity_RecipeAndManual_SubmitHigher_TopsUpManual()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = AddRecipeOnlyItem(list, recipeQty: 3m);
+        list.UpsertContribution(item, ItemSource.Manual, sourceRef: null,
+            incomingQuantity: 2m, incomingUnitId: null, _clock);
+
+        list.EditItemQuantity(item.Id, quantity: 8m, unitId: null, _clock);
+
+        Assert.Equal(8m, item.Quantity);   // total == entered
+        Assert.Equal(5m, ManualQty(item)); // Manual absorbs 8 − 3 (recipe floor)
+    }
+
+    [Fact(DisplayName = "EditItemQuantity — recipe+manual, submit below floor clamps Manual to 0")]
+    public void EditItemQuantity_RecipeAndManual_SubmitBelowFloor_ClampsManualToZero()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = AddRecipeOnlyItem(list, recipeQty: 3m);
+        list.UpsertContribution(item, ItemSource.Manual, sourceRef: null,
+            incomingQuantity: 2m, incomingUnitId: null, _clock);
+
+        list.EditItemQuantity(item.Id, quantity: 2m, unitId: null, _clock);
+
+        Assert.Equal(3m, item.Quantity);   // total floors at the recipe sum
+        Assert.Equal(0m, ManualQty(item)); // Manual clamped away
+    }
+
+    [Fact(DisplayName = "EditItemQuantity — purely-manual item still sets the entered value directly")]
+    public void EditItemQuantity_PurelyManual_SetsEnteredValue()
+    {
+        var list = ShoppingList.Create(Household, _clock);
+        var item = list.AddItem(ProductA, quantity: 2m, unitId: null, note: null, ItemSource.Manual, null, _clock);
+
+        // Non-Manual floor is 0, so the entered value becomes the Manual quantity unchanged.
+        list.EditItemQuantity(item.Id, quantity: 2m, unitId: null, _clock);
+        Assert.Equal(2m, item.Quantity);
+
+        list.EditItemQuantity(item.Id, quantity: 7m, unitId: null, _clock);
+        Assert.Equal(7m, item.Quantity);
+        Assert.Equal(7m, ManualQty(item));
+    }
+
     // ── SetItemNote (plantry-dem) ─────────────────────────────────────────
 
     [Fact(DisplayName = "SetItemNote sets the note text on the target item")]
