@@ -731,7 +731,7 @@
 						<p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
 							Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
 						</p>
-						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''">
+						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''; draft.convFor = ''">
 							Measure in
 							<span x-text="draft.defaultUnitCode"></span>
 							instead
