@@ -677,33 +677,43 @@ if (app.Environment.IsDevelopment())
         return Results.Ok();
     }, "Wipe ALL data, then reseed the fake demo data set from scratch.", destructive: true);
 
+    // These three dev sweeps each run for many minutes (per-item AI matching / per-household backfills), so
+    // they MUST NOT run inline on the request thread bound to HttpContext.RequestAborted (plantry-a2t8):
+    // a client timeout/disconnect would silently cancel the sweep mid-run. Instead each queues onto the
+    // shared IBackgroundTaskQueue and returns 202 immediately; QueuedHostedService then drains it under the
+    // host lifetime token — exactly how the daily FlyerIngestionWorker tick and the qll2.4 conversion seed
+    // run. The cycles are singletons that arm tenancy per household internally (no ambient HTTP request), so
+    // the work item just resolves and runs them from the item's own scope. Re-triggering while one is still
+    // queued/running is safe: all three are idempotent + re-runnable, and BackgroundTaskQueue's DropWrite
+    // simply discards a duplicate enqueued onto a saturated queue.
+
     // Deals §7e "pull now": drive one full flyer-ingestion sweep on demand instead of waiting for the
     // daily timer (P5-6). Dev-only (gated by DevPagesGateMiddleware); the sweep arms tenancy per household.
-    app.MapDevPost("/Dev/Deals/PullNow", async (FlyerIngestionCycle cycle, CancellationToken ct) =>
+    app.MapDevPost("/Dev/Deals/PullNow", async (IBackgroundTaskQueue queue) =>
     {
-        await cycle.RunAsync(ct);
-        return Results.Ok();
-    }, "Drive one full flyer-ingestion sweep on demand (Deals §7e) instead of waiting for the daily timer.");
+        await queue.EnqueueAsync(static (sp, ct) => sp.GetRequiredService<FlyerIngestionCycle>().RunAsync(ct));
+        return Results.Accepted();
+    }, "Queue one full flyer-ingestion sweep on demand (Deals §7e) instead of waiting for the daily timer; runs in the background (202).");
 
     // DM-16 part D "backfill now": drive the one-time store-id backfill across every household on demand
     // (the sweep is not scheduled and never runs at boot). Dev-only (gated by DevPagesGateMiddleware);
     // idempotent + re-runnable, so re-triggering is safe. Mirrors /Dev/Deals/PullNow.
-    app.MapDevPost("/Dev/Pricing/BackfillPurchaseStores", async (PurchaseStoreBackfillCycle cycle, CancellationToken ct) =>
+    app.MapDevPost("/Dev/Pricing/BackfillPurchaseStores", async (IBackgroundTaskQueue queue) =>
     {
-        await cycle.RunAsync(ct);
-        return Results.Ok();
-    }, "Run the one-time purchase-store-id backfill across every household (DM-16 part D; idempotent, re-runnable).");
+        await queue.EnqueueAsync(static (sp, ct) => sp.GetRequiredService<PurchaseStoreBackfillCycle>().RunAsync(ct));
+        return Results.Accepted();
+    }, "Queue the one-time purchase-store-id backfill across every household (DM-16 part D; idempotent, re-runnable); runs in the background (202).");
 
     // plantry-qll2.4 "backfill now": drive the one-shot AI-suggested conversion backfill across every
     // household on demand — scans existing recipes for cross-dimension unit gaps and seeds ai_suggested
     // conversions the same way the post-save trigger does (ADR-022). Kept OUT of the save path (the
     // ticket's constraint); idempotent + re-runnable (the seeder skips already-bridged pairs). Mirrors
     // /Dev/Deals/PullNow. Seeds only when a real AI inferrer is configured; otherwise a harmless no-op.
-    app.MapDevPost("/Dev/Recipes/BackfillConversions", async (RecipeConversionBackfillCycle cycle, CancellationToken ct) =>
+    app.MapDevPost("/Dev/Recipes/BackfillConversions", async (IBackgroundTaskQueue queue) =>
     {
-        await cycle.RunAsync(ct);
-        return Results.Ok();
-    }, "Seed AI-suggested conversions for existing recipes' cross-dimension unit gaps across every household (plantry-qll2.4; idempotent, re-runnable).");
+        await queue.EnqueueAsync(static (sp, ct) => sp.GetRequiredService<RecipeConversionBackfillCycle>().RunAsync(ct));
+        return Results.Accepted();
+    }, "Queue AI-suggested conversions for existing recipes' cross-dimension unit gaps across every household (plantry-qll2.4; idempotent, re-runnable); runs in the background (202).");
 }
 
 app.MapStaticAssets();
