@@ -225,6 +225,98 @@ public sealed class IngestFlyerAtomicMaterializeTests(PostgresFixture db) : IAsy
         }
     }
 
+    [Fact(DisplayName = "A ValidityWindow instance shared by the import AND its deals (the production shape) materializes cleanly; every deal persists its own valid_from/valid_to (plantry-cegw regression)")]
+    public async Task SharedValidityWindowInstance_Materializes_AllWindowsPersist()
+    {
+        var source = new StubFlyerSource();
+        // Mirror FlyerSource.MapFlyer EXACTLY: ONE ValidityWindow instance is shared by the pull result AND every
+        // RawDeal. Under the old OwnsOne mapping the FlyerImport identity-claimed this instance, so each Deal
+        // INSERT omitted valid_from/valid_to and the not-null constraint fired (DbUpdateException) — the whole
+        // materialization rolled back and the import recorded Failed. With the complex-type mapping it commits.
+        var shared = Window();
+        source.Enqueue("flipp-metro", new FlyerPullResult(
+            "flyer-1", shared, "{\"v\":1}",
+            [
+                new RawDeal("Bread", null, null, 2.49m, 1m, null, null, shared),
+                new RawDeal("Milk", null, null, 3.99m, 1m, null, null, shared),
+            ]));
+
+        var storeReader = new StubCatalogStoreReader();
+        storeReader.ExternalRefs[_store] = "flipp-metro";
+
+        await using (var ctx = ArmedContext(_household, out var tenant))
+        {
+            var deals = new DealRepository(ctx);
+            var products = new StubCatalogProductReader();
+            var confirm = new ConfirmDeal(deals, new DealMatchMemoryRepository(ctx), products,
+                new StubPriceObservationWriter(), _clock, tenant, NullLogger<ConfirmDeal>.Instance);
+            var ingest = new IngestFlyer(
+                new StoreSubscriptionRepository(ctx), new FlyerImportRepository(ctx), deals,
+                new DealMatchMemoryRepository(ctx), source, new StubDealMatcher(), storeReader, products, confirm,
+                tenant, _clock, NullLogger<IngestFlyer>.Instance);
+
+            var summary = await ingest.RunAsync();
+
+            Assert.Equal(1, summary.Pulled);   // was 0 (Failed) before the fix
+            Assert.Equal(0, summary.Failed);
+            Assert.Equal(2, summary.PendingCreated);
+        }
+
+        await using (var ctx = ArmedContext(_household, out _))
+        {
+            var import = Assert.Single(await ctx.FlyerImports.ToListAsync());
+            Assert.Equal(PullStatus.Parsed, import.Status);
+            Assert.Equal(WindowFrom, import.ValidityWindow.ValidFrom);
+            Assert.Equal(WindowTo, import.ValidityWindow.ValidTo);
+
+            var deals = await ctx.Deals.ToListAsync();
+            Assert.Equal(2, deals.Count);
+            Assert.All(deals, d =>
+            {
+                Assert.Equal(WindowFrom, d.ValidityWindow.ValidFrom); // null → DbUpdateException before the fix
+                Assert.Equal(WindowTo, d.ValidityWindow.ValidTo);
+            });
+        }
+    }
+
+    [Fact(DisplayName = "A wrapped save fault records the BASE exception message in error_detail, not the useless outer wrapper (plantry-cegw defect 1)")]
+    public async Task WrappedSaveFault_RecordsBaseExceptionMessage_InErrorDetail()
+    {
+        var source = new StubFlyerSource();
+        source.Enqueue("flipp-metro", new FlyerPullResult(
+            "flyer-1", Window(), "{\"v\":1}",
+            [new RawDeal("Bread", null, null, 2.49m, 1m, null, null, Window())]));
+
+        var storeReader = new StubCatalogStoreReader();
+        storeReader.ExternalRefs[_store] = "flipp-metro";
+
+        await using (var ctx = ArmedContext(_household, out var tenant))
+        {
+            // The materialize deals-save throws a DbUpdateException-shaped wrapper (useless outer message over the
+            // real Postgres cause). The recordable-fault path must persist the unwrapped base message.
+            var deals = new WrappedFaultDealRepository(new DealRepository(ctx));
+            var products = new StubCatalogProductReader();
+            var confirm = new ConfirmDeal(deals, new DealMatchMemoryRepository(ctx), products,
+                new StubPriceObservationWriter(), _clock, tenant, NullLogger<ConfirmDeal>.Instance);
+            var ingest = new IngestFlyer(
+                new StoreSubscriptionRepository(ctx), new FlyerImportRepository(ctx), deals,
+                new DealMatchMemoryRepository(ctx), source, new StubDealMatcher(), storeReader, products, confirm,
+                tenant, _clock, NullLogger<IngestFlyer>.Instance);
+
+            var summary = await ingest.RunAsync();
+            Assert.True(deals.HasFaulted);
+            Assert.Equal(1, summary.Failed);
+        }
+
+        await using (var ctx = ArmedContext(_household, out _))
+        {
+            var import = Assert.Single(await ctx.FlyerImports.ToListAsync());
+            Assert.Equal(PullStatus.Failed, import.Status);
+            Assert.Equal(WrappedFaultDealRepository.RootCauseMessage, import.ErrorDetail); // the unwrapped cause
+            Assert.DoesNotContain("error occurred while saving", import.ErrorDetail!, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     /// <summary>
     /// Builds a DealsDbContext armed for <paramref name="household"/> exactly as the worker does: an app_user
     /// connection (so RLS applies), the RLS connection interceptor bound to a fresh <see cref="ITenantContext"/>,

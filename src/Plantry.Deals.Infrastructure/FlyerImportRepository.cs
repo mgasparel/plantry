@@ -6,13 +6,14 @@ namespace Plantry.Deals.Infrastructure;
 /// <summary>
 /// EF-backed repository for the <see cref="FlyerImport"/> aggregate (P5-6). All queries run through
 /// <see cref="DealsDbContext"/>'s household query filter (RLS-scoped), so the <c>(store, flyer_external_id)</c>
-/// dedup lookup resolves only within the armed household — the third leg of the DD5 uniqueness key.
+/// dedup lookup resolves only within the armed household — the third leg of the DD5 uniqueness key. The lookup
+/// matches only <see cref="PullStatus.Parsed"/> rows, mirroring the partial unique index (plantry-0l05).
 /// </summary>
 public sealed class FlyerImportRepository(DealsDbContext db) : IFlyerImportRepository
 {
-    public Task<FlyerImport?> FindByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default) =>
+    public Task<FlyerImport?> FindParsedByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default) =>
         db.FlyerImports.FirstOrDefaultAsync(
-            f => f.StoreId == storeId && f.FlyerExternalId == flyerExternalId, ct);
+            f => f.StoreId == storeId && f.FlyerExternalId == flyerExternalId && f.Status == PullStatus.Parsed, ct);
 
     public async Task AddAsync(FlyerImport import, CancellationToken ct = default) =>
         await db.FlyerImports.AddAsync(import, ct);

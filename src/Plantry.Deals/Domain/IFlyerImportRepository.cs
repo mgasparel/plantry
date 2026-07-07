@@ -11,20 +11,23 @@ namespace Plantry.Deals.Domain;
 public interface IFlyerImportRepository
 {
     /// <summary>
-    /// The household's import for a <c>(store, flyer_external_id)</c> dedup key, or null if this flyer has
-    /// never been pulled. Household is enforced by the RLS query filter, so it is not a parameter (DD5).
+    /// The household's <b>Parsed</b> import for a <c>(store, flyer_external_id)</c> dedup key, or null if this
+    /// flyer has never parsed successfully. Only <see cref="PullStatus.Parsed"/> rows occupy the dedup key
+    /// (the partial unique index, plantry-0l05), so a Failed-only history returns null — the worker then does a
+    /// clean fresh <see cref="FlyerImport.Start"/> and the retained Failed rows stay as audit. Household is
+    /// enforced by the RLS query filter, so it is not a parameter (DD5).
     /// </summary>
-    Task<FlyerImport?> FindByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default);
+    Task<FlyerImport?> FindParsedByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default);
 
     Task AddAsync(FlyerImport import, CancellationToken ct = default);
 
     /// <summary>
-    /// Detaches a single <see cref="FlyerImport"/> (and its owned children) from the change tracker. Used only
-    /// by the Failed-recording path (plantry-pwkm): after an atomic materialization transaction rolls back, the
-    /// envelope saved inside it is left tracked as <c>Unchanged</c> — a phantom, since the row was rolled out of
-    /// the database — which <see cref="IDealRepository.DiscardStagedChanges"/> (Added/Modified/Deleted only)
-    /// deliberately does not touch. Detaching it releases its owned <c>ValidityWindow</c> instance so a fresh
-    /// Pulling → Failed envelope reusing that provenance can be recorded without an owned-key or dedup collision.
+    /// Detaches a single <see cref="FlyerImport"/> from the change tracker. Used only by the Failed-recording
+    /// path (plantry-pwkm): after an atomic materialization transaction rolls back, the envelope saved inside it
+    /// is left tracked as <c>Unchanged</c> — a phantom, since the row was rolled out of the database — which
+    /// <see cref="IDealRepository.DiscardStagedChanges"/> (Added/Modified/Deleted only) deliberately does not
+    /// touch. Detaching it frees the envelope's identity on the <c>(household_id, store_id, flyer_external_id)</c>
+    /// dedup key so a fresh Pulling → Failed envelope reusing that provenance records without a unique collision.
     /// </summary>
     void Detach(FlyerImport import);
 

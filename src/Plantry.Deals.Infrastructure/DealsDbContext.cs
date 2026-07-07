@@ -73,12 +73,17 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
             b.Property(f => f.StoreId).HasColumnName("store_id").IsRequired();
             b.Property(f => f.FlyerExternalId).HasColumnName("flyer_external_id").IsRequired();
             b.Property(f => f.ContentHash).HasColumnName("content_hash");
-            b.OwnsOne(f => f.ValidityWindow, w =>
+            // ValidityWindow is a ValueObject shared BY REFERENCE across a pull's FlyerImport and every one of
+            // its Deals (FlyerSource.MapFlyer builds ONE instance and hands it to both). Map it as a complex type,
+            // NOT an owned entity: owned instances are identity-tracked under a single owner, so the shared window
+            // was claimed by the FlyerImport and each Deal INSERT then omitted valid_from/valid_to → not-null
+            // violation (plantry-cegw). A complex type has value semantics, so one CLR instance legally backs
+            // every owner's columns. Same physical columns (valid_from/valid_to date NOT NULL) — no schema change.
+            b.ComplexProperty(f => f.ValidityWindow, w =>
             {
                 w.Property(v => v.ValidFrom).HasColumnName("valid_from").IsRequired();
                 w.Property(v => v.ValidTo).HasColumnName("valid_to").IsRequired();
             });
-            b.Navigation(f => f.ValidityWindow).IsRequired();
             b.Property(f => f.RawFlyer).HasColumnName("raw_flyer").HasColumnType("jsonb").IsRequired();
             b.Property(f => f.Status)
                 .HasConversion(s => s.ToString().ToLowerInvariant(), v => Enum.Parse<PullStatus>(v, ignoreCase: true))
@@ -90,9 +95,13 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
             b.Property(f => f.CreatedAt).HasColumnName("created_at");
             b.Property(f => f.UpdatedAt).HasColumnName("updated_at");
 
-            // UNIQUE (household_id, store_id, flyer_external_id) — the dedup key (DD5)
+            // UNIQUE (household_id, store_id, flyer_external_id) WHERE status='parsed' — the dedup key (DD5).
+            // Partial so only ONE Parsed envelope may occupy the dedup key; Failed/Pulling rows are excluded, so
+            // a materialize fault that records Failed no longer poison-pills the flyer (plantry-0l05). Every Failed
+            // attempt is retained as a separate audit row (DD12 stays intact — no row is ever reopened or mutated).
             b.HasIndex(f => new { f.HouseholdId, f.StoreId, f.FlyerExternalId })
                 .IsUnique()
+                .HasFilter("status = 'parsed'")
                 .HasDatabaseName("ux_flyer_import_household_store_external");
 
             // UNIQUE (household_id, flyer_import_id) — anchor for the deal composite FK
@@ -155,12 +164,14 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
                 .HasConversion(s => s.ToString().ToLowerInvariant(), v => Enum.Parse<DealStatus>(v, ignoreCase: true))
                 .HasColumnName("status")
                 .IsRequired();
-            b.OwnsOne(d => d.ValidityWindow, w =>
+            // Complex type, not an owned entity — see the FlyerImport mapping above (plantry-cegw): the window
+            // instance is shared with the parent FlyerImport, and value semantics let it back the deal's own
+            // valid_from/valid_to columns without being identity-claimed by the import.
+            b.ComplexProperty(d => d.ValidityWindow, w =>
             {
                 w.Property(v => v.ValidFrom).HasColumnName("valid_from").IsRequired();
                 w.Property(v => v.ValidTo).HasColumnName("valid_to").IsRequired();
             });
-            b.Navigation(d => d.ValidityWindow).IsRequired();
             b.Property(d => d.CommittedPriceObservationId).HasColumnName("committed_price_observation_id");
             b.Property(d => d.AutoMatched).HasColumnName("auto_matched").IsRequired().HasDefaultValue(false);
             b.Property(d => d.ReviewedByUserId).HasColumnName("reviewed_by_user_id");

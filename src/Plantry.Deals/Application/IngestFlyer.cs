@@ -138,7 +138,10 @@ public sealed class IngestFlyer(
         }
 
         var contentHash = SHA256.HashData(Encoding.UTF8.GetBytes(pull.RawContent));
-        var existing = await imports.FindByDedupKeyAsync(sub.StoreId, pull.FlyerExternalId, ct);
+        // Parsed-only lookup (plantry-0l05): a Failed-only history returns null, so a prior materialize fault no
+        // longer poison-pills this flyer — we fall through to a clean fresh Start below and the Failed rows remain
+        // as retained audit. Only a live Parsed envelope routes to the no-op / refresh branches.
+        var existing = await imports.FindParsedByDedupKeyAsync(sub.StoreId, pull.FlyerExternalId, ct);
 
         // ── DD5: byte-identical re-pull is a no-op. ──
         if (existing is not null && existing.ContentHash is not null && existing.ContentHash.AsSpan().SequenceEqual(contentHash))
@@ -215,7 +218,9 @@ public sealed class IngestFlyer(
     {
         if (import.Status != PullStatus.Parsed)
         {
-            // A prior Failed/Pulling import for this dedup key can't be re-opened (DD12 monotonic). Skip.
+            // Defensive backstop: FindParsedByDedupKeyAsync only ever returns Parsed rows (plantry-0l05), so this
+            // branch is dead unless that lookup regresses. Kept as a guard against a future non-Parsed leak — a
+            // Failed-only history is now retried as a fresh Start upstream, not skipped here.
             logger.LogWarning("IngestFlyer: import {ImportId} is {Status}, not Parsed; skipping re-pull refresh.",
                 import.Id.Value, import.Status);
             return Empty(skipped: 1);
@@ -354,7 +359,8 @@ public sealed class IngestFlyer(
         // flyer's dedup key is occupied by a terminal Failed row (DD12) exactly as the pre-atomic path left it —
         // never a wedged Pulling row. A fresh Start (not the rolled-back aggregate) keeps the transition valid
         // even when the fault struck after MarkParsed advanced the in-memory status to Parsed; detaching the
-        // original first releases its owned ValidityWindow instance so the fresh envelope can reuse it.
+        // original first frees its identity on the (household, store, flyer_external_id) dedup key so the fresh
+        // envelope inserts without a unique collision (the ValidityWindow is a complex-type value — freely reused).
         imports.Detach(import);
         deals.DiscardStagedChanges();
         try
@@ -362,7 +368,10 @@ public sealed class IngestFlyer(
             var failed = FlyerImport.Start(
                 import.HouseholdId, import.StoreId, import.FlyerExternalId, import.ContentHash,
                 import.ValidityWindow, import.RawFlyer, clock);
-            var mark = failed.MarkFailed(Truncate(ex.Message, 1000), clock);
+            // Record the ROOT cause: for a DbUpdateException, ex.Message is the useless "error occurred while
+            // saving the entity changes" wrapper — GetBaseException() unwraps it to the actual Postgres/driver
+            // detail (e.g. the failing constraint), which is what a human needs from error_detail (plantry-cegw).
+            var mark = failed.MarkFailed(Truncate(ex.GetBaseException().Message, 1000), clock);
             if (mark.IsFailure)
                 return;
             await imports.AddAsync(failed, ct);
