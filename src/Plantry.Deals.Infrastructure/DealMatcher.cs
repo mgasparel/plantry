@@ -49,16 +49,30 @@ public sealed class DealMatcher : IDealMatcher
         IOptions<AiOptions> options,
         IOptions<DealMatcherOptions> matcherOptions,
         ILogger<DealMatcher> logger)
+        : this(CreateClient(options.Value), options, matcherOptions, logger)
+    {
+    }
+
+    // Test seam (plantry-uurp): lets unit tests script the completion boundary so the chunk-partition loop
+    // and one-completion-per-chunk behaviour can be asserted directly (they sit behind the concrete ChatClient
+    // and are invisible to the pure MapBatchResponse mapper). Production always routes through the public ctor
+    // above, which builds the real client and delegates here — no behaviour, public-API, or DI change.
+    internal DealMatcher(
+        ChatClient chat,
+        IOptions<AiOptions> options,
+        IOptions<DealMatcherOptions> matcherOptions,
+        ILogger<DealMatcher> logger)
     {
         _logger = logger;
-        var ai = options.Value;
-        _modelId = ai.Model;
+        _chat = chat;
+        _modelId = options.Value.Model;
         // A misconfigured 0/negative chunk size degrades to one item per completion rather than dividing by zero.
         _chunkSize = Math.Max(1, matcherOptions.Value.ChunkSize);
-        var clientOptions = new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) };
-        _chat = new OpenAIClient(new ApiKeyCredential(ai.ApiKey), clientOptions)
-            .GetChatClient(ai.Model);
     }
+
+    private static ChatClient CreateClient(AiOptions ai) =>
+        new OpenAIClient(new ApiKeyCredential(ai.ApiKey), new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) })
+            .GetChatClient(ai.Model);
 
     private const string SystemPrompt = """
         You match advertised grocery-flyer deals to a household's product catalog. You are given ONE
