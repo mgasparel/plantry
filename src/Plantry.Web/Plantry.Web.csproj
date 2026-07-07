@@ -17,6 +17,13 @@
     </AssemblyAttribute>
   </ItemGroup>
 
+  <!-- Real-ingest flyer fixture consumed by FakeDataSeeder (plantry-q9zr.14). Embedded (not copied to
+       output) so it is available both at runtime and to the seeder's unit tests via the assembly manifest,
+       with no content-path/working-directory fragility. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Dev\Fixtures\superstore-flyer-2026-07.json" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Bogus" Version="35.*" />
     <!-- Server-side receipt image downscaling before the AI parse (plantry-v8vw). Q8-AnyCPU bundles
