@@ -140,6 +140,30 @@ public sealed class IngestFlyerTests
         Assert.Equal(0, second.Pulled);
     }
 
+    [Fact(DisplayName = "Re-pull with a volatile raw payload but unchanged deals is a no-op — the DD5 hash is over the deal projection, not raw bytes (plantry-04ji.4)")]
+    public async Task Repull_VolatileRawContent_SameDeals_IsNoOp()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        // Same advertised deals across both pulls, but the raw items payload differs (Flipp impression
+        // counters / generated timestamps) AND the items are reordered. Neither is a meaningful change, so
+        // the canonical projection hashes identically and the second pull must be a DD5 no-op — no re-stage,
+        // no wasted AI-matcher pass over an unchanged flyer.
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-1", "{\"impressions\":1}", Raw("Bread", 2.49m), Raw("Milk", 3.99m)));
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-1", "{\"impressions\":42}", Raw("Milk", 3.99m), Raw("Bread", 2.49m)));
+
+        await h.Build().RunAsync();
+        var dealsAfterFirst = h.Deals.Items.Count;
+        var second = await h.Build().RunAsync();
+
+        Assert.Single(h.Imports.Items);      // no duplicate import
+        Assert.Equal(2, dealsAfterFirst);
+        Assert.Equal(2, h.Deals.Items.Count); // no duplicate / re-staged deals
+        Assert.Equal(1, second.Skipped);
+        Assert.Equal(0, second.Pulled);
+    }
+
     [Fact(DisplayName = "Changed re-pull updates the same import, refreshes only Pending, freezes Confirmed/Rejected (DD13)")]
     public async Task Repull_Changed_RefreshesOnlyPending()
     {

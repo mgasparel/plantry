@@ -188,7 +188,8 @@ public sealed class FlyerSourceTests
         Assert.Equal(new DateOnly(2026, 6, 24), result.Window!.ValidFrom);
         Assert.Equal(new DateOnly(2026, 6, 30), result.Window.ValidTo);
 
-        // Content-hash input is the raw items payload, preserved verbatim (hashed downstream in P5-6).
+        // RawContent is the raw items payload, preserved verbatim for raw_flyer provenance (DD6). The DD5
+        // dedup hash is taken over DedupContent (the canonical projection), NOT this — see DedupContent tests.
         Assert.Equal(RecordedItems, result.RawContent);
 
         // The unnamed item is dropped; three usable deals remain.

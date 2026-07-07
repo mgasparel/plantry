@@ -113,7 +113,7 @@ and the de-dup anchor. **Retained** — never deleted (audit, like Intake's `imp
 | `HouseholdId` | `HouseholdId` | tenancy |
 | `StoreId` | `StoreId` | which store's flyer |
 | `FlyerExternalId` | `string` | Flipp's flyer id; with `(household, store)` the **dedup key** (DD5) |
-| `ContentHash` | `byte[]?` | sha256 of the raw payload — secondary dedup (a re-pull of identical bytes is a no-op, DL-O5; mirrors `import_receipt.sha256`) |
+| `ContentHash` | `byte[]?` | sha256 of the **canonical deal projection** (`FlyerExternalId` + window + each deal's name/brand/size/price/quantity/unit/sale_story, order-normalized — `FlyerPullResult.DedupContent`), **not** the verbatim raw payload — secondary dedup (a meaning-preserving re-pull is a no-op, DL-O5; mirrors `import_receipt.sha256`). Projecting off the volatile Flipp payload (reshuffled items, impression/view counters, timestamps) keeps an unchanged flyer from re-hashing daily and re-staging through the AI matcher (plantry-04ji.4); `RawFlyer` stays verbatim (DD6) |
 | `ValidityWindow` | `(DateOnly ValidFrom, DateOnly ValidTo)` | the flyer's run dates; copied onto each `Deal` (D9) |
 | `RawFlyer` | `jsonb` | the **full raw pull payload** — the ACL quarantine; **never overwritten** after parse (DD6). Opaque to the domain |
 | `Status` | `PullStatus` | `Pulling` / `Parsed` / `Failed` (DD12) |
@@ -358,9 +358,17 @@ Home banner, audit/attribution, and future consumers (push, analytics).
   Deals model.
 
 - **DL-O5 — Idempotent ingestion ✅.** Dedup on `(household_id, store_id, flyer_external_id)` **`WHERE
-  status = 'parsed'`** with a `content_hash` (sha256 of the raw payload) as a secondary guard — a
-  byte-identical re-pull is a no-op (DD5), and a re-pull of a changed flyer updates the existing
-  **Parsed** `FlyerImport`/`Deal`s rather than appending. Only Parsed rows are unique on the key: a
+  status = 'parsed'`** with a `content_hash` as a secondary guard — a re-pull whose deals are unchanged
+  is a no-op (DD5), and a re-pull of a changed flyer updates the existing
+  **Parsed** `FlyerImport`/`Deal`s rather than appending. The hash is taken over a **canonical deal
+  projection** (`FlyerExternalId` + window + each deal's name/brand/size/price/quantity/unit/sale_story,
+  order-normalized — `FlyerPullResult.DedupContent`), **not** the verbatim `raw_flyer` bytes: Flipp
+  reshuffles items between pulls and embeds volatile per-item chrome (impression/view/click counters,
+  generated timestamps), so a raw-bytes hash would differ on every daily pull even when nothing meaningful
+  changed, re-staging every still-`Pending` deal and re-running the AI matcher over an unchanged flyer
+  (plantry-04ji.4). `raw_flyer` is still stored verbatim for provenance (DD6) — only the dedup input is
+  projected. **One-time cost:** the first pull after this change re-hashes existing Parsed imports to the
+  new projection, so each store re-stages once, then stabilises. Only Parsed rows are unique on the key: a
   `Failed` attempt appends a retained audit row so a transient fault retries next cycle instead of
   poison-pilling the flyer (plantry-0l05). Mirrors `import_receipt.sha256` duplicate detection. This
   keeps the price-observation log free of duplicate deal rows from repeated worker runs.

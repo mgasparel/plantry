@@ -137,7 +137,12 @@ public sealed class IngestFlyer(
             return Empty(); // not counted as a hard failure — no import row was created
         }
 
-        var contentHash = SHA256.HashData(Encoding.UTF8.GetBytes(pull.RawContent));
+        // DD5 dedup hash: over the CANONICAL deal projection (pull.DedupContent), NOT the verbatim raw
+        // payload. Flipp reshuffles items and embeds volatile per-item chrome (impression counters,
+        // timestamps) in flyer_items, so hashing RawContent churns daily and re-stages unchanged flyers
+        // through the AI matcher; the projection hashes identically when the advertised deals are unchanged
+        // (plantry-04ji.4). raw_flyer still stores the verbatim payload below (DD6) — only this input changed.
+        var contentHash = SHA256.HashData(Encoding.UTF8.GetBytes(pull.DedupContent));
         // Parsed-only lookup (plantry-0l05): a Failed-only history returns null, so a prior materialize fault no
         // longer poison-pills this flyer — we fall through to a clean fresh Start below and the Failed rows remain
         // as retained audit. Only a live Parsed envelope routes to the no-op / refresh branches.

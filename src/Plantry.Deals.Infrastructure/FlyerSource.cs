@@ -205,7 +205,9 @@ public sealed class FlyerSource : IFlyerSource
     /// (<paramref name="itemsJson"/>, from <c>/flyers/{id}/flyer_items</c>) into a
     /// <see cref="FlyerPullResult"/>: the <see cref="RawDeal"/>s, the <c>flyer_external_id</c>, and the
     /// <see cref="ValidityWindow"/>. <paramref name="itemsJson"/> is preserved verbatim as
-    /// <see cref="FlyerPullResult.RawContent"/> — the content-hash <em>input</em>, hashed downstream (P5-6).
+    /// <see cref="FlyerPullResult.RawContent"/> — the <c>raw_flyer</c> provenance payload (DD6). The DD5
+    /// dedup hash is taken over <see cref="FlyerPullResult.DedupContent"/> (the canonical deal projection),
+    /// not this verbatim content, so volatile Flipp fields do not churn the hash (plantry-04ji.4).
     /// Any empty/malformed payload, missing flyer id, or missing/invalid window soft-fails to an
     /// error-carrying result — <b>never throws</b> (ADR-007). Pure; unit-tested against recorded fixtures.
     /// </summary>
