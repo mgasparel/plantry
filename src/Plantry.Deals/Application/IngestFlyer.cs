@@ -138,7 +138,10 @@ public sealed class IngestFlyer(
         }
 
         var contentHash = SHA256.HashData(Encoding.UTF8.GetBytes(pull.RawContent));
-        var existing = await imports.FindByDedupKeyAsync(sub.StoreId, pull.FlyerExternalId, ct);
+        // Parsed-only lookup (plantry-0l05): a Failed-only history returns null, so a prior materialize fault no
+        // longer poison-pills this flyer — we fall through to a clean fresh Start below and the Failed rows remain
+        // as retained audit. Only a live Parsed envelope routes to the no-op / refresh branches.
+        var existing = await imports.FindParsedByDedupKeyAsync(sub.StoreId, pull.FlyerExternalId, ct);
 
         // ── DD5: byte-identical re-pull is a no-op. ──
         if (existing is not null && existing.ContentHash is not null && existing.ContentHash.AsSpan().SequenceEqual(contentHash))
@@ -215,7 +218,9 @@ public sealed class IngestFlyer(
     {
         if (import.Status != PullStatus.Parsed)
         {
-            // A prior Failed/Pulling import for this dedup key can't be re-opened (DD12 monotonic). Skip.
+            // Defensive backstop: FindParsedByDedupKeyAsync only ever returns Parsed rows (plantry-0l05), so this
+            // branch is dead unless that lookup regresses. Kept as a guard against a future non-Parsed leak — a
+            // Failed-only history is now retried as a fresh Start upstream, not skipped here.
             logger.LogWarning("IngestFlyer: import {ImportId} is {Status}, not Parsed; skipping re-pull refresh.",
                 import.Id.Value, import.Status);
             return Empty(skipped: 1);

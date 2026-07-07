@@ -242,8 +242,11 @@ internal sealed class FakeFlyerImportRepository : IFlyerImportRepository
     public List<FlyerImport> Items { get; } = [];
     public int SaveChangesCalls { get; private set; }
 
-    public Task<FlyerImport?> FindByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default) =>
-        Task.FromResult(Items.SingleOrDefault(f => f.StoreId == storeId && f.FlyerExternalId == flyerExternalId));
+    // Mirrors the partial unique index (plantry-0l05): only Parsed rows occupy the dedup key, so the fake filters
+    // Status == Parsed too — otherwise retry-behaviour unit tests would pass falsely against a Failed row.
+    public Task<FlyerImport?> FindParsedByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(
+            f => f.StoreId == storeId && f.FlyerExternalId == flyerExternalId && f.Status == PullStatus.Parsed));
 
     public Task AddAsync(FlyerImport import, CancellationToken ct = default)
     {

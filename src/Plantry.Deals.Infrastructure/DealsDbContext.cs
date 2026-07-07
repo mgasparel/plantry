@@ -95,9 +95,13 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
             b.Property(f => f.CreatedAt).HasColumnName("created_at");
             b.Property(f => f.UpdatedAt).HasColumnName("updated_at");
 
-            // UNIQUE (household_id, store_id, flyer_external_id) — the dedup key (DD5)
+            // UNIQUE (household_id, store_id, flyer_external_id) WHERE status='parsed' — the dedup key (DD5).
+            // Partial so only ONE Parsed envelope may occupy the dedup key; Failed/Pulling rows are excluded, so
+            // a materialize fault that records Failed no longer poison-pills the flyer (plantry-0l05). Every Failed
+            // attempt is retained as a separate audit row (DD12 stays intact — no row is ever reopened or mutated).
             b.HasIndex(f => new { f.HouseholdId, f.StoreId, f.FlyerExternalId })
                 .IsUnique()
+                .HasFilter("status = 'parsed'")
                 .HasDatabaseName("ux_flyer_import_household_store_external");
 
             // UNIQUE (household_id, flyer_import_id) — anchor for the deal composite FK

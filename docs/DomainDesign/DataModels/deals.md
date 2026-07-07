@@ -32,7 +32,7 @@ The async ingest worker iterates `is_active = true` subscriptions (DJ2), groupin
 | `flyer_import_id` | `uuid` PK | + `UNIQUE (household_id, flyer_import_id)` for the `deal` within-context composite FK |
 | `household_id` | `uuid` | tenancy (RLS) |
 | `store_id` | `uuid` | soft ref → `catalog.store`; which store's flyer |
-| `flyer_external_id` | `text` | Flipp's flyer id; `UNIQUE (household_id, store_id, flyer_external_id)` — the **dedup key** (DD5): a re-pull updates this row, never appends a duplicate |
+| `flyer_external_id` | `text` | Flipp's flyer id; `UNIQUE (household_id, store_id, flyer_external_id) WHERE status = 'parsed'` — the **dedup key** (DD5): a re-pull updates the Parsed row, never appends a duplicate Parsed envelope. Only Parsed rows occupy the key; **Failed attempts are retained as separate audit rows** (a materialize fault no longer poison-pills the flyer — it retries next cycle, plantry-0l05) |
 | `content_hash` | `bytea` null | sha256 of the raw payload — secondary dedup (a byte-identical re-pull is a no-op, DL-O5; mirrors `import_receipt.sha256`) |
 | `valid_from` | `date` | the flyer's run-date start; copied onto each `deal` (D9) |
 | `valid_to` | `date` | the flyer's run-date end; copied onto each `deal` |

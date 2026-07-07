@@ -11,10 +11,13 @@ namespace Plantry.Deals.Domain;
 public interface IFlyerImportRepository
 {
     /// <summary>
-    /// The household's import for a <c>(store, flyer_external_id)</c> dedup key, or null if this flyer has
-    /// never been pulled. Household is enforced by the RLS query filter, so it is not a parameter (DD5).
+    /// The household's <b>Parsed</b> import for a <c>(store, flyer_external_id)</c> dedup key, or null if this
+    /// flyer has never parsed successfully. Only <see cref="PullStatus.Parsed"/> rows occupy the dedup key
+    /// (the partial unique index, plantry-0l05), so a Failed-only history returns null — the worker then does a
+    /// clean fresh <see cref="FlyerImport.Start"/> and the retained Failed rows stay as audit. Household is
+    /// enforced by the RLS query filter, so it is not a parameter (DD5).
     /// </summary>
-    Task<FlyerImport?> FindByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default);
+    Task<FlyerImport?> FindParsedByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default);
 
     Task AddAsync(FlyerImport import, CancellationToken ct = default);
 

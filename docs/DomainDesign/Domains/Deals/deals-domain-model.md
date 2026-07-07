@@ -310,7 +310,7 @@ Home banner, audit/attribution, and future consumers (push, analytics).
 | **DD2** | Only a `Confirmed` deal projects a `price_observation`, and it records exactly one via `CommittedPriceObservationId`; a **Correct** supersedes with a **new** observation (append-only, never edited) | D6 | `ConfirmDeal` orchestration + Pricing (DM-17/R1) |
 | **DD3** | `DealMatchMemory` is unique per `(household_id, store_id, normalized_name)` | D4 | DB `UNIQUE` + upsert |
 | **DD4** | `NormalizedName` is **deterministic and reproducible** across pulls **for a given normalizer version** (pure ACL function, never AI-derived); memory rows stamp their `NormalizerVersion` and retain `RawName`, so a normalizer change is a **one-time backfill**, not silent memory decay | DL-O6 | `DealNormalizer` (pure) + version stamp |
-| **DD5** | Ingestion is **idempotent / de-duplicated** on `(household_id, store_id, flyer_external_id)` (and content hash); a re-pull updates, never appends duplicate `FlyerImport`/`Deal`s — and a re-pull refreshes only **`Pending`** deals (DD13) | DL-O5 | DB `UNIQUE` + `IngestFlyer` |
+| **DD5** | Ingestion is **idempotent / de-duplicated** on `(household_id, store_id, flyer_external_id)` (and content hash); a re-pull updates the **`Parsed`** envelope, never appends a duplicate **Parsed** `FlyerImport` — and a re-pull refreshes only **`Pending`** deals (DD13). The unique is **partial (`WHERE status = 'parsed'`)**: only Parsed rows occupy the dedup key, so a `Failed` attempt appends a **retained audit row** rather than poison-pilling the flyer — a materialize fault self-heals on the next cycle's fresh pull (plantry-0l05) | DL-O5 | DB partial `UNIQUE` + `IngestFlyer` |
 | **DD6** | The ACL quarantine — `FlyerImport.raw_flyer` and a `Deal`'s `Suggested*`/`MatchConfidence`/`MatchReasoning` — is **never overwritten** after parse (the provenance half of the ACL) | ADR-007 | App service (write-once) |
 | **DD7** | A deal is **Active** iff `Status = Confirmed` **and** `ValidFrom ≤ today ≤ ValidTo` | D9 | Read model (`ActiveDealReader`) |
 | **DD8** | Deals **never** writes Inventory — confirming a deal records a price, not a purchase | D8 | No Inventory write port exists in §8 |
@@ -357,11 +357,13 @@ Home banner, audit/attribution, and future consumers (push, analytics).
   observations are an equivalent fallback. The port lets the app/schema pass pick without touching the
   Deals model.
 
-- **DL-O5 — Idempotent ingestion ✅.** Dedup on `(household_id, store_id, flyer_external_id)` with a
-  `content_hash` (sha256 of the raw payload) as a secondary guard — a byte-identical re-pull is a
-  no-op (DD5), and a re-pull of a changed flyer updates the existing `FlyerImport`/`Deal`s rather than
-  appending. Mirrors `import_receipt.sha256` duplicate detection. This keeps the price-observation log
-  free of duplicate deal rows from repeated worker runs.
+- **DL-O5 — Idempotent ingestion ✅.** Dedup on `(household_id, store_id, flyer_external_id)` **`WHERE
+  status = 'parsed'`** with a `content_hash` (sha256 of the raw payload) as a secondary guard — a
+  byte-identical re-pull is a no-op (DD5), and a re-pull of a changed flyer updates the existing
+  **Parsed** `FlyerImport`/`Deal`s rather than appending. Only Parsed rows are unique on the key: a
+  `Failed` attempt appends a retained audit row so a transient fault retries next cycle instead of
+  poison-pilling the flyer (plantry-0l05). Mirrors `import_receipt.sha256` duplicate detection. This
+  keeps the price-observation log free of duplicate deal rows from repeated worker runs.
 
 - **DL-O6 — `NormalizedName` is a deterministic ACL function ✅.** Lowercase, trim collapse, strip
   pack-size/unit tokens and punctuation — a **pure** `DealNormalizer` (no I/O, no AI), so the
@@ -417,6 +419,17 @@ Home banner, audit/attribution, and future consumers (push, analytics).
   dedup unique index simultaneously. Resolved (plantry-pwkm) by making the whole materialization atomic
   (DD15): a hard crash now rolls back to nothing and the flyer re-pulls cleanly. Recorded here as the
   authoritative amendment; no ADR predates it.
+
+- **Failed imports no longer poison-pill the dedup key (plantry-0l05).** A parse/materialize **exception**
+  (as opposed to a hard crash) still records a terminal `Failed` row (DD12). Before, that Failed row occupied
+  the `(household, store, flyer_external_id)` dedup key, so the next cycle's `FindByDedupKey` matched it and the
+  `Status != Parsed` guard skipped the flyer — a transient fault permanently blocked ingestion until Flipp
+  rotated the flyer id. Fixed by making the dedup unique **partial (`WHERE status = 'parsed'`)**: only Parsed
+  rows occupy the key, the lookup (`FindParsedByDedupKeyAsync`) filters to Parsed, and a Failed-only history
+  now returns null → the worker does a clean fresh `Start` and the old Failed rows remain as retained audit.
+  The `Status != Parsed` guard in `RefreshImportAsync` is now a **defensive backstop** (dead unless the
+  Parsed-only lookup regresses), not a wall against re-pull. Hash-gated retry throttling is deliberately
+  deferred (revisit only if match-token burn shows up in Deals telemetry).
 
 - **Phase numbering.** Deals is **build-phase 5**: the sequence is P1 Pantry+Intake · P2 Recipes ·
   P3 Meal Planning · **P4 Take Stock (inventory reconciliation)** · **P5 Deals**. Older docs that
