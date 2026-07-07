@@ -41,6 +41,42 @@ public sealed record DealReviewView(
 }
 
 /// <summary>
+/// One flyer chapter of the pending review queue (q9zr.3): every still-pending deal sharing a
+/// (<see cref="StoreId"/>, validity window) — the guided flow reviews the queue one flyer at a time.
+/// <c>ExpiresInDays</c> is the clock-derived countdown to <see cref="ValidTo"/> (DD14 urgency). <see cref="Key"/>
+/// is the stable, URL-safe identity used for <c>?flyer=</c> routing so a refresh is idempotent.
+/// </summary>
+public sealed record FlyerBlock(
+    Guid StoreId,
+    string StoreName,
+    DateOnly ValidFrom,
+    DateOnly ValidTo,
+    int ExpiresInDays,
+    IReadOnlyList<DealReviewView> Deals)
+{
+    /// <summary>Pending deals in this flyer (the block is projected only from the pending queue).</summary>
+    public int PendingCount => Deals.Count;
+
+    /// <summary>Stable, URL-safe routing key — <c>{store:N}_{from}_{to}</c> — unique per (store, window).</summary>
+    public string Key => MakeKey(StoreId, ValidFrom, ValidTo);
+
+    /// <summary>Builds the routing key for a (store, window) pair — shared by the projection and the router.</summary>
+    public static string MakeKey(Guid storeId, DateOnly validFrom, DateOnly validTo) =>
+        $"{storeId:N}_{validFrom:yyyyMMdd}_{validTo:yyyyMMdd}";
+}
+
+/// <summary>
+/// The pending review queue projected as flyer chapters plus the overall progress counts (q9zr.3).
+/// <see cref="ReviewedCount"/>/<see cref="TotalCount"/> feed the "N of M reviewed" header; see
+/// <see cref="ReviewDeals.ProjectPendingQueueAsync"/> for the (Rejected-excluded) progress semantics.
+/// </summary>
+public sealed record ReviewQueueProjection(
+    IReadOnlyList<FlyerBlock> Flyers,
+    IReadOnlyList<DealReviewView> PendingDeals,
+    int ReviewedCount,
+    int TotalCount);
+
+/// <summary>
 /// <c>ReviewDeals</c> read service (P5-8 / DJ4). Read-only over the <see cref="Deal"/> aggregate + the
 /// clock — <b>nothing is stored</b>. Serves the two review-form entry paths (deals-domain-model §7,
 /// SPEC §6b):
@@ -65,6 +101,39 @@ public sealed class ReviewDeals(
     public async Task<IReadOnlyList<DealReviewView>> ListPendingAsync(CancellationToken ct = default)
     {
         var all = await deals.ListBrowsableAsync(ct);
+        return await BuildPendingViewsAsync(all, ct);
+    }
+
+    /// <summary>
+    /// The pending queue as flyer chapters (q9zr.3) plus the overall review-progress counts. One
+    /// <see cref="ListBrowsableAsync"/> read: the pending deals are grouped by (store, validity window)
+    /// into <see cref="FlyerBlock"/>s ordered soonest-expiring first (contiguous, matching the flat queue
+    /// order), and the progress denominator is derived from the same browsable set.
+    /// <para>
+    /// <b>Progress semantics.</b> <see cref="ListBrowsableAsync"/> excludes Rejected deals, so a rejected
+    /// deal leaves the reviewable set entirely — there is no stateless way to count it. Progress is
+    /// therefore computed over in-window Pending+Confirmed: <c>ReviewedCount</c> = the still-open-window
+    /// Confirmed count, <c>TotalCount</c> = in-window Pending+Confirmed. The bar tracks confirmed progress
+    /// against still-known work; it never double-counts and never regresses on a re-drive.
+    /// </para>
+    /// </summary>
+    public async Task<ReviewQueueProjection> ProjectPendingQueueAsync(CancellationToken ct = default)
+    {
+        var all = await deals.ListBrowsableAsync(ct);
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+
+        var views = await BuildPendingViewsAsync(all, ct);
+        var flyers = GroupIntoFlyers(views, today);
+
+        var inWindow = all.Count(d => today <= d.ValidityWindow.ValidTo);
+        var reviewed = inWindow - views.Count; // in-window Confirmed (Pending excluded; Rejected not browsable)
+
+        return new ReviewQueueProjection(flyers, views, reviewed, inWindow);
+    }
+
+    private async Task<IReadOnlyList<DealReviewView>> BuildPendingViewsAsync(
+        IReadOnlyList<Deal> all, CancellationToken ct)
+    {
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
 
         var pending = all
@@ -86,6 +155,28 @@ public sealed class ReviewDeals(
             .ThenBy(v => v.RawName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    /// <summary>
+    /// Pure flyer grouping (q9zr.3 scope 1): pending deals → flyer blocks keyed by (store, validity
+    /// window), soonest-expiring first (ties broken by store name), so a store running two overlapping
+    /// flyers is two blocks. <c>ExpiresInDays</c> = <c>ValidTo − today</c> (never negative — the queue is
+    /// already DD14-gated to <c>today ≤ ValidTo</c>). Static and clock-free so the &gt;3-flyer density and
+    /// pill-ordering paths — which the single-store live seed can't exercise — are covered by L4 tests over
+    /// synthetic views (epic known-limitation note, q9zr.14).
+    /// </summary>
+    public static IReadOnlyList<FlyerBlock> GroupIntoFlyers(IReadOnlyList<DealReviewView> pending, DateOnly today) =>
+        pending
+            .GroupBy(d => (d.StoreId, d.ValidFrom, d.ValidTo))
+            .Select(g => new FlyerBlock(
+                g.Key.StoreId,
+                g.First().StoreName,
+                g.Key.ValidFrom,
+                g.Key.ValidTo,
+                Math.Max(0, g.Key.ValidTo.DayNumber - today.DayNumber),
+                g.ToList()))
+            .OrderBy(f => f.ExpiresInDays)
+            .ThenBy(f => f.StoreName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>
     /// One deal by id for the review form (the already-confirmed correction entry path). Returns null when

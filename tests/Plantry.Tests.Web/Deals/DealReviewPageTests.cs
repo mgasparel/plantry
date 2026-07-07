@@ -173,6 +173,108 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("title=\"FRANK'S HOT SAUCE 375ML\"", html);
     }
 
+    // ── L4 flyer rail + chapters (q9zr.3) ──────────────────────────────────────────
+
+    [Fact(DisplayName = "GET /Deals/Review renders the big-chip flyer rail with store, count, days-left and the progress header")]
+    public async Task Renders_Flyer_Rail_And_Progress_Header()
+    {
+        factory.Reset();
+        factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedPending("Sourdough Loaf", MatchConfidence.Low, factory.BreadProduct);
+        factory.SeedPending("Mystery Item", MatchConfidence.None, suggested: null);
+
+        var html = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        // The rail renders as a big chip (single flyer ≤ 3) carrying the store, a count·expiry pill, and the range.
+        Assert.Contains("flyer-chip", html);
+        Assert.Contains("FreshCo", html);       // store name lives in the rail
+        Assert.Contains("d left", html);        // days-left badge
+        // Overall progress header spans all flyers.
+        Assert.Contains("reviewed", html);
+        Assert.Contains("0 of 3 reviewed", html);
+    }
+
+    [Fact(DisplayName = "Store name + validity dates appear only in the rail, never repeated per card (q9zr.3 dedupe)")]
+    public async Task Store_And_Dates_Only_In_Rail_Not_On_Cards()
+    {
+        factory.Reset();
+        factory.SeedPending("Deal One", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedPending("Deal Two", MatchConfidence.High, factory.BreadProduct);
+        factory.SeedPending("Deal Three", MatchConfidence.None, suggested: null);
+
+        var html = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        // Three cards in one flyer, but the validity range renders exactly once — in the rail chip, not per card.
+        Assert.Single(Regex.Matches(html, @"Valid \w"));
+        // The store name is not stamped on any card row's secondary line.
+        Assert.DoesNotContain("catalog-list__secondary\">FreshCo", html);
+    }
+
+    [Fact(DisplayName = "GET /Deals/Review defaults to the soonest-expiring flyer and shows only its deals")]
+    public async Task Defaults_To_Soonest_Flyer_And_Chapters_Its_Deals()
+    {
+        factory.Reset();
+        factory.SeedPendingExpiring("Milk 2L", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 2);
+        factory.SeedPendingExpiring("Eggs Dozen", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 6);
+
+        var html = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        // Two flyer chips on the rail; the soonest-expiring one (2 days) is active, so only its card shows.
+        Assert.Contains("flyer-chip", html);
+        Assert.Contains("Milk 2L", html);           // soonest flyer's deal is rendered
+        Assert.DoesNotContain("Eggs Dozen", html);  // the other flyer is a chapter away, not a card here
+    }
+
+    [Fact(DisplayName = "Finishing a flyer's last deal hands off to the next flyer with a done interstitial")]
+    public async Task Finishing_A_Flyer_Hands_Off_To_Next()
+    {
+        factory.Reset();
+        var soon = factory.SeedPendingExpiring("Milk 2L", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 2);
+        var later = factory.SeedPendingExpiring("Eggs Dozen", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 6);
+        var soonKey = FlyerBlock.MakeKey(soon.StoreId, soon.ValidityWindow.ValidFrom, soon.ValidityWindow.ValidTo);
+        var laterKey = FlyerBlock.MakeKey(later.StoreId, later.ValidityWindow.ValidFrom, later.ValidityWindow.ValidTo);
+
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // Reject the only deal in the soonest flyer, carrying the active flyer key — its last verb.
+        var response = await PostAsync(client, $"/Deals/Review?handler=Reject&dealId={soon.Id.Value}&flyer={soonKey}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        var fragment = System.Net.WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+
+        // The done interstitial hands off to the next flyer — not its cards, and not "All caught up".
+        Assert.Contains("Flyer cleared", fragment);
+        Assert.Contains("Review FreshCo", fragment);        // CTA names the next flyer's store
+        Assert.Contains($"flyer={laterKey}", fragment);     // and routes to it
+        Assert.DoesNotContain("Milk 2L", fragment);         // the finished flyer's deal is gone
+        Assert.DoesNotContain("Eggs Dozen", fragment);      // next flyer's cards are behind the interstitial
+        Assert.DoesNotContain("All caught up", fragment);   // work remains, so not the empty state
+    }
+
+    [Fact(DisplayName = "Finishing the last flyer's last deal shows the caught-up empty state")]
+    public async Task Finishing_The_Last_Flyer_Shows_Caught_Up()
+    {
+        factory.Reset();
+        var only = factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        var key = FlyerBlock.MakeKey(only.StoreId, only.ValidityWindow.ValidFrom, only.ValidityWindow.ValidTo);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=Reject&dealId={only.Id.Value}&flyer={key}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        var fragment = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("All caught up", fragment);
+        Assert.DoesNotContain("Flyer cleared", fragment);
+    }
+
     // ── L5 verb wiring ────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "Confirm accepts the suggestion → deal becomes Confirmed, writes an observation, leaves the queue")]
@@ -343,6 +445,25 @@ public sealed class DealReviewFactory : WebApplicationFactory<Program>
     public Deal SeedPending(string rawName, MatchConfidence confidence, Guid? suggested, decimal price = 4.99m)
     {
         var raw = new RawDeal(rawName, "SomeBrand", null, price, null, null, "Save $1", InWindow());
+        var proposal = suggested is { } s
+            ? new MatchProposal(s, confidence, "looks like a match")
+            : MatchProposal.Unmatched();
+        var deal = Deal.Stage(
+            HouseholdId.New(), FlyerImportId.New(), Store, raw, DealNormalizer.Normalize(rawName), proposal, Clock);
+        Repo.Items.Add(deal);
+        return deal;
+    }
+
+    /// <summary>
+    /// Seeds a pending deal in a bounded window (today−1 .. today+<paramref name="daysUntilExpiry"/>) so tests
+    /// can stage two distinct flyers (two windows on the store) and drive the expiry countdown / handoff.
+    /// </summary>
+    public Deal SeedPendingExpiring(
+        string rawName, MatchConfidence confidence, Guid? suggested, int daysUntilExpiry, decimal price = 4.99m)
+    {
+        var today = DateOnly.FromDateTime(Clock.UtcNow.UtcDateTime);
+        var window = ValidityWindow.Create(today.AddDays(-1), today.AddDays(daysUntilExpiry)).Value;
+        var raw = new RawDeal(rawName, "SomeBrand", null, price, null, null, "Save $1", window);
         var proposal = suggested is { } s
             ? new MatchProposal(s, confidence, "looks like a match")
             : MatchProposal.Unmatched();

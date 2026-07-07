@@ -1,19 +1,43 @@
 @using Plantry.Deals.Domain
 @using Plantry.Intake.Domain
+@using Plantry.Web.Pages.Shared
 @model Plantry.Web.Pages.Deals.ReviewModel
 
 @*
-    The review-queue region (P5-8 / DJ4). Re-rendered from server truth by every verb (Confirm/Correct/Reject),
-    so the queue shrinks as it is worked and a re-drive / refresh never double-acts. When empty, the
-    "all caught up" state clears the queue; the Deals-page Review entry (and, with P5-11, the Home banner)
-    reflect the shrunk count on their next load.
+    The review-queue region (P5-8 / DJ4). Re-rendered from server truth by every verb (Confirm/Correct/Reject)
+    and by flyer navigation, so the queue shrinks as it is worked and a re-drive / refresh never double-acts.
 
-    The queue is grouped into three confidence tiers, highest first (q9zr.2): the one-click confirms lead,
-    the judgement calls follow, and the long no-match tail sits last — instead of one flat alphabetical wall.
-    ReviewDeals.ListPendingAsync already sorts ValidTo → StoreName → Confidence desc → RawName, so each tier's
-    rows stay in that order within its section.
+    The guided flow (q9zr.3) chapters the pending queue by flyer: the rail up top switches density with the
+    number of flyers, the overall progress header spans all of them, and the card list below shows one flyer
+    (the active chapter) at a time — grouped into the three confidence tiers, highest first (q9zr.2). Store
+    name and validity dates live ONLY in the rail / active-flyer context line — never on a card (dedupe ruling).
 *@
-@if (Model.Deals.Count == 0)
+
+@{
+    // Fixed tier order: High → Low → None. Each carries the shared confidence badge treatment plus a count.
+    var tiers = new[]
+    {
+        (Confidence: MatchConfidence.High, Badge: SuggestedConfidence.High, Title: "Looks right"),
+        (Confidence: MatchConfidence.Low, Badge: SuggestedConfidence.Low, Title: "Needs a look"),
+        (Confidence: MatchConfidence.None, Badge: SuggestedConfidence.None, Title: "Not in your catalog"),
+    };
+}
+
+@* The focused single-deal correction path (?dealId=) has no rail — just the one card. *@
+@if (Model.IsSingleCorrection)
+{
+    <div class="card">
+        <div class="card__body">
+            <ul class="catalog-list deal-review-list" role="list">
+                @foreach (var deal in Model.Deals)
+                {
+                    <partial name="_DealReviewCard" model="deal" />
+                }
+            </ul>
+        </div>
+    </div>
+}
+else if (Model.Deals.Count == 0 && !Model.ShowHandoff)
 {
     <div class="card">
         <div class="card__body">
@@ -33,42 +57,86 @@
 }
 else
 {
-    @* Fixed tier order: High → Low → None. Each carries the shared confidence badge treatment plus a count. *@
-    var tiers = new[]
-    {
-        (Confidence: MatchConfidence.High, Badge: SuggestedConfidence.High, Title: "Looks right"),
-        (Confidence: MatchConfidence.Low, Badge: SuggestedConfidence.Low, Title: "Needs a look"),
-        (Confidence: MatchConfidence.None, Badge: SuggestedConfidence.None, Title: "Not in your catalog"),
-    };
+    @* data-active-flyer travels with every swap so the correction sheet (a persistent host outside this
+       region) can thread the active flyer onto its Correct POST. *@
+    <div class="deals-review" data-active-flyer="@(Model.ActiveFlyerKey ?? "")">
 
-    <div class="card">
-        <div class="card__head">
-            <h3 class="card__head-title">Deals to review</h3>
-            <span class="ch-sub">&middot; @Model.Deals.Count</span>
+        @* Overall progress header — "N of M reviewed" across all flyers, composing the shared _Meter. *@
+        <div class="page-progress" style="position: static;">
+            <partial name="Shared/_Meter" model='new MeterViewModel {
+                Percent = Model.OverallPercent,
+                Tone = MeterTone.Accent,
+                Layout = MeterLayout.MetaLine,
+                AriaValueNow = Model.OverallPercent,
+            }' />
+            <span class="page-progress__count">@Model.ReviewedCount of @Model.TotalCount reviewed</span>
         </div>
-        <div class="card__body">
-            @foreach (var tier in tiers)
-            {
-                var tierDeals = Model.Deals.Where(d => d.Confidence == tier.Confidence).ToList();
-                if (tierDeals.Count == 0)
-                {
-                    continue;
-                }
 
-                <section class="deal-review-section">
-                    <div class="deal-review-section__head">
-                        <partial name="Shared/_ConfidenceBadge" model="tier.Badge" />
-                        <span class="deal-review-section__title">@tier.Title</span>
-                        <span class="ch-sub">&middot; @tierDeals.Count</span>
+        @* Flyer rail — big chips (≤3 flyers) or compact expiry-sorted pills (>3) + summary + context line. *@
+        <partial name="_FlyerRail" model="Model.Rail" />
+
+        @if (Model.ShowHandoff && Model.ActiveFlyer is { } next)
+        {
+            @* Per-flyer done handoff (q9zr.3, scope 4): the requested flyer is fully reviewed; point at the
+               next soonest-expiring pending flyer. Reuses the shared .empty-state done primitive. The
+               finished flyer's store name is no longer in the pending projection, so the heading is generic
+               and the CTA names the next flyer. *@
+            <div class="card">
+                <div class="card__body">
+                    <div class="empty-state">
+                        <div class="empty-state__icon">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                        </div>
+                        <div class="empty-state__title">Flyer cleared</div>
+                        <div class="empty-state__body">
+                            Next: <strong>@next.StoreName</strong> &middot; @next.PendingCount
+                            @(next.PendingCount == 1 ? "deal" : "deals") &middot;
+                            @(next.ExpiresInDays == 1 ? "expires tomorrow" : $"expires in {next.ExpiresInDays} days").
+                        </div>
+                        <button type="button" class="btn btn--primary"
+                                hx-get="/Deals/Review?flyer=@next.Key"
+                                hx-target="#review-region"
+                                hx-swap="innerHTML"
+                                hx-push-url="/Deals/Review?flyer=@next.Key">
+                            Review @next.StoreName
+                        </button>
                     </div>
-                    <ul class="catalog-list deal-review-list" role="list">
-                        @foreach (var deal in tierDeals)
+                </div>
+            </div>
+        }
+        else
+        {
+            ViewData["FlyerKey"] = Model.ActiveFlyerKey;
+            <div class="card">
+                <div class="card__head">
+                    <h3 class="card__head-title">Deals to review</h3>
+                    <span class="ch-sub">&middot; @Model.Deals.Count</span>
+                </div>
+                <div class="card__body">
+                    @foreach (var tier in tiers)
+                    {
+                        var tierDeals = Model.Deals.Where(d => d.Confidence == tier.Confidence).ToList();
+                        if (tierDeals.Count == 0)
                         {
-                            <partial name="_DealReviewCard" model="deal" />
+                            continue;
                         }
-                    </ul>
-                </section>
-            }
-        </div>
+
+                        <section class="deal-review-section">
+                            <div class="deal-review-section__head">
+                                <partial name="Shared/_ConfidenceBadge" model="tier.Badge" />
+                                <span class="deal-review-section__title">@tier.Title</span>
+                                <span class="ch-sub">&middot; @tierDeals.Count</span>
+                            </div>
+                            <ul class="catalog-list deal-review-list" role="list">
+                                @foreach (var deal in tierDeals)
+                                {
+                                    <partial name="_DealReviewCard" model="deal" />
+                                }
+                            </ul>
+                        </section>
+                    }
+                </div>
+            </div>
+        }
     </div>
 }

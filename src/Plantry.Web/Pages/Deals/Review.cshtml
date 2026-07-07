@@ -103,7 +103,10 @@ function dealsReview(correctUrl) {
 
         // One htmx POST that carries the resolved product (existing or new) and re-renders the queue from
         // server truth. The antiforgery token is attached by htmx-antiforgery.js on configRequest.
+        // Threads the active flyer (read from the swapped-in region) so the re-render stays on this flyer.
         submitCorrect(values) {
+            const region = document.querySelector('#review-region [data-active-flyer]');
+            if (region && region.dataset.activeFlyer) values.flyer = region.dataset.activeFlyer;
             htmx.ajax('POST', this.correctUrl, { target: '#review-region', swap: 'innerHTML', values: values });
             this.closeSheet();
         },
