@@ -272,17 +272,28 @@ internal sealed class FakeFlyerImportRepository : IFlyerImportRepository
 
 /// <summary>
 /// Configurable <see cref="IDealMatcher"/> stand-in: returns a queued proposal per raw name, else
-/// <see cref="MatchProposal.Unmatched"/>. Records each call for assertions.
+/// <see cref="MatchProposal.Unmatched"/>, positionally aligned with the input batch. Records each deal it
+/// was asked to match (in order) for assertions, and each batch call it received.
 /// </summary>
 internal sealed class FakeDealMatcher : IDealMatcher
 {
     public Dictionary<string, MatchProposal> ByRawName { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> Calls { get; } = [];
 
-    public Task<MatchProposal> MatchAsync(RawDeal deal, IReadOnlyList<ProductCandidate> candidates, CancellationToken ct = default)
+    /// <summary>Number of batch calls (completions from the app's view) — one per <see cref="MatchBatchAsync"/>.</summary>
+    public int BatchCalls { get; private set; }
+
+    public Task<IReadOnlyList<MatchProposal>> MatchBatchAsync(
+        IReadOnlyList<RawDeal> deals, IReadOnlyList<ProductCandidate> candidates, CancellationToken ct = default)
     {
-        Calls.Add(deal.RawName);
-        return Task.FromResult(ByRawName.GetValueOrDefault(deal.RawName, MatchProposal.Unmatched()));
+        BatchCalls++;
+        var results = new MatchProposal[deals.Count];
+        for (var i = 0; i < deals.Count; i++)
+        {
+            Calls.Add(deals[i].RawName);
+            results[i] = ByRawName.GetValueOrDefault(deals[i].RawName, MatchProposal.Unmatched());
+        }
+        return Task.FromResult<IReadOnlyList<MatchProposal>>(results);
     }
 }
 

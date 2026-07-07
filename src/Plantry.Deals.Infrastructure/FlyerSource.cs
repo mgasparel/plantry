@@ -114,8 +114,8 @@ public sealed class FlyerSource : IFlyerSource
             else
             {
                 _logger.LogInformation(
-                    "Flipp flyer pull for store {StoreRef} (flyer {FlyerExternalId}) returned {DealCount} deal(s).",
-                    externalRef, result.FlyerExternalId, result.Deals.Count);
+                    "Flipp flyer pull for store {StoreRef} (flyer {FlyerExternalId}) returned {DealCount} deal(s); filtered {FilteredCount} marketing row(s).",
+                    externalRef, result.FlyerExternalId, result.Deals.Count, result.FilteredItemCount);
             }
 
             return result;
@@ -205,7 +205,9 @@ public sealed class FlyerSource : IFlyerSource
     /// (<paramref name="itemsJson"/>, from <c>/flyers/{id}/flyer_items</c>) into a
     /// <see cref="FlyerPullResult"/>: the <see cref="RawDeal"/>s, the <c>flyer_external_id</c>, and the
     /// <see cref="ValidityWindow"/>. <paramref name="itemsJson"/> is preserved verbatim as
-    /// <see cref="FlyerPullResult.RawContent"/> — the content-hash <em>input</em>, hashed downstream (P5-6).
+    /// <see cref="FlyerPullResult.RawContent"/> — the <c>raw_flyer</c> provenance payload (DD6). The DD5
+    /// dedup hash is taken over <see cref="FlyerPullResult.DedupContent"/> (the canonical deal projection),
+    /// not this verbatim content, so volatile Flipp fields do not churn the hash (plantry-04ji.4).
     /// Any empty/malformed payload, missing flyer id, or missing/invalid window soft-fails to an
     /// error-carrying result — <b>never throws</b> (ADR-007). Pure; unit-tested against recorded fixtures.
     /// </summary>
@@ -239,24 +241,27 @@ public sealed class FlyerSource : IFlyerSource
                     $"Flipp flyer had an invalid validity window: {windowResult.Error.Description}", rawContent);
             var window = windowResult.Value;
 
-            var deals = MapItems(rawContent, window);
+            var (deals, filteredCount) = MapItems(rawContent, window);
 
-            return new FlyerPullResult(externalId, window, rawContent, deals);
+            return new FlyerPullResult(externalId, window, rawContent, deals, FilteredItemCount: filteredCount);
         }
     }
 
-    private static IReadOnlyList<RawDeal> MapItems(string itemsJson, ValidityWindow window)
+    // Returns the usable deals plus a count of rows dropped as non-product marketing decoration (see
+    // IsMarketingRow) — the latter is surfaced on the pull log line so the matcher-cost saving is visible.
+    private static (IReadOnlyList<RawDeal> Deals, int FilteredCount) MapItems(string itemsJson, ValidityWindow window)
     {
         if (string.IsNullOrWhiteSpace(itemsJson))
-            return [];
+            return ([], 0);
 
         JsonDocument doc;
         try { doc = JsonDocument.Parse(itemsJson); }
-        catch (JsonException) { return []; } // MapFlyer already succeeded on the flyer; bad items → no deals
+        catch (JsonException) { return ([], 0); } // MapFlyer already succeeded on the flyer; bad items → no deals
 
         using (doc)
         {
             var deals = new List<RawDeal>();
+            var filtered = 0;
             foreach (var raw in EnumerateItems(doc.RootElement))
             {
                 var name = ReadString(raw, "name") ?? ReadString(raw, "product_name");
@@ -266,6 +271,14 @@ public sealed class FlyerSource : IFlyerSource
                 var brand = ReadString(raw, "brand") ?? ReadString(raw, "brand_name");
                 var size = ReadString(raw, "size") ?? ReadString(raw, "pack_size");
                 var (price, quantity, saleStory) = ParsePrice(raw);
+
+                if (IsMarketingRow(price, brand, size, saleStory))
+                {
+                    // Flyer chrome, not a deal — drop it at the ACL boundary so it never reaches the domain,
+                    // the AI matcher, or the household's Deals page (ADR-007: Flipp-shape junk stays here).
+                    filtered++;
+                    continue;
+                }
 
                 deals.Add(new RawDeal(
                     RawName: name.Trim(),
@@ -277,9 +290,23 @@ public sealed class FlyerSource : IFlyerSource
                     SaleStory: Clean(saleStory),
                     Window: window));
             }
-            return deals;
+            return (deals, filtered);
         }
     }
+
+    // A non-product marketing/decoration row (e.g. Flipp's $0 "PRICE DROP", "ALWAYS LOW PRICE",
+    // "VALUE THAT MAKES YOU GO GAGA") carries an advertised name but no product substance: no usable price,
+    // no brand, no size, and no promo/sale story. Such rows are flyer chrome — dropping them here (a) saves
+    // an AI-matcher completion each, (b) keeps a bogus Pending deal off the household's Deals page, and
+    // (c) avoids polluting match memory with a negative for a non-product. Deliberately conservative: ANY
+    // one of a usable price, a brand, a size, or a sale story keeps the row. We prefer false negatives (a
+    // stray junk row a human can reject) over false positives (a silently dropped real deal). Multi-buy
+    // promos ("2 for $5") always carry a sale story, so they survive even when their unit price parses to 0.
+    private static bool IsMarketingRow(decimal price, string? brand, string? size, string? saleStory) =>
+        price <= 0m
+        && string.IsNullOrWhiteSpace(brand)
+        && string.IsNullOrWhiteSpace(size)
+        && string.IsNullOrWhiteSpace(saleStory);
 
     // Field names vary across Flipp flyer types; try both spellings and derive a per-unit-ish shape.
     // Returns (Price, Quantity, SaleStory): RawDeal.Price is the advertised price for RawDeal.Quantity

@@ -146,8 +146,13 @@ internal sealed class StubFlyerSource : IFlyerSource
 
 internal sealed class StubDealMatcher : IDealMatcher
 {
-    public Task<MatchProposal> MatchAsync(RawDeal deal, IReadOnlyList<ProductCandidate> candidates, CancellationToken ct = default) =>
-        Task.FromResult(MatchProposal.Unmatched());
+    public Task<IReadOnlyList<MatchProposal>> MatchBatchAsync(
+        IReadOnlyList<RawDeal> deals, IReadOnlyList<ProductCandidate> candidates, CancellationToken ct = default)
+    {
+        var results = new MatchProposal[deals.Count];
+        Array.Fill(results, MatchProposal.Unmatched());
+        return Task.FromResult<IReadOnlyList<MatchProposal>>(results);
+    }
 }
 
 internal sealed class StubCatalogStoreReader : ICatalogStoreReader

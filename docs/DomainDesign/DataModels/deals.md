@@ -33,7 +33,7 @@ The async ingest worker iterates `is_active = true` subscriptions (DJ2), groupin
 | `household_id` | `uuid` | tenancy (RLS) |
 | `store_id` | `uuid` | soft ref → `catalog.store`; which store's flyer |
 | `flyer_external_id` | `text` | Flipp's flyer id; `UNIQUE (household_id, store_id, flyer_external_id) WHERE status = 'parsed'` — the **dedup key** (DD5): a re-pull updates the Parsed row, never appends a duplicate Parsed envelope. Only Parsed rows occupy the key; **Failed attempts are retained as separate audit rows** (a materialize fault no longer poison-pills the flyer — it retries next cycle, plantry-0l05) |
-| `content_hash` | `bytea` null | sha256 of the raw payload — secondary dedup (a byte-identical re-pull is a no-op, DL-O5; mirrors `import_receipt.sha256`) |
+| `content_hash` | `bytea` null | sha256 of the **canonical deal projection** (`flyer_external_id` + window + each deal's name/brand/size/price/quantity/unit/sale_story, order-normalized) — secondary dedup (a meaning-preserving re-pull is a no-op, DL-O5; mirrors `import_receipt.sha256`). **Not** hashed over the verbatim `raw_flyer` payload: Flipp reshuffles items and embeds volatile per-item chrome (impression/view counters, timestamps), which would churn a raw-bytes hash daily and re-stage unchanged flyers through the AI matcher (plantry-04ji.4). `raw_flyer` still keeps the verbatim payload (DD6) — only this dedup input is projected |
 | `valid_from` | `date` | the flyer's run-date start; copied onto each `deal` (D9) |
 | `valid_to` | `date` | the flyer's run-date end; copied onto each `deal` |
 | `raw_flyer` | `jsonb` | the **full raw pull payload** — the ACL quarantine; **set once at `Start`, never overwritten** after parse (DD6). Opaque to the domain |

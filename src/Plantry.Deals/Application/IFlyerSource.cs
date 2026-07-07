@@ -1,3 +1,4 @@
+using System.Globalization;
 using Plantry.Deals.Domain;
 
 namespace Plantry.Deals.Application;
@@ -24,15 +25,67 @@ public sealed record DirectoryMerchant(string ExternalRef, string Name);
 /// is <c>null</c>. Build failures with <see cref="Failed"/>.
 /// </para>
 /// </summary>
+/// <param name="FilteredItemCount">How many raw flyer rows the adapter dropped as non-product marketing
+/// decoration (e.g. Flipp's $0 "PRICE DROP" / "ALWAYS LOW PRICE" chrome) before they could become
+/// <see cref="Deals"/>. Diagnostic only — surfaced on the pull log line so the AI-matcher-cost saving is
+/// observable; it never changes what the domain persists. Zero on a soft-failure result.</param>
 public sealed record FlyerPullResult(
     string FlyerExternalId,
     ValidityWindow? Window,
     string RawContent,
     IReadOnlyList<RawDeal> Deals,
-    string? ErrorMessage = null)
+    string? ErrorMessage = null,
+    int FilteredItemCount = 0)
 {
     /// <summary>True when the pull soft-failed; the caller maps this to <c>FlyerImport.MarkFailed</c>.</summary>
     public bool HasError => ErrorMessage is not null;
+
+    // ASCII unit separator: a control char that cannot appear in Flipp's advertised text fields, so it
+    // delimits the projected fields without any risk of a value colliding with the delimiter.
+    private const char DedupSeparator = '\u001F';
+
+    /// <summary>
+    /// The canonical <b>dedup hash input</b> (DD5) — an order-normalized projection of <em>only</em> the
+    /// fields that become a <see cref="Deal"/> (name / brand / size / price / quantity / unit / sale_story)
+    /// plus the flyer window and <c>flyer_external_id</c>. The P5-6 worker hashes <b>this</b>, not the
+    /// verbatim <see cref="RawContent"/>.
+    /// <para>
+    /// <b>Why (plantry-04ji.4).</b> Flipp embeds volatile per-item chrome in the raw <c>flyer_items</c>
+    /// payload (impression/view/click counters, generated timestamps) and can reorder items between pulls,
+    /// so a SHA-256 over <see cref="RawContent"/> churns day-over-day even when the advertised deals are
+    /// unchanged — re-staging every still-Pending deal and re-running the AI matcher over an unchanged
+    /// flyer daily. Projecting to the meaning-bearing fields and sorting the item lines makes an unchanged
+    /// flyer hash <em>identically</em> across pulls, so the DD5 byte-identical no-op fires. The volatile
+    /// fields never enter <see cref="RawDeal"/> (they are dropped at the ACL boundary), so they can never
+    /// reach this projection. <see cref="RawContent"/> is still stored verbatim as <c>raw_flyer</c>
+    /// provenance (DD6) — untouched; only the dedup input is canonicalized.
+    /// </para>
+    /// </summary>
+    public string DedupContent
+    {
+        get
+        {
+            var window = Window is { } w
+                ? $"{w.ValidFrom:yyyy-MM-dd}{DedupSeparator}{w.ValidTo:yyyy-MM-dd}"
+                : string.Empty;
+
+            var header = string.Join(DedupSeparator, FlyerExternalId, window);
+
+            var items = Deals
+                .Select(d => string.Join(
+                    DedupSeparator,
+                    d.RawName,
+                    d.Brand ?? string.Empty,
+                    d.Size ?? string.Empty,
+                    d.Price.ToString(CultureInfo.InvariantCulture),
+                    d.Quantity?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                    d.UnitId?.ToString() ?? string.Empty,
+                    d.SaleStory ?? string.Empty))
+                .OrderBy(line => line, StringComparer.Ordinal); // order-normalized: Flipp may reshuffle items
+
+            return string.Join('\n', items.Prepend(header));
+        }
+    }
 
     /// <summary>
     /// Builds a soft-failure result: no window, no deals, carrying <paramref name="error"/>. The

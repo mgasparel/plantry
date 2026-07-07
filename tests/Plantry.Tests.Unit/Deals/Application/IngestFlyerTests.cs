@@ -140,6 +140,30 @@ public sealed class IngestFlyerTests
         Assert.Equal(0, second.Pulled);
     }
 
+    [Fact(DisplayName = "Re-pull with a volatile raw payload but unchanged deals is a no-op — the DD5 hash is over the deal projection, not raw bytes (plantry-04ji.4)")]
+    public async Task Repull_VolatileRawContent_SameDeals_IsNoOp()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        // Same advertised deals across both pulls, but the raw items payload differs (Flipp impression
+        // counters / generated timestamps) AND the items are reordered. Neither is a meaningful change, so
+        // the canonical projection hashes identically and the second pull must be a DD5 no-op — no re-stage,
+        // no wasted AI-matcher pass over an unchanged flyer.
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-1", "{\"impressions\":1}", Raw("Bread", 2.49m), Raw("Milk", 3.99m)));
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-1", "{\"impressions\":42}", Raw("Milk", 3.99m), Raw("Bread", 2.49m)));
+
+        await h.Build().RunAsync();
+        var dealsAfterFirst = h.Deals.Items.Count;
+        var second = await h.Build().RunAsync();
+
+        Assert.Single(h.Imports.Items);      // no duplicate import
+        Assert.Equal(2, dealsAfterFirst);
+        Assert.Equal(2, h.Deals.Items.Count); // no duplicate / re-staged deals
+        Assert.Equal(1, second.Skipped);
+        Assert.Equal(0, second.Pulled);
+    }
+
     [Fact(DisplayName = "Changed re-pull updates the same import, refreshes only Pending, freezes Confirmed/Rejected (DD13)")]
     public async Task Repull_Changed_RefreshesOnlyPending()
     {
@@ -281,5 +305,129 @@ public sealed class IngestFlyerTests
         Assert.Equal(0, summary.Processed);
         Assert.Empty(h.Imports.Items);
         Assert.Empty(h.Source.PullCalls);
+    }
+
+    [Fact(DisplayName = "The AI matcher is called ONCE per flyer with all items, not once per item (plantry-04ji)")]
+    public async Task Matcher_Is_Batched_Once_Per_Flyer()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+        // A non-empty catalog: the empty-catalog guard (plantry-04ji.2) skips the matcher when there are no
+        // candidates, so one candidate must exist for the "matcher IS batched" path to run.
+        h.Products.Candidates.Add(new ProductCandidate(Guid.NewGuid(), "Some Product"));
+
+        var deals = Enumerable.Range(0, 30).Select(i => Raw($"Item {i}")).ToArray();
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-batch", "{v:1}", deals));
+
+        await h.Build().RunAsync();
+
+        // One batch call from the application's view, carrying every item (the adapter chunks internally).
+        Assert.Equal(1, h.Matcher.BatchCalls);
+        Assert.Equal(30, h.Matcher.Calls.Count);
+        Assert.Equal(deals.Select(d => d.RawName), h.Matcher.Calls);
+    }
+
+    [Fact(DisplayName = "Memory hits are resolved BEFORE batching and never sent to the AI matcher (DD3)")]
+    public async Task Memory_Hits_Are_Excluded_From_The_Batch()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        // A non-empty catalog so the memory-miss item actually reaches the matcher (the empty-catalog guard,
+        // plantry-04ji.2, would otherwise skip the matcher regardless of the memory split).
+        h.Products.Candidates.Add(new ProductCandidate(Guid.NewGuid(), "Some Product"));
+
+        // Positive + negative memory both short-circuit the AI; only the unremembered item is matched.
+        var remembered = Guid.NewGuid();
+        var posKey = DealNormalizer.Normalize("Known Milk");
+        var negKey = DealNormalizer.Normalize("Known Junk");
+        h.Memories.Items.Add(DealMatchMemory.Remember(Household, StoreId, posKey, "Known Milk", remembered, by: null, h.Clock));
+        h.Memories.Items.Add(DealMatchMemory.RememberNegative(Household, StoreId, negKey, "Known Junk", by: null, h.Clock));
+
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-mem", "{v:1}",
+            Raw("Known Milk"), Raw("Fresh Item"), Raw("Known Junk")));
+
+        await h.Build().RunAsync();
+
+        // Exactly one memory-miss reached the matcher; the two remembered items did not.
+        Assert.Equal(1, h.Matcher.BatchCalls);
+        Assert.Equal(["Fresh Item"], h.Matcher.Calls);
+    }
+
+    [Fact(DisplayName = "A flyer of only memory hits issues no AI call at all")]
+    public async Task All_Memory_Hits_Skip_The_Matcher_Entirely()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        var product = Guid.NewGuid();
+        var key = DealNormalizer.Normalize("Only Item");
+        h.Memories.Items.Add(DealMatchMemory.Remember(Household, StoreId, key, "Only Item", product, by: null, h.Clock));
+
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-allmem", "{v:1}", Raw("Only Item")));
+
+        await h.Build().RunAsync();
+
+        Assert.Equal(0, h.Matcher.BatchCalls);
+        Assert.Empty(h.Matcher.Calls);
+    }
+
+    [Fact(DisplayName = "An empty candidate catalog skips the AI matcher entirely; every item lands Pending/Unmatched (plantry-04ji.2)")]
+    public async Task Empty_Candidate_Catalog_Skips_The_Matcher_Entirely()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+        // No candidates added: an empty/new catalog. Every completion could only ever return 'none'.
+
+        var deals = Enumerable.Range(0, 20).Select(i => Raw($"Item {i}")).ToArray();
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-empty-catalog", "{v:1}", deals));
+
+        var summary = await h.Build().RunAsync();
+
+        // The guard: not a single AI call is issued despite 20 memory-miss items.
+        Assert.Equal(0, h.Matcher.BatchCalls);
+        Assert.Empty(h.Matcher.Calls);
+
+        // Every deal still staged — Pending, with no suggested product.
+        Assert.Equal(20, summary.PendingCreated);
+        Assert.Equal(20, h.Deals.Items.Count);
+        Assert.All(h.Deals.Items, d =>
+        {
+            Assert.Equal(DealStatus.Pending, d.Status);
+            Assert.Null(d.SuggestedProductId);
+            Assert.Equal(MatchConfidence.None, d.MatchConfidence);
+        });
+    }
+
+    [Fact(DisplayName = "Batch proposals map back to the correct deal positionally")]
+    public async Task Batch_Proposals_Align_Positionally()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        var milk = Guid.NewGuid();
+        var cheese = Guid.NewGuid();
+        h.Products.Candidates.Add(new ProductCandidate(milk, "Milk"));
+        h.Products.Candidates.Add(new ProductCandidate(cheese, "Cheese"));
+        h.Matcher.ByRawName["Milk Item"] = new MatchProposal(milk, MatchConfidence.High, "milk");
+        h.Matcher.ByRawName["Cheese Item"] = new MatchProposal(cheese, MatchConfidence.Low, "cheese");
+        // "Plain Item" has no scripted proposal → Unmatched.
+
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-align", "{v:1}",
+            Raw("Milk Item"), Raw("Plain Item"), Raw("Cheese Item")));
+
+        await h.Build().RunAsync();
+
+        var milkDeal = h.Deals.Items.Single(d => d.RawName == "Milk Item");
+        Assert.Equal(milk, milkDeal.SuggestedProductId);
+        Assert.Equal(MatchConfidence.High, milkDeal.MatchConfidence);
+
+        var plainDeal = h.Deals.Items.Single(d => d.RawName == "Plain Item");
+        Assert.Null(plainDeal.SuggestedProductId);
+        Assert.Equal(MatchConfidence.None, plainDeal.MatchConfidence);
+
+        var cheeseDeal = h.Deals.Items.Single(d => d.RawName == "Cheese Item");
+        Assert.Equal(cheese, cheeseDeal.SuggestedProductId);
+        Assert.Equal(MatchConfidence.Low, cheeseDeal.MatchConfidence);
     }
 }
