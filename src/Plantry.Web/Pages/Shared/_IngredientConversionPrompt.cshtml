@@ -53,40 +53,20 @@
             How does 1 <span x-text="unitLabel(draft.unitId)"></span> relate?
         </p>
 
-        @* Two-sided equation: LEFT (stock dimension) = RIGHT (recipe-line dimension). Each select is
-           locked to a single axis, so no cross-dimension "nonsense" pair can be entered. *@
-        <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-            <input type="number" class="field__input conv-eq__amount" step="any" min="0"
-                   placeholder="e.g. 120"
-                   x-model="draft.convLeftAmount"
-                   aria-label="Stock amount"
-                   style="width:5.5rem" />
-            <select class="field__input conv-eq__unit" x-model="draft.convLeftUnitId"
-                    aria-label="Stock unit" style="width:auto;min-width:5rem">
-                <template x-for="u in (draft.stockUnits || [])" :key="u.id">
-                    <option :value="u.id" x-text="u.code"></option>
-                </template>
-            </select>
-            <span style="font-size:var(--font-size-base);color:var(--color-text-muted)">=</span>
-            <input type="number" class="field__input conv-eq__amount" step="any" min="0"
-                   placeholder="e.g. 1"
-                   x-model="draft.convRightAmount"
-                   aria-label="Recipe amount"
-                   style="width:5.5rem" />
-            <select class="field__input conv-eq__unit" x-model="draft.convRightUnitId"
-                    aria-label="Recipe unit" style="width:auto;min-width:5rem">
-                <template x-for="u in (draft.recipeUnits || [])" :key="u.id">
-                    <option :value="u.id" x-text="u.code"></option>
-                </template>
-            </select>
-        </div>
-
-        @* Derived echo — translates the entered fact into stock terms once both amounts are filled.
-           Nothing is shown while the amounts are incomplete (no scolding while typing). *@
-        <p x-show="conversionEcho() !== ''" x-cloak
-           style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
-            <span x-text="conversionEcho()"></span>
-        </p>
+        @* Two-sided equation (LEFT stock dimension = RIGHT recipe-line dimension) + derived echo —
+           shared partial (plantry-pqlo). Each select is axis-locked, so no cross-dimension pair is
+           possible. The escape button + saved-to-catalog note below stay here (sheet-specific).
+           Model built in a code block because EchoShowExpression contains single quotes that would
+           clash with a single-quoted model='...' attribute. *@
+        @{
+            var conversionEquation = new Plantry.Web.Pages.Shared.ConversionEquationViewModel
+            {
+                Root = "draft",
+                EchoExpression = "conversionEcho()",
+                EchoShowExpression = "conversionEcho() !== ''",
+            };
+        }
+        <partial name="Shared/_ConversionEquation" model="conversionEquation" />
 
         <p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
             Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.

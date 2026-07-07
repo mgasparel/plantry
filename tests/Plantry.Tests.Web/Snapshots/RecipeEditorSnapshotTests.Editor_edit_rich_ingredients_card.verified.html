@@ -83,14 +83,14 @@
 										<span x-text="unitLabel(row.unitId)"></span>
 										relate?
 									</p>
-									<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-										<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="e.g. 120" x-model="row.convLeftAmount" aria-label="Stock amount" style="width:5.5rem">
-										<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit" style="width:auto;min-width:5rem">
+									<div class="conv-eq">
+										<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
+										<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">
 											<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
 										</select>
-										<span style="font-size:var(--font-size-base);color:var(--color-text-muted)">=</span>
-										<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="e.g. 1" x-model="row.convRightAmount" aria-label="Recipe amount" style="width:5.5rem">
-										<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit" style="width:auto;min-width:5rem">
+										<span class="conv-eq__op">=</span>
+										<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="row.convRightAmount" aria-label="Recipe amount">
+										<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit">
 											<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
 										</select>
 									</div>

@@ -1,0 +1,56 @@
+@model Plantry.Web.Pages.Shared.ConversionEquationViewModel
+
+@*
+    Shared four-field unit-conversion equation ([amt] [unit ▾] = [amt] [unit ▾]) + derived echo.
+    Extracted (plantry-pqlo) from the two copies that previously diverged only in binding root and
+    echo helper: the in-sheet ingredient prompt (Shared/_IngredientConversionPrompt, draft.*) and the
+    landed-row block (Recipes/Edit, row.*).
+
+    Each select is locked to ONE axis — LEFT to the product STOCK dimension ({Root}.stockUnits),
+    RIGHT to the recipe-line dimension ({Root}.recipeUnits) — so no cross-dimension "nonsense" pair
+    can be entered; the pair always bridges. The .conv-eq flex pattern (plenish.css) keeps the row on
+    one line inside the 440px sheet flyout and the phone bottom-sheet.
+
+    Alpine contract (on the object named by Model.Root — "draft" for the sheet, "row" for the row):
+      {Root}.convLeftAmount  / {Root}.convLeftUnitId   — two-way bound LEFT amount + unit (stock axis)
+      {Root}.convRightAmount / {Root}.convRightUnitId  — two-way bound RIGHT amount + unit (recipe axis)
+      {Root}.stockUnits   — [{id, code}] units on the product stock dimension (LEFT select)
+      {Root}.recipeUnits  — [{id, code}] units on the recipe-line dimension (RIGHT select)
+    Model.EchoExpression / Model.EchoShowExpression name the host helper that derives the stock-terms
+    echo line and gates its visibility (kept separate so neither call site's show semantics change).
+
+    NOT included (intentional divergence, kept at each call site per plantry-pqlo WHY DEFER): the
+    "Plantry stocks X in Y" ask heading, the warning/neutral tone wrapper, the sheet-only
+    "Measure in {default} instead" escape, and the row-only "Saved to your catalog" note.
+*@
+
+<div class="conv-eq">
+    <input type="number" class="field__input conv-eq__amount" step="any" min="0"
+           placeholder="120"
+           x-model="@(Model.Root).convLeftAmount"
+           aria-label="Stock amount" />
+    <select class="field__input conv-eq__unit" x-model="@(Model.Root).convLeftUnitId"
+            aria-label="Stock unit">
+        <template x-for="u in (@(Model.Root).stockUnits || [])" :key="u.id">
+            <option :value="u.id" x-text="u.code"></option>
+        </template>
+    </select>
+    <span class="conv-eq__op">=</span>
+    <input type="number" class="field__input conv-eq__amount" step="any" min="0"
+           placeholder="1"
+           x-model="@(Model.Root).convRightAmount"
+           aria-label="Recipe amount" />
+    <select class="field__input conv-eq__unit" x-model="@(Model.Root).convRightUnitId"
+            aria-label="Recipe unit">
+        <template x-for="u in (@(Model.Root).recipeUnits || [])" :key="u.id">
+            <option :value="u.id" x-text="u.code"></option>
+        </template>
+    </select>
+</div>
+
+@* Derived echo — translates the entered fact into stock terms once both amounts are filled.
+   Nothing is shown while the amounts are incomplete (no scolding while typing). *@
+<p x-show="@Html.Raw(Model.EchoShowExpression)" x-cloak
+   style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+    <span x-text="@Html.Raw(Model.EchoExpression)"></span>
+</p>

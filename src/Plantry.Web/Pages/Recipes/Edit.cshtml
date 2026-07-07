@@ -844,39 +844,18 @@
                                                 How does 1 <span x-text="unitLabel(row.unitId)"></span> relate?
                                             </p>
 
-                                            @* Two-sided equation: LEFT (stock dimension) = RIGHT (recipe-line dimension),
-                                               each select locked to one axis — no cross-dimension nonsense pair. *@
-                                            <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-                                                <input type="number" class="field__input conv-eq__amount" step="any" min="0"
-                                                       placeholder="e.g. 120"
-                                                       x-model="row.convLeftAmount"
-                                                       aria-label="Stock amount"
-                                                       style="width:5.5rem" />
-                                                <select class="field__input conv-eq__unit" x-model="row.convLeftUnitId"
-                                                        aria-label="Stock unit" style="width:auto;min-width:5rem">
-                                                    <template x-for="u in (row.stockUnits || [])" :key="u.id">
-                                                        <option :value="u.id" x-text="u.code"></option>
-                                                    </template>
-                                                </select>
-                                                <span style="font-size:var(--font-size-base);color:var(--color-text-muted)">=</span>
-                                                <input type="number" class="field__input conv-eq__amount" step="any" min="0"
-                                                       placeholder="e.g. 1"
-                                                       x-model="row.convRightAmount"
-                                                       aria-label="Recipe amount"
-                                                       style="width:5.5rem" />
-                                                <select class="field__input conv-eq__unit" x-model="row.convRightUnitId"
-                                                        aria-label="Recipe unit" style="width:auto;min-width:5rem">
-                                                    <template x-for="u in (row.recipeUnits || [])" :key="u.id">
-                                                        <option :value="u.id" x-text="u.code"></option>
-                                                    </template>
-                                                </select>
-                                            </div>
+                                            @* Two-sided equation (LEFT stock dimension = RIGHT recipe-line dimension),
+                                               each select axis-locked, + the FILLED derived-echo line — shared partial
+                                               (plantry-pqlo). The saved-on-save note below stays here (row-specific). *@
+                                            <partial name="Shared/_ConversionEquation"
+                                                     model='new Plantry.Web.Pages.Shared.ConversionEquationViewModel
+                                                     {
+                                                         Root              = "row",
+                                                         EchoExpression    = "rowConversionEcho(row)",
+                                                         EchoShowExpression = "rowConvFilled(row)",
+                                                     }' />
 
-                                            @* FILLED — confirmation: derived echo + saved-on-save note, neutral/success tone *@
-                                            <p x-show="rowConvFilled(row)" x-cloak
-                                               style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
-                                                <span x-text="rowConversionEcho(row)"></span>
-                                            </p>
+                                            @* FILLED — saved-on-save note (row-specific), neutral tone *@
                                             <p x-show="rowConvFilled(row)" x-cloak
                                                style="margin:var(--space-1) 0 0;font-size:var(--font-size-sm);color:var(--color-text-muted)">
                                                 Saved to your catalog when you save the recipe.
