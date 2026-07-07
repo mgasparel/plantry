@@ -107,6 +107,13 @@ else
         else
         {
             ViewData["FlyerKey"] = Model.ActiveFlyerKey;
+            var flyerKey = Model.ActiveFlyerKey;
+            var flyerQs = string.IsNullOrEmpty(flyerKey) ? "" : $"&flyer={flyerKey}";
+            // Precompute the full bulk-verb URLs. Emitting the query suffix inline as
+            // "...ConfirmAll@flyerQs" would trip Razor's email heuristic (alphanumeric@alphanumeric is
+            // treated as a literal e-mail, so @flyerQs would NOT be substituted) — bind the whole string here.
+            var confirmAllUrl = $"/Deals/Review?handler=ConfirmAll{flyerQs}";
+            var dismissAllUrl = $"/Deals/Review?handler=DismissAll{flyerQs}";
             <div class="card">
                 <div class="card__head">
                     <h3 class="card__head-title">Deals to review</h3>
@@ -121,11 +128,41 @@ else
                             continue;
                         }
 
+                        @* Bulk-verb counts mirror the server's eligible set exactly (Review.cshtml.cs):
+                           Confirm all = pending High deals with a live suggestion, noise excluded; Dismiss
+                           all = every None-tier deal, noise included. Only the High/None tiers carry a bulk
+                           verb — the Low "judgement calls" tier is one-by-one. *@
+                        var confirmable = tier.Confidence == MatchConfidence.High
+                            ? tierDeals.Count(d => d.HasSuggestion && !DealReviewDisplay.IsNoise(d.Price))
+                            : 0;
+                        var dismissable = tier.Confidence == MatchConfidence.None ? tierDeals.Count : 0;
+
                         <section class="deal-review-section">
                             <div class="deal-review-section__head">
                                 <partial name="Shared/_ConfidenceBadge" model="tier.Badge" />
                                 <span class="deal-review-section__title">@tier.Title</span>
                                 <span class="ch-sub">&middot; @tierDeals.Count</span>
+                                @if (tier.Confidence == MatchConfidence.High)
+                                {
+                                    <button type="button" class="btn btn--primary btn--sm deal-review-section__bulk"
+                                            hx-post="@confirmAllUrl"
+                                            hx-target="#review-region"
+                                            hx-swap="innerHTML"
+                                            disabled="@(confirmable == 0 ? "disabled" : null)">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                        Confirm all (@confirmable)
+                                    </button>
+                                }
+                                else if (tier.Confidence == MatchConfidence.None)
+                                {
+                                    <button type="button" class="btn btn--ghost btn--sm deal-review-section__bulk"
+                                            hx-post="@dismissAllUrl"
+                                            hx-target="#review-region"
+                                            hx-swap="innerHTML"
+                                            disabled="@(dismissable == 0 ? "disabled" : null)">
+                                        Dismiss all (@dismissable)
+                                    </button>
+                                }
                             </div>
                             <ul class="catalog-list deal-review-list" role="list">
                                 @foreach (var deal in tierDeals)

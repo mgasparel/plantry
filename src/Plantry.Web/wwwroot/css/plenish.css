@@ -6187,6 +6187,8 @@ button.sadd svg { width: 13px; height: 13px; }
   margin-bottom: var(--space-3);
 }
 .deal-review-section__title { font-weight: 600; }
+/* Bulk verb (Confirm all / Dismiss all, q9zr.4) sits at the right edge of the tier header. */
+.deal-review-section__bulk { margin-left: auto; }
 
 .deal-review-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
 /* Grid (1fr auto) — the raw name column absorbs long compound names by wrapping within its own track,
