@@ -42,14 +42,27 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
     public RecipeTagSuggester(
         IOptions<AiOptions> options,
         ILogger<RecipeTagSuggester> logger)
+        : this(CreateClient(options.Value), options, logger)
+    {
+    }
+
+    // Test seam (plantry-nwnu): lets unit tests script the completion boundary so the soft-fail, empty-response,
+    // and cancellation-propagation paths — which sit behind the concrete ChatClient and are invisible to the pure
+    // MapResponse mapper — can be asserted directly. Production always routes through the public ctor above,
+    // which builds the real client and delegates here — no behaviour, public-API, or DI change (mirrors DealMatcher).
+    internal RecipeTagSuggester(
+        ChatClient chat,
+        IOptions<AiOptions> options,
+        ILogger<RecipeTagSuggester> logger)
     {
         _logger = logger;
-        var ai = options.Value;
-        _modelId = ai.Model;
-        var clientOptions = new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) };
-        _chat = new OpenAIClient(new ApiKeyCredential(ai.ApiKey), clientOptions)
-            .GetChatClient(ai.Model);
+        _chat = chat;
+        _modelId = options.Value.Model;
     }
+
+    private static ChatClient CreateClient(AiOptions ai) =>
+        new OpenAIClient(new ApiKeyCredential(ai.ApiKey), new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) })
+            .GetChatClient(ai.Model);
 
     private const string SystemPrompt = """
         You suggest dietary/style tags for ONE home recipe, to help the cook keep their recipe library
