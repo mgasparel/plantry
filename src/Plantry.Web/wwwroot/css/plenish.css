@@ -6166,16 +6166,27 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .deal-row__correct:hover { text-decoration: underline; }
 
-/* ── Deal review queue (P5-8 / DJ4) — one card per pending/correctable deal ─── */
-.deal-review-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
-.deal-review-row__head {
+/* ── Deal review queue (P5-8 / DJ4) — grouped by confidence tier, one card per deal ─── */
+.deal-review-section + .deal-review-section { margin-top: var(--space-5); }
+.deal-review-section__head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.deal-review-section__title { font-weight: 600; }
+
+.deal-review-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+/* Grid (1fr auto) — the raw name column absorbs long compound names by wrapping within its own track,
+   so the price + confidence badge stay pinned top-right and never get pushed into the card body. */
+.deal-review-row__head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
   gap: var(--space-3);
-  flex-wrap: wrap;
 }
 .deal-review-row__raw { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.deal-review-row__name { overflow-wrap: anywhere; }
 .deal-review-row__brand {
   margin-left: var(--space-2);
   font-size: var(--font-size-xs);
@@ -6190,10 +6201,14 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .deal-review-row__suggest { margin: 0; }
 .deal-review-row__reasoning { font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.deal-review-row__unrecognized {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  padding: var(--space-2) 0;
+/* Flyer-noise rows ($0.00 "AD MATCH" lines) — de-emphasised, with a muted warning flag. View-only. */
+.deal-review-row--noise { opacity: 0.6; }
+.deal-review-row__noise {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
 }
 .deal-review-row__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .deal-review-row__reject { margin-left: auto; }

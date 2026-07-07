@@ -79,6 +79,10 @@ public sealed class ReviewDeals(
             .Select(d => ToView(d, storeNames, suggestionNames))
             .OrderBy(v => v.ValidTo)
             .ThenBy(v => v.StoreName, StringComparer.OrdinalIgnoreCase)
+            // Confidence descending — highest first (the 16 one-click confirms lead each flyer/store block
+            // instead of being scattered alphabetically). The enum is declared High → Low → None, so ordinal
+            // ascending already yields high-confidence-first; this is what the review UI groups its tiers on.
+            .ThenBy(v => v.Confidence)
             .ThenBy(v => v.RawName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

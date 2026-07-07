@@ -1,3 +1,5 @@
+@using Plantry.Deals.Domain
+@using Plantry.Intake.Domain
 @model Plantry.Web.Pages.Deals.ReviewModel
 
 @*
@@ -5,6 +7,11 @@
     so the queue shrinks as it is worked and a re-drive / refresh never double-acts. When empty, the
     "all caught up" state clears the queue; the Deals-page Review entry (and, with P5-11, the Home banner)
     reflect the shrunk count on their next load.
+
+    The queue is grouped into three confidence tiers, highest first (q9zr.2): the one-click confirms lead,
+    the judgement calls follow, and the long no-match tail sits last — instead of one flat alphabetical wall.
+    ReviewDeals.ListPendingAsync already sorts ValidTo → StoreName → Confidence desc → RawName, so each tier's
+    rows stay in that order within its section.
 *@
 @if (Model.Deals.Count == 0)
 {
@@ -26,18 +33,42 @@
 }
 else
 {
+    @* Fixed tier order: High → Low → None. Each carries the shared confidence badge treatment plus a count. *@
+    var tiers = new[]
+    {
+        (Confidence: MatchConfidence.High, Badge: SuggestedConfidence.High, Title: "Looks right"),
+        (Confidence: MatchConfidence.Low, Badge: SuggestedConfidence.Low, Title: "Needs a look"),
+        (Confidence: MatchConfidence.None, Badge: SuggestedConfidence.None, Title: "Not in your catalog"),
+    };
+
     <div class="card">
         <div class="card__head">
             <h3 class="card__head-title">Deals to review</h3>
             <span class="ch-sub">&middot; @Model.Deals.Count</span>
         </div>
         <div class="card__body">
-            <ul class="catalog-list deal-review-list" role="list">
-                @foreach (var deal in Model.Deals)
+            @foreach (var tier in tiers)
+            {
+                var tierDeals = Model.Deals.Where(d => d.Confidence == tier.Confidence).ToList();
+                if (tierDeals.Count == 0)
                 {
-                    <partial name="_DealReviewCard" model="deal" />
+                    continue;
                 }
-            </ul>
+
+                <section class="deal-review-section">
+                    <div class="deal-review-section__head">
+                        <partial name="Shared/_ConfidenceBadge" model="tier.Badge" />
+                        <span class="deal-review-section__title">@tier.Title</span>
+                        <span class="ch-sub">&middot; @tierDeals.Count</span>
+                    </div>
+                    <ul class="catalog-list deal-review-list" role="list">
+                        @foreach (var deal in tierDeals)
+                        {
+                            <partial name="_DealReviewCard" model="deal" />
+                        }
+                    </ul>
+                </section>
+            }
         </div>
     </div>
 }
