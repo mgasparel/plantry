@@ -5844,8 +5844,10 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-hatch-sum b { color: var(--color-text); font-weight: 700; font-variant-numeric: tabular-nums; }
 .ts-hatch-status { font-size: 0.78125rem; color: var(--color-text-muted); }
 
-/* sticky add bar — sits at the top of .ts-walk-inner, under the topbar (z-index 9 < topbar's 10) */
-.ts-add-bar { position: sticky; top: var(--topbar-height); z-index: 9; padding: var(--space-3) 0; background: color-mix(in srgb, var(--color-bg) 90%, transparent); backdrop-filter: blur(10px); }
+/* sticky add bar — consumes the shared .bar-sticky-top; only the topbar offset is
+   Take-Stock-specific (sits under the app topbar, z-index 9 < topbar's 10). */
+/* Specificity 0,2,0 so it wins over .bar-sticky-top { top: 0 } regardless of source order. */
+.bar-sticky-top.ts-add-bar { top: var(--topbar-height); }
 .ts-add-bar .ts-add-item { margin-top: 0; }
 
 /* add-item row trigger */
@@ -5858,22 +5860,15 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-locpick select { font: inherit; font-size: 0.84375rem; font-weight: 600; color: var(--color-text); border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-md); padding: 9px 11px; min-width: 140px; }
 .ts-locpick select.unset { color: var(--color-text-faint); border-color: var(--color-cook); background: color-mix(in srgb, var(--color-cook) 14%, var(--color-surface)); }
 
-/* ---- J4: sticky save bar ----------------------------------------------- */
-.ts-savebar {
-  position: sticky; bottom: 0; z-index: 20;
-  display: flex; align-items: center; gap: var(--space-4); padding: 14px var(--space-5);
-  border-top: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-surface) 90%, transparent);
-  backdrop-filter: blur(10px); border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-}
-.ts-savebar .sb-summary { font-size: 0.875rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 10px; }
-.ts-savebar .sb-summary b { color: var(--color-text); font-weight: 700; }
-.ts-savebar .spacer { flex: 1; }
+/* ---- J4: sticky save bar — now the shared .bar-sticky-bottom commit-bar idiom
+   (see "Shared component-library primitives" at the foot of this file). Only the
+   summary + pending-badge chrome stays Take-Stock-specific; .spacer is global. */
+.bar-sticky-bottom .sb-summary { font-size: 0.875rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 10px; }
+.bar-sticky-bottom .sb-summary b { color: var(--color-text); font-weight: 700; }
 .ts-pending-badge { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--color-accent); color: var(--color-text-on-accent); font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ts-pending-badge.zero { background: var(--color-bg-subtle); color: var(--color-text-faint); }
 
-/* toast */
-.ts-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; z-index: 70; display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: var(--color-text); color: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
-.ts-toast .icon { color: var(--color-success); width: 16px; height: 16px; }
+/* toast — generalised to the shared .toast primitive (see foot of this file). */
 
 @media (max-width: 720px) {
   .ts-loc-grid { grid-template-columns: 1fr; }
@@ -6276,3 +6271,140 @@ button.sadd svg { width: 13px; height: 13px; }
 
 /* htmx disables the invoke button (hx-disabled-elt) during the request — show the in-flight state. */
 .dev-endpoint__actions .btn:disabled { opacity: 0.6; cursor: progress; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Shared component-library primitives
+   Toast, sticky bars (the long-list idiom), a meter-based page-progress header,
+   the keyboard-hint bar, the guided-flow step nav, and the flyer rail. These were
+   generalised from the Take Stock walk and the Deals Review guided-flow prototype
+   so every feature page composes the same building blocks. All token-driven, so
+   they theme (hearth / market / slate) automatically. See Pages/Dev/Index.cshtml.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Toast ──────────────────────────────────────────────────────────────────
+   Fixed bottom-centre status pill. Framework-agnostic: rendered by an island
+   (Take Stock's Preact walk) or toggled from an Alpine page. Dismiss on click.
+   Give it role="status" aria-live="polite" so assistive tech announces it. */
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; z-index: 70; display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: var(--color-text); color: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+.toast .icon { color: var(--color-success); width: 16px; height: 16px; }
+
+/* ── Sticky bars — the long-list idiom ──────────────────────────────────────
+   A full-length list (never a nested scrollbox) whose tools stick to the top
+   and whose commit action sticks to the bottom of the viewport.
+   GOTCHA: position:sticky is inert inside an overflow:hidden ancestor. The app
+   .card clips (overflow:hidden), so a card that hosts these bars must add
+   .card--overflow-visible; its first/last children then self-round their edges. */
+.bar-sticky-top {
+  position: sticky; top: 0; z-index: 9; padding: var(--space-3) 0;
+  background: color-mix(in srgb, var(--color-bg) 90%, transparent); backdrop-filter: blur(10px);
+}
+.bar-sticky-bottom {
+  position: sticky; bottom: 0; z-index: 20;
+  display: flex; align-items: center; gap: var(--space-4); padding: 14px var(--space-5);
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 90%, transparent); backdrop-filter: blur(10px);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* ── Page-progress header ────────────────────────────────────────────────────
+   A sticky page header that composes the _Meter (MetaLine layout) with a trailing
+   mono "N to review" count. No new bar primitive — the meter IS the bar. */
+.page-progress {
+  position: sticky; top: var(--topbar-height); z-index: 8;
+  display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) 0;
+  background: color-mix(in srgb, var(--color-bg) 90%, transparent); backdrop-filter: blur(10px);
+}
+.page-progress .meter { flex: 1; min-width: 0; }
+.page-progress__count { font-family: var(--font-mono); font-size: 0.8125rem; color: var(--color-text-muted); white-space: nowrap; }
+
+/* ── Keyboard-hint bar + <kbd> chip ─────────────────────────────────────────
+   Fixed bottom rail of shortcut hints for keyboard-driven flows (e.g. the Deals
+   deck). Each key is a <kbd> chip. Hidden below 720px — no physical keyboard. */
+.kbd-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+  display: flex; gap: var(--space-5); justify-content: center; padding: var(--space-2);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent); backdrop-filter: blur(6px);
+  border-top: 1px solid var(--color-border);
+  font-size: 0.75rem; color: var(--color-text-muted);
+}
+.kbd-bar span { display: inline-flex; align-items: center; gap: 4px; }
+kbd, .kbd {
+  font-family: var(--font-mono); font-size: 0.6875rem; background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong); border-bottom-width: 2px;
+  border-radius: var(--radius-sm); padding: 1px 6px; color: var(--color-text);
+}
+@media (max-width: 720px) { .kbd-bar { display: none; } }
+
+/* ── Guided-flow step nav (.steps / .step) ──────────────────────────────────
+   Jumpable step tabs for a multi-pass flow. NOT the <stepper> tag helper — that
+   is the −[value]+ quantity control. Each step carries a mono count chip; when
+   its pool empties mark it .is-done and swap the chip for ✓. */
+.steps { display: flex; gap: var(--space-3); margin: 0 0 var(--space-5); }
+.step {
+  flex: 1; display: flex; align-items: center; gap: var(--space-3); font-size: 0.8125rem;
+  color: var(--color-text-faint); padding: 0 0 var(--space-2); border: none;
+  border-bottom: 2px solid var(--color-border); background: none; font: inherit; text-align: left;
+  cursor: pointer; transition: color 120ms ease;
+}
+.step:hover { color: var(--color-text); }
+.step__n {
+  width: 1.35rem; height: 1.35rem; border-radius: var(--radius-full); flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-surface-2); font-weight: 700; font-size: 0.75rem;
+}
+.step__count { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--color-text-faint); margin-left: auto; }
+.step.is-active { color: var(--color-text); border-color: var(--color-accent); }
+.step.is-active .step__n { background: var(--color-accent); color: var(--color-text-on-accent); }
+.step.is-active .step__count { color: var(--color-text-muted); }
+.step.is-done { color: var(--color-success); border-color: var(--color-success); }
+.step.is-done .step__n { background: var(--color-success-bg); color: var(--color-success); }
+
+/* ── Flyer rail (Deals Review chapters) ─────────────────────────────────────
+   Two densities of the same chapter list:
+     .flyer-chip  — big card (≤3 flyers): store, count·expiry pill, valid range.
+     .flyer-pill  — compact (>3 flyers): one expiry-sorted pill per flyer; the
+                    active flyer's detail demotes to .active-flyer-line below.
+   .rail-summary  — one-line roll-up shown above a compact rail. */
+.flyers { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: var(--space-5); }
+.flyers--compact { gap: 0.4rem; margin-bottom: var(--space-3); }
+.flyer-chip {
+  flex: 1 1 240px; text-align: left; font: inherit; cursor: pointer;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 0.7rem 0.9rem; transition: border-color 120ms ease;
+  display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.5rem; align-items: center;
+}
+.flyer-chip:hover { border-color: var(--color-border-strong); }
+.flyer-chip.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent), var(--shadow-card); }
+.flyer-chip.is-done { opacity: 0.75; }
+.flyer-chip .store { font-weight: 700; font-size: 0.9375rem; }
+.flyer-chip .left {
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600;
+  border-radius: var(--radius-full); padding: 0.05rem 0.55rem; justify-self: end;
+  background: var(--color-surface-2); color: var(--color-text-muted);
+}
+.flyer-chip .left.urgent { background: var(--color-warning-bg); color: var(--color-warning); }
+.flyer-chip .left.done { background: var(--color-success-bg); color: var(--color-success); }
+.flyer-chip .meta { grid-column: 1 / -1; font-size: 0.75rem; color: var(--color-text-muted); }
+.flyer-pill {
+  flex: 0 1 auto; display: inline-flex; align-items: center; gap: 0.45rem;
+  font: inherit; font-size: 0.8125rem; cursor: pointer;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-full); padding: 0.3rem 0.75rem; transition: border-color 120ms ease;
+}
+.flyer-pill:hover { border-color: var(--color-border-strong); }
+.flyer-pill.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
+.flyer-pill.is-done { opacity: 0.6; }
+.flyer-pill .store { font-weight: 650; white-space: nowrap; }
+.flyer-pill .n { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); }
+.flyer-pill .d { font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 600; border-radius: var(--radius-full); padding: 0 0.45rem; background: var(--color-surface-2); color: var(--color-text-muted); }
+.flyer-pill .d.urgent { background: var(--color-warning-bg); color: var(--color-warning); }
+.flyer-pill.is-done .d { background: var(--color-success-bg); color: var(--color-success); }
+.rail-summary { font-size: 0.8125rem; color: var(--color-text-muted); margin: 0 0 var(--space-3); }
+.rail-summary b { color: var(--color-text); }
+.active-flyer-line {
+  display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap;
+  font-size: 0.8125rem; color: var(--color-text-muted); margin: 0.35rem 0 var(--space-5);
+}
+.active-flyer-line .store { font-weight: 700; font-size: 0.9375rem; color: var(--color-text); }
+.flyer-link { color: var(--color-info); text-decoration: none; font-weight: 600; }
+.flyer-link:hover { text-decoration: underline; }
