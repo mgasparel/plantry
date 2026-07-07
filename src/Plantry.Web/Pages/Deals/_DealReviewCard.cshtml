@@ -21,13 +21,18 @@
     };
     var dealId = Model.DealId.Value;
     var isPending = Model.Status == DealStatus.Pending;
+    // View-level flyer-noise flag: a $0.00 "AD MATCH" line carries no usable price (q9zr.10). No domain state.
+    var isNoise = DealReviewDisplay.IsNoise(Model.Price);
 }
 
-<li class="catalog-list__item deal-review-row" id="deal-review-@dealId" data-deal-id="@dealId">
+<li class="catalog-list__item deal-review-row @(isNoise ? "deal-review-row--noise" : null)"
+    id="deal-review-@dealId" data-deal-id="@dealId">
     <div class="deal-review-row__head">
         <div class="deal-review-row__raw">
             <span class="catalog-list__primary">
-                @Model.RawName
+                @* Display-cased for legibility; the verbatim ALL-CAPS flyer string stays one hover away in
+                   the title attribute and untouched in the domain/ACL quarantine (DD6 / q9zr.10). *@
+                <span class="deal-review-row__name" title="@Model.RawName">@DealReviewDisplay.TitleCase(Model.RawName)</span>
                 @if (!string.IsNullOrWhiteSpace(Model.Brand))
                 {
                     <span class="deal-review-row__brand">@Model.Brand</span>
@@ -48,6 +53,14 @@
         </div>
     </div>
 
+    @if (isNoise)
+    {
+        <div class="deal-review-row__noise">
+            <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+            Flyer noise &mdash; no usable price
+        </div>
+    }
+
     @if (Model.HasSuggestion)
     {
         @* Single-suggestion "did you mean" chip (reused .match-suggest). For an already-confirmed deal it
@@ -63,12 +76,6 @@
                     <span class="deal-review-row__reasoning">@Model.Reasoning</span>
                 </div>
             }
-        </div>
-    }
-    else if (isPending)
-    {
-        <div class="deal-review-row__unrecognized">
-            Unrecognized &mdash; no catalog match. Search for the right product, or reject this deal.
         </div>
     }
 

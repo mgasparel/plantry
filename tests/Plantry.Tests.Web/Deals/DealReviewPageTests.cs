@@ -77,14 +77,44 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("Matched", html);      // High
         Assert.Contains("Check match", html);  // Low
         Assert.Contains("No match", html);     // None
-        // Single-suggestion "did you mean" chip for a matched deal, "Unrecognized" for the none deal.
+        // Single-suggestion "did you mean" chip for a matched deal.
         Assert.Contains("Did you mean", html);
         Assert.Contains("Whole Milk", html);   // resolved suggestion name
-        Assert.Contains("Unrecognized", html);
+        // The per-card "Unrecognized — no catalog match…" boilerplate is gone (q9zr.2 item 2): the badge +
+        // verbs already communicate it, so it no longer repeats once per no-match row.
+        Assert.DoesNotContain("Unrecognized", html);
+        Assert.DoesNotContain("no catalog match", html);
         // Verbs present.
         Assert.Contains("Confirm", html);
         Assert.Contains("Correct", html);
         Assert.Contains("Reject", html);
+    }
+
+    [Fact(DisplayName = "GET /Deals/Review groups the queue into High → Low → None tier sections with counts")]
+    public async Task Groups_Into_Confidence_Tier_Sections()
+    {
+        factory.Reset();
+        factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedPending("High B", MatchConfidence.High, factory.BreadProduct);
+        factory.SeedPending("Low A", MatchConfidence.Low, factory.BreadProduct);
+        factory.SeedPending("None A", MatchConfidence.None, suggested: null);
+        factory.SeedPending("None B", MatchConfidence.None, suggested: null);
+        factory.SeedPending("None C", MatchConfidence.None, suggested: null);
+
+        var html = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        // The three tier section headers render in fixed High → Low → None order.
+        var high = html.IndexOf("Looks right", StringComparison.Ordinal);
+        var low = html.IndexOf("Needs a look", StringComparison.Ordinal);
+        var none = html.IndexOf("Not in your catalog", StringComparison.Ordinal);
+        Assert.True(high >= 0 && low >= 0 && none >= 0, "All three tier sections should render.");
+        Assert.True(high < low && low < none, "Tier sections must be ordered High → Low → None.");
+
+        // Each section header carries its own count (High 2 / Low 1 / None 3) immediately after the title.
+        Assert.Matches(@"Looks right</span>\s*<span class=""ch-sub"">·\s*2", html);
+        Assert.Matches(@"Needs a look</span>\s*<span class=""ch-sub"">·\s*1", html);
+        Assert.Matches(@"Not in your catalog</span>\s*<span class=""ch-sub"">·\s*3", html);
     }
 
     [Fact(DisplayName = "GET /Deals/Review?dealId=<confirmed> renders the single auto-matched correction card")]
@@ -109,6 +139,38 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var response = await client.GetAsync("/Deals/Review");
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact(DisplayName = "GET /Deals/Review flags a $0.00 flyer-noise row and de-emphasises it")]
+    public async Task Flags_Flyer_Noise_Rows()
+    {
+        factory.Reset();
+        factory.SeedPending("AD MATCH", MatchConfidence.None, suggested: null, price: 0m);
+        factory.SeedPending("Real Deal", MatchConfidence.None, suggested: null, price: 3.49m);
+
+        var html = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        // The $0.00 row is flagged and gets the de-emphasis modifier; the priced row does not.
+        Assert.Contains("Flyer noise", html);
+        Assert.Contains("deal-review-row--noise", html);
+        Assert.Single(Regex.Matches(html, "deal-review-row--noise"));
+    }
+
+    [Fact(DisplayName = "GET /Deals/Review title-cases raw names for display, keeping the verbatim string in the title attribute")]
+    public async Task Title_Cases_Raw_Names_For_Display()
+    {
+        factory.Reset();
+        factory.SeedPending("FRANK'S HOT SAUCE 375ML", MatchConfidence.None, suggested: null);
+
+        var html = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        // Display is title-cased — capitalised after the start and spaces, but NOT after the apostrophe.
+        Assert.Contains("Frank's Hot Sauce 375ml", html);
+        Assert.DoesNotContain("Frank'S", html);   // no capital letter after the apostrophe
+        // The verbatim ALL-CAPS flyer string is preserved untouched in the name's title attribute.
+        Assert.Contains("title=\"FRANK'S HOT SAUCE 375ML\"", html);
     }
 
     // ── L5 verb wiring ────────────────────────────────────────────────────────────
@@ -278,9 +340,9 @@ public sealed class DealReviewFactory : WebApplicationFactory<Program>
         return ValidityWindow.Create(today.AddDays(-1), today.AddDays(6)).Value;
     }
 
-    public Deal SeedPending(string rawName, MatchConfidence confidence, Guid? suggested)
+    public Deal SeedPending(string rawName, MatchConfidence confidence, Guid? suggested, decimal price = 4.99m)
     {
-        var raw = new RawDeal(rawName, "SomeBrand", null, 4.99m, null, null, "Save $1", InWindow());
+        var raw = new RawDeal(rawName, "SomeBrand", null, price, null, null, "Save $1", InWindow());
         var proposal = suggested is { } s
             ? new MatchProposal(s, confidence, "looks like a match")
             : MatchProposal.Unmatched();
