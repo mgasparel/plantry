@@ -17,11 +17,22 @@
 
     @* Host wrapper — owns the correction sheet state; persists across every htmx queue swap so the
        Correct affordance keeps working as the queue re-renders. See dealsReview() below. *@
-    <div x-data="dealsReview('@correctUrl')" x-on:deal-correct="openCorrect($event.detail.dealId)">
+    <div x-data="dealsReview('@correctUrl')"
+         x-on:deal-correct="openCorrect($event.detail.dealId)"
+         x-on:deals-bulk-done.window="flash($event.detail.message)">
 
         @* The review queue — re-rendered from server truth by every verb (Confirm/Correct/Reject). *@
         <div id="review-region">
             @await Html.PartialAsync("_ReviewQueue", Model)
+        </div>
+
+        @* Shared status toast (q9zr.1). Persists outside #review-region so it survives every queue swap;
+           the bulk verbs raise it via an HX-Trigger 'deals-bulk-done' event. Plain feedback — no undo
+           affordance (ruled out for P1, q9zr.9). Dismisses on click and auto-clears after a few seconds. *@
+        <div class="toast" role="status" aria-live="polite"
+             x-show="toast !== null" x-on:click="toast = null" x-cloak>
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            <span x-text="toast"></span>
         </div>
 
         @* Shared catalog search + inline-create sheet (P4-6). Composed, not rebuilt: TrackStock=false and
@@ -61,6 +72,18 @@ function dealsReview(correctUrl) {
         // ── Deals-specific ────────────────────────────────────────────────────
         activeDealId: null,
         correctUrl: correctUrl,
+
+        // ── Status toast (q9zr.1 primitive; raised by the bulk verbs) ──────────
+        toast: null,
+        toastTimer: null,
+
+        // Flash a plain status message (e.g. "Confirmed 21 matches"), auto-clearing after a few seconds.
+        // No undo action — ruled out for P1 (q9zr.9); this is confirmation feedback only.
+        flash(message) {
+            this.toast = message;
+            clearTimeout(this.toastTimer);
+            this.toastTimer = setTimeout(() => { this.toast = null; }, 4000);
+        },
 
         // Open the correction sheet for one deal (from a card's Correct button, via the bubbling
         // deal-correct event so it survives htmx queue swaps).

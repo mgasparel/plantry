@@ -237,7 +237,133 @@ public sealed class ReviewModel(
         return await QueueFragmentAsync(flyer, ct);
     }
 
+    // ── POST (bulk verbs — server-side loops over the single verbs; q9zr.4) ──────
+
+    /// <summary>
+    /// Confirm all: accept every pending High-confidence deal in the active flyer through the single-deal
+    /// <see cref="ConfirmDeal.ConfirmAsync"/> — each with <b>that deal's own server-side</b>
+    /// <c>SuggestedProductId</c>, so a client can never inject a product via bulk confirm. Bulk is a
+    /// server-side loop over the existing verb: no new domain logic. Noise rows (price ≤ 0) are excluded —
+    /// they never reach the High tier anyway. Optional <paramref name="dealIds"/> narrows the set (the
+    /// step-1 checklist posts only the checked ids; unchecked deals are demoted by q9zr.13, not confirmed) —
+    /// ids outside the eligible High set of this flyer are ignored and logged. Idempotent: a re-POST after
+    /// the queue has re-rendered finds nothing eligible and is a no-op.
+    /// </summary>
+    public async Task<IActionResult> OnPostConfirmAllAsync(
+        [FromQuery] string? flyer, [FromForm(Name = "dealIds")] Guid[]? dealIds, CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is null)
+            return Forbid();
+
+        var eligible = await EligibleActiveFlyerDealsAsync(
+            flyer,
+            d => d.Confidence == MatchConfidence.High && d.HasSuggestion && !DealReviewDisplay.IsNoise(d.Price),
+            ct);
+        eligible = ScopeToRequestedIds(eligible, dealIds, verb: "ConfirmAll");
+
+        var confirmed = 0;
+        foreach (var deal in eligible)
+        {
+            // Per-deal server-side suggestion — identical semantics to the single Confirm verb.
+            var productId = deal.SuggestedProductId!.Value;
+            var result = await confirmDeal.ConfirmAsync(deal.DealId, productId, CurrentUserId, ct);
+            if (result.IsSuccess)
+                confirmed++;
+            else
+                logger.LogWarning("ConfirmAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+        }
+
+        if (confirmed > 0)
+            SetBulkToast($"Confirmed {confirmed} {(confirmed == 1 ? "match" : "matches")}");
+
+        return await QueueFragmentAsync(flyer, ct);
+    }
+
+    /// <summary>
+    /// Dismiss all: reject every pending None-confidence ("Not in your catalog") deal in the active flyer
+    /// through the single-deal <see cref="RejectDeal.RejectAsync"/> (writes no observation, D5). Bulk is a
+    /// server-side loop over the existing verb. Noise rows (price ≤ 0) are <b>included</b> — they are
+    /// None-tier flyer clutter the user clears in one action. Optional <paramref name="dealIds"/> narrows the
+    /// set (the browsable-list bead, q9zr.5, posts filter-scoped ids); ids outside the eligible None set of
+    /// this flyer are ignored and logged. Idempotent: a re-POST after the re-render finds nothing eligible.
+    /// </summary>
+    public async Task<IActionResult> OnPostDismissAllAsync(
+        [FromQuery] string? flyer, [FromForm(Name = "dealIds")] Guid[]? dealIds, CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is null)
+            return Forbid();
+
+        var eligible = await EligibleActiveFlyerDealsAsync(
+            flyer, d => d.Confidence == MatchConfidence.None, ct); // None tier includes noise rows
+        eligible = ScopeToRequestedIds(eligible, dealIds, verb: "DismissAll");
+
+        var dismissed = 0;
+        foreach (var deal in eligible)
+        {
+            var result = await rejectDeal.RejectAsync(deal.DealId, CurrentUserId, ct: ct);
+            if (result.IsSuccess)
+                dismissed++;
+            else
+                logger.LogWarning("DismissAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+        }
+
+        if (dismissed > 0)
+            SetBulkToast($"Dismissed {dismissed} {(dismissed == 1 ? "deal" : "deals")}");
+
+        return await QueueFragmentAsync(flyer, ct);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The active flyer's pending deals matching <paramref name="predicate"/> — the eligible set a bulk verb
+    /// loops over. Resolves the active flyer the same way the queue render does (the requested key when it
+    /// still has work, else the default soonest-expiring one), so the bulk verb acts on exactly the tier the
+    /// user is looking at. Empty when nothing is pending.
+    /// </summary>
+    private async Task<IReadOnlyList<DealReviewView>> EligibleActiveFlyerDealsAsync(
+        string? flyer, Func<DealReviewView, bool> predicate, CancellationToken ct)
+    {
+        var projection = await reviewDeals.ProjectPendingQueueAsync(ct);
+        var activeKey = FlyerRail.ResolveActiveKey(projection.Flyers, flyer);
+        var activeFlyer = projection.Flyers.FirstOrDefault(f => f.Key == activeKey);
+        return activeFlyer is null
+            ? []
+            : activeFlyer.Deals.Where(predicate).ToList();
+    }
+
+    /// <summary>
+    /// Intersects the eligible set with an optional client-supplied <paramref name="dealIds"/> scope. Absent
+    /// (or empty) means "the whole eligible set". Any requested id outside the eligible tier/flyer is dropped
+    /// and logged — a client can never widen the set or reach a deal in another tier through the id list.
+    /// </summary>
+    private IReadOnlyList<DealReviewView> ScopeToRequestedIds(
+        IReadOnlyList<DealReviewView> eligible, Guid[]? dealIds, string verb)
+    {
+        if (dealIds is null || dealIds.Length == 0)
+            return eligible;
+
+        var requested = dealIds.ToHashSet();
+        var scoped = eligible.Where(d => requested.Contains(d.DealId.Value)).ToList();
+
+        var ignored = requested.Where(id => scoped.All(d => d.DealId.Value != id)).ToList();
+        if (ignored.Count > 0)
+            logger.LogInformation(
+                "{Verb}: ignored {Count} requested id(s) outside the eligible set: {Ids}.",
+                verb, ignored.Count, string.Join(", ", ignored));
+
+        return scoped;
+    }
+
+    /// <summary>
+    /// Fires the shared toast (q9zr.1) with plain status feedback via an <c>HX-Trigger</c> response header.
+    /// htmx dispatches the event on the triggering button before the swap; it bubbles to the persistent
+    /// Alpine host, which flashes the <c>.toast</c> primitive. No undo affordance — ruled out for P1 (q9zr.9).
+    /// </summary>
+    private void SetBulkToast(string message) =>
+        Response.Headers["HX-Trigger"] = System.Text.Json.JsonSerializer.Serialize(
+            new Dictionary<string, object> { ["deals-bulk-done"] = new { message } });
+
 
     private async Task<Result<Guid>> CreateProductAsync(string name, Guid unitId, Guid? categoryId, CancellationToken ct)
     {

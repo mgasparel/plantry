@@ -392,6 +392,180 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("<li", html);
         Assert.Contains("Whole Milk", html);
     }
+
+    // ── L4/L5 bulk verbs (q9zr.4) ──────────────────────────────────────────────────
+
+    [Fact(DisplayName = "Tier headers render Confirm all (N) on High and Dismiss all (N) on None with counts")]
+    public async Task Bulk_Buttons_Render_With_Counts()
+    {
+        factory.Reset();
+        factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedPending("High B", MatchConfidence.High, factory.BreadProduct);
+        factory.SeedPending("None A", MatchConfidence.None, suggested: null);
+
+        var html = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        Assert.Contains("Confirm all (2)", html);
+        Assert.Contains("Dismiss all (1)", html);
+        // The hx-post URL must be a well-formed handler route, terminated by the closing quote or a flyer
+        // query — never the un-substituted Razor literal "@flyerQs" (the email-heuristic trap that made the
+        // live button post to a non-existent handler and fall through to a full-page render).
+        Assert.Matches(@"hx-post=""/Deals/Review\?handler=ConfirmAll(&flyer=[^""]*)?""", html);
+        Assert.Matches(@"hx-post=""/Deals/Review\?handler=DismissAll(&flyer=[^""]*)?""", html);
+        Assert.DoesNotContain("@flyerQs", html);
+    }
+
+    [Fact(DisplayName = "ConfirmAll confirms every High deal via its OWN server-side SuggestedProductId, and toasts")]
+    public async Task ConfirmAll_Confirms_High_Tier_Per_Deal_Suggestion()
+    {
+        factory.Reset();
+        var milk = factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        var bread = factory.SeedPending("Sourdough", MatchConfidence.High, factory.BreadProduct);
+        factory.SeedPending("Judgement Call", MatchConfidence.Low, factory.BreadProduct); // Low — untouched
+        factory.SeedPending("Mystery", MatchConfidence.None, suggested: null);            // None — untouched
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, "/Deals/Review?handler=ConfirmAll",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        // Each High deal was confirmed to ITS OWN suggested product (a client injected nothing).
+        Assert.Equal(DealStatus.Confirmed, milk.Status);
+        Assert.Equal(factory.MilkProduct, milk.ProductId);
+        Assert.Equal(DealStatus.Confirmed, bread.Status);
+        Assert.Equal(factory.BreadProduct, bread.ProductId);
+        Assert.Equal(2, factory.Observations.Calls);            // one deal-sourced observation per confirm
+        // The Low and None deals were left alone (both still pending).
+        Assert.Equal(2, factory.Repo.Items.Count(d => d.Status == DealStatus.Pending));
+        // Plain status toast via HX-Trigger (no undo affordance).
+        Assert.True(response.Headers.TryGetValues("HX-Trigger", out var trig));
+        Assert.Contains("Confirmed 2 matches", string.Join("", trig!));
+    }
+
+    [Fact(DisplayName = "ConfirmAll honours a dealIds[] scope — confirms only the checked High deals, ignores foreign ids")]
+    public async Task ConfirmAll_Scopes_To_Requested_Ids()
+    {
+        factory.Reset();
+        var a = factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
+        var b = factory.SeedPending("High B", MatchConfidence.High, factory.BreadProduct);
+        var c = factory.SeedPending("High C", MatchConfidence.High, factory.MilkProduct);
+        var none = factory.SeedPending("Mystery", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // Post only A and C — plus a None id (outside the High eligible set) which must be ignored.
+        var response = await PostAsync(client, "/Deals/Review?handler=ConfirmAll",
+            Kv("__RequestVerificationToken", token),
+            Kv("dealIds", a.Id.Value.ToString()),
+            Kv("dealIds", c.Id.Value.ToString()),
+            Kv("dealIds", none.Id.Value.ToString()));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, a.Status);
+        Assert.Equal(DealStatus.Confirmed, c.Status);
+        Assert.Equal(DealStatus.Pending, b.Status);            // unchecked High stays pending
+        Assert.Equal(DealStatus.Pending, none.Status);         // foreign id ignored, not rejected
+        Assert.Equal(2, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "ConfirmAll a second time after re-render is an idempotent no-op (no extra observations, no toast)")]
+    public async Task ConfirmAll_Is_Idempotent()
+    {
+        factory.Reset();
+        factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedPending("Sourdough", MatchConfidence.High, factory.BreadProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var first = await PostAsync(client, "/Deals/Review?handler=ConfirmAll",
+            Kv("__RequestVerificationToken", token));
+        first.EnsureSuccessStatusCode();
+        Assert.Equal(2, factory.Observations.Calls);
+
+        // Re-drive: the queue already re-rendered from truth, nothing is eligible — a clean no-op.
+        var second = await PostAsync(client, "/Deals/Review?handler=ConfirmAll",
+            Kv("__RequestVerificationToken", token));
+        second.EnsureSuccessStatusCode();
+        Assert.Equal(2, factory.Observations.Calls);           // no additional writes
+        Assert.False(second.Headers.Contains("HX-Trigger"));   // nothing confirmed → no toast
+    }
+
+    [Fact(DisplayName = "DismissAll rejects every None deal — noise rows included — writes NO observation, and toasts")]
+    public async Task DismissAll_Rejects_None_Tier_Including_Noise()
+    {
+        factory.Reset();
+        var real = factory.SeedPending("Mystery Item", MatchConfidence.None, suggested: null, price: 3.49m);
+        var noise = factory.SeedPending("AD MATCH", MatchConfidence.None, suggested: null, price: 0m); // noise, included
+        factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);   // High — untouched
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, "/Deals/Review?handler=DismissAll",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Rejected, real.Status);
+        Assert.Equal(DealStatus.Rejected, noise.Status);       // the $0.00 noise row is dismissed too
+        Assert.Equal(0, factory.Observations.Calls);           // reject reaches Pricing never (D5)
+        Assert.Equal(1, factory.Repo.Items.Count(d => d.Status == DealStatus.Pending)); // the High deal stands
+        Assert.True(response.Headers.TryGetValues("HX-Trigger", out var trig));
+        Assert.Contains("Dismissed 2 deals", string.Join("", trig!));
+    }
+
+    [Fact(DisplayName = "DismissAll honours a dealIds[] scope — dismisses only the requested None deals")]
+    public async Task DismissAll_Scopes_To_Requested_Ids()
+    {
+        factory.Reset();
+        var a = factory.SeedPending("None A", MatchConfidence.None, suggested: null);
+        var b = factory.SeedPending("None B", MatchConfidence.None, suggested: null);
+        var c = factory.SeedPending("None C", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, "/Deals/Review?handler=DismissAll",
+            Kv("__RequestVerificationToken", token),
+            Kv("dealIds", a.Id.Value.ToString()),
+            Kv("dealIds", c.Id.Value.ToString()));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Rejected, a.Status);
+        Assert.Equal(DealStatus.Rejected, c.Status);
+        Assert.Equal(DealStatus.Pending, b.Status);            // unrequested None stays pending
+    }
+
+    [Fact(DisplayName = "DismissAll a second time after re-render is an idempotent no-op")]
+    public async Task DismissAll_Is_Idempotent()
+    {
+        factory.Reset();
+        factory.SeedPending("None A", MatchConfidence.None, suggested: null);
+        factory.SeedPending("None B", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var first = await PostAsync(client, "/Deals/Review?handler=DismissAll",
+            Kv("__RequestVerificationToken", token));
+        first.EnsureSuccessStatusCode();
+        Assert.Equal(2, factory.Repo.Items.Count(d => d.Status == DealStatus.Rejected));
+
+        var second = await PostAsync(client, "/Deals/Review?handler=DismissAll",
+            Kv("__RequestVerificationToken", token));
+        second.EnsureSuccessStatusCode();
+        Assert.Equal(2, factory.Repo.Items.Count(d => d.Status == DealStatus.Rejected)); // unchanged
+        Assert.False(second.Headers.Contains("HX-Trigger"));
+    }
+
+    [Fact(DisplayName = "Unauthenticated bulk POSTs are rejected")]
+    public async Task Bulk_Verbs_Require_Auth()
+    {
+        factory.Reset();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var confirm = await client.PostAsync("/Deals/Review?handler=ConfirmAll", new FormUrlEncodedContent([]));
+        var dismiss = await client.PostAsync("/Deals/Review?handler=DismissAll", new FormUrlEncodedContent([]));
+        Assert.Equal(HttpStatusCode.Unauthorized, confirm.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, dismiss.StatusCode);
+    }
 }
 
 /// <summary>
