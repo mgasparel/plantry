@@ -1141,6 +1141,10 @@ button { font-family: inherit; cursor: pointer; }
 .sheet__title { margin: 0; font-size: var(--font-size-lg); }
 .sheet__close { background: none; border: none; font-size: 1.6rem; line-height: 1; cursor: pointer; color: var(--color-text-muted); }
 .sheet__actions { display: flex; gap: var(--space-3); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+/* Disabled primary action (plantry-q9zr.6, RequireSelection) — dim it so "nothing picked yet" reads
+   visually, not just functionally. Only the Deals correction sheet gates its buttons this way; every
+   other consumer leaves them enabled, so this state never triggers there. Mirrors .editor .btn--primary:disabled. */
+.sheet__actions .btn--primary:disabled { background: var(--color-border); color: var(--color-text-faint); box-shadow: none; cursor: not-allowed; }
 /* Create-view header layout (plantry-nb4x): back-link stacks above the title, both left-aligned */
 .sheet__header-create { display: flex; flex-direction: column; gap: var(--space-1); }
 .sheet__back { background: none; border: none; padding: 0; font-family: inherit; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-accent); cursor: pointer; text-align: left; line-height: 1.3; }
@@ -1157,6 +1161,14 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 /* Grouped-box treatment for the sheet's host-slot fields (plantry-grvy) — e.g. Take Stock's
    opening-count + unit. Mirrors the .sheet-defaults box so the two patterns read as a family. */
 .sheet-slot-group { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); margin-top: var(--space-3); background: var(--color-bg-subtle); }
+
+/* Deal-context block (plantry-q9zr.6) — the raw flyer line being matched, shown verbatim at the top of
+   the Deals correction sheet (DD6 quarantine, made MORE visible here) with brand · price · store below.
+   Rendered only for the Deals consumer (opt-in ShowDealContext); mirrors the sheet's grouped-box family. */
+.sheet-deal-context { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-4); background: var(--color-surface-2); }
+.sheet-deal-context__label { font-size: var(--font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); margin-bottom: var(--space-1); }
+.sheet-deal-context__name { font-weight: 700; font-size: var(--font-size-base); line-height: 1.3; overflow-wrap: anywhere; }
+.sheet-deal-context__meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin-top: var(--space-2); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
 @media (max-width: 640px) {
   .sheet__panel { right: 0; left: 0; top: auto; width: 100%; max-height: 90vh; border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); animation: sheet-up 0.18s ease-out; }

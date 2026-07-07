@@ -173,6 +173,46 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("title=\"FRANK'S HOT SAUCE 375ML\"", html);
     }
 
+    // ── L4 correction sheet — deal context + prefilled search (q9zr.6) ─────────────
+
+    [Fact(DisplayName = "GET /Deals/Review renders the correction sheet titled 'Match to a product' with the deal-context block and a selection-gated Add")]
+    public async Task Correction_Sheet_Has_Match_Title_Deal_Context_And_Gated_Add()
+    {
+        factory.Reset();
+        factory.SeedPending("Milk 2L", MatchConfidence.Low, factory.MilkProduct);
+
+        var html = await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+
+        // (1) Search-view title is overridden for the Deals usage (Title param).
+        Assert.Contains("Match to a product", html);
+        // (2) Deal-context block renders, driven by the host's dealContext state (raw name + brand/price/store).
+        Assert.Contains("sheet-deal-context", html);
+        Assert.Contains("dealContext?.rawName", html);
+        Assert.Contains("dealContext?.store", html);
+        // (4) Add stays disabled until a product is picked (RequireSelection param).
+        Assert.Contains(":disabled=\"!draft.productId\"", html);
+    }
+
+    [Fact(DisplayName = "The queue exposes the DOM hooks the correction sheet reads for verbatim deal context")]
+    public async Task Queue_Exposes_Deal_Context_Dom_Hooks_For_The_Sheet()
+    {
+        factory.Reset();
+        factory.SeedPending("BREYERS CREAMERY STYLE ICE CREAM", MatchConfidence.Low, factory.MilkProduct);
+
+        var html = await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+
+        // openCorrect() reads the VERBATIM raw name from the name cell's title attribute (ACL quarantine)…
+        Assert.Contains("deal-review-row__name", html);
+        Assert.Contains("title=\"BREYERS CREAMERY STYLE ICE CREAM\"", html);
+        // …the brand from the brand span (SeedPending stamps a brand)…
+        Assert.Contains("deal-review-row__brand", html);
+        // …the price from the amount cell…
+        Assert.Contains("deal-row__amount", html);
+        // …and the store from the active flyer rail chip.
+        Assert.Contains("flyer-chip is-active", html);
+        Assert.Contains("<span class=\"store\">", html);
+    }
+
     // ── L4 flyer rail + chapters (q9zr.3) ──────────────────────────────────────────
 
     [Fact(DisplayName = "GET /Deals/Review renders the big-chip flyer rail with store, count, days-left and the progress header")]

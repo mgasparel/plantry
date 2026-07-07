@@ -122,9 +122,17 @@
 
         @* ── Header — title + close; when in create view adds "← Back to search" ── *@
         <header class="sheet__header">
-            @* Search-view title *@
-            <h2 class="sheet__title" x-show="sheetView !== 'create'"
-                x-text="editingIdx === null ? 'Add @Model.Noun' : 'Edit @Model.Noun'"></h2>
+            @* Search-view title. Model.Title (plantry-q9zr.6) overrides the add/edit wording when set
+               (Deals passes "Match to a product"); null keeps the existing behaviour byte-identical. *@
+            @if (Model.Title is { } searchTitle)
+            {
+                <h2 class="sheet__title" x-show="sheetView !== 'create'">@searchTitle</h2>
+            }
+            else
+            {
+                <h2 class="sheet__title" x-show="sheetView !== 'create'"
+                    x-text="editingIdx === null ? 'Add @Model.Noun' : 'Edit @Model.Noun'"></h2>
+            }
             @* Create-view header: backlink + title (both rendered server-side to avoid layout flash) *@
             <div class="sheet__header-create" x-show="sheetView === 'create'">
                 <button type="button" class="sheet__back"
@@ -136,6 +144,24 @@
             </div>
             <button type="button" class="sheet__close" aria-label="Close" @@click="closeSheet()">&times;</button>
         </header>
+
+        @* ── Deal-context block (plantry-q9zr.6) ──────────────────────────────────────────────────────
+           The raw flyer line being matched, shown VERBATIM (DD6 ACL quarantine — made MORE visible here,
+           not laundered) plus brand · price · store. Alpine-driven from the host's dealContext state,
+           set when the correction sheet opens for a specific deal. Emitted only when the consumer opts in
+           (Model.ShowDealContext), so Intake / Take Stock / Recipes render byte-identical. *@
+        @if (Model.ShowDealContext)
+        {
+            <div class="sheet-deal-context" x-show="dealContext" x-cloak>
+                <div class="sheet-deal-context__label">Matching this flyer deal</div>
+                <div class="sheet-deal-context__name" x-text="dealContext?.rawName"></div>
+                <div class="sheet-deal-context__meta">
+                    <span class="sheet-deal-context__brand" x-show="dealContext?.brand" x-text="dealContext?.brand"></span>
+                    <span class="sheet-deal-context__price" x-show="dealContext?.price" x-text="dealContext?.price"></span>
+                    <span class="sheet-deal-context__store" x-show="dealContext?.store" x-text="dealContext?.store"></span>
+                </div>
+            </div>
+        }
 
         @* ════════════════ SEARCH VIEW ════════════════ *@
         <div x-show="sheetView !== 'create'">
@@ -519,12 +545,18 @@
             To confirm: snapshots show `Create &amp; count` in the rendered HTML — correct for &.
         *@
         <div class="sheet__actions" x-show="sheetView !== 'create'">
+            @* :disabled (plantry-q9zr.6) is emitted only when the consumer opts into RequireSelection —
+               the search-view Add stays disabled until a product is picked. Razor omits the attribute
+               entirely when the expression is null, so other consumers render byte-identical. *@
             <button type="button" class="btn btn--primary" @@click="saveSheet()"
+                    :disabled="@(Model.RequireSelection ? "!draft.productId" : null)"
                     x-text="editingIdx === null ? 'Add' : 'Save'"></button>
             <button type="button" class="btn btn--ghost" @@click="closeSheet()">Cancel</button>
         </div>
         <div class="sheet__actions" x-show="sheetView === 'create'">
-            <button type="button" class="btn btn--primary" @@click="saveSheet()">
+            @* Create stays disabled until the create form is valid (name + unit) when RequireSelection is set. *@
+            <button type="button" class="btn btn--primary" @@click="saveSheet()"
+                    :disabled="@(Model.RequireSelection ? "!(draft.newStapleName && draft.newStapleName.trim()) || !draft.newStapleUnit" : null)">
                 @if (Model.ShowCreateAndCount) { <text>Create &amp; count</text> } else { <text>Create</text> }
             </button>
             <button type="button" class="btn btn--ghost"
