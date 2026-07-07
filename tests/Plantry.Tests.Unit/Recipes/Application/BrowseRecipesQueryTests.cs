@@ -17,7 +17,14 @@ public sealed class BrowseRecipesQueryTests
     private static readonly IClock Clock = SystemClock.Instance;
     private static readonly HouseholdId Household = HouseholdId.New();
     private static readonly Guid HouseholdGuid = Household.Value;
-    private static readonly DateOnly Today = new(2026, 6, 14);
+    // Track the same ambient clock BrowseRecipesQuery uses for its "expiring soon" comparison
+    // (BrowseRecipesQuery.cs: today = DateOnly.FromDateTime(DateTime.UtcNow)). Pinning this to a
+    // fixed calendar date made the "use soon" fixtures a time-bomb: an ingredient dated
+    // Today.AddDays(30) sits beyond the 7-day horizon only while real-now stays near the fixed
+    // date, so the test began failing once the wall clock drifted a few weeks past 2026-06-14.
+    // Basing the fixture dates on the same clock the query reads keeps the ±N-day offsets correct
+    // on every run (unrelated pre-existing failure surfaced during plantry-pqlo).
+    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 
     // ── Dedicated test doubles for BrowseRecipesQuery ────────────────────────
 

@@ -2222,6 +2222,16 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 }
 .recipe-ingredient__note--untracked { font-style: italic; }
 
+/* Four-field unit-conversion equation ([amt] [unit ▾] = [amt] [unit ▾]) shared by the
+   in-sheet ingredient prompt (Shared/_IngredientConversionPrompt) and the landed-row
+   block (Recipes/Edit), extracted via Shared/_ConversionEquation (plantry-pqlo).
+   Flex sizing keeps the row on ONE line inside the 440px sheet flyout and the phone
+   bottom-sheet, where the old fixed 5.5rem widths overflowed and wrapped. */
+.conv-eq { display: flex; align-items: center; gap: var(--space-2); }
+.conv-eq__amount { flex: 1 1 3rem; min-width: 0; max-width: 7rem; }
+.conv-eq__unit { flex: 0 1 auto; width: auto; min-width: 4rem; }
+.conv-eq__op { flex: none; font-size: var(--font-size-base); color: var(--color-text-muted); }
+
 .recipe-directions { display: flex; flex-direction: column; gap: var(--space-3); }
 /* Section heading (e.g. "Method") — warm accent, uppercase, no divider (proto .md h2). */
 .recipe-direction-section {

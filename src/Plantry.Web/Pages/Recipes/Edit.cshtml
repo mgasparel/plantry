@@ -217,11 +217,17 @@
          },
          saveSheet() {
              if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetOpen = false; return; }
-             // The in-sheet four-field equation (plantry-qno9) is the author's entry point; the committed
-             // row must NOT also show the single-factor row-level backstop. Clear needsConversion on commit —
-             // the raw equation values still POST via hidden inputs, and AuthorRecipe's post-write re-check
-             // re-surfaces the row-level backstop only if the entry genuinely does not connect.
-             this.draft.needsConversion = false;
+             // The in-sheet four-field equation (plantry-qno9) is the author's entry point. Clear
+             // needsConversion on commit ONLY when the author actually filled a valid equation
+             // (rowConvFilled) — then the landed row shows the neutral FILLED confirmation, and the raw
+             // equation values still POST via hidden inputs for AuthorRecipe's authoritative re-check.
+             // If the author saw the cross-dimension prompt but clicked Add without completing it, leave
+             // needsConversion set (plantry-mfoe): the committed row lands showing the MISSING ask
+             // immediately, not only after a later save bounce — matching plantry-wq9s's stated intent
+             // that MISSING covers the author-skipped-the-sheet-prompt case as well as the server bounce.
+             if (this.rowConvFilled(this.draft)) {
+                 this.draft.needsConversion = false;
+             }
              // When saving from the create view, mark the row as a tracked product create
              // (plantry-orix). The untracked-staple path (C12) is now only used when newIsTracked
              // is false — which is the legacy path kept for backward compatibility in the data model;
@@ -261,14 +267,24 @@
          // mid-typing. Pure client-side courtesy; the server re-check remains authoritative.
          // Shared by the in-sheet prompt (draft) and the landed-row block (row) via _convEchoText.
          _convEchoText(d) {
-             if (!d || !window.IngredientConversion) return '';
+             if (!d) return '';
+             // Read every reactive equation field BEFORE the module guard so Alpine's effect tracking
+             // captures them as dependencies even on the first evaluation — plantry-ac23. A server-seeded
+             // row (a save bounce, or editing a recipe with a pending gap) renders before the awaited
+             // dynamic import bridges window.IngredientConversion (the Scripts section runs after Alpine
+             // starts). If the guard short-circuited first, this effect would capture ZERO row deps and
+             // freeze the row's tone bindings (:class, saved-note/ask x-show) permanently — so the later
+             // inline edit would never live-flip MISSING→FILLED. window is not reactive, so we still bail
+             // when the module is absent; the captured deps guarantee a re-run once the author edits.
+             const leftAmount = d.convLeftAmount, rightAmount = d.convRightAmount;
              const lu = this._convUnitMeta(d.convLeftUnitId, d.stockUnits);
              const ru = this._convUnitMeta(d.convRightUnitId, d.recipeUnits);
              const stockDefault = this._convUnitMeta(d.defaultUnitId, d.stockUnits);
              const recipeLine = this._convUnitMeta(d.unitId, d.recipeUnits);
+             if (!window.IngredientConversion) return '';
              if (!lu || !ru || !stockDefault || !recipeLine) return '';
              const per = window.IngredientConversion.stockPerRecipeUnit({
-                 leftAmount: d.convLeftAmount, rightAmount: d.convRightAmount,
+                 leftAmount, rightAmount,
                  leftFactor: lu.factorToBase, rightFactor: ru.factorToBase,
                  recipeLineFactor: recipeLine.factorToBase, stockDefaultFactor: stockDefault.factorToBase });
              const num = window.IngredientConversion.formatEchoAmount(per);
@@ -828,39 +844,18 @@
                                                 How does 1 <span x-text="unitLabel(row.unitId)"></span> relate?
                                             </p>
 
-                                            @* Two-sided equation: LEFT (stock dimension) = RIGHT (recipe-line dimension),
-                                               each select locked to one axis — no cross-dimension nonsense pair. *@
-                                            <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-                                                <input type="number" class="field__input conv-eq__amount" step="any" min="0"
-                                                       placeholder="e.g. 120"
-                                                       x-model="row.convLeftAmount"
-                                                       aria-label="Stock amount"
-                                                       style="width:5.5rem" />
-                                                <select class="field__input conv-eq__unit" x-model="row.convLeftUnitId"
-                                                        aria-label="Stock unit" style="width:auto;min-width:5rem">
-                                                    <template x-for="u in (row.stockUnits || [])" :key="u.id">
-                                                        <option :value="u.id" x-text="u.code"></option>
-                                                    </template>
-                                                </select>
-                                                <span style="font-size:var(--font-size-base);color:var(--color-text-muted)">=</span>
-                                                <input type="number" class="field__input conv-eq__amount" step="any" min="0"
-                                                       placeholder="e.g. 1"
-                                                       x-model="row.convRightAmount"
-                                                       aria-label="Recipe amount"
-                                                       style="width:5.5rem" />
-                                                <select class="field__input conv-eq__unit" x-model="row.convRightUnitId"
-                                                        aria-label="Recipe unit" style="width:auto;min-width:5rem">
-                                                    <template x-for="u in (row.recipeUnits || [])" :key="u.id">
-                                                        <option :value="u.id" x-text="u.code"></option>
-                                                    </template>
-                                                </select>
-                                            </div>
+                                            @* Two-sided equation (LEFT stock dimension = RIGHT recipe-line dimension),
+                                               each select axis-locked, + the FILLED derived-echo line — shared partial
+                                               (plantry-pqlo). The saved-on-save note below stays here (row-specific). *@
+                                            <partial name="Shared/_ConversionEquation"
+                                                     model='new Plantry.Web.Pages.Shared.ConversionEquationViewModel
+                                                     {
+                                                         Root              = "row",
+                                                         EchoExpression    = "rowConversionEcho(row)",
+                                                         EchoShowExpression = "rowConvFilled(row)",
+                                                     }' />
 
-                                            @* FILLED — confirmation: derived echo + saved-on-save note, neutral/success tone *@
-                                            <p x-show="rowConvFilled(row)" x-cloak
-                                               style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
-                                                <span x-text="rowConversionEcho(row)"></span>
-                                            </p>
+                                            @* FILLED — saved-on-save note (row-specific), neutral tone *@
                                             <p x-show="rowConvFilled(row)" x-cloak
                                                style="margin:var(--space-1) 0 0;font-size:var(--font-size-sm);color:var(--color-text-muted)">
                                                 Saved to your catalog when you save the recipe.
