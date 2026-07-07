@@ -36,14 +36,28 @@ public sealed class MealPlannerAiService : IMealPlanner
     public MealPlannerAiService(
         IOptions<AiOptions> options,
         ILogger<MealPlannerAiService> logger)
+        : this(CreateClient(options.Value), options, logger)
+    {
+    }
+
+    // Test seam (plantry-vnme): lets unit tests script the completion boundary so the soft-fail (API error /
+    // empty response), cancellation-propagation, telemetry-span, and prompt-construction paths — which sit
+    // behind the concrete ChatClient and are invisible to the pure MapResponse mapper — can be asserted
+    // directly. Production always routes through the public ctor above, which builds the real client and
+    // delegates here — no behaviour, public-API, or DI change (mirrors DealMatcher/GeminiReceiptParser).
+    internal MealPlannerAiService(
+        ChatClient chat,
+        IOptions<AiOptions> options,
+        ILogger<MealPlannerAiService> logger)
     {
         _logger = logger;
-        var ai = options.Value;
-        _modelId = ai.Model;
-        var clientOptions = new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) };
-        _chat = new OpenAIClient(new ApiKeyCredential(ai.ApiKey), clientOptions)
-            .GetChatClient(ai.Model);
+        _chat = chat;
+        _modelId = options.Value.Model;
     }
+
+    private static ChatClient CreateClient(AiOptions ai) =>
+        new OpenAIClient(new ApiKeyCredential(ai.ApiKey), new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) })
+            .GetChatClient(ai.Model);
 
     private const string SystemPrompt = """
         You are a meal planning assistant. Given a set of empty meal slots for a week, propose one
