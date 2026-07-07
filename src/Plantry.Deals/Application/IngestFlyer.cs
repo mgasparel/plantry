@@ -272,9 +272,13 @@ public sealed class IngestFlyer(
         HouseholdId household, StoreSubscription sub, FlyerImportId importId, FlyerPullResult pull,
         IReadOnlySet<string>? frozenNames, CancellationToken ct)
     {
-        IReadOnlyList<ProductCandidate>? candidates = null;
-        var staged = new List<StagedDeal>();
-        var pending = 0;
+        // ── Pre-pass (per item): normalize, skip frozen, resolve memory (DD3). A memory hit — positive or
+        // negative — resolves the item here and never reaches the AI; only memory-MISSES are queued for the
+        // batch matcher, so we send the AI the smallest possible set (plantry-04ji). Order is preserved so
+        // the batch result aligns back positionally.
+        var items = new List<StagingItem>();
+        var toMatch = new List<RawDeal>();          // memory-misses, in order
+        var toMatchItems = new List<StagingItem>(); // parallel back-refs into `items`
 
         foreach (var raw in pull.Deals)
         {
@@ -283,46 +287,61 @@ public sealed class IngestFlyer(
             if (frozenNames is not null && frozenNames.Contains(normalized.Value))
                 continue; // resolved deal for this item — frozen, leave it be (DD13)
 
-            var (proposal, rememberedProductId) = await MatchAsync(sub.StoreId, raw, normalized, LoadCandidates, ct);
+            var memory = await memories.FindByKeyAsync(sub.StoreId, normalized.Value, ct);
+            if (memory is not null)
+            {
+                var proposal = memory.ProductId is { } remembered
+                    ? new MatchProposal(remembered, MatchConfidence.High, "remembered match")
+                    : MatchProposal.Unmatched(); // negative memory: "not a tracked product"
+                items.Add(new StagingItem(raw, normalized, proposal, memory.ProductId));
+                continue;
+            }
 
-            var deal = Deal.Stage(household, importId, sub.StoreId, raw, normalized, proposal, clock);
-            staged.Add(new StagedDeal(deal, rememberedProductId));
-            if (rememberedProductId is null)
+            var item = new StagingItem(raw, normalized, MatchProposal.Unmatched(), null);
+            items.Add(item);
+            toMatch.Add(raw);
+            toMatchItems.Add(item);
+        }
+
+        // ── Batch match the memory-misses in ONE call (the adapter chunks internally, one completion per
+        // chunk). Candidates are fetched once — and only when an AI match is actually needed.
+        if (toMatch.Count > 0)
+        {
+            var candidates = await products.ListCandidatesAsync(ct);
+            var proposals = await matcher.MatchBatchAsync(toMatch, candidates, ct);
+
+            for (var i = 0; i < toMatchItems.Count; i++)
+            {
+                // Defensive: the port promises positional alignment, but a misbehaving adapter/fake could
+                // under-fill — a missing position soft-fails to Unmatched rather than throwing.
+                var proposal = i < proposals.Count ? proposals[i] : MatchProposal.Unmatched();
+
+                // ADR-007 (belt-and-suspenders): an id outside the candidate set is an invention and is
+                // dropped. The real adapter already enforces this per item; this guards test fakes and any
+                // future adapter that doesn't.
+                if (proposal.SuggestedProductId is { } suggested && candidates.All(c => c.Id != suggested))
+                {
+                    logger.LogWarning("IngestFlyer: matcher suggested product {ProductId} not in the candidate set; dropping (ADR-007).", suggested);
+                    proposal = MatchProposal.Unmatched();
+                }
+
+                toMatchItems[i].Proposal = proposal;
+            }
+        }
+
+        // ── Materialize in original flyer order. Remembered matches carry their product id for auto-confirm;
+        // everything else lands Pending.
+        var staged = new List<StagedDeal>(items.Count);
+        var pending = 0;
+        foreach (var it in items)
+        {
+            var deal = Deal.Stage(household, importId, sub.StoreId, it.Raw, it.Normalized, it.Proposal, clock);
+            staged.Add(new StagedDeal(deal, it.RememberedProductId));
+            if (it.RememberedProductId is null)
                 pending++;
         }
 
         return new StagedDeals(staged, pending);
-
-        // Candidates are fetched lazily and once per import — only when an AI match is actually needed.
-        async Task<IReadOnlyList<ProductCandidate>> LoadCandidates() =>
-            candidates ??= await products.ListCandidatesAsync(ct);
-    }
-
-    /// <summary>
-    /// Stage 2 for one item: memory lookup first (DD3), else the untrusted AI matcher over candidates.
-    /// A positive memory → auto-confirm proposal; a negative memory → stays unmatched/Pending. An AI
-    /// suggestion outside the candidate set is an invention and is dropped (ADR-007).
-    /// </summary>
-    private async Task<(MatchProposal Proposal, Guid? RememberedProductId)> MatchAsync(
-        Guid storeId, RawDeal raw, NormalizedName normalized, Func<Task<IReadOnlyList<ProductCandidate>>> loadCandidates, CancellationToken ct)
-    {
-        var memory = await memories.FindByKeyAsync(storeId, normalized.Value, ct);
-        if (memory is not null)
-        {
-            return memory.ProductId is { } remembered
-                ? (new MatchProposal(remembered, MatchConfidence.High, "remembered match"), remembered)
-                : (MatchProposal.Unmatched(), null); // negative memory: "not a tracked product"
-        }
-
-        var candidates = await loadCandidates();
-        var proposal = await matcher.MatchAsync(raw, candidates, ct);
-        if (proposal.SuggestedProductId is { } suggested && candidates.All(c => c.Id != suggested))
-        {
-            logger.LogWarning("IngestFlyer: matcher suggested product {ProductId} not in the candidate set; dropping (ADR-007).", suggested);
-            proposal = MatchProposal.Unmatched();
-        }
-
-        return (proposal, null);
     }
 
     /// <summary>
@@ -390,4 +409,17 @@ public sealed class IngestFlyer(
     private sealed record StagedDeal(Deal Deal, Guid? RememberedProductId);
 
     private sealed record StagedDeals(IReadOnlyList<StagedDeal> Deals, int PendingCount);
+
+    /// <summary>
+    /// One non-frozen flyer item as it moves through staging: its raw + normalized form and the resolved
+    /// remembered product id (fixed at the pre-pass), plus a <see cref="Proposal"/> that is either set at
+    /// the pre-pass (memory hit) or filled in from the batch AI result (memory miss).
+    /// </summary>
+    private sealed class StagingItem(RawDeal raw, NormalizedName normalized, MatchProposal proposal, Guid? rememberedProductId)
+    {
+        public RawDeal Raw { get; } = raw;
+        public NormalizedName Normalized { get; } = normalized;
+        public MatchProposal Proposal { get; set; } = proposal;
+        public Guid? RememberedProductId { get; } = rememberedProductId;
+    }
 }

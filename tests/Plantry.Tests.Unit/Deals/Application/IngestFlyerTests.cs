@@ -282,4 +282,94 @@ public sealed class IngestFlyerTests
         Assert.Empty(h.Imports.Items);
         Assert.Empty(h.Source.PullCalls);
     }
+
+    [Fact(DisplayName = "The AI matcher is called ONCE per flyer with all items, not once per item (plantry-04ji)")]
+    public async Task Matcher_Is_Batched_Once_Per_Flyer()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        var deals = Enumerable.Range(0, 30).Select(i => Raw($"Item {i}")).ToArray();
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-batch", "{v:1}", deals));
+
+        await h.Build().RunAsync();
+
+        // One batch call from the application's view, carrying every item (the adapter chunks internally).
+        Assert.Equal(1, h.Matcher.BatchCalls);
+        Assert.Equal(30, h.Matcher.Calls.Count);
+        Assert.Equal(deals.Select(d => d.RawName), h.Matcher.Calls);
+    }
+
+    [Fact(DisplayName = "Memory hits are resolved BEFORE batching and never sent to the AI matcher (DD3)")]
+    public async Task Memory_Hits_Are_Excluded_From_The_Batch()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        // Positive + negative memory both short-circuit the AI; only the unremembered item is matched.
+        var remembered = Guid.NewGuid();
+        var posKey = DealNormalizer.Normalize("Known Milk");
+        var negKey = DealNormalizer.Normalize("Known Junk");
+        h.Memories.Items.Add(DealMatchMemory.Remember(Household, StoreId, posKey, "Known Milk", remembered, by: null, h.Clock));
+        h.Memories.Items.Add(DealMatchMemory.RememberNegative(Household, StoreId, negKey, "Known Junk", by: null, h.Clock));
+
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-mem", "{v:1}",
+            Raw("Known Milk"), Raw("Fresh Item"), Raw("Known Junk")));
+
+        await h.Build().RunAsync();
+
+        // Exactly one memory-miss reached the matcher; the two remembered items did not.
+        Assert.Equal(1, h.Matcher.BatchCalls);
+        Assert.Equal(["Fresh Item"], h.Matcher.Calls);
+    }
+
+    [Fact(DisplayName = "A flyer of only memory hits issues no AI call at all")]
+    public async Task All_Memory_Hits_Skip_The_Matcher_Entirely()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        var product = Guid.NewGuid();
+        var key = DealNormalizer.Normalize("Only Item");
+        h.Memories.Items.Add(DealMatchMemory.Remember(Household, StoreId, key, "Only Item", product, by: null, h.Clock));
+
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-allmem", "{v:1}", Raw("Only Item")));
+
+        await h.Build().RunAsync();
+
+        Assert.Equal(0, h.Matcher.BatchCalls);
+        Assert.Empty(h.Matcher.Calls);
+    }
+
+    [Fact(DisplayName = "Batch proposals map back to the correct deal positionally")]
+    public async Task Batch_Proposals_Align_Positionally()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+
+        var milk = Guid.NewGuid();
+        var cheese = Guid.NewGuid();
+        h.Products.Candidates.Add(new ProductCandidate(milk, "Milk"));
+        h.Products.Candidates.Add(new ProductCandidate(cheese, "Cheese"));
+        h.Matcher.ByRawName["Milk Item"] = new MatchProposal(milk, MatchConfidence.High, "milk");
+        h.Matcher.ByRawName["Cheese Item"] = new MatchProposal(cheese, MatchConfidence.Low, "cheese");
+        // "Plain Item" has no scripted proposal → Unmatched.
+
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-align", "{v:1}",
+            Raw("Milk Item"), Raw("Plain Item"), Raw("Cheese Item")));
+
+        await h.Build().RunAsync();
+
+        var milkDeal = h.Deals.Items.Single(d => d.RawName == "Milk Item");
+        Assert.Equal(milk, milkDeal.SuggestedProductId);
+        Assert.Equal(MatchConfidence.High, milkDeal.MatchConfidence);
+
+        var plainDeal = h.Deals.Items.Single(d => d.RawName == "Plain Item");
+        Assert.Null(plainDeal.SuggestedProductId);
+        Assert.Equal(MatchConfidence.None, plainDeal.MatchConfidence);
+
+        var cheeseDeal = h.Deals.Items.Single(d => d.RawName == "Cheese Item");
+        Assert.Equal(cheese, cheeseDeal.SuggestedProductId);
+        Assert.Equal(MatchConfidence.Low, cheeseDeal.MatchConfidence);
+    }
 }

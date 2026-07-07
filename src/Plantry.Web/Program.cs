@@ -415,6 +415,9 @@ else
 // per-household key; DM-7 unbuilt). DealMatcher builds a ChatClient at construction, which needs a
 // non-empty key, so with no key configured we register DisabledDealMatcher (soft-fails to Unmatched)
 // so a keyless dev/E2E host still resolves the port the P5-6 worker will consume.
+// ChunkSize (Deals:Matcher) controls how many memory-miss items ride in one completion (plantry-04ji);
+// bound unconditionally so the setting applies whenever the real adapter is active.
+builder.Services.Configure<DealMatcherOptions>(builder.Configuration.GetSection(DealMatcherOptions.SectionName));
 if (string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
     builder.Services.AddScoped<IDealMatcher, DisabledDealMatcher>();
 else
