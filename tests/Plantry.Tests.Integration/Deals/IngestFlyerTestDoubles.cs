@@ -85,6 +85,44 @@ internal sealed class AbortOnDealsSaveDealRepository(IDealRepository inner, int 
     }
 }
 
+/// <summary>
+/// Wraps a real <see cref="IDealRepository"/> and, on the first materialize <see cref="SaveChangesAsync"/>,
+/// throws a WRAPPER exception whose inner exception carries the real cause — the shape of a
+/// <c>DbUpdateException</c> ("An error occurred while saving the entity changes…") over a specific driver/DB
+/// message. Proves the Failed-recording path persists the base-exception message in <c>error_detail</c>, not
+/// the useless wrapper (plantry-cegw defect 1). Later calls delegate so recovery can commit.
+/// </summary>
+internal sealed class WrappedFaultDealRepository(IDealRepository inner) : IDealRepository
+{
+    public const string WrapperMessage = "An error occurred while saving the entity changes. See the inner exception for details.";
+    public const string RootCauseMessage = "null value in column \"valid_from\" of relation \"deal\" violates not-null constraint";
+
+    public bool HasFaulted { get; private set; }
+
+    public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) => inner.FindAsync(id, ct);
+
+    public Task<List<Deal>> ListBrowsableAsync(CancellationToken ct = default) => inner.ListBrowsableAsync(ct);
+
+    public Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default) =>
+        inner.ListByFlyerImportAsync(flyerImportId, ct);
+
+    public Task AddAsync(Deal deal, CancellationToken ct = default) => inner.AddAsync(deal, ct);
+
+    public void Remove(Deal deal) => inner.Remove(deal);
+
+    public void DiscardStagedChanges() => inner.DiscardStagedChanges();
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        if (!HasFaulted)
+        {
+            HasFaulted = true;
+            throw new InvalidOperationException(WrapperMessage, new InvalidOperationException(RootCauseMessage));
+        }
+        return inner.SaveChangesAsync(ct);
+    }
+}
+
 /// <summary>Cross-context port fakes for the L3 <see cref="IngestFlyer"/> isolation test — only the Deals
 /// persistence is real (RLS-armed); Catalog/Pricing/Flipp/AI seams are stubbed so the test isolates the
 /// tenancy behaviour of the ingestion writes.</summary>
