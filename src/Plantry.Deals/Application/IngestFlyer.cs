@@ -308,24 +308,34 @@ public sealed class IngestFlyer(
         if (toMatch.Count > 0)
         {
             var candidates = await products.ListCandidatesAsync(ct);
-            var proposals = await matcher.MatchBatchAsync(toMatch, candidates, ct);
 
-            for (var i = 0; i < toMatchItems.Count; i++)
+            // ── Empty-catalog guard (plantry-04ji.2). With no candidate products the matcher can only ever
+            // return Unmatched — every chunk completion would be a guaranteed-'none' AI call (a new or empty
+            // catalog otherwise burns one completion per chunk for zero information). Skip the matcher entirely;
+            // the memory-miss items already default to MatchProposal.Unmatched() (set at the pre-pass), so they
+            // correctly stay Pending. The candidate load stays lazy here — the all-memory-hit path returns
+            // before this block and never queries the catalog at all.
+            if (candidates.Count > 0)
             {
-                // Defensive: the port promises positional alignment, but a misbehaving adapter/fake could
-                // under-fill — a missing position soft-fails to Unmatched rather than throwing.
-                var proposal = i < proposals.Count ? proposals[i] : MatchProposal.Unmatched();
+                var proposals = await matcher.MatchBatchAsync(toMatch, candidates, ct);
 
-                // ADR-007 (belt-and-suspenders): an id outside the candidate set is an invention and is
-                // dropped. The real adapter already enforces this per item; this guards test fakes and any
-                // future adapter that doesn't.
-                if (proposal.SuggestedProductId is { } suggested && candidates.All(c => c.Id != suggested))
+                for (var i = 0; i < toMatchItems.Count; i++)
                 {
-                    logger.LogWarning("IngestFlyer: matcher suggested product {ProductId} not in the candidate set; dropping (ADR-007).", suggested);
-                    proposal = MatchProposal.Unmatched();
-                }
+                    // Defensive: the port promises positional alignment, but a misbehaving adapter/fake could
+                    // under-fill — a missing position soft-fails to Unmatched rather than throwing.
+                    var proposal = i < proposals.Count ? proposals[i] : MatchProposal.Unmatched();
 
-                toMatchItems[i].Proposal = proposal;
+                    // ADR-007 (belt-and-suspenders): an id outside the candidate set is an invention and is
+                    // dropped. The real adapter already enforces this per item; this guards test fakes and any
+                    // future adapter that doesn't.
+                    if (proposal.SuggestedProductId is { } suggested && candidates.All(c => c.Id != suggested))
+                    {
+                        logger.LogWarning("IngestFlyer: matcher suggested product {ProductId} not in the candidate set; dropping (ADR-007).", suggested);
+                        proposal = MatchProposal.Unmatched();
+                    }
+
+                    toMatchItems[i].Proposal = proposal;
+                }
             }
         }
 

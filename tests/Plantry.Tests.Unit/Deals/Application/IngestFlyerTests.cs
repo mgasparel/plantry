@@ -288,6 +288,9 @@ public sealed class IngestFlyerTests
     {
         var h = new Harness();
         h.Subscribe(StoreId, ExternalRef);
+        // A non-empty catalog: the empty-catalog guard (plantry-04ji.2) skips the matcher when there are no
+        // candidates, so one candidate must exist for the "matcher IS batched" path to run.
+        h.Products.Candidates.Add(new ProductCandidate(Guid.NewGuid(), "Some Product"));
 
         var deals = Enumerable.Range(0, 30).Select(i => Raw($"Item {i}")).ToArray();
         h.Source.EnqueuePull(ExternalRef, Pull("flyer-batch", "{v:1}", deals));
@@ -305,6 +308,10 @@ public sealed class IngestFlyerTests
     {
         var h = new Harness();
         h.Subscribe(StoreId, ExternalRef);
+
+        // A non-empty catalog so the memory-miss item actually reaches the matcher (the empty-catalog guard,
+        // plantry-04ji.2, would otherwise skip the matcher regardless of the memory split).
+        h.Products.Candidates.Add(new ProductCandidate(Guid.NewGuid(), "Some Product"));
 
         // Positive + negative memory both short-circuit the AI; only the unremembered item is matched.
         var remembered = Guid.NewGuid();
@@ -339,6 +346,33 @@ public sealed class IngestFlyerTests
 
         Assert.Equal(0, h.Matcher.BatchCalls);
         Assert.Empty(h.Matcher.Calls);
+    }
+
+    [Fact(DisplayName = "An empty candidate catalog skips the AI matcher entirely; every item lands Pending/Unmatched (plantry-04ji.2)")]
+    public async Task Empty_Candidate_Catalog_Skips_The_Matcher_Entirely()
+    {
+        var h = new Harness();
+        h.Subscribe(StoreId, ExternalRef);
+        // No candidates added: an empty/new catalog. Every completion could only ever return 'none'.
+
+        var deals = Enumerable.Range(0, 20).Select(i => Raw($"Item {i}")).ToArray();
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-empty-catalog", "{v:1}", deals));
+
+        var summary = await h.Build().RunAsync();
+
+        // The guard: not a single AI call is issued despite 20 memory-miss items.
+        Assert.Equal(0, h.Matcher.BatchCalls);
+        Assert.Empty(h.Matcher.Calls);
+
+        // Every deal still staged — Pending, with no suggested product.
+        Assert.Equal(20, summary.PendingCreated);
+        Assert.Equal(20, h.Deals.Items.Count);
+        Assert.All(h.Deals.Items, d =>
+        {
+            Assert.Equal(DealStatus.Pending, d.Status);
+            Assert.Null(d.SuggestedProductId);
+            Assert.Equal(MatchConfidence.None, d.MatchConfidence);
+        });
     }
 
     [Fact(DisplayName = "Batch proposals map back to the correct deal positionally")]
