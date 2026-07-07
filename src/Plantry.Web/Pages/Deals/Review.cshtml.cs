@@ -50,8 +50,40 @@ public sealed class ReviewModel(
     ITenantContext tenant,
     ILogger<ReviewModel> logger) : PageModel
 {
-    /// <summary>The deal cards to render — the pending queue, or a single deal for a focused correction.</summary>
+    /// <summary>
+    /// The deal cards to render — the <b>active flyer's</b> pending deals (queue path), or a single deal
+    /// for a focused correction (<c>?dealId=</c> path). The rail chapters the whole pending queue; the card
+    /// list below it only ever shows the one flyer being reviewed.
+    /// </summary>
     public IReadOnlyList<DealReviewView> Deals { get; private set; } = [];
+
+    /// <summary>The flyer rail (q9zr.3) — density-switching chapters over the whole pending queue.</summary>
+    public FlyerRail Rail { get; private set; } = new([]);
+
+    /// <summary>The active flyer being reviewed (its deals populate <see cref="Deals"/>), or null.</summary>
+    public FlyerBlock? ActiveFlyer { get; private set; }
+
+    /// <summary>The active flyer's routing key — threaded onto each verb so a re-render stays on this flyer.</summary>
+    public string? ActiveFlyerKey { get; private set; }
+
+    /// <summary>Overall reviewed count (N) for the "N of M reviewed" progress header.</summary>
+    public int ReviewedCount { get; private set; }
+
+    /// <summary>Overall total (M) — in-window Pending+Confirmed — for the progress header.</summary>
+    public int TotalCount { get; private set; }
+
+    /// <summary>Reviewed percentage for the overall <c>_Meter</c> fill (0 when nothing is in window).</summary>
+    public int OverallPercent => TotalCount == 0 ? 0 : (int)Math.Round(ReviewedCount * 100.0 / TotalCount);
+
+    /// <summary>True on the focused single-deal correction path — suppresses the rail/progress chrome.</summary>
+    public bool IsSingleCorrection { get; private set; }
+
+    /// <summary>
+    /// True when the requested flyer has just been fully reviewed but other flyers still have work — render
+    /// the per-flyer done interstitial handing off to <see cref="ActiveFlyer"/> (the next flyer) instead of
+    /// its cards.
+    /// </summary>
+    public bool ShowHandoff { get; private set; }
 
     /// <summary>Unit options for the inline-create sheet's Defaults collapsible (Unit is required on create).</summary>
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
@@ -66,15 +98,15 @@ public sealed class ReviewModel(
     /// correction edge) — a single focused card for that deal. An unknown/rejected deal id falls back to
     /// the queue.
     /// </summary>
-    public async Task<IActionResult> OnGetAsync(Guid? dealId, CancellationToken ct = default)
+    public async Task<IActionResult> OnGetAsync(Guid? dealId, string? flyer, CancellationToken ct = default)
     {
-        await LoadSheetOptionsAsync(ct);
-
         if (dealId is { } id)
         {
+            await LoadSheetOptionsAsync(ct);
             var one = await reviewDeals.FindAsync(DealId.From(id), ct);
             if (one is not null)
             {
+                IsSingleCorrection = true;
                 Deals = [one];
                 return Page();
             }
@@ -82,8 +114,14 @@ public sealed class ReviewModel(
             return RedirectToPage("./Review");
         }
 
-        Deals = await reviewDeals.ListPendingAsync(ct);
-        return Page();
+        await BuildQueueAsync(flyer, ct);
+
+        // Flyer navigation (rail chip/pill click) is an htmx swap of #review-region — return just the
+        // fragment. A full navigation / refresh (?flyer= in the address bar) renders the whole page, so the
+        // deep-link is idempotent. Same HX-Request detection as Recipes/Index and Intake/Review.
+        return Request.Headers.ContainsKey("HX-Request")
+            ? Partial("_ReviewQueue", this)
+            : Page();
     }
 
     // ── GET (product search — the Correct sheet, htmx) ──────────────────────────
@@ -113,27 +151,28 @@ public sealed class ReviewModel(
     // ── POST (verbs — each re-renders the queue fragment from server truth) ──────
 
     /// <summary>Confirm: accept the AI suggestion. The suggested product id is read server-side from the deal.</summary>
-    public async Task<IActionResult> OnPostConfirmAsync([FromQuery] Guid dealId, CancellationToken ct = default)
+    public async Task<IActionResult> OnPostConfirmAsync(
+        [FromQuery] Guid dealId, [FromQuery] string? flyer, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
             return Forbid();
 
         var view = await reviewDeals.FindAsync(DealId.From(dealId), ct);
         if (view is null)
-            return await QueueFragmentAsync(ct);
+            return await QueueFragmentAsync(flyer, ct);
 
         if (view.SuggestedProductId is not { } productId)
         {
             // A None/"Unrecognized" deal has no suggestion to accept — the UI never offers Confirm here.
             logger.LogWarning("Confirm rejected for deal {DealId}: no suggested product to accept.", dealId);
-            return await QueueFragmentAsync(ct);
+            return await QueueFragmentAsync(flyer, ct);
         }
 
         var result = await confirmDeal.ConfirmAsync(DealId.From(dealId), productId, CurrentUserId, ct);
         if (result.IsFailure)
             logger.LogWarning("Confirm deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
 
-        return await QueueFragmentAsync(ct);
+        return await QueueFragmentAsync(flyer, ct);
     }
 
     /// <summary>
@@ -146,6 +185,7 @@ public sealed class ReviewModel(
         [FromForm] string? newProductName,
         [FromForm] Guid? newProductUnitId,
         [FromForm] Guid? newProductCategoryId,
+        [FromForm] string? flyer,
         CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
@@ -166,25 +206,26 @@ public sealed class ReviewModel(
             {
                 logger.LogWarning(
                     "Inline product create failed while correcting deal {DealId}: {ErrorCode}.", dealId, created.Error.Code);
-                return await QueueFragmentAsync(ct);
+                return await QueueFragmentAsync(flyer, ct);
             }
             resolvedProductId = created.Value;
         }
         else
         {
             logger.LogWarning("Correct deal {DealId} rejected: neither an existing nor a new product was supplied.", dealId);
-            return await QueueFragmentAsync(ct);
+            return await QueueFragmentAsync(flyer, ct);
         }
 
         var result = await confirmDeal.CorrectAsync(DealId.From(dealId), resolvedProductId, CurrentUserId, ct);
         if (result.IsFailure)
             logger.LogWarning("Correct deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
 
-        return await QueueFragmentAsync(ct);
+        return await QueueFragmentAsync(flyer, ct);
     }
 
     /// <summary>Reject: leave the queue, write no price observation (D5).</summary>
-    public async Task<IActionResult> OnPostRejectAsync([FromQuery] Guid dealId, CancellationToken ct = default)
+    public async Task<IActionResult> OnPostRejectAsync(
+        [FromQuery] Guid dealId, [FromQuery] string? flyer, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
             return Forbid();
@@ -193,7 +234,7 @@ public sealed class ReviewModel(
         if (result.IsFailure)
             logger.LogWarning("Reject deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
 
-        return await QueueFragmentAsync(ct);
+        return await QueueFragmentAsync(flyer, ct);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -210,11 +251,38 @@ public sealed class ReviewModel(
         return result.Value.Value;
     }
 
-    private async Task<IActionResult> QueueFragmentAsync(CancellationToken ct)
+    private async Task<IActionResult> QueueFragmentAsync(string? flyer, CancellationToken ct)
+    {
+        await BuildQueueAsync(flyer, ct);
+        return Partial("_ReviewQueue", this);
+    }
+
+    /// <summary>
+    /// Builds the flyer-chaptered queue view (q9zr.3): projects the pending queue into flyer blocks +
+    /// progress counts, resolves the active flyer from <paramref name="flyer"/> (default = soonest-expiring
+    /// pending), and detects the per-flyer handoff. <see cref="Deals"/> is scoped to the active flyer so the
+    /// card list renders one chapter at a time; the rail chapters the whole queue.
+    /// </summary>
+    private async Task BuildQueueAsync(string? flyer, CancellationToken ct)
     {
         await LoadSheetOptionsAsync(ct);
-        Deals = await reviewDeals.ListPendingAsync(ct);
-        return Partial("_ReviewQueue", this);
+
+        var projection = await reviewDeals.ProjectPendingQueueAsync(ct);
+        ReviewedCount = projection.ReviewedCount;
+        TotalCount = projection.TotalCount;
+
+        ActiveFlyerKey = FlyerRail.ResolveActiveKey(projection.Flyers, flyer);
+        ActiveFlyer = projection.Flyers.FirstOrDefault(f => f.Key == ActiveFlyerKey);
+        Rail = FlyerRail.Build(projection.Flyers, ActiveFlyerKey);
+
+        // Handoff: a specific flyer was requested but it is no longer in the pending set (its last deal was
+        // just resolved), while other flyers still have work — show the done interstitial pointing at the
+        // next (now-active) flyer. A null request (fresh load) never triggers it.
+        ShowHandoff = flyer is not null
+            && projection.Flyers.All(f => f.Key != flyer)
+            && projection.Flyers.Count > 0;
+
+        Deals = ActiveFlyer?.Deals ?? [];
     }
 
     private async Task LoadSheetOptionsAsync(CancellationToken ct)

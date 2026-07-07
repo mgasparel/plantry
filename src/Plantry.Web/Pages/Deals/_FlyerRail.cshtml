@@ -1,0 +1,94 @@
+@model Plantry.Web.Pages.Deals.FlyerRail
+
+@*
+    The flyer rail (q9zr.3, scope 2) — Deals Review flyer chapters at two densities, consuming the library
+    patterns (.flyer-chip / .flyer-pill / .rail-summary / .active-flyer-line, landed in Dev/Index + plenish
+    by q9zr.1). Each chapter navigates via htmx (?flyer=<key>) swapping #review-region from server truth,
+    with hx-push-url so a refresh is idempotent. Store name + validity dates appear ONLY here.
+
+    ≤3 flyers: big .flyer-chip cards (store, count·expiry pill, valid range). >3: compact expiry-sorted
+    .flyer-pills with a .rail-summary roll-up above and the active flyer's detail demoted to the
+    .active-flyer-line below. The "View flyer" link slot renders only when a URL exists (q9zr.7 not landed —
+    always empty for now).
+*@
+
+@if (Model.Chapters.Count == 0)
+{
+    return;
+}
+
+@if (!Model.IsCompact)
+{
+    <div class="flyers">
+        @foreach (var f in Model.Chapters)
+        {
+            <button type="button"
+                    class="flyer-chip @(f.IsActive ? "is-active" : null) @(f.IsDone ? "is-done" : null)"
+                    hx-get="/Deals/Review?flyer=@f.Key"
+                    hx-target="#review-region"
+                    hx-swap="innerHTML"
+                    hx-push-url="/Deals/Review?flyer=@f.Key"
+                    aria-label="@f.StoreName, @f.PendingCount deals, expires in @f.ExpiresInDays days">
+                <span class="store">@f.StoreName</span>
+                @if (f.IsDone)
+                {
+                    <span class="left done">&#10003; done</span>
+                }
+                else
+                {
+                    <span class="left @(f.IsUrgent ? "urgent" : null)">@f.PendingExpiryLabel</span>
+                }
+                <span class="meta">
+                    Valid @f.ValidRange
+                    @if (f.FlyerUrl is { } url)
+                    {
+                        <text>&middot; <a class="flyer-link" href="@url" target="_blank" rel="noopener" onclick="event.stopPropagation()">View flyer &#8599;</a></text>
+                    }
+                </span>
+            </button>
+        }
+    </div>
+}
+else
+{
+    <p class="rail-summary">
+        <b>@Model.WaitingCount flyers</b> waiting &middot; @Model.WaitingDeals deals &middot;
+        closest expiry <b>@Model.SoonestExpiryLabel</b>
+    </p>
+    <div class="flyers flyers--compact">
+        @foreach (var f in Model.Chapters)
+        {
+            <button type="button"
+                    class="flyer-pill @(f.IsActive ? "is-active" : null) @(f.IsDone ? "is-done" : null)"
+                    hx-get="/Deals/Review?flyer=@f.Key"
+                    hx-target="#review-region"
+                    hx-swap="innerHTML"
+                    hx-push-url="/Deals/Review?flyer=@f.Key"
+                    aria-label="@f.StoreName, @f.PendingCount deals, expires in @f.ExpiresInDays days">
+                <span class="store">@f.StoreName</span>
+                @if (!f.IsDone)
+                {
+                    <span class="n">@f.PendingCount</span>
+                    <span class="d @(f.IsUrgent ? "urgent" : null)">@f.ExpiryShort</span>
+                }
+                else
+                {
+                    <span class="d">&#10003;</span>
+                }
+            </button>
+        }
+    </div>
+
+    @* Active-flyer context line — the demoted detail (store, dates, View-flyer link) for the open flyer. *@
+    @if (Model.Chapters.FirstOrDefault(c => c.IsActive) is { } active)
+    {
+        <div class="active-flyer-line">
+            <span class="store">@active.StoreName</span>
+            <span>valid @active.ValidRange</span>
+            @if (active.FlyerUrl is { } activeUrl)
+            {
+                <a class="flyer-link" href="@activeUrl" target="_blank" rel="noopener">View flyer &#8599;</a>
+            }
+        </div>
+    }
+}

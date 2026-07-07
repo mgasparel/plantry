@@ -23,6 +23,10 @@
     var isPending = Model.Status == DealStatus.Pending;
     // View-level flyer-noise flag: a $0.00 "AD MATCH" line carries no usable price (q9zr.10). No domain state.
     var isNoise = DealReviewDisplay.IsNoise(Model.Price);
+    // Active flyer key (q9zr.3) — threaded onto each verb so the re-render stays on this flyer. Set by the
+    // hosting _ReviewQueue; empty on the single-deal correction path (verbs fall back to the default flyer).
+    var flyerKey = ViewData["FlyerKey"] as string;
+    var flyerQs = string.IsNullOrEmpty(flyerKey) ? "" : $"&flyer={flyerKey}";
 }
 
 <li class="catalog-list__item deal-review-row @(isNoise ? "deal-review-row--noise" : null)"
@@ -38,14 +42,13 @@
                     <span class="deal-review-row__brand">@Model.Brand</span>
                 }
             </span>
-            <span class="catalog-list__secondary">
-                @Model.StoreName
-                @if (!string.IsNullOrWhiteSpace(Model.SaleStory))
-                {
-                    <span>&middot; @Model.SaleStory</span>
-                }
-                <span>&middot; Valid @Model.ValidFrom.ToString("d MMM") &ndash; @Model.ValidTo.ToString("d MMM")</span>
-            </span>
+            @* Store name + validity dates deliberately omitted (q9zr.3 dedupe ruling): they live only in
+               the flyer rail / active-flyer context line, never per card. Only the per-deal sale story
+               (when present) shows here. *@
+            @if (!string.IsNullOrWhiteSpace(Model.SaleStory))
+            {
+                <span class="catalog-list__secondary">@Model.SaleStory</span>
+            }
         </div>
         <div class="deal-review-row__price">
             <span class="deal-row__amount">@Model.Price.ToString("C2", CultureInfo.CurrentCulture)</span>
@@ -84,7 +87,7 @@
         {
             <button type="button"
                     class="btn @(Model.Confidence == MatchConfidence.High ? "btn--primary" : "btn--secondary") btn--sm"
-                    hx-post="/Deals/Review?handler=Confirm&dealId=@dealId"
+                    hx-post="/Deals/Review?handler=Confirm&dealId=@dealId@flyerQs"
                     hx-target="#review-region"
                     hx-swap="innerHTML">
                 <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
@@ -99,7 +102,7 @@
             Correct
         </button>
         <button type="button" class="btn btn--ghost btn--sm deal-review-row__reject"
-                hx-post="/Deals/Review?handler=Reject&dealId=@dealId"
+                hx-post="/Deals/Review?handler=Reject&dealId=@dealId@flyerQs"
                 hx-target="#review-region"
                 hx-swap="innerHTML">
             Reject
