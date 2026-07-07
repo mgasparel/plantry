@@ -61,6 +61,80 @@ public sealed class FlyerSourceTests
         }
         """;
 
+    // A recorded /flyers/{id}/flyer_items payload modelled on the 2026-07-06 FreshCo pull (flyer 8006782):
+    // real deals interleaved with the non-product marketing rows Flipp ships as $0 items — 'PRICE DROP',
+    // 'ALWAYS LOW PRICE', 'VALUE THAT MAKES YOU GO GAGA' — plus $0 rows that carry a brand / size / sale
+    // story and so must be KEPT (prefer false negatives over dropping a real deal).
+    private const string RecordedItemsWithMarketingRows = """
+        {
+          "flyer_items": [
+            { "name": "Chicken Breast", "brand": "Maple Leaf", "size": "1 kg", "current_price": 8.99 },
+            { "name": "Bananas", "size": "per lb", "current_price": 0.59 },
+            { "name": "Multi Yogurt", "sale_story": "2 for $5" },
+            { "name": "PRICE DROP" },
+            { "name": "ALWAYS LOW PRICE", "current_price": 0 },
+            { "name": "VALUE THAT MAKES YOU GO GAGA", "current_price": 0.00 },
+            { "name": "Free Range Eggs", "brand": "Burnbrae", "current_price": 0 },
+            { "name": "Mystery Roast", "size": "500 g", "current_price": 0 },
+            { "name": "BOGO Chips", "sale_story": "Buy one get one free", "current_price": 0 }
+          ]
+        }
+        """;
+
+    // ── Junk-item filter (ADR-007 ACL boundary — marketing rows never reach the domain) ──────────────
+
+    [Fact]
+    public void MapFlyer_Drops_Marketing_Decoration_Rows_And_Reports_The_Filtered_Count()
+    {
+        var result = FlyerSource.MapFlyer(RecordedFlyer, RecordedItemsWithMarketingRows);
+
+        Assert.False(result.HasError);
+
+        // The three $0 chrome rows (no brand/size/sale story) are dropped; the six substantive rows remain.
+        Assert.Equal(3, result.FilteredItemCount);
+        Assert.Equal(6, result.Deals.Count);
+
+        // The marketing decoration never reaches the domain.
+        Assert.DoesNotContain(result.Deals, d => d.RawName == "PRICE DROP");
+        Assert.DoesNotContain(result.Deals, d => d.RawName == "ALWAYS LOW PRICE");
+        Assert.DoesNotContain(result.Deals, d => d.RawName == "VALUE THAT MAKES YOU GO GAGA");
+    }
+
+    [Theory]
+    // A $0 row is KEPT when it carries any product substance — prefer a false negative a human can reject
+    // over a silently dropped real deal.
+    [InlineData("Free Range Eggs")] // has a brand
+    [InlineData("Mystery Roast")]   // has a size
+    [InlineData("BOGO Chips")]      // has a sale story (price stays 0, still kept)
+    public void MapFlyer_Keeps_Zero_Price_Rows_That_Carry_Brand_Size_Or_Sale_Story(string keptName)
+    {
+        var result = FlyerSource.MapFlyer(RecordedFlyer, RecordedItemsWithMarketingRows);
+
+        Assert.Contains(result.Deals, d => d.RawName == keptName);
+    }
+
+    [Fact]
+    public void MapFlyer_Keeps_Multi_Buy_Promo_Even_When_Unit_Price_Parses_To_Zero()
+    {
+        var result = FlyerSource.MapFlyer(RecordedFlyer, RecordedItemsWithMarketingRows);
+
+        // "2 for $5" parses to a positive total, so the row survives the junk filter and is a real deal.
+        var yogurt = result.Deals.Single(d => d.RawName == "Multi Yogurt");
+        Assert.Equal(5m, yogurt.Price);
+        Assert.Equal(2m, yogurt.Quantity);
+        Assert.Equal("2 for $5", yogurt.SaleStory);
+    }
+
+    [Fact]
+    public void MapFlyer_Reports_Zero_Filtered_When_No_Marketing_Rows_Present()
+    {
+        // The original happy-path fixture has no $0 chrome rows — nothing is filtered.
+        var result = FlyerSource.MapFlyer(RecordedFlyer, RecordedItems);
+
+        Assert.Equal(0, result.FilteredItemCount);
+        Assert.Equal(3, result.Deals.Count);
+    }
+
     // ── Directory search ────────────────────────────────────────────────────────────────────────────
 
     [Fact]

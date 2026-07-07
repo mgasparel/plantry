@@ -24,12 +24,17 @@ public sealed record DirectoryMerchant(string ExternalRef, string Name);
 /// is <c>null</c>. Build failures with <see cref="Failed"/>.
 /// </para>
 /// </summary>
+/// <param name="FilteredItemCount">How many raw flyer rows the adapter dropped as non-product marketing
+/// decoration (e.g. Flipp's $0 "PRICE DROP" / "ALWAYS LOW PRICE" chrome) before they could become
+/// <see cref="Deals"/>. Diagnostic only — surfaced on the pull log line so the AI-matcher-cost saving is
+/// observable; it never changes what the domain persists. Zero on a soft-failure result.</param>
 public sealed record FlyerPullResult(
     string FlyerExternalId,
     ValidityWindow? Window,
     string RawContent,
     IReadOnlyList<RawDeal> Deals,
-    string? ErrorMessage = null)
+    string? ErrorMessage = null,
+    int FilteredItemCount = 0)
 {
     /// <summary>True when the pull soft-failed; the caller maps this to <c>FlyerImport.MarkFailed</c>.</summary>
     public bool HasError => ErrorMessage is not null;
