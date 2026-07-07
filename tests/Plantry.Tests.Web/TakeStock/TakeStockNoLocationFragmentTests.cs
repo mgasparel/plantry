@@ -57,7 +57,7 @@ public sealed class TakeStockNoLocationFragmentTests : IClassFixture<TakeStockNo
         Assert.Contains("Pantry", html);
         Assert.Contains("Fridge", html);
         // Save bar markup is rendered
-        Assert.Contains("ts-savebar", html);
+        Assert.Contains("bar-sticky-bottom", html);
     }
 
     [Fact(DisplayName = "GET /pantry/take-stock/no-location renders empty state when no unplaced products")]

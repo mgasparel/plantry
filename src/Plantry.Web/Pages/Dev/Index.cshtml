@@ -764,6 +764,161 @@
 </section>
 
 @*
+    ── Deals Review shared primitives (plantry-q9zr.1) ─────────────────────────────────────────────
+    Toast, sticky bars, page-progress header, keyboard hints, guided-flow step nav, and the flyer
+    rail. Generalised from the Take Stock walk + the Deals Review guided-flow prototype so every
+    feature page composes the same building blocks. CSS lives at the foot of plenish.css.
+*@
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Toast (<code>.toast</code>)</h2>
+    </div>
+    <p>
+        Fixed bottom-centre status pill — the single confirmation primitive. Framework-agnostic:
+        the Take Stock walk renders it from its Preact island; an Alpine page toggles it with
+        <code>x-show</code>. Always give it <code>role="status" aria-live="polite"</code> so it
+        announces, and dismiss on click. Generalised from the former <code>.ts-toast</code>.
+    </p>
+    <p><em>Shown static below; in use it is <code>position: fixed</code> at the bottom-centre of the viewport.</em></p>
+    <div style="margin-bottom: var(--space-4)">
+        <div class="toast" role="status" style="position: static; transform: none; display: inline-flex;">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            <span>3 items filed</span>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"toast\" role=\"status\" aria-live=\"polite\" x-show=\"toast !== null\" x-on:click=\"toast = null\">\n  <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-check\" /></svg>\n  <span x-text=\"toast\"></span>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Sticky bars — the long-list idiom (<code>.bar-sticky-top</code> / <code>.bar-sticky-bottom</code>)</h2>
+    </div>
+    <p>
+        For a full-length list (never a nested scrollbox): tools stick to the top, the commit action
+        sticks to the bottom. <code>.bar-sticky-top</code> is a blurred toolbar; <code>.bar-sticky-bottom</code>
+        is the commit bar — a flex row with the summary on the left and the primary action on the right.
+        Generalised from Take Stock's add / save bars.
+    </p>
+    <p>
+        <strong>Gotcha:</strong> <code>position: sticky</code> is inert inside an <code>overflow: hidden</code>
+        ancestor. The app <code>.card</code> clips, so a card hosting these bars must add
+        <code>.card--overflow-visible</code>; its first / last children then round their own edges.
+    </p>
+    <div class="card card--overflow-visible" style="margin-bottom: var(--space-4)">
+        <div class="bar-sticky-top" style="position: static; padding-left: var(--space-5); padding-right: var(--space-5);">
+            <button type="button" class="btn btn--secondary btn--sm"><svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Add item</button>
+        </div>
+        <div style="padding: var(--space-4) var(--space-5); color: var(--color-text-muted);">…full-length list rows…</div>
+        <div class="bar-sticky-bottom" style="position: static;">
+            <div class="sb-summary"><span class="ts-pending-badge">2</span> <span><b>2</b> rows ready to save</span></div>
+            <div class="spacer"></div>
+            <button type="button" class="btn btn--primary"><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Save</button>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"card card--overflow-visible\">\n  <div class=\"bar-sticky-top\">…tools…</div>\n  <ul>…full-length list…</ul>\n  <div class=\"bar-sticky-bottom\">\n    <div class=\"sb-summary\">…</div><div class=\"spacer\"></div>\n    <button class=\"btn btn--primary\">Save</button>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Page-progress header (<code>.page-progress</code> + <code>Shared/_Meter</code>)</h2>
+    </div>
+    <p>
+        A sticky page header composing the <code>Shared/_Meter</code> partial (<code>MetaLine</code>
+        layout, accent fill) with a trailing mono count. No new bar — the meter <em>is</em> the bar;
+        this only adds the sticky wrapper and the <code>.page-progress__count</code> label.
+    </p>
+    <div class="page-progress" style="position: static; margin-bottom: var(--space-4)">
+        <div class="meter meter--meta-line">
+            <div class="meter__track"><span class="meter__fill meter__fill--accent" style="width:64%"></span></div>
+        </div>
+        <span class="page-progress__count">29 to review</span>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"page-progress\">\n  <partial name=\"Shared/_Meter\" model='new MeterViewModel {\n      Percent = reviewedPct, Tone = MeterTone.Accent, Layout = MeterLayout.MetaLine }' />\n  <span class=\"page-progress__count\">[N] to review</span>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Keyboard-hint bar (<code>.kbd-bar</code> + <code>&lt;kbd&gt;</code>)</h2>
+    </div>
+    <p>
+        A fixed bottom rail of shortcut hints for keyboard-driven flows (e.g. the Deals judgement
+        deck). Each key is a <code>&lt;kbd&gt;</code> chip — mono, bordered, with a heavier bottom
+        edge. The whole bar hides below 720px (no physical keyboard on touch).
+    </p>
+    <p><em>Shown static below; in use it is <code>position: fixed</code> along the bottom edge.</em></p>
+    <div class="kbd-bar" style="position: static; margin-bottom: var(--space-4)">
+        <span><kbd>Enter</kbd> / <kbd>→</kbd> confirm</span>
+        <span><kbd>M</kbd> change match</span>
+        <span><kbd>X</kbd> / <kbd>←</kbd> reject</span>
+        <span><kbd>S</kbd> skip</span>
+        <span><kbd>Z</kbd> go back</span>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"kbd-bar\">\n  <span><kbd>Enter</kbd> / <kbd>→</kbd> confirm</span>\n  <span><kbd>X</kbd> / <kbd>←</kbd> reject</span>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Guided-flow step nav (<code>.steps</code> / <code>.step</code>)</h2>
+    </div>
+    <p>
+        Jumpable step tabs for a multi-pass flow (Deals Review: confirm the sure things → judgement
+        calls → everything else). <strong>Not</strong> the <code>&lt;stepper&gt;</code> tag helper —
+        that is the −[value]+ quantity control. Each step carries a mono count chip; when its pool
+        empties add <code>.is-done</code> and swap the chip for ✓. Mark the current step
+        <code>.is-active</code>.
+    </p>
+    <div class="steps" style="max-width: 560px;">
+        <button class="step is-done"><span class="step__n">1</span> Confirm the sure things <span class="step__count">✓</span></button>
+        <button class="step is-active"><span class="step__n">2</span> Judgement calls <span class="step__count">29</span></button>
+        <button class="step"><span class="step__n">3</span> Everything else <span class="step__count">401</span></button>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"steps\">\n  <button class=\"step is-done\"><span class=\"step__n\">1</span> … <span class=\"step__count\">✓</span></button>\n  <button class=\"step is-active\"><span class=\"step__n\">2</span> … <span class=\"step__count\">29</span></button>\n  <button class=\"step\"><span class=\"step__n\">3</span> … <span class=\"step__count\">401</span></button>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Flyer rail (<code>.flyer-chip</code> / <code>.flyer-pill</code> / <code>.rail-summary</code>)</h2>
+    </div>
+    <p>
+        Deals Review flyer chapters, at two densities. Up to three flyers: big <code>.flyer-chip</code>
+        cards (store, a count·expiry pill, valid range). Beyond three: compact <code>.flyer-pill</code>s
+        in a <code>.flyers--compact</code> rail, expiry-sorted, with a <code>.rail-summary</code>
+        roll-up above and the active flyer's detail demoted to an <code>.active-flyer-line</code>.
+        Mark the open flyer <code>.is-active</code>, finished ones <code>.is-done</code>; add
+        <code>.urgent</code> to the expiry pill when it is closing soon.
+    </p>
+    <p><strong>Big chips</strong> (≤3 flyers):</p>
+    <div class="flyers" style="margin-bottom: var(--space-4)">
+        <button class="flyer-chip is-active">
+            <span class="store">Sobeys</span><span class="left">14 · 3d left</span>
+            <span class="meta">Valid Jul 4 – Jul 10</span>
+        </button>
+        <button class="flyer-chip">
+            <span class="store">Metro</span><span class="left urgent">6 · 1d left</span>
+            <span class="meta">Valid Jun 28 – Jul 8</span>
+        </button>
+        <button class="flyer-chip is-done">
+            <span class="store">No Frills</span><span class="left done">✓ done</span>
+            <span class="meta">Valid Jul 1 – Jul 7</span>
+        </button>
+    </div>
+    <p><strong>Compact rail</strong> (&gt;3 flyers):</p>
+    <p class="rail-summary"><b>5 flyers</b> waiting · 48 deals · closest expiry <b>tomorrow</b></p>
+    <div class="flyers flyers--compact">
+        <button class="flyer-pill is-active"><span class="store">Metro</span><span class="n">6</span><span class="d urgent">1d</span></button>
+        <button class="flyer-pill"><span class="store">Sobeys</span><span class="n">14</span><span class="d">3d</span></button>
+        <button class="flyer-pill"><span class="store">Loblaws</span><span class="n">9</span><span class="d">5d</span></button>
+        <button class="flyer-pill is-done"><span class="store">No Frills</span><span class="d">✓</span></button>
+    </div>
+    <div class="active-flyer-line">
+        <span class="store">Metro</span>
+        <span>valid Jun 28 – Jul 8</span>
+        <a class="flyer-link" href="#" onclick="return false;">View flyer ↗</a>
+    </div>
+</section>
+
+@*
     ── Recipe editor components (P2-1d) ────────────────────────────────────────────────────────────
     These components are the building blocks of the recipe author/edit form (J6/J7). They are
     added to the library here first, then consumed by Pages/Recipes/Edit.cshtml.

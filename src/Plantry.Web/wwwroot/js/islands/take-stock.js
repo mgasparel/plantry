@@ -270,7 +270,7 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
       </div>
 
       <div class="ts-walk-inner">
-        <div class="ts-add-bar">
+        <div class="bar-sticky-top ts-add-bar">
           <button type="button" class="ts-add-item" onClick=${onOpenAdd}
                   aria-label="Add a new item to this location">
             <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Add item
@@ -315,7 +315,7 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
       </div>
 
       ${dirtyCount.value > 0 && html`
-        <div class="ts-savebar">
+        <div class="bar-sticky-bottom">
           <div class="sb-summary">
             <span class="ts-pending-badge">${dirtyCount.value}</span>
             <span><b>${dirtyCount.value}</b> ${dirtyCount.value === 1 ? "row" : "rows"} ready to save</span>
@@ -329,7 +329,7 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
         </div>`}
 
       ${toast.value && html`
-        <div class="ts-toast" role="status" aria-live="polite" onClick=${() => { toast.value = ""; }}>
+        <div class="toast" role="status" aria-live="polite" onClick=${() => { toast.value = ""; }}>
           <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
           <span>${toast.value}</span>
         </div>`}

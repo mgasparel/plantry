@@ -130,7 +130,7 @@
     @if (Model.Rows.Count > 0)
     {
         @* Sticky save bar — visible when any row is dirty (location chosen) *@
-        <div class="ts-savebar" x-show="isDirty()" x-cloak>
+        <div class="bar-sticky-bottom" x-show="isDirty()" x-cloak>
             <div class="sb-summary">
                 <span class="ts-pending-badge" x-text="dirtyCount()"></span>
                 <span><b x-text="dirtyCount()"></b> <span x-text="dirtyCount() === 1 ? 'item to file' : 'items to file'"></span></span>
@@ -146,7 +146,7 @@
         </div>
 
         @* Toast notification *@
-        <div class="ts-toast"
+        <div class="toast"
              role="status"
              aria-live="polite"
              x-show="toast !== null" x-cloak
