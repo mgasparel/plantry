@@ -1,0 +1,72 @@
+@using Plantry.Deals.Domain
+@model Plantry.Web.Pages.Deals.ReviewModel
+
+@*
+    Step 3 — "Everything else" (q9zr.5, adopted design focus.html renderStep3). The None tier (the seeded
+    demo has 401 rows) stays a full, browsable, server-rendered list under a sticky toolbar. The long-list
+    idiom (q9zr.1): a full-length list with a sticky filter/commit bar — never a nested scrollbox. The host
+    card must NOT clip, so it uses .card--overflow-visible (position: sticky is inert inside overflow:hidden).
+
+    The filter is FRONT-END only (dealsRestFilter, defined in Review.cshtml): x-model query narrows the
+    server-rendered rows by a name + brand substring with no round-trip, and keeps the live match count,
+    the bulk-button label, and the empty-state in sync. When — and only when — the filter NARROWS the set,
+    Alpine checks the hidden dealIds[] picks so the bulk Dismiss posts exactly the visible ids to the
+    existing DismissAll handler (q9zr.4); unfiltered / matching-everything posts no ids → the whole None
+    tier. The rows themselves are the shared _DealReviewCard (None badge, q9zr.2 noise flag, and the
+    Correct-sheet DOM hooks), so Match (Correct) / Dismiss (Reject) behave exactly as elsewhere.
+*@
+
+@{
+    var flyerKey = Model.ActiveFlyerKey;
+    var flyerQs = string.IsNullOrEmpty(flyerKey) ? "" : $"&flyer={flyerKey}";
+    var dismissAllUrl = $"/Deals/Review?handler=DismissAll{flyerQs}&step=3";
+    // Threaded onto each card's verbs (read by _DealReviewCard) so a re-render stays on this flyer + step.
+    ViewData["FlyerKey"] = flyerKey;
+    ViewData["StepQs"] = "&step=3";
+}
+
+<div class="card card--overflow-visible deals-rest" x-data="dealsRestFilter(@Model.Step3Deals.Count)">
+    <div class="card__head">
+        <h3 class="card__head-title">Everything else</h3>
+        <span class="ch-sub">&middot; @Model.Step3Deals.Count</span>
+    </div>
+
+    @* Sticky toolbar (the long-list idiom, q9zr.1) — a client-side filter + the scope-aware bulk dismiss.
+       Composes .bar-sticky-top and pins BELOW the sticky app topbar as the full list scrolls past. *@
+    <div class="bar-sticky-top rest-toolbar">
+        <input type="search" class="rest-filter-input" x-model="query"
+               placeholder="Filter&hellip; (e.g. watermelon)" spellcheck="false" autocomplete="off"
+               aria-label="Filter unmatched deals" />
+        <button type="button" class="btn btn--primary btn--sm deals-rest__dismiss"
+                x-text="label"
+                x-bind:disabled="matched === 0"
+                hx-post="@dismissAllUrl"
+                hx-include=".rest-pick"
+                hx-target="#review-region"
+                hx-swap="innerHTML">Dismiss all (@Model.Step3Deals.Count)</button>
+    </div>
+
+    <div class="card__body">
+        <ul class="catalog-list deal-review-list" role="list">
+            @foreach (var deal in Model.Step3Deals)
+            {
+                <partial name="_DealReviewCard" model="deal" />
+            }
+        </ul>
+        @* Live empty-state — shown only when an active filter matches nothing. The rows stay in the DOM
+           (front-end filter, no round-trip); this message just narrates the empty view. *@
+        <div class="rest-empty" x-show="query.trim() !== '' && matched === 0" x-cloak>
+            Nothing matches &ldquo;<span x-text="query.trim()"></span>&rdquo; &mdash; it may already be handled.
+        </div>
+    </div>
+
+    @* Hidden dealIds[] picks — Alpine checks exactly the filter-visible ids when the filter narrows the
+       set, so the bulk Dismiss (hx-include=".rest-pick") posts that scope. Unfiltered / non-narrowing:
+       none checked → the DismissAll handler clears the whole eligible None tier. *@
+    <div class="rest-picks" hidden aria-hidden="true">
+        @foreach (var deal in Model.Step3Deals)
+        {
+            <input type="checkbox" class="rest-pick" name="dealIds" value="@deal.DealId.Value" tabindex="-1" />
+        }
+    </div>
+</div>

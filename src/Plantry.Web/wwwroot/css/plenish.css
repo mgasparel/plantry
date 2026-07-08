@@ -6187,8 +6187,6 @@ button.sadd svg { width: 13px; height: 13px; }
   margin-bottom: var(--space-3);
 }
 .deal-review-section__title { font-weight: 600; }
-/* Bulk verb (Confirm all / Dismiss all, q9zr.4) sits at the right edge of the tier header. */
-.deal-review-section__bulk { margin-left: auto; }
 
 .deal-review-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
 /* Grid (1fr auto) — the raw name column absorbs long compound names by wrapping within its own track,
@@ -6226,6 +6224,29 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .deal-review-row__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .deal-review-row__reject { margin-left: auto; }
+
+/* ── Deals Review step 3 — browsable unmatched list (q9zr.5) ──────────────────
+   The None tier stays a full, server-rendered list under a sticky filter toolbar
+   (the long-list idiom): a client-side name+brand filter narrows it live and the
+   bulk Dismiss scopes to the visible rows. The toolbar composes .bar-sticky-top,
+   so the host card must NOT clip — it uses .card--overflow-visible (position:
+   sticky is inert inside overflow:hidden). The toolbar pins BELOW the sticky app
+   topbar, not at viewport 0, so it never hides behind the topbar as the list scrolls. */
+.rest-toolbar { display: flex; align-items: center; gap: var(--space-3); }
+/* Specificity 0,2,0 so it wins over .bar-sticky-top { top: 0 } regardless of source order. */
+.bar-sticky-top.rest-toolbar { top: var(--topbar-height); padding: var(--space-3) var(--space-5); }
+.rest-filter-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 0.875rem;
+  padding: 0.45rem 0.75rem; color: var(--color-text);
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.rest-filter-input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
+.deals-rest__dismiss { flex: none; white-space: nowrap; }
+.rest-empty {
+  padding: var(--space-5); text-align: center;
+  color: var(--color-text-faint); font-size: 0.875rem;
+}
 
 /* ── Dev endpoints reference (Dev/Endpoints, development-only) ─────────────────── */
 .dev-endpoints {

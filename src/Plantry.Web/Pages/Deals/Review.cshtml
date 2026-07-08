@@ -203,6 +203,52 @@ function dealsReview(correctUrl) {
     };
 }
 
+// Step-3 browsable filter (q9zr.5). Lives inside #review-region and is re-created on every swap; Alpine
+// re-inits it. Filters the server-rendered None rows by a name + brand substring with NO round-trip
+// (x-model query → imperatively show/hide the rows, since the rows are the shared _DealReviewCard and
+// carry no per-row filter directive), and keeps the live match count (M), the bulk-button label, and the
+// empty-state in sync. Only when the filter NARROWS the set does it check the hidden dealIds[] picks, so
+// the bulk Dismiss (hx-include=".rest-pick") posts exactly the visible ids to the existing DismissAll
+// handler; an empty filter — or one that still matches everything — checks none, so the whole eligible
+// None tier is dismissed (the "Dismiss all (N)" semantics). Mirrors the proven step-1 checked-picks pattern.
+function dealsRestFilter(total) {
+    return {
+        query: '',
+        total: total,     // full pending None count (N) — server-rendered and stable within this view
+        matched: total,   // rows currently visible (M) — drives the count, the label, and the empty-state
+        label: 'Dismiss all (' + total + ')',
+        init() {
+            this.$watch('query', () => this.apply());
+            this.apply();
+        },
+        apply() {
+            const q = this.query.trim().toLowerCase();
+            const visible = new Set();
+            let matched = 0;
+            this.$root.querySelectorAll('.deal-review-row').forEach(row => {
+                const nameEl = row.querySelector('.deal-review-row__name');
+                const brandEl = row.querySelector('.deal-review-row__brand');
+                // Match the display name, its verbatim ALL-CAPS title (the ACL-quarantined string), and the
+                // brand — all lower-cased. Empty query shows everything.
+                const hay = ((nameEl ? nameEl.textContent + ' ' + (nameEl.getAttribute('title') || '') : '') +
+                             ' ' + (brandEl ? brandEl.textContent : '')).toLowerCase();
+                const show = q === '' || hay.includes(q);
+                row.style.display = show ? '' : 'none';
+                if (show) { matched++; visible.add(row.dataset.dealId); }
+            });
+            // "Narrowing" = an active filter that actually hides rows. Only then do we scope the dismiss to
+            // the visible ids and relabel; an empty filter (or one matching all) keeps the whole-tier verb.
+            const narrowing = q !== '' && matched !== this.total;
+            this.matched = matched;
+            this.label = narrowing ? ('Dismiss these (' + matched + ')') : ('Dismiss all (' + this.total + ')');
+            // Check exactly the visible picks when narrowing so hx-include posts those dealIds; else none.
+            this.$root.querySelectorAll('.rest-pick').forEach(pick => {
+                pick.checked = narrowing && visible.has(pick.value);
+            });
+        },
+    };
+}
+
 // Step-1 checklist (q9zr.13). Lives inside #review-region and is re-created on every swap; Alpine re-inits it
 // automatically. Keeps the "Confirm N matches" label in sync with the checked boxes (no round-trip — each
 // checkbox separately POSTs SetCheck to persist its state), and lets a click anywhere on a row toggle the box.
