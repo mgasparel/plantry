@@ -248,6 +248,22 @@ internal sealed class FakeFlyerImportRepository : IFlyerImportRepository
         Task.FromResult(Items.SingleOrDefault(
             f => f.StoreId == storeId && f.FlyerExternalId == flyerExternalId && f.Status == PullStatus.Parsed));
 
+    /// <summary>The store-id batches passed to <see cref="ListParsedRefsByStoresAsync"/> — asserting a single batch (no N+1).</summary>
+    public List<IReadOnlyList<Guid>> ParsedRefsCalls { get; } = [];
+
+    // Mirrors the repository: Parsed-only, filtered to the requested stores, projected to the lightweight ref.
+    public Task<IReadOnlyList<FlyerImportRef>> ListParsedRefsByStoresAsync(
+        IReadOnlyList<Guid> storeIds, CancellationToken ct = default)
+    {
+        ParsedRefsCalls.Add(storeIds);
+        IReadOnlyList<FlyerImportRef> result = Items
+            .Where(f => f.Status == PullStatus.Parsed && storeIds.Contains(f.StoreId))
+            .Select(f => new FlyerImportRef(
+                f.StoreId, f.ValidityWindow.ValidFrom, f.ValidityWindow.ValidTo, f.FlyerExternalId))
+            .ToList();
+        return Task.FromResult(result);
+    }
+
     public Task AddAsync(FlyerImport import, CancellationToken ct = default)
     {
         Items.Add(import);

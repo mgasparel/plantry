@@ -209,6 +209,33 @@ public sealed class FlyerRailProjectionTests
         Assert.Equal("tomorrow", rail.SoonestExpiryLabel);
     }
 
+    // ── View-flyer link (q9zr.7): FlyerExternalId → Flipp store-search URL ─────────
+
+    [Fact(DisplayName = "Build derives the Flipp store-search FlyerUrl only for chapters whose block carries a FlyerExternalId")]
+    public void Build_Derives_Flyer_Url_Only_When_External_Id_Present()
+    {
+        var linked = new FlyerBlock(Guid.NewGuid(), "FreshCo", Today.AddDays(-1), Today.AddDays(6),
+            ExpiresInDays: 6, Deals: [], FlyerExternalId: "flipp-freshco-2026-07");
+        var unlinked = new FlyerBlock(Guid.NewGuid(), "Metro", Today.AddDays(-1), Today.AddDays(3),
+            ExpiresInDays: 3, Deals: [], FlyerExternalId: null);
+
+        var rail = FlyerRail.Build([linked, unlinked], activeKey: null);
+
+        Assert.Equal(
+            "https://flipp.com/en-ca/search/FreshCo",
+            rail.Chapters.Single(c => c.StoreName == "FreshCo").FlyerUrl);
+        Assert.Null(rail.Chapters.Single(c => c.StoreName == "Metro").FlyerUrl);
+    }
+
+    [Theory(DisplayName = "StoreSearchUrl URL-encodes the store name into a single path segment (verified Flipp fallback)")]
+    [InlineData("FreshCo", "https://flipp.com/en-ca/search/FreshCo")]
+    [InlineData("No Frills", "https://flipp.com/en-ca/search/No%20Frills")]
+    [InlineData("T&T Supermarket", "https://flipp.com/en-ca/search/T%26T%20Supermarket")]
+    public void StoreSearchUrl_Encodes_Store_Name(string storeName, string expected)
+    {
+        Assert.Equal(expected, FlyerRail.StoreSearchUrl(storeName));
+    }
+
     [Theory(DisplayName = "Soonest-expiry label reads today / tomorrow / in N days")]
     [InlineData(0, "today")]
     [InlineData(1, "tomorrow")]

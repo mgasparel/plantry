@@ -319,6 +319,39 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.DoesNotContain("Eggs Dozen", html);  // the other flyer is a chapter away, not a card here
     }
 
+    [Fact(DisplayName = "The rail renders a single 'View flyer' link (Flipp store search) when a source flyer resolves — never per card (q9zr.7)")]
+    public async Task Renders_View_Flyer_Link_In_Rail_Only()
+    {
+        factory.Reset();
+        // Three deals in one flyer → one big flyer chip. Seed the source-flyer provenance so the link resolves.
+        var milk = factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedPending("Sourdough", MatchConfidence.High, factory.BreadProduct);
+        factory.SeedPending("Mystery", MatchConfidence.None, suggested: null);
+        factory.SeedFlyerLink(milk, "flipp-freshco-2026-07");
+
+        var html = await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+
+        // The link points at the verified Flipp store-SEARCH URL (direct flyer-slug URLs 404), opens safely.
+        Assert.Contains("class=\"flyer-link\"", html);
+        Assert.Contains("href=\"https://flipp.com/en-ca/search/FreshCo\"", html);
+        Assert.Contains("target=\"_blank\"", html);
+        Assert.Contains("rel=\"noopener\"", html);
+        // Exactly one link across the whole region — it lives on the rail chip, not on any of the three cards.
+        Assert.Single(Regex.Matches(html, "class=\"flyer-link\""));
+    }
+
+    [Fact(DisplayName = "The rail renders no 'View flyer' link when no source flyer resolves for the chapter (q9zr.7)")]
+    public async Task Omits_View_Flyer_Link_When_No_Source_Flyer()
+    {
+        factory.Reset();
+        factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct); // no SeedFlyerLink
+
+        var html = await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+
+        Assert.Contains("flyer-chip", html);            // the rail still renders
+        Assert.DoesNotContain("flyer-link", html);      // but the conditional link slot stays empty
+    }
+
     [Fact(DisplayName = "Finishing a flyer's last deal hands off to the next flyer with a done interstitial")]
     public async Task Finishing_A_Flyer_Hands_Off_To_Next()
     {
@@ -869,6 +902,7 @@ public sealed class DealReviewFactory : WebApplicationFactory<Program>
     public FakeReviewCategoryRepo Categories { get; } = new();
     public FakeReviewProductRepo Products { get; } = new();
     public FakeReviewLocationRepo Locations { get; } = new();
+    public FakeReviewFlyerImportRepo FlyerImports { get; } = new();
 
     private static readonly IClock Clock = SystemClock.Instance;
 
@@ -888,7 +922,17 @@ public sealed class DealReviewFactory : WebApplicationFactory<Program>
         Memories.Items.Clear();
         Observations.Calls = 0;
         Products.Items.Clear();
+        FlyerImports.Refs.Clear();
+        FlyerImports.ParsedRefsCalls.Clear();
     }
+
+    /// <summary>
+    /// Seeds a Parsed source-flyer provenance ref matching a seeded deal's (store, validity-window), so the
+    /// review queue resolves a "View flyer" link for that deal's flyer chapter (q9zr.7).
+    /// </summary>
+    public void SeedFlyerLink(Deal deal, string flyerExternalId) =>
+        FlyerImports.Refs.Add(new FlyerImportRef(
+            deal.StoreId, deal.ValidityWindow.ValidFrom, deal.ValidityWindow.ValidTo, flyerExternalId));
 
     private static ValidityWindow InWindow()
     {
@@ -977,6 +1021,8 @@ public sealed class DealReviewFactory : WebApplicationFactory<Program>
             services.AddScoped<IProductRepository>(_ => Products);
             services.RemoveAll<ILocationRepository>();
             services.AddScoped<ILocationRepository>(_ => Locations);
+            services.RemoveAll<IFlyerImportRepository>();
+            services.AddScoped<IFlyerImportRepository>(_ => FlyerImports);
         });
     }
 }
@@ -1099,5 +1145,34 @@ public sealed class FakeReviewLocationRepo : ILocationRepository
     public Task<List<Location>> ListAsync(CancellationToken ct = default) => Task.FromResult(new List<Location>());
     public Task<List<Location>> ListActiveAsync(CancellationToken ct = default) => Task.FromResult(new List<Location>());
     public Task AddAsync(Location location, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Read-only <see cref="IFlyerImportRepository"/> fake for the review-queue "View flyer" projection (q9zr.7):
+/// holds seeded <see cref="FlyerImportRef"/>s and serves the batch resolve. The write/ingest members are
+/// unused on the review read path and throw. Records the store-id batches so a test can assert a single batch
+/// call (no N+1).
+/// </summary>
+public sealed class FakeReviewFlyerImportRepo : IFlyerImportRepository
+{
+    public List<FlyerImportRef> Refs { get; } = [];
+    public List<IReadOnlyList<Guid>> ParsedRefsCalls { get; } = [];
+
+    public Task<IReadOnlyList<FlyerImportRef>> ListParsedRefsByStoresAsync(
+        IReadOnlyList<Guid> storeIds, CancellationToken ct = default)
+    {
+        ParsedRefsCalls.Add(storeIds);
+        IReadOnlyList<FlyerImportRef> result = Refs.Where(r => storeIds.Contains(r.StoreId)).ToList();
+        return Task.FromResult(result);
+    }
+
+    public Task<FlyerImport?> FindParsedByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default) =>
+        throw new NotSupportedException("Review read path does not resolve by dedup key.");
+    public Task AddAsync(FlyerImport import, CancellationToken ct = default) =>
+        throw new NotSupportedException("Review read path does not add imports.");
+    public void Detach(FlyerImport import) => throw new NotSupportedException();
+    public Task ExecuteInTransactionAsync(Func<CancellationToken, Task> action, CancellationToken ct = default) =>
+        throw new NotSupportedException();
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
