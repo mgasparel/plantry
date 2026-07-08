@@ -1,9 +1,15 @@
 @page
 @using Plantry.Web.Pages.Shared
 @model Plantry.Web.Pages.Deals.ReviewModel
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @{
     ViewData["Title"] = "Review deals";
     var correctUrl = Url.Page("./Review", "Correct")!;
+    // Judgement-call deck island (q9zr.8) — content-hash-versioned entry module + shared helpers.
+    var deckIslandSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/islands/deal-deck.js");
+    var deckHelpersSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/islands/helpers.js");
 }
 
 <div class="cfg-wrap" data-screen-label="Review deals">
@@ -226,3 +232,44 @@ function reviewChecklist() {
     };
 }
 </script>
+
+@section Scripts {
+    @* Judgement-call deck island boot (q9zr.8). The deck (deal-deck.js) mounts on step 2's
+       #judgement-deck and must re-mount after every htmx re-render of #review-region (each verb
+       re-renders the region from server truth) and tear its chrome down when a swap leaves step 2.
+       This registration runs ONCE per full-page load (it lives outside #review-region, so htmx swaps
+       never re-run it). The explicit syncDeck() below handles the INITIAL mount: because this module
+       loads its island via `await import(...)`, its continuation runs after DOMContentLoaded — so
+       htmx's initial htmx:load has already fired and would be missed by onLoad alone. syncDeck() is
+       idempotent (mountDealDeck guards per node), so a later onLoad for the same node never double-mounts.
+       htmx.onLoad then handles every subsequent swapped-in fragment. *@
+    <script type="module">
+        const { mountDealDeck, teardownDealDeck } = await import('@Html.Raw(deckIslandSrc)');
+        const { readHydration } = await import('@Html.Raw(deckHelpersSrc)');
+
+        function syncDeck() {
+            const mount = document.querySelector('#judgement-deck[data-deck-mount]');
+            if (mount) {
+                const config = readHydration('deal-deck-data');
+                if (config) mountDealDeck(mount, config);
+            } else {
+                teardownDealDeck();
+            }
+        }
+
+        window.htmx.onLoad(function (content) {
+            // Only react to swaps that touch the review region (verb re-renders + step/flyer nav) or the
+            // whole page on load; ignore unrelated swaps such as the Correct sheet's search results, which
+            // render outside #review-region.
+            const touchesRegion =
+                (content.closest && content.closest('#review-region')) ||
+                (content.matches && content.matches('#judgement-deck')) ||
+                (content.querySelector && content.querySelector('#review-region')) ||
+                (content.querySelector && content.querySelector('#judgement-deck'));
+            if (touchesRegion) syncDeck();
+        });
+
+        // Initial mount for a cold full-page load that lands on step 2 (the htmx:load above already fired).
+        syncDeck();
+    </script>
+}

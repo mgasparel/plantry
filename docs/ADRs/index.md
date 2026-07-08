@@ -23,6 +23,6 @@ Architecture Decision Records for Plantry.
 | [ADR-017](ADR-017.md) | Database migrations applied by an explicit one-shot migrator, not on app startup | Accepted |
 | [ADR-018](ADR-018.md) | Fully agentic engineering | Accepted |
 | [ADR-019](ADR-019.md) | Skills until they break: keep agentic tooling minimal, escalate on concrete triggers | Accepted |
-| [ADR-020](ADR-020.md) | Reactive islands for stateful surfaces (Intake, Meal Planner, Take Stock) — amends ADR-005/013/015 | Accepted · amended 2026-06-24 (test-time Node permitted for island tests) |
+| [ADR-020](ADR-020.md) | Reactive islands for stateful surfaces (Intake, Meal Planner, Take Stock) — amends ADR-005/013/015 | Accepted · amended 2026-06-24 (test-time Node permitted for island tests), 2026-07-07 (fourth island: Deals judgement-call deck, imperative-DOM concession) |
 | [ADR-021](ADR-021.md) | Read paths may cross bounded-context boundaries via read-only cross-schema read models (read-side dual of ADR-014) | Accepted |
 | [ADR-022](ADR-022.md) | AI-suggested conversions are provisional deterministic values, tagged in-place, not a quarantined subsystem | Accepted |

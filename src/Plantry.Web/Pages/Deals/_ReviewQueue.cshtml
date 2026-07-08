@@ -161,16 +161,24 @@ else
             {
                 ViewData["FlyerKey"] = flyerKey;
                 ViewData["StepQs"] = "&step=2";
-                @* Judgement calls — Lows + demoted Highs. Rendered as the existing review cards with the single
-                   verbs; structured so q9zr.8 can mount its one-card deck island in #judgement-deck without
-                   reshaping the shell. *@
+                @* Judgement calls — Lows + demoted Highs. The q9zr.8 deck island (deal-deck.js) mounts on
+                   #judgement-deck and REPLACES the fallback card list with a one-card-at-a-time deck (keyboard
+                   verbs + swipe). The fallback list below is the no-JS baseline: every verb it renders posts
+                   through the same Confirm/Reject/Correct handlers the deck reuses, so behaviour is identical
+                   with or without JS. The deck's presentation state (order/skip/baseline) is client-only; the
+                   deals themselves come from the hydration blob (server truth). *@
+                var deckHydration = DealDeckHydration.Build(
+                    Model.Step2Deals, flyerKey, System.Globalization.CultureInfo.CurrentCulture);
                 <div class="card">
-                    <div class="card__head">
-                        <h3 class="card__head-title">Judgement calls</h3>
-                        <span class="ch-sub">&middot; @Model.Step2Deals.Count</span>
-                    </div>
                     <div class="card__body">
-                        <div id="judgement-deck" class="deal-review-section">
+                        <div id="judgement-deck" class="deal-review-section" data-deck-mount>
+                            <script type="application/json" id="deal-deck-data">@Html.Raw(deckHydration.ToJson())</script>
+                            @* No-JS fallback: the full card list with the standard single verbs. The island
+                               replaces this on mount. *@
+                            <div class="card__head">
+                                <h3 class="card__head-title">Judgement calls</h3>
+                                <span class="ch-sub">&middot; @Model.Step2Deals.Count</span>
+                            </div>
                             <ul class="catalog-list deal-review-list" role="list">
                                 @foreach (var deal in Model.Step2Deals)
                                 {

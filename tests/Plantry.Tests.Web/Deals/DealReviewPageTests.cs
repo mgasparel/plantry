@@ -224,6 +224,46 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("<span class=\"store\">", html);
     }
 
+    // ── L4 step-2 judgement-call deck island hydration (q9zr.8) ────────────────────
+
+    [Fact(DisplayName = "Step 2 renders the deck mount + hydration blob (title-cased name, verb URLs) with no rail-context keys")]
+    public async Task Step2_Renders_Deck_Island_Hydration()
+    {
+        factory.Reset();
+        // A single Low deal lands the default entry on step 2 (no confirmable Highs). ALL-CAPS proves the
+        // server title-cases the display name while keeping the verbatim raw string.
+        var deal = factory.SeedPending("BREYERS CREAMERY STYLE ICE CREAM", MatchConfidence.Low, factory.MilkProduct);
+
+        var html = await HxGetAsync(AuthedClient(), "/Deals/Review?step=2");
+
+        // The island mounts here and its data is emitted as a JSON hydration blob.
+        Assert.Contains("id=\"judgement-deck\"", html);
+        Assert.Contains("data-deck-mount", html);
+
+        // Extract just the hydration JSON so assertions don't leak into the no-JS fallback markup or the rail.
+        var m = Regex.Match(html, "<script type=\"application/json\" id=\"deal-deck-data\">(.*?)</script>",
+            RegexOptions.Singleline);
+        Assert.True(m.Success, "The deck hydration <script id=deal-deck-data> was not rendered.");
+        var json = m.Groups[1].Value;
+
+        // Verbatim raw name AND the server title-cased display name (q9zr.10) both travel to the island.
+        Assert.Contains("\"rawName\":\"BREYERS CREAMERY STYLE ICE CREAM\"", json);
+        Assert.Contains("\"displayName\":\"Breyers Creamery Style Ice Cream\"", json);
+        Assert.Contains("\"hasSuggestion\":true", json);
+        Assert.Contains(deal.Id.Value.ToString(), json);
+
+        // Every verb still posts through the existing htmx endpoints, threaded onto this step.
+        Assert.Contains("handler=Confirm", json);
+        Assert.Contains("handler=Reject", json);
+        Assert.Contains("step=2", json);
+
+        // "Context lives in the rail" — the card payload carries NO store/dates/confidence-pill keys (final ruling).
+        Assert.DoesNotContain("\"storeName\"", json);
+        Assert.DoesNotContain("\"validTo\"", json);
+        Assert.DoesNotContain("\"validFrom\"", json);
+        Assert.DoesNotContain("\"confidence\"", json);
+    }
+
     // ── L4 flyer rail + chapters (q9zr.3) ──────────────────────────────────────────
 
     [Fact(DisplayName = "GET /Deals/Review renders the big-chip flyer rail with store, count, days-left and the progress header")]
