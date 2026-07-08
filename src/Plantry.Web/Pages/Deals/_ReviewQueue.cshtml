@@ -106,7 +106,6 @@ else
         else
         {
             var flyerKey = Model.ActiveFlyerKey;
-            var flyerQs = string.IsNullOrEmpty(flyerKey) ? "" : $"&flyer={flyerKey}";
 
             @* Stepper — three jumpable step buttons with live remaining counts (✓ when a pool is empty). *@
             <div class="steps">
@@ -183,32 +182,10 @@ else
             }
             else
             {
-                ViewData["FlyerKey"] = flyerKey;
-                ViewData["StepQs"] = "&step=3";
-                var dismissAllUrl = $"/Deals/Review?handler=DismissAll{flyerQs}&step=3";
-                @* Everything else — the pending None deals + the Dismiss-all bulk verb (noise rows included).
-                   The browsable client-side filter is q9zr.5; this bead ships the list + bulk dismiss. *@
-                <div class="card">
-                    <div class="card__head">
-                        <h3 class="card__head-title">Everything else</h3>
-                        <span class="ch-sub">&middot; @Model.Step3Deals.Count</span>
-                        <button type="button" class="btn btn--ghost btn--sm deal-review-section__bulk"
-                                hx-post="@dismissAllUrl"
-                                hx-target="#review-region"
-                                hx-swap="innerHTML"
-                                disabled="@(Model.Step3Deals.Count == 0 ? "disabled" : null)">
-                            Dismiss all (@Model.Step3Deals.Count)
-                        </button>
-                    </div>
-                    <div class="card__body">
-                        <ul class="catalog-list deal-review-list" role="list">
-                            @foreach (var deal in Model.Step3Deals)
-                            {
-                                <partial name="_DealReviewCard" model="deal" />
-                            }
-                        </ul>
-                    </div>
-                </div>
+                @* Everything else — the pending None deals as a browsable, filterable list with a sticky
+                   toolbar + scope-aware bulk dismiss (q9zr.5). Extracted to its own step partial (mirrors
+                   _ReviewStep1) to keep this shell readable; sets FlyerKey/StepQs for the cards' verbs. *@
+                <partial name="_ReviewStep3" model="Model" />
             }
         }
     </div>

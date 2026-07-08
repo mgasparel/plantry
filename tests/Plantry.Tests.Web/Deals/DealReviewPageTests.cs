@@ -592,6 +592,37 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Equal(DealStatus.Pending, b.Status);            // unrequested None stays pending
     }
 
+    [Fact(DisplayName = "Step 3 renders the sticky filter toolbar + hidden dealIds[] picks that wire the scoped Dismiss (q9zr.5)")]
+    public async Task Step3_Renders_Filter_Toolbar_And_Scoped_Dismiss_Wiring()
+    {
+        factory.Reset();
+        var a = factory.SeedPending("Watermelon Chunk", MatchConfidence.None, suggested: null);
+        var b = factory.SeedPending("Paper Towels 12pk", MatchConfidence.None, suggested: null);
+        var c = factory.SeedPending("Scented Candle", MatchConfidence.None, suggested: null);
+
+        var html = System.Net.WebUtility.HtmlDecode(await HxGetAsync(AuthedClient(), "/Deals/Review?step=3"));
+
+        // The browsable-list host is the non-clipping card (position: sticky needs it) with the filter component.
+        Assert.Contains("card--overflow-visible", html);
+        Assert.Contains("x-data=\"dealsRestFilter(3)\"", html);      // seeded with the full None count (N = 3)
+
+        // Sticky toolbar: the client-side filter input + the scope-aware bulk Dismiss (relabels client-side via Alpine).
+        Assert.Contains("bar-sticky-top rest-toolbar", html);
+        Assert.Contains("class=\"rest-filter-input\"", html);
+        Assert.Contains("x-model=\"query\"", html);
+        Assert.Contains("Dismiss all (3)", html);                    // unfiltered label, server-rendered
+        Assert.Contains("hx-include=\".rest-pick\"", html);          // the bulk verb includes only the checked picks
+
+        // One hidden dealIds[] pick per None deal — Alpine checks the visible ones when the filter narrows the set.
+        foreach (var deal in new[] { a, b, c })
+            Assert.Contains($"class=\"rest-pick\" name=\"dealIds\" value=\"{deal.Id.Value}\"", html);
+        Assert.Equal(3, Regex.Matches(html, "class=\"rest-pick\"").Count);
+
+        // The live empty-state scaffold is present (shown by Alpine only when a filter matches nothing).
+        Assert.Contains("rest-empty", html);
+        Assert.Contains("Nothing matches", html);
+    }
+
     [Fact(DisplayName = "DismissAll a second time after re-render is an idempotent no-op")]
     public async Task DismissAll_Is_Idempotent()
     {
