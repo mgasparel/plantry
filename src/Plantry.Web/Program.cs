@@ -362,6 +362,11 @@ builder.Services.AddScoped<BrowseDeals>();
 // create in the review page runs over Catalog's CreateProductCommand (Web composition root).
 builder.Services.AddScoped<ReviewDeals>();
 
+// Deals — guided-flow presentation state (q9zr.13). Which step shows a deal ("demoted") and the step-1
+// checkbox state are per household+session UI staging, NOT domain facts — held in a session-keyed
+// IDistributedCache store (the vetted IPendingProposalStore pattern), never a column on the Deal aggregate.
+builder.Services.AddScoped<Plantry.Web.Pages.Deals.IReviewFlowStateStore, Plantry.Web.Pages.Deals.DistributedCacheReviewFlowStateStore>();
+
 // Deals — P5-10 stock-up alerts (DJ5). StockUpAlerts intersects an active-deal partition the caller supplies
 // (the Deals page's single BrowseDeals read, ADR-010) with Inventory's purchase-journal frequency (IPurchaseFrequencyReader over InventoryQueryService,
 // DL-O4); "Add to list" reuses the P2-4 Shopping AddItems seam via a Deals-side writer port (DM-18). Both

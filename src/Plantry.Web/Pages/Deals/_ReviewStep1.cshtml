@@ -1,0 +1,59 @@
+@using Plantry.Deals.Domain
+@model Plantry.Web.Pages.Deals.ReviewModel
+
+@*
+    Step 1 — "Confirm the sure things" (q9zr.13, adopted design focus.html renderStep1). A pre-checked batch
+    checklist of the flyer's confirmable High deals (raw name title-cased → suggested product). The long-list
+    idiom: a full-length list with a sticky commit footer, never a nested scrollbox — so .card--flow keeps
+    overflow visible (a clipping card kills position: sticky).
+
+    Two persistence paths keep the flow refresh-idempotent and demotion-honest:
+      • each checkbox change POSTs SetCheck (hx-swap=none) so an uncheck survives a step round-trip / refresh —
+        the prototype bug the adopted design fixed (checkbox initial state = !UncheckedIds.Contains(id));
+      • the footer posts only the CHECKED dealIds[] (unchecked checkboxes don't submit) with checklistCommit=1
+        to ConfirmAll, which confirms them and DEMOTES every eligible High left unchecked into step 2's pool.
+    The "Confirm N matches" label counts checked boxes live in Alpine (reviewChecklist), no round-trip.
+*@
+
+@{
+    var flyerKey = Model.ActiveFlyerKey;
+    var flyerQs = string.IsNullOrEmpty(flyerKey) ? "" : $"&flyer={flyerKey}";
+    var confirmAllUrl = $"/Deals/Review?handler=ConfirmAll{flyerQs}&step=1";
+    // Initial checked count, rendered server-side so the label is correct with no JS and directly assertable;
+    // Alpine's x-text="label" then keeps it live as boxes toggle (init() recomputes the same number).
+    var checkedCount = Model.Step1Deals.Count(d => !Model.UncheckedIds.Contains(d.DealId.Value));
+    var confirmLabel = $"✓ Confirm {checkedCount} {(checkedCount == 1 ? "match" : "matches")}";
+}
+
+<section class="card card--flow" x-data="reviewChecklist()">
+    <ul class="check-list" role="list">
+        @foreach (var d in Model.Step1Deals)
+        {
+            var dealId = d.DealId.Value;
+            var isChecked = !Model.UncheckedIds.Contains(dealId);
+            @* Clicking anywhere on the row toggles the checkbox (and fires its change handlers). *@
+            <li class="check-row" data-deal-id="@dealId" x-on:click="toggleRow($event)">
+                <input type="checkbox" name="dealIds" value="@dealId" checked="@(isChecked ? "checked" : null)"
+                       x-on:change="recount()"
+                       hx-post="/Deals/Review?handler=SetCheck"
+                       hx-vals='js:{"dealId": "@dealId", "isChecked": event.target.checked}'
+                       hx-trigger="change"
+                       hx-swap="none" />
+                @* Verbatim ALL-CAPS flyer string stays one hover away in the title attribute (DD6 / q9zr.10). *@
+                <span class="raw"><b title="@d.RawName">@DealReviewDisplay.TitleCase(d.RawName)</b></span>
+                <span class="to">&rarr; <span class="product">@d.SuggestedProductName</span></span>
+            </li>
+        }
+    </ul>
+    @* checklistCommit disambiguates "commit with nothing checked" from the legacy empty-means-all bulk confirm. *@
+    <input type="hidden" name="checklistCommit" value="true" />
+    <div class="step-foot">
+        <span class="note">Anything you uncheck joins the judgement calls in step 2 &mdash; nothing is lost.</span>
+        <button type="button" class="btn btn--primary"
+                hx-post="@confirmAllUrl"
+                hx-include="closest .card--flow"
+                hx-target="#review-region"
+                hx-swap="innerHTML"
+                x-text="label">@confirmLabel</button>
+    </div>
+</section>

@@ -195,8 +195,33 @@ function dealsReview(correctUrl) {
         submitCorrect(values) {
             const region = document.querySelector('#review-region [data-active-flyer]');
             if (region && region.dataset.activeFlyer) values.flyer = region.dataset.activeFlyer;
+            // Thread the active step (q9zr.13) so the re-render stays on / advances off this step.
+            if (region && region.dataset.activeStep) values.step = region.dataset.activeStep;
             htmx.ajax('POST', this.correctUrl, { target: '#review-region', swap: 'innerHTML', values: values });
             this.closeSheet();
+        },
+    };
+}
+
+// Step-1 checklist (q9zr.13). Lives inside #review-region and is re-created on every swap; Alpine re-inits it
+// automatically. Keeps the "Confirm N matches" label in sync with the checked boxes (no round-trip — each
+// checkbox separately POSTs SetCheck to persist its state), and lets a click anywhere on a row toggle the box.
+function reviewChecklist() {
+    return {
+        label: 'Confirm matches',
+        init() { this.recount(); },
+        recount() {
+            const n = this.$root.querySelectorAll('.check-row input:checked').length;
+            this.label = '✓ Confirm ' + n + (n === 1 ? ' match' : ' matches');
+        },
+        // Clicking the row (but not the checkbox itself) toggles the box and fires its change handlers
+        // (Alpine recount + the htmx SetCheck persist) via a dispatched change event.
+        toggleRow(e) {
+            if (e.target.tagName === 'INPUT') return;
+            const box = e.currentTarget.querySelector('input[type="checkbox"]');
+            if (!box) return;
+            box.checked = !box.checked;
+            box.dispatchEvent(new Event('change', { bubbles: true }));
         },
     };
 }

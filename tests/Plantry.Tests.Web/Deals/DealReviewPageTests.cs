@@ -48,6 +48,14 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         HttpClient client, string url, params KeyValuePair<string, string>[] fields) =>
         client.PostAsync(url, new FormUrlEncodedContent(fields));
 
+    /// <summary>GETs with the HX-Request header so the server returns just the #review-region fragment.</summary>
+    private static async Task<string> HxGetAsync(HttpClient client, string url)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Add("HX-Request", "true");
+        return await (await client.SendAsync(req)).Content.ReadAsStringAsync();
+    }
+
     private static KeyValuePair<string, string> Kv(string key, string value) => new(key, value);
 
     // ── L4 render ────────────────────────────────────────────────────────────────
@@ -60,38 +68,41 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("All caught up", html);
     }
 
-    [Fact(DisplayName = "GET /Deals/Review renders each confidence treatment + the single-suggestion chip")]
+    [Fact(DisplayName = "The step views render each confidence treatment + the single-suggestion chip (q9zr.13)")]
     public async Task Renders_Confidence_Treatments()
     {
         factory.Reset();
         factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
         factory.SeedPending("Sourdough Loaf", MatchConfidence.Low, factory.BreadProduct);
         factory.SeedPending("Mystery Item", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
 
-        var html = await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+        // Entry lands on step 1 — the confirmable-High checklist: raw name (verbatim in the title) → suggestion.
+        var step1 = await (await client.GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+        Assert.Contains("class=\"steps\"", step1);          // the stepper is present
+        Assert.Contains("check-list", step1);               // step 1 is the checklist view
+        Assert.Contains("Milk 2L", step1);                  // verbatim High name (title attribute)
+        Assert.Contains("Whole Milk", step1);               // its resolved suggestion (→ product)
 
-        // Raw flyer names render verbatim (ACL quarantine).
-        Assert.Contains("Milk 2L", html);
-        Assert.Contains("Mystery Item", html);
-        // _ConfidenceBadge treatment (High/Low/None) reused from Intake.
-        Assert.Contains("Matched", html);      // High
-        Assert.Contains("Check match", html);  // Low
-        Assert.Contains("No match", html);     // None
-        // Single-suggestion "did you mean" chip for a matched deal.
-        Assert.Contains("Did you mean", html);
-        Assert.Contains("Whole Milk", html);   // resolved suggestion name
-        // The per-card "Unrecognized — no catalog match…" boilerplate is gone (q9zr.2 item 2): the badge +
-        // verbs already communicate it, so it no longer repeats once per no-match row.
-        Assert.DoesNotContain("Unrecognized", html);
-        Assert.DoesNotContain("no catalog match", html);
-        // Verbs present.
-        Assert.Contains("Confirm", html);
-        Assert.Contains("Correct", html);
-        Assert.Contains("Reject", html);
+        // Step 2 — the Low "judgement call": confidence badge, single-suggestion chip, and the single verbs.
+        var step2 = await (await client.GetAsync("/Deals/Review?step=2")).Content.ReadAsStringAsync();
+        Assert.Contains("Sourdough Loaf", step2);
+        Assert.Contains("Check match", step2);              // Low _ConfidenceBadge
+        Assert.Contains("Did you mean", step2);             // single-suggestion chip
+        Assert.Contains("Confirm", step2);
+        Assert.Contains("Correct", step2);
+        Assert.Contains("Reject", step2);
+
+        // Step 3 — the None "everything else": no-match badge, verbatim name, no boilerplate.
+        var step3 = await (await client.GetAsync("/Deals/Review?step=3")).Content.ReadAsStringAsync();
+        Assert.Contains("Mystery Item", step3);
+        Assert.Contains("No match", step3);                 // None _ConfidenceBadge
+        Assert.DoesNotContain("Unrecognized", step3);
+        Assert.DoesNotContain("no catalog match", step3);
     }
 
-    [Fact(DisplayName = "GET /Deals/Review groups the queue into High → Low → None tier sections with counts")]
-    public async Task Groups_Into_Confidence_Tier_Sections()
+    [Fact(DisplayName = "The stepper renders three jumpable step views with live pending counts (q9zr.13)")]
+    public async Task Stepper_Renders_Three_Steps_With_Counts()
     {
         factory.Reset();
         factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
@@ -104,17 +115,17 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         var html = System.Net.WebUtility.HtmlDecode(
             await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
 
-        // The three tier section headers render in fixed High → Low → None order.
-        var high = html.IndexOf("Looks right", StringComparison.Ordinal);
-        var low = html.IndexOf("Needs a look", StringComparison.Ordinal);
-        var none = html.IndexOf("Not in your catalog", StringComparison.Ordinal);
-        Assert.True(high >= 0 && low >= 0 && none >= 0, "All three tier sections should render.");
-        Assert.True(high < low && low < none, "Tier sections must be ordered High → Low → None.");
+        // The three steps render in fixed order 1 → 2 → 3.
+        var s1 = html.IndexOf("Confirm the sure things", StringComparison.Ordinal);
+        var s2 = html.IndexOf("Judgement calls", StringComparison.Ordinal);
+        var s3 = html.IndexOf("Everything else", StringComparison.Ordinal);
+        Assert.True(s1 >= 0 && s2 >= 0 && s3 >= 0, "All three step views should render in the stepper.");
+        Assert.True(s1 < s2 && s2 < s3, "Steps must be ordered Confirm → Judgement → Everything.");
 
-        // Each section header carries its own count (High 2 / Low 1 / None 3) immediately after the title.
-        Assert.Matches(@"Looks right</span>\s*<span class=""ch-sub"">·\s*2", html);
-        Assert.Matches(@"Needs a look</span>\s*<span class=""ch-sub"">·\s*1", html);
-        Assert.Matches(@"Not in your catalog</span>\s*<span class=""ch-sub"">·\s*3", html);
+        // Each step chip carries its live pending count: step 1 = 2 confirmable Highs, step 2 = 1 Low, step 3 = 3 None.
+        Assert.Matches(@"Confirm the sure things\s*<span class=""step__count"">2</span>", html);
+        Assert.Matches(@"Judgement calls\s*<span class=""step__count"">1</span>", html);
+        Assert.Matches(@"Everything else\s*<span class=""step__count"">3</span>", html);
     }
 
     [Fact(DisplayName = "GET /Deals/Review?dealId=<confirmed> renders the single auto-matched correction card")]
@@ -435,25 +446,31 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
 
     // ── L4/L5 bulk verbs (q9zr.4) ──────────────────────────────────────────────────
 
-    [Fact(DisplayName = "Tier headers render Confirm all (N) on High and Dismiss all (N) on None with counts")]
+    [Fact(DisplayName = "Step 1 commits via the checklist footer (Confirm N matches); step 3 keeps Dismiss all (N)")]
     public async Task Bulk_Buttons_Render_With_Counts()
     {
         factory.Reset();
         factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
         factory.SeedPending("High B", MatchConfidence.High, factory.BreadProduct);
         factory.SeedPending("None A", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
 
-        var html = System.Net.WebUtility.HtmlDecode(
-            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+        // Step 1 (entry): the sticky footer commits the checked matches — server-rendered count = 2 confirmable
+        // Highs, both pre-checked. The commit posts checklistCommit + the checked dealIds[] to ConfirmAll.
+        var step1 = System.Net.WebUtility.HtmlDecode(
+            await (await client.GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+        Assert.Contains("Confirm 2 matches", step1);
+        Assert.Contains("name=\"checklistCommit\"", step1);
+        // Well-formed handler route (never the un-substituted Razor literal "@flyerQs" — the email-heuristic trap).
+        Assert.Matches(@"hx-post=""/Deals/Review\?handler=ConfirmAll(&flyer=[^""]*)?&step=1""", step1);
+        Assert.DoesNotContain("@flyerQs", step1);
 
-        Assert.Contains("Confirm all (2)", html);
-        Assert.Contains("Dismiss all (1)", html);
-        // The hx-post URL must be a well-formed handler route, terminated by the closing quote or a flyer
-        // query — never the un-substituted Razor literal "@flyerQs" (the email-heuristic trap that made the
-        // live button post to a non-existent handler and fall through to a full-page render).
-        Assert.Matches(@"hx-post=""/Deals/Review\?handler=ConfirmAll(&flyer=[^""]*)?""", html);
-        Assert.Matches(@"hx-post=""/Deals/Review\?handler=DismissAll(&flyer=[^""]*)?""", html);
-        Assert.DoesNotContain("@flyerQs", html);
+        // Step 3: the None "everything else" list keeps the Dismiss-all bulk verb with its count.
+        var step3 = System.Net.WebUtility.HtmlDecode(
+            await (await client.GetAsync("/Deals/Review?step=3")).Content.ReadAsStringAsync());
+        Assert.Contains("Dismiss all (1)", step3);
+        Assert.Matches(@"hx-post=""/Deals/Review\?handler=DismissAll(&flyer=[^""]*)?&step=3""", step3);
+        Assert.DoesNotContain("@flyerQs", step3);
     }
 
     [Fact(DisplayName = "ConfirmAll confirms every High deal via its OWN server-side SuggestedProductId, and toasts")]
@@ -605,6 +622,158 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         var dismiss = await client.PostAsync("/Deals/Review?handler=DismissAll", new FormUrlEncodedContent([]));
         Assert.Equal(HttpStatusCode.Unauthorized, confirm.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, dismiss.StatusCode);
+    }
+
+    // ── L4 guided-flow shell — demotion, uncheck persistence, empty steps, idempotency (q9zr.13) ────
+
+    [Fact(DisplayName = "Committing step 1 with a High unchecked confirms the checked ones and demotes the unchecked into step 2 exactly once")]
+    public async Task Demotion_Moves_Unchecked_High_Into_Step2_Exactly_Once()
+    {
+        factory.Reset();
+        var a = factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
+        var b = factory.SeedPending("High B", MatchConfidence.High, factory.BreadProduct);
+        var low = factory.SeedPending("Low Judgement", MatchConfidence.Low, factory.BreadProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);  // also issues the session cookie (stable flow-store key)
+
+        // Step 1 starts with 2 confirmable Highs; step 2 has the 1 Low.
+        var start = System.Net.WebUtility.HtmlDecode(await HxGetAsync(client, "/Deals/Review"));
+        Assert.Matches(@"Confirm the sure things\s*<span class=""step__count"">2</span>", start);
+        Assert.Matches(@"Judgement calls\s*<span class=""step__count"">1</span>", start);
+
+        // Uncheck A, then commit the checklist with only B checked (checklistCommit + the checked dealIds[]).
+        await PostAsync(client, "/Deals/Review?handler=SetCheck",
+            Kv("__RequestVerificationToken", token), Kv("dealId", a.Id.Value.ToString()), Kv("isChecked", "false"));
+
+        var commitResponse = await PostAsync(client, "/Deals/Review?handler=ConfirmAll&step=1",
+            Kv("__RequestVerificationToken", token),
+            Kv("checklistCommit", "true"),
+            Kv("dealIds", b.Id.Value.ToString()));
+        commitResponse.EnsureSuccessStatusCode();
+        var afterCommit = System.Net.WebUtility.HtmlDecode(await commitResponse.Content.ReadAsStringAsync());
+
+        // B confirmed (left the queue); A stays Pending but demoted into step 2.
+        Assert.Equal(DealStatus.Confirmed, b.Status);
+        Assert.Equal(DealStatus.Pending, a.Status);
+        Assert.Equal(DealStatus.Pending, low.Status);
+
+        // Step 1 is now empty (✓); step 2 owns the Low + the demoted A = 2; total pending still sums (2).
+        Assert.Matches(@"Confirm the sure things\s*<span class=""step__count"">✓</span>", afterCommit);
+        Assert.Matches(@"Judgement calls\s*<span class=""step__count"">2</span>", afterCommit);
+
+        // The demoted A appears in step 2 exactly once (counted once, nothing stranded).
+        var step2 = await HxGetAsync(client, "/Deals/Review?step=2");
+        var demotedOccurrences = Regex.Matches(step2, $"data-deal-id=\"{a.Id.Value}\"").Count;
+        Assert.Equal(1, demotedOccurrences);
+    }
+
+    [Fact(DisplayName = "An uncheck in step 1 persists across a jump to another step and back (no re-check)")]
+    public async Task Uncheck_Persists_Across_A_Step_Round_Trip()
+    {
+        factory.Reset();
+        var a = factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedPending("High B", MatchConfidence.High, factory.BreadProduct);
+        factory.SeedPending("None C", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // Both Highs start checked.
+        var before = await HxGetAsync(client, "/Deals/Review");
+        var checkedBefore = Regex.Matches(before, "checked=\"checked\"").Count;
+        Assert.Equal(2, checkedBefore);
+
+        // Uncheck A, jump to step 3, then back to step 1.
+        await PostAsync(client, "/Deals/Review?handler=SetCheck",
+            Kv("__RequestVerificationToken", token), Kv("dealId", a.Id.Value.ToString()), Kv("isChecked", "false"));
+        await HxGetAsync(client, "/Deals/Review?step=3");
+        var back = System.Net.WebUtility.HtmlDecode(await HxGetAsync(client, "/Deals/Review?step=1"));
+
+        // The uncheck held — exactly one box checked, and the footer count reflects it. (Without persistence the
+        // round-trip would re-check A → "Confirm 2 matches" and two checked boxes: the fixed prototype bug.)
+        var checkedAfter = Regex.Matches(back, "checked=\"checked\"").Count;
+        Assert.Equal(1, checkedAfter);
+        Assert.Contains("Confirm 1 match", back);
+    }
+
+    [Fact(DisplayName = "Jumping into an already-cleared step renders the empty-state pointing at a step with work")]
+    public async Task Empty_Step_Renders_Jump_Pointer()
+    {
+        factory.Reset();
+        factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedPending("High B", MatchConfidence.High, factory.BreadProduct);
+        var client = AuthedClient();
+
+        // Steps 2 and 3 are empty (only confirmable Highs). Jump into step 2 → empty-state + pointer to step 1.
+        var step2 = System.Net.WebUtility.HtmlDecode(await HxGetAsync(client, "/Deals/Review?step=2"));
+        Assert.Contains("All judgement calls resolved", step2);
+        Assert.Contains("There is still work in step 1", step2);
+        Assert.Contains("Go to step 1", step2);
+        Assert.Matches(@"hx-get=""/Deals/Review\?flyer=[^""]*&step=1""", step2);
+    }
+
+    [Fact(DisplayName = "?flyer=&step= is refresh-idempotent — a repeated GET lands on the same step with the same content")]
+    public async Task Step_Deep_Link_Is_Refresh_Idempotent()
+    {
+        factory.Reset();
+        factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
+        var low = factory.SeedPending("Low Judgement", MatchConfidence.Low, factory.BreadProduct);
+        var key = FlyerBlock.MakeKey(low.StoreId, low.ValidityWindow.ValidFrom, low.ValidityWindow.ValidTo);
+        var client = AuthedClient();
+
+        // A deep-link straight to step 2 renders step 2's judgement-call content (the Low), twice, unchanged —
+        // a GET never mutates state, so a refresh re-drives to the same view.
+        var first = System.Net.WebUtility.HtmlDecode(await HxGetAsync(client, $"/Deals/Review?flyer={key}&step=2"));
+        var second = System.Net.WebUtility.HtmlDecode(await HxGetAsync(client, $"/Deals/Review?flyer={key}&step=2"));
+
+        foreach (var html in new[] { first, second })
+        {
+            Assert.Contains("Low Judgement", html);                 // step 2 content is shown
+            Assert.Matches(@"class=""step is-active""[\s\S]*?step__n"">2", html); // step 2 is the active step
+        }
+    }
+
+    [Fact(DisplayName = "Committing step 1 with everything unchecked confirms nothing and demotes all Highs to step 2")]
+    public async Task Commit_With_Nothing_Checked_Confirms_None_Demotes_All()
+    {
+        factory.Reset();
+        var a = factory.SeedPending("High A", MatchConfidence.High, factory.MilkProduct);
+        var b = factory.SeedPending("High B", MatchConfidence.High, factory.BreadProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // checklistCommit with NO dealIds means "confirm none, demote all" — NOT the legacy empty==whole-set.
+        var response = await PostAsync(client, "/Deals/Review?handler=ConfirmAll&step=1",
+            Kv("__RequestVerificationToken", token), Kv("checklistCommit", "true"));
+        response.EnsureSuccessStatusCode();
+
+        Assert.Equal(DealStatus.Pending, a.Status);   // nothing confirmed
+        Assert.Equal(DealStatus.Pending, b.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+        Assert.False(response.Headers.Contains("HX-Trigger"));  // no confirm toast
+
+        // Both Highs demoted → step 1 empty, step 2 owns both.
+        var frag = System.Net.WebUtility.HtmlDecode(await HxGetAsync(client, "/Deals/Review?step=2"));
+        Assert.Matches(@"Judgement calls\s*<span class=""step__count"">2</span>", frag);
+    }
+
+    [Fact(DisplayName = "A $0.00 High noise row is excluded from the step-1 checklist and routed to step 2 (honest counts)")]
+    public async Task Noise_High_Excluded_From_Step1_Routed_To_Step2()
+    {
+        factory.Reset();
+        factory.SeedPending("Real High", MatchConfidence.High, factory.MilkProduct, price: 4.99m);
+        factory.SeedPending("AD MATCH", MatchConfidence.High, factory.BreadProduct, price: 0m); // High but noise
+        var client = AuthedClient();
+
+        // Step 1 counts only the confirmable High (== the ConfirmAll-eligible set, so "Confirm N" is honest);
+        // the noise High is a judgement call in step 2, where it renders flagged.
+        var start = System.Net.WebUtility.HtmlDecode(await HxGetAsync(client, "/Deals/Review"));
+        Assert.Matches(@"Confirm the sure things\s*<span class=""step__count"">1</span>", start);
+        Assert.Matches(@"Judgement calls\s*<span class=""step__count"">1</span>", start);
+        Assert.Contains("Confirm 1 match", start);   // not 2 — the noise row is never checkable in step 1
+
+        var step2 = System.Net.WebUtility.HtmlDecode(await HxGetAsync(client, "/Deals/Review?step=2"));
+        Assert.Contains("AD MATCH", step2);
+        Assert.Contains("Flyer noise", step2);
     }
 }
 

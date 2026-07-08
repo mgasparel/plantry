@@ -6388,6 +6388,38 @@ kbd, .kbd {
 .step.is-done { color: var(--color-success); border-color: var(--color-success); }
 .step.is-done .step__n { background: var(--color-success-bg); color: var(--color-success); }
 
+/* ── Guided-flow step-1 checklist + sticky commit footer (.check-list / .step-foot)
+   The long-list idiom (Deals Review step 1): a full-length pre-checked list with a
+   sticky action bar — never a nested scrollbox. The card must NOT clip (overflow:
+   hidden kills position: sticky), so it uses .card--flow (overflow visible) and its
+   edge children round their own corners. */
+.card--flow { overflow: visible; }
+.check-list { list-style: none; }
+.check-list .check-row:first-child { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.check-row {
+  display: flex; align-items: baseline; gap: var(--space-3); padding: 0.6rem var(--space-5);
+  border-top: 1px solid var(--color-border-subtle); font-size: 0.9rem; cursor: pointer;
+}
+.check-row:first-child { border-top: none; }
+.check-row:hover { background: var(--color-surface-2); }
+.check-row input { transform: translateY(2px); accent-color: var(--color-accent); flex: none; }
+.check-row .raw { flex: 1; overflow-wrap: anywhere; }
+.check-row .raw b { font-weight: 650; }
+.check-row .to { color: var(--color-text-muted); white-space: nowrap; }
+.check-row .to .product { color: var(--color-text); font-weight: 650; }
+.step-foot {
+  display: flex; gap: var(--space-3); align-items: center; padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-subtle); background: var(--color-surface-2);
+  position: sticky; bottom: 0; z-index: 10;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+.step-foot .note { flex: 1; font-size: 0.8125rem; color: var(--color-text-muted); }
+
+/* ── Guided-flow empty-step state (.step-empty): jumped into a cleared step. */
+.step-empty { text-align: center; padding: var(--space-6) var(--space-5); }
+.step-empty .t { font-weight: 700; color: var(--color-success); }
+.step-empty p { color: var(--color-text-muted); font-size: 0.875rem; margin: 0.3rem 0 var(--space-4); }
+
 /* ── Flyer rail (Deals Review chapters) ─────────────────────────────────────
    Two densities of the same chapter list:
      .flyer-chip  — big card (≤3 flyers): store, count·expiry pill, valid range.

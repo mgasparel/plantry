@@ -874,6 +874,42 @@
         <button class="step"><span class="step__n">3</span> Everything else <span class="step__count">401</span></button>
     </div>
     <pre class="code-sample"><code>@("<div class=\"steps\">\n  <button class=\"step is-done\"><span class=\"step__n\">1</span> … <span class=\"step__count\">✓</span></button>\n  <button class=\"step is-active\"><span class=\"step__n\">2</span> … <span class=\"step__count\">29</span></button>\n  <button class=\"step\"><span class=\"step__n\">3</span> … <span class=\"step__count\">401</span></button>\n</div>")</code></pre>
+
+    <h3 style="margin-top: 1.5rem;">Step-1 checklist + sticky commit footer (<code>.card--flow</code> / <code>.check-list</code> / <code>.step-foot</code>)</h3>
+    <p>
+        The batch-confirm view (Deals Review step 1): a full-length pre-checked list with a sticky action
+        bar — the long-list idiom, never a nested scrollbox. The card uses <code>.card--flow</code>
+        (<code>overflow: visible</code>) so <code>position: sticky</code> works; the footer pins to the
+        bottom of the viewport while the list scrolls. Clicking a row toggles its box.
+    </p>
+    <div class="card card--flow" style="max-width: 560px;">
+        <ul class="check-list" role="list">
+            <li class="check-row"><input type="checkbox" checked />
+                <span class="raw"><b>Whole Milk 4l</b></span>
+                <span class="to">&rarr; <span class="product">Whole Milk</span></span></li>
+            <li class="check-row"><input type="checkbox" checked />
+                <span class="raw"><b>Sourdough Loaf</b></span>
+                <span class="to">&rarr; <span class="product">Sourdough Bread</span></span></li>
+        </ul>
+        <div class="step-foot">
+            <span class="note">Anything you uncheck joins the judgement calls in step 2 &mdash; nothing is lost.</span>
+            <button type="button" class="btn btn--primary">&#10003; Confirm 2 matches</button>
+        </div>
+    </div>
+
+    <h3 style="margin-top: 1.5rem;">Empty-step state (<code>.step-empty</code>)</h3>
+    <p>
+        Jumping into a step whose pool is already cleared shows a done marker and a pointer to a step that
+        still has work. Auto-advance to the next step happens only when a pool empties under the user's own
+        action; an explicit jump into an empty step lands here.
+    </p>
+    <div class="card" style="max-width: 560px;">
+        <div class="step-empty">
+            <div class="t">&#10003; All sure things handled</div>
+            <p>There is still work in step 2.</p>
+            <button type="button" class="btn btn--secondary">Go to step 2 &rarr;</button>
+        </div>
+    </div>
 </section>
 
 <section class="catalog-section">

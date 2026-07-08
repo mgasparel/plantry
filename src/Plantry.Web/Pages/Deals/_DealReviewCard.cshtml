@@ -27,6 +27,9 @@
     // hosting _ReviewQueue; empty on the single-deal correction path (verbs fall back to the default flyer).
     var flyerKey = ViewData["FlyerKey"] as string;
     var flyerQs = string.IsNullOrEmpty(flyerKey) ? "" : $"&flyer={flyerKey}";
+    // Active step (q9zr.13) — threaded onto each verb so the re-render stays on / advances off this step.
+    // Empty on the single-deal correction path (no stepper); the verbs then fall back to the default step.
+    var stepQs = ViewData["StepQs"] as string ?? "";
 }
 
 <li class="catalog-list__item deal-review-row @(isNoise ? "deal-review-row--noise" : null)"
@@ -87,7 +90,7 @@
         {
             <button type="button"
                     class="btn @(Model.Confidence == MatchConfidence.High ? "btn--primary" : "btn--secondary") btn--sm"
-                    hx-post="/Deals/Review?handler=Confirm&dealId=@dealId@flyerQs"
+                    hx-post="/Deals/Review?handler=Confirm&dealId=@dealId@flyerQs@stepQs"
                     hx-target="#review-region"
                     hx-swap="innerHTML">
                 <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
@@ -102,7 +105,7 @@
             Correct
         </button>
         <button type="button" class="btn btn--ghost btn--sm deal-review-row__reject"
-                hx-post="/Deals/Review?handler=Reject&dealId=@dealId@flyerQs"
+                hx-post="/Deals/Review?handler=Reject&dealId=@dealId@flyerQs@stepQs"
                 hx-target="#review-region"
                 hx-swap="innerHTML">
             Reject
