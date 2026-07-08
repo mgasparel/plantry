@@ -6248,6 +6248,78 @@ button.sadd svg { width: 13px; height: 13px; }
   color: var(--color-text-faint); font-size: 0.875rem;
 }
 
+/* ── Step-2 judgement-call deck (q9zr.8, deal-deck.js island) ────────────────────
+   One card at a time with keyboard verbs + pointer-drag swipe. The deck OWNS these
+   pixels imperatively (translate/rotate/stamp-opacity written per pointermove), so the
+   card sits in its own .deck-zone. Two-block card: flyer block → "Plantry thinks this
+   is" → catalog block. No store/dates/links/confidence-pill — context lives in the rail. */
+.deck-progress { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.deck-progress .bar { flex: 1; height: 6px; border-radius: var(--radius-full); background: var(--color-border); overflow: hidden; }
+.deck-progress .fill { height: 100%; background: var(--color-accent); transition: width 240ms ease; }
+.deck-progress .label { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; }
+
+.deck-zone { position: relative; touch-action: pan-y; }
+.focus-card { position: relative; padding: var(--space-5); user-select: none; animation: deck-card-in 200ms ease; }
+.focus-card.dragging { transition: none; cursor: grabbing; }
+.focus-card.springing { transition: transform 180ms ease; }
+.focus-card--noise { opacity: 0.85; }
+@keyframes deck-card-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } to { opacity: 1; transform: none; } }
+
+/* Swipe stamps — fade in with drag distance (opacity written by the island), never intercept the drag. */
+.swipe-hint {
+  position: absolute; top: var(--space-4); z-index: 2;
+  font-size: 1rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 0.3rem 0.8rem; border-radius: var(--radius-md); border: 2px solid;
+  opacity: 0; pointer-events: none;
+}
+.swipe-hint--confirm { right: var(--space-4); color: var(--color-success); border-color: var(--color-success); transform: rotate(6deg); }
+.swipe-hint--reject { left: var(--space-4); color: var(--color-danger); border-color: var(--color-danger); transform: rotate(-6deg); }
+
+.focus-card__flyer {
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: var(--space-4);
+}
+.focus-card__src {
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--color-text-faint); margin-bottom: 0.2rem;
+}
+.focus-card__raw-name .deal-review-row__name { font-weight: 700; font-size: 1.05rem; line-height: 1.3; overflow-wrap: anywhere; }
+.focus-card__meta { display: flex; gap: var(--space-3); align-items: baseline; margin-top: 0.3rem; flex-wrap: wrap; }
+.focus-card__meta .deal-review-row__brand { margin-left: 0; }
+.focus-card__meta .deal-row__amount { font-weight: 650; }
+.focus-card__noise {
+  display: flex; align-items: center; gap: var(--space-1);
+  margin-top: var(--space-2); font-size: var(--font-size-xs); color: var(--color-warning);
+}
+
+.focus-card__link {
+  display: flex; align-items: center; gap: var(--space-3); margin: var(--space-3) 0;
+  color: var(--color-text-faint); font-size: 0.8125rem;
+}
+.focus-card__link::before, .focus-card__link::after { content: ''; flex: 1; border-top: 1px dashed var(--color-border-strong); }
+
+.focus-card__match {
+  border: 1px solid var(--color-accent-subtle);
+  background: color-mix(in srgb, var(--color-accent-subtle) 45%, var(--color-surface));
+  border-radius: var(--radius-md); padding: var(--space-4);
+}
+.focus-card__match--none { background: var(--color-surface-2); border-color: var(--color-border); }
+.focus-card__match .focus-card__src { color: var(--color-accent); }
+.focus-card__product { font-weight: 700; font-size: 1.2rem; }
+.focus-card__reasoning { margin-top: 0.35rem; font-size: 0.8125rem; color: var(--color-text-muted); }
+
+.focus-verbs { display: flex; gap: var(--space-2); margin-top: var(--space-5); }
+.focus-verbs .btn { flex: 1; justify-content: center; }
+.focus-under { display: flex; justify-content: space-between; margin-top: var(--space-3); font-size: 0.8125rem; }
+.focus-under button {
+  background: none; border: none; font: inherit; font-size: inherit; color: var(--color-text-muted);
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+}
+.focus-under button:hover:not(:disabled) { color: var(--color-text); }
+.focus-under button:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+.swipe-tip { text-align: center; margin-top: 0.6rem; font-size: 0.75rem; color: var(--color-text-faint); }
+@media (min-width: 721px) { .swipe-tip { display: none; } }
+
 /* ── Dev endpoints reference (Dev/Endpoints, development-only) ─────────────────── */
 .dev-endpoints {
   list-style: none;
