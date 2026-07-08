@@ -495,4 +495,33 @@ public sealed class IslandTypedefEquivalenceTests
             GetDtoWireKeys(typeof(UnitOptionVm)),
             ParseCompactTypedefKeys(js, "UnitOption"));
     }
+
+    // ─── Tests: Deals judgement-call deck (deal-deck.js) ─────────────────────
+
+    /// <summary>
+    /// DealDeckCardVm (C# name) ↔ DealDeckCard (@typedef in deal-deck.js). The fourth island
+    /// (ADR-020 2026-07-07 amendment) hydrates its one-card-at-a-time deck from this shape.
+    /// </summary>
+    [Fact]
+    public void Deals_DealDeckCardVm_typedef_matches_dto()
+    {
+        var js = File.ReadAllText(IslandPath("deal-deck.js"));
+        AssertEquivalent(
+            "DealDeckCard",
+            GetDtoWireKeys(typeof(Plantry.Web.Pages.Deals.DealDeckCardVm)),
+            ParseTypedefKeys(js, "DealDeckCard"));
+    }
+
+    /// <summary>
+    /// DealDeckHydration (C# name, the step-2 hydration payload) ↔ DealDeckConfig (@typedef).
+    /// </summary>
+    [Fact]
+    public void Deals_DealDeckHydration_typedef_matches_dto()
+    {
+        var js = File.ReadAllText(IslandPath("deal-deck.js"));
+        AssertEquivalent(
+            "DealDeckConfig",
+            GetDtoWireKeys(typeof(Plantry.Web.Pages.Deals.DealDeckHydration)),
+            ParseTypedefKeys(js, "DealDeckConfig"));
+    }
 }

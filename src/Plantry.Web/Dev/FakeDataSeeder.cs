@@ -1,9 +1,15 @@
+using System.Reflection;
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Bogus;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
+using Plantry.Deals.Application;
+using Plantry.Deals.Domain;
+using Plantry.Deals.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
@@ -37,6 +43,10 @@ public sealed class FakeDataSeeder(
     RecipesDbContext recipesDb,
     MealPlanningDbContext mealPlanningDb,
     PricingDbContext pricingDb,
+    DealsDbContext dealsDb,
+    IStoreRepository storeRepo,
+    ConfirmDeal confirmDeal,
+    RejectDeal rejectDeal,
     IClock clock)
 {
     public const string DemoEmail = "demo@plantry.dev";
@@ -143,6 +153,11 @@ public sealed class FakeDataSeeder(
             // are in place so cost roll-ups produce real figures on first load.
             // For the demo household, also seeds slot default attendees and per-meal overrides.
             await SeedMealPlanAsync(householdId, userId, isDemo, ct);
+            // Deals + flyer-review data (plantry-q9zr.14) — demo household only (the review UX is a demo
+            // surface). Seeds after products so suggested matches resolve against the demo catalog; the
+            // fixture is a real post-match export, replayed WITHOUT the AI matcher.
+            if (isDemo)
+                await SeedDealsAsync(householdId, userId, ct);
         }
         finally
         {
@@ -535,6 +550,272 @@ public sealed class FakeDataSeeder(
         await pricingDb.SaveChangesAsync(ct);
     }
 
+    // ── Deals + flyer-review seeding (plantry-q9zr.14) ──────────────────────────────
+    //
+    // Replays a REAL, already-matched flyer export (superstore-flyer-2026-07.json, embedded) into two flyer
+    // imports whose validity windows are rebased relative to IClock so /Deals/Review is deterministic and
+    // never empties on flyer expiry. It never invokes the AI DealMatcher — the fixture IS the post-match
+    // result — so it stays deterministic, key-free, and preserves the real 16-high/29-low/401-none tier
+    // structure. See docs/Engineering/worktree-verification.md for how this pairs with the isolated-mode recipe.
+
+    /// <summary>Postal code the demo store subscription is pulled for (a valid Canadian FSA for Flipp).</summary>
+    internal const string DemoFlyerPostalCode = "K1A 0B1";
+
+    /// <summary>Suffix distinguishing the prior-week import's dedup key from the current week's.</summary>
+    internal const string PriorWeekExternalIdSuffix = "-prev";
+
+    /// <summary>Every Nth suggestion-bearing prior-week deal is left expired-Pending instead of confirmed —
+    /// so the DD14 tripwire covers a suggestion-bearing pending too, not only unmatched noise.</summary>
+    private const int PriorWeekSuggestedPendingEvery = 8;
+
+    /// <summary>How many unmatched prior-week noise rows the "reviewer" actively Rejected (the rest expire Pending).</summary>
+    private const int PriorWeekRejectCount = 6;
+
+    private async Task SeedDealsAsync(HouseholdId householdId, Guid userId, CancellationToken ct)
+    {
+        var fixture = LoadFixture();
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+
+        // Store identity carrying the Flipp external ref (the dedup + subscription anchor).
+        var store = Store.Create(householdId, fixture.Store, clock, externalRef: fixture.Flyer.ExternalId);
+        await storeRepo.AddAsync(store, ct);
+        await storeRepo.SaveChangesAsync(ct);
+        var storeId = store.Id.Value;
+
+        // Resolve every post-match suggested product name against the seeded demo catalog, creating any the
+        // catalog doesn't ship (currently just "Fruit Snacks"). NEVER touches the AI matcher.
+        var productIdByName = await ResolveSuggestedProductsAsync(householdId, fixture, ct);
+        var hasSuggestion = fixture.Deals
+            .Select(d => d.SuggestedProductName is { } n && productIdByName.ContainsKey(n))
+            .ToList();
+
+        // ── CURRENT week (today-2 → today+5): the full deal set, all Pending in the original tier mix. The
+        // fixture's confirmed/rejected rows are seeded Pending here too (confidence preserved), so the review
+        // queue shows every advertised deal — this is what the review-UX beads verify against. ──
+        var (curFrom, curTo) = CurrentWeekWindow(today);
+        var currentWindow = ValidityWindow.Create(curFrom, curTo).Value;
+        await StageImportAsync(householdId, storeId, fixture.Flyer.ExternalId, currentWindow, fixture,
+            productIdByName, fixture.Deals.Count, ct);
+
+        // ── PRIOR week (today-9 → today-2, expired): a clone with a suffixed external id whose status pass
+        // runs through the REAL domain verbs — the majority of resolvable (suggestion-bearing) deals Confirmed
+        // (so DealConfirmedEvent fires and price observations land, giving the active list + price history real
+        // data), a few Rejected, and a handful left Pending. Those expired-Pending deals must NOT surface in
+        // the review queue (DD14) — the seed's permanent live tripwire for the queue filter. ──
+        var (priorFrom, priorTo) = PriorWeekWindow(today);
+        var priorWindow = ValidityWindow.Create(priorFrom, priorTo).Value;
+        var actions = PlanPriorWeekActions(hasSuggestion);
+
+        var priorDeals = await StageImportAsync(householdId, storeId,
+            fixture.Flyer.ExternalId + PriorWeekExternalIdSuffix, priorWindow, fixture, productIdByName,
+            actions.Count(a => a == PriorWeekAction.Pending), ct);
+
+        for (var i = 0; i < priorDeals.Count; i++)
+        {
+            Result result;
+            switch (actions[i])
+            {
+                case PriorWeekAction.Confirm:
+                    result = await confirmDeal.ConfirmAsync(
+                        priorDeals[i].Id, productIdByName[fixture.Deals[i].SuggestedProductName!], userId, ct);
+                    break;
+                case PriorWeekAction.Reject:
+                    result = await rejectDeal.RejectAsync(priorDeals[i].Id, userId, rememberNegative: false, ct);
+                    break;
+                default:
+                    continue; // Pending — left as staged (the expired DD14 tripwire).
+            }
+
+            if (result.IsFailure)
+                throw new InvalidOperationException(
+                    $"Seed prior-week deal verb failed for '{fixture.Deals[i].RawName}': " +
+                    $"{result.Error.Code} — {result.Error.Description}");
+        }
+
+        // Standing subscription with a realistic post-ingest dedup anchor pointing at the current-week import.
+        var subscription = StoreSubscription.Subscribe(householdId, storeId, DemoFlyerPostalCode, clock);
+        subscription.RecordPull(fixture.Flyer.ExternalId, clock);
+        dealsDb.StoreSubscriptions.Add(subscription);
+        await dealsDb.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Inserts one Parsed <see cref="FlyerImport"/> and every fixture deal beneath it as <c>Pending</c>, in
+    /// original flyer order. The import is saved before its deals because <c>deal → flyer_import</c> is a
+    /// composite FK with no EF navigation (the same insert-ordering IngestFlyer relies on). The single shared
+    /// <paramref name="window"/> instance legally backs both the import's and each deal's <c>valid_from/valid_to</c>
+    /// columns — <see cref="ValidityWindow"/> is a complex type with value semantics (plantry-cegw). Returns the
+    /// staged deals in fixture order so the caller can drive per-deal verbs.
+    /// </summary>
+    private async Task<IReadOnlyList<Deal>> StageImportAsync(
+        HouseholdId householdId, Guid storeId, string externalId, ValidityWindow window,
+        DealFixture fixture, IReadOnlyDictionary<string, Guid> productIdByName, int pendingCount, CancellationToken ct)
+    {
+        var import = FlyerImport.Start(
+            householdId, storeId, externalId, contentHash: null, window, fixture.Flyer.RawFlyer.GetRawText(), clock);
+        var marked = import.MarkParsed(pendingCount, clock);
+        if (marked.IsFailure)
+            throw new InvalidOperationException($"Seed flyer MarkParsed failed: {marked.Error.Description}");
+
+        dealsDb.FlyerImports.Add(import);
+        await dealsDb.SaveChangesAsync(ct); // INSERT the import before its deals (composite FK, no navigation)
+
+        var deals = new List<Deal>(fixture.Deals.Count);
+        foreach (var fd in fixture.Deals)
+        {
+            var productId = fd.SuggestedProductName is { } name && productIdByName.TryGetValue(name, out var pid)
+                ? pid
+                : (Guid?)null;
+
+            // unit_id stays null: the export never resolved a pack unit (unitSymbol/quantity are absent), so
+            // there is nothing to look up — matching the real ingest, which left these deals unit-less.
+            var raw = new RawDeal(fd.RawName, fd.Brand, fd.Size, fd.Price, fd.Quantity, UnitId: null, fd.SaleStory, window);
+            var normalized = new NormalizedName(fd.NormalizedName, DealNormalizer.NormalizerVersion);
+            var proposal = new MatchProposal(productId, ParseConfidence(fd.Confidence), fd.Reasoning);
+
+            var deal = Deal.Stage(householdId, import.Id, storeId, raw, normalized, proposal, clock);
+            dealsDb.Deals.Add(deal);
+            deals.Add(deal);
+        }
+
+        await dealsDb.SaveChangesAsync(ct);
+        return deals;
+    }
+
+    /// <summary>
+    /// Resolves the fixture's post-match suggested product names to catalog product ids, minting any name the
+    /// demo catalog does not already ship (e.g. "Fruit Snacks") via the same <see cref="Product.Create"/> path
+    /// the product seed uses. Returns a name→id map over the whole demo catalog.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, Guid>> ResolveSuggestedProductsAsync(
+        HouseholdId householdId, DealFixture fixture, CancellationToken ct)
+    {
+        var byName = await catalogDb.Products.ToDictionaryAsync(p => p.Name, p => p.Id.Value, ct);
+
+        var missing = fixture.Deals
+            .Select(d => d.SuggestedProductName)
+            .Where(n => n is not null && !byName.ContainsKey(n))
+            .Select(n => n!)
+            .Distinct()
+            .ToList();
+
+        if (missing.Count == 0)
+            return byName;
+
+        var units = await catalogDb.Units.ToDictionaryAsync(u => u.Code, ct);
+        var categories = await catalogDb.Categories.ToDictionaryAsync(c => c.Name, ct);
+        if (!units.TryGetValue("g", out var grams))
+            return byName; // reference data missing — leave those deals unmatched rather than fail the seed
+
+        var created = new List<Product>();
+        foreach (var name in missing)
+        {
+            var product = Product.Create(householdId, name, grams.Id, clock);
+            if (categories.TryGetValue("Snacks", out var snacks))
+                product.SetCategory(snacks.Id, clock);
+            created.Add(product);
+        }
+
+        await catalogDb.Products.AddRangeAsync(created, ct);
+        await catalogDb.SaveChangesAsync(ct);
+        foreach (var p in created)
+            byName[p.Name] = p.Id.Value;
+
+        return byName;
+    }
+
+    // ── Pure, testable deal-seed helpers (mirrors the UntrackedStapleNames pattern) ──────────────────
+
+    /// <summary>The current-week flyer window: opened 2 days ago, closing in 5 (an active, mid-run flyer).</summary>
+    internal static (DateOnly ValidFrom, DateOnly ValidTo) CurrentWeekWindow(DateOnly today) =>
+        (today.AddDays(-2), today.AddDays(5));
+
+    /// <summary>The prior-week flyer window: closed 2 days ago (expired) — its Pending deals fall out of DD14.</summary>
+    internal static (DateOnly ValidFrom, DateOnly ValidTo) PriorWeekWindow(DateOnly today) =>
+        (today.AddDays(-9), today.AddDays(-2));
+
+    internal enum PriorWeekAction { Confirm, Reject, Pending }
+
+    /// <summary>
+    /// Deterministic prior-week status pass over the deals in fixture order, given whether each has a resolved
+    /// suggestion: confirm the majority of suggestion-bearing deals (leaving every
+    /// <see cref="PriorWeekSuggestedPendingEvery"/>th expired-Pending), reject the first
+    /// <see cref="PriorWeekRejectCount"/> unmatched noise rows, and leave every other deal Pending.
+    /// </summary>
+    internal static IReadOnlyList<PriorWeekAction> PlanPriorWeekActions(IReadOnlyList<bool> hasSuggestion)
+    {
+        var actions = new PriorWeekAction[hasSuggestion.Count];
+        int suggestedSeen = 0, rejected = 0;
+        for (var i = 0; i < hasSuggestion.Count; i++)
+        {
+            if (hasSuggestion[i])
+            {
+                actions[i] = suggestedSeen % PriorWeekSuggestedPendingEvery == PriorWeekSuggestedPendingEvery - 1
+                    ? PriorWeekAction.Pending
+                    : PriorWeekAction.Confirm;
+                suggestedSeen++;
+            }
+            else if (rejected < PriorWeekRejectCount)
+            {
+                actions[i] = PriorWeekAction.Reject;
+                rejected++;
+            }
+            else
+            {
+                actions[i] = PriorWeekAction.Pending;
+            }
+        }
+
+        return actions;
+    }
+
+    private static MatchConfidence ParseConfidence(string value) =>
+        Enum.Parse<MatchConfidence>(value, ignoreCase: true);
+
+    private static readonly JsonSerializerOptions FixtureJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        NumberHandling = JsonNumberHandling.AllowReadingFromString,
+    };
+
+    /// <summary>Loads + deserializes the embedded real-ingest flyer fixture from the Plantry.Web assembly.</summary>
+    internal static DealFixture LoadFixture()
+    {
+        var assembly = typeof(FakeDataSeeder).Assembly;
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("superstore-flyer-2026-07.json", StringComparison.Ordinal))
+            ?? throw new InvalidOperationException(
+                "Deal seed fixture 'superstore-flyer-2026-07.json' is not embedded in Plantry.Web.");
+
+        using var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Could not open embedded fixture stream '{resourceName}'.");
+
+        return JsonSerializer.Deserialize<DealFixture>(stream, FixtureJsonOptions)
+            ?? throw new InvalidOperationException("Deal seed fixture deserialized to null.");
+    }
+
+    // ── Fixture DTOs (shape of superstore-flyer-2026-07.json) ────────────────────────────────────────
+
+    internal sealed record DealFixture(string Store, FixtureFlyer Flyer, IReadOnlyList<FixtureDeal> Deals);
+
+    internal sealed record FixtureFlyer(string ExternalId, DateOnly ValidFrom, DateOnly ValidTo, JsonElement RawFlyer);
+
+    internal sealed record FixtureDeal(
+        string RawName,
+        string? Brand,
+        string? Size,
+        decimal Price,
+        decimal? Quantity,
+        string? UnitSymbol,
+        string? SaleStory,
+        string NormalizedName,
+        string Confidence,
+        string? Reasoning,
+        string? SuggestedProductName,
+        string Status,
+        bool AutoMatched);
+
     private async Task DeleteAllAsync(CancellationToken ct)
     {
         // Collect all household IDs before deleting anything, so we can arm tenant context
@@ -573,11 +854,24 @@ public sealed class FakeDataSeeder(
                 // there is no dangling product_id soft-ref concern.
                 await pricingDb.PriceObservations.ExecuteDeleteAsync(ct);
 
+                // Deals (plantry-q9zr.14): child deals FIRST — deal → flyer_import is a RESTRICT FK, so a
+                // flyer_import cannot be deleted while its deals exist — then the flat subscription/memory
+                // roots. All soft-reference catalog store/product by Guid (no FK), so ordering vs catalog is
+                // free. ExecuteDelete honours the armed RLS query filter, staying within this household.
+                await dealsDb.Deals.ExecuteDeleteAsync(ct);
+                await dealsDb.FlyerImports.ExecuteDeleteAsync(ct);
+                await dealsDb.DealMatchMemories.ExecuteDeleteAsync(ct);
+                await dealsDb.StoreSubscriptions.ExecuteDeleteAsync(ct);
+
                 // Product cascade FK handles product_skus and product_conversions.
                 await catalogDb.Products.ExecuteDeleteAsync(ct);
                 await catalogDb.Locations.ExecuteDeleteAsync(ct);
                 await catalogDb.Categories.ExecuteDeleteAsync(ct);
                 await catalogDb.Units.ExecuteDeleteAsync(ct);
+                // Stores are minted by the deal seed (plantry-q9zr.14). The deals rows that soft-ref a store
+                // by Guid are already deleted above, and nothing in catalog hard-FKs to Store, so ordering is
+                // free — delete them here so /Dev/Reset does not accumulate an orphaned store row per reset.
+                await catalogDb.Stores.ExecuteDeleteAsync(ct);
             }
             finally
             {
@@ -601,6 +895,7 @@ public sealed class FakeDataSeeder(
         recipesDb.SetHouseholdId(id);
         mealPlanningDb.SetHouseholdId(id);
         pricingDb.SetHouseholdId(id);
+        dealsDb.SetHouseholdId(id);
     }
 
     private void DisarmTenant()
@@ -612,6 +907,7 @@ public sealed class FakeDataSeeder(
         recipesDb.SetHouseholdId(Guid.Empty);
         mealPlanningDb.SetHouseholdId(Guid.Empty);
         pricingDb.SetHouseholdId(Guid.Empty);
+        dealsDb.SetHouseholdId(Guid.Empty);
     }
 
     // ── Static seed data ──────────────────────────────────────────────────────────

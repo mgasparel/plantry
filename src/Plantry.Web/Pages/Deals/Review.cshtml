@@ -1,9 +1,15 @@
 @page
 @using Plantry.Web.Pages.Shared
 @model Plantry.Web.Pages.Deals.ReviewModel
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @{
     ViewData["Title"] = "Review deals";
     var correctUrl = Url.Page("./Review", "Correct")!;
+    // Judgement-call deck island (q9zr.8) — content-hash-versioned entry module + shared helpers.
+    var deckIslandSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/islands/deal-deck.js");
+    var deckHelpersSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/islands/helpers.js");
 }
 
 <div class="cfg-wrap" data-screen-label="Review deals">
@@ -17,11 +23,22 @@
 
     @* Host wrapper — owns the correction sheet state; persists across every htmx queue swap so the
        Correct affordance keeps working as the queue re-renders. See dealsReview() below. *@
-    <div x-data="dealsReview('@correctUrl')" x-on:deal-correct="openCorrect($event.detail.dealId)">
+    <div x-data="dealsReview('@correctUrl')"
+         x-on:deal-correct="openCorrect($event.detail.dealId)"
+         x-on:deals-bulk-done.window="flash($event.detail.message)">
 
         @* The review queue — re-rendered from server truth by every verb (Confirm/Correct/Reject). *@
         <div id="review-region">
             @await Html.PartialAsync("_ReviewQueue", Model)
+        </div>
+
+        @* Shared status toast (q9zr.1). Persists outside #review-region so it survives every queue swap;
+           the bulk verbs raise it via an HX-Trigger 'deals-bulk-done' event. Plain feedback — no undo
+           affordance (ruled out for P1, q9zr.9). Dismisses on click and auto-clears after a few seconds. *@
+        <div class="toast" role="status" aria-live="polite"
+             x-show="toast !== null" x-on:click="toast = null" x-cloak>
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            <span x-text="toast"></span>
         </div>
 
         @* Shared catalog search + inline-create sheet (P4-6). Composed, not rebuilt: TrackStock=false and
@@ -41,6 +58,9 @@
                      StapleNamePlaceholder = "Product name (e.g. 2% Milk)",
                      CreateViewTitle       = "New product",
                      GroupOptions          = null,
+                     Title                 = "Match to a product",
+                     ShowDealContext       = true,
+                     RequireSelection      = true,
                  }' />
     </div>
 </div>
@@ -61,21 +81,95 @@ function dealsReview(correctUrl) {
         // ── Deals-specific ────────────────────────────────────────────────────
         activeDealId: null,
         correctUrl: correctUrl,
+        // The flyer line being matched — { rawName, brand, price, store } — drives the sheet's
+        // deal-context block (ShowDealContext). Null when the sheet is closed / opened without a deal.
+        dealContext: null,
+
+        // ── Status toast (q9zr.1 primitive; raised by the bulk verbs) ──────────
+        toast: null,
+        toastTimer: null,
+
+        // Flash a plain status message (e.g. "Confirmed 21 matches"), auto-clearing after a few seconds.
+        // No undo action — ruled out for P1 (q9zr.9); this is confirmation feedback only.
+        flash(message) {
+            this.toast = message;
+            clearTimeout(this.toastTimer);
+            this.toastTimer = setTimeout(() => { this.toast = null; }, 4000);
+        },
 
         // Open the correction sheet for one deal (from a card's Correct button, via the bubbling
-        // deal-correct event so it survives htmx queue swaps).
+        // deal-correct event so it survives htmx queue swaps). Reads the deal's verbatim flyer context
+        // from the swapped-in queue DOM (the same DOM-truth pattern submitCorrect uses for the active
+        // flyer), pre-fills the search with a cleaned query, and auto-runs the catalog search.
         openCorrect(dealId) {
             this.activeDealId = dealId;
             this.sheetView = 'search';
             this.draft = { productId: '', productName: '', newStapleName: null,
                            newStapleUnit: '', newStapleCategoryId: '' };
+            this.dealContext = this.readDealContext(dealId);
+            var query = this.cleanQuery(this.dealContext);
             this.sheetOpen = true;
-            this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: '' })));
+            this.$nextTick(() => {
+                // Seed the shared search box (sets the searchable-select's Alpine `query`), then focus its
+                // input so htmx's `focus` trigger auto-runs the catalog search with the pre-filled query.
+                window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: query }));
+                this.$nextTick(() => {
+                    // The shared searchable-select wrapper carries no id; its input is the combobox that
+                    // controls the deterministic listbox id (Id="prod-search-sheet" → -listbox).
+                    var input = document.querySelector('input[aria-controls="prod-search-sheet-listbox"]');
+                    if (!input) return;
+                    // Write the value onto the element BEFORE focusing: htmx's `focus` trigger reads the
+                    // input's current value synchronously, and Alpine's reactive x-model write of `query`
+                    // may not have flushed yet — without this the first auto-search would fire with an
+                    // empty q. The value equals Alpine's `query`, so the two stay in sync.
+                    if (query) input.value = query;
+                    input.focus();
+                    input.select();
+                });
+            });
+        },
+
+        // Read one deal's verbatim flyer context from the rendered queue (raw name from the name cell's
+        // title attribute — the untouched ACL-quarantined string; brand + price from the card; store from
+        // the active flyer rail, big-chip or compact). Returns null if the card is no longer in the DOM.
+        readDealContext(dealId) {
+            var li = document.querySelector('#review-region [data-deal-id="' + dealId + '"]');
+            if (!li) return null;
+            var nameEl = li.querySelector('.deal-review-row__name');
+            var brandEl = li.querySelector('.deal-review-row__brand');
+            var priceEl = li.querySelector('.deal-row__amount');
+            var storeEl = document.querySelector(
+                '#review-region .flyer-chip.is-active .store, #review-region .active-flyer-line .store');
+            return {
+                rawName: nameEl ? (nameEl.getAttribute('title') || nameEl.textContent.trim()) : '',
+                brand: brandEl ? brandEl.textContent.trim() : '',
+                price: priceEl ? priceEl.textContent.trim() : '',
+                store: storeEl ? storeEl.textContent.trim() : '',
+            };
+        },
+
+        // Distil the shouting flyer line into a short catalog query (ported from the adopted focus.html
+        // prototype): drop the deal's own brand tokens, size/pack measures, digits/punctuation, and common
+        // filler words, then keep the first ~4 remaining words. "BREYERS CREAMERY STYLE ICE CREAM,
+        // 1.41-14.11 L" (brand BREYERS) → "ice cream".
+        cleanQuery(ctx) {
+            if (!ctx || !ctx.rawName) return '';
+            var name = ctx.rawName.toLowerCase();
+            (ctx.brand || '').toLowerCase().split(/[^a-z]+/).forEach(function (w) {
+                if (w.length > 2) name = name.split(w).join(' ');
+            });
+            return name
+                .replace(/\b\d[\d.\/-]*\s*(g|kg|ml|l|ct|pk|lb|oz|pc|rolls?|boxes)\b/g, ' ')
+                .replace(/[\d"']+/g, ' ')
+                .replace(/[^a-z\s]/g, ' ')
+                .replace(/\b(or|and|the|with|of|assorted|club|pack|frozen|fresh|variety|style|creamery|original)\b/g, ' ')
+                .trim().split(/\s+/).filter(Boolean).slice(0, 4).join(' ');
         },
 
         closeSheet() {
             this.sheetView = 'search';
             this.sheetOpen = false;
+            this.dealContext = null;
         },
 
         // Search-result pick — dispatched by the sheet's listbox (pick-product bubbles to the sheet).
@@ -103,10 +197,125 @@ function dealsReview(correctUrl) {
 
         // One htmx POST that carries the resolved product (existing or new) and re-renders the queue from
         // server truth. The antiforgery token is attached by htmx-antiforgery.js on configRequest.
+        // Threads the active flyer (read from the swapped-in region) so the re-render stays on this flyer.
         submitCorrect(values) {
+            const region = document.querySelector('#review-region [data-active-flyer]');
+            if (region && region.dataset.activeFlyer) values.flyer = region.dataset.activeFlyer;
+            // Thread the active step (q9zr.13) so the re-render stays on / advances off this step.
+            if (region && region.dataset.activeStep) values.step = region.dataset.activeStep;
             htmx.ajax('POST', this.correctUrl, { target: '#review-region', swap: 'innerHTML', values: values });
             this.closeSheet();
         },
     };
 }
+
+// Step-3 browsable filter (q9zr.5). Lives inside #review-region and is re-created on every swap; Alpine
+// re-inits it. Filters the server-rendered None rows by a name + brand substring with NO round-trip
+// (x-model query → imperatively show/hide the rows, since the rows are the shared _DealReviewCard and
+// carry no per-row filter directive), and keeps the live match count (M), the bulk-button label, and the
+// empty-state in sync. Only when the filter NARROWS the set does it check the hidden dealIds[] picks, so
+// the bulk Dismiss (hx-include=".rest-pick") posts exactly the visible ids to the existing DismissAll
+// handler; an empty filter — or one that still matches everything — checks none, so the whole eligible
+// None tier is dismissed (the "Dismiss all (N)" semantics). Mirrors the proven step-1 checked-picks pattern.
+function dealsRestFilter(total) {
+    return {
+        query: '',
+        total: total,     // full pending None count (N) — server-rendered and stable within this view
+        matched: total,   // rows currently visible (M) — drives the count, the label, and the empty-state
+        label: 'Dismiss all (' + total + ')',
+        init() {
+            this.$watch('query', () => this.apply());
+            this.apply();
+        },
+        apply() {
+            const q = this.query.trim().toLowerCase();
+            const visible = new Set();
+            let matched = 0;
+            this.$root.querySelectorAll('.deal-review-row').forEach(row => {
+                const nameEl = row.querySelector('.deal-review-row__name');
+                const brandEl = row.querySelector('.deal-review-row__brand');
+                // Match the display name, its verbatim ALL-CAPS title (the ACL-quarantined string), and the
+                // brand — all lower-cased. Empty query shows everything.
+                const hay = ((nameEl ? nameEl.textContent + ' ' + (nameEl.getAttribute('title') || '') : '') +
+                             ' ' + (brandEl ? brandEl.textContent : '')).toLowerCase();
+                const show = q === '' || hay.includes(q);
+                row.style.display = show ? '' : 'none';
+                if (show) { matched++; visible.add(row.dataset.dealId); }
+            });
+            // "Narrowing" = an active filter that actually hides rows. Only then do we scope the dismiss to
+            // the visible ids and relabel; an empty filter (or one matching all) keeps the whole-tier verb.
+            const narrowing = q !== '' && matched !== this.total;
+            this.matched = matched;
+            this.label = narrowing ? ('Dismiss these (' + matched + ')') : ('Dismiss all (' + this.total + ')');
+            // Check exactly the visible picks when narrowing so hx-include posts those dealIds; else none.
+            this.$root.querySelectorAll('.rest-pick').forEach(pick => {
+                pick.checked = narrowing && visible.has(pick.value);
+            });
+        },
+    };
+}
+
+// Step-1 checklist (q9zr.13). Lives inside #review-region and is re-created on every swap; Alpine re-inits it
+// automatically. Keeps the "Confirm N matches" label in sync with the checked boxes (no round-trip — each
+// checkbox separately POSTs SetCheck to persist its state), and lets a click anywhere on a row toggle the box.
+function reviewChecklist() {
+    return {
+        label: 'Confirm matches',
+        init() { this.recount(); },
+        recount() {
+            const n = this.$root.querySelectorAll('.check-row input:checked').length;
+            this.label = '✓ Confirm ' + n + (n === 1 ? ' match' : ' matches');
+        },
+        // Clicking the row (but not the checkbox itself) toggles the box and fires its change handlers
+        // (Alpine recount + the htmx SetCheck persist) via a dispatched change event.
+        toggleRow(e) {
+            if (e.target.tagName === 'INPUT') return;
+            const box = e.currentTarget.querySelector('input[type="checkbox"]');
+            if (!box) return;
+            box.checked = !box.checked;
+            box.dispatchEvent(new Event('change', { bubbles: true }));
+        },
+    };
+}
 </script>
+
+@section Scripts {
+    @* Judgement-call deck island boot (q9zr.8). The deck (deal-deck.js) mounts on step 2's
+       #judgement-deck and must re-mount after every htmx re-render of #review-region (each verb
+       re-renders the region from server truth) and tear its chrome down when a swap leaves step 2.
+       This registration runs ONCE per full-page load (it lives outside #review-region, so htmx swaps
+       never re-run it). The explicit syncDeck() below handles the INITIAL mount: because this module
+       loads its island via `await import(...)`, its continuation runs after DOMContentLoaded — so
+       htmx's initial htmx:load has already fired and would be missed by onLoad alone. syncDeck() is
+       idempotent (mountDealDeck guards per node), so a later onLoad for the same node never double-mounts.
+       htmx.onLoad then handles every subsequent swapped-in fragment. *@
+    <script type="module">
+        const { mountDealDeck, teardownDealDeck } = await import('@Html.Raw(deckIslandSrc)');
+        const { readHydration } = await import('@Html.Raw(deckHelpersSrc)');
+
+        function syncDeck() {
+            const mount = document.querySelector('#judgement-deck[data-deck-mount]');
+            if (mount) {
+                const config = readHydration('deal-deck-data');
+                if (config) mountDealDeck(mount, config);
+            } else {
+                teardownDealDeck();
+            }
+        }
+
+        window.htmx.onLoad(function (content) {
+            // Only react to swaps that touch the review region (verb re-renders + step/flyer nav) or the
+            // whole page on load; ignore unrelated swaps such as the Correct sheet's search results, which
+            // render outside #review-region.
+            const touchesRegion =
+                (content.closest && content.closest('#review-region')) ||
+                (content.matches && content.matches('#judgement-deck')) ||
+                (content.querySelector && content.querySelector('#review-region')) ||
+                (content.querySelector && content.querySelector('#judgement-deck'));
+            if (touchesRegion) syncDeck();
+        });
+
+        // Initial mount for a cold full-page load that lands on step 2 (the htmx:load above already fired).
+        syncDeck();
+    </script>
+}

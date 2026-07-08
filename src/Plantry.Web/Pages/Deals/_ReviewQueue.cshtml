@@ -1,12 +1,44 @@
+@using Plantry.Deals.Domain
+@using Plantry.Web.Pages.Deals
+@using Plantry.Web.Pages.Shared
 @model Plantry.Web.Pages.Deals.ReviewModel
 
 @*
-    The review-queue region (P5-8 / DJ4). Re-rendered from server truth by every verb (Confirm/Correct/Reject),
-    so the queue shrinks as it is worked and a re-drive / refresh never double-acts. When empty, the
-    "all caught up" state clears the queue; the Deals-page Review entry (and, with P5-11, the Home banner)
-    reflect the shrunk count on their next load.
+    The review-queue region (P5-8 / DJ4). Re-rendered from server truth by every verb and by flyer/step
+    navigation, so the queue shrinks as it is worked and a re-drive / refresh never double-acts.
+
+    The guided flow (q9zr.3 + q9zr.13) chapters the pending queue by flyer, then works each flyer as three
+    jumpable tier-step VIEWS under a stepper: 1 Confirm the sure things (a pre-checked checklist of confirmable
+    Highs), 2 Judgement calls (Lows + demoted Highs — the q9zr.8 deck mounts here), 3 Everything else (None).
+    A step shows a ✓ when its pool is empty (pool-empty = done, NOT a passed phase); the active step is
+    highlighted; every step is freely jumpable. Store name and validity dates live ONLY in the rail /
+    active-flyer context line — never on a card (dedupe ruling).
 *@
-@if (Model.Deals.Count == 0)
+
+@{
+    (string Title, string Done) StepMeta(ReviewStep s) => s switch
+    {
+        ReviewStep.Confirm => ("Confirm the sure things", "All sure things handled"),
+        ReviewStep.Judgement => ("Judgement calls", "All judgement calls resolved"),
+        _ => ("Everything else", "Everything else is cleared"),
+    };
+}
+
+@* The focused single-deal correction path (?dealId=) has no rail/stepper — just the one card. *@
+@if (Model.IsSingleCorrection)
+{
+    <div class="card">
+        <div class="card__body">
+            <ul class="catalog-list deal-review-list" role="list">
+                @foreach (var deal in Model.Deals)
+                {
+                    <partial name="_DealReviewCard" model="deal" />
+                }
+            </ul>
+        </div>
+    </div>
+}
+else if (Model.Deals.Count == 0 && !Model.ShowHandoff)
 {
     <div class="card">
         <div class="card__body">
@@ -26,18 +58,143 @@
 }
 else
 {
-    <div class="card">
-        <div class="card__head">
-            <h3 class="card__head-title">Deals to review</h3>
-            <span class="ch-sub">&middot; @Model.Deals.Count</span>
+    @* data-active-flyer / data-active-step travel with every swap so the persistent correction-sheet host
+       (outside this region) can thread the active flyer + step onto its Correct POST. *@
+    <div class="deals-review" data-active-flyer="@(Model.ActiveFlyerKey ?? "")" data-active-step="@((int)Model.ActiveStep)">
+
+        @* Overall progress header — "N of M reviewed" across all flyers, composing the shared _Meter. *@
+        <div class="page-progress" style="position: static;">
+            <partial name="Shared/_Meter" model='new MeterViewModel {
+                Percent = Model.OverallPercent,
+                Tone = MeterTone.Accent,
+                Layout = MeterLayout.MetaLine,
+                AriaValueNow = Model.OverallPercent,
+            }' />
+            <span class="page-progress__count">@Model.ReviewedCount of @Model.TotalCount reviewed</span>
         </div>
-        <div class="card__body">
-            <ul class="catalog-list deal-review-list" role="list">
-                @foreach (var deal in Model.Deals)
+
+        @* Flyer rail — big chips (≤3 flyers) or compact expiry-sorted pills (>3) + summary + context line. *@
+        <partial name="_FlyerRail" model="Model.Rail" />
+
+        @if (Model.ShowHandoff && Model.ActiveFlyer is { } next)
+        {
+            @* Per-flyer done handoff (q9zr.3, scope 4): the requested flyer is fully reviewed; point at the
+               next soonest-expiring pending flyer. Reuses the shared .empty-state done primitive. *@
+            <div class="card">
+                <div class="card__body">
+                    <div class="empty-state">
+                        <div class="empty-state__icon">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                        </div>
+                        <div class="empty-state__title">Flyer cleared</div>
+                        <div class="empty-state__body">
+                            Next: <strong>@next.StoreName</strong> &middot; @next.PendingCount
+                            @(next.PendingCount == 1 ? "deal" : "deals") &middot;
+                            @(next.ExpiresInDays == 1 ? "expires tomorrow" : $"expires in {next.ExpiresInDays} days").
+                        </div>
+                        <button type="button" class="btn btn--primary"
+                                hx-get="/Deals/Review?flyer=@next.Key"
+                                hx-target="#review-region"
+                                hx-swap="innerHTML"
+                                hx-push-url="/Deals/Review?flyer=@next.Key">
+                            Review @next.StoreName
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            var flyerKey = Model.ActiveFlyerKey;
+
+            @* Stepper — three jumpable step buttons with live remaining counts (✓ when a pool is empty). *@
+            <div class="steps">
+                @foreach (var s in new[] { ReviewStep.Confirm, ReviewStep.Judgement, ReviewStep.Everything })
                 {
-                    <partial name="_DealReviewCard" model="deal" />
+                    var n = (int)s;
+                    var count = Model.StepCount(s);
+                    var isActive = s == Model.ActiveStep;
+                    var isDone = count == 0;
+                    <button type="button"
+                            class="step @(isActive ? "is-active" : null) @(isDone ? "is-done" : null)"
+                            hx-get="/Deals/Review?flyer=@flyerKey&step=@n"
+                            hx-target="#review-region"
+                            hx-swap="innerHTML"
+                            hx-push-url="/Deals/Review?flyer=@flyerKey&step=@n"
+                            aria-current="@(isActive ? "step" : null)">
+                        <span class="step__n">@n</span> @StepMeta(s).Title
+                        <span class="step__count">@(isDone ? "✓" : count.ToString())</span>
+                    </button>
                 }
-            </ul>
-        </div>
+            </div>
+
+            var activeCount = Model.StepCount(Model.ActiveStep);
+            if (activeCount == 0)
+            {
+                @* Empty-step state (q9zr.13 scope 4): jumped into a cleared step — point at a step with work.
+                   Auto-advance only happens when a pool empties under the user's own action (server-side). *@
+                var nextWork = Model.NextWorkStep();
+                <section class="card">
+                    <div class="step-empty">
+                        <div class="t">&#10003; @StepMeta(Model.ActiveStep).Done</div>
+                        @if (nextWork is { } nw)
+                        {
+                            var nwn = (int)nw;
+                            <p>There is still work in step @nwn.</p>
+                            <button type="button" class="btn btn--secondary"
+                                    hx-get="/Deals/Review?flyer=@flyerKey&step=@nwn"
+                                    hx-target="#review-region"
+                                    hx-swap="innerHTML"
+                                    hx-push-url="/Deals/Review?flyer=@flyerKey&step=@nwn">
+                                Go to step @nwn &rarr;
+                            </button>
+                        }
+                    </div>
+                </section>
+            }
+            else if (Model.ActiveStep == ReviewStep.Confirm)
+            {
+                <partial name="_ReviewStep1" model="Model" />
+            }
+            else if (Model.ActiveStep == ReviewStep.Judgement)
+            {
+                ViewData["FlyerKey"] = flyerKey;
+                ViewData["StepQs"] = "&step=2";
+                @* Judgement calls — Lows + demoted Highs. The q9zr.8 deck island (deal-deck.js) mounts on
+                   #judgement-deck and REPLACES the fallback card list with a one-card-at-a-time deck (keyboard
+                   verbs + swipe). The fallback list below is the no-JS baseline: every verb it renders posts
+                   through the same Confirm/Reject/Correct handlers the deck reuses, so behaviour is identical
+                   with or without JS. The deck's presentation state (order/skip/baseline) is client-only; the
+                   deals themselves come from the hydration blob (server truth). *@
+                var deckHydration = DealDeckHydration.Build(
+                    Model.Step2Deals, flyerKey, System.Globalization.CultureInfo.CurrentCulture);
+                <div class="card">
+                    <div class="card__body">
+                        <div id="judgement-deck" class="deal-review-section" data-deck-mount>
+                            <script type="application/json" id="deal-deck-data">@Html.Raw(deckHydration.ToJson())</script>
+                            @* No-JS fallback: the full card list with the standard single verbs. The island
+                               replaces this on mount. *@
+                            <div class="card__head">
+                                <h3 class="card__head-title">Judgement calls</h3>
+                                <span class="ch-sub">&middot; @Model.Step2Deals.Count</span>
+                            </div>
+                            <ul class="catalog-list deal-review-list" role="list">
+                                @foreach (var deal in Model.Step2Deals)
+                                {
+                                    <partial name="_DealReviewCard" model="deal" />
+                                }
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @* Everything else — the pending None deals as a browsable, filterable list with a sticky
+                   toolbar + scope-aware bulk dismiss (q9zr.5). Extracted to its own step partial (mirrors
+                   _ReviewStep1) to keep this shell readable; sets FlyerKey/StepQs for the cards' verbs. *@
+                <partial name="_ReviewStep3" model="Model" />
+            }
+        }
     </div>
 }

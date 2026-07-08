@@ -154,6 +154,34 @@ public sealed class ProductSearchCreateSheetViewModel
     public string CreateViewTitle { get; init; } = "New product";
 
     /// <summary>
+    /// Optional override for the <b>search-view</b> header title (plantry-q9zr.6). When null (default) the
+    /// title keeps the existing add/edit behaviour — <c>"Add {Noun}"</c> / <c>"Edit {Noun}"</c> driven by
+    /// the host's <c>editingIdx</c>. When set, the search-view header renders this static string instead
+    /// (the Deals correction sheet passes "Match to a product"). Opt-in so every other consumer renders
+    /// byte-identical markup.
+    /// </summary>
+    public string? Title { get; init; } = null;
+
+    /// <summary>
+    /// When true, a deal-context block renders at the very top of the sheet body (plantry-q9zr.6): the raw
+    /// flyer line being matched, shown <b>verbatim</b> (DD6 ACL quarantine, made <i>more</i> visible here),
+    /// plus its brand, price, and store. The block is Alpine-driven from the host's <c>dealContext</c> state
+    /// (<c>{ rawName, brand, price, store }</c>), populated when the sheet opens for a specific deal. Defaults
+    /// to <c>false</c>; only the Deals correction sheet opts in, so all other consumers emit no extra markup
+    /// and render byte-identical.
+    /// </summary>
+    public bool ShowDealContext { get; init; } = false;
+
+    /// <summary>
+    /// When true, the primary action buttons are disabled until the sheet holds a valid choice
+    /// (plantry-q9zr.6): the search-view <b>Add</b> button stays disabled until a product is selected
+    /// (<c>draft.productId</c>), and the create-view <b>Create</b> button until the create form is valid
+    /// (a trimmed name and a chosen unit). Defaults to <c>false</c> (the buttons render always-enabled and
+    /// <c>saveSheet()</c> no-ops on an incomplete draft); opt-in so other consumers render byte-identical.
+    /// </summary>
+    public bool RequireSelection { get; init; } = false;
+
+    /// <summary>
     /// When true, the create-view primary action button reads "Create &amp; count" instead of "Create".
     /// Set to <c>true</c> only for the Take Stock context where the create-view also submits an
     /// opening count. Defaults to <c>false</c> (plain "Create" label for Recipes and other surfaces).

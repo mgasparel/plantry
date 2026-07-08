@@ -1141,6 +1141,10 @@ button { font-family: inherit; cursor: pointer; }
 .sheet__title { margin: 0; font-size: var(--font-size-lg); }
 .sheet__close { background: none; border: none; font-size: 1.6rem; line-height: 1; cursor: pointer; color: var(--color-text-muted); }
 .sheet__actions { display: flex; gap: var(--space-3); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+/* Disabled primary action (plantry-q9zr.6, RequireSelection) — dim it so "nothing picked yet" reads
+   visually, not just functionally. Only the Deals correction sheet gates its buttons this way; every
+   other consumer leaves them enabled, so this state never triggers there. Mirrors .editor .btn--primary:disabled. */
+.sheet__actions .btn--primary:disabled { background: var(--color-border); color: var(--color-text-faint); box-shadow: none; cursor: not-allowed; }
 /* Create-view header layout (plantry-nb4x): back-link stacks above the title, both left-aligned */
 .sheet__header-create { display: flex; flex-direction: column; gap: var(--space-1); }
 .sheet__back { background: none; border: none; padding: 0; font-family: inherit; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-accent); cursor: pointer; text-align: left; line-height: 1.3; }
@@ -1157,6 +1161,14 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 /* Grouped-box treatment for the sheet's host-slot fields (plantry-grvy) — e.g. Take Stock's
    opening-count + unit. Mirrors the .sheet-defaults box so the two patterns read as a family. */
 .sheet-slot-group { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); margin-top: var(--space-3); background: var(--color-bg-subtle); }
+
+/* Deal-context block (plantry-q9zr.6) — the raw flyer line being matched, shown verbatim at the top of
+   the Deals correction sheet (DD6 quarantine, made MORE visible here) with brand · price · store below.
+   Rendered only for the Deals consumer (opt-in ShowDealContext); mirrors the sheet's grouped-box family. */
+.sheet-deal-context { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-4); background: var(--color-surface-2); }
+.sheet-deal-context__label { font-size: var(--font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); margin-bottom: var(--space-1); }
+.sheet-deal-context__name { font-weight: 700; font-size: var(--font-size-base); line-height: 1.3; overflow-wrap: anywhere; }
+.sheet-deal-context__meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin-top: var(--space-2); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
 @media (max-width: 640px) {
   .sheet__panel { right: 0; left: 0; top: auto; width: 100%; max-height: 90vh; border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); animation: sheet-up 0.18s ease-out; }
@@ -5844,8 +5856,10 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-hatch-sum b { color: var(--color-text); font-weight: 700; font-variant-numeric: tabular-nums; }
 .ts-hatch-status { font-size: 0.78125rem; color: var(--color-text-muted); }
 
-/* sticky add bar — sits at the top of .ts-walk-inner, under the topbar (z-index 9 < topbar's 10) */
-.ts-add-bar { position: sticky; top: var(--topbar-height); z-index: 9; padding: var(--space-3) 0; background: color-mix(in srgb, var(--color-bg) 90%, transparent); backdrop-filter: blur(10px); }
+/* sticky add bar — consumes the shared .bar-sticky-top; only the topbar offset is
+   Take-Stock-specific (sits under the app topbar, z-index 9 < topbar's 10). */
+/* Specificity 0,2,0 so it wins over .bar-sticky-top { top: 0 } regardless of source order. */
+.bar-sticky-top.ts-add-bar { top: var(--topbar-height); }
 .ts-add-bar .ts-add-item { margin-top: 0; }
 
 /* add-item row trigger */
@@ -5858,22 +5872,15 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-locpick select { font: inherit; font-size: 0.84375rem; font-weight: 600; color: var(--color-text); border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-md); padding: 9px 11px; min-width: 140px; }
 .ts-locpick select.unset { color: var(--color-text-faint); border-color: var(--color-cook); background: color-mix(in srgb, var(--color-cook) 14%, var(--color-surface)); }
 
-/* ---- J4: sticky save bar ----------------------------------------------- */
-.ts-savebar {
-  position: sticky; bottom: 0; z-index: 20;
-  display: flex; align-items: center; gap: var(--space-4); padding: 14px var(--space-5);
-  border-top: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-surface) 90%, transparent);
-  backdrop-filter: blur(10px); border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-}
-.ts-savebar .sb-summary { font-size: 0.875rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 10px; }
-.ts-savebar .sb-summary b { color: var(--color-text); font-weight: 700; }
-.ts-savebar .spacer { flex: 1; }
+/* ---- J4: sticky save bar — now the shared .bar-sticky-bottom commit-bar idiom
+   (see "Shared component-library primitives" at the foot of this file). Only the
+   summary + pending-badge chrome stays Take-Stock-specific; .spacer is global. */
+.bar-sticky-bottom .sb-summary { font-size: 0.875rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 10px; }
+.bar-sticky-bottom .sb-summary b { color: var(--color-text); font-weight: 700; }
 .ts-pending-badge { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--color-accent); color: var(--color-text-on-accent); font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ts-pending-badge.zero { background: var(--color-bg-subtle); color: var(--color-text-faint); }
 
-/* toast */
-.ts-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; z-index: 70; display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: var(--color-text); color: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
-.ts-toast .icon { color: var(--color-success); width: 16px; height: 16px; }
+/* toast — generalised to the shared .toast primitive (see foot of this file). */
 
 @media (max-width: 720px) {
   .ts-loc-grid { grid-template-columns: 1fr; }
@@ -6171,16 +6178,27 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .deal-row__correct:hover { text-decoration: underline; }
 
-/* ── Deal review queue (P5-8 / DJ4) — one card per pending/correctable deal ─── */
-.deal-review-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
-.deal-review-row__head {
+/* ── Deal review queue (P5-8 / DJ4) — grouped by confidence tier, one card per deal ─── */
+.deal-review-section + .deal-review-section { margin-top: var(--space-5); }
+.deal-review-section__head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.deal-review-section__title { font-weight: 600; }
+
+.deal-review-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+/* Grid (1fr auto) — the raw name column absorbs long compound names by wrapping within its own track,
+   so the price + confidence badge stay pinned top-right and never get pushed into the card body. */
+.deal-review-row__head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
   gap: var(--space-3);
-  flex-wrap: wrap;
 }
 .deal-review-row__raw { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.deal-review-row__name { overflow-wrap: anywhere; }
 .deal-review-row__brand {
   margin-left: var(--space-2);
   font-size: var(--font-size-xs);
@@ -6195,13 +6213,112 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .deal-review-row__suggest { margin: 0; }
 .deal-review-row__reasoning { font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.deal-review-row__unrecognized {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  padding: var(--space-2) 0;
+/* Flyer-noise rows ($0.00 "AD MATCH" lines) — de-emphasised, with a muted warning flag. View-only. */
+.deal-review-row--noise { opacity: 0.6; }
+.deal-review-row__noise {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
 }
 .deal-review-row__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .deal-review-row__reject { margin-left: auto; }
+
+/* ── Deals Review step 3 — browsable unmatched list (q9zr.5) ──────────────────
+   The None tier stays a full, server-rendered list under a sticky filter toolbar
+   (the long-list idiom): a client-side name+brand filter narrows it live and the
+   bulk Dismiss scopes to the visible rows. The toolbar composes .bar-sticky-top,
+   so the host card must NOT clip — it uses .card--overflow-visible (position:
+   sticky is inert inside overflow:hidden). The toolbar pins BELOW the sticky app
+   topbar, not at viewport 0, so it never hides behind the topbar as the list scrolls. */
+.rest-toolbar { display: flex; align-items: center; gap: var(--space-3); }
+/* Specificity 0,2,0 so it wins over .bar-sticky-top { top: 0 } regardless of source order. */
+.bar-sticky-top.rest-toolbar { top: var(--topbar-height); padding: var(--space-3) var(--space-5); }
+.rest-filter-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 0.875rem;
+  padding: 0.45rem 0.75rem; color: var(--color-text);
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.rest-filter-input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
+.deals-rest__dismiss { flex: none; white-space: nowrap; }
+.rest-empty {
+  padding: var(--space-5); text-align: center;
+  color: var(--color-text-faint); font-size: 0.875rem;
+}
+
+/* ── Step-2 judgement-call deck (q9zr.8, deal-deck.js island) ────────────────────
+   One card at a time with keyboard verbs + pointer-drag swipe. The deck OWNS these
+   pixels imperatively (translate/rotate/stamp-opacity written per pointermove), so the
+   card sits in its own .deck-zone. Two-block card: flyer block → "Plantry thinks this
+   is" → catalog block. No store/dates/links/confidence-pill — context lives in the rail. */
+.deck-progress { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.deck-progress .bar { flex: 1; height: 6px; border-radius: var(--radius-full); background: var(--color-border); overflow: hidden; }
+.deck-progress .fill { height: 100%; background: var(--color-accent); transition: width 240ms ease; }
+.deck-progress .label { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; }
+
+.deck-zone { position: relative; touch-action: pan-y; }
+.focus-card { position: relative; padding: var(--space-5); user-select: none; animation: deck-card-in 200ms ease; }
+.focus-card.dragging { transition: none; cursor: grabbing; }
+.focus-card.springing { transition: transform 180ms ease; }
+.focus-card--noise { opacity: 0.85; }
+@keyframes deck-card-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } to { opacity: 1; transform: none; } }
+
+/* Swipe stamps — fade in with drag distance (opacity written by the island), never intercept the drag. */
+.swipe-hint {
+  position: absolute; top: var(--space-4); z-index: 2;
+  font-size: 1rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 0.3rem 0.8rem; border-radius: var(--radius-md); border: 2px solid;
+  opacity: 0; pointer-events: none;
+}
+.swipe-hint--confirm { right: var(--space-4); color: var(--color-success); border-color: var(--color-success); transform: rotate(6deg); }
+.swipe-hint--reject { left: var(--space-4); color: var(--color-danger); border-color: var(--color-danger); transform: rotate(-6deg); }
+
+.focus-card__flyer {
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: var(--space-4);
+}
+.focus-card__src {
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--color-text-faint); margin-bottom: 0.2rem;
+}
+.focus-card__raw-name .deal-review-row__name { font-weight: 700; font-size: 1.05rem; line-height: 1.3; overflow-wrap: anywhere; }
+.focus-card__meta { display: flex; gap: var(--space-3); align-items: baseline; margin-top: 0.3rem; flex-wrap: wrap; }
+.focus-card__meta .deal-review-row__brand { margin-left: 0; }
+.focus-card__meta .deal-row__amount { font-weight: 650; }
+.focus-card__noise {
+  display: flex; align-items: center; gap: var(--space-1);
+  margin-top: var(--space-2); font-size: var(--font-size-xs); color: var(--color-warning);
+}
+
+.focus-card__link {
+  display: flex; align-items: center; gap: var(--space-3); margin: var(--space-3) 0;
+  color: var(--color-text-faint); font-size: 0.8125rem;
+}
+.focus-card__link::before, .focus-card__link::after { content: ''; flex: 1; border-top: 1px dashed var(--color-border-strong); }
+
+.focus-card__match {
+  border: 1px solid var(--color-accent-subtle);
+  background: color-mix(in srgb, var(--color-accent-subtle) 45%, var(--color-surface));
+  border-radius: var(--radius-md); padding: var(--space-4);
+}
+.focus-card__match--none { background: var(--color-surface-2); border-color: var(--color-border); }
+.focus-card__match .focus-card__src { color: var(--color-accent); }
+.focus-card__product { font-weight: 700; font-size: 1.2rem; }
+.focus-card__reasoning { margin-top: 0.35rem; font-size: 0.8125rem; color: var(--color-text-muted); }
+
+.focus-verbs { display: flex; gap: var(--space-2); margin-top: var(--space-5); }
+.focus-verbs .btn { flex: 1; justify-content: center; }
+.focus-under { display: flex; justify-content: space-between; margin-top: var(--space-3); font-size: 0.8125rem; }
+.focus-under button {
+  background: none; border: none; font: inherit; font-size: inherit; color: var(--color-text-muted);
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+}
+.focus-under button:hover:not(:disabled) { color: var(--color-text); }
+.focus-under button:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+.swipe-tip { text-align: center; margin-top: 0.6rem; font-size: 0.75rem; color: var(--color-text-faint); }
+@media (min-width: 721px) { .swipe-tip { display: none; } }
 
 /* ── Dev endpoints reference (Dev/Endpoints, development-only) ─────────────────── */
 .dev-endpoints {
@@ -6276,3 +6393,172 @@ button.sadd svg { width: 13px; height: 13px; }
 
 /* htmx disables the invoke button (hx-disabled-elt) during the request — show the in-flight state. */
 .dev-endpoint__actions .btn:disabled { opacity: 0.6; cursor: progress; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Shared component-library primitives
+   Toast, sticky bars (the long-list idiom), a meter-based page-progress header,
+   the keyboard-hint bar, the guided-flow step nav, and the flyer rail. These were
+   generalised from the Take Stock walk and the Deals Review guided-flow prototype
+   so every feature page composes the same building blocks. All token-driven, so
+   they theme (hearth / market / slate) automatically. See Pages/Dev/Index.cshtml.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Toast ──────────────────────────────────────────────────────────────────
+   Fixed bottom-centre status pill. Framework-agnostic: rendered by an island
+   (Take Stock's Preact walk) or toggled from an Alpine page. Dismiss on click.
+   Give it role="status" aria-live="polite" so assistive tech announces it. */
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; z-index: 70; display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: var(--color-text); color: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+.toast .icon { color: var(--color-success); width: 16px; height: 16px; }
+
+/* ── Sticky bars — the long-list idiom ──────────────────────────────────────
+   A full-length list (never a nested scrollbox) whose tools stick to the top
+   and whose commit action sticks to the bottom of the viewport.
+   GOTCHA: position:sticky is inert inside an overflow:hidden ancestor. The app
+   .card clips (overflow:hidden), so a card that hosts these bars must add
+   .card--overflow-visible; its first/last children then self-round their edges. */
+.bar-sticky-top {
+  position: sticky; top: 0; z-index: 9; padding: var(--space-3) 0;
+  background: color-mix(in srgb, var(--color-bg) 90%, transparent); backdrop-filter: blur(10px);
+}
+.bar-sticky-bottom {
+  position: sticky; bottom: 0; z-index: 20;
+  display: flex; align-items: center; gap: var(--space-4); padding: 14px var(--space-5);
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 90%, transparent); backdrop-filter: blur(10px);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* ── Page-progress header ────────────────────────────────────────────────────
+   A sticky page header that composes the _Meter (MetaLine layout) with a trailing
+   mono "N to review" count. No new bar primitive — the meter IS the bar. */
+.page-progress {
+  position: sticky; top: var(--topbar-height); z-index: 8;
+  display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) 0;
+  background: color-mix(in srgb, var(--color-bg) 90%, transparent); backdrop-filter: blur(10px);
+}
+.page-progress .meter { flex: 1; min-width: 0; }
+.page-progress__count { font-family: var(--font-mono); font-size: 0.8125rem; color: var(--color-text-muted); white-space: nowrap; }
+
+/* ── Keyboard-hint bar + <kbd> chip ─────────────────────────────────────────
+   Fixed bottom rail of shortcut hints for keyboard-driven flows (e.g. the Deals
+   deck). Each key is a <kbd> chip. Hidden below 720px — no physical keyboard. */
+.kbd-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+  display: flex; gap: var(--space-5); justify-content: center; padding: var(--space-2);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent); backdrop-filter: blur(6px);
+  border-top: 1px solid var(--color-border);
+  font-size: 0.75rem; color: var(--color-text-muted);
+}
+.kbd-bar span { display: inline-flex; align-items: center; gap: 4px; }
+kbd, .kbd {
+  font-family: var(--font-mono); font-size: 0.6875rem; background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong); border-bottom-width: 2px;
+  border-radius: var(--radius-sm); padding: 1px 6px; color: var(--color-text);
+}
+@media (max-width: 720px) { .kbd-bar { display: none; } }
+
+/* ── Guided-flow step nav (.steps / .step) ──────────────────────────────────
+   Jumpable step tabs for a multi-pass flow. NOT the <stepper> tag helper — that
+   is the −[value]+ quantity control. Each step carries a mono count chip; when
+   its pool empties mark it .is-done and swap the chip for ✓. */
+.steps { display: flex; gap: var(--space-3); margin: 0 0 var(--space-5); }
+.step {
+  flex: 1; display: flex; align-items: center; gap: var(--space-3); font-size: 0.8125rem;
+  color: var(--color-text-faint); padding: 0 0 var(--space-2); border: none;
+  border-bottom: 2px solid var(--color-border); background: none; font: inherit; text-align: left;
+  cursor: pointer; transition: color 120ms ease;
+}
+.step:hover { color: var(--color-text); }
+.step__n {
+  width: 1.35rem; height: 1.35rem; border-radius: var(--radius-full); flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-surface-2); font-weight: 700; font-size: 0.75rem;
+}
+.step__count { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--color-text-faint); margin-left: auto; }
+.step.is-active { color: var(--color-text); border-color: var(--color-accent); }
+.step.is-active .step__n { background: var(--color-accent); color: var(--color-text-on-accent); }
+.step.is-active .step__count { color: var(--color-text-muted); }
+.step.is-done { color: var(--color-success); border-color: var(--color-success); }
+.step.is-done .step__n { background: var(--color-success-bg); color: var(--color-success); }
+
+/* ── Guided-flow step-1 checklist + sticky commit footer (.check-list / .step-foot)
+   The long-list idiom (Deals Review step 1): a full-length pre-checked list with a
+   sticky action bar — never a nested scrollbox. The card must NOT clip (overflow:
+   hidden kills position: sticky), so it uses .card--flow (overflow visible) and its
+   edge children round their own corners. */
+.card--flow { overflow: visible; }
+.check-list { list-style: none; }
+.check-list .check-row:first-child { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.check-row {
+  display: flex; align-items: baseline; gap: var(--space-3); padding: 0.6rem var(--space-5);
+  border-top: 1px solid var(--color-border-subtle); font-size: 0.9rem; cursor: pointer;
+}
+.check-row:first-child { border-top: none; }
+.check-row:hover { background: var(--color-surface-2); }
+.check-row input { transform: translateY(2px); accent-color: var(--color-accent); flex: none; }
+.check-row .raw { flex: 1; overflow-wrap: anywhere; }
+.check-row .raw b { font-weight: 650; }
+.check-row .to { color: var(--color-text-muted); white-space: nowrap; }
+.check-row .to .product { color: var(--color-text); font-weight: 650; }
+.step-foot {
+  display: flex; gap: var(--space-3); align-items: center; padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-subtle); background: var(--color-surface-2);
+  position: sticky; bottom: 0; z-index: 10;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+.step-foot .note { flex: 1; font-size: 0.8125rem; color: var(--color-text-muted); }
+
+/* ── Guided-flow empty-step state (.step-empty): jumped into a cleared step. */
+.step-empty { text-align: center; padding: var(--space-6) var(--space-5); }
+.step-empty .t { font-weight: 700; color: var(--color-success); }
+.step-empty p { color: var(--color-text-muted); font-size: 0.875rem; margin: 0.3rem 0 var(--space-4); }
+
+/* ── Flyer rail (Deals Review chapters) ─────────────────────────────────────
+   Two densities of the same chapter list:
+     .flyer-chip  — big card (≤3 flyers): store, count·expiry pill, valid range.
+     .flyer-pill  — compact (>3 flyers): one expiry-sorted pill per flyer; the
+                    active flyer's detail demotes to .active-flyer-line below.
+   .rail-summary  — one-line roll-up shown above a compact rail. */
+.flyers { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: var(--space-5); }
+.flyers--compact { gap: 0.4rem; margin-bottom: var(--space-3); }
+.flyer-chip {
+  flex: 1 1 240px; text-align: left; font: inherit; cursor: pointer;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 0.7rem 0.9rem; transition: border-color 120ms ease;
+  display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.5rem; align-items: center;
+}
+.flyer-chip:hover { border-color: var(--color-border-strong); }
+.flyer-chip.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent), var(--shadow-card); }
+.flyer-chip.is-done { opacity: 0.75; }
+.flyer-chip .store { font-weight: 700; font-size: 0.9375rem; }
+.flyer-chip .left {
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600;
+  border-radius: var(--radius-full); padding: 0.05rem 0.55rem; justify-self: end;
+  background: var(--color-surface-2); color: var(--color-text-muted);
+}
+.flyer-chip .left.urgent { background: var(--color-warning-bg); color: var(--color-warning); }
+.flyer-chip .left.done { background: var(--color-success-bg); color: var(--color-success); }
+.flyer-chip .meta { grid-column: 1 / -1; font-size: 0.75rem; color: var(--color-text-muted); }
+.flyer-pill {
+  flex: 0 1 auto; display: inline-flex; align-items: center; gap: 0.45rem;
+  font: inherit; font-size: 0.8125rem; cursor: pointer;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-full); padding: 0.3rem 0.75rem; transition: border-color 120ms ease;
+}
+.flyer-pill:hover { border-color: var(--color-border-strong); }
+.flyer-pill.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
+.flyer-pill.is-done { opacity: 0.6; }
+.flyer-pill .store { font-weight: 650; white-space: nowrap; }
+.flyer-pill .n { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); }
+.flyer-pill .d { font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 600; border-radius: var(--radius-full); padding: 0 0.45rem; background: var(--color-surface-2); color: var(--color-text-muted); }
+.flyer-pill .d.urgent { background: var(--color-warning-bg); color: var(--color-warning); }
+.flyer-pill.is-done .d { background: var(--color-success-bg); color: var(--color-success); }
+.rail-summary { font-size: 0.8125rem; color: var(--color-text-muted); margin: 0 0 var(--space-3); }
+.rail-summary b { color: var(--color-text); }
+.active-flyer-line {
+  display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap;
+  font-size: 0.8125rem; color: var(--color-text-muted); margin: 0.35rem 0 var(--space-5);
+}
+.active-flyer-line .store { font-weight: 700; font-size: 0.9375rem; color: var(--color-text); }
+.flyer-link { color: var(--color-info); text-decoration: none; font-weight: 600; }
+.flyer-link:hover { text-decoration: underline; }

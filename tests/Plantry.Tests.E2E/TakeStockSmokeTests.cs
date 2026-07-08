@@ -131,7 +131,7 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             // ── New row should appear in the added-items section ──────────────────
             // Toast confirms success.
-            var toast = page.Locator(".ts-toast");
+            var toast = page.Locator(".toast");
             await Assertions.Expect(toast).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 15000 });
 
             // The added-items list renders the new row name.
@@ -173,13 +173,13 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             // Sheet closes and a toast appears confirming the item was added to the working set.
             await Assertions.Expect(sheet).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
-            await Assertions.Expect(page.Locator(".ts-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await Assertions.Expect(page.Locator(".toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
 
             // Save the dirty reuse row via the sticky save bar.
-            var saveBar = page.Locator(".ts-savebar");
+            var saveBar = page.Locator(".bar-sticky-bottom");
             await Assertions.Expect(saveBar).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
-            await page.ClickAsync(".ts-savebar button:has-text('Save')");
-            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
+            await page.ClickAsync(".bar-sticky-bottom button:has-text('Save')");
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
 
             // ── Verify the product has stock on Pantry and appears only once (no dup) ──
             await page.GotoAsync($"{BaseUrl}/Pantry");
@@ -490,18 +490,18 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             ");
 
             // Save bar appears when the row is dirty (proves Alpine working-set client).
-            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(page.Locator(".ts-savebar")).ToContainTextAsync("ready to save", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToContainTextAsync("ready to save", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
 
             // ── Tap Save ──────────────────────────────────────────────────────────
-            await page.ClickAsync(".ts-savebar button:has-text('Save')");
+            await page.ClickAsync(".bar-sticky-bottom button:has-text('Save')");
 
             // Toast confirms save (proves POST Save handler worked).
-            await Assertions.Expect(page.Locator(".ts-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(page.Locator(".ts-toast")).ToContainTextAsync("updated", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".toast")).ToContainTextAsync("updated", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
 
             // Save bar hidden (no more dirty rows).
-            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
 
             // ── Verify the Pantry reflects the new count ──────────────────────────
             await page.GotoAsync($"{BaseUrl}/Pantry");
@@ -612,16 +612,16 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             ", kgUnitId);
 
             // ── Save bar should appear (row is dirty) ─────────────────────────────
-            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
             // ── Tap Save ──────────────────────────────────────────────────────────
-            await page.ClickAsync(".ts-savebar button:has-text('Save')");
+            await page.ClickAsync(".bar-sticky-bottom button:has-text('Save')");
 
             // Toast confirms success.
-            await Assertions.Expect(page.Locator(".ts-toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
             // Save bar hidden after save.
-            await Assertions.Expect(page.Locator(".ts-savebar")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
 
             // ── Verify Pantry reflects 1 kg = 1000 g ─────────────────────────────
             // The save command stores the counted value in the chosen unit (kg).
@@ -719,16 +719,16 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await pickerSelect.SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
 
             // Save bar should appear (row is now dirty — location chosen).
-            await Assertions.Expect(page.Locator(".ts-savebar"))
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom"))
                 .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
             // ── File the product ──────────────────────────────────────────────────
-            await page.ClickAsync(".ts-savebar button:has-text('File')");
+            await page.ClickAsync(".bar-sticky-bottom button:has-text('File')");
 
             // Toast should confirm.
-            await Assertions.Expect(page.Locator(".ts-toast"))
+            await Assertions.Expect(page.Locator(".toast"))
                 .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(page.Locator(".ts-toast"))
+            await Assertions.Expect(page.Locator(".toast"))
                 .ToContainTextAsync("filed", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
 
             // The row should disappear from the Alpine working set (client removes it).
