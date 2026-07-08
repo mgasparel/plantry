@@ -15,6 +15,22 @@ public sealed class FlyerImportRepository(DealsDbContext db) : IFlyerImportRepos
         db.FlyerImports.FirstOrDefaultAsync(
             f => f.StoreId == storeId && f.FlyerExternalId == flyerExternalId && f.Status == PullStatus.Parsed, ct);
 
+    public async Task<IReadOnlyList<FlyerImportRef>> ListParsedRefsByStoresAsync(
+        IReadOnlyList<Guid> storeIds, CancellationToken ct = default)
+    {
+        if (storeIds.Count == 0)
+            return [];
+
+        // One round trip: filter to the requested stores' Parsed imports (RLS scopes to the household) and
+        // project the (store, window, external id) tuple — the caller matches each flyer chapter's window
+        // client-side, so this stays a single batch read with no N+1 (mirrors ResolveNamesAsync's shape).
+        return await db.FlyerImports
+            .Where(f => f.Status == PullStatus.Parsed && storeIds.Contains(f.StoreId))
+            .Select(f => new FlyerImportRef(
+                f.StoreId, f.ValidityWindow.ValidFrom, f.ValidityWindow.ValidTo, f.FlyerExternalId))
+            .ToListAsync(ct);
+    }
+
     public async Task AddAsync(FlyerImport import, CancellationToken ct = default) =>
         await db.FlyerImports.AddAsync(import, ct);
 

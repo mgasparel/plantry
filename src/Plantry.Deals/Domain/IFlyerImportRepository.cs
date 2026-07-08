@@ -1,6 +1,16 @@
 namespace Plantry.Deals.Domain;
 
 /// <summary>
+/// A lightweight provenance tuple for one Parsed <see cref="FlyerImport"/> — the store, its run window, and
+/// Flipp's <see cref="FlyerImport.FlyerExternalId"/> (the DD5 dedup anchor). Projected by
+/// <see cref="IFlyerImportRepository.ListParsedRefsByStoresAsync"/> so the review queue can attach a
+/// "View flyer" link to each flyer chapter (q9zr.7) without loading whole aggregates or an N+1. The external
+/// id is carried through the projection for a future direct deep link; today's link is the store-search
+/// fallback (direct flyer-slug URLs 404, verified 2026-07-07).
+/// </summary>
+public sealed record FlyerImportRef(Guid StoreId, DateOnly ValidFrom, DateOnly ValidTo, string FlyerExternalId);
+
+/// <summary>
 /// Read/write port for the <see cref="FlyerImport"/> aggregate (§4 / DJ2). RLS-scoped to the current
 /// household by <c>DealsDbContext</c>, so every query returns only the signed-in household's rows. The
 /// P5-6 <c>IngestFlyer</c> worker looks the import up by its dedup key — <c>(store_id, flyer_external_id)</c>
@@ -18,6 +28,17 @@ public interface IFlyerImportRepository
     /// enforced by the RLS query filter, so it is not a parameter (DD5).
     /// </summary>
     Task<FlyerImport?> FindParsedByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batch-resolves the household's <b>Parsed</b> flyer imports for a set of stores, projected to the
+    /// lightweight <see cref="FlyerImportRef"/> tuples the review queue needs to attach a "View flyer" link to
+    /// each flyer chapter (q9zr.7) — one round trip, no N+1 (mirroring <c>ResolveNamesAsync</c>). Only
+    /// <see cref="PullStatus.Parsed"/> rows are returned (a store with only a Failed history yields none), and
+    /// all distinct windows for a store come back so the caller matches each chapter's own
+    /// (store, validity-window) key. Household is enforced by the RLS query filter, so it is not a parameter (DD5).
+    /// </summary>
+    Task<IReadOnlyList<FlyerImportRef>> ListParsedRefsByStoresAsync(
+        IReadOnlyList<Guid> storeIds, CancellationToken ct = default);
 
     Task AddAsync(FlyerImport import, CancellationToken ct = default);
 

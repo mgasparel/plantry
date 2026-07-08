@@ -9,8 +9,11 @@ namespace Plantry.Web.Pages.Deals;
 /// here (and the active-flyer context line) — never on a card/row (the dedupe ruling from prototyping).
 /// </summary>
 /// <param name="FlyerUrl">
-/// The external "View flyer" URL, or null when none is available. q9zr.7 (Flipp projection) has not landed,
-/// so this is always null today; the rail renders the link slot only when it is present.
+/// The external "View flyer" URL, or null when no source flyer resolved for this chapter (q9zr.7). Built by
+/// <see cref="FlyerRail.Build"/> from <see cref="FlyerBlock.FlyerExternalId"/>: present only when a Parsed
+/// <see cref="Plantry.Deals.Domain.FlyerImport"/> was resolved for this (store, window), and points at the
+/// verified Flipp store-search fallback (<see cref="FlyerRail.StoreSearchUrl"/>). The rail renders the link
+/// slot — in the big chip's meta or the compact active-flyer line, never per card — only when it is present.
 /// </param>
 public sealed record FlyerRailChapter(
     string Key,
@@ -87,8 +90,25 @@ public sealed record FlyerRail(IReadOnlyList<FlyerRailChapter> Chapters)
             .ThenBy(b => b.StoreName, StringComparer.OrdinalIgnoreCase)
             .Select(b => new FlyerRailChapter(
                 b.Key, b.StoreName, b.ValidFrom, b.ValidTo, b.ExpiresInDays,
-                b.PendingCount, IsActive: b.Key == activeKey, FlyerUrl: null))
+                b.PendingCount, IsActive: b.Key == activeKey,
+                // The link renders only when a source flyer was resolved (FlyerExternalId present, q9zr.7);
+                // otherwise the slot stays empty.
+                FlyerUrl: b.FlyerExternalId is null ? null : StoreSearchUrl(b.StoreName)))
             .ToList());
+
+    /// <summary>Base of the verified Flipp store-search URL (q9zr.7) — the geo-detected search that resolves.</summary>
+    public const string FlippSearchBase = "https://flipp.com/en-ca/search/";
+
+    /// <summary>
+    /// The "View flyer" link target for a store (q9zr.7): the verified Flipp store-SEARCH URL
+    /// <c>https://flipp.com/en-ca/search/{url-encoded store name}</c>. Direct flyer-slug URLs
+    /// (<c>flipp.com/en-ca/flyers/{slug}</c>) return 404 (verified 2026-07-07), so the geo-detected search URL
+    /// is emitted as the reliable fallback; a future direct deep link can replace it once the Flipp adapter
+    /// establishes a working shape (the flyer's external id is carried on <see cref="FlyerBlock"/> for that).
+    /// The store name is escaped as a single path segment (spaces → <c>%20</c>).
+    /// </summary>
+    public static string StoreSearchUrl(string storeName) =>
+        FlippSearchBase + Uri.EscapeDataString(storeName.Trim());
 
     /// <summary>
     /// Resolves the active flyer (q9zr.3, scope 1): the <paramref name="requested"/> flyer when it still has

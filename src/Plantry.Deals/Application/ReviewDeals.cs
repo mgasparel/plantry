@@ -46,13 +46,21 @@ public sealed record DealReviewView(
 /// <c>ExpiresInDays</c> is the clock-derived countdown to <see cref="ValidTo"/> (DD14 urgency). <see cref="Key"/>
 /// is the stable, URL-safe identity used for <c>?flyer=</c> routing so a refresh is idempotent.
 /// </summary>
+/// <param name="FlyerExternalId">
+/// Flipp's flyer id (the DD5 dedup anchor) for this chapter's source <see cref="FlyerImport"/>, or null when
+/// no Parsed import resolves for this (store, window) — resolved by
+/// <see cref="ReviewDeals.ProjectPendingQueueAsync"/> via a single batch read (q9zr.7). Its presence is what
+/// gates the "View flyer" link; the value itself is carried through for a future direct deep link once the
+/// Flipp adapter establishes a working flyer-slug URL shape (direct slug URLs 404 today, verified 2026-07-07).
+/// </param>
 public sealed record FlyerBlock(
     Guid StoreId,
     string StoreName,
     DateOnly ValidFrom,
     DateOnly ValidTo,
     int ExpiresInDays,
-    IReadOnlyList<DealReviewView> Deals)
+    IReadOnlyList<DealReviewView> Deals,
+    string? FlyerExternalId = null)
 {
     /// <summary>Pending deals in this flyer (the block is projected only from the pending queue).</summary>
     public int PendingCount => Deals.Count;
@@ -95,6 +103,7 @@ public sealed class ReviewDeals(
     IDealRepository deals,
     ICatalogProductReader products,
     ICatalogStoreReader stores,
+    IFlyerImportRepository flyerImports,
     IClock clock)
 {
     /// <summary>The pending review queue (DD14: Pending ∧ not yet expired), oldest-expiring first.</summary>
@@ -123,7 +132,7 @@ public sealed class ReviewDeals(
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
 
         var views = await BuildPendingViewsAsync(all, ct);
-        var flyers = GroupIntoFlyers(views, today);
+        var flyers = await ResolveFlyerLinksAsync(GroupIntoFlyers(views, today), ct);
 
         var inWindow = all.Count(d => today <= d.ValidityWindow.ValidTo);
         var reviewed = inWindow - views.Count; // in-window Confirmed (Pending excluded; Rejected not browsable)
@@ -177,6 +186,36 @@ public sealed class ReviewDeals(
             .OrderBy(f => f.ExpiresInDays)
             .ThenBy(f => f.StoreName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    /// <summary>
+    /// Attaches each flyer chapter's source-flyer provenance (q9zr.7): batch-resolves the household's Parsed
+    /// <see cref="FlyerImport"/>s for the chapters' distinct stores in a single read (no N+1, mirroring
+    /// <see cref="ResolveNamesAsync"/>), keys them by (store, validity-window), and stamps the matching
+    /// <see cref="FlyerBlock.FlyerExternalId"/>. A chapter whose (store, window) has no Parsed import is left
+    /// with a null external id, so the rail renders no "View flyer" link for it. The window is the join key
+    /// because a store can run two overlapping flyers (two blocks, two imports).
+    /// </summary>
+    private async Task<IReadOnlyList<FlyerBlock>> ResolveFlyerLinksAsync(
+        IReadOnlyList<FlyerBlock> flyers, CancellationToken ct)
+    {
+        if (flyers.Count == 0)
+            return flyers;
+
+        var storeIds = flyers.Select(f => f.StoreId).Distinct().ToList();
+        var refs = await flyerImports.ListParsedRefsByStoresAsync(storeIds, ct);
+
+        var byWindow = new Dictionary<(Guid StoreId, DateOnly ValidFrom, DateOnly ValidTo), string>();
+        foreach (var r in refs)
+            // TryAdd: on the rare chance a (store, window) has more than one Parsed import, keep the first
+            // deterministically rather than throwing — the link target (store search) is identical regardless.
+            byWindow.TryAdd((r.StoreId, r.ValidFrom, r.ValidTo), r.FlyerExternalId);
+
+        return flyers
+            .Select(f => byWindow.TryGetValue((f.StoreId, f.ValidFrom, f.ValidTo), out var externalId)
+                ? f with { FlyerExternalId = externalId }
+                : f)
+            .ToList();
+    }
 
     /// <summary>
     /// One deal by id for the review form (the already-confirmed correction entry path). Returns null when
