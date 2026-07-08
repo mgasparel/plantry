@@ -49,12 +49,17 @@ env "Parameters__postgres-password=verify-ephemeral-pw" \
   aspire start --isolated --non-interactive --nologo --format Json --apphost src/Plantry.AppHost
 #    PowerShell: $env:Parameters__postgres-password = "verify-ephemeral-pw"; aspire start ...
 
-# 3. Wait for the web app to become healthy.
-aspire wait plantry-web --timeout 300
+# 3. Wait for the web app to become healthy. Do NOT use `aspire wait` headless — with two
+#    AppHosts running it opens an interactive picker and hard-errors under a non-interactive
+#    shell. Poll `aspire describe` for plantry-web's healthStatus instead:
+timeout 300 bash -c 'until aspire describe --format Json 2>/dev/null \
+  | grep -q "\"healthStatus\"[: ]*\"Healthy\""; do sleep 5; done'
 
 # 4. Discover this instance's randomized Web URL. `aspire describe` resolves to the AppHost in the
 #    current directory, so it returns YOUR instance's resources even with the primary also running;
-#    read plantry-web's `urls[].url`. `aspire ps --format Json` lists both AppHosts (yours + primary).
+#    read plantry-web's `urls[].url`. Each resource lists TWO https URLs — use the `urls[].url`
+#    PROXY endpoint, not the internal ASPNETCORE_URLS one. `aspire ps --format Json` lists both
+#    AppHosts (yours + primary).
 aspire describe --format Json
 
 # 5. Seed the demo household + the flyer fixture into the fresh ephemeral DB (~8s).
@@ -72,6 +77,22 @@ aspire stop --apphost src/Plantry.AppHost
 ```
 
 `aspire logs <resource>` gives failure triage if a resource never becomes healthy.
+
+## Gotchas learned in live runs (q9zr.4 / q9zr.6 trials)
+
+- **No runtime Razor recompilation.** A `.cshtml`-only edit does NOT take effect on the running
+  isolated instance — `aspire stop` → rebuild → `aspire start` again, or you will chase phantom
+  "my fix didn't work" results.
+- **Web exe file lock.** While the isolated instance runs, `dotnet build`/`dotnet test` fails with
+  MSB3027 (`Plantry.Web.exe` locked). Stop the instance before building.
+- **Playwright under NODE_PATH is CommonJS-only.** The harness's `NODE_PATH=…@playwright/cli/node_modules`
+  works for `require('playwright')`; an ESM `import` ignores NODE_PATH — in an `.mjs` script use
+  `createRequire(import.meta.url)` with the absolute path to `…/@playwright/cli/node_modules/playwright/index.js`.
+- **Not all app surfaces are seeded.** The fixture seeds Deals only (no recipes/locations), so
+  Recipes / Take Stock editors are not reachable on a verify instance — regression-proof shared
+  components there via golden-master snapshots instead.
+- **A lingering ephemeral Postgres container** may briefly survive `aspire stop`; it never touches
+  the named volume, but `docker ps` before declaring victory is cheap.
 
 ## Safety: never disturb the primary stack
 
