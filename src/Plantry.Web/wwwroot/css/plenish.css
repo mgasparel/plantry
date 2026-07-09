@@ -6529,7 +6529,8 @@ kbd, .kbd {
 }
 .flyer-chip:hover { border-color: var(--color-border-strong); }
 .flyer-chip.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent), var(--shadow-card); }
-.flyer-chip.is-done { opacity: 0.75; }
+/* Confirm-finished flyer chip (plantry-8f7v): rendered as a non-interactive <div>, so drop the pointer cursor. */
+.flyer-chip.is-done { opacity: 0.75; cursor: default; }
 .flyer-chip .store { font-weight: 700; font-size: 0.9375rem; }
 .flyer-chip .left {
   font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600;
@@ -6547,7 +6548,7 @@ kbd, .kbd {
 }
 .flyer-pill:hover { border-color: var(--color-border-strong); }
 .flyer-pill.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
-.flyer-pill.is-done { opacity: 0.6; }
+.flyer-pill.is-done { opacity: 0.6; cursor: default; } /* non-interactive done pill (plantry-8f7v) */
 .flyer-pill .store { font-weight: 650; white-space: nowrap; }
 .flyer-pill .n { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); }
 .flyer-pill .d { font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 600; border-radius: var(--radius-full); padding: 0 0.45rem; background: var(--color-surface-2); color: var(--color-text-muted); }

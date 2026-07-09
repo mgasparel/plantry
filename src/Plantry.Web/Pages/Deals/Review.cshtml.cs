@@ -504,7 +504,10 @@ public sealed class ReviewModel(
 
         ActiveFlyerKey = FlyerRail.ResolveActiveKey(projection.Flyers, flyer);
         ActiveFlyer = projection.Flyers.FirstOrDefault(f => f.Key == ActiveFlyerKey);
-        Rail = FlyerRail.Build(projection.Flyers, ActiveFlyerKey);
+        // The rail renders pending + Confirm-finished (done) chapters (plantry-8f7v); routing/handoff/progress
+        // above stay keyed off the pending-only set. FlyerRail.Build's done-last ordering places done chips last,
+        // and ResolveActiveKey only ever picks a pending block, so a done chip can never become active.
+        Rail = FlyerRail.Build([.. projection.Flyers, .. projection.DoneFlyers], ActiveFlyerKey);
 
         // Handoff: a specific flyer was requested but it is no longer in the pending set (its last deal was
         // just resolved), while other flyers still have work — show the done interstitial pointing at the

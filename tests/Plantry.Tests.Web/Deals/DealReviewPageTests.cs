@@ -380,6 +380,39 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.DoesNotContain("All caught up", fragment);   // work remains, so not the empty state
     }
 
+    [Fact(DisplayName = "Confirm-finishing a flyer surfaces it as a display-only done chip while the handoff still fires to the next flyer (plantry-8f7v)")]
+    public async Task Confirm_Finished_Flyer_Becomes_A_Done_Chip_And_Hands_Off()
+    {
+        factory.Reset();
+        // Two flyers on the rail (distinct windows): the soonest is a single High we will confirm to completion;
+        // the later one keeps a pending deal so the handoff has somewhere to point.
+        var soon = factory.SeedPendingExpiring("Milk 2L", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 2);
+        var later = factory.SeedPendingExpiring("Eggs Dozen", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 6);
+        var soonKey = FlyerBlock.MakeKey(soon.StoreId, soon.ValidityWindow.ValidFrom, soon.ValidityWindow.ValidTo);
+        var laterKey = FlyerBlock.MakeKey(later.StoreId, later.ValidityWindow.ValidFrom, later.ValidityWindow.ValidTo);
+
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // Confirm the only deal in the soonest flyer, carrying its active key — its last verb.
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={soon.Id.Value}&flyer={soonKey}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        var fragment = System.Net.WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+
+        // The finished flyer persists on the rail as a display-only done chip …
+        Assert.Contains("flyer-chip is-done", fragment);
+        Assert.Contains("✓ done", fragment);
+        // … which is NOT a navigable button — nothing routes back to the finished flyer's key.
+        Assert.DoesNotContain($"flyer={soonKey}", fragment);
+        // … while the per-flyer handoff simultaneously fires, pointing at the next (still-pending) flyer.
+        Assert.Contains("Flyer cleared", fragment);
+        Assert.Contains($"flyer={laterKey}", fragment);
+        Assert.Equal(DealStatus.Confirmed, soon.Status);   // the finished flyer's deal really left the queue
+        Assert.DoesNotContain("All caught up", fragment);  // work remains, so not the empty state
+    }
+
     [Fact(DisplayName = "Finishing the last flyer's last deal shows the caught-up empty state")]
     public async Task Finishing_The_Last_Flyer_Shows_Caught_Up()
     {
