@@ -32,6 +32,10 @@ COPY src/Plantry.Shopping/Plantry.Shopping.csproj                               
 COPY src/Plantry.Shopping.Infrastructure/Plantry.Shopping.Infrastructure.csproj         src/Plantry.Shopping.Infrastructure/
 COPY src/Plantry.MealPlanning/Plantry.MealPlanning.csproj                               src/Plantry.MealPlanning/
 COPY src/Plantry.MealPlanning.Infrastructure/Plantry.MealPlanning.Infrastructure.csproj src/Plantry.MealPlanning.Infrastructure/
+COPY src/Plantry.Deals/Plantry.Deals.csproj                                             src/Plantry.Deals/
+COPY src/Plantry.Deals.Infrastructure/Plantry.Deals.Infrastructure.csproj               src/Plantry.Deals.Infrastructure/
+COPY src/Plantry.Ai.Infrastructure/Plantry.Ai.Infrastructure.csproj                     src/Plantry.Ai.Infrastructure/
+COPY src/Plantry.Composition/Plantry.Composition.csproj                                 src/Plantry.Composition/
 COPY src/Plantry.Migration.Grocy/Plantry.Migration.Grocy.csproj                        src/Plantry.Migration.Grocy/
 COPY src/Plantry.ServiceDefaults/Plantry.ServiceDefaults.csproj                         src/Plantry.ServiceDefaults/
 COPY src/Plantry.Web/Plantry.Web.csproj                                                 src/Plantry.Web/
