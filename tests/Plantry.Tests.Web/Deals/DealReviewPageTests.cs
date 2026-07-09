@@ -192,7 +192,7 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("title=\"FRANK'S HOT SAUCE 375ML\"", html);
     }
 
-    // ── L4 correction sheet — deal context + prefilled search (q9zr.6) ─────────────
+    // ── L4 correction sheet — deal context (empty search box, no prefill) (q9zr.6) ─────────────
 
     [Fact(DisplayName = "GET /Deals/Review renders the correction sheet titled 'Match to a product' with the deal-context block and a selection-gated Add")]
     public async Task Correction_Sheet_Has_Match_Title_Deal_Context_And_Gated_Add()
