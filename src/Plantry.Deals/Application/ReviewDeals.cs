@@ -78,8 +78,21 @@ public sealed record FlyerBlock(
 /// <see cref="ReviewedCount"/>/<see cref="TotalCount"/> feed the "N of M reviewed" header; see
 /// <see cref="ReviewDeals.ProjectPendingQueueAsync"/> for the (Rejected-excluded) progress semantics.
 /// </summary>
+/// <param name="Flyers">
+/// The <b>pending-only</b> flyer chapters (each with ≥1 pending deal). This is the set every routing/handoff
+/// decision keys off — <see cref="FlyerRail.ResolveActiveKey"/>, the active-flyer resolve, and the
+/// <c>ShowHandoff</c> check — so a finished flyer leaves it and its last deal triggers the handoff.
+/// </param>
+/// <param name="DoneFlyers">
+/// The Confirm-finished chapters (plantry-8f7v): in-window (store, window) groups with 0 pending and ≥1
+/// Confirmed, projected as display-only done chips (PendingCount 0). Kept <b>separate</b> from
+/// <see cref="Flyers"/> so it never affects routing/handoff or the progress counts; the rail merges the two
+/// only for rendering (<see cref="FlyerRail.Build"/>'s done-last ordering places them after pending). An
+/// all-rejected flyer never appears here (Rejected is not browsable — known gap, plantry-wmt7).
+/// </param>
 public sealed record ReviewQueueProjection(
     IReadOnlyList<FlyerBlock> Flyers,
+    IReadOnlyList<FlyerBlock> DoneFlyers,
     IReadOnlyList<DealReviewView> PendingDeals,
     int ReviewedCount,
     int TotalCount);
@@ -133,11 +146,12 @@ public sealed class ReviewDeals(
 
         var views = await BuildPendingViewsAsync(all, ct);
         var flyers = await ResolveFlyerLinksAsync(GroupIntoFlyers(views, today), ct);
+        var doneFlyers = await ResolveFlyerLinksAsync(await BuildDoneFlyersAsync(all, today, ct), ct);
 
         var inWindow = all.Count(d => today <= d.ValidityWindow.ValidTo);
         var reviewed = inWindow - views.Count; // in-window Confirmed (Pending excluded; Rejected not browsable)
 
-        return new ReviewQueueProjection(flyers, views, reviewed, inWindow);
+        return new ReviewQueueProjection(flyers, doneFlyers, views, reviewed, inWindow);
     }
 
     private async Task<IReadOnlyList<DealReviewView>> BuildPendingViewsAsync(
@@ -186,6 +200,49 @@ public sealed class ReviewDeals(
             .OrderBy(f => f.ExpiresInDays)
             .ThenBy(f => f.StoreName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    /// <summary>
+    /// Confirm-finished flyer chapters as display-only done chips (plantry-8f7v, option a). From the browsable
+    /// set (Pending+Confirmed; Rejected excluded), a (store, validity-window) group that is <b>in-window</b>
+    /// (<c>today ≤ ValidTo</c>, DD14 — consistent with the pending queue, so a past-window done flyer drops
+    /// off), has <b>zero</b> pending, and <b>≥1 Confirmed</b> becomes a <see cref="FlyerBlock"/> with no deals
+    /// (<see cref="FlyerBlock.PendingCount"/> 0). Store names resolve via the same batch read as the pending
+    /// path (no N+1); <see cref="FlyerBlock.FlyerExternalId"/> is stamped by <see cref="ResolveFlyerLinksAsync"/>
+    /// afterwards, so a done chip keeps its "View flyer" link. Kept out of the pending
+    /// <see cref="ReviewQueueProjection.Flyers"/> so it never influences routing/handoff or progress counts.
+    /// <para>
+    /// An all-rejected flyer (every deal Rejected) yields no group here — Rejected is not browsable, so its
+    /// (store, window) is invisible. That is the known gap tracked in plantry-wmt7 (which adds the rejected-deals
+    /// read port); until then such a flyer simply disappears rather than showing a done chip.
+    /// </para>
+    /// </summary>
+    private async Task<IReadOnlyList<FlyerBlock>> BuildDoneFlyersAsync(
+        IReadOnlyList<Deal> all, DateOnly today, CancellationToken ct)
+    {
+        var doneGroups = all
+            .Where(d => today <= d.ValidityWindow.ValidTo)
+            .GroupBy(d => (d.StoreId, d.ValidityWindow.ValidFrom, d.ValidityWindow.ValidTo))
+            .Where(g => g.All(d => d.Status != DealStatus.Pending)
+                        && g.Any(d => d.Status == DealStatus.Confirmed))
+            .ToList();
+        if (doneGroups.Count == 0)
+            return [];
+
+        var storeNames = await stores.ResolveNamesAsync(
+            doneGroups.Select(g => g.Key.StoreId).Distinct().ToList(), ct);
+
+        return doneGroups
+            .Select(g => new FlyerBlock(
+                g.Key.StoreId,
+                storeNames.TryGetValue(g.Key.StoreId, out var name) ? name : "(unknown store)",
+                g.Key.ValidFrom,
+                g.Key.ValidTo,
+                Math.Max(0, g.Key.ValidTo.DayNumber - today.DayNumber),
+                Deals: []))
+            .OrderBy(f => f.ExpiresInDays)
+            .ThenBy(f => f.StoreName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     /// <summary>
     /// Attaches each flyer chapter's source-flyer provenance (q9zr.7): batch-resolves the household's Parsed

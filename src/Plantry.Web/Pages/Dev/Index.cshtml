@@ -925,19 +925,28 @@
         <code>.urgent</code> to the expiry pill when it is closing soon.
     </p>
     <p><strong>Big chips</strong> (≤3 flyers):</p>
+    <p style="font-size:0.8125rem;color:var(--color-text-muted)">
+        Interactive chip = a <code>position:relative</code> <code>.flyer-chip</code> container holding a
+        stretched <code>.flyer-chip-nav</code> <code>&lt;button&gt;</code> overlay (the htmx nav) and a sibling
+        <code>.flyer-link</code> <code>&lt;a&gt;</code>. The link is never nested inside the button, so both are
+        valid, separately-focusable controls. The finished <code>.is-done</code> chip is a non-interactive
+        <code>&lt;div&gt;</code> (no nav button).
+    </p>
     <div class="flyers" style="margin-bottom: var(--space-4)">
-        <button class="flyer-chip is-active">
+        <div class="flyer-chip is-active">
+            <button type="button" class="flyer-chip-nav" aria-label="Sobeys, 14 deals, expires in 3 days"></button>
             <span class="store">Sobeys</span><span class="left">14 · 3d left</span>
-            <span class="meta">Valid Jul 4 – Jul 10</span>
-        </button>
-        <button class="flyer-chip">
+            <span class="meta">Valid Jul 4 – Jul 10 · <a class="flyer-link" href="#" onclick="return false;">View flyer ↗</a></span>
+        </div>
+        <div class="flyer-chip">
+            <button type="button" class="flyer-chip-nav" aria-label="Metro, 6 deals, expires in 1 day"></button>
             <span class="store">Metro</span><span class="left urgent">6 · 1d left</span>
-            <span class="meta">Valid Jun 28 – Jul 8</span>
-        </button>
-        <button class="flyer-chip is-done">
+            <span class="meta">Valid Jun 28 – Jul 8 · <a class="flyer-link" href="#" onclick="return false;">View flyer ↗</a></span>
+        </div>
+        <div class="flyer-chip is-done" aria-label="No Frills, all deals reviewed">
             <span class="store">No Frills</span><span class="left done">✓ done</span>
             <span class="meta">Valid Jul 1 – Jul 7</span>
-        </button>
+        </div>
     </div>
     <p><strong>Compact rail</strong> (&gt;3 flyers):</p>
     <p class="rail-summary"><b>5 flyers</b> waiting · 48 deals · closest expiry <b>tomorrow</b></p>

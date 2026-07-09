@@ -22,30 +22,47 @@
     <div class="flyers">
         @foreach (var f in Model.Chapters)
         {
-            <button type="button"
-                    class="flyer-chip @(f.IsActive ? "is-active" : null) @(f.IsDone ? "is-done" : null)"
-                    hx-get="/Deals/Review?flyer=@f.Key"
-                    hx-target="#review-region"
-                    hx-swap="innerHTML"
-                    hx-push-url="/Deals/Review?flyer=@f.Key"
-                    aria-label="@f.StoreName, @f.PendingCount deals, expires in @f.ExpiresInDays days">
-                <span class="store">@f.StoreName</span>
-                @if (f.IsDone)
-                {
+            @if (f.IsDone)
+            {
+                @* Confirm-finished flyer (plantry-8f7v): a display-only done chip — a non-interactive element,
+                   never a navigable button (no hx-get). Its confirmed deals stay viewable on the Deals Active tab. *@
+                <div class="flyer-chip is-done" aria-label="@f.StoreName, all deals reviewed">
+                    <span class="store">@f.StoreName</span>
                     <span class="left done">&#10003; done</span>
-                }
-                else
-                {
+                    <span class="meta">
+                        Valid @f.ValidRange
+                        @if (f.FlyerUrl is { } doneUrl)
+                        {
+                            <text>&middot; <a class="flyer-link" href="@doneUrl" target="_blank" rel="noopener">View flyer &#8599;</a></text>
+                        }
+                    </span>
+                </div>
+            }
+            else
+            {
+                @* Stretched-button pattern (plantry-fuz3): .flyer-chip is a position:relative container.
+                   The htmx-nav <button> is a SIBLING overlay (inset:0), never an ancestor of the
+                   "View flyer" <a>. No interactive element nests inside another — valid HTML, a clean
+                   tab order (chip nav, then the link), and no stopPropagation hack needed. *@
+                <div class="flyer-chip @(f.IsActive ? "is-active" : null)">
+                    <button type="button"
+                            class="flyer-chip-nav"
+                            hx-get="/Deals/Review?flyer=@f.Key"
+                            hx-target="#review-region"
+                            hx-swap="innerHTML"
+                            hx-push-url="/Deals/Review?flyer=@f.Key"
+                            aria-label="@f.StoreName, @f.PendingCount deals, expires in @f.ExpiresInDays days"></button>
+                    <span class="store">@f.StoreName</span>
                     <span class="left @(f.IsUrgent ? "urgent" : null)">@f.PendingExpiryLabel</span>
-                }
-                <span class="meta">
-                    Valid @f.ValidRange
-                    @if (f.FlyerUrl is { } url)
-                    {
-                        <text>&middot; <a class="flyer-link" href="@url" target="_blank" rel="noopener" onclick="event.stopPropagation()">View flyer &#8599;</a></text>
-                    }
-                </span>
-            </button>
+                    <span class="meta">
+                        Valid @f.ValidRange
+                        @if (f.FlyerUrl is { } url)
+                        {
+                            <text>&middot; <a class="flyer-link" href="@url" target="_blank" rel="noopener">View flyer &#8599;</a></text>
+                        }
+                    </span>
+                </div>
+            }
         }
     </div>
 }
@@ -58,24 +75,28 @@ else
     <div class="flyers flyers--compact">
         @foreach (var f in Model.Chapters)
         {
-            <button type="button"
-                    class="flyer-pill @(f.IsActive ? "is-active" : null) @(f.IsDone ? "is-done" : null)"
-                    hx-get="/Deals/Review?flyer=@f.Key"
-                    hx-target="#review-region"
-                    hx-swap="innerHTML"
-                    hx-push-url="/Deals/Review?flyer=@f.Key"
-                    aria-label="@f.StoreName, @f.PendingCount deals, expires in @f.ExpiresInDays days">
-                <span class="store">@f.StoreName</span>
-                @if (!f.IsDone)
-                {
+            @if (f.IsDone)
+            {
+                @* Confirm-finished flyer (plantry-8f7v): a display-only done pill — non-interactive, no hx-get. *@
+                <span class="flyer-pill is-done" aria-label="@f.StoreName, all deals reviewed">
+                    <span class="store">@f.StoreName</span>
+                    <span class="d">&#10003;</span>
+                </span>
+            }
+            else
+            {
+                <button type="button"
+                        class="flyer-pill @(f.IsActive ? "is-active" : null)"
+                        hx-get="/Deals/Review?flyer=@f.Key"
+                        hx-target="#review-region"
+                        hx-swap="innerHTML"
+                        hx-push-url="/Deals/Review?flyer=@f.Key"
+                        aria-label="@f.StoreName, @f.PendingCount deals, expires in @f.ExpiresInDays days">
+                    <span class="store">@f.StoreName</span>
                     <span class="n">@f.PendingCount</span>
                     <span class="d @(f.IsUrgent ? "urgent" : null)">@f.ExpiryShort</span>
-                }
-                else
-                {
-                    <span class="d">&#10003;</span>
-                }
-            </button>
+                </button>
+            }
         }
     </div>
 

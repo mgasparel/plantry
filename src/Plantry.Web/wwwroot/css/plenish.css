@@ -6522,14 +6522,27 @@ kbd, .kbd {
 .flyers { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: var(--space-5); }
 .flyers--compact { gap: 0.4rem; margin-bottom: var(--space-3); }
 .flyer-chip {
+  position: relative; /* anchors the .flyer-chip-nav stretched overlay (plantry-fuz3) */
   flex: 1 1 240px; text-align: left; font: inherit; cursor: pointer;
   background: var(--color-surface); border: 1px solid var(--color-border);
   border-radius: var(--radius-lg); padding: 0.7rem 0.9rem; transition: border-color 120ms ease;
   display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.5rem; align-items: center;
 }
 .flyer-chip:hover { border-color: var(--color-border-strong); }
+/* Stretched-nav overlay (plantry-fuz3): the whole big chip navigates via this htmx <button>, but it
+   is a sibling overlay — not an ancestor of the View-flyer <a> — so no interactive element nests
+   inside another. Transparent and out of grid flow, it leaves the store/count/meta layout untouched. */
+.flyer-chip-nav {
+  position: absolute; inset: 0; z-index: 0;
+  border: 0; background: transparent; cursor: pointer; font: inherit;
+  border-radius: inherit;
+}
+.flyer-chip-nav:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* The View-flyer link sits above the nav overlay so it stays a distinct, independently clickable control. */
+.flyer-chip .flyer-link { position: relative; z-index: 1; }
 .flyer-chip.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent), var(--shadow-card); }
-.flyer-chip.is-done { opacity: 0.75; }
+/* Confirm-finished flyer chip (plantry-8f7v): rendered as a non-interactive <div>, so drop the pointer cursor. */
+.flyer-chip.is-done { opacity: 0.75; cursor: default; }
 .flyer-chip .store { font-weight: 700; font-size: 0.9375rem; }
 .flyer-chip .left {
   font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600;
@@ -6547,7 +6560,7 @@ kbd, .kbd {
 }
 .flyer-pill:hover { border-color: var(--color-border-strong); }
 .flyer-pill.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
-.flyer-pill.is-done { opacity: 0.6; }
+.flyer-pill.is-done { opacity: 0.6; cursor: default; } /* non-interactive done pill (plantry-8f7v) */
 .flyer-pill .store { font-weight: 650; white-space: nowrap; }
 .flyer-pill .n { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); }
 .flyer-pill .d { font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 600; border-radius: var(--radius-full); padding: 0 0.45rem; background: var(--color-surface-2); color: var(--color-text-muted); }

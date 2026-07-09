@@ -418,17 +418,22 @@ public sealed class ReviewModel(
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The active flyer's pending deals matching <paramref name="predicate"/> — the eligible set a bulk verb
-    /// loops over. Resolves the active flyer the same way the queue render does (the requested key when it
-    /// still has work, else the default soonest-expiring one), so the bulk verb acts on exactly the tier the
-    /// user is looking at. Empty when nothing is pending.
+    /// The requested flyer's pending deals matching <paramref name="predicate"/> — the eligible set a bulk verb
+    /// loops over. Unlike the GET render (which falls through to the default soonest-expiring flyer via
+    /// <see cref="FlyerRail.ResolveActiveKey"/>), a mutating bulk POST resolves the flyer by EXACT key match
+    /// against <paramref name="flyer"/> and returns empty when that key is absent from the pending projection.
+    /// This makes a stale-flyer replay (a double-submit issued after the requested flyer was fully cleared) a
+    /// strict no-op instead of silently acting on a different flyer's tier (plantry-vsu4). A null <paramref
+    /// name="flyer"/> — never sent by the bulk buttons, which always thread the active key — also resolves to
+    /// empty rather than the default flyer. Empty when nothing matches.
     /// </summary>
     private async Task<IReadOnlyList<DealReviewView>> EligibleActiveFlyerDealsAsync(
         string? flyer, Func<DealReviewView, bool> predicate, CancellationToken ct)
     {
         var projection = await reviewDeals.ProjectPendingQueueAsync(ct);
-        var activeKey = FlyerRail.ResolveActiveKey(projection.Flyers, flyer);
-        var activeFlyer = projection.Flyers.FirstOrDefault(f => f.Key == activeKey);
+        var activeFlyer = flyer is null
+            ? null
+            : projection.Flyers.FirstOrDefault(f => f.Key == flyer);
         return activeFlyer is null
             ? []
             : activeFlyer.Deals.Where(predicate).ToList();
@@ -504,7 +509,10 @@ public sealed class ReviewModel(
 
         ActiveFlyerKey = FlyerRail.ResolveActiveKey(projection.Flyers, flyer);
         ActiveFlyer = projection.Flyers.FirstOrDefault(f => f.Key == ActiveFlyerKey);
-        Rail = FlyerRail.Build(projection.Flyers, ActiveFlyerKey);
+        // The rail renders pending + Confirm-finished (done) chapters (plantry-8f7v); routing/handoff/progress
+        // above stay keyed off the pending-only set. FlyerRail.Build's done-last ordering places done chips last,
+        // and ResolveActiveKey only ever picks a pending block, so a done chip can never become active.
+        Rail = FlyerRail.Build([.. projection.Flyers, .. projection.DoneFlyers], ActiveFlyerKey);
 
         // Handoff: a specific flyer was requested but it is no longer in the pending set (its last deal was
         // just resolved), while other flyers still have work — show the done interstitial pointing at the

@@ -58,6 +58,14 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
 
     private static KeyValuePair<string, string> Kv(string key, string value) => new(key, value);
 
+    /// <summary>
+    /// The flyer-rail key for a seeded deal's (store, validity-window) — the same key the bulk-verb buttons
+    /// thread as <c>&amp;flyer=</c> when an active flyer is present (_ReviewStep1/3.cshtml). Bulk POSTs must
+    /// carry it so the exact-key resolution (plantry-vsu4) finds the flyer; a null key is now a no-op.
+    /// </summary>
+    private static string FlyerKeyOf(Deal deal) =>
+        FlyerBlock.MakeKey(deal.StoreId, deal.ValidityWindow.ValidFrom, deal.ValidityWindow.ValidTo);
+
     // ── L4 render ────────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "GET /Deals/Review with no pending deals renders the caught-up empty state")]
@@ -184,7 +192,7 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("title=\"FRANK'S HOT SAUCE 375ML\"", html);
     }
 
-    // ── L4 correction sheet — deal context + prefilled search (q9zr.6) ─────────────
+    // ── L4 correction sheet — deal context (empty search box, no prefill) (q9zr.6) ─────────────
 
     [Fact(DisplayName = "GET /Deals/Review renders the correction sheet titled 'Match to a product' with the deal-context block and a selection-gated Add")]
     public async Task Correction_Sheet_Has_Match_Title_Deal_Context_And_Gated_Add()
@@ -380,6 +388,39 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.DoesNotContain("All caught up", fragment);   // work remains, so not the empty state
     }
 
+    [Fact(DisplayName = "Confirm-finishing a flyer surfaces it as a display-only done chip while the handoff still fires to the next flyer (plantry-8f7v)")]
+    public async Task Confirm_Finished_Flyer_Becomes_A_Done_Chip_And_Hands_Off()
+    {
+        factory.Reset();
+        // Two flyers on the rail (distinct windows): the soonest is a single High we will confirm to completion;
+        // the later one keeps a pending deal so the handoff has somewhere to point.
+        var soon = factory.SeedPendingExpiring("Milk 2L", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 2);
+        var later = factory.SeedPendingExpiring("Eggs Dozen", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 6);
+        var soonKey = FlyerBlock.MakeKey(soon.StoreId, soon.ValidityWindow.ValidFrom, soon.ValidityWindow.ValidTo);
+        var laterKey = FlyerBlock.MakeKey(later.StoreId, later.ValidityWindow.ValidFrom, later.ValidityWindow.ValidTo);
+
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // Confirm the only deal in the soonest flyer, carrying its active key — its last verb.
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={soon.Id.Value}&flyer={soonKey}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        var fragment = System.Net.WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+
+        // The finished flyer persists on the rail as a display-only done chip …
+        Assert.Contains("flyer-chip is-done", fragment);
+        Assert.Contains("✓ done", fragment);
+        // … which is NOT a navigable button — nothing routes back to the finished flyer's key.
+        Assert.DoesNotContain($"flyer={soonKey}", fragment);
+        // … while the per-flyer handoff simultaneously fires, pointing at the next (still-pending) flyer.
+        Assert.Contains("Flyer cleared", fragment);
+        Assert.Contains($"flyer={laterKey}", fragment);
+        Assert.Equal(DealStatus.Confirmed, soon.Status);   // the finished flyer's deal really left the queue
+        Assert.DoesNotContain("All caught up", fragment);  // work remains, so not the empty state
+    }
+
     [Fact(DisplayName = "Finishing the last flyer's last deal shows the caught-up empty state")]
     public async Task Finishing_The_Last_Flyer_Shows_Caught_Up()
     {
@@ -557,7 +598,7 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         var client = AuthedClient();
         var token = await TokenAsync(client);
 
-        var response = await PostAsync(client, "/Deals/Review?handler=ConfirmAll",
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(milk)}",
             Kv("__RequestVerificationToken", token));
 
         response.EnsureSuccessStatusCode();
@@ -586,7 +627,7 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         var token = await TokenAsync(client);
 
         // Post only A and C — plus a None id (outside the High eligible set) which must be ignored.
-        var response = await PostAsync(client, "/Deals/Review?handler=ConfirmAll",
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(a)}",
             Kv("__RequestVerificationToken", token),
             Kv("dealIds", a.Id.Value.ToString()),
             Kv("dealIds", c.Id.Value.ToString()),
@@ -604,22 +645,55 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
     public async Task ConfirmAll_Is_Idempotent()
     {
         factory.Reset();
-        factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        var milk = factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
         factory.SeedPending("Sourdough", MatchConfidence.High, factory.BreadProduct);
+        var flyerKey = FlyerKeyOf(milk);
         var client = AuthedClient();
         var token = await TokenAsync(client);
 
-        var first = await PostAsync(client, "/Deals/Review?handler=ConfirmAll",
+        var first = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={flyerKey}",
             Kv("__RequestVerificationToken", token));
         first.EnsureSuccessStatusCode();
         Assert.Equal(2, factory.Observations.Calls);
 
-        // Re-drive: the queue already re-rendered from truth, nothing is eligible — a clean no-op.
-        var second = await PostAsync(client, "/Deals/Review?handler=ConfirmAll",
+        // Re-drive: both Highs are gone, so the flyer left the pending projection. Its key now exact-matches
+        // nothing → empty eligible set → a clean no-op (plantry-vsu4 strict cleared-flyer replay).
+        var second = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={flyerKey}",
             Kv("__RequestVerificationToken", token));
         second.EnsureSuccessStatusCode();
         Assert.Equal(2, factory.Observations.Calls);           // no additional writes
         Assert.False(second.Headers.Contains("HX-Trigger"));   // nothing confirmed → no toast
+    }
+
+    [Fact(DisplayName = "ConfirmAll carrying a now-cleared flyer key is a strict no-op — never falls through to another flyer's Highs (plantry-vsu4)")]
+    public async Task ConfirmAll_With_Cleared_Flyer_Key_Touches_No_Other_Flyer()
+    {
+        factory.Reset();
+        // Two flyers on the same store (distinct windows). X (soonest) has only a confirmable High; Y keeps its
+        // own confirmable High. This reproduces the double-submit race: X is cleared, then a stale ConfirmAll
+        // still carrying X's key arrives — it must resolve to X exactly (now absent → empty), NOT default to Y.
+        var x = factory.SeedPendingExpiring("Milk 2L", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 2);
+        var y = factory.SeedPendingExpiring("Eggs Dozen", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 6);
+        var xKey = FlyerBlock.MakeKey(x.StoreId, x.ValidityWindow.ValidFrom, x.ValidityWindow.ValidTo);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // First ConfirmAll on X clears its only High; Y is a chapter away and untouched.
+        var first = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={xKey}",
+            Kv("__RequestVerificationToken", token));
+        first.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, x.Status);
+        Assert.Equal(DealStatus.Pending, y.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+
+        // Replay: X's key is now absent from the pending projection. The stale ConfirmAll must be a strict no-op
+        // — exact-key resolution returns empty rather than falling through to Y's (soonest-remaining) Highs.
+        var replay = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={xKey}",
+            Kv("__RequestVerificationToken", token));
+        replay.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Pending, y.Status);            // Y's High was NOT bulk-confirmed
+        Assert.Equal(1, factory.Observations.Calls);           // no additional writes
+        Assert.False(replay.Headers.Contains("HX-Trigger"));   // nothing confirmed → no toast
     }
 
     [Fact(DisplayName = "DismissAll rejects every None deal — noise rows included — writes NO observation, and toasts")]
@@ -632,7 +706,7 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         var client = AuthedClient();
         var token = await TokenAsync(client);
 
-        var response = await PostAsync(client, "/Deals/Review?handler=DismissAll",
+        var response = await PostAsync(client, $"/Deals/Review?handler=DismissAll&flyer={FlyerKeyOf(real)}",
             Kv("__RequestVerificationToken", token));
 
         response.EnsureSuccessStatusCode();
@@ -654,7 +728,7 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         var client = AuthedClient();
         var token = await TokenAsync(client);
 
-        var response = await PostAsync(client, "/Deals/Review?handler=DismissAll",
+        var response = await PostAsync(client, $"/Deals/Review?handler=DismissAll&flyer={FlyerKeyOf(a)}",
             Kv("__RequestVerificationToken", token),
             Kv("dealIds", a.Id.Value.ToString()),
             Kv("dealIds", c.Id.Value.ToString()));
@@ -700,17 +774,18 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
     public async Task DismissAll_Is_Idempotent()
     {
         factory.Reset();
-        factory.SeedPending("None A", MatchConfidence.None, suggested: null);
+        var noneA = factory.SeedPending("None A", MatchConfidence.None, suggested: null);
         factory.SeedPending("None B", MatchConfidence.None, suggested: null);
+        var flyerKey = FlyerKeyOf(noneA);
         var client = AuthedClient();
         var token = await TokenAsync(client);
 
-        var first = await PostAsync(client, "/Deals/Review?handler=DismissAll",
+        var first = await PostAsync(client, $"/Deals/Review?handler=DismissAll&flyer={flyerKey}",
             Kv("__RequestVerificationToken", token));
         first.EnsureSuccessStatusCode();
         Assert.Equal(2, factory.Repo.Items.Count(d => d.Status == DealStatus.Rejected));
 
-        var second = await PostAsync(client, "/Deals/Review?handler=DismissAll",
+        var second = await PostAsync(client, $"/Deals/Review?handler=DismissAll&flyer={flyerKey}",
             Kv("__RequestVerificationToken", token));
         second.EnsureSuccessStatusCode();
         Assert.Equal(2, factory.Repo.Items.Count(d => d.Status == DealStatus.Rejected)); // unchanged
@@ -749,7 +824,7 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         await PostAsync(client, "/Deals/Review?handler=SetCheck",
             Kv("__RequestVerificationToken", token), Kv("dealId", a.Id.Value.ToString()), Kv("isChecked", "false"));
 
-        var commitResponse = await PostAsync(client, "/Deals/Review?handler=ConfirmAll&step=1",
+        var commitResponse = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(a)}&step=1",
             Kv("__RequestVerificationToken", token),
             Kv("checklistCommit", "true"),
             Kv("dealIds", b.Id.Value.ToString()));
@@ -846,7 +921,7 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         var token = await TokenAsync(client);
 
         // checklistCommit with NO dealIds means "confirm none, demote all" — NOT the legacy empty==whole-set.
-        var response = await PostAsync(client, "/Deals/Review?handler=ConfirmAll&step=1",
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(a)}&step=1",
             Kv("__RequestVerificationToken", token), Kv("checklistCommit", "true"));
         response.EnsureSuccessStatusCode();
 
