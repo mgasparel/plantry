@@ -40,23 +40,28 @@
             }
             else
             {
-                <button type="button"
-                        class="flyer-chip @(f.IsActive ? "is-active" : null)"
-                        hx-get="/Deals/Review?flyer=@f.Key"
-                        hx-target="#review-region"
-                        hx-swap="innerHTML"
-                        hx-push-url="/Deals/Review?flyer=@f.Key"
-                        aria-label="@f.StoreName, @f.PendingCount deals, expires in @f.ExpiresInDays days">
+                @* Stretched-button pattern (plantry-fuz3): .flyer-chip is a position:relative container.
+                   The htmx-nav <button> is a SIBLING overlay (inset:0), never an ancestor of the
+                   "View flyer" <a>. No interactive element nests inside another — valid HTML, a clean
+                   tab order (chip nav, then the link), and no stopPropagation hack needed. *@
+                <div class="flyer-chip @(f.IsActive ? "is-active" : null)">
+                    <button type="button"
+                            class="flyer-chip-nav"
+                            hx-get="/Deals/Review?flyer=@f.Key"
+                            hx-target="#review-region"
+                            hx-swap="innerHTML"
+                            hx-push-url="/Deals/Review?flyer=@f.Key"
+                            aria-label="@f.StoreName, @f.PendingCount deals, expires in @f.ExpiresInDays days"></button>
                     <span class="store">@f.StoreName</span>
                     <span class="left @(f.IsUrgent ? "urgent" : null)">@f.PendingExpiryLabel</span>
                     <span class="meta">
                         Valid @f.ValidRange
                         @if (f.FlyerUrl is { } url)
                         {
-                            <text>&middot; <a class="flyer-link" href="@url" target="_blank" rel="noopener" onclick="event.stopPropagation()">View flyer &#8599;</a></text>
+                            <text>&middot; <a class="flyer-link" href="@url" target="_blank" rel="noopener">View flyer &#8599;</a></text>
                         }
                     </span>
-                </button>
+                </div>
             }
         }
     </div>
