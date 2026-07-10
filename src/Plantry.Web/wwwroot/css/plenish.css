@@ -4486,6 +4486,54 @@ button.sadd svg { width: 13px; height: 13px; }
 .tag-add-name:focus { outline: 2px solid var(--color-accent); outline-offset: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   Settings / Members — household roster + pending invites (plantry-3tvb)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── member roster ──────────────────────────────────────────────────────────── */
+.member-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.member-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px; border-radius: var(--radius-sm);
+  background: var(--color-surface-1); border: 1px solid var(--color-border);
+}
+.member-row__av { width: 32px; height: 32px; font-size: 13px; }
+.member-row__name { font-size: 14px; font-weight: 600; color: var(--color-text); }
+
+/* ── invite add bar ─────────────────────────────────────────────────────────── */
+.invite-add {
+  display: flex; align-items: center; gap: 8px; padding: 0 0 14px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.invite-add__email { flex: 1 1 auto; min-width: 0; }
+
+/* ── pending invites list ───────────────────────────────────────────────────── */
+.invite-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.invite-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border-radius: var(--radius-sm);
+  background: var(--color-surface-1); border: 1px solid var(--color-border);
+}
+.invite-row__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.invite-row__email { font-size: 14px; font-weight: 600; color: var(--color-text); }
+.invite-row__meta { font-size: 12px; color: var(--color-text-muted); }
+.invite-row__acts { display: flex; justify-content: flex-end; }
+
+/* ── copy-able join link ────────────────────────────────────────────────────── */
+.invite-link { display: flex; align-items: center; gap: 8px; }
+.invite-link__url {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 12.5px;
+  color: var(--color-text-muted); background: var(--color-surface-2);
+}
+.invite-link__copy { flex: 0 0 auto; white-space: nowrap; }
+
+@media (max-width: 520px) {
+  .invite-add { flex-direction: column; align-items: stretch; }
+  .invite-link { flex-direction: column; align-items: stretch; }
+  .invite-link__copy { align-self: flex-end; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    P3-3 — Week grid: view + manual assign + reschedule
    New wkgrid layout, meal cards, drag-drop, and meal editor modal.
    Tokens: uses --color-* from plenish root (translated from planner.css proto).

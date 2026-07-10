@@ -194,6 +194,10 @@ builder.Services.AddScoped<IHouseholdRepository, HouseholdRepository>();
 // /Settings/Ai write path. The setting lives on the Household aggregate (identity schema).
 builder.Services.AddScoped<AiAssistanceSettingsService>();
 builder.Services.AddScoped<IAiAssistanceGate>(sp => sp.GetRequiredService<AiAssistanceSettingsService>());
+// Household membership invites (plantry-00v1): issue/revoke run under the authenticated household;
+// accept runs pre-auth and resolves the invite by its unique token (identity schema).
+builder.Services.AddScoped<IHouseholdInviteRepository, HouseholdInviteRepository>();
+builder.Services.AddScoped<HouseholdInviteService>();
 
 // plantry-m1u: cross-context ACL adapters + the domain-event dispatch machinery (dispatcher +
 // interceptor pair + transactional buffer) are wired from the dedicated Plantry.Composition assembly

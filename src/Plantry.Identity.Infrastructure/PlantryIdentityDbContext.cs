@@ -9,6 +9,7 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
     : IdentityDbContext<AppUser>(options)
 {
     public DbSet<Household> Households => Set<Household>();
+    public DbSet<HouseholdInvite> HouseholdInvites => Set<HouseholdInvite>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -45,6 +46,42 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
             // Keyed on the row's own id since households *is* the tenant anchor. Fail-closed: with
             // no household set, _householdId is Guid.Empty and no row matches.
             b.HasQueryFilter(h => h.Id == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<HouseholdInvite>(b =>
+        {
+            b.ToTable("household_invites", t =>
+                t.HasCheckConstraint(
+                    "ck_household_invites_status",
+                    "status IN ('pending','accepted','revoked','expired')"));
+            b.HasKey(i => i.Id);
+            b.Property(i => i.Id)
+                .HasConversion(id => id.Value, v => HouseholdInviteId.From(v))
+                .HasColumnName("id");
+            b.Property(i => i.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(i => i.Email).HasColumnName("email").HasMaxLength(254).IsRequired();
+            b.Property(i => i.Token).HasColumnName("token").HasMaxLength(128).IsRequired();
+            b.Property(i => i.Status)
+                .HasConversion(s => s.ToDbValue(), v => InviteStatusExtensions.Parse(v))
+                .HasColumnName("status")
+                .HasMaxLength(20)
+                .IsRequired();
+            b.Property(i => i.InvitedByUserId).HasColumnName("invited_by_user_id").IsRequired();
+            b.Property(i => i.CreatedAt).HasColumnName("created_at");
+            b.Property(i => i.ExpiresAt).HasColumnName("expires_at");
+            b.Property(i => i.AcceptedAt).HasColumnName("accepted_at");
+
+            // R4: the accept-link token is globally unique across households.
+            b.HasIndex(i => i.Token).IsUnique().HasDatabaseName("ux_household_invites_token");
+            b.HasIndex(i => i.HouseholdId).HasDatabaseName("ix_household_invites_household_id");
+
+            // App-layer half of the defense-in-depth pair, keyed on the parent household id (same as
+            // the Postgres RLS carve-out policy). Fail-closed under a scoped context; the token accept
+            // path deliberately IgnoreQueryFilters() and runs with no tenant so the carve-out applies.
+            b.HasQueryFilter(i => i.HouseholdId == HouseholdId.From(_householdId));
         });
     }
 
