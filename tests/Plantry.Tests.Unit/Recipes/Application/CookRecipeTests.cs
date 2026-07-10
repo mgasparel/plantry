@@ -47,7 +47,8 @@ public sealed class CookRecipeTests
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
         var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
-        var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, Clock, tenant, reconciler,
+        var expansion = new RecipeExpansionService(recipes);
+        var service = new CookRecipe(recipes, cookEvents, consumer, products, expansion, dispatcher, Clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
         return new Harness
         {
@@ -929,6 +930,244 @@ public sealed class CookRecipeTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => h.Service.ExecuteAsync(command));
+    }
+
+    // ── Recipe composition: cooking with inclusions (recipe-composition.md §6, plantry-fqb0.4) ────
+
+    /// <summary>
+    /// Builds a tracked recipe with one tracked catalog product per supplied quantity, registers the
+    /// products, adds the recipe to the repository, and returns it plus the product ids in ingredient
+    /// order. Used to assemble sub-recipes and parents for the inclusion tests.
+    /// </summary>
+    private (Recipe recipe, Guid unitId, IReadOnlyList<Guid> productIds) BuildTrackedRecipeMulti(
+        Harness h, string name, int defaultServings, params decimal[] quantities)
+    {
+        var unitId = Guid.CreateVersion7();
+        var lines = new List<IngredientLine>();
+        var productIds = new List<Guid>();
+        for (var i = 0; i < quantities.Length; i++)
+        {
+            var product = h.Products.AddTracked(unitId, $"{name} ingredient {i}");
+            productIds.Add(product.Id);
+            lines.Add(new IngredientLine(product.Id, quantities[i], unitId, null, i));
+        }
+        var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
+        recipe.ReplaceIngredients(lines, Clock);
+        h.Recipes.Items.Add(recipe);
+        return (recipe, unitId, productIds);
+    }
+
+    /// <summary>
+    /// Builds a parent recipe from direct ingredient lines + inclusion lines (one wholesale
+    /// <see cref="Recipe.ReplaceLines"/>), asserts the replace succeeded, adds it to the repository,
+    /// and returns it. The N4 DAG/sub-existence check is an app-layer concern not exercised here — the
+    /// subs are added to the repository directly.
+    /// </summary>
+    private Recipe BuildParentWithInclusions(
+        Harness h, string name, int defaultServings,
+        IReadOnlyList<IngredientLine> directIngredients,
+        IReadOnlyList<InclusionLine> inclusions)
+    {
+        var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
+        var replace = recipe.ReplaceLines(directIngredients, inclusions, Clock);
+        Assert.False(replace.IsFailure);
+        h.Recipes.Items.Add(recipe);
+        return recipe;
+    }
+
+    [Fact]
+    public async Task Cook_Parent_With_Inclusion_Consumes_Sub_Products_Scaled_By_Factor_And_ServingsScale()
+    {
+        var h = BuildHarness();
+
+        // Sub: 2 servings default, one tracked ingredient at 100 per batch.
+        var (sub, _, subProducts) = BuildTrackedRecipeMulti(h, "Nacho Cheese", defaultServings: 2, 100m);
+        var subProduct = subProducts[0];
+
+        // Parent: 4 servings default, one direct ingredient (30) + 1 serving of the sub.
+        var parentUnit = Guid.CreateVersion7();
+        var directProduct = h.Products.AddTracked(parentUnit, "Tortilla").Id;
+        var parent = BuildParentWithInclusions(h, "Nachos", defaultServings: 4,
+            [new IngredientLine(directProduct, 30m, parentUnit, null, 0)],
+            [new InclusionLine(sub.Id, Servings: 1m, GroupHeading: null, Ordinal: 1)]);
+
+        // Cook 8 servings → ServingsScale = 8 / 4 = 2.
+        var result = await h.Service.ExecuteAsync(
+            new CookRecipeCommand(parent.Id, DesiredServings: 8, _userId, Resolutions: []));
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        // Direct line: 30 × 2 = 60.
+        var directCall = h.Consumer.Calls.Single(c => c.ProductId == directProduct);
+        Assert.Equal(60m, directCall.Quantity);
+
+        // Sub line: 100 × (Servings 1 / DefaultServings 2) × ServingsScale 2 = 100.
+        var subCall = h.Consumer.Calls.Single(c => c.ProductId == subProduct);
+        Assert.Equal(100m, subCall.Quantity);
+    }
+
+    [Fact]
+    public async Task Cook_PerLine_Skip_Inside_Sub_Drops_Only_That_Expanded_Line()
+    {
+        var h = BuildHarness();
+
+        // Sub with two tracked ingredients (10 and 20), default 1 serving.
+        var (sub, _, subProducts) = BuildTrackedRecipeMulti(h, "Cheese", defaultServings: 1, 10m, 20m);
+        var skipProduct = subProducts[0];
+        var keepProduct = subProducts[1];
+
+        // Parent includes the sub once (1 serving), default 1, no direct ingredients.
+        var parent = BuildParentWithInclusions(h, "Bowl", defaultServings: 1,
+            [], [new InclusionLine(sub.Id, 1m, null, 0)]);
+
+        // Path-qualified key for the line to skip: [inclusionId] + the sub ingredient's own id.
+        var inclusionId = parent.Inclusions[0].Id;
+        var skipIngredientId = sub.Ingredients.Single(i => i.ProductId == skipProduct).Id;
+        var resolution = new IngredientResolution(
+            skipIngredientId, IsSkipped: true, Allocations: [], Path: [inclusionId]);
+
+        var result = await h.Service.ExecuteAsync(
+            new CookRecipeCommand(parent.Id, DesiredServings: 1, _userId, Resolutions: [resolution]));
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        Assert.DoesNotContain(h.Consumer.Calls, c => c.ProductId == skipProduct);
+        var kept = h.Consumer.Calls.Single(c => c.ProductId == keepProduct);
+        Assert.Equal(20m, kept.Quantity);
+    }
+
+    [Fact]
+    public async Task Cook_PerLine_Swap_Inside_Sub_Targets_Variant_With_Sub_Provenance()
+    {
+        var h = BuildHarness();
+
+        var (sub, subUnit, subProducts) = BuildTrackedRecipeMulti(h, "Cheese", defaultServings: 1, 10m);
+        var originalProduct = subProducts[0];
+
+        // A variant product to swap the sub ingredient to.
+        var variantProduct = h.Products.AddTracked(subUnit, "Miso Paste").Id;
+
+        var parent = BuildParentWithInclusions(h, "Bowl", defaultServings: 1,
+            [], [new InclusionLine(sub.Id, 1m, null, 0)]);
+
+        var inclusionId = parent.Inclusions[0].Id;
+        var ingredientId = sub.Ingredients.Single(i => i.ProductId == originalProduct).Id;
+        var resolution = new IngredientResolution(
+            ingredientId, IsSkipped: false,
+            Allocations: [new VariantAllocation(variantProduct, 7m, subUnit)],
+            Path: [inclusionId]);
+
+        var result = await h.Service.ExecuteAsync(
+            new CookRecipeCommand(parent.Id, DesiredServings: 1, _userId, Resolutions: [resolution]));
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        // Consumes the swapped-in variant (allocation quantity verbatim), not the original.
+        Assert.DoesNotContain(h.Consumer.Calls, c => c.ProductId == originalProduct);
+        var swapCall = h.Consumer.Calls.Single(c => c.ProductId == variantProduct);
+        Assert.Equal(7m, swapCall.Quantity);
+
+        // Provenance still points at the sub recipe — a swap does not change the owning recipe (D8).
+        var line = h.CookEvents.Items[0].ConsumeLines.Single(l => l.ProductId == variantProduct);
+        Assert.Equal(sub.Id.Value, line.SourceRecipeId!.Value);
+    }
+
+    [Fact]
+    public async Task Cook_Whole_Inclusion_Skip_Drops_Every_Line_Under_The_Path()
+    {
+        var h = BuildHarness();
+
+        var (sub, _, subProducts) = BuildTrackedRecipeMulti(h, "Cheese", defaultServings: 1, 10m, 20m);
+
+        var parentUnit = Guid.CreateVersion7();
+        var directProduct = h.Products.AddTracked(parentUnit, "Chips").Id;
+        var parent = BuildParentWithInclusions(h, "Nachos", defaultServings: 1,
+            [new IngredientLine(directProduct, 5m, parentUnit, null, 0)],
+            [new InclusionLine(sub.Id, 1m, null, 1)]);
+
+        // Whole-inclusion skip (D7): one action drops every expanded line under the inclusion path.
+        var inclusionId = parent.Inclusions[0].Id;
+        var skip = IngredientResolution.WholeInclusionSkip([inclusionId]);
+
+        var result = await h.Service.ExecuteAsync(
+            new CookRecipeCommand(parent.Id, DesiredServings: 1, _userId, Resolutions: [skip]));
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        // The direct line survives; both sub lines are dropped.
+        var only = Assert.Single(h.Consumer.Calls);
+        Assert.Equal(directProduct, only.ProductId);
+        foreach (var subProduct in subProducts)
+            Assert.DoesNotContain(h.Consumer.Calls, c => c.ProductId == subProduct);
+    }
+
+    [Fact]
+    public async Task Cook_Duplicate_Sub_Two_Paths_Resolve_Independently()
+    {
+        var h = BuildHarness();
+
+        // Sub with a single tracked ingredient (10 per serving), default 1.
+        var (sub, _, subProducts) = BuildTrackedRecipeMulti(h, "Crust", defaultServings: 1, 10m);
+        var subProduct = subProducts[0];
+
+        // Parent includes the SAME sub twice: "Base" (1 serving → 10) and "Lattice" (2 servings → 20).
+        var parent = BuildParentWithInclusions(h, "Pie", defaultServings: 1,
+            [],
+            [
+                new InclusionLine(sub.Id, Servings: 1m, GroupHeading: "Base", Ordinal: 0),
+                new InclusionLine(sub.Id, Servings: 2m, GroupHeading: "Lattice", Ordinal: 1),
+            ]);
+
+        // Skip ONLY the "Base" path; the "Lattice" path must remain — proving paths resolve independently
+        // even though both address the same sub ingredient id.
+        var basePath = parent.Inclusions.Single(i => i.GroupHeading == "Base").Id;
+        var ingredientId = sub.Ingredients.Single(i => i.ProductId == subProduct).Id;
+        var skipBase = new IngredientResolution(
+            ingredientId, IsSkipped: true, Allocations: [], Path: [basePath]);
+
+        var result = await h.Service.ExecuteAsync(
+            new CookRecipeCommand(parent.Id, DesiredServings: 1, _userId, Resolutions: [skipBase]));
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        // Only the Lattice path (20) is consumed; the Base path (10) was skipped independently.
+        var call = Assert.Single(h.Consumer.Calls);
+        Assert.Equal(subProduct, call.ProductId);
+        Assert.Equal(20m, call.Quantity);
+    }
+
+    [Fact]
+    public async Task Cook_Stamps_SourceRecipeId_On_Expanded_Lines_And_Null_On_Direct_And_AdHoc()
+    {
+        var h = BuildHarness();
+
+        var (sub, _, subProducts) = BuildTrackedRecipeMulti(h, "Cheese", defaultServings: 1, 10m);
+        var subProduct = subProducts[0];
+
+        var parentUnit = Guid.CreateVersion7();
+        var directProduct = h.Products.AddTracked(parentUnit, "Chips").Id;
+        var parent = BuildParentWithInclusions(h, "Nachos", defaultServings: 1,
+            [new IngredientLine(directProduct, 5m, parentUnit, null, 0)],
+            [new InclusionLine(sub.Id, 1m, null, 1)]);
+
+        // Add an ad-hoc product to this cook too.
+        var adHocProduct = h.Products.AddTracked(parentUnit, "Salsa").Id;
+        var command = new CookRecipeCommand(parent.Id, DesiredServings: 1, _userId,
+            Resolutions: [], AdHocLines: [new AdHocLine(adHocProduct, 3m, parentUnit)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        var lines = h.CookEvents.Items[0].ConsumeLines;
+
+        // Expanded (inclusion) line: provenance = the sub recipe (D8).
+        var subLine = lines.Single(l => l.ProductId == subProduct);
+        Assert.Equal(sub.Id.Value, subLine.SourceRecipeId!.Value);
+
+        // Direct line: no cross-recipe provenance.
+        var directLine = lines.Single(l => l.ProductId == directProduct);
+        Assert.Null(directLine.SourceRecipeId);
+
+        // Ad-hoc line: null provenance and the Guid.Empty ingredient sentinel (unchanged behaviour).
+        var adHocLine = lines.Single(l => l.ProductId == adHocProduct);
+        Assert.Null(adHocLine.SourceRecipeId);
+        Assert.Equal(Guid.Empty, adHocLine.IngredientId);
     }
 }
 

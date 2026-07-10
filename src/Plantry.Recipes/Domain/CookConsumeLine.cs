@@ -30,6 +30,15 @@ public sealed class CookConsumeLine : Entity<CookConsumeLineId>
     /// </summary>
     public Guid IngredientId { get; private set; }
 
+    /// <summary>
+    /// The recipe the consumed ingredient physically belongs to — cook-history provenance (D8).
+    /// <c>null</c> for a direct line of the cooked recipe (no cross-recipe provenance to render) and for
+    /// an ad-hoc added product; set to the sub-recipe id for a line pulled in through an inclusion, so
+    /// history can render "miso paste — in Nacho Cheese". A bare nullable soft-ref — no FK to
+    /// <c>recipe</c> (DM-3). Never an idempotency token; that rides on <see cref="Entity{TId}.Id"/>.
+    /// </summary>
+    public Guid? SourceRecipeId { get; private set; }
+
     /// <summary>The product to consume (soft-ref cross-context, DM-3).</summary>
     public Guid ProductId { get; private set; }
 
@@ -57,12 +66,14 @@ public sealed class CookConsumeLine : Entity<CookConsumeLineId>
         Guid ingredientId,
         Guid productId,
         decimal quantity,
-        Guid unitId)
+        Guid unitId,
+        Guid? sourceRecipeId = null)
     {
         Id = id;
         HouseholdId = householdId;
         CookEventId = cookEventId;
         IngredientId = ingredientId;
+        SourceRecipeId = sourceRecipeId;
         ProductId = productId;
         Quantity = quantity;
         UnitId = unitId;

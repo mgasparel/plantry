@@ -245,6 +245,9 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
                 .HasColumnName("cook_event_id")
                 .IsRequired();
             b.Property(l => l.IngredientId).HasColumnName("ingredient_id").IsRequired();
+            // Cook-history provenance (D8): nullable soft-ref — the sub-recipe a line was pulled in from
+            // via an inclusion; null for direct lines and ad-hoc added products. No FK (DM-3, bare soft-ref).
+            b.Property(l => l.SourceRecipeId).HasColumnName("source_recipe_id");
             b.Property(l => l.ProductId).HasColumnName("product_id").IsRequired();
             b.Property(l => l.Quantity).HasColumnName("quantity").HasPrecision(12, 3).IsRequired();
             b.Property(l => l.UnitId).HasColumnName("unit_id").IsRequired();
