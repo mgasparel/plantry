@@ -79,6 +79,71 @@
         Model.TagOptions
             .Select(o => new { id = o.Value, name = o.Text })
             .ToList());
+
+    // ── Combined editor rows (plantry-fqb0.3) ──────────────────────────────────────────────────────
+    // Ingredient AND inclusion lines share one rows[] array with a `kind` discriminator, so inclusions
+    // render in ordinal position, drag/reorder, and interleave with ingredient ordinals for free
+    // (recipe-sections.js only touches _id/ordinal/groupHeading). Built ordered by the shared ordinal so
+    // the first synchronous render matches the stored order; normalizeRows re-runs on the first mutation.
+    var _editorRows = new List<(int Ordinal, object Row)>();
+    var _rid = 0;
+    foreach (var l in Model.Input.Lines)
+    {
+        _editorRows.Add((l.Ordinal, new
+        {
+            _id = _rid++,
+            kind = "ingredient",
+            ordinal = l.Ordinal,
+            productId = l.ProductId?.ToString() ?? "",
+            productName = l.ProductName ?? "",
+            // Seed the qty already cleaned (plantry-jun6) so a scaled decimal (500.000) doesn't render "500.000 g".
+            qty = l.Quantity.HasValue ? IngredientAmount.Format(l.Quantity.Value) : "",
+            unitId = l.UnitId?.ToString() ?? "",
+            defaultUnitId = l.ConversionToUnitId.ToString(),
+            defaultUnitCode = l.ConversionToUnitId != Guid.Empty
+                ? (Model.UnitOptions.FirstOrDefault(u => u.Value == l.ConversionToUnitId.ToString())?.Text ?? "")
+                : "",
+            groupHeading = l.GroupHeading ?? "",
+            isUntracked = l.IsUntracked,
+            newStapleName = (string?)null,
+            newStapleUnit = "",
+            newIsTracked = false,
+            newGroupId = "",
+            newGroupName = "",
+            newStapleCategoryId = "",
+            needsConversion = l.NeedsConversion,
+            conversionFactor = l.ConversionFactor?.ToString() ?? "",
+            conversionFromUnitId = l.ConversionFromUnitId.ToString(),
+            conversionToUnitId = l.ConversionToUnitId.ToString(),
+            convLeftAmount = l.ConversionLeftAmount?.ToString() ?? "",
+            convLeftUnitId = l.ConversionLeftUnitId?.ToString() ?? "",
+            convRightAmount = l.ConversionRightAmount?.ToString() ?? "",
+            convRightUnitId = l.ConversionRightUnitId?.ToString() ?? "",
+            convFor = "",
+            stockUnits = new object[0],
+            recipeUnits = new object[0],
+        }));
+    }
+    foreach (var inc in Model.Input.Inclusions)
+    {
+        _editorRows.Add((inc.Ordinal, new
+        {
+            _id = _rid++,
+            kind = "inclusion",
+            ordinal = inc.Ordinal,
+            groupHeading = inc.GroupHeading ?? "",
+            subRecipeId = inc.SubRecipeId.ToString(),
+            subName = inc.SubName ?? "",
+            servings = inc.Servings,
+            subDefaultServings = inc.SubDefaultServings <= 0 ? 1 : inc.SubDefaultServings,
+        }));
+    }
+    var editorRowsJson = System.Text.Json.JsonSerializer.Serialize(
+        _editorRows.OrderBy(r => r.Ordinal).Select(r => r.Row).ToList());
+    var editorRowCount = _editorRows.Count;
+
+    // D13 fixed-mode warning: includer names for the recipe being edited.
+    var includedByNamesJson = System.Text.Json.JsonSerializer.Serialize(Model.IncludedByNames);
 }
 
 <div id="recipe-editor"
@@ -142,49 +207,81 @@
          origServings: @Model.OriginalServings,
          hasIngredients: @(Model.HasExistingIngredients ? "true" : "false"),
          scaleMode: '@Model.Input.ScaleMode.ToString()',
-         rows: @System.Text.Json.JsonSerializer.Serialize(
-             Model.Input.Lines.Select((l, i) => new {
-                 _id = i,
-                 ordinal = l.Ordinal,
-                 productId = l.ProductId?.ToString() ?? "",
-                 productName = l.ProductName ?? "",
-                 @* Seed the row's qty already cleaned (plantry-jun6): a stored decimal carrying scale
-                    (e.g. 500.000m) would otherwise stringify as "500.000" and render "500.000 g" in
-                    rowSummary. IngredientAmount.Format is the same rule Details/Cook render with. *@
-                 qty = l.Quantity.HasValue ? IngredientAmount.Format(l.Quantity.Value) : "",
-                 unitId = l.UnitId?.ToString() ?? "",
-                 defaultUnitId = l.ConversionToUnitId.ToString(),
-                 defaultUnitCode = l.ConversionToUnitId != Guid.Empty
-                     ? (Model.UnitOptions.FirstOrDefault(u => u.Value == l.ConversionToUnitId.ToString())?.Text ?? "")
-                     : "",
-                 groupHeading = l.GroupHeading ?? "",
-                 @* Real per-line untracked flag (plantry-429l) — previously hard-coded false. Drives the
-                    reactive rowNeedsQtyUnit() warning and the untracked pill in rowSummary(). *@
-                 isUntracked = l.IsUntracked,
-                 newStapleName = (string?)null,
-                 newStapleUnit = "",
-                 // Tracked-product create fields (plantry-orix) — persisted rows always start with defaults
-                 // (these fields only become non-default when the user commits from the create-view on
-                 // a new inline-create row; existing catalog-product rows always have newIsTracked:false).
-                 newIsTracked = false,
-                 newGroupId = "",
-                 newGroupName = "",
-                 newStapleCategoryId = "",
-                 needsConversion = l.NeedsConversion,
-                 conversionFactor = l.ConversionFactor?.ToString() ?? "",
-                 conversionFromUnitId = l.ConversionFromUnitId.ToString(),
-                 conversionToUnitId = l.ConversionToUnitId.ToString(),
-                 @* Four-field equation editor (plantry-qno9) — round-trips through a failed-save re-render. *@
-                 convLeftAmount = l.ConversionLeftAmount?.ToString() ?? "",
-                 convLeftUnitId = l.ConversionLeftUnitId?.ToString() ?? "",
-                 convRightAmount = l.ConversionRightAmount?.ToString() ?? "",
-                 convRightUnitId = l.ConversionRightUnitId?.ToString() ?? "",
-                 convFor = "",
-                 stockUnits = new object[0],
-                 recipeUnits = new object[0],
-             })),
-         _nextId: @Model.Input.Lines.Count,
+         rows: @editorRowsJson,
+         _nextId: @editorRowCount,
          unitCodes: @System.Text.Json.JsonSerializer.Serialize(Model.UnitOptions.ToDictionary(u => u.Value, u => u.Text)),
+
+         // ── Inclusions (plantry-fqb0.3) ────────────────────────────────────────────
+         // Inclusion rows live in the shared rows[] array (kind === 'inclusion'). These filtered views feed
+         // the two contiguous-index hidden-input loops so ingredients post Input.Lines[i] and inclusions
+         // post Input.Inclusions[j], both carrying the shared `ordinal`.
+         ingredientRows() { return this.rows.filter(r => r.kind !== 'inclusion'); },
+         inclusionRows() { return this.rows.filter(r => r.kind === 'inclusion'); },
+         // D13 fixed-mode warning data (who includes THIS recipe).
+         includedByCount: @Model.IncludedByCount,
+         includedByNames: @includedByNamesJson,
+         includedByLabel() {
+             const n = this.includedByCount;
+             const names = (this.includedByNames || []).slice(0, 3).join(', ');
+             const more = this.includedByNames.length > 3 ? ', …' : '';
+             const noun = n === 1 ? 'recipe that includes' : 'recipes that include';
+             return n + ' ' + noun + ' this one (' + names + more + ')';
+         },
+         // Recipe-search 'Include a recipe' affordance (D11). Hits the Recipes-scoped SearchRecipes JSON
+         // handler; self is excluded server-side (N4 authoritative at save). Duplicate subs are allowed (D14).
+         inclusionSearchOpen: false,
+         inclusionQuery: '',
+         inclusionResults: [],
+         _inclSearchTimer: null,
+         openInclusionSearch() {
+             this.inclusionSearchOpen = true;
+             this.inclusionQuery = '';
+             this.inclusionResults = [];
+             this.searchInclusions();
+             this.$nextTick(() => { if (this.$refs.inclusionInput) this.$refs.inclusionInput.focus(); });
+         },
+         closeInclusionSearch() { this.inclusionSearchOpen = false; },
+         searchInclusions() {
+             clearTimeout(this._inclSearchTimer);
+             this._inclSearchTimer = setTimeout(async () => {
+                 try {
+                     const url = `@Url.Page("./Edit", "SearchRecipes")&q=${encodeURIComponent(this.inclusionQuery.trim())}`;
+                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                     if (!res.ok) return;
+                     const data = await res.json();
+                     this.inclusionResults = data.hits || [];
+                 } catch (e) { /* soft-fail: no results, editor unchanged */ }
+             }, 200);
+         },
+         addInclusion(hit) {
+             const def = Number(hit.defaultServings) || 1;
+             this.rows.push({
+                 _id: this._nextId++, kind: 'inclusion', ordinal: this.rows.length, groupHeading: '',
+                 subRecipeId: hit.id, subName: hit.name, servings: def, subDefaultServings: def,
+             });
+             this.rows = window.RecipeSections.normalizeRows(this.rows);
+             this.inclusionSearchOpen = false;
+             this.inclusionQuery = '';
+             this.inclusionResults = [];
+         },
+         // Inclusion row display (D2): 'N servings' title + a '½ batch' fraction hint (batch = servings/subDefault).
+         inclusionServingsLabel(row) {
+             const s = Number(row.servings);
+             if (!s || s <= 0) return '0 servings';
+             const n = Number.isInteger(s) ? s : Number(s.toFixed(2));
+             return n + (n === 1 ? ' serving' : ' servings');
+         },
+         batchHint(row) {
+             const d = Number(row.subDefaultServings) || 1;
+             const s = Number(row.servings);
+             if (!s || s <= 0 || d <= 0) return '';
+             const b = s / d;
+             const glyphs = { '0.25': '¼', '0.5': '½', '0.75': '¾', '0.33': '⅓', '0.67': '⅔' };
+             const key = (Math.round(b * 100) / 100).toString();
+             if (glyphs[key]) return glyphs[key] + ' batch';
+             const clean = Number(b.toFixed(2)).toString();
+             return clean + (Number(clean) === 1 ? ' batch' : ' batches');
+         },
 
          // Ingredient sheet (add / edit)
          sheetOpen: false,
@@ -484,7 +581,7 @@
                  } catch (_) { /* network error — silently ignore, server backstop handles it */ }
              }, 250);
          },
-         showScaleOffer() { return !this.isCreate && this.hasIngredients && parseInt(this.servings) !== this.origServings; },
+         showScaleOffer() { return !this.isCreate && (this.hasIngredients || this.rows.length > 0) && parseInt(this.servings) !== this.origServings; },
          isCreate: @(Model.IsCreate ? "true" : "false"),
          init() {
              this.$watch('draft.unitId', () => this._triggerConversionCheck());
@@ -582,6 +679,28 @@
         else
         {
             <input type="hidden" name="Input.ScaleMode" value="Keep" />
+        }
+
+        @* ── D13 fixed-mode warning (plantry-fqb0.3) — this recipe is included by others; changing its
+              servings in Keep (fixed) mode silently changes what a serving means for its includers. Shown
+              only in edit mode, when the recipe has includers, servings drifted, and Keep is selected. ── *@
+        @if (!Model.IsCreate)
+        {
+            <div class="card"
+                 x-show="includedByCount > 0 && parseInt(servings) !== origServings && scaleMode === 'Keep'"
+                 x-cloak
+                 style="border-color:var(--color-warning)">
+                <div class="card__body" style="display:flex;gap:var(--space-3);align-items:flex-start">
+                    <svg class="icon" aria-hidden="true" style="color:var(--color-warning);flex-shrink:0;margin-top:2px"><use href="#i-alert" /></svg>
+                    <div>
+                        <p style="margin:0 0 var(--space-1);font-weight:600">Changing servings affects other recipes</p>
+                        <p style="margin:0;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+                            Keeping quantities while changing the serving count changes what one serving means for
+                            <span x-text="includedByLabel()"></span>. Choose <strong>Proportional</strong> above to scale them together, or continue if that is intended.
+                        </p>
+                    </div>
+                </div>
+            </div>
         }
 
         @* ── Tags type-to-filter multi-select (read-only vocabulary) ──────────── *@
@@ -707,7 +826,7 @@
                     the SAME references the visual renders, so edits (e.g. the conversion factor) sync.
                 *@
                 <div hidden aria-hidden="true">
-                    <template x-for="(row, idx) in rows" :key="row._id">
+                    <template x-for="(row, idx) in ingredientRows()" :key="row._id">
                         <div>
                             <input type="hidden" :name="'Input.Lines[' + idx + '].Ordinal'" :value="row.ordinal" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId" />
@@ -735,6 +854,18 @@
                             <input type="hidden" :name="'Input.Lines[' + idx + '].ConversionLeftUnitId'" :value="row.convLeftUnitId" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].ConversionRightAmount'" :value="row.convRightAmount" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].ConversionRightUnitId'" :value="row.convRightUnitId" />
+                        </div>
+                    </template>
+                    @* Inclusion rows (plantry-fqb0.3) post their own contiguous-index block; each carries the
+                       SHARED `ordinal` so AuthorRecipe interleaves them with the ingredient lines (N3). *@
+                    <template x-for="(inc, jdx) in inclusionRows()" :key="inc._id">
+                        <div>
+                            <input type="hidden" :name="'Input.Inclusions[' + jdx + '].Ordinal'" :value="inc.ordinal" />
+                            <input type="hidden" :name="'Input.Inclusions[' + jdx + '].SubRecipeId'" :value="inc.subRecipeId" />
+                            <input type="hidden" :name="'Input.Inclusions[' + jdx + '].SubName'" :value="inc.subName" />
+                            <input type="hidden" :name="'Input.Inclusions[' + jdx + '].Servings'" :value="inc.servings" />
+                            <input type="hidden" :name="'Input.Inclusions[' + jdx + '].SubDefaultServings'" :value="inc.subDefaultServings" />
+                            <input type="hidden" :name="'Input.Inclusions[' + jdx + '].GroupHeading'" :value="inc.groupHeading" />
                         </div>
                     </template>
                 </div>
@@ -783,6 +914,38 @@
                                          @@dragstart="onDragStart(row, $event)"
                                          @@dragend="onDragEnd()">
 
+                                        @* ── Inclusion row body (plantry-fqb0.3) — 'N servings · Sub' + batch hint,
+                                              inline decimal servings stepper, remove. Shares drag/section/ordinal
+                                              behaviour with ingredient rows via the shared rows[] model. ── *@
+                                        <template x-if="row.kind === 'inclusion'">
+                                            <div class="ingredient-row__body">
+                                                <div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/></svg>
+                                                </div>
+                                                <div class="incl-row__main">
+                                                    <div class="incl-row__title">
+                                                        <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+                                                        <span x-text="inclusionServingsLabel(row) + ' · ' + row.subName"></span>
+                                                    </div>
+                                                    <div class="incl-row__hint" x-show="batchHint(row)" x-cloak x-text="'≈ ' + batchHint(row)"></div>
+                                                </div>
+                                                <label class="incl-row__servings">
+                                                    <span class="incl-row__servings-lbl">Servings</span>
+                                                    <input type="number" min="0.25" step="0.25"
+                                                           class="field__input incl-row__servings-input"
+                                                           aria-label="Servings of the included recipe"
+                                                           x-model.number="row.servings" />
+                                                </label>
+                                                <button type="button" class="btn btn--ghost btn--sm ingredient-row__action"
+                                                        aria-label="Remove included recipe" @@click="removeRow(row)"
+                                                        style="color:var(--color-danger)">
+                                                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                                                </button>
+                                            </div>
+                                        </template>
+
+                                        @* ── Ingredient row body ── *@
+                                        <template x-if="row.kind !== 'inclusion'">
                                         <div class="ingredient-row__body">
                                             @* Drag handle *@
                                             <div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
@@ -808,6 +971,7 @@
                                                 <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
                                             </button>
                                         </div>
+                                        </template>
 
                                         @* Row-scoped "tracked needs qty + unit" warning (plantry-429l).
                                            Surfaces the R5 dead-end at the offending row — a row authored
@@ -874,11 +1038,41 @@
                     No ingredients yet — add your first one below.
                 </div>
 
-                <div style="padding:var(--space-4)">
+                <div style="padding:var(--space-4);display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:flex-start">
                     <button type="button" class="btn btn--ghost btn--sm" @@click="openAdd()">
                         <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
                         Add ingredient
                     </button>
+
+                    @* ── Include a recipe (plantry-fqb0.3, D11) — recipe-search dropdown. Self is excluded
+                          server-side (N4 authoritative at save); duplicate subs are allowed (D14). ── *@
+                    <div class="incl-search-wrap" style="position:relative">
+                        <button type="button" class="btn btn--ghost btn--sm" @@click="openInclusionSearch()">
+                            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                            Include a recipe
+                        </button>
+                        <div x-show="inclusionSearchOpen" x-cloak
+                             @@click.outside="closeInclusionSearch()"
+                             class="incl-search">
+                            <input type="text" x-ref="inclusionInput" x-model="inclusionQuery"
+                                   @@input="searchInclusions()"
+                                   @@keydown.escape="closeInclusionSearch()"
+                                   placeholder="Search your recipes…"
+                                   class="field__input" autocomplete="off" />
+                            <div class="incl-search__results">
+                                <template x-if="inclusionResults.length === 0">
+                                    <p class="incl-search__empty" x-text="inclusionQuery.trim() ? 'No matching recipes.' : 'Type to search your recipes.'"></p>
+                                </template>
+                                <template x-for="hit in inclusionResults" :key="hit.id">
+                                    <button type="button" class="incl-search__opt" @@click="addInclusion(hit)">
+                                        <span class="incl-search__opt-name" x-text="hit.name"></span>
+                                        <span class="incl-search__opt-meta"
+                                              x-text="hit.defaultServings + (hit.defaultServings === 1 ? ' serving' : ' servings')"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1047,6 +1241,35 @@
     }
     .ai-suggest-row__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
     .ai-suggest-row__dismiss { color: var(--color-text-muted); }
+
+    /* ── Inclusion rows (plantry-fqb0.3): 'N servings · Sub' + batch hint + inline servings stepper ── */
+    .incl-row__main { flex: 1; min-width: 0; padding: var(--space-2) 0; }
+    .incl-row__title { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); }
+    .incl-row__title .icon { color: var(--color-accent); flex-shrink: 0; }
+    .incl-row__hint { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 2px; }
+    .incl-row__servings { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+    .incl-row__servings-lbl { font-size: 11px; color: var(--color-text-faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+    .incl-row__servings-input { width: 5rem; text-align: right; }
+
+    /* Include-a-recipe search dropdown */
+    .incl-search {
+        position: absolute; z-index: 50; left: 0; top: calc(100% + 4px);
+        width: 20rem; max-width: 90vw;
+        background: var(--color-surface); border: 1px solid var(--color-border);
+        border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+        padding: var(--space-2);
+    }
+    .incl-search__results { margin-top: var(--space-2); max-height: 14rem; overflow-y: auto; }
+    .incl-search__empty { font-size: var(--font-size-sm); color: var(--color-text-muted); padding: var(--space-2); margin: 0; }
+    .incl-search__opt {
+        display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);
+        width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+        padding: var(--space-2) var(--space-3); font: inherit; color: var(--color-text);
+        border-radius: var(--radius-sm);
+    }
+    .incl-search__opt:hover { background: var(--color-surface-2); }
+    .incl-search__opt-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .incl-search__opt-meta { font-size: var(--font-size-sm); color: var(--color-text-faint); flex-shrink: 0; }
 </style>
 
 @section Scripts {

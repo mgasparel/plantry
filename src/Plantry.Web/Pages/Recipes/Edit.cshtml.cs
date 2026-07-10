@@ -99,6 +99,19 @@ public sealed class EditModel(
     /// </summary>
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
 
+    // ── D13 fixed-mode servings warning ──────────────────────────────────────────
+
+    /// <summary>
+    /// Number of recipes that include the recipe being edited via an inclusion line (recipe-composition.md
+    /// D13). Zero on create and for a recipe no one includes. Drives the editor's fixed-mode (Keep) servings
+    /// warning: changing a serving count without proportional scaling silently changes what a serving means
+    /// for every includer, so the editor names/counts them before the author confirms.
+    /// </summary>
+    public int IncludedByCount { get; private set; }
+
+    /// <summary>Display names of the direct includers (D13 warning), alphabetically ordered. Empty unless the recipe is included.</summary>
+    public IReadOnlyList<string> IncludedByNames { get; private set; } = [];
+
     // ── Top-level validation error ────────────────────────────────────────────────
 
     public string? SaveError { get; private set; }
@@ -205,6 +218,41 @@ public sealed class EditModel(
                     };
                 }).ToList();
 
+            // Inclusion rows (recipe-composition.md §3) — pre-populate in ordinal position, resolving each
+            // sub-recipe's display name and DefaultServings (needed for the batch-fraction hint, D2). Sub
+            // loads are one GetByIdAsync per distinct sub — household recipe counts make this trivially cheap.
+            if (recipe.Inclusions.Count > 0)
+            {
+                var subInfo = new Dictionary<RecipeId, (string Name, int DefaultServings)>();
+                foreach (var subId in recipe.Inclusions.Select(i => i.SubRecipeId).Distinct())
+                {
+                    var sub = await recipes.GetByIdAsync(subId, ct);
+                    if (sub is not null)
+                        subInfo[subId] = (sub.Name, sub.DefaultServings);
+                }
+
+                Input.Inclusions = recipe.Inclusions
+                    .OrderBy(i => i.Ordinal)
+                    .Select(inc =>
+                    {
+                        subInfo.TryGetValue(inc.SubRecipeId, out var info);
+                        return new InclusionRowInput
+                        {
+                            Ordinal = inc.Ordinal,
+                            SubRecipeId = inc.SubRecipeId.Value,
+                            SubName = info.Name ?? "(unknown recipe)",
+                            Servings = inc.Servings,
+                            SubDefaultServings = info.DefaultServings <= 0 ? 1 : info.DefaultServings,
+                            GroupHeading = inc.GroupHeading,
+                        };
+                    })
+                    .ToList();
+            }
+
+            // D13 — surface who includes THIS recipe, so a fixed-mode (Keep) servings change can warn that
+            // it silently changes what a serving means for its includers before the author confirms.
+            await LoadIncluderInfoAsync(RecipeId.From(editId), ct);
+
             OriginalServings = recipe.DefaultServings;
             HasExistingIngredients = recipe.Ingredients.Count > 0;
             HasPhoto = recipe.Photo is not null;
@@ -255,6 +303,35 @@ public sealed class EditModel(
             return $$"""<li role="option" data-value="{{p.Id}}" data-name="{{enc.Encode(p.Name)}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" data-default-unit-code="{{enc.Encode(unitCode)}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit, defaultUnitCode: $el.dataset.defaultUnitCode})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
         }));
         return Content(html, "text/html");
+    }
+
+    // ── Recipe search for the "Include a recipe" affordance (recipe-composition.md D11) ──
+
+    /// <summary>
+    /// Returns JSON hits for the "Include a recipe" search — the household's non-archived recipes whose name
+    /// matches <paramref name="q"/>, excluding the recipe currently being edited (self-inclusion, N2). Reuses
+    /// the meal-planner recipe-search JSON pattern (a Recipes-scoped equivalent). Each hit carries the sub's
+    /// id, name, and DefaultServings so the editor can seed the servings stepper's batch-fraction hint (D2).
+    /// N4 at save remains authoritative — this exclusion is a client-side courtesy only.
+    /// </summary>
+    public async Task<IActionResult> OnGetSearchRecipesAsync(string? q, CancellationToken ct)
+    {
+        var query = (q ?? string.Empty).Trim();
+        var all = await recipes.ListForBrowseAsync(ct);
+        var hits = all
+            .Where(r => Id is not { } selfId || r.Id.Value != selfId)
+            .Where(r => query.Length == 0 || r.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .Select(r => new
+            {
+                id = r.Id.Value.ToString("D"),
+                name = r.Name,
+                defaultServings = r.DefaultServings,
+            })
+            .ToList();
+
+        return new JsonResult(new { hits });
     }
 
     // ── AI tag suggestions (plantry-qll2.2) ──────────────────────────────────────
@@ -354,6 +431,10 @@ public sealed class EditModel(
         // Repopulate them here so any Page() re-render has the ingredient names and tag chips intact.
         await RestoreTagNamesAsync(ct);
 
+        // D13 — recompute includer info so the fixed-mode servings warning survives a failed-save re-render.
+        if (Id is { } editIdForIncluders)
+            await LoadIncluderInfoAsync(RecipeId.From(editIdForIncluders), ct);
+
         if (!ModelState.IsValid)
             return Page();
 
@@ -388,9 +469,23 @@ public sealed class EditModel(
             })
             .ToList();
 
-        if (lines.Count == 0)
+        // Inclusion lines (recipe-composition.md §3, D1). Ordinal is shared with the ingredient lines;
+        // AuthorRecipe canonicalises the union of both line types to a contiguous 0-based sequence. Blank
+        // rows (no sub chosen) are dropped. Same-household / sub-existence / N2 / N4 are enforced server-side
+        // by AuthorRecipe; N1 (Servings > 0) by Recipe.ReplaceLines — surfaced here as a validation banner.
+        var inclusions = Input.Inclusions
+            .Where(i => i.SubRecipeId != Guid.Empty)
+            .Select(i => new AuthorInclusionLine(
+                SubRecipeId: i.SubRecipeId,
+                Servings: i.Servings,
+                GroupHeading: string.IsNullOrWhiteSpace(i.GroupHeading) ? null : i.GroupHeading.Trim(),
+                Ordinal: i.Ordinal))
+            .ToList();
+
+        // R3′ — a recipe must carry at least one ingredient OR one inclusion (D3).
+        if (lines.Count == 0 && inclusions.Count == 0)
         {
-            SaveError = "A recipe must have at least one ingredient.";
+            SaveError = "A recipe must have at least one ingredient or included recipe.";
             RestoreLines();
             return Page();
         }
@@ -425,7 +520,8 @@ public sealed class EditModel(
             CookTimeMinutes: Input.CookTimeMinutes,
             Directions: string.IsNullOrWhiteSpace(Input.Directions) ? null : Input.Directions,
             ScaleMode: Input.ScaleMode,
-            DeferMissingConversions: deferConversions);
+            DeferMissingConversions: deferConversions,
+            Inclusions: inclusions);
 
         // Diet-tag nudge guard (plantry-qll2.3): capture the recipe's ingredient ProductId set BEFORE the save,
         // for edits only, so the post-save trigger can tell whether the ingredient set actually changed (an
@@ -560,6 +656,28 @@ public sealed class EditModel(
         _ => null,
     };
 
+    /// <summary>
+    /// Loads the direct-includer count and names for the recipe being edited (D13 fixed-mode warning).
+    /// Household-scoped by the RLS query filter; a no-op set of empties when nothing includes the recipe.
+    /// </summary>
+    private async Task LoadIncluderInfoAsync(RecipeId recipeId, CancellationToken ct)
+    {
+        var includerIds = await recipes.GetIncluderIdsAsync(recipeId, transitive: false, ct);
+        if (includerIds.Count == 0)
+        {
+            IncludedByCount = 0;
+            IncludedByNames = [];
+            return;
+        }
+
+        IncludedByCount = includerIds.Count;
+        var names = await recipes.GetRecipeNamesByIdAsync(includerIds.ToList(), ct);
+        IncludedByNames = includerIds
+            .Select(rid => names.GetValueOrDefault(rid) ?? "(a recipe)")
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private async Task LoadReferenceDataAsync(CancellationToken ct)
     {
         // Unit list via the anti-corruption port — never through IUnitRepository directly (Gate 2).
@@ -681,6 +799,11 @@ public sealed class EditModel(
         Input.Lines = Input.Lines
             .Where(l => l.ProductId.HasValue || !string.IsNullOrWhiteSpace(l.NewStapleName))
             .ToList();
+
+        // Drop blank inclusion rows (no sub chosen) so a failed-save re-render carries no ghost entries.
+        Input.Inclusions = Input.Inclusions
+            .Where(i => i.SubRecipeId != Guid.Empty)
+            .ToList();
     }
 
     /// <summary>
@@ -762,6 +885,40 @@ public sealed class RecipeEditInput
     public ScaleMode ScaleMode { get; set; } = ScaleMode.Keep;
 
     public List<IngredientRowInput> Lines { get; set; } = [];
+
+    /// <summary>
+    /// Inclusion rows (recipe-composition.md §3 / D1) — "N servings of a sub-recipe" line items. Posted by
+    /// the editor's "Include a recipe" affordance as indexed hidden inputs (<c>Input.Inclusions[j].*</c>),
+    /// carrying the shared-space <see cref="InclusionRowInput.Ordinal"/>. The page model builds
+    /// <see cref="AuthorInclusionLine"/>s from these; N1/N2/N4 are enforced downstream.
+    /// </summary>
+    public List<InclusionRowInput> Inclusions { get; set; } = [];
+}
+
+/// <summary>
+/// One inclusion row in the editor (recipe-composition.md §3). Carries the chosen sub-recipe id + its
+/// servings, plus display-only fields (<see cref="SubName"/>, <see cref="SubDefaultServings"/>) that
+/// round-trip via hidden inputs so a failed-save re-render keeps the row's title and batch-fraction hint
+/// intact. <see cref="Ordinal"/> is in the shared ordinal space with <see cref="IngredientRowInput"/>.
+/// </summary>
+public sealed class InclusionRowInput
+{
+    public int Ordinal { get; set; }
+
+    /// <summary>The included (sub) recipe's id.</summary>
+    public Guid SubRecipeId { get; set; }
+
+    /// <summary>Sub-recipe display name — display-only, posted via a hidden input so it survives re-renders.</summary>
+    public string? SubName { get; set; }
+
+    /// <summary>Servings of the sub-recipe (&gt; 0, N1). Decimal so half/quarter batches are expressible.</summary>
+    public decimal Servings { get; set; } = 1m;
+
+    /// <summary>The sub-recipe's DefaultServings — display-only, drives the "· ½ batch" hint (D2).</summary>
+    public int SubDefaultServings { get; set; } = 1;
+
+    /// <summary>Optional section heading, shared with the ingredient group-heading convention.</summary>
+    public string? GroupHeading { get; set; }
 }
 
 /// <summary>

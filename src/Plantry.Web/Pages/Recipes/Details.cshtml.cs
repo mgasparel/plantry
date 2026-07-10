@@ -23,7 +23,9 @@ public sealed class DetailsModel(
     CostingService costingService,
     AddMissingToShoppingList addMissingService,
     AddIngredientsToShoppingList addAllService,
-    ShoppingListQueryService shoppingList) : PageModel
+    ShoppingListQueryService shoppingList,
+    RecipeExpansionService expansionService,
+    ArchiveRecipe archiveRecipe) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
@@ -38,6 +40,19 @@ public sealed class DetailsModel(
     public bool DietNudge { get; set; }
 
     public RecipeDetailView Recipe { get; private set; } = null!;
+
+    /// <summary>
+    /// Inclusion lines (recipe-composition.md §5 / D15) rendered in ordinal position — each an "N servings ·
+    /// Sub" link to the sub-recipe with an expandable read-only preview of its expanded product-level
+    /// ingredients (via <see cref="RecipeExpansionService"/>). Empty when the recipe has no inclusions.
+    /// </summary>
+    public IReadOnlyList<InclusionDetailView> Inclusions { get; private set; } = [];
+
+    /// <summary>
+    /// Set when the Archive action is blocked by N5 (recipe-composition.md D12 — "used by N recipes"), so
+    /// the page re-renders with the domain error as a validation banner rather than a 500 or silent no-op.
+    /// </summary>
+    public string? SaveError { get; private set; }
 
     /// <summary>
     /// The fulfilment rail card view model rendered on first page load (at default servings), including
@@ -55,11 +70,37 @@ public sealed class DetailsModel(
     /// </summary>
     public bool ShowDietNudgeCheck { get; private set; }
 
-    public async Task<IActionResult> OnGetAsync(CancellationToken ct)
+    public async Task<IActionResult> OnGetAsync(CancellationToken ct) =>
+        await LoadDetailAsync(ct) ? Page() : NotFound();
+
+    /// <summary>
+    /// Archives the recipe with the N5 guard (recipe-composition.md D12). On success redirects to the browse
+    /// list; when the archive is blocked because the recipe is still included by others, the page re-renders
+    /// with the domain error surfaced as a validation banner (no 500). Returns 404 if the recipe is gone.
+    /// </summary>
+    public async Task<IActionResult> OnPostArchiveAsync(CancellationToken ct)
+    {
+        var result = await archiveRecipe.ExecuteAsync(RecipeId.From(Id), ct);
+        if (result.IsSuccess)
+            return RedirectToPage("/Recipes/Index");
+
+        // Blocked (N5) or not found — re-render Details so the error shows in context.
+        if (!await LoadDetailAsync(ct))
+            return NotFound();
+        SaveError = result.Error.Description;
+        return Page();
+    }
+
+    /// <summary>
+    /// Loads the recipe and builds every view model the Details page renders (ingredient rows, fulfilment
+    /// card, inclusions). Returns false when the recipe does not exist (or is filtered by household RLS).
+    /// Shared by the GET path and the archive-failure re-render.
+    /// </summary>
+    private async Task<bool> LoadDetailAsync(CancellationToken ct)
     {
         var id = RecipeId.From(Id);
         var recipe = await recipes.GetByIdAsync(id, ct);
-        if (recipe is null) return NotFound();
+        if (recipe is null) return false;
 
         // Diet-tag nudge (plantry-qll2.3): render the deferred check only when the editor's post-save redirect set
         // ?dietNudge=true. A plain view of the recipe carries no flag, so no LLM check runs on a browse.
@@ -94,7 +135,77 @@ public sealed class DetailsModel(
             recipe, recipe.DefaultServings, productLookup, unitLookup, fulfillment, oob: false, summary: null, ct);
 
         Recipe = RecipeDetailView.From(recipe, productLookup, unitLookup, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost);
-        return Page();
+
+        // Inclusions (recipe-composition.md §5 / D15): each inclusion renders in ordinal position as an
+        // "N servings · Sub" link plus an expandable preview of the sub's expanded product-level ingredients.
+        Inclusions = await BuildInclusionViewsAsync(recipe, id, ct);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Builds the ordinal-ordered inclusion view list. Resolves each sub's name + DefaultServings (for the
+    /// batch-fraction hint, D2) and, via the <see cref="RecipeExpansionService"/> choke point (D4), the flat
+    /// product-level preview lines that belong to each top-level inclusion (those whose expansion Path begins
+    /// with the inclusion's id). Product names/unit codes are batch-resolved across all previews in two calls.
+    /// </summary>
+    private async Task<IReadOnlyList<InclusionDetailView>> BuildInclusionViewsAsync(
+        Recipe recipe, RecipeId recipeId, CancellationToken ct)
+    {
+        if (recipe.Inclusions.Count == 0) return [];
+
+        // Sub display name + DefaultServings — one lightweight load per distinct sub (household-scale counts).
+        var subInfo = new Dictionary<RecipeId, (string Name, int DefaultServings)>();
+        foreach (var subId in recipe.Inclusions.Select(i => i.SubRecipeId).Distinct())
+        {
+            var sub = await recipes.GetByIdAsync(subId, ct);
+            if (sub is not null) subInfo[subId] = (sub.Name, sub.DefaultServings);
+        }
+
+        // Expand the whole recipe once (D4 single choke point). On the defensive-cycle / missing-sub error
+        // path the previews are simply empty — the inclusion titles/links still render.
+        var expansion = await expansionService.ExpandAsync(recipeId, ct);
+        IReadOnlyList<ExpandedLine> expandedLines = expansion.IsSuccess ? expansion.Value : [];
+
+        var exProductIds = expandedLines.Select(l => l.ProductId).Distinct().ToList();
+        var exProductLookup = exProductIds.Count > 0
+            ? await catalog.ResolveSummariesAsync(exProductIds, ct)
+            : new Dictionary<Guid, CatalogProductSummary>();
+        var exUnitIds = expandedLines.Where(l => l.UnitId is not null).Select(l => l.UnitId!.Value).Distinct().ToList();
+        var exUnitLookup = exUnitIds.Count > 0
+            ? await catalog.ResolveUnitCodesAsync(exUnitIds, ct)
+            : new Dictionary<Guid, string>();
+
+        return recipe.Inclusions
+            .OrderBy(i => i.Ordinal)
+            .Select(inc =>
+            {
+                subInfo.TryGetValue(inc.SubRecipeId, out var info);
+
+                // Preview = expanded lines whose top-level path element is THIS inclusion (D6 path identity).
+                var preview = expandedLines
+                    .Where(l => l.Path.Count > 0 && l.Path[0] == inc.Id)
+                    .Select(l =>
+                    {
+                        exProductLookup.TryGetValue(l.ProductId, out var p);
+                        var isUntracked = p is { TrackStock: false };
+                        var unitCode = l.UnitId is { } u ? exUnitLookup.GetValueOrDefault(u) : null;
+                        return new InclusionPreviewItem(
+                            ProductName: p?.Name ?? "(unknown product)",
+                            Quantity: isUntracked ? null : l.Quantity,
+                            UnitCode: isUntracked ? null : unitCode);
+                    })
+                    .ToList();
+
+                return new InclusionDetailView(
+                    SubRecipeId: inc.SubRecipeId.Value,
+                    SubName: info.Name ?? "(unknown recipe)",
+                    Servings: inc.Servings,
+                    SubDefaultServings: info.DefaultServings <= 0 ? 1 : info.DefaultServings,
+                    GroupHeading: inc.GroupHeading,
+                    Preview: preview);
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -228,6 +339,37 @@ public sealed class DetailsModel(
                         ExpiresWithinDays: ingFulfillment?.ExpiresWithinDays);
                 }).ToList()))
             .ToList();
+    }
+
+    /// <summary>Formats an inclusion serving count for display: "1 serving" / "2 servings" / "0.5 servings".</summary>
+    public static string FormatServings(decimal servings)
+    {
+        var n = servings.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        return n + (servings == 1m ? " serving" : " servings");
+    }
+
+    /// <summary>
+    /// Formats the batch-fraction hint for an inclusion (recipe-composition.md D2): batch = servings ÷ the
+    /// sub's DefaultServings. Common fractions render as a glyph ("½ batch"); otherwise a cleaned decimal
+    /// ("1.5 batches"). Empty when the ratio cannot be computed.
+    /// </summary>
+    public static string FormatBatchHint(decimal servings, int subDefaultServings)
+    {
+        if (subDefaultServings <= 0 || servings <= 0) return "";
+        var b = servings / subDefaultServings;
+        var rounded = Math.Round(b, 2);
+        var glyph = rounded switch
+        {
+            0.25m => "¼",
+            0.5m  => "½",
+            0.75m => "¾",
+            0.33m => "⅓",
+            0.67m => "⅔",
+            _     => null,
+        };
+        if (glyph is not null) return glyph + " batch";
+        var s = b.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        return s + (rounded == 1m ? " batch" : " batches");
     }
 
     /// <summary>
@@ -406,6 +548,22 @@ public sealed record RecipeDetailView(
 
 /// <summary>A resolved tag pill for the detail view.</summary>
 public sealed record TagView(Guid Id, string? Name);
+
+/// <summary>
+/// One inclusion line on the Details page (recipe-composition.md §5 / D15). Renders as an "N servings ·
+/// <see cref="SubName"/>" link to the sub-recipe with an expandable read-only <see cref="Preview"/> of the
+/// sub's expanded product-level ingredients. <see cref="SubDefaultServings"/> drives the batch-fraction hint (D2).
+/// </summary>
+public sealed record InclusionDetailView(
+    Guid SubRecipeId,
+    string SubName,
+    decimal Servings,
+    int SubDefaultServings,
+    string? GroupHeading,
+    IReadOnlyList<InclusionPreviewItem> Preview);
+
+/// <summary>One expanded product-level line in an inclusion's read-only preview (untracked staples carry no qty/unit).</summary>
+public sealed record InclusionPreviewItem(string ProductName, decimal? Quantity, string? UnitCode);
 
 /// <summary>A group of ingredients sharing the same optional section heading (C6).</summary>
 public sealed record IngredientGroupView(

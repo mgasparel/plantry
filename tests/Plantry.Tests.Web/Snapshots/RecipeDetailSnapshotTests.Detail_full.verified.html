@@ -27,6 +27,23 @@
 			</svg>
 			All recipes
 		</a>
+		<div class="rd-actions" style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-bottom:var(--space-3)">
+			<a href="/Recipes/Guid_1/Edit" class="btn btn--ghost btn--sm">
+				<svg class="icon" aria-hidden="true">
+					<use href="#i-edit"></use>
+				</svg>
+				Edit
+			</a>
+			<form method="post" action="/Recipes/Guid_1?handler=Archive" style="display:inline" onsubmit="return confirm('Archive this recipe? It will no longer appear in your recipe list.');">
+				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+				<button type="submit" class="btn btn--ghost btn--sm" style="color:var(--color-danger)">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-minus"></use>
+					</svg>
+					Archive
+				</button>
+			</form>
+		</div>
 		<div class="rd-grid">
 			<div class="rd-main">
 				<div class="rd-hero">
