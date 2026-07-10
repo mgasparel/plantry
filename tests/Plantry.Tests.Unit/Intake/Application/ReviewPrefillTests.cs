@@ -1,14 +1,16 @@
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
-using Plantry.Web.Pages.Intake;
 
-namespace Plantry.Tests.Web;
+namespace Plantry.Tests.Unit.Intake.Application;
 
 /// <summary>
-/// L1 tests for <see cref="ReviewRowModel.ComputePrefill"/> — the prefill priority logic that
-/// surfaces AI suggestions as form defaults while ensuring user-resolved fields always win.
+/// L1 tests for <see cref="ReviewPrefill.ComputePrefill"/> — the prefill priority logic that surfaces AI
+/// suggestions as form defaults while ensuring user-resolved fields always win. Lives at L1 (ADR-020 §3
+/// Boundary judgment call 1; Gate 10.B: the prefill chain is domain, pinned by a fast unit test, not only
+/// through a rendered fragment). Shared by the review page's hydration builder and the commit-time
+/// auto-confirm (plantry-v0wl).
 /// </summary>
-public sealed class ReviewRowModelTests
+public sealed class ReviewPrefillTests
 {
     private static readonly Guid MilkId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid LitreId = Guid.Parse("22222222-2222-2222-2222-222222222222");
@@ -36,7 +38,7 @@ public sealed class ReviewRowModelTests
             suggestedQuantity: 2m, suggestedUnitLabel: "L", suggestedPrice: 3.99m);
 
         var (productId, productName, qty, unitId, locationId, price, _) =
-            ReviewRowModel.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
+            ReviewPrefill.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
 
         Assert.Equal(MilkId, productId);
         Assert.Equal("Milk", productName);
@@ -56,7 +58,7 @@ public sealed class ReviewRowModelTests
             suggestedProductId: MilkId, suggestedQuantity: 2m, suggestedUnitLabel: "L", suggestedPrice: 3.99m);
 
         var (productId, _, qty, unitId, _, price, _) =
-            ReviewRowModel.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
+            ReviewPrefill.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
 
         Assert.Equal(confirmedProductId, productId);
         Assert.Equal(1m, qty);
@@ -72,7 +74,7 @@ public sealed class ReviewRowModelTests
             suggestedProductId: phantomId, suggestedProductName: "Mystery Item");
 
         var (productId, productName, _, _, _, _, _) =
-            ReviewRowModel.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
+            ReviewPrefill.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
 
         Assert.Null(productId);                     // phantom ID discarded — drawer won't pre-select
         Assert.Equal("Mystery Item", productName);  // name hint still shown in row summary
@@ -85,7 +87,7 @@ public sealed class ReviewRowModelTests
             suggestedProductId: MilkId, suggestedProductName: "Milk");
 
         var (_, _, _, _, locationId, _, _) =
-            ReviewRowModel.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
+            ReviewPrefill.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
 
         Assert.Equal(FridgeId, locationId);
     }
@@ -98,7 +100,7 @@ public sealed class ReviewRowModelTests
             productId: MilkId, quantity: 1m, unitId: LitreId, locationId: confirmedLocationId);
 
         var (_, _, _, _, locationId, _, _) =
-            ReviewRowModel.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
+            ReviewPrefill.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
 
         Assert.Equal(confirmedLocationId, locationId);
     }
@@ -111,7 +113,7 @@ public sealed class ReviewRowModelTests
             suggestedUnitLabel: "L", suggestedPrice: 3.99m);
 
         var (productId, _, qty, unitId, locationId, price, _) =
-            ReviewRowModel.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
+            ReviewPrefill.ComputePrefill(line, UnitIdByCode, ProductNameById, ProductDefaultLocationById);
 
         Assert.Null(productId);
         Assert.Null(qty);
@@ -130,7 +132,7 @@ public sealed class ReviewRowModelTests
             suggestedProductId: MilkId, suggestedProductName: "Milk",
             suggestedQuantity: 2m, suggestedUnitLabel: null /* no receipt unit */);
 
-        var (_, _, _, unitId, _, _, _) = ReviewRowModel.ComputePrefill(
+        var (_, _, _, unitId, _, _, _) = ReviewPrefill.ComputePrefill(
             line, UnitIdByCode, ProductNameById, ProductDefaultLocationById,
             ProductDefaultUnitById, ProductDefaultDueDaysById, Today);
 
@@ -146,7 +148,7 @@ public sealed class ReviewRowModelTests
             suggestedProductId: MilkId, suggestedProductName: "Milk",
             suggestedQuantity: 2m, suggestedUnitLabel: "L" /* receipt-parsed */);
 
-        var (_, _, _, unitId, _, _, _) = ReviewRowModel.ComputePrefill(
+        var (_, _, _, unitId, _, _, _) = ReviewPrefill.ComputePrefill(
             line, UnitIdByCode, ProductNameById, ProductDefaultLocationById,
             ProductDefaultUnitById, ProductDefaultDueDaysById, Today);
 
@@ -162,7 +164,7 @@ public sealed class ReviewRowModelTests
             suggestedProductId: MilkId, suggestedProductName: "Milk",
             suggestedQuantity: 2m, suggestedUnitLabel: "L");
 
-        var (_, _, _, _, _, _, expiry) = ReviewRowModel.ComputePrefill(
+        var (_, _, _, _, _, _, expiry) = ReviewPrefill.ComputePrefill(
             line, UnitIdByCode, ProductNameById, ProductDefaultLocationById,
             ProductDefaultUnitById, ProductDefaultDueDaysById, Today);
 
@@ -178,7 +180,7 @@ public sealed class ReviewRowModelTests
             suggestedProductId: MilkId, suggestedProductName: "Milk",
             suggestedQuantity: 2m, suggestedUnitLabel: "L");
 
-        var (_, _, _, _, _, _, expiry) = ReviewRowModel.ComputePrefill(
+        var (_, _, _, _, _, _, expiry) = ReviewPrefill.ComputePrefill(
             line, UnitIdByCode, ProductNameById, ProductDefaultLocationById,
             ProductDefaultUnitById, noDueDaysDueDaysById, Today);
 
@@ -193,7 +195,7 @@ public sealed class ReviewRowModelTests
             productId: MilkId, quantity: 1m, unitId: LitreId,
             expiryDate: resolvedExpiry);
 
-        var (_, _, _, _, _, _, expiry) = ReviewRowModel.ComputePrefill(
+        var (_, _, _, _, _, _, expiry) = ReviewPrefill.ComputePrefill(
             line, UnitIdByCode, ProductNameById, ProductDefaultLocationById,
             ProductDefaultUnitById, ProductDefaultDueDaysById, Today);
 
@@ -258,7 +260,7 @@ public sealed class ReviewRowModelTests
         new Dictionary<Guid, Guid> { [BananasId] = EachId };
 
     private static (Guid? ProductId, string? ProductName, decimal? Qty, Guid? UnitId, Guid? LocationId, decimal? Price, DateOnly? Expiry) ComputeEst(ReviewLineView line) =>
-        ReviewRowModel.ComputePrefill(line, EstUnitIdByCode, EstProductNameById, EstProductDefaultLocationById,
+        ReviewPrefill.ComputePrefill(line, EstUnitIdByCode, EstProductNameById, EstProductDefaultLocationById,
             EstProductDefaultUnitById, new Dictionary<Guid, int?> { [BananasId] = null }, Today);
 
     [Fact]

@@ -211,6 +211,35 @@ public sealed class ImportLine : Entity<ImportLineId>
         return Result.Success();
     }
 
+    /// <summary>
+    /// Reopens a confirmed line back to <see cref="LineStatus.Pending"/> so it can be resolved again —
+    /// the undo-of-a-resolve and the "Wrong product — review again" rematch in the exceptions-first review
+    /// flow (plantry-v0wl). Only a confirmed line can be reopened: pending has nothing to undo, a dismissed
+    /// line uses <see cref="Restore"/>, and a committed line is final.
+    ///
+    /// <para>The user-resolved fields are cleared so the server-side prefill chain re-applies fresh from the
+    /// AI suggestions (owner decision: losing the manual field edits of the undone resolve is accepted). The
+    /// once-set receipt/suggestion data (<see cref="SuggestedProductId"/>, <see cref="ReceiptWeight"/>, …) is
+    /// never touched — the ACL invariant holds and the prefill chain has its inputs back.</para>
+    /// </summary>
+    public Result Reopen()
+    {
+        if (Status != LineStatus.Confirmed)
+            return Error.Custom("Intake.LineNotConfirmed", "Only a confirmed line can be reopened.");
+
+        ProductId = null;
+        SkuId = null;
+        Quantity = null;
+        UnitId = null;
+        LocationId = null;
+        ExpiryDate = null;
+        Price = null;
+        NewProductName = null;
+        NewProductCategoryId = null;
+        Status = LineStatus.Pending;
+        return Result.Success();
+    }
+
     public Result MarkCommitted(Guid journalId, Guid? priceObservationId, Guid? createdProductId = null)
     {
         if (Status != LineStatus.Confirmed)

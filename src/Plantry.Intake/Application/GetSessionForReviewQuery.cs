@@ -41,7 +41,50 @@ public sealed record ReviewLineView(
     decimal? ReceiptWeight = null,
     string? ReceiptWeightUnitLabel = null,
     decimal? EstimatedEachCount = null,
-    SuggestedConfidence? EstimatedEachConfidence = null);
+    SuggestedConfidence? EstimatedEachConfidence = null)
+{
+    /// <summary>
+    /// Projects a domain <see cref="ImportLine"/> onto its read view — the single mapping point shared by
+    /// <see cref="GetSessionForReviewQuery"/> and <see cref="CommitSessionCommand"/>'s commit-time
+    /// auto-confirm pass, so both feed the prefill chain (<see cref="ReviewPrefill.ComputePrefill"/>) the
+    /// exact same shape. Alternatives are surfaced only when there are two or more credible candidates.
+    /// </summary>
+    public static ReviewLineView FromDomain(ImportLine l)
+    {
+        var alternatives = l.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion }
+            ? l.SuggestedAlternatives
+                .Select(a => new ReviewAlternativeView(a.ProductId, a.ProductName, a.Confidence))
+                .ToList()
+            : null;
+
+        return new ReviewLineView(
+            l.Id.Value,
+            l.LineNo,
+            l.ReceiptText,
+            l.SuggestedConfidence,
+            l.Status,
+            l.ProductId,
+            l.SkuId,
+            l.Quantity,
+            l.UnitId,
+            l.LocationId,
+            l.ExpiryDate,
+            l.Price,
+            l.IsNewProduct,
+            l.NewProductName,
+            l.NewProductCategoryId,
+            l.SuggestedProductId,
+            l.SuggestedProductName,
+            l.SuggestedQuantity,
+            l.SuggestedUnitLabel,
+            l.SuggestedPrice,
+            alternatives,
+            l.ReceiptWeight,
+            l.ReceiptWeightUnitLabel,
+            l.EstimatedEachCount,
+            l.EstimatedEachConfidence);
+    }
+}
 
 /// <summary>
 /// The session header plus its lines and the Catalog reference data (dropdown options) needed to render
@@ -91,41 +134,7 @@ public sealed class GetSessionForReviewQuery(
 
         var lines = session.Lines
             .OrderBy(l => l.LineNo)
-            .Select(l =>
-            {
-                var alternatives = l.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion }
-                    ? l.SuggestedAlternatives
-                        .Select(a => new ReviewAlternativeView(a.ProductId, a.ProductName, a.Confidence))
-                        .ToList()
-                    : null;
-
-                return new ReviewLineView(
-                    l.Id.Value,
-                    l.LineNo,
-                    l.ReceiptText,
-                    l.SuggestedConfidence,
-                    l.Status,
-                    l.ProductId,
-                    l.SkuId,
-                    l.Quantity,
-                    l.UnitId,
-                    l.LocationId,
-                    l.ExpiryDate,
-                    l.Price,
-                    l.IsNewProduct,
-                    l.NewProductName,
-                    l.NewProductCategoryId,
-                    l.SuggestedProductId,
-                    l.SuggestedProductName,
-                    l.SuggestedQuantity,
-                    l.SuggestedUnitLabel,
-                    l.SuggestedPrice,
-                    alternatives,
-                    l.ReceiptWeight,
-                    l.ReceiptWeightUnitLabel,
-                    l.EstimatedEachCount,
-                    l.EstimatedEachConfidence);
-            })
+            .Select(ReviewLineView.FromDomain)
             .ToList();
 
         return new SessionReviewView(
