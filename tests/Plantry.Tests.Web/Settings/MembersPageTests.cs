@@ -179,7 +179,10 @@ public static class MembersFixture
     // Matches the NameIdentifier claim minted by TestAuthHandler, so "invited by" resolves to Alice.
     public static readonly Guid InviterUserId  = Guid.Parse("00000000-0000-0000-0000-0000000000aa");
 
-    private static readonly IClock Clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+    // Shared fixed clock: seeds the invite fixtures below AND is registered as the page's
+    // IClock in MembersFragmentFactory (the SAME instance), so PendingInvite.IsExpired
+    // (clock.UtcNow >= ExpiresAt) is deterministic and cannot straddle a day boundary.
+    public static readonly IClock Clock = new FixedClock(new DateOnly(2026, 6, 15));
 
     public static readonly HouseholdUser MemberAlice = new(InviterUserId.ToString(), "Alice");
 
@@ -262,6 +265,11 @@ public sealed class MembersFragmentFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+
+            // Register the SAME fixed clock the fixture seeds with, so seed-time and
+            // request-time IClock are identical and IsExpired is deterministic.
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock>(MembersFixture.Clock);
 
             services.AddAuthentication(opts =>
                 {
