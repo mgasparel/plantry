@@ -20,13 +20,14 @@ namespace Plantry.Web.Pages.Intake;
 /// <para>GET: loads the session and builds the full hydration JSON that the island reads on mount.
 /// The hydration includes session header, reference data (products with defaults+skus, units,
 /// locations, categories), and per-line { line, prefill } objects where prefill is computed
-/// server-side via <see cref="ReviewRowModel.ComputePrefill"/> (the priority chain stays here,
+/// server-side via <see cref="ReviewPrefill.ComputePrefill"/> (the priority chain stays server-side,
 /// per ADR-020 §3 / Boundary judgment call 1).</para>
 ///
 /// <para>POST endpoints return JSON (ADR-015 amendment: island data endpoints return JSON):
 ///   SaveLine    → { status, isNewProduct, newProductName, productId, productName, price } | { error }
 ///   DismissLine → { status } | { error }
 ///   RestoreLine → { status } | { error }
+///   ReopenLine  → { status } | { error }
 ///   Commit      → { redirectUrl } | { error }
 ///   Discard     → { redirectUrl } | { error }
 /// </para>
@@ -53,7 +54,8 @@ public sealed class ReviewModel(
     ILogger<DismissLineCommand> dismissLogger,
     ILogger<ResolveLineCommand> resolveLogger,
     ILogger<ConfirmLineAsNewCommand> confirmAsNewLogger,
-    ILogger<RestoreLineCommand> restoreLogger) : PageModel
+    ILogger<RestoreLineCommand> restoreLogger,
+    ILogger<ReopenLineCommand> reopenLogger) : PageModel
 {
     /// <summary>Session id from the route; bound on GET and carried on every POST via the URL.</summary>
     [BindProperty(SupportsGet = true)]
@@ -209,6 +211,25 @@ public sealed class ReviewModel(
         return new JsonResult(new { status = "Pending", error = (string?)null });
     }
 
+    /// <summary>Reopens a confirmed line back to Pending (undo-of-a-resolve and the "Wrong product — review
+    /// again" rematch of the exceptions-first flow, plantry-v0wl), so the AI prefill re-applies and the line
+    /// can be resolved afresh. Returns { status: "Pending" } like RestoreLine.</summary>
+    public async Task<IActionResult> OnPostReopenLineAsync([FromQuery] Guid lineId, CancellationToken ct)
+    {
+        var loaded = await LoadAsync(ct);
+        if (loaded is { } failure)
+            return failure;
+
+        var id = ImportLineId.From(lineId);
+        var result = await new ReopenLineCommand(
+            ImportSessionId.From(Id), id, sessions, tenant, reopenLogger).ExecuteAsync(ct);
+
+        if (result.IsFailure)
+            return JsonError(result.Error.Description);
+
+        return new JsonResult(new { status = "Pending", error = (string?)null });
+    }
+
     // ── Commit / discard — return redirect target so the island can navigate ────────
 
     public async Task<IActionResult> OnPostCommitAsync(CancellationToken ct)
@@ -309,7 +330,7 @@ public sealed class ReviewModel(
         var lines = Session.Lines.Select(l =>
         {
             var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry) =
-                ReviewRowModel.ComputePrefill(l, unitIdByCode, productNameById, productDefaultLocationById,
+                ReviewPrefill.ComputePrefill(l, unitIdByCode, productNameById, productDefaultLocationById,
                     productDefaultUnitById, productDefaultDueDaysById, today);
 
             // Alternatives: only resolved catalog entries, 2+ required
@@ -368,6 +389,7 @@ public sealed class ReviewModel(
             SaveLineUrl: Url.Page("./Review", "SaveLine", new { Id })!,
             DismissLineUrl: Url.Page("./Review", "DismissLine", new { Id })!,
             RestoreLineUrl: Url.Page("./Review", "RestoreLine", new { Id })!,
+            ReopenLineUrl: Url.Page("./Review", "ReopenLine", new { Id })!,
             Products: products,
             Units: units,
             Locations: locations,
@@ -420,91 +442,5 @@ public sealed class ReviewModel(
 
     private async Task<T?> ReadJsonBodyAsync<T>(CancellationToken ct) =>
         await JsonSerializer.DeserializeAsync<T>(Request.Body, JsonBodyOptions, ct);
-
-}
-
-/// <summary>
-/// Holds <see cref="ComputePrefill"/> — the server-side prefill priority chain
-/// (Boundary judgment call 1: stays here, never duplicated in JS).
-/// </summary>
-public static class ReviewRowModel
-{
-    /// <summary>
-    /// Pure prefill computation — no URL or HTTP context needed. Applies the priority chain:
-    /// user-resolved fields first, AI suggestions for Pending lines as fallback. Only uses
-    /// <paramref name="unitIdByCode"/> (label → Guid) and <paramref name="productNameById"/>
-    /// (Guid → name).
-    ///
-    /// <para>Unit priority: user-resolved > receipt-parsed label > (no-receipt-unit only) product default.
-    /// Expiry: user-resolved > (Pending + matched + DefaultDueDays) today+N > null.</para>
-    /// </summary>
-    public static (Guid? ProductId, string? ProductName, decimal? Qty, Guid? UnitId, Guid? LocationId, decimal? Price, DateOnly? Expiry) ComputePrefill(
-        ReviewLineView line,
-        IReadOnlyDictionary<string, Guid> unitIdByCode,
-        IReadOnlyDictionary<Guid, string> productNameById,
-        IReadOnlyDictionary<Guid, Guid?> productDefaultLocationById,
-        IReadOnlyDictionary<Guid, Guid>? productDefaultUnitById = null,
-        IReadOnlyDictionary<Guid, int?>? productDefaultDueDaysById = null,
-        DateOnly? today = null)
-    {
-        var isPending = line.Status == LineStatus.Pending;
-
-        Guid? prefillProductId = line.IsNewProduct ? null
-            : line.ProductId
-              ?? (isPending && line.SuggestedProductId is { } sugPid && productNameById.ContainsKey(sugPid)
-                  ? sugPid : (Guid?)null);
-
-        string? prefillProductName = line.IsNewProduct ? null
-            : prefillProductId is { } ppid && productNameById.TryGetValue(ppid, out var ppname)
-                ? ppname
-                : (isPending ? line.SuggestedProductName : null);
-
-        // Weight→each high-confidence override (plantry-1mu): for a pending, not-yet-resolved line whose
-        // matched product is tracked by each, a High-confidence LLM estimate pre-fills the each-count in
-        // the each unit (the product's default). Low-confidence estimates fall through to the weight below
-        // — the drawer merely suggests the count. The receipt weight is preserved separately regardless.
-        var eachOverride = isPending
-            && line.UnitId is null
-            && line.EstimatedEachCount is { } && line.EstimatedEachConfidence == SuggestedConfidence.High
-            && prefillProductId is { } eachPid
-            && productDefaultUnitById is not null
-            && productDefaultUnitById.TryGetValue(eachPid, out var eachUnitId)
-            ? (Guid?)eachUnitId
-            : null;
-
-        var prefillQty = line.Quantity
-            ?? (eachOverride is not null ? line.EstimatedEachCount : null)
-            ?? (isPending ? line.SuggestedQuantity : null);
-
-        var hasReceiptUnit = isPending && line.SuggestedUnitLabel is not null;
-
-        Guid? prefillUnitId = line.UnitId
-            ?? eachOverride
-            ?? (isPending && line.SuggestedUnitLabel is { } lbl && unitIdByCode.TryGetValue(lbl, out var sugUid)
-                ? sugUid
-                : (isPending && !hasReceiptUnit && prefillProductId is { } unitPid
-                   && productDefaultUnitById is not null
-                   && productDefaultUnitById.TryGetValue(unitPid, out var defUid)
-                    ? defUid
-                    : (Guid?)null));
-
-        Guid? prefillLocationId = line.LocationId
-            ?? (isPending && prefillProductId is { } locPid && productDefaultLocationById.TryGetValue(locPid, out var defLoc)
-                ? defLoc
-                : (Guid?)null);
-
-        var prefillPrice = line.Price ?? (isPending ? line.SuggestedPrice : null);
-
-        DateOnly? prefillExpiry = line.ExpiryDate
-            ?? (isPending && prefillProductId is { } expPid
-                && productDefaultDueDaysById is not null
-                && productDefaultDueDaysById.TryGetValue(expPid, out var dueDays)
-                && dueDays is { } n
-                && today is { } t
-                ? t.AddDays(n)
-                : (DateOnly?)null);
-
-        return (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry);
-    }
 
 }

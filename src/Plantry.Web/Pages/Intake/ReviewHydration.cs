@@ -26,6 +26,7 @@ public sealed record SessionHydration(
     string SaveLineUrl,
     string DismissLineUrl,
     string RestoreLineUrl,
+    string ReopenLineUrl,
     IReadOnlyList<ProductHydration> Products,
     IReadOnlyList<UnitHydration> Units,
     IReadOnlyList<LocationHydration> Locations,

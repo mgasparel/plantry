@@ -325,6 +325,100 @@ public sealed class ReviewCommandsTests
         Assert.Equal(0, repo.SaveChangesCalls);
     }
 
+    // ── ReopenLineCommand (plantry-v0wl) ──────────────────────────────────────────────────────────
+
+    /// <summary>A Ready session with a single Confirmed line — the state a reopen (undo) runs against.</summary>
+    private (ImportSession Session, ImportLine Line) ReadySessionWithConfirmedLine()
+    {
+        var (session, line) = ReadySessionWithLine();
+        line.Confirm(_productId, skuId: null, 2m, _unitId, _locationId, expiryDate: null, price: 4.99m);
+        return (session, line);
+    }
+
+    [Fact]
+    public async Task Reopen_Returns_A_Confirmed_Line_To_Pending_And_Clears_Resolution()
+    {
+        var (session, line) = ReadySessionWithConfirmedLine();
+        var repo = RepoWith(session);
+
+        var cmd = new ReopenLineCommand(session.Id, line.Id, repo, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(LineStatus.Pending, line.Status);
+        Assert.Null(line.ProductId);
+        Assert.Null(line.Quantity);
+        Assert.Equal(1, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task Reopen_Fails_When_No_Household_In_Context()
+    {
+        var (session, line) = ReadySessionWithConfirmedLine();
+        var repo = RepoWith(session);
+
+        var cmd = new ReopenLineCommand(session.Id, line.Id, repo, new FakeTenantContext(null));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task Reopen_Fails_When_Session_Not_Found()
+    {
+        var (session, line) = ReadySessionWithConfirmedLine();
+        var repo = new FakeImportSessionRepository(); // not added
+
+        var cmd = new ReopenLineCommand(session.Id, line.Id, repo, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task Reopen_Fails_When_Session_Not_Ready()
+    {
+        var (session, line) = ReadySessionWithConfirmedLine();
+        session.Discard(); // session no longer Ready
+        var repo = RepoWith(session);
+
+        var cmd = new ReopenLineCommand(session.Id, line.Id, repo, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.SessionNotReady", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task Reopen_Fails_When_Line_Not_Found()
+    {
+        var (session, _) = ReadySessionWithConfirmedLine();
+        var repo = RepoWith(session);
+
+        var cmd = new ReopenLineCommand(session.Id, ImportLineId.New(), repo, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task Reopen_Surfaces_The_Domain_Guard_For_A_Non_Confirmed_Line()
+    {
+        var (session, line) = ReadySessionWithLine(); // Pending, never confirmed
+        var repo = RepoWith(session);
+
+        var cmd = new ReopenLineCommand(session.Id, line.Id, repo, new FakeTenantContext(_household));
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmed", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
     // ── DiscardSessionCommand ─────────────────────────────────────────────────────────────────────
 
     [Fact]

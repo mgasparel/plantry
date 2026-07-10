@@ -19,6 +19,13 @@ import {
   buildSaveLineBody,
   commitBarCounts,
   estimateHint,
+  hasCompletePrefill,
+  isReadyPending,
+  decisionVariant,
+  questionCopy,
+  firstNeedsLineId,
+  railLineView,
+  reconciliation,
 } from "../intake-review-logic.js";
 
 // ── test helpers ─────────────────────────────────────────────────────────────
@@ -261,66 +268,17 @@ describe("buildSaveLineBody", () => {
 // ── makeLine ─────────────────────────────────────────────────────────────────
 
 describe("makeLine", () => {
-  describe("drawerOpen predicate", () => {
-    it("opens when Pending + Low confidence + no productId + not isNewProduct", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "Low",
-        productId: null,
-        isNewProduct: false,
-      });
-      assert.equal(ls.drawerOpen.value, true);
-    });
-
-    it("opens when Pending + None confidence + no productId + not isNewProduct", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "None",
-        productId: null,
-        isNewProduct: false,
-      });
-      assert.equal(ls.drawerOpen.value, true);
-    });
-
-    it("stays closed when confidence is High (matched row)", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "High",
-        productId: "prod-abc",
-        isNewProduct: false,
-      });
-      assert.equal(ls.drawerOpen.value, false);
-    });
-
-    it("stays closed when productId is set even if confidence is Low", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "Low",
-        productId: "prod-abc", // already has a product
-        isNewProduct: false,
-      });
-      assert.equal(ls.drawerOpen.value, false);
-    });
-
-    it("stays closed when isNewProduct is true even if confidence is Low and no productId", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "Low",
-        productId: null,
-        isNewProduct: true,
-      });
-      assert.equal(ls.drawerOpen.value, false);
-    });
-
-    it("stays closed when status is not Pending", () => {
-      for (const status of /** @type {const} */ (["Confirmed", "Dismissed", "Committed"])) {
-        const ls = makeState({
-          status,
-          confidence: "Low",
-          productId: null,
-          isNewProduct: false,
-        });
-        assert.equal(ls.drawerOpen.value, false, `expected closed for status=${status}`);
+  describe("drawerOpen (exceptions-first: focus drives the question drawer, not this flag)", () => {
+    it("always starts closed — the focused exception's drawer is opened by the island's focusId", () => {
+      for (const seed of [
+        { status: "Pending", confidence: "Low", productId: null, isNewProduct: false },
+        { status: "Pending", confidence: "None", productId: null, isNewProduct: false },
+        { status: "Pending", confidence: "High", productId: "prod-abc", isNewProduct: false },
+        { status: "Confirmed", confidence: "High", productId: "prod-abc", isNewProduct: false },
+        { status: "Dismissed", confidence: "None", productId: null, isNewProduct: false },
+      ]) {
+        const ls = makeState(seed);
+        assert.equal(ls.drawerOpen.value, false, `expected closed for ${JSON.stringify(seed)}`);
       }
     });
   });
@@ -432,9 +390,151 @@ describe("lineSection", () => {
     assert.equal(lineSection(ls), "ready");
   });
 
-  it("returns 'needs' for Pending", () => {
-    const ls = makeState({ status: "Pending" });
+  it("returns 'ready' for a Pending High-confidence line with a complete prefill (auto-confirm at commit)", () => {
+    // default makeState is High + complete prefill (product/qty/unit/location all set)
+    const ls = makeState({ status: "Pending", confidence: "High" });
+    assert.equal(lineSection(ls), "ready");
+  });
+
+  it("returns 'needs' for a Pending High-confidence line with an INCOMPLETE prefill (missing location)", () => {
+    const ls = makeState({ status: "Pending", confidence: "High" }, { locationId: null });
     assert.equal(lineSection(ls), "needs");
+  });
+
+  it("returns 'needs' for a Pending Low-confidence line even with a complete prefill", () => {
+    const ls = makeState({ status: "Pending", confidence: "Low" });
+    assert.equal(lineSection(ls), "needs");
+  });
+
+  it("returns 'needs' for a Pending None-confidence unmatched line", () => {
+    const ls = makeState(
+      { status: "Pending", confidence: "None", productId: null },
+      { productId: null },
+    );
+    assert.equal(lineSection(ls), "needs");
+  });
+});
+
+// ── hasCompletePrefill / isReadyPending ─────────────────────────────────────────
+
+describe("hasCompletePrefill", () => {
+  it("true when product, qty>0, unit and location are all present", () => {
+    assert.equal(hasCompletePrefill(makeState()), true);
+  });
+
+  it("false when product is missing", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { productId: null })), false);
+  });
+
+  it("false when location is missing", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { locationId: null })), false);
+  });
+
+  it("false when unit is missing", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { unitId: null })), false);
+  });
+
+  it("false when quantity is zero or absent", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { quantity: 0 })), false);
+    assert.equal(hasCompletePrefill(makeState({}, { quantity: null })), false);
+  });
+});
+
+describe("isReadyPending", () => {
+  it("true only for Pending + High + complete prefill", () => {
+    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "High" })), true);
+  });
+
+  it("false for Low confidence", () => {
+    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "Low" })), false);
+  });
+
+  it("false for High but incomplete prefill", () => {
+    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "High" }, { unitId: null })), false);
+  });
+
+  it("false for non-Pending statuses", () => {
+    for (const status of ["Confirmed", "Dismissed", "Committed"]) {
+      assert.equal(isReadyPending(makeState({ status, confidence: "High" })), false, status);
+    }
+  });
+});
+
+// ── decisionVariant ─────────────────────────────────────────────────────────────
+
+describe("decisionVariant", () => {
+  it("'create' when createNew is set", () => {
+    const ls = makeState();
+    ls.createNew.value = true;
+    assert.equal(decisionVariant(ls, 0), "create");
+  });
+
+  it("'create' when there is no product and no alternatives", () => {
+    const ls = makeState({ productId: null }, { productId: null });
+    assert.equal(decisionVariant(ls, 0), "create");
+  });
+
+  it("'estimate' when the line carries a weight→each estimate", () => {
+    const ls = makeLine(
+      { line: lineSeed(), prefill: prefill(), alternatives: null,
+        estimate: { eachCount: 7, weight: 1.34, weightUnit: "lb", confidence: "High" } },
+      sig,
+    );
+    assert.equal(decisionVariant(ls, 0), "estimate");
+  });
+
+  it("'match' when 2+ alternatives are present (and no estimate)", () => {
+    const alts = [
+      { productId: "p1", productName: "A", confidence: 0.8 },
+      { productId: "p2", productName: "B", confidence: 0.5 },
+    ];
+    const ls = makeLine({ line: lineSeed(), prefill: prefill(), alternatives: alts }, sig);
+    assert.equal(decisionVariant(ls, 0), "match");
+  });
+
+  it("'sku' when the drafted product has 2+ pack sizes (no estimate, <2 alternatives)", () => {
+    const ls = makeState();
+    assert.equal(decisionVariant(ls, 2), "sku");
+  });
+
+  it("'fields' as the fallback for a matched line with a single sku", () => {
+    const ls = makeState();
+    assert.equal(decisionVariant(ls, 1), "fields");
+  });
+});
+
+// ── questionCopy ─────────────────────────────────────────────────────────────────
+
+describe("questionCopy", () => {
+  it("returns a distinct non-empty question + why for every variant", () => {
+    const seen = new Set();
+    for (const v of ["create", "estimate", "match", "sku", "fields"]) {
+      const c = questionCopy(/** @type {any} */ (v));
+      assert.ok(c.question && c.why, `variant ${v} must have copy`);
+      assert.ok(!seen.has(c.question), `variant ${v} question must be distinct`);
+      seen.add(c.question);
+    }
+  });
+
+  it("falls back to the generic copy for an unknown variant", () => {
+    assert.deepEqual(questionCopy(/** @type {any} */ ("nope")), questionCopy("fields"));
+  });
+});
+
+// ── firstNeedsLineId ─────────────────────────────────────────────────────────────
+
+describe("firstNeedsLineId", () => {
+  it("returns the lineId of the first line still in the needs section", () => {
+    const ready = makeState({ lineId: "a", status: "Confirmed" });
+    const needs1 = makeState({ lineId: "b", status: "Pending", confidence: "Low" });
+    const needs2 = makeState({ lineId: "c", status: "Pending", confidence: "Low" });
+    assert.equal(firstNeedsLineId([ready, needs1, needs2]), "b");
+  });
+
+  it("returns null when nothing needs review", () => {
+    const ready = makeState({ lineId: "a", status: "Confirmed" });
+    const skipped = makeState({ lineId: "b", status: "Dismissed" });
+    assert.equal(firstNeedsLineId([ready, skipped]), null);
   });
 });
 
@@ -552,5 +652,108 @@ describe("makeLine estimate passthrough", () => {
       sig,
     );
     assert.equal(withoutEst.estimate, null);
+  });
+});
+
+// ── railLineView (plantry-zuh4 — receipt minimap glyph state) ───────────────────
+
+describe("railLineView", () => {
+  it("a ready line is done + tick, name dims", () => {
+    const v = railLineView("ready", false);
+    assert.equal(v.done, true);
+    assert.equal(v.dim, false);
+    assert.equal(v.glyph, "tick");
+  });
+
+  it("a needs line pulses a dot, is neither done nor dim", () => {
+    const v = railLineView("needs", false);
+    assert.equal(v.done, false);
+    assert.equal(v.dim, false);
+    assert.equal(v.glyph, "dot");
+  });
+
+  it("a skipped line dims (composing .dim) with no glyph", () => {
+    const v = railLineView("skipped", false);
+    assert.equal(v.done, false);
+    assert.equal(v.dim, true);
+    assert.equal(v.glyph, null);
+  });
+
+  it("the focused line is active regardless of section", () => {
+    assert.equal(railLineView("needs", true).active, true);
+    assert.equal(railLineView("ready", true).active, true);
+    assert.equal(railLineView("needs", false).active, false);
+  });
+});
+
+// ── reconciliation (plantry-zuh4 — receipt money footer) ────────────────────────
+
+describe("reconciliation", () => {
+  /** A realistic scanned session: 2 ready + 1 undecided + 1 skipped fee. */
+  const items = [
+    { section: /** @type {const} */ ("ready"), price: 10.0 },
+    { section: /** @type {const} */ ("ready"), price: 5.5 },
+    { section: /** @type {const} */ ("needs"), price: 4.0 },
+    { section: /** @type {const} */ ("skipped"), price: 0.1 },
+  ];
+
+  it("partitions line prices into pantry / undecided / fees sums", () => {
+    const r = reconciliation(items, 1.4, 21.0);
+    assert.equal(r.pantry, 15.5);
+    assert.equal(r.undecided, 4.0);
+    assert.equal(r.skippedFees, 0.1);
+  });
+
+  it("passes through a finite tax and total", () => {
+    const r = reconciliation(items, 1.4, 21.0);
+    assert.equal(r.tax, 1.4);
+    assert.equal(r.total, 21.0);
+  });
+
+  it("reconciles (✓) only when parts + tax add up to the total within a cent", () => {
+    // 15.5 + 4.0 + 0.1 + 1.4 = 21.0 → reconciles
+    assert.equal(reconciliation(items, 1.4, 21.0).reconciles, true);
+    // a torn/short total does not falsely all-clear
+    assert.equal(reconciliation(items, 1.4, 25.0).reconciles, false);
+  });
+
+  it("degrades a null/undefined/NaN total to null — never NaN (acceptance #3)", () => {
+    assert.equal(reconciliation(items, 1.4, null).total, null);
+    assert.equal(reconciliation(items, 1.4, undefined).total, null);
+    assert.equal(reconciliation(items, 1.4, NaN).total, null);
+    // with no total there is nothing to reconcile against
+    assert.equal(reconciliation(items, 1.4, null).reconciles, false);
+  });
+
+  it("degrades a null/undefined/NaN tax to null — the segment is dropped, not NaN", () => {
+    assert.equal(reconciliation(items, null, 21.0).tax, null);
+    assert.equal(reconciliation(items, undefined, 21.0).tax, null);
+    assert.equal(reconciliation(items, NaN, 21.0).tax, null);
+  });
+
+  it("treats a null line price as zero (the sums stay finite)", () => {
+    const withNull = [
+      { section: /** @type {const} */ ("ready"), price: null },
+      { section: /** @type {const} */ ("ready"), price: 3.0 },
+    ];
+    const r = reconciliation(withNull, null, null);
+    assert.equal(r.pantry, 3.0);
+    assert.ok(Number.isFinite(r.pantry));
+  });
+
+  it("rounds float drift to cents (0.1 + 0.2 = 0.3, not 0.30000000000000004)", () => {
+    const drift = [
+      { section: /** @type {const} */ ("ready"), price: 0.1 },
+      { section: /** @type {const} */ ("ready"), price: 0.2 },
+    ];
+    assert.equal(reconciliation(drift, null, null).pantry, 0.3);
+  });
+
+  it("an empty session yields all-zero sums and null totals", () => {
+    const r = reconciliation([], null, null);
+    assert.deepEqual(
+      { pantry: r.pantry, undecided: r.undecided, skippedFees: r.skippedFees, tax: r.tax, total: r.total, reconciles: r.reconciles },
+      { pantry: 0, undecided: 0, skippedFees: 0, tax: null, total: null, reconciles: false },
+    );
   });
 });

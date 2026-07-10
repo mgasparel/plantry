@@ -232,6 +232,130 @@ public sealed class ImportLineTests
         Assert.Equal(LineStatus.Committed, line.Status); // unchanged
     }
 
+    // ── Reopen (plantry-v0wl) ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void Reopen_Returns_A_Confirmed_Line_To_Pending()
+    {
+        var line = MakeLine();
+        line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, 2.50m);
+
+        var result = line.Reopen();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(LineStatus.Pending, line.Status);
+    }
+
+    [Fact]
+    public void Reopen_Clears_User_Resolved_Fields_But_Preserves_Suggestion_And_Receipt_Data()
+    {
+        var sugId = Guid.CreateVersion7();
+        var session = ImportSession.Start(Household, ImportSourceType.Receipt, Guid.CreateVersion7(), Clock);
+        var line = session.AddLine(1, "ORG BANANAS 1.34 lb", SuggestedConfidence.High, """{"x":1}""",
+            suggestedProductId: sugId, suggestedProductName: "Bananas", suggestedQuantity: 1.34m,
+            suggestedUnitLabel: "lb", suggestedPrice: 0.79m,
+            receiptWeight: 1.34m, receiptWeightUnitLabel: "lb",
+            estimatedEachCount: 7m, estimatedEachConfidence: SuggestedConfidence.High);
+        line.Confirm(ProductId, skuId: Guid.CreateVersion7(), 7m, UnitId, LocationId,
+            new DateOnly(2027, 1, 1), 0.79m);
+
+        var result = line.Reopen();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(LineStatus.Pending, line.Status);
+
+        // User-resolved fields are cleared so the prefill chain re-derives from the suggestions.
+        Assert.Null(line.ProductId);
+        Assert.Null(line.SkuId);
+        Assert.Null(line.Quantity);
+        Assert.Null(line.UnitId);
+        Assert.Null(line.LocationId);
+        Assert.Null(line.ExpiryDate);
+        Assert.Null(line.Price);
+        Assert.False(line.IsNewProduct);
+
+        // Once-set receipt/suggestion data survives untouched — the prefill chain has its inputs back.
+        Assert.Equal(sugId, line.SuggestedProductId);
+        Assert.Equal("Bananas", line.SuggestedProductName);
+        Assert.Equal(1.34m, line.SuggestedQuantity);
+        Assert.Equal("lb", line.SuggestedUnitLabel);
+        Assert.Equal(0.79m, line.SuggestedPrice);
+        Assert.Equal(1.34m, line.ReceiptWeight);
+        Assert.Equal("lb", line.ReceiptWeightUnitLabel);
+        Assert.Equal(7m, line.EstimatedEachCount);
+        Assert.Equal(SuggestedConfidence.High, line.EstimatedEachConfidence);
+    }
+
+    [Fact]
+    public void Reopen_Clears_Prior_New_Product_Intent()
+    {
+        var line = MakeLine();
+        line.ConfirmAsNew("Oat Milk", Guid.CreateVersion7(), 1m, UnitId, LocationId, null, 4.49m);
+
+        var result = line.Reopen();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(LineStatus.Pending, line.Status);
+        Assert.False(line.IsNewProduct);
+        Assert.Null(line.NewProductName);
+        Assert.Null(line.NewProductCategoryId);
+    }
+
+    [Fact]
+    public void Reopened_Line_Can_Be_Resolved_Again()
+    {
+        var line = MakeLine();
+        line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, 2.50m);
+        line.Reopen();
+
+        var newProduct = Guid.CreateVersion7();
+        var result = line.Confirm(newProduct, null, 3m, UnitId, LocationId, null, 9.99m);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(LineStatus.Confirmed, line.Status);
+        Assert.Equal(newProduct, line.ProductId);
+        Assert.Equal(3m, line.Quantity);
+    }
+
+    [Fact]
+    public void Reopen_Fails_When_Line_Is_Pending()
+    {
+        var line = MakeLine(); // Pending, never confirmed
+
+        var result = line.Reopen();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmed", result.Error.Code);
+        Assert.Equal(LineStatus.Pending, line.Status);
+    }
+
+    [Fact]
+    public void Reopen_Fails_When_Line_Is_Dismissed()
+    {
+        var line = MakeLine();
+        line.Dismiss();
+
+        var result = line.Reopen();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmed", result.Error.Code);
+        Assert.Equal(LineStatus.Dismissed, line.Status);
+    }
+
+    [Fact]
+    public void Reopen_Fails_When_Line_Is_Committed()
+    {
+        var line = MakeLine();
+        line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, null);
+        line.MarkCommitted(Guid.NewGuid(), null);
+
+        var result = line.Reopen();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmed", result.Error.Code);
+        Assert.Equal(LineStatus.Committed, line.Status); // unchanged
+    }
+
     [Fact]
     public void MarkCommitted_Records_Linkage_And_Transitions_To_Committed()
     {

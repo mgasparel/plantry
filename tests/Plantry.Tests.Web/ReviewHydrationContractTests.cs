@@ -33,6 +33,7 @@ public sealed class ReviewHydrationContractTests
         SaveLineUrl: "/Intake/Review/1?handler=SaveLine",
         DismissLineUrl: "/Intake/Review/1?handler=DismissLine",
         RestoreLineUrl: "/Intake/Review/1?handler=RestoreLine",
+        ReopenLineUrl: "/Intake/Review/1?handler=ReopenLine",
         Products:
         [
             new ProductHydration(
@@ -73,7 +74,7 @@ public sealed class ReviewHydrationContractTests
     {
         HydrationContract.AssertKeys(Serialize(Sample()),
             "merchantText", "sessionDate", "today",
-            "commitUrl", "discardUrl", "saveLineUrl", "dismissLineUrl", "restoreLineUrl",
+            "commitUrl", "discardUrl", "saveLineUrl", "dismissLineUrl", "restoreLineUrl", "reopenLineUrl",
             "products", "units", "locations", "categories", "lines",
             "scanVia", "scannedLabel", "storeBranch", "purchaseDate", "purchaseTime",
             "subtotal", "tax", "total", "payment", "receiptNo");

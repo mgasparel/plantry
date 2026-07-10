@@ -6521,6 +6521,60 @@ kbd, .kbd {
 }
 @media (max-width: 720px) { .kbd-bar { display: none; } }
 
+/* ── Intake exceptions-first flow additions (plantry-15l3, plantry-zuh4) ──────
+   The exact CSS the canonical prototype (.preview/intake-review-canonical.html)
+   marked as proposed-additions blocks 1–6. Each composes an existing primitive;
+   only the noted property is net-new. Block 1 (receipt minimap) is plantry-zuh4;
+   blocks 2–6 are plantry-15l3. */
+
+/* 1. Receipt minimap layer — makes the existing .rcpt-line facsimile navigable &
+      stateful. Composes with the existing .dim modifier (skipped lines). */
+.rcpt-line--jump { cursor: pointer; border-left: 2px solid transparent; }
+.rcpt-line--jump:hover { background: var(--color-surface-2); }
+.rcpt-line--active { background: var(--color-warning-bg); border-left-color: var(--color-warning); }
+.rcpt-line__st { width: 14px; flex: none; text-align: center; font-size: 11px; }
+.rcpt-line__st .tick { color: var(--color-success); font-weight: 700; display: inline-block; animation: rcpt-pop 0.25s ease; }
+.rcpt-line__st .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-warning); display: inline-block; animation: rcpt-pulse 1.6s ease infinite; }
+.rcpt-line--done .rl-name { color: var(--color-text-faint); }
+@keyframes rcpt-pop { 0% { transform: scale(0.3); } 70% { transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes rcpt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .rcpt-line__st .tick { animation: none; }
+  .rcpt-line__st .dot { animation: none; }
+}
+.rcpt-recon {
+  margin-top: var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  line-height: 1.55;
+}
+.rcpt-recon b { color: var(--color-text); }
+
+/* 2. Toast action button — extends the shared .toast with an inline action (Undo).
+      --color-cook reads well on the dark pill. */
+.toast__action { background: none; border: none; color: var(--color-cook); font-weight: 700; font-size: 13px; font-family: inherit; cursor: pointer; }
+
+/* 3. Inline variant of the keyboard-hint bar — same anatomy, in-flow placement for
+      pages that already own the viewport bottom (here: the commit bar). */
+.kbd-bar--inline { position: static; justify-content: flex-start; padding: var(--space-2) var(--space-1) 0; background: none; border-top: none; backdrop-filter: none; }
+
+/* 4. <kbd> chip inside a suggest-opt — composes two existing primitives; only spacing is new. */
+.suggest-opt kbd { margin-left: 2px; }
+
+/* 5. Focused-row emphasis — the row currently holding the keyboard/decision focus.
+      Extends the existing .import-row--matched/--open state family. */
+.import-row--focus { box-shadow: var(--shadow-card); }
+.import-row__main[data-action] { cursor: pointer; }
+
+/* 6. Question header inside the edit drawer — one line of type styling; sits where
+      .match-suggest__label sits and reuses its tone scale at drawer-headline size. */
+.review-q { font-size: var(--font-size-base); font-weight: 700; }
+.review-q + .match-suggest__label { margin-top: -4px; }
+
 /* ── Guided-flow step nav (.steps / .step) ──────────────────────────────────
    Jumpable step tabs for a multi-pass flow. NOT the <stepper> tag helper — that
    is the −[value]+ quantity control. Each step carries a mono count chip; when

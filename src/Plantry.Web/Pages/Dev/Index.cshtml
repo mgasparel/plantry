@@ -788,6 +788,20 @@
         </div>
     </div>
     <pre class="code-sample"><code>@("<div class=\"toast\" role=\"status\" aria-live=\"polite\" x-show=\"toast !== null\" x-on:click=\"toast = null\">\n  <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-check\" /></svg>\n  <span x-text=\"toast\"></span>\n</div>")</code></pre>
+    <p>
+        <strong>Inline Undo action (<code>.toast__action</code>).</strong> An optional action button on the
+        right of the pill — the Intake review flow uses it as an <em>Undo</em> affordance so a skip / resolve
+        can be reversed without a confirm dialog. Give the button <code>data-action</code> so the click
+        outside it still dismisses. <code>--color-cook</code> reads well on the dark pill.
+    </p>
+    <div style="margin-bottom: var(--space-4)">
+        <div class="toast" role="status" style="position: static; transform: none; display: inline-flex;">
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            <span>Greek yogurt skipped</span>
+            <button type="button" class="toast__action" data-action="undo">Undo</button>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"toast\" role=\"status\" aria-live=\"polite\">\n  <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-check\" /></svg>\n  <span>Greek yogurt skipped</span>\n  <button type=\"button\" class=\"toast__action\" data-action=\"undo\">Undo</button>\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -855,6 +869,20 @@
         <span><kbd>Z</kbd> go back</span>
     </div>
     <pre class="code-sample"><code>@("<div class=\"kbd-bar\">\n  <span><kbd>Enter</kbd> / <kbd>→</kbd> confirm</span>\n  <span><kbd>X</kbd> / <kbd>←</kbd> reject</span>\n</div>")</code></pre>
+    <p>
+        <strong>In-flow variant (<code>.kbd-bar--inline</code>).</strong> Same anatomy, but static (in-flow,
+        left-aligned, no blur / border / fixed position) for a page that already owns the viewport bottom —
+        the Intake review flow slots it under the exceptions section while one exception is focused, so it
+        rides above its own commit bar rather than the viewport edge.
+    </p>
+    <div class="kbd-bar kbd-bar--inline" style="margin-bottom: var(--space-4)">
+        <span><kbd>1</kbd>–<kbd>9</kbd> choose</span>
+        <span><kbd>Enter</kbd> confirm &amp; next</span>
+        <span><kbd>N</kbd> new product</span>
+        <span><kbd>S</kbd> skip</span>
+        <span><kbd>U</kbd> undo</span>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"kbd-bar kbd-bar--inline\">\n  <span><kbd>1</kbd>-<kbd>9</kbd> choose</span>\n  <span><kbd>Enter</kbd> confirm &amp; next</span>\n  <span><kbd>U</kbd> undo</span>\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">
