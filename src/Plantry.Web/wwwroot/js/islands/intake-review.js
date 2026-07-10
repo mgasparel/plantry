@@ -58,7 +58,9 @@ import {
   decisionVariant,
   questionCopy,
   firstNeedsLineId,
-} from "./intake-review-logic.js?v=2";
+  railLineView,
+  reconciliation,
+} from "./intake-review-logic.js?v=3";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -936,13 +938,14 @@ function ReviewRow({ ls, products, units, locations, categories, today, filter, 
  *   onRematch: (ls: LineState) => void,
  *   onRestore: (ls: LineState) => void,
  *   onJumpFocus: (lineId: string) => void,
+ *   onRailJump: (lineId: string) => void,
  *   onUndo: () => void,
  *   onDismissToast: () => void,
  *   onCommit: () => void,
  *   onDiscard: () => void,
  * }} props
  */
-function App({ lines, products, units, locations, categories, session, filter, focusId, alert, toastMsg, toastUndo, onSave, onSkip, onRematch, onRestore, onJumpFocus, onUndo, onDismissToast, onCommit, onDiscard }) {
+function App({ lines, products, units, locations, categories, session, filter, focusId, alert, toastMsg, toastUndo, onSave, onSkip, onRematch, onRestore, onJumpFocus, onRailJump, onUndo, onDismissToast, onCommit, onDiscard }) {
   const allLines = lines.value;
 
   // Commit-bar arithmetic — one pure source of truth (commitBarCounts in logic.js), so the
@@ -970,8 +973,23 @@ function App({ lines, products, units, locations, categories, session, filter, f
       .reduce((sum, l) => sum + (l.price.value ?? 0), 0)
   );
 
+  // Money reconciliation for the receipt minimap footer (plantry-zuh4). Pure display arithmetic
+  // (reconciliation() in logic.js): partitions line prices by section and pairs them with the
+  // receipt's own tax/total from hydration. Nullable totals degrade to null (never NaN) — the
+  // segments below are dropped rather than shown as "$NaN".
+  const recon = computed(() =>
+    reconciliation(
+      lines.value.map((l) => ({ section: lineSection(l), price: l.price.value })),
+      session.tax,
+      session.total,
+    )
+  );
+
   const fmtCad = (/** @type {number} */ n) =>
     n.toLocaleString(undefined, { style: "currency", currency: "CAD", minimumFractionDigits: 2 });
+  // Receipt-facsimile money format ("$3.99") — bare dollar prefix, matching the rail's monospaced
+  // line prices rather than the localized CAD currency used in the review column.
+  const fmtRcpt = (/** @type {number} */ n) => "$" + n.toFixed(2);
 
   const needsMeta = computed(() => {
     if (canCommit.value) return `<span><b>All set.</b> ${readyCount.value} items ready to add.</span>`;
@@ -1027,35 +1045,71 @@ function App({ lines, products, units, locations, categories, session, filter, f
             `}
           </div>
           <hr class="rcpt-rule" />
-          ${allLines.map((ls) => html`
-            <div key=${ls.lineId} class=${"rcpt-line" + (ls.status.value === "Dismissed" ? " dim" : "")}>
+          ${allLines.map((ls) => {
+            // Navigable, stateful minimap (plantry-zuh4): each scanned line mirrors its review-list
+            // section as a status glyph and jumps focus / opens the row's drawer on click.
+            const view = railLineView(lineSection(ls), focusId.value === ls.lineId);
+            return html`
+            <div key=${ls.lineId}
+                 class=${"rcpt-line rcpt-line--jump"
+                    + (view.done ? " rcpt-line--done" : "")
+                    + (view.dim ? " dim" : "")
+                    + (view.active ? " rcpt-line--active" : "")}
+                 role="button" tabindex="0"
+                 aria-label=${`Jump to ${ls.receiptText}`}
+                 onClick=${() => onRailJump(ls.lineId)}
+                 onKeyDown=${(/** @type {KeyboardEvent} */ e) => {
+                   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRailJump(ls.lineId); }
+                 }}>
+              <span class="rcpt-line__st">${
+                view.glyph === "tick" ? html`<span class="tick" aria-hidden="true">✓</span>`
+                : view.glyph === "dot" ? html`<span class="dot" aria-hidden="true"></span>`
+                : ""
+              }</span>
               <span class="rl-name">${ls.receiptText}</span>
               <span class="rl-price">${ls.price.value != null ? ls.price.value.toFixed(2) : ""}</span>
-            </div>
-          `)}
+            </div>`;
+          })}
           <hr class="rcpt-rule" />
           <div class="rcpt-foot">
             ${session.subtotal != null && html`
               <div class="rcpt-line">
+                <span class="rcpt-line__st"></span>
                 <span class="rl-name">SUBTOTAL</span>
                 <span class="rl-price">${session.subtotal.toFixed(2)}</span>
               </div>
             `}
             ${session.tax != null && html`
               <div class="rcpt-line">
+                <span class="rcpt-line__st"></span>
                 <span class="rl-name">TAX</span>
                 <span class="rl-price">${session.tax.toFixed(2)}</span>
               </div>
             `}
             <div id="rcpt-total" class="rcpt-line rcpt-total">
+              <span class="rcpt-line__st"></span>
               <span class="rl-name">TOTAL</span>
               <span class="rl-price">${(session.total != null ? session.total : receiptTotal.value).toFixed(2)}</span>
             </div>
             ${session.payment && html`
               <div class="rcpt-line" style="margin-top:6px">
+                <span class="rcpt-line__st"></span>
                 <span class="rl-name">${session.payment}</span>
               </div>
             `}
+          </div>
+          <div class="rcpt-recon" id="rcpt-recon">
+            <b>${fmtRcpt(recon.value.pantry)}</b> going to pantry${
+              recon.value.undecided > 0 ? html` · <b>${fmtRcpt(recon.value.undecided)}</b> undecided` : ""
+            }${
+              recon.value.skippedFees > 0 ? html` · ${fmtRcpt(recon.value.skippedFees)} fees skipped` : ""
+            }${
+              recon.value.tax != null ? html` · ${fmtRcpt(recon.value.tax)} tax` : ""
+            }${
+              recon.value.total != null
+                ? html`<br />= <b>${fmtRcpt(recon.value.total)}</b> receipt total${recon.value.reconciles ? " ✓" : ""}`
+                : ""
+            }
           </div>
           <div class="rcpt-barcode"></div>
           ${session.receiptNo && html`<div class="rcpt-no">${session.receiptNo}</div>`}
@@ -1436,6 +1490,29 @@ export function mountIntakeReview(root, hydration) {
     focusLine(lineId);
   }
 
+  /**
+   * Receipt-minimap click (plantry-zuh4). A needs line jumps the exception focus to it (leaving a
+   * 'ready'-only filter, which would hide it); a ready line opens that row's edit drawer (leaving a
+   * 'review'-only filter, which would hide it) and scrolls it into view. A skipped line is a no-op —
+   * the rail offers no restore affordance (that lives on the skipped row's "Add anyway").
+   * @param {string} lineId
+   */
+  function railJump(lineId) {
+    const ls = linesSignal.value.find((l) => l.lineId === lineId);
+    if (!ls) return;
+    const section = lineSection(ls);
+    if (section === "needs") {
+      if (filter.value === "ready") filter.value = "all";
+      focusLine(lineId);
+    } else if (section === "ready") {
+      if (filter.value === "review") filter.value = "all";
+      if (ls.status.value !== "Committed") ls.drawerOpen.value = true;
+      setTimeout(() => {
+        document.getElementById(`import-line-${lineId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 0);
+    }
+  }
+
   // ── Undo closures (each maps to the inverse server endpoint) ────────────────────
 
   /** @param {LineState} ls */
@@ -1549,6 +1626,7 @@ export function mountIntakeReview(root, hydration) {
       onRematch=${rematchLine}
       onRestore=${restoreLine}
       onJumpFocus=${jumpFocus}
+      onRailJump=${railJump}
       onUndo=${doUndo}
       onDismissToast=${hideToast}
       onCommit=${onCommit}

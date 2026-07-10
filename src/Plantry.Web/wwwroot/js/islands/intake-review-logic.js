@@ -419,3 +419,78 @@ export function buildSaveLineBody(ls) {
     price: ls.draftPrice.value ? parseFloat(ls.draftPrice.value) : null,
   };
 }
+
+// ── receipt minimap: per-line glyph state (plantry-zuh4) ────────────────────────
+
+/**
+ * Per-line view state for the receipt minimap (the navigable facsimile rail). Pure
+ * function of the line's display section + whether it currently holds focus — the
+ * island turns this into the rail row's class list and status glyph. Derives from the
+ * SAME {@link lineSection} the review list uses, so the rail and the list never disagree
+ * about which lines are done / undecided / skipped.
+ *
+ *   • "ready"   → `done: true` (the name dims via .rcpt-line--done) + a "tick" glyph.
+ *   • "needs"   → a pulsing "dot" glyph (still awaiting a decision).
+ *   • "skipped" → `dim: true` (composes the existing .dim modifier) + no glyph.
+ * The focused line additionally gets `active: true` (.rcpt-line--active highlight).
+ *
+ * @param {"needs" | "ready" | "skipped"} section — lineSection(ls)
+ * @param {boolean} isActive — the line currently holds the exception focus
+ * @returns {{ done: boolean, dim: boolean, active: boolean, glyph: "tick" | "dot" | null }}
+ */
+export function railLineView(section, isActive) {
+  return {
+    done: section === "ready",
+    dim: section === "skipped",
+    active: !!isActive,
+    glyph: section === "ready" ? "tick" : section === "needs" ? "dot" : null,
+  };
+}
+
+// ── receipt minimap: money reconciliation (plantry-zuh4) ────────────────────────
+
+/** Round to cents, guarding against float drift (e.g. 0.1 + 0.2). @param {number} n */
+function round2(n) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Money reconciliation for the receipt footer. PURE DISPLAY ARITHMETIC — it partitions
+ * the line prices by their display section and pairs them with the receipt's own
+ * subtotal/tax/total from hydration. It crosses no ADR-020 §7 boundary: it computes no
+ * domain rule, only sums numbers the UI already holds.
+ *
+ * Footer reads: "$pantry going to pantry · $undecided undecided · $skippedFees fees
+ * skipped · $tax tax = $total receipt total". The island omits the undecided / fees /
+ * tax segments when they are zero or absent.
+ *
+ * GRACEFUL DEGRADATION (acceptance #3): hydration subtotal/tax/total are nullable. A
+ * missing (or non-finite) tax/total becomes `null` here — never NaN — so the island can
+ * drop the corresponding segment rather than render "$NaN". The pantry/undecided/fees
+ * sums are always finite (a null line price counts as 0).
+ *
+ * `reconciles` is true only when a total is present AND the parts add up to it within a
+ * cent — it drives the "✓" confirmation, so a torn receipt (parts ≠ total) simply shows
+ * the breakdown without the tick rather than a false all-clear.
+ *
+ * @param {Array<{ section: "needs" | "ready" | "skipped", price: number|null }>} items
+ * @param {number|null|undefined} tax   — hydration receipt tax (nullable)
+ * @param {number|null|undefined} total — hydration receipt total (nullable)
+ * @returns {{ pantry: number, undecided: number, skippedFees: number,
+ *             tax: number|null, total: number|null, reconciles: boolean }}
+ */
+export function reconciliation(items, tax, total) {
+  const sumOf = (/** @type {"needs"|"ready"|"skipped"} */ section) =>
+    round2(items.filter((i) => i.section === section).reduce((s, i) => s + (i.price ?? 0), 0));
+  const pantry = sumOf("ready");
+  const undecided = sumOf("needs");
+  const skippedFees = sumOf("skipped");
+  const taxVal = typeof tax === "number" && isFinite(tax) ? tax : null;
+  const totalVal = typeof total === "number" && isFinite(total) ? total : null;
+  let reconciles = false;
+  if (totalVal != null) {
+    const computed = pantry + undecided + skippedFees + (taxVal ?? 0);
+    reconciles = Math.abs(computed - totalVal) < 0.01;
+  }
+  return { pantry, undecided, skippedFees, tax: taxVal, total: totalVal, reconciles };
+}

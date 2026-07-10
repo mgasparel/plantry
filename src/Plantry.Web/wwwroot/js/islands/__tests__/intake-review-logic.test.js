@@ -24,6 +24,8 @@ import {
   decisionVariant,
   questionCopy,
   firstNeedsLineId,
+  railLineView,
+  reconciliation,
 } from "../intake-review-logic.js";
 
 // ── test helpers ─────────────────────────────────────────────────────────────
@@ -650,5 +652,108 @@ describe("makeLine estimate passthrough", () => {
       sig,
     );
     assert.equal(withoutEst.estimate, null);
+  });
+});
+
+// ── railLineView (plantry-zuh4 — receipt minimap glyph state) ───────────────────
+
+describe("railLineView", () => {
+  it("a ready line is done + tick, name dims", () => {
+    const v = railLineView("ready", false);
+    assert.equal(v.done, true);
+    assert.equal(v.dim, false);
+    assert.equal(v.glyph, "tick");
+  });
+
+  it("a needs line pulses a dot, is neither done nor dim", () => {
+    const v = railLineView("needs", false);
+    assert.equal(v.done, false);
+    assert.equal(v.dim, false);
+    assert.equal(v.glyph, "dot");
+  });
+
+  it("a skipped line dims (composing .dim) with no glyph", () => {
+    const v = railLineView("skipped", false);
+    assert.equal(v.done, false);
+    assert.equal(v.dim, true);
+    assert.equal(v.glyph, null);
+  });
+
+  it("the focused line is active regardless of section", () => {
+    assert.equal(railLineView("needs", true).active, true);
+    assert.equal(railLineView("ready", true).active, true);
+    assert.equal(railLineView("needs", false).active, false);
+  });
+});
+
+// ── reconciliation (plantry-zuh4 — receipt money footer) ────────────────────────
+
+describe("reconciliation", () => {
+  /** A realistic scanned session: 2 ready + 1 undecided + 1 skipped fee. */
+  const items = [
+    { section: /** @type {const} */ ("ready"), price: 10.0 },
+    { section: /** @type {const} */ ("ready"), price: 5.5 },
+    { section: /** @type {const} */ ("needs"), price: 4.0 },
+    { section: /** @type {const} */ ("skipped"), price: 0.1 },
+  ];
+
+  it("partitions line prices into pantry / undecided / fees sums", () => {
+    const r = reconciliation(items, 1.4, 21.0);
+    assert.equal(r.pantry, 15.5);
+    assert.equal(r.undecided, 4.0);
+    assert.equal(r.skippedFees, 0.1);
+  });
+
+  it("passes through a finite tax and total", () => {
+    const r = reconciliation(items, 1.4, 21.0);
+    assert.equal(r.tax, 1.4);
+    assert.equal(r.total, 21.0);
+  });
+
+  it("reconciles (✓) only when parts + tax add up to the total within a cent", () => {
+    // 15.5 + 4.0 + 0.1 + 1.4 = 21.0 → reconciles
+    assert.equal(reconciliation(items, 1.4, 21.0).reconciles, true);
+    // a torn/short total does not falsely all-clear
+    assert.equal(reconciliation(items, 1.4, 25.0).reconciles, false);
+  });
+
+  it("degrades a null/undefined/NaN total to null — never NaN (acceptance #3)", () => {
+    assert.equal(reconciliation(items, 1.4, null).total, null);
+    assert.equal(reconciliation(items, 1.4, undefined).total, null);
+    assert.equal(reconciliation(items, 1.4, NaN).total, null);
+    // with no total there is nothing to reconcile against
+    assert.equal(reconciliation(items, 1.4, null).reconciles, false);
+  });
+
+  it("degrades a null/undefined/NaN tax to null — the segment is dropped, not NaN", () => {
+    assert.equal(reconciliation(items, null, 21.0).tax, null);
+    assert.equal(reconciliation(items, undefined, 21.0).tax, null);
+    assert.equal(reconciliation(items, NaN, 21.0).tax, null);
+  });
+
+  it("treats a null line price as zero (the sums stay finite)", () => {
+    const withNull = [
+      { section: /** @type {const} */ ("ready"), price: null },
+      { section: /** @type {const} */ ("ready"), price: 3.0 },
+    ];
+    const r = reconciliation(withNull, null, null);
+    assert.equal(r.pantry, 3.0);
+    assert.ok(Number.isFinite(r.pantry));
+  });
+
+  it("rounds float drift to cents (0.1 + 0.2 = 0.3, not 0.30000000000000004)", () => {
+    const drift = [
+      { section: /** @type {const} */ ("ready"), price: 0.1 },
+      { section: /** @type {const} */ ("ready"), price: 0.2 },
+    ];
+    assert.equal(reconciliation(drift, null, null).pantry, 0.3);
+  });
+
+  it("an empty session yields all-zero sums and null totals", () => {
+    const r = reconciliation([], null, null);
+    assert.deepEqual(
+      { pantry: r.pantry, undecided: r.undecided, skippedFees: r.skippedFees, tax: r.tax, total: r.total, reconciles: r.reconciles },
+      { pantry: 0, undecided: 0, skippedFees: 0, tax: null, total: null, reconciles: false },
+    );
   });
 });
