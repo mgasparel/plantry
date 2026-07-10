@@ -90,7 +90,7 @@ public sealed class AddMissingToShoppingListTests
         var writer = new FakeShoppingListWriter();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : (Guid?)null);
         var fulfillment = new FulfillmentService(stock, catalog, new IdentityUnitConverter(), new FakeExpiringSoonHorizonReader());
-        var service = new AddMissingToShoppingList(recipes, fulfillment, writer, Clock, tenant);
+        var service = new AddMissingToShoppingList(recipes, fulfillment, new RecipeExpansionService(recipes), writer, Clock, tenant);
         return new Harness
         {
             Recipes = recipes,
@@ -314,6 +314,36 @@ public sealed class AddMissingToShoppingListTests
 
         var call = Assert.Single(h.Writer.Calls); // single batch call
         Assert.Equal(2, call.Items.Count);
+    }
+
+    // ── Inclusions: a parent's missing set includes its sub's products, scaled (recipe-composition.md §7) ──
+
+    [Fact(DisplayName = "A parent recipe's 'add missing' includes its included sub's missing product, scaled by the factor")]
+    public async Task Inclusion_Sub_Missing_Product_Is_Forwarded_Scaled()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+        var product = h.Catalog.AddTracked(unitId, "Cashews"); // tracked, no stock → Missing
+
+        // Sub default 2 servings, 100 of the product. Parent (inclusion-only) default 4, includes 3
+        // servings of the sub → factor 3/2 = 1.5 → expanded quantity = 150.
+        var sub = Recipe.Create(Household, "Nacho Cheese", 2, Clock).Value;
+        sub.ReplaceLines([new IngredientLine(product.Id, 100m, unitId, null, 0)], [], Clock);
+        h.Recipes.Items.Add(sub);
+
+        var parent = Recipe.Create(Household, "Nachos", 4, Clock).Value;
+        parent.ReplaceLines([], [new InclusionLine(sub.Id, 3m, null, 0)], Clock);
+        h.Recipes.Items.Add(parent);
+
+        var result = await h.Service.ExecuteAsync(parent.Id, desiredServings: 4);
+
+        var added = Assert.IsType<AddMissingResult.Added>(result);
+        Assert.Equal(1, added.ItemCount);
+        var call = Assert.Single(h.Writer.Calls);
+        var item = Assert.Single(call.Items);
+        Assert.Equal(product.Id, item.ProductId);      // the sub's product reached the list
+        Assert.Equal(150m, item.Quantity);             // 100 × 1.5, fully missing at scale 1
+        Assert.Equal(unitId, item.UnitId);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

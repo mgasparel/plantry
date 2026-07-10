@@ -31,6 +31,7 @@ namespace Plantry.Recipes.Application;
 public sealed class AddMissingToShoppingList(
     IRecipeRepository recipes,
     FulfillmentService fulfillmentService,
+    RecipeExpansionService expansion,
     IShoppingListWriter shoppingWriter,
     IClock clock,
     ITenantContext tenant)
@@ -54,14 +55,23 @@ public sealed class AddMissingToShoppingList(
         if (recipe is null)
             return new AddMissingResult.NotFound();
 
-        // Compute fulfillment FRESH at the desired serving count (recipes-domain-model.md §7:
-        // "from a fresh FulfillmentResult at the displayed servings").
+        // Expand to the flat product-level view (D4 choke point) and aggregate by (ProductId, UnitId) so
+        // included recipes' products are considered and duplicate subs (D14) merge. A flat recipe expands to
+        // its own ingredients (aggregation is a no-op), so its shortfall is unchanged.
+        var expandResult = await expansion.ExpandAsync(recipeId, ct);
+        if (expandResult.IsFailure)
+            return new AddMissingResult.Invalid(expandResult.Error);
+        var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
+
+        // Compute fulfillment FRESH at the desired serving count over the expanded set (recipes-domain-model.md
+        // §7: "from a fresh FulfillmentResult at the displayed servings").
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
-        var fulfillment = await fulfillmentService.ComputeAsync(recipe, desiredServings, today, ct);
+        var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+            effectiveLines, recipe.DefaultServings, desiredServings, today, ct);
 
         // Compute the "Add missing" target set (Missing + Low shortfall lines) via the shared
         // target calculator so the button label and the synced set cannot diverge (plantry-gsj).
-        var itemsToAdd = RecipeShoppingTargets.Missing(recipe, fulfillment, desiredServings);
+        var itemsToAdd = RecipeShoppingTargets.Missing(effectiveLines, fulfillment, recipe.DefaultServings, desiredServings);
 
         // Nothing to buy: a no-op, NOT a reconcile-away. The button is hidden when there is no
         // shortfall, so an empty target here must not strip an existing recipe slice (plantry-gsj).

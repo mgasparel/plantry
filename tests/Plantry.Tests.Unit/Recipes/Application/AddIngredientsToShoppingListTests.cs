@@ -62,7 +62,7 @@ public sealed class AddIngredientsToShoppingListTests
         var writer = new FakeShoppingListWriter();
         var products = new FakeCatalogProductReader();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : (Guid?)null);
-        var service = new AddIngredientsToShoppingList(recipes, writer, products, tenant);
+        var service = new AddIngredientsToShoppingList(recipes, new RecipeExpansionService(recipes), writer, products, tenant);
         return new Harness
         {
             Recipes = recipes,
@@ -362,5 +362,40 @@ public sealed class AddIngredientsToShoppingListTests
         // Exactly one batch call (not one-per-ingredient).
         var call = Assert.Single(h.Writer.Calls);
         Assert.Equal(2, call.Items.Count);
+    }
+
+    // ── Inclusions: 'Add all' includes sub products; a duplicate sub merges into one row (D14) ──
+
+    [Fact(DisplayName = "'Add all' includes the same sub included twice as ONE merged (ProductId, UnitId) row with summed quantity (D14)")]
+    public async Task Inclusion_Duplicate_Sub_Merges_Into_One_Row()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+        var product = h.Products.AddTracked(unitId, "Pie Crust Flour");
+
+        // Sub default 2 servings, 200 of the product.
+        var sub = Recipe.Create(Household, "Pie Crust", 2, Clock).Value;
+        sub.ReplaceLines([new IngredientLine(product.Id, 200m, unitId, null, 0)], [], Clock);
+        h.Recipes.Items.Add(sub);
+
+        // Parent (inclusion-only) includes the SAME sub twice (D14): "Base" ×1 (f=0.5 → 100) and
+        // "Lattice" ×0.5 (f=0.25 → 50). Aggregation merges by (ProductId, UnitId) → 150.
+        var parent = Recipe.Create(Household, "Apple Pie", 4, Clock).Value;
+        parent.ReplaceLines([],
+        [
+            new InclusionLine(sub.Id, 1m, "Base", 0),
+            new InclusionLine(sub.Id, 0.5m, "Lattice", 1),
+        ], Clock);
+        h.Recipes.Items.Add(parent);
+
+        var result = await h.Service.ExecuteAsync(parent.Id, servings: 4);
+
+        var added = Assert.IsType<AddIngredientsResult.Added>(result);
+        Assert.Equal(1, added.ItemCount);             // merged into a single row
+        var call = Assert.Single(h.Writer.Calls);
+        var item = Assert.Single(call.Items);
+        Assert.Equal(product.Id, item.ProductId);
+        Assert.Equal(150m, item.Quantity);            // (200×0.5) + (200×0.25) = 150 at scale 1
+        Assert.Equal(unitId, item.UnitId);
     }
 }

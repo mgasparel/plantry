@@ -122,23 +122,32 @@ public sealed class DetailsModel(
         var tagIds = recipe.Tags.Select(rt => rt.TagId).ToList();
         var tagLookup = await tags.ResolveNamesAsync(tagIds, ct);
 
-        // Compute live fulfillment and cost at default servings (P2-2a / P2-2b).
+        // Expand the recipe ONCE (D4 single choke point) — the flat product-level view drives live
+        // fulfillment, cost, and shopping targets (recipe-composition.md §7) AND the inclusion previews below,
+        // so nested subs' products are reflected everywhere. On the defensive-cycle / missing-sub error path
+        // the previews and expanded set are simply empty; a flat recipe expands to its own ingredients.
+        var expandResult = await expansionService.ExpandAsync(id, ct);
+        IReadOnlyList<ExpandedLine> expandedLines = expandResult.IsSuccess ? expandResult.Value : [];
+        var effectiveLines = expandedLines.AggregateByProductAndUnit();
+
+        // Compute live fulfillment and cost over the expanded view at default servings (P2-2a / P2-2b).
         // Sequential awaits required — FulfillmentService and CostingService share the scoped EF
         // DbContexts; concurrent Task.WhenAll would throw InvalidOperationException (see BrowseRecipesQuery.cs:51-53).
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var fulfillment = await fulfillmentService.ComputeAsync(recipe, recipe.DefaultServings, today, ct);
-        var cost = await costingService.ComputeAsync(recipe, recipe.DefaultServings, ct);
+        var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+            effectiveLines, recipe.DefaultServings, recipe.DefaultServings, today, ct);
+        var cost = await costingService.ComputeExpandedAsync(effectiveLines, recipe.DefaultServings, recipe.DefaultServings, ct);
 
         // Server-compute the add-to-shopping button label states from the true delta between the
         // recipe's shortfall/required sets and its existing contribution slice (plantry-gsj).
         FulfilmentCard = await BuildCardModelAsync(
-            recipe, recipe.DefaultServings, productLookup, unitLookup, fulfillment, oob: false, summary: null, ct);
+            recipe, recipe.DefaultServings, productLookup, unitLookup, effectiveLines, fulfillment, oob: false, summary: null, ct);
 
         Recipe = RecipeDetailView.From(recipe, productLookup, unitLookup, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost);
 
         // Inclusions (recipe-composition.md §5 / D15): each inclusion renders in ordinal position as an
         // "N servings · Sub" link plus an expandable preview of the sub's expanded product-level ingredients.
-        Inclusions = await BuildInclusionViewsAsync(recipe, id, ct);
+        Inclusions = await BuildInclusionViewsAsync(recipe, expandedLines, ct);
 
         return true;
     }
@@ -150,7 +159,7 @@ public sealed class DetailsModel(
     /// with the inclusion's id). Product names/unit codes are batch-resolved across all previews in two calls.
     /// </summary>
     private async Task<IReadOnlyList<InclusionDetailView>> BuildInclusionViewsAsync(
-        Recipe recipe, RecipeId recipeId, CancellationToken ct)
+        Recipe recipe, IReadOnlyList<ExpandedLine> expandedLines, CancellationToken ct)
     {
         if (recipe.Inclusions.Count == 0) return [];
 
@@ -162,11 +171,9 @@ public sealed class DetailsModel(
             if (sub is not null) subInfo[subId] = (sub.Name, sub.DefaultServings);
         }
 
-        // Expand the whole recipe once (D4 single choke point). On the defensive-cycle / missing-sub error
-        // path the previews are simply empty — the inclusion titles/links still render.
-        var expansion = await expansionService.ExpandAsync(recipeId, ct);
-        IReadOnlyList<ExpandedLine> expandedLines = expansion.IsSuccess ? expansion.Value : [];
-
+        // The recipe was already expanded once by the caller (D4 single choke point); the previews reuse
+        // those lines. On the defensive-cycle / missing-sub error path the list is empty — the inclusion
+        // titles/links still render.
         var exProductIds = expandedLines.Select(l => l.ProductId).Distinct().ToList();
         var exProductLookup = exProductIds.Count > 0
             ? await catalog.ResolveSummariesAsync(exProductIds, ct)
@@ -226,14 +233,14 @@ public sealed class DetailsModel(
         // Clamp requested servings to a valid range (mirrors the stepper bounds in the view).
         var desiredServings = servings is > 0 and <= 24 ? servings : recipe.DefaultServings;
 
-        var (productLookup, unitLookup, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
+        var (productLookup, unitLookup, effectiveLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
 
         // Oob: true so the partial's #rd-ing-rows block carries hx-swap-oob="true" and htmx
         // replaces the ingredient rows in place alongside the primary #rd-fulf-card swap. Recomputing
         // the button label at the new servings gives the top-up state ("Add N more") rather than a
         // blind full re-add when servings grew (plantry-gsj).
         var vm = await BuildCardModelAsync(
-            recipe, desiredServings, productLookup, unitLookup, fulfillment, oob: true, summary: null, ct);
+            recipe, desiredServings, productLookup, unitLookup, effectiveLines, fulfillment, oob: true, summary: null, ct);
 
         return Partial("_DetailsFulfilmentCard", vm);
     }
@@ -244,7 +251,8 @@ public sealed class DetailsModel(
     /// </summary>
     private async Task<(IReadOnlyDictionary<Guid, CatalogProductSummary> Products,
                         IReadOnlyDictionary<Guid, string> Units,
-                        FulfillmentResult Fulfillment)> ResolveFulfilmentAsync(
+                        IReadOnlyList<EffectiveIngredient> EffectiveLines,
+                        ExpandedFulfillmentResult Fulfillment)> ResolveFulfilmentAsync(
         Recipe recipe, int servings, CancellationToken ct)
     {
         var productIds = recipe.Ingredients.Select(i => i.ProductId).Distinct().ToList();
@@ -257,9 +265,16 @@ public sealed class DetailsModel(
             .ToList();
         var unitLookup = await catalog.ResolveUnitCodesAsync(unitIds, ct);
 
+        // Expand + aggregate so fulfillment and the shopping targets reflect included recipes' products
+        // (recipe-composition.md §7). A flat recipe expands to its own ingredients.
+        var expandResult = await expansionService.ExpandAsync(recipe.Id, ct);
+        var effectiveLines = (expandResult.IsSuccess ? expandResult.Value : Array.Empty<ExpandedLine>())
+            .AggregateByProductAndUnit();
+
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
-        return (productLookup, unitLookup, fulfillment);
+        var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+            effectiveLines, recipe.DefaultServings, servings, today, ct);
+        return (productLookup, unitLookup, effectiveLines, fulfillment);
     }
 
     /// <summary>
@@ -275,7 +290,8 @@ public sealed class DetailsModel(
         int servings,
         IReadOnlyDictionary<Guid, CatalogProductSummary> productLookup,
         IReadOnlyDictionary<Guid, string> unitLookup,
-        FulfillmentResult fulfillment,
+        IReadOnlyList<EffectiveIngredient> effectiveLines,
+        ExpandedFulfillmentResult fulfillment,
         bool oob,
         ShoppingSyncOutcome? summary,
         CancellationToken ct)
@@ -283,10 +299,18 @@ public sealed class DetailsModel(
         var ingredientGroups = BuildIngredientGroups(recipe, productLookup, unitLookup, fulfillment);
 
         // Target sets computed via the same shared calculator the write path uses, so the label and the
-        // synced set cannot drift (plantry-gsj).
-        var trackedProductIds = productLookup.Where(kv => kv.Value.TrackStock).Select(kv => kv.Key).ToHashSet();
-        var missingTargets = RecipeShoppingTargets.Missing(recipe, fulfillment, servings);
-        var allTargets = RecipeShoppingTargets.All(recipe, trackedProductIds, servings);
+        // synced set cannot drift (plantry-gsj). The "Add all" set spans the whole expanded product set
+        // (including sub products), so resolve track_stock across every effective product — not just the
+        // direct-ingredient productLookup, which omits sub-recipe products.
+        var effectiveTrackedIds = effectiveLines
+            .Where(l => l.Quantity.HasValue && l.UnitId.HasValue)
+            .Select(l => l.ProductId)
+            .Distinct()
+            .ToList();
+        var effectiveSummaries = await catalog.ResolveSummariesAsync(effectiveTrackedIds, ct);
+        var trackedProductIds = effectiveSummaries.Where(kv => kv.Value.TrackStock).Select(kv => kv.Key).ToHashSet();
+        var missingTargets = RecipeShoppingTargets.Missing(effectiveLines, fulfillment, recipe.DefaultServings, servings);
+        var allTargets = RecipeShoppingTargets.All(effectiveLines, trackedProductIds, recipe.DefaultServings, servings);
 
         var contribution = await shoppingList.GetRecipeContributionStateAsync(recipe.Id.Value, ct);
         var missingLabel = AddToShoppingLabelCalculator.Compute(
@@ -314,9 +338,13 @@ public sealed class DetailsModel(
         Recipe recipe,
         IReadOnlyDictionary<Guid, CatalogProductSummary> productLookup,
         IReadOnlyDictionary<Guid, string> unitLookup,
-        FulfillmentResult fulfillment)
+        ExpandedFulfillmentResult fulfillment)
     {
-        var fulfillmentByIngredientId = fulfillment.Lines.ToDictionary(l => l.IngredientId, l => l);
+        // The expanded fulfillment is keyed on the (ProductId, UnitId) aggregation grain (recipe-composition.md
+        // §7); a direct ingredient row looks up its own product+unit. For a flat recipe this is 1:1 with the
+        // old IngredientId-keyed lookup; where a direct product also appears inside a sub, the row reflects the
+        // combined availability (the same figure the shortfall/shopping/cookability numbers use).
+        var fulfillmentByKey = fulfillment.Lines.ToDictionary(l => (l.ProductId, l.UnitId));
         return recipe.Ingredients
             .OrderBy(i => i.Ordinal)
             .GroupBy(i => i.GroupHeading)
@@ -329,7 +357,7 @@ public sealed class DetailsModel(
                     var unitCode = !isUntracked && i.UnitId is { } unitId
                         ? unitLookup.GetValueOrDefault(unitId)
                         : null;
-                    fulfillmentByIngredientId.TryGetValue(i.Id, out var ingFulfillment);
+                    fulfillmentByKey.TryGetValue((i.ProductId, i.UnitId), out var ingFulfillment);
                     return new IngredientItemView(
                         ProductName: product?.Name ?? "(unknown product)",
                         Quantity: isUntracked ? null : i.Quantity,
@@ -440,10 +468,10 @@ public sealed class DetailsModel(
         if (recipe is null) return NotFound();
 
         var desiredServings = servings is > 0 and <= 24 ? servings : recipe.DefaultServings;
-        var (productLookup, unitLookup, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
+        var (productLookup, unitLookup, effectiveLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
 
         var vm = await BuildCardModelAsync(
-            recipe, desiredServings, productLookup, unitLookup, fulfillment, oob: false, summary: outcome, ct);
+            recipe, desiredServings, productLookup, unitLookup, effectiveLines, fulfillment, oob: false, summary: outcome, ct);
 
         return Partial("_DetailsFulfilmentCard", vm);
     }
@@ -512,7 +540,7 @@ public sealed record RecipeDetailView(
     IReadOnlyList<TagView> Tags,
     IReadOnlyList<IngredientGroupView> IngredientGroups,
     IReadOnlyList<DirectionBlock> DirectionBlocks,
-    FulfillmentResult Fulfillment,
+    ExpandedFulfillmentResult Fulfillment,
     CostPerServing Cost)
 {
     internal static RecipeDetailView From(
@@ -521,7 +549,7 @@ public sealed record RecipeDetailView(
         IReadOnlyDictionary<Guid, string> unitLookup,
         IReadOnlyDictionary<TagId, string> tagLookup,
         IReadOnlyList<DirectionBlock> directions,
-        FulfillmentResult fulfillment,
+        ExpandedFulfillmentResult fulfillment,
         CostPerServing cost)
     {
         // Group ingredients by GroupHeading with per-line fulfilment status (shared with the card partial).
@@ -606,7 +634,7 @@ public enum DirectionBlockKind { Step, Section }
 public sealed record DetailsFulfilmentCardModel(
     Guid RecipeId,
     int DefaultServings,
-    FulfillmentResult Fulfillment,
+    ExpandedFulfillmentResult Fulfillment,
     IReadOnlyList<IngredientGroupView> IngredientGroups,
     bool Oob = false,
     AddButtonView? MissingButton = null,
