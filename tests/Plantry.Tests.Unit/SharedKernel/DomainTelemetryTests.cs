@@ -379,7 +379,8 @@ public sealed class DomainTelemetryTests
         recipe.ReplaceIngredients([new IngredientLine(productId, 100m, unitId, null, 0)], clock);
         recipes.Items.Add(recipe);
 
-        var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, clock, tenant, reconciler,
+        var expansion = new RecipeExpansionService(recipes);
+        var service = new CookRecipe(recipes, cookEvents, consumer, products, expansion, dispatcher, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -407,7 +408,8 @@ public sealed class DomainTelemetryTests
         var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
-        var service = new CookRecipe(recipes, cookEvents, consumer, products, dispatcher, clock, tenant, reconciler,
+        var expansion = new RecipeExpansionService(recipes);
+        var service = new CookRecipe(recipes, cookEvents, consumer, products, expansion, dispatcher, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -606,6 +608,13 @@ internal sealed class MetricsTestRecipeRepository : IRecipeRepository
     public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
         IReadOnlyList<RecipeId> ids, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<RecipeId, string>>(new Dictionary<RecipeId, string>());
+
+    public Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeInclusionEdge>>([]);
+
+    public Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(
+        RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());
 }
 
 internal sealed class MetricsTestCookEventRepository : ICookEventRepository

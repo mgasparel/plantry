@@ -67,6 +67,56 @@ public static class RecipeShortfallCalculator
 
         return results;
     }
+
+    /// <summary>
+    /// Expanded-view overload (recipe-composition.md §7, D4): computes shortfall over the aggregated
+    /// <see cref="EffectiveIngredient"/> set and its matching <see cref="ExpandedFulfillmentResult"/>, so a
+    /// parent's shortfall counts its included recipes' products (scaled), with duplicate subs (D14) already
+    /// merged into one row per <c>(ProductId, UnitId)</c>. Applies the same Missing/Low + deficit rule as the
+    /// flat overload; a flat recipe (expansion is a no-op) produces identical rows.
+    /// </summary>
+    /// <param name="lines">The aggregated effective ingredient set.</param>
+    /// <param name="fulfillment">The expanded fulfillment computed at <paramref name="desiredServings"/>.</param>
+    /// <param name="defaultServings">The recipe's default serving count — the denominator of the scale.</param>
+    /// <param name="desiredServings">The serving count the shortfall is computed at.</param>
+    public static IReadOnlyList<IngredientShortfall> Compute(
+        IReadOnlyList<EffectiveIngredient> lines,
+        ExpandedFulfillmentResult fulfillment,
+        int defaultServings,
+        int desiredServings)
+    {
+        var scale = (decimal)desiredServings / defaultServings;
+
+        // Index expanded fulfillment by its (ProductId, UnitId) grain — the aggregation key of the lines.
+        var fulfillmentByKey = fulfillment.Lines.ToDictionary(l => (l.ProductId, l.UnitId));
+
+        var results = new List<IngredientShortfall>();
+
+        foreach (var line in lines)
+        {
+            // Untracked staples have null Quantity/UnitId (R5) — skip (C12).
+            if (line.Quantity is null || line.UnitId is null)
+                continue;
+
+            if (!fulfillmentByKey.TryGetValue((line.ProductId, line.UnitId), out var f))
+                continue; // defensive: fulfillment and the aggregated set are computed from the same lines
+
+            // Only Missing and Low lines — InStock and Untracked are satisfied (C12 / J5).
+            if (f.Status is not (IngredientStatus.Missing or IngredientStatus.Low))
+                continue;
+
+            var required = line.Quantity.Value * scale;
+            var available = f.AvailableQuantity ?? 0m;
+
+            var shortfall = Math.Max(0m, required - available);
+            if (shortfall <= 0m)
+                continue;
+
+            results.Add(new IngredientShortfall(line.ProductId, shortfall, line.UnitId.Value));
+        }
+
+        return results;
+    }
 }
 
 /// <summary>

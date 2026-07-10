@@ -55,6 +55,10 @@ namespace Plantry.Recipes.Infrastructure.Migrations
                         .HasColumnType("numeric(12,3)")
                         .HasColumnName("shortfall");
 
+                    b.Property<Guid?>("SourceRecipeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_recipe_id");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text")
@@ -106,6 +110,49 @@ namespace Plantry.Recipes.Infrastructure.Migrations
                         .HasDatabaseName("ix_cook_event_household_recipe_cooked");
 
                     b.ToTable("cook_event", "recipes");
+                });
+
+            modelBuilder.Entity("Plantry.Recipes.Domain.Inclusion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("inclusion_id");
+
+                    b.Property<string>("GroupHeading")
+                        .HasColumnType("text")
+                        .HasColumnName("group_heading");
+
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("household_id");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer")
+                        .HasColumnName("ordinal");
+
+                    b.Property<Guid>("RecipeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recipe_id");
+
+                    b.Property<decimal>("Servings")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)")
+                        .HasColumnName("servings");
+
+                    b.Property<Guid>("SubRecipeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sub_recipe_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HouseholdId", "SubRecipeId")
+                        .HasDatabaseName("ix_recipe_inclusion_household_sub");
+
+                    b.HasIndex("RecipeId", "Ordinal")
+                        .IsUnique()
+                        .HasDatabaseName("ux_recipe_inclusion_recipe_ordinal");
+
+                    b.ToTable("recipe_inclusion", "recipes");
                 });
 
             modelBuilder.Entity("Plantry.Recipes.Domain.Ingredient", b =>
@@ -322,6 +369,15 @@ namespace Plantry.Recipes.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Plantry.Recipes.Domain.Inclusion", b =>
+                {
+                    b.HasOne("Plantry.Recipes.Domain.Recipe", null)
+                        .WithMany("Inclusions")
+                        .HasForeignKey("RecipeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Plantry.Recipes.Domain.Ingredient", b =>
                 {
                     b.HasOne("Plantry.Recipes.Domain.Recipe", null)
@@ -356,6 +412,8 @@ namespace Plantry.Recipes.Infrastructure.Migrations
 
             modelBuilder.Entity("Plantry.Recipes.Domain.Recipe", b =>
                 {
+                    b.Navigation("Inclusions");
+
                     b.Navigation("Ingredients");
 
                     b.Navigation("Photo");

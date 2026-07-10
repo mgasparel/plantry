@@ -41,6 +41,7 @@ public sealed class CookRecipe(
     ICookEventRepository cookEvents,
     IInventoryConsumer consumer,
     ICatalogProductReader products,
+    RecipeExpansionService expansion,
     IDomainEventDispatcher eventDispatcher,
     IClock clock,
     ITenantContext tenant,
@@ -87,22 +88,51 @@ public sealed class CookRecipe(
         var scale = (decimal)command.DesiredServings / recipe.DefaultServings;
         var servingsCooked = command.DesiredServings;
 
-        // ── Resolution index keyed by IngredientId ───────────────────────────────
-        var resolutionIndex = command.Resolutions
-            .ToDictionary(r => r.IngredientId);
+        // ── Expand the recipe to flat product-level lines (D4 choke point) ────────
+        // Every consume target is built from the EXPANDED view (recipe-composition.md §6): a flat recipe
+        // expands to its own direct ingredients (empty path, factor 1), so behaviour is unchanged; a
+        // recipe with inclusions expands to the sub-recipes' products, each pre-scaled by the product of
+        // (Inclusion.Servings / sub.DefaultServings) factors along its path. ServingsScale is applied ON
+        // TOP of those factors below. Nothing here learns recursion — the expansion service owns it.
+        var expandResult = await expansion.ExpandAsync(recipe.Id, ct);
+        if (expandResult.IsFailure)
+        {
+            // Defensive: a missing sub-recipe or an in-memory cycle (N4 should prevent the latter at save).
+            logger.LogWarning(
+                "Cook failed for recipe {RecipeId} — expansion error {ErrorCode}.",
+                command.RecipeId.Value, expandResult.Error.Code);
+            return new CookRecipeResult.Invalid(expandResult.Error);
+        }
+        var expandedLines = expandResult.Value;
+
+        // ── Resolution indexes keyed by path-qualified identity (§4/D6) ──────────
+        // A resolution's key is (PathKey, IngredientId) — direct lines use an empty path so existing
+        // call sites and form contracts map 1:1. A whole-inclusion skip (D7) is a skip resolution with
+        // no specific ingredient (empty IngredientId) addressing an inclusion path PREFIX; it drops every
+        // expanded line beneath that prefix.
+        var perLineResolutions = new Dictionary<(string PathKey, Guid IngredientId), IngredientResolution>();
+        var wholeInclusionSkips = new List<IReadOnlyList<InclusionId>>();
+        foreach (var r in command.Resolutions)
+        {
+            if (r.IsWholeInclusionSkip)
+                wholeInclusionSkips.Add(r.Path ?? []);
+            else
+                perLineResolutions[(r.PathKey, r.IngredientId.Value)] = r;
+        }
 
         // ── Batch-resolve TrackStock for all candidate product IDs in one round-trip ──
-        // Collect every product id that could potentially be consumed: the ingredient's own
+        // Collect every product id that could potentially be consumed: the expanded line's own
         // product (default path) plus every variant product id from explicit allocations.
         // Resolve them all at once via ResolveSummariesAsync — one catalog round-trip for
         // the whole recipe — then check TrackStock from the result dictionary in the loop.
         // C12 is applied uniformly: skip any product absent from the result or with TrackStock=false.
         var allCandidateIds = new HashSet<Guid>();
-        foreach (var ingredient in recipe.Ingredients)
+        foreach (var line in expandedLines)
         {
-            if (ingredient.Quantity is null || ingredient.UnitId is null) continue;
-            allCandidateIds.Add(ingredient.ProductId);
-            if (resolutionIndex.TryGetValue(ingredient.Id, out var res))
+            if (line.Quantity is null || line.UnitId is null) continue;
+            if (IsUnderSkippedInclusion(line.Path, wholeInclusionSkips)) continue;
+            allCandidateIds.Add(line.ProductId);
+            if (perLineResolutions.TryGetValue((line.PathKey, line.IngredientId.Value), out var res))
                 foreach (var alloc in res.Allocations)
                     allCandidateIds.Add(alloc.VariantProductId);
         }
@@ -157,24 +187,34 @@ public sealed class CookRecipe(
         // ── Build consume targets ─────────────────────────────────────────────────
         var consumeTargets = new List<ConsumeTarget>();
 
-        foreach (var ingredient in recipe.Ingredients)
+        foreach (var line in expandedLines)
         {
             // Untracked staple: null Quantity/UnitId means no quantity to consume (C12).
-            if (ingredient.Quantity is null || ingredient.UnitId is null)
+            if (line.Quantity is null || line.UnitId is null)
                 continue;
 
-            var scaledQuantity = ingredient.Quantity.Value * scale;
-            var unitId = ingredient.UnitId.Value;
+            // Whole-inclusion skip (D7): "not making the cheese tonight" drops every line under the path.
+            if (IsUnderSkippedInclusion(line.Path, wholeInclusionSkips))
+                continue;
 
-            if (resolutionIndex.TryGetValue(ingredient.Id, out var resolution))
+            // ServingsScale on TOP of the expansion factor already baked into line.Quantity (§6).
+            var scaledQuantity = line.Quantity.Value * scale;
+            var unitId = line.UnitId.Value;
+            // Provenance (D8): null for a direct line (empty path — no cross-recipe origin to render),
+            // the owning sub-recipe id for a line pulled in via an inclusion.
+            var sourceRecipeId = line.Path.Count == 0 ? (Guid?)null : line.SourceRecipeId.Value;
+
+            if (perLineResolutions.TryGetValue((line.PathKey, line.IngredientId.Value), out var resolution))
             {
                 if (resolution.IsSkipped)
-                    continue; // explicit skip (C9)
+                    continue; // explicit per-line skip (C9)
 
                 if (resolution.Allocations.Count > 0)
                 {
                     // Explicit variant split or swap (C7/C9/C11).
                     // C12 applies to all paths: skip allocation if variant is untracked or unknown.
+                    // Provenance still rides on the expanded line's owning recipe (a swap does not
+                    // change which recipe the line belongs to).
                     foreach (var alloc in resolution.Allocations)
                     {
                         if (!catalogSummaries.TryGetValue(alloc.VariantProductId, out var variant) || !variant.TrackStock)
@@ -184,23 +224,25 @@ public sealed class CookRecipe(
                             alloc.VariantProductId,
                             alloc.Quantity,
                             alloc.UnitId,
-                            ingredient.Id));
+                            line.IngredientId,
+                            sourceRecipeId));
                     }
                     continue;
                 }
                 // Resolution with no allocations and not skipped → fall through to default auto-selection.
             }
 
-            // Default auto-selection (C7): use ingredient's own product + scaled quantity.
+            // Default auto-selection (C7): use the expanded line's own product + scaled quantity.
             // Skip if untracked or absent from catalog (C12).
-            if (!catalogSummaries.TryGetValue(ingredient.ProductId, out var summary) || !summary.TrackStock)
+            if (!catalogSummaries.TryGetValue(line.ProductId, out var summary) || !summary.TrackStock)
                 continue;
 
             consumeTargets.Add(new ConsumeTarget(
-                ingredient.ProductId,
+                line.ProductId,
                 scaledQuantity,
                 unitId,
-                ingredient.Id));
+                line.IngredientId,
+                sourceRecipeId));
         }
 
         // ── Ad-hoc added products (plantry-7zjm) ──────────────────────────────────
@@ -224,7 +266,8 @@ public sealed class CookRecipe(
                 adHoc.ProductId,
                 adHoc.Quantity,
                 adHoc.UnitId,
-                IngredientId.From(Guid.Empty)));
+                IngredientId.From(Guid.Empty),
+                SourceRecipeId: null)); // ad-hoc lines belong to no recipe (D8)
         }
 
         // ── Anchor-first: add all consume lines as Pending, then commit (292b) ───
@@ -233,7 +276,8 @@ public sealed class CookRecipe(
         // a reconciler (292c) can detect Pending lines and re-drive them idempotently
         // via the sourceLineRef token (292a).
         foreach (var target in consumeTargets)
-            cookEvent.AddConsumeLine(target.IngredientId.Value, target.ProductId, target.Quantity, target.UnitId);
+            cookEvent.AddConsumeLine(
+                target.IngredientId.Value, target.ProductId, target.Quantity, target.UnitId, target.SourceRecipeId);
 
         await cookEvents.AddAsync(cookEvent, ct);
         await cookEvents.SaveChangesAsync(ct); // ← anchor commit: CookEvent + Pending lines are durable
@@ -323,7 +367,31 @@ public sealed class CookRecipe(
         Guid ProductId,
         decimal Quantity,
         Guid UnitId,
-        IngredientId IngredientId);
+        IngredientId IngredientId,
+        Guid? SourceRecipeId);
+
+    /// <summary>
+    /// True when <paramref name="linePath"/> lies beneath any whole-inclusion skip prefix (D7) — i.e. some
+    /// skip's path is a list-prefix of the line's path. Compared segment-wise on <see cref="InclusionId"/>s
+    /// (never on the joined string) so a prefix only matches at inclusion boundaries.
+    /// </summary>
+    private static bool IsUnderSkippedInclusion(
+        IReadOnlyList<InclusionId> linePath, List<IReadOnlyList<InclusionId>> skips)
+    {
+        foreach (var prefix in skips)
+        {
+            if (prefix.Count == 0 || prefix.Count > linePath.Count)
+                continue;
+            var match = true;
+            for (var i = 0; i < prefix.Count; i++)
+            {
+                if (prefix[i] != linePath[i]) { match = false; break; }
+            }
+            if (match)
+                return true;
+        }
+        return false;
+    }
 }
 
 // ── Command ─────────────────────────────────────────────────────────────────────────────────────
@@ -398,11 +466,50 @@ public sealed record AdHocLine(
 /// </list>
 /// </para>
 /// <para>Transient — never persisted (§6).</para>
+/// <para>
+/// With recipe composition (recipe-composition.md §4/§6, D6), a resolution is keyed by the
+/// <b>path-qualified identity</b> (<see cref="Path"/>, <see cref="IngredientId"/>): direct ingredients of
+/// the cooked recipe use an empty <see cref="Path"/>, so pre-composition call sites and form contracts map
+/// 1:1 and current cook behaviour is byte-for-byte preserved. A resolution addressing a line inside an
+/// inclusion carries the chain of <see cref="InclusionId"/>s down to that line's owning recipe.
+/// A <b>whole-inclusion skip</b> (D7) is created via <see cref="WholeInclusionSkip"/>.
+/// </para>
 /// </summary>
+/// <param name="Path">
+/// The chain of <see cref="InclusionId"/>s from the cooked recipe down to the resolved line's owning
+/// recipe — empty (or null) for a direct ingredient. Matches <c>ExpandedLine.Path</c>.
+/// </param>
 public sealed record IngredientResolution(
     IngredientId IngredientId,
     bool IsSkipped,
-    IReadOnlyList<VariantAllocation> Allocations);
+    IReadOnlyList<VariantAllocation> Allocations,
+    IReadOnlyList<InclusionId>? Path = null)
+{
+    /// <summary>
+    /// The '/'-joined GUID serialization of <see cref="Path"/> — an EMPTY string for a direct-line
+    /// resolution, matching <c>ExpandedLine.PathKey</c> so the two line up as dictionary keys.
+    /// </summary>
+    public string PathKey => Path is null || Path.Count == 0
+        ? string.Empty
+        : string.Join('/', Path.Select(p => p.Value));
+
+    /// <summary>
+    /// True when this is a whole-inclusion skip (D7): a skip resolution with no specific ingredient (empty
+    /// <see cref="IngredientId"/>) addressing an inclusion path PREFIX. <see cref="CookRecipe"/> drops every
+    /// expanded line beneath <see cref="Path"/>.
+    /// </summary>
+    public bool IsWholeInclusionSkip =>
+        IsSkipped && IngredientId.Value == Guid.Empty && Path is { Count: > 0 };
+
+    /// <summary>
+    /// Builds a whole-inclusion skip (D7) that drops every expanded line whose path is prefixed by
+    /// <paramref name="inclusionPath"/> — "not making the cheese tonight" as one action rather than N
+    /// per-line skips. <paramref name="inclusionPath"/> is the chain of <see cref="InclusionId"/>s from the
+    /// cooked recipe down to (and including) the inclusion being skipped.
+    /// </summary>
+    public static IngredientResolution WholeInclusionSkip(IReadOnlyList<InclusionId> inclusionPath) =>
+        new(IngredientId.From(Guid.Empty), IsSkipped: true, Allocations: [], Path: inclusionPath);
+}
 
 /// <summary>
 /// One variant allocation within an <see cref="IngredientResolution"/> — the specific product

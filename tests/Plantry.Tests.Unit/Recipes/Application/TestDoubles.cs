@@ -62,6 +62,48 @@ internal sealed class FakeRecipeRepository : IRecipeRepository
             .ToDictionary(r => r.Id, r => r.Name);
         return Task.FromResult(result);
     }
+
+    public Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default)
+    {
+        IReadOnlyList<RecipeInclusionEdge> edges = Items
+            .SelectMany(r => r.Inclusions.Select(i => new RecipeInclusionEdge(r.Id, i.SubRecipeId)))
+            .ToList();
+        return Task.FromResult(edges);
+    }
+
+    public Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(
+        RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default)
+    {
+        var edges = Items
+            .SelectMany(r => r.Inclusions.Select(i => new RecipeInclusionEdge(r.Id, i.SubRecipeId)))
+            .ToList();
+
+        if (!transitive)
+        {
+            IReadOnlySet<RecipeId> direct = edges
+                .Where(e => e.SubId == subRecipeId)
+                .Select(e => e.ParentId)
+                .ToHashSet();
+            return Task.FromResult(direct);
+        }
+
+        var bySub = edges
+            .GroupBy(e => e.SubId)
+            .ToDictionary(g => g.Key, g => g.Select(e => e.ParentId).ToList());
+        var result = new HashSet<RecipeId>();
+        var queue = new Queue<RecipeId>();
+        queue.Enqueue(subRecipeId);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!bySub.TryGetValue(current, out var parents)) continue;
+            foreach (var parent in parents)
+                if (result.Add(parent))
+                    queue.Enqueue(parent);
+        }
+        IReadOnlySet<RecipeId> transitiveResult = result;
+        return Task.FromResult(transitiveResult);
+    }
 }
 
 internal sealed class FakeTagRepository : ITagRepository

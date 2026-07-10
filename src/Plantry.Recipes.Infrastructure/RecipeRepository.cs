@@ -12,6 +12,7 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
     public Task<Recipe?> GetByIdAsync(RecipeId id, CancellationToken ct = default) =>
         db.Recipes
             .Include(r => r.Ingredients)
+            .Include(r => r.Inclusions)
             .Include(r => r.Tags)
             .Include(r => r.Photo)
             .FirstOrDefaultAsync(r => r.Id == id, ct);
@@ -60,5 +61,52 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
             .ToListAsync(ct);
 
         return results.ToDictionary(r => r.Id, r => r.Name);
+    }
+
+    public async Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default)
+    {
+        // Project only the two id columns — no aggregate materialization. The RLS query filter on
+        // Inclusion scopes the edges to the current household automatically (ADR-008).
+        var edges = await db.Inclusions
+            .Select(i => new { i.RecipeId, i.SubRecipeId })
+            .ToListAsync(ct);
+        return edges.Select(e => new RecipeInclusionEdge(e.RecipeId, e.SubRecipeId)).ToList();
+    }
+
+    public async Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(
+        RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default)
+    {
+        if (!transitive)
+        {
+            // Direct includers only — one indexed query (ix_recipe_inclusion_household_sub).
+            var direct = await db.Inclusions
+                .Where(i => i.SubRecipeId == subRecipeId)
+                .Select(i => i.RecipeId)
+                .Distinct()
+                .ToListAsync(ct);
+            return direct.ToHashSet();
+        }
+
+        // Transitive includers — walk the reverse (sub → parent) edges in memory. Household recipe counts
+        // make loading the full edge set trivially cheap (recipe-composition.md D5).
+        var edges = await ListInclusionEdgesAsync(ct);
+        var bySub = edges
+            .GroupBy(e => e.SubId)
+            .ToDictionary(g => g.Key, g => g.Select(e => e.ParentId).ToList());
+
+        var result = new HashSet<RecipeId>();
+        var queue = new Queue<RecipeId>();
+        queue.Enqueue(subRecipeId);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!bySub.TryGetValue(current, out var parents)) continue;
+            foreach (var parent in parents)
+            {
+                if (result.Add(parent))
+                    queue.Enqueue(parent);
+            }
+        }
+        return result;
     }
 }

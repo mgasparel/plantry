@@ -64,6 +64,32 @@
             <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
             All recipes
         </a>
+
+        @* ── Archive-blocked (N5) error banner (plantry-fqb0.3, D12) ── *@
+        @if (Model.SaveError is { } archiveErr)
+        {
+            <div class="save-error" role="alert" style="background:var(--color-danger-bg);border:1px solid var(--color-danger);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);margin-bottom:var(--space-4);color:var(--color-danger);display:flex;align-items:center;gap:var(--space-2)">
+                <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+                @archiveErr
+            </div>
+        }
+
+        @* ── Recipe actions (edit / archive) ── *@
+        <div class="rd-actions" style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-bottom:var(--space-3)">
+            <a href="/Recipes/@recipe.Id/Edit" class="btn btn--ghost btn--sm">
+                <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                Edit
+            </a>
+            <form method="post" action="/Recipes/@recipe.Id?handler=Archive" style="display:inline"
+                  onsubmit="return confirm('Archive this recipe? It will no longer appear in your recipe list.');">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn--ghost btn--sm" style="color:var(--color-danger)">
+                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                    Archive
+                </button>
+            </form>
+        </div>
+
         <div class="rd-grid">
 
             @* ═══════════════════════════════════════════════════════════════
@@ -219,6 +245,17 @@
                          hx-swap="outerHTML"></div>
                 }
 
+                @* ── Reverse-ripple diet-tag nudges (recipe-composition.md D10 / plantry-fqb0.7) ──
+                   One deferred placeholder per including PARENT the editor's cheap guard flagged after this recipe was
+                   saved as a sub. Each loads the /Recipes/DietNudge Ripple fragment for that parent — the gate + LLM
+                   run there, only on this save landing (?rippleParents), never on a plain view. Advisory only (C9). *@
+                @foreach (var rippleParentId in Model.RippleParentIds)
+                {
+                    <div hx-get="/Recipes/DietNudge?handler=Ripple&id=@rippleParentId"
+                         hx-trigger="load"
+                         hx-swap="outerHTML"></div>
+                }
+
                 @* ── Ingredients card with servings stepper in header ────────── *@
                 <div class="rd-ing-card">
                     <div class="rd-ing-head">
@@ -247,12 +284,88 @@
                     </div>
                 </div>
 
+                @* ── Included recipes (plantry-fqb0.3, §5 / D15) — 'N servings · Sub' link in ordinal
+                      position with an expandable read-only preview of the sub's expanded ingredients.
+                      Lives OUTSIDE #rd-ing-rows so the servings-stepper OOB swap never disturbs it. ── *@
+                @if (Model.Inclusions.Count > 0)
+                {
+                    <div class="rd-incl-card">
+                        <div class="rd-incl-head"><h3>Included recipes</h3></div>
+                        @foreach (var inc in Model.Inclusions)
+                        {
+                            var batchHint = Plantry.Web.Pages.Recipes.DetailsModel.FormatBatchHint(inc.Servings, inc.SubDefaultServings);
+                            <div class="rd-incl" role="listitem">
+                                <a class="rd-incl__title" href="/Recipes/@inc.SubRecipeId">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
+                                    <span>@Plantry.Web.Pages.Recipes.DetailsModel.FormatServings(inc.Servings) · @inc.SubName</span>
+                                </a>
+                                @if (!string.IsNullOrEmpty(batchHint))
+                                {
+                                    <div class="rd-incl__hint">≈ @batchHint</div>
+                                }
+                                @if (inc.Preview.Count > 0)
+                                {
+                                    <details class="rd-incl__preview">
+                                        <summary>Ingredients (@inc.Preview.Count)</summary>
+                                        <ul class="rd-incl__list">
+                                            @foreach (var item in inc.Preview)
+                                            {
+                                                <li class="rd-incl__item">
+                                                    <span class="rd-incl__item-name">@item.ProductName</span>
+                                                    @if (item.Quantity.HasValue)
+                                                    {
+                                                        <span class="rd-incl__item-amt">@IngredientAmount.Format(item.Quantity.Value)@(string.IsNullOrEmpty(item.UnitCode) ? "" : " " + item.UnitCode)</span>
+                                                    }
+                                                </li>
+                                            }
+                                        </ul>
+                                    </details>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
             </div>@* /rd-rail *@
 
         </div>@* /rd-grid *@
     </div>@* /rd-wrap *@
 
 </div>@* /recipe-detail *@
+
+@* ── Included-recipes card styling (plantry-fqb0.3) — page-specific; composes plenish.css tokens ── *@
+<style>
+    .rd-incl-card {
+        margin-top: var(--space-4);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-lg);
+        background: var(--color-surface);
+        overflow: hidden;
+    }
+    .rd-incl-head { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); }
+    .rd-incl-head h3 { margin: 0; font-size: var(--font-size-md); }
+    .rd-incl { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); }
+    .rd-incl:last-child { border-bottom: none; }
+    .rd-incl__title {
+        display: flex; align-items: center; gap: var(--space-2);
+        color: var(--color-text); font-weight: 600; text-decoration: none;
+    }
+    .rd-incl__title:hover { color: var(--color-accent); }
+    .rd-incl__title .icon { color: var(--color-accent); flex-shrink: 0; }
+    .rd-incl__hint { font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 2px 0 0 calc(16px + var(--space-2)); }
+    .rd-incl__preview { margin: var(--space-2) 0 0 calc(16px + var(--space-2)); }
+    .rd-incl__preview > summary {
+        cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted);
+        list-style: revert;
+    }
+    .rd-incl__preview > summary:hover { color: var(--color-accent); }
+    .rd-incl__list { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+    .rd-incl__item {
+        display: flex; justify-content: space-between; gap: var(--space-2);
+        font-size: var(--font-size-sm); padding: 2px 0; color: var(--color-text);
+    }
+    .rd-incl__item-amt { color: var(--color-text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+</style>
 
 @section Scripts {
     @* Bridge the canonical amount formatter onto window.IngredientAmount so the Alpine fmt() renders

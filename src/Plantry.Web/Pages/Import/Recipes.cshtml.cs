@@ -25,6 +25,7 @@ namespace Plantry.Web.Pages.Import;
 public sealed class RecipesModel(
     IRecipeRepository recipes,
     RecipeCommitService recipeCommitService,
+    RecipeNestingDeflattenService deflattenService,
     IOptions<GrocyOptions> options) : PageModel
 {
     private const int PageSize = 25;
@@ -34,6 +35,10 @@ public sealed class RecipesModel(
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
+
+    /// <summary>The deserialised manifest, retained by <see cref="TryLoadAndStageAsync"/> so the
+    /// de-flatten handler can pass its nesting edges without re-reading the file.</summary>
+    private GrocyManifest? _manifest;
 
     // ──────────── State properties ─────────────────────────────────────────
 
@@ -75,6 +80,14 @@ public sealed class RecipesModel(
     // ──────────── Commit result (populated after POST → CommitRecipes) ───────
     public string? CommitSuccessMessage { get; private set; }
     public IReadOnlyList<RecipeCommitService.RecipeCommitResult> CommitResults { get; private set; } = [];
+
+    // ──────────── De-flatten result (populated after POST → DeflattenNestings) ─
+    public string? DeflattenSuccessMessage { get; private set; }
+    public RecipeNestingDeflattenService.DeflattenSummary? DeflattenSummary { get; private set; }
+
+    /// <summary>Number of parent recipes carrying nesting edges — the de-flatten candidate set.</summary>
+    public int NestingEdgeParentCount =>
+        _manifest?.RecipeNestings.Select(n => n.RecipeId).Distinct().Count() ?? 0;
 
     // ──────────── Drop ID helpers ──────────────────────────────────────────
 
@@ -219,6 +232,59 @@ public sealed class RecipesModel(
         return Page();
     }
 
+    /// <summary>
+    /// Re-imports the Grocy nesting edges as recipe inclusions via
+    /// <see cref="RecipeNestingDeflattenService"/> (recipe-composition.md §10 / D16). Only untouched-since-import
+    /// parents are converted; edited parents and those with an uncommitted sub are skipped and reported.
+    ///
+    /// POST /Import/Recipes?handler=DeflattenNestings
+    /// Run after recipes have been committed (the crosswalk maps Grocy ids → committed recipe ids).
+    /// </summary>
+    public async Task<IActionResult> OnPostDeflattenNestingsAsync(CancellationToken ct = default)
+    {
+        if (!await TryLoadAndStageAsync(ct))
+            return Page();
+
+        if (!ManifestExists || ManifestPath is null || _manifest is null)
+        {
+            ErrorMessage = "Manifest not found — extract Grocy data first.";
+            return Page();
+        }
+
+        if (!RecipeCrosswalkFound)
+        {
+            ErrorMessage = "Recipes have not been committed yet — commit recipes before converting nestings.";
+            CurrentPage = 1;
+            ApplyPaging();
+            return Page();
+        }
+
+        var summary = await deflattenService.DeflattenAsync(AllRows, _manifest, ManifestPath, ct);
+        DeflattenSummary = summary;
+
+        if (summary.ParentsWithNestings == 0)
+        {
+            DeflattenSuccessMessage = "No nesting edges found — nothing to convert.";
+        }
+        else if (summary.Failed > 0)
+        {
+            ErrorMessage = $"Nesting conversion completed with {summary.Failed} failure(s). " +
+                           $"{summary.Converted} converted, {summary.Skipped} skipped. See details below.";
+        }
+        else
+        {
+            DeflattenSuccessMessage =
+                $"{summary.Converted} recipe(s) converted to inclusions. " +
+                $"{summary.AlreadyConverted} already converted, " +
+                $"{summary.SkippedEdited} skipped (edited since import), " +
+                $"{summary.SkippedMissingSub} skipped (uncommitted sub).";
+        }
+
+        CurrentPage = 1;
+        ApplyPaging();
+        return Page();
+    }
+
     // ──────────── Helpers ──────────────────────────────────────────────────
 
     /// <summary>
@@ -270,6 +336,7 @@ public sealed class RecipesModel(
         }
 
         ManifestExists = true;
+        _manifest = manifest;
 
         // Load crosswalks
         var productCrosswalkPath = ProductCrosswalk.ResolvePath(ManifestPath);

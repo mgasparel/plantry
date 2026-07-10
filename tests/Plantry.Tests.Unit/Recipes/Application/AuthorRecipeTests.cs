@@ -627,4 +627,116 @@ public sealed class AuthorRecipeTests
         var result = await h.Service.ExecuteAsync(create);
         return Assert.IsType<AuthorRecipeResult.Saved>(result).RecipeId;
     }
+
+    // ── Inclusions & N4 (recipe-composition.md) ──────────────────────────────────
+
+    /// <summary>Persists a recipe (one plain ingredient) directly into the fake repo for graph setup.</summary>
+    private Recipe SeedRecipe(Harness h, string name, int servings = 4)
+    {
+        var recipe = Recipe.Create(Household, name, servings, Clock).Value;
+        recipe.ReplaceIngredients(
+            [new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], Clock);
+        h.Recipes.Items.Add(recipe);
+        return recipe;
+    }
+
+    [Fact]
+    public async Task Create_Inclusions_Only_Recipe_Saves()
+    {
+        var h = BuildHarness();
+        var sub = SeedRecipe(h, "Nacho Cheese");
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null, Name: "Nachos Deluxe", DefaultServings: 2,
+            Lines: [], TagIds: [],
+            Inclusions: [new AuthorInclusionLine(sub.Id.Value, 2m, null, 0)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var saved = Assert.IsType<AuthorRecipeResult.Saved>(result);
+        var recipe = h.Recipes.Items.Single(r => r.Id == saved.RecipeId);
+        Assert.Empty(recipe.Ingredients);
+        var inc = Assert.Single(recipe.Inclusions);
+        Assert.Equal(sub.Id, inc.SubRecipeId);
+        Assert.Equal(2m, inc.Servings);
+    }
+
+    [Fact]
+    public async Task Inclusion_Of_Unknown_SubRecipe_Is_Rejected()
+    {
+        var h = BuildHarness();
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null, Name: "Broken", DefaultServings: 1,
+            Lines: [], TagIds: [],
+            Inclusions: [new AuthorInclusionLine(Guid.NewGuid(), 1m, null, 0)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var invalid = Assert.IsType<AuthorRecipeResult.Invalid>(result);
+        Assert.Equal("Recipes.UnknownSubRecipe", invalid.Error.Code);
+    }
+
+    [Fact]
+    public async Task N4_Direct_Cycle_Is_Rejected()
+    {
+        // A includes B; editing B to include A closes a direct cycle A→B→A.
+        var h = BuildHarness();
+        var a = SeedRecipe(h, "A");
+        var b = SeedRecipe(h, "B");
+        a.ReplaceLines([], [new InclusionLine(b.Id, 1m, null, 0)], Clock);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: b.Id, Name: "B", DefaultServings: 4,
+            Lines: [], TagIds: [],
+            Inclusions: [new AuthorInclusionLine(a.Id.Value, 1m, null, 0)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var invalid = Assert.IsType<AuthorRecipeResult.Invalid>(result);
+        Assert.Equal("Recipes.InclusionCycle", invalid.Error.Code);
+    }
+
+    [Fact]
+    public async Task N4_Transitive_Cycle_Is_Rejected()
+    {
+        // A→B and B→C exist; editing C to include A closes a transitive cycle A→B→C→A.
+        var h = BuildHarness();
+        var a = SeedRecipe(h, "A");
+        var b = SeedRecipe(h, "B");
+        var c = SeedRecipe(h, "C");
+        a.ReplaceLines([], [new InclusionLine(b.Id, 1m, null, 0)], Clock);
+        b.ReplaceLines([], [new InclusionLine(c.Id, 1m, null, 0)], Clock);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: c.Id, Name: "C", DefaultServings: 4,
+            Lines: [], TagIds: [],
+            Inclusions: [new AuthorInclusionLine(a.Id.Value, 1m, null, 0)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var invalid = Assert.IsType<AuthorRecipeResult.Invalid>(result);
+        Assert.Equal("Recipes.InclusionCycle", invalid.Error.Code);
+    }
+
+    [Fact]
+    public async Task N4_Acyclic_Chain_Extension_Is_Accepted()
+    {
+        // A→B exists; adding B→C is a longer chain but NOT a cycle — must save.
+        var h = BuildHarness();
+        var a = SeedRecipe(h, "A");
+        var b = SeedRecipe(h, "B");
+        var c = SeedRecipe(h, "C");
+        a.ReplaceLines([], [new InclusionLine(b.Id, 1m, null, 0)], Clock);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: b.Id, Name: "B", DefaultServings: 4,
+            Lines: [], TagIds: [],
+            Inclusions: [new AuthorInclusionLine(c.Id.Value, 1m, null, 0)]);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        Assert.Equal(c.Id, Assert.Single(b.Inclusions).SubRecipeId);
+    }
 }

@@ -7,7 +7,7 @@
 	</div>
 	<div class="card__body" style="padding:0">
 		<div hidden="" aria-hidden="true">
-			<template x-for="(row, idx) in rows" :key="row._id"><div>
+			<template x-for="(row, idx) in ingredientRows()" :key="row._id"><div>
 					<input type="hidden" :name="'Input.Lines[' + idx + '].Ordinal'" :value="row.ordinal">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].ProductName'" :value="row.productName">
@@ -27,6 +27,14 @@
 					<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionRightAmount'" :value="row.convRightAmount">
 					<input type="hidden" :name="'Input.Lines[' + idx + '].ConversionRightUnitId'" :value="row.convRightUnitId">
 				</div></template>
+			<template x-for="(inc, jdx) in inclusionRows()" :key="inc._id"><div>
+					<input type="hidden" :name="'Input.Inclusions[' + jdx + '].Ordinal'" :value="inc.ordinal">
+					<input type="hidden" :name="'Input.Inclusions[' + jdx + '].SubRecipeId'" :value="inc.subRecipeId">
+					<input type="hidden" :name="'Input.Inclusions[' + jdx + '].SubName'" :value="inc.subName">
+					<input type="hidden" :name="'Input.Inclusions[' + jdx + '].Servings'" :value="inc.servings">
+					<input type="hidden" :name="'Input.Inclusions[' + jdx + '].SubDefaultServings'" :value="inc.subDefaultServings">
+					<input type="hidden" :name="'Input.Inclusions[' + jdx + '].GroupHeading'" :value="inc.groupHeading">
+				</div></template>
 		</div>
 		<div id="ingredient-rows" :class="{ 'ingredient-sections--dragging': _dragActive }">
 			<template x-for="section in sections()" :key="section.key"><div class="ing-section" @dragover.prevent="onDragOver(section, $event)" @drop.prevent="onDragEnd()">
@@ -42,27 +50,53 @@
 					</div>
 					<div class="ing-rows">
 						<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion &amp;&amp; !rowConvFilled(row), 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
-								<div class="ingredient-row__body">
-									<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
-										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-											<line x1="3" y1="8" x2="21" y2="8"></line>
-											<line x1="3" y1="16" x2="21" y2="16"></line>
-										</svg>
-									</div>
-									<button type="button" class="ingredient-row__summary" @click="openEdit(row)" :title="'Edit ' + (row.newStapleName || row.productName)">
-										<span x-text="rowSummary(row)"></span>
-									</button>
-									<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Edit ingredient" @click="openEdit(row)">
-										<svg class="icon" aria-hidden="true">
-											<use href="#i-edit"></use>
-										</svg>
-									</button>
-									<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Remove ingredient" @click="removeRow(row)" style="color:var(--color-danger)">
-										<svg class="icon" aria-hidden="true">
-											<use href="#i-minus"></use>
-										</svg>
-									</button>
-								</div>
+								<template x-if="row.kind === 'inclusion'"><div class="ingredient-row__body">
+										<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
+											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+												<line x1="3" y1="8" x2="21" y2="8"></line>
+												<line x1="3" y1="16" x2="21" y2="16"></line>
+											</svg>
+										</div>
+										<div class="incl-row__main">
+											<div class="incl-row__title">
+												<svg class="icon" aria-hidden="true">
+													<use href="#i-recipe"></use>
+												</svg>
+												<span x-text="inclusionServingsLabel(row) + ' · ' + row.subName"></span>
+											</div>
+											<div class="incl-row__hint" x-show="batchHint(row)" x-cloak="" x-text="'≈ ' + batchHint(row)"></div>
+										</div>
+										<label class="incl-row__servings">
+											<span class="incl-row__servings-lbl">Servings</span>
+											<input type="number" min="0.25" step="0.25" class="field__input incl-row__servings-input" aria-label="Servings of the included recipe" x-model.number="row.servings">
+										</label>
+										<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Remove included recipe" @click="removeRow(row)" style="color:var(--color-danger)">
+											<svg class="icon" aria-hidden="true">
+												<use href="#i-minus"></use>
+											</svg>
+										</button>
+									</div></template>
+								<template x-if="row.kind !== 'inclusion'"><div class="ingredient-row__body">
+										<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
+											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+												<line x1="3" y1="8" x2="21" y2="8"></line>
+												<line x1="3" y1="16" x2="21" y2="16"></line>
+											</svg>
+										</div>
+										<button type="button" class="ingredient-row__summary" @click="openEdit(row)" :title="'Edit ' + (row.newStapleName || row.productName)">
+											<span x-text="rowSummary(row)"></span>
+										</button>
+										<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Edit ingredient" @click="openEdit(row)">
+											<svg class="icon" aria-hidden="true">
+												<use href="#i-edit"></use>
+											</svg>
+										</button>
+										<button type="button" class="btn btn--ghost btn--sm ingredient-row__action" aria-label="Remove ingredient" @click="removeRow(row)" style="color:var(--color-danger)">
+											<svg class="icon" aria-hidden="true">
+												<use href="#i-minus"></use>
+											</svg>
+										</button>
+									</div></template>
 								<div x-show="rowNeedsQtyUnit(row)" class="ingredient-row__needs-qty" style="background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)">
 									<p style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:center;gap:var(--space-2);color:var(--color-text)">
 										<svg class="icon" aria-hidden="true">
@@ -108,13 +142,31 @@
 		<div x-show="rows.length === 0" style="padding:var(--space-4);color:var(--color-text-muted);font-size:var(--font-size-sm)">
 			No ingredients yet — add your first one below.
 		</div>
-		<div style="padding:var(--space-4)">
+		<div style="padding:var(--space-4);display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:flex-start">
 			<button type="button" class="btn btn--ghost btn--sm" @click="openAdd()">
 				<svg class="icon" aria-hidden="true">
 					<use href="#i-plus"></use>
 				</svg>
 				Add ingredient
 			</button>
+			<div class="incl-search-wrap" style="position:relative">
+				<button type="button" class="btn btn--ghost btn--sm" @click="openInclusionSearch()">
+					<svg class="icon" aria-hidden="true">
+						<use href="#i-plus"></use>
+					</svg>
+					Include a recipe
+				</button>
+				<div x-show="inclusionSearchOpen" x-cloak="" @click.outside="closeInclusionSearch()" class="incl-search">
+					<input type="text" x-ref="inclusionInput" x-model="inclusionQuery" @input="searchInclusions()" @keydown.escape="closeInclusionSearch()" placeholder="Search your recipes…" class="field__input" autocomplete="off">
+					<div class="incl-search__results">
+						<template x-if="inclusionResults.length === 0"><p class="incl-search__empty" x-text="inclusionQuery.trim() ? 'No matching recipes.' : 'Type to search your recipes.'"></p></template>
+						<template x-for="hit in inclusionResults" :key="hit.id"><button type="button" class="incl-search__opt" @click="addInclusion(hit)">
+								<span class="incl-search__opt-name" x-text="hit.name"></span>
+								<span class="incl-search__opt-meta" x-text="hit.defaultServings + (hit.defaultServings === 1 ? ' serving' : ' servings')"></span>
+							</button></template>
+					</div>
+				</div>
+			</div>
 		</div>
 	</div>
 </div>

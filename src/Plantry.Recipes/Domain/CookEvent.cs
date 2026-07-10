@@ -102,8 +102,14 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
     /// <param name="productId">The resolved product to consume.</param>
     /// <param name="quantity">Scaled quantity to consume.</param>
     /// <param name="unitId">Unit of <paramref name="quantity"/>.</param>
+    /// <param name="sourceRecipeId">
+    /// Cook-history provenance (D8): the recipe the ingredient physically belongs to. Pass the sub-recipe
+    /// id for a line pulled in via an inclusion; leave <c>null</c> (default) for a direct line of the
+    /// cooked recipe or an ad-hoc added product. Optional so existing direct-line call sites map 1:1.
+    /// </param>
     /// <returns>The newly-added <see cref="CookConsumeLine"/>.</returns>
-    public CookConsumeLine AddConsumeLine(Guid ingredientId, Guid productId, decimal quantity, Guid unitId)
+    public CookConsumeLine AddConsumeLine(
+        Guid ingredientId, Guid productId, decimal quantity, Guid unitId, Guid? sourceRecipeId = null)
     {
         var line = new CookConsumeLine(
             CookConsumeLineId.New(),
@@ -112,7 +118,8 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
             ingredientId,
             productId,
             quantity,
-            unitId);
+            unitId,
+            sourceRecipeId);
         _lines.Add(line);
         return line;
     }

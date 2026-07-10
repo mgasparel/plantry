@@ -3598,6 +3598,22 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   color: var(--color-danger);
 }
 
+/* ── Inclusion groups on the Cook page (recipe-composition.md §6, D6/D7) ──
+   One card per included recipe: a header carrying the sub name + effective
+   servings and a whole-inclusion "Skip all" control, then the sub's expanded
+   lines rendered with the same per-line toolkit as direct ingredients. When the
+   whole inclusion is skipped the card washes back (rows already carry their own
+   greyed/overlay state via the shared per-line skip expression). */
+.cook-inclusion-group { margin-top: 16px; }
+.cook-inclusion-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cook-inclusion-skip-btn { flex: none; }
+.cook-inclusion-group--skipped { opacity: 0.6; }
+
 /* ── Add product to this cook (plantry-7zjm) ─────────────────────────────
    The "add" primitive completing the skip / modify / add trio: an EXISTING
    catalog product consumed as part of THIS cook only (the recipe definition is

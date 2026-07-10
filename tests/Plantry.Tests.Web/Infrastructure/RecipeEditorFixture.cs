@@ -379,6 +379,46 @@ public sealed class FakeEditorRecipeRepository(ITenantContext tenant, params Rec
     public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
         IReadOnlyList<RecipeId> ids, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<RecipeId, string>>(new Dictionary<RecipeId, string>());
+
+    public Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeInclusionEdge>>(Edges().ToList());
+
+    /// <summary>
+    /// Computes the reverse-includer set from the known recipes' inclusion edges (recipe-composition.md N5/D10) so
+    /// reverse-ripple tests can drive real transitive lookups. Recipes with no inclusions yield no edges, so this is
+    /// an empty set for the pre-inclusion fixtures — behaviour unchanged for existing callers.
+    /// </summary>
+    public Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(
+        RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default)
+    {
+        var edges = Edges().ToList();
+        if (!transitive)
+        {
+            IReadOnlySet<RecipeId> direct = edges
+                .Where(e => e.SubId == subRecipeId)
+                .Select(e => e.ParentId)
+                .ToHashSet();
+            return Task.FromResult(direct);
+        }
+
+        var bySub = edges.GroupBy(e => e.SubId).ToDictionary(g => g.Key, g => g.Select(e => e.ParentId).ToList());
+        var result = new HashSet<RecipeId>();
+        var queue = new Queue<RecipeId>();
+        queue.Enqueue(subRecipeId);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!bySub.TryGetValue(current, out var parents)) continue;
+            foreach (var parent in parents)
+                if (result.Add(parent))
+                    queue.Enqueue(parent);
+        }
+        IReadOnlySet<RecipeId> transitiveResult = result;
+        return Task.FromResult(transitiveResult);
+    }
+
+    private IEnumerable<RecipeInclusionEdge> Edges() =>
+        knownRecipes.SelectMany(r => r.Inclusions.Select(i => new RecipeInclusionEdge(r.Id, i.SubRecipeId)));
 }
 
 /// <summary>

@@ -46,82 +46,127 @@ public sealed class CostingService(IPriceReader priceReader, IUnitConverter unit
 
         foreach (var ingredient in recipe.Ingredients)
         {
-            // Exclude untracked staples (null Quantity/UnitId → "to taste", no price by design).
-            // Costable = tracked real product with a known quantity and unit (R5).
-            if (ingredient.Quantity is null || ingredient.UnitId is null)
-                continue;
+            var (costable, lineCost) = await CostLineAsync(
+                ingredient.ProductId, ingredient.Quantity, ingredient.UnitId, scale, ct);
+            if (!costable)
+                continue; // untracked staple — "no price by design", not a data gap (C12)
 
             costableCount++;
-
-            var pricePoint = await priceReader.FindLatestAsync(ingredient.ProductId, ct);
-            if (pricePoint is null)
+            if (lineCost.HasValue)
             {
-                missingPriceProductIds.Add(ingredient.ProductId);
-                continue;
-            }
-
-            // Derive the unit price (price per one unit) from the observation.
-            // Use UnitPrice when the Pricing context already computed it (preferred); otherwise
-            // derive from Price / Quantity (guarded against zero).
-            decimal unitPrice;
-            if (pricePoint.UnitPrice.HasValue)
-            {
-                unitPrice = pricePoint.UnitPrice.Value;
-            }
-            else if (pricePoint.Quantity > 0m)
-            {
-                unitPrice = pricePoint.Price / pricePoint.Quantity;
+                runningTotal += lineCost.Value;
+                pricedCount++;
             }
             else
             {
-                // Degenerate observation (zero quantity, no UnitPrice): treat as un-priced.
                 missingPriceProductIds.Add(ingredient.ProductId);
-                continue;
             }
-
-            // The unit price is expressed in pricePoint.UnitId. Convert to the ingredient's
-            // UnitId so we can multiply by the scaled required quantity.
-            // We convert 1 unit of pricePoint.UnitId → ingredient.UnitId to get cost/ingredient-unit.
-            var conversionResult = await unitConverter.ConvertAsync(
-                ingredient.ProductId,
-                1m,
-                pricePoint.UnitId,
-                ingredient.UnitId.Value,
-                ct);
-
-            if (!conversionResult.IsSuccess)
-            {
-                // No unit conversion path → treat as un-priced for this line.
-                missingPriceProductIds.Add(ingredient.ProductId);
-                continue;
-            }
-
-            // pricePerIngredientUnit = unitPrice × (1 priceUnit expressed in ingredientUnits)
-            // Wait — we want cost per ingredient-unit. The unit price is price/priceUnit.
-            // cost/ingredientUnit = price/priceUnit × (priceUnits/ingredientUnit)
-            //   = unitPrice / (ingredientUnits per priceUnit)
-            //   = unitPrice × (priceUnits per ingredientUnit)
-            // ConvertAsync(productId, 1m, priceUnitId, ingredientUnitId) gives us
-            //   how many ingredient-units 1 price-unit equals.
-            // So cost per ingredient-unit = unitPrice / conversionResult.Value.
-            // Example: priceUnit = g, ingredientUnit = kg; convert(1 g → kg) = 0.001.
-            // unitPrice = $0.002/g → cost per kg = $0.002 / 0.001 = $2/kg. ✓
-            var ingredientUnitsPerPriceUnit = conversionResult.Value;
-            if (ingredientUnitsPerPriceUnit <= 0m)
-            {
-                missingPriceProductIds.Add(ingredient.ProductId);
-                continue;
-            }
-
-            var costPerIngredientUnit = unitPrice / ingredientUnitsPerPriceUnit;
-            var scaledQuantity = ingredient.Quantity.Value * scale;
-            var lineCost = costPerIngredientUnit * scaledQuantity;
-
-            runningTotal += lineCost;
-            pricedCount++;
         }
 
-        // Determine completeness and build result.
+        return BuildResult(runningTotal, pricedCount, costableCount, desiredServings, missingPriceProductIds);
+    }
+
+    /// <summary>
+    /// Expanded-view costing (recipe-composition.md §7, D4): costs a recipe over the flat
+    /// <see cref="EffectiveIngredient"/> set produced by aggregating its expanded lines by
+    /// <c>(ProductId, UnitId)</c>, so a parent's cost includes its sub-recipes' ingredient cost × the
+    /// inclusion factor by construction (the factor is already baked into each effective line's quantity).
+    /// Shares the exact per-line pricing logic with the flat <see cref="ComputeAsync(Recipe,int,CancellationToken)"/>
+    /// path, so a flat recipe (expansion is a no-op) yields an identical figure.
+    /// </summary>
+    /// <param name="lines">The aggregated effective ingredient set (from <see cref="ExpandedLineAggregation.AggregateByProductAndUnit"/>).</param>
+    /// <param name="defaultServings">The recipe's default serving count — the denominator of the scale.</param>
+    /// <param name="desiredServings">The serving count cost-per-serving is evaluated at.</param>
+    public async Task<CostPerServing> ComputeExpandedAsync(
+        IReadOnlyList<EffectiveIngredient> lines,
+        int defaultServings,
+        int desiredServings,
+        CancellationToken ct = default)
+    {
+        var scale = (decimal)desiredServings / defaultServings;
+
+        var costableCount = 0;
+        var pricedCount = 0;
+        var runningTotal = 0m;
+        var missingPriceProductIds = new List<Guid>();
+
+        foreach (var line in lines)
+        {
+            var (costable, lineCost) = await CostLineAsync(line.ProductId, line.Quantity, line.UnitId, scale, ct);
+            if (!costable)
+                continue;
+
+            costableCount++;
+            if (lineCost.HasValue)
+            {
+                runningTotal += lineCost.Value;
+                pricedCount++;
+            }
+            else
+            {
+                missingPriceProductIds.Add(line.ProductId);
+            }
+        }
+
+        return BuildResult(runningTotal, pricedCount, costableCount, desiredServings, missingPriceProductIds);
+    }
+
+    /// <summary>
+    /// Core per-line pricing shared by the flat and expanded async paths. Returns whether the line is
+    /// costable (a tracked real product with a known quantity and unit — untracked staples are not, C12) and,
+    /// when costable, the scaled line cost or null when the line could not be priced (no price observation,
+    /// degenerate observation, or no unit-conversion path — each treated as un-priced, contributing to
+    /// <c>MissingPriceProductIds</c>).
+    /// </summary>
+    private async Task<(bool Costable, decimal? LineCost)> CostLineAsync(
+        Guid productId, decimal? quantity, Guid? unitId, decimal scale, CancellationToken ct)
+    {
+        // Exclude untracked staples (null Quantity/UnitId → "to taste", no price by design, R5/C12).
+        if (quantity is null || unitId is null)
+            return (false, null);
+
+        var pricePoint = await priceReader.FindLatestAsync(productId, ct);
+        if (pricePoint is null)
+            return (true, null); // costable but un-priced
+
+        // Derive the unit price (price per one unit). Prefer the Pricing-computed UnitPrice; otherwise
+        // derive from Price / Quantity (guarded against zero).
+        decimal unitPrice;
+        if (pricePoint.UnitPrice.HasValue)
+        {
+            unitPrice = pricePoint.UnitPrice.Value;
+        }
+        else if (pricePoint.Quantity > 0m)
+        {
+            unitPrice = pricePoint.Price / pricePoint.Quantity;
+        }
+        else
+        {
+            // Degenerate observation (zero quantity, no UnitPrice): treat as un-priced.
+            return (true, null);
+        }
+
+        // The unit price is expressed in pricePoint.UnitId. Convert 1 unit of pricePoint.UnitId →
+        // the line's UnitId to get cost per line-unit, then multiply by the scaled required quantity.
+        // cost/lineUnit = unitPrice / (lineUnits per priceUnit). Example: priceUnit = g, lineUnit = kg;
+        // convert(1 g → kg) = 0.001; unitPrice = $0.002/g → cost per kg = $0.002 / 0.001 = $2/kg. ✓
+        var conversionResult = await unitConverter.ConvertAsync(productId, 1m, pricePoint.UnitId, unitId.Value, ct);
+        if (!conversionResult.IsSuccess)
+            return (true, null); // no conversion path → un-priced
+
+        var lineUnitsPerPriceUnit = conversionResult.Value;
+        if (lineUnitsPerPriceUnit <= 0m)
+            return (true, null);
+
+        var costPerLineUnit = unitPrice / lineUnitsPerPriceUnit;
+        var scaledQuantity = quantity.Value * scale;
+        return (true, costPerLineUnit * scaledQuantity);
+    }
+
+    /// <summary>Assembles the <see cref="CostPerServing"/> from the accumulated per-line tallies (shared by both async paths).</summary>
+    private static CostPerServing BuildResult(
+        decimal runningTotal, int pricedCount, int costableCount, int desiredServings, List<Guid> missingPriceProductIds)
+    {
         CostCompleteness completeness;
         decimal? amount;
 

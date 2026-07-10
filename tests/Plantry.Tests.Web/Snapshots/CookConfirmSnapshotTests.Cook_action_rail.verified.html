@@ -9,8 +9,8 @@
 		<div class="card__body">
 			<form method="post" action="/Recipes/Guid_1/Cook?Servings=4">
 				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
-				<template x-for="ingId in skippedIds" :key="ingId"><input type="hidden" name="SkippedIngredientIds" :value="ingId"></template>
-				<template x-for="m in modifiedQuantities" :key="m.id"><input type="hidden" :name="`QuantityOverrides[${m.id}]`" :value="m.qty"></template>
+				<template x-for="ingId in directSkips" :key="ingId"><input type="hidden" name="SkippedIngredientIds" :value="ingId"></template>
+				<template x-for="m in directModifiedQuantities" :key="m.id"><input type="hidden" :name="`QuantityOverrides[${m.id}]`" :value="m.qty"></template>
 				<template x-for="(p, i) in addedProducts" :key="p.key"><span>
 						<input type="hidden" :name="`AddedLines[${i}].ProductId`" :value="p.productId">
 						<input type="hidden" :name="`AddedLines[${i}].Quantity`" :value="p.qty">

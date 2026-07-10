@@ -35,6 +35,7 @@ namespace Plantry.Recipes.Application;
 /// </summary>
 public sealed class AddIngredientsToShoppingList(
     IRecipeRepository recipes,
+    RecipeExpansionService expansion,
     IShoppingListWriter shoppingWriter,
     ICatalogProductReader products,
     ITenantContext tenant)
@@ -58,11 +59,19 @@ public sealed class AddIngredientsToShoppingList(
         if (recipe is null)
             return new AddIngredientsResult.NotFound();
 
+        // Expand to the flat product-level view (D4 choke point) and aggregate by (ProductId, UnitId) so
+        // included recipes' products reach the list and duplicate subs (D14) merge into one row. A flat recipe
+        // expands to its own ingredients (aggregation is a no-op), so its add-set is unchanged.
+        var expandResult = await expansion.ExpandAsync(recipeId, ct);
+        if (expandResult.IsFailure)
+            return new AddIngredientsResult.Invalid(expandResult.Error);
+        var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
+
         // Batch-resolve track_stock for every quantity-bearing candidate product in one catalog
         // round-trip, then keep only the products this household actually stock-tracks (C12, plantry-yukq).
-        var candidateIds = recipe.Ingredients
-            .Where(i => i.Quantity.HasValue && i.UnitId.HasValue)
-            .Select(i => i.ProductId)
+        var candidateIds = effectiveLines
+            .Where(l => l.Quantity.HasValue && l.UnitId.HasValue)
+            .Select(l => l.ProductId)
             .Distinct()
             .ToList();
         var summaries = await products.ResolveSummariesAsync(candidateIds, ct);
@@ -71,9 +80,9 @@ public sealed class AddIngredientsToShoppingList(
             .Select(kv => kv.Key)
             .ToHashSet();
 
-        // Full required target set (all tracked ingredients scaled to servings) via the shared
+        // Full required target set (all tracked effective ingredients scaled to servings) via the shared
         // calculator so the button label and the synced set cannot diverge (plantry-gsj).
-        var itemsToAdd = RecipeShoppingTargets.All(recipe, trackedProductIds, servings);
+        var itemsToAdd = RecipeShoppingTargets.All(effectiveLines, trackedProductIds, recipe.DefaultServings, servings);
 
         if (itemsToAdd.Count == 0)
             return new AddIngredientsResult.NothingToAdd();

@@ -49,4 +49,24 @@ public interface IRecipeRepository
     /// No navigation properties are loaded — this is a lightweight name-projection query only.
     /// </summary>
     Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(IReadOnlyList<RecipeId> ids, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns every inclusion edge (parent → sub) in the current household (recipe-composition.md N4/D5).
+    /// The application layer walks this graph at save to reject cycles (N4); household recipe counts make
+    /// the full-edge load trivially cheap. Household-scoped by the RLS query filter (ADR-008).
+    /// </summary>
+    Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the ids of recipes that include <paramref name="subRecipeId"/> via an inclusion line
+    /// (recipe-composition.md N5/D12). When <paramref name="transitive"/> is false (the default) only
+    /// direct includers are returned — the set the N5 archival guard counts ("used by N recipes"); when
+    /// true the reverse graph is walked to include indirect includers. Household-scoped by the RLS query
+    /// filter (ADR-008).
+    /// </summary>
+    Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(
+        RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default);
 }
+
+/// <summary>One directed inclusion edge: <see cref="ParentId"/> includes <see cref="SubId"/> (N4 graph).</summary>
+public readonly record struct RecipeInclusionEdge(RecipeId ParentId, RecipeId SubId);

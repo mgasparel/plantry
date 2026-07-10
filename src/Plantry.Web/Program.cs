@@ -538,6 +538,15 @@ builder.Services.AddScoped<CostingService>();
 // over the Catalog ports + the recipe/tag repositories. Consumed by the P2-1d editor page.
 builder.Services.AddScoped<AuthorRecipe>();
 
+// Archives a recipe with the N5 guard (recipe-composition.md D12): blocks while the recipe is included
+// by another recipe's inclusion line, over the IRecipeRepository includers lookup.
+builder.Services.AddScoped<ArchiveRecipe>();
+
+// Recipe-composition expansion choke point (recipe-composition.md §4, D4). Resolves a recipe with its
+// nested inclusions to a flat product-level line list; consumed by the Details inclusion preview
+// (plantry-fqb0.3, its first consumer).
+builder.Services.AddScoped<RecipeExpansionService>();
+
 // Tag management application service (plantry-7ju). Drives the /Settings/Tags admin page:
 // create/rename/set-category/archive/unarchive over the ITagRepository.
 builder.Services.AddScoped<ManageTagsService>();
