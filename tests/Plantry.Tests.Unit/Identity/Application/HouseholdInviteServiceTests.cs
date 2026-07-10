@@ -179,6 +179,74 @@ public sealed class HouseholdInviteServiceTests
         Assert.Equal("Invite.TokenRequired", result.Error.Code);
     }
 
+    // ── Validate token (no tenant context; join GET) ───────────────────────────
+
+    [Fact(DisplayName = "ValidateToken resolves by token with no tenant context and returns household + email WITHOUT accepting")]
+    public async Task ValidateToken_Returns_Household_And_Does_Not_Accept()
+    {
+        var invite = HouseholdInvite.Issue(HouseholdId.From(HouseholdA), "invitee@example.com", Inviter, new FixedClock(Now));
+        var repo = new FakeInviteRepository(invite);
+
+        var result = await Service(repo, household: null, clock: new FixedClock(Now + TimeSpan.FromDays(1)))
+            .ValidateTokenAsync(invite.Token);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(HouseholdId.From(HouseholdA), result.Value.HouseholdId);
+        Assert.Equal("invitee@example.com", result.Value.Email);
+        // Read-only: the invite stays pending and nothing is persisted.
+        Assert.Equal(InviteStatus.Pending, invite.Status);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact(DisplayName = "ValidateToken returns NotFound for an unknown token")]
+    public async Task ValidateToken_Unknown_Token_NotFound()
+    {
+        var repo = new FakeInviteRepository();
+        var result = await Service(repo, household: null).ValidateTokenAsync("deadbeef");
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(Error.NotFound, result.Error);
+    }
+
+    [Fact(DisplayName = "ValidateToken rejects a blank token")]
+    public async Task ValidateToken_Blank_Token_Fails()
+    {
+        var repo = new FakeInviteRepository();
+        var result = await Service(repo, household: null).ValidateTokenAsync("   ");
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Invite.TokenRequired", result.Error.Code);
+    }
+
+    [Fact(DisplayName = "ValidateToken surfaces expiry (R5) as a failure without persisting")]
+    public async Task ValidateToken_Expired_Fails()
+    {
+        var invite = HouseholdInvite.Issue(
+            HouseholdId.From(HouseholdA), "invitee@example.com", Inviter, new FixedClock(Now), TimeSpan.FromDays(7));
+        var repo = new FakeInviteRepository(invite);
+
+        var result = await Service(repo, household: null, clock: new FixedClock(Now + TimeSpan.FromDays(8)))
+            .ValidateTokenAsync(invite.Token);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Invite.Expired", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact(DisplayName = "ValidateToken surfaces a revoked/used token (R4) as a failure")]
+    public async Task ValidateToken_Revoked_Fails()
+    {
+        var invite = HouseholdInvite.Issue(HouseholdId.From(HouseholdA), "invitee@example.com", Inviter, new FixedClock(Now));
+        invite.Revoke();
+        var repo = new FakeInviteRepository(invite);
+
+        var result = await Service(repo, household: null, clock: new FixedClock(Now + TimeSpan.FromDays(1)))
+            .ValidateTokenAsync(invite.Token);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Invite.NotPending", result.Error.Code);
+    }
+
     // ── Revoke ─────────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "Revoke transitions a pending invite and persists")]

@@ -131,6 +131,58 @@ public sealed class HouseholdInviteTests
         Assert.Equal(InviteStatus.Revoked, invite.Status);
     }
 
+    // ── Validate (read-only half of Accept — used by the join GET) ─────────────
+
+    [Fact(DisplayName = "Validate succeeds for a pending, unexpired invite without mutating it")]
+    public void Validate_Succeeds_And_Does_Not_Mutate()
+    {
+        var invite = Issue(new FixedClock(Now));
+
+        var result = invite.Validate(new FixedClock(Now + TimeSpan.FromDays(1)));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(InviteStatus.Pending, invite.Status);
+        Assert.Null(invite.AcceptedAt);
+    }
+
+    [Fact(DisplayName = "Validate fails for an expired invite (R5) without mutating it")]
+    public void Validate_Fails_When_Expired()
+    {
+        var invite = Issue(new FixedClock(Now), validity: TimeSpan.FromDays(7));
+
+        var result = invite.Validate(new FixedClock(Now + TimeSpan.FromDays(7)));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Invite.Expired", result.Error.Code);
+        Assert.Equal(InviteStatus.Pending, invite.Status);
+    }
+
+    [Fact(DisplayName = "Validate fails for an already-accepted invite (R4) without mutating it")]
+    public void Validate_Fails_When_Accepted()
+    {
+        var invite = Issue(new FixedClock(Now));
+        invite.Accept(new FixedClock(Now + TimeSpan.FromDays(1)));
+
+        var result = invite.Validate(new FixedClock(Now + TimeSpan.FromDays(2)));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Invite.NotPending", result.Error.Code);
+        Assert.Equal(InviteStatus.Accepted, invite.Status);
+    }
+
+    [Fact(DisplayName = "Validate fails for a revoked invite (R4)")]
+    public void Validate_Fails_When_Revoked()
+    {
+        var invite = Issue(new FixedClock(Now));
+        invite.Revoke();
+
+        var result = invite.Validate(new FixedClock(Now + TimeSpan.FromDays(1)));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Invite.NotPending", result.Error.Code);
+        Assert.Equal(InviteStatus.Revoked, invite.Status);
+    }
+
     [Fact(DisplayName = "IsExpired reflects the expiry boundary")]
     public void IsExpired_Reflects_Boundary()
     {

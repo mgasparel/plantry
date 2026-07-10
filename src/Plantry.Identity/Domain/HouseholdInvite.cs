@@ -71,21 +71,37 @@ public sealed class HouseholdInvite : AggregateRoot<HouseholdInviteId>
     }
 
     /// <summary>
-    /// Accepts the invite: the one-way <c>pending → accepted</c> transition (R4). Fails if the invite
-    /// is not pending or has expired (R5, checked against <paramref name="clock"/>). Records
-    /// <see cref="AcceptedAt"/> on success.
+    /// Checks — without mutating — whether the invite is acceptable right now: it must be pending (R4)
+    /// and unexpired (R5, evaluated against <paramref name="clock"/>). This is the read-only half of
+    /// <see cref="Accept"/>, factored out so the join flow can validate a token on GET (to decide
+    /// between showing the registration form and a friendly dead-end) using the exact same rule that
+    /// governs the eventual accept, with no side effect. Returns the specific failure (<c>Invite.NotPending</c>
+    /// / <c>Invite.Expired</c>) so a caller can tailor its message.
     /// </summary>
-    public Result Accept(IClock clock)
+    public Result Validate(IClock clock)
     {
         if (Status != InviteStatus.Pending)
             return Error.Custom("Invite.NotPending", "Only a pending invite can be accepted.");
 
-        var now = clock.UtcNow;
-        if (now >= ExpiresAt)
+        if (clock.UtcNow >= ExpiresAt)
             return Error.Custom("Invite.Expired", "This invite has expired.");
 
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Accepts the invite: the one-way <c>pending → accepted</c> transition (R4). Fails if the invite
+    /// is not pending or has expired (R5, checked against <paramref name="clock"/> via
+    /// <see cref="Validate"/>). Records <see cref="AcceptedAt"/> on success.
+    /// </summary>
+    public Result Accept(IClock clock)
+    {
+        var check = Validate(clock);
+        if (check.IsFailure)
+            return check;
+
         Status = InviteStatus.Accepted;
-        AcceptedAt = now;
+        AcceptedAt = clock.UtcNow;
         return Result.Success();
     }
 

@@ -14,6 +14,15 @@ namespace Plantry.Identity.Application;
 public readonly record struct AcceptedInvite(HouseholdId HouseholdId, string Email);
 
 /// <summary>
+/// A still-pending, unexpired invite resolved by token for the join flow's GET (plantry-mfli): which
+/// household the invitee would join and the email to prefill on the registration form. Distinct from
+/// <see cref="AcceptedInvite"/> on purpose — this is the pre-accept, no-side-effect view returned by
+/// <see cref="HouseholdInviteService.ValidateTokenAsync"/>, whereas <see cref="AcceptedInvite"/> is the
+/// outcome of the one-way accept transition. Same shape, different lifecycle meaning.
+/// </summary>
+public readonly record struct ValidatedInvite(HouseholdId HouseholdId, string Email);
+
+/// <summary>
 /// Read model for a pending <see cref="HouseholdInvite"/>, surfaced on the Settings &gt; Members page:
 /// the invitee email, the share <see cref="Token"/> (used to build the join link), who issued it, and
 /// its lifecycle timestamps. <see cref="IsExpired"/> is evaluated against the current clock so the UI
@@ -122,6 +131,39 @@ public sealed class HouseholdInviteService(
         await invites.SaveChangesAsync(ct);
         logger.LogInformation("Invite {InviteId} revoked.", inviteId.Value);
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Validates the invite identified by <paramref name="token"/> <b>without accepting it</b> — the
+    /// read-only lookup behind the join page's GET. MUST be called with <b>no tenant context</b> (the
+    /// invitee is unauthenticated): resolves via the household_invites RLS no-context carve-out, then
+    /// applies the same pending + unexpired rule as accept (R4/R5) via <see cref="HouseholdInvite.Validate"/>.
+    /// Returns which household the invitee would join and the invited email (to prefill the form), or the
+    /// specific failure (<see cref="Error.NotFound"/> for an unknown token, <c>Invite.NotPending</c> for a
+    /// used/revoked one, <c>Invite.Expired</c> for a lapsed one) so the page can render a friendly dead-end.
+    /// </summary>
+    public async Task<Result<ValidatedInvite>> ValidateTokenAsync(string token, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return Error.Custom("Invite.TokenRequired", "An invite token is required.");
+
+        var invite = await invites.FindByTokenAsync(token, ct);
+        if (invite is null)
+        {
+            logger.LogWarning("ValidateInvite rejected — token not found.");
+            return Error.NotFound;
+        }
+
+        var check = invite.Validate(clock);
+        if (check.IsFailure)
+        {
+            logger.LogInformation(
+                "ValidateInvite: token for invite {InviteId} is not acceptable — {Code}.",
+                invite.Id.Value, check.Error.Code);
+            return check.Error;
+        }
+
+        return new ValidatedInvite(invite.HouseholdId, invite.Email);
     }
 
     /// <summary>
