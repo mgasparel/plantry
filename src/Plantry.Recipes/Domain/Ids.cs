@@ -18,6 +18,18 @@ public readonly record struct IngredientId(Guid Value)
     public override string ToString() => Value.ToString();
 }
 
+/// <summary>
+/// Identity of an <c>Inclusion</c> — a sibling line entity local to the <c>Recipe</c> aggregate (D1).
+/// Like <see cref="IngredientId"/> it is addressable only while the recipe is loaded and re-minted on
+/// each wholesale save (recipe-composition.md §3, O1).
+/// </summary>
+public readonly record struct InclusionId(Guid Value)
+{
+    public static InclusionId New() => new(Guid.CreateVersion7());
+    public static InclusionId From(Guid value) => new(value);
+    public override string ToString() => Value.ToString();
+}
+
 public readonly record struct CookEventId(Guid Value)
 {
     public static CookEventId New() => new(Guid.CreateVersion7());

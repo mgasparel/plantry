@@ -225,6 +225,160 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.DoesNotContain(withoutPhotoId, photoIds);
     }
 
+    // ── Inclusions (recipe-composition.md) ──────────────────────────────────────
+
+    [Fact(DisplayName = "Recipe with an inclusion round-trips through EF (new recipe_inclusion table)")]
+    public async Task Recipe_With_Inclusion_RoundTrips()
+    {
+        // Seed the sub-recipe the inclusion FK will reference.
+        RecipeId subId;
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var sub = Recipe.Create(_household, "Nacho Cheese", 4, _clock).Value;
+            sub.ReplaceIngredients(
+                [new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            subId = sub.Id;
+            await repo.AddAsync(sub);
+            await repo.SaveChangesAsync();
+        }
+
+        RecipeId parentId;
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var parent = Recipe.Create(_household, "Nachos Deluxe", 2, _clock).Value;
+            parent.ReplaceLines(
+                [new IngredientLine(Guid.CreateVersion7(), 200m, Guid.CreateVersion7(), null, 0)],
+                [new InclusionLine(subId, 2m, "Toppings", 1)],
+                _clock);
+            parentId = parent.Id;
+            await repo.AddAsync(parent);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var loaded = await new RecipeRepository(ctx2).GetByIdAsync(parentId);
+
+        Assert.NotNull(loaded);
+        Assert.Single(loaded!.Ingredients);
+        var inc = Assert.Single(loaded.Inclusions);
+        Assert.Equal(_household, inc.HouseholdId);
+        Assert.Equal(parentId, inc.RecipeId);
+        Assert.Equal(subId, inc.SubRecipeId);
+        Assert.Equal(2m, inc.Servings);
+        Assert.Equal("Toppings", inc.GroupHeading);
+        Assert.Equal(1, inc.Ordinal);
+    }
+
+    [Fact(DisplayName = "Inclusions are wholesale-replaced with re-minted ids on re-save")]
+    public async Task Inclusions_Are_Wholesale_Replaced_On_Resave()
+    {
+        RecipeId subA, subB, parentId;
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var a = Recipe.Create(_household, "Base A", 4, _clock).Value;
+            a.ReplaceIngredients([new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            var b = Recipe.Create(_household, "Base B", 4, _clock).Value;
+            b.ReplaceIngredients([new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            subA = a.Id; subB = b.Id;
+            await repo.AddAsync(a);
+            await repo.AddAsync(b);
+
+            var parent = Recipe.Create(_household, "Assembly", 2, _clock).Value;
+            parent.ReplaceLines([], [new InclusionLine(subA, 1m, null, 0)], _clock);
+            parentId = parent.Id;
+            await repo.AddAsync(parent);
+            await repo.SaveChangesAsync();
+        }
+
+        // Re-save with a different inclusion set.
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var parent = await repo.GetByIdAsync(parentId);
+            parent!.ReplaceLines([], [new InclusionLine(subB, 3m, null, 0)], _clock);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var loaded = await new RecipeRepository(ctx2).GetByIdAsync(parentId);
+        var inc = Assert.Single(loaded!.Inclusions);
+        Assert.Equal(subB, inc.SubRecipeId);
+        Assert.Equal(3m, inc.Servings);
+    }
+
+    [Fact(DisplayName = "GetIncluderIdsAsync returns direct and transitive includers of a sub-recipe")]
+    public async Task GetIncluderIdsAsync_Returns_Direct_And_Transitive_Includers()
+    {
+        // Chain: A → B → C (A includes B, B includes C).
+        RecipeId a, b, c;
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var rc = Recipe.Create(_household, "C", 4, _clock).Value;
+            rc.ReplaceIngredients([new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            c = rc.Id;
+            await repo.AddAsync(rc);
+
+            var rb = Recipe.Create(_household, "B", 4, _clock).Value;
+            rb.ReplaceLines([], [new InclusionLine(c, 1m, null, 0)], _clock);
+            b = rb.Id;
+            await repo.AddAsync(rb);
+
+            var ra = Recipe.Create(_household, "A", 4, _clock).Value;
+            ra.ReplaceLines([], [new InclusionLine(b, 1m, null, 0)], _clock);
+            a = ra.Id;
+            await repo.AddAsync(ra);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var repo2 = new RecipeRepository(ctx2);
+
+        var directIncludersOfC = await repo2.GetIncluderIdsAsync(c);
+        Assert.Equal([b], directIncludersOfC);
+
+        var transitiveIncludersOfC = await repo2.GetIncluderIdsAsync(c, transitive: true);
+        Assert.Equal(new HashSet<RecipeId> { a, b }, transitiveIncludersOfC);
+
+        // A sub nobody includes returns an empty set.
+        Assert.Empty(await repo2.GetIncluderIdsAsync(a));
+    }
+
+    [Fact(DisplayName = "ListInclusionEdgesAsync returns every parent→sub edge for the household")]
+    public async Task ListInclusionEdgesAsync_Returns_All_Edges()
+    {
+        RecipeId a, b, sub;
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var rSub = Recipe.Create(_household, "Shared Base", 4, _clock).Value;
+            rSub.ReplaceIngredients([new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            sub = rSub.Id;
+            await repo.AddAsync(rSub);
+
+            var ra = Recipe.Create(_household, "A", 4, _clock).Value;
+            ra.ReplaceLines([], [new InclusionLine(sub, 1m, null, 0)], _clock);
+            a = ra.Id;
+            await repo.AddAsync(ra);
+
+            var rb = Recipe.Create(_household, "B", 4, _clock).Value;
+            rb.ReplaceLines([], [new InclusionLine(sub, 2m, null, 0)], _clock);
+            b = rb.Id;
+            await repo.AddAsync(rb);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var edges = await new RecipeRepository(ctx2).ListInclusionEdgesAsync();
+
+        Assert.Equal(2, edges.Count);
+        Assert.Contains(new RecipeInclusionEdge(a, sub), edges);
+        Assert.Contains(new RecipeInclusionEdge(b, sub), edges);
+    }
+
     // ── Private helpers ────────────────────────────────────────────────────────
 
     private RecipesDbContext NewContext()

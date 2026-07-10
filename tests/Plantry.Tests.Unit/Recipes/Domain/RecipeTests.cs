@@ -415,6 +415,149 @@ public sealed class RecipeTests
         Assert.Single(recipe.Ingredients);
     }
 
+    // ── ReplaceLines (ingredients + inclusions) ────────────────────────────────
+
+    private static InclusionLine OneInclusion(RecipeId? subId = null, decimal servings = 2m, int ordinal = 0) =>
+        new(subId ?? RecipeId.New(), servings, null, ordinal);
+
+    [Fact]
+    public void ReplaceLines_Accepts_Inclusions_Only_R3Prime()
+    {
+        var recipe = NewRecipe();
+
+        var result = recipe.ReplaceLines([], [OneInclusion()], Clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(recipe.Ingredients);
+        Assert.Single(recipe.Inclusions);
+    }
+
+    [Fact]
+    public void ReplaceLines_R3Prime_Rejects_Both_Empty()
+    {
+        var recipe = NewRecipe();
+
+        var result = recipe.ReplaceLines([], [], Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Recipes.NoIngredients", result.Error.Code);
+    }
+
+    [Fact]
+    public void ReplaceLines_Accepts_Mixed_Ingredients_And_Inclusions()
+    {
+        var recipe = NewRecipe();
+        var lines = new[] { new IngredientLine(Guid.CreateVersion7(), 200m, Guid.CreateVersion7(), null, 0) };
+
+        var result = recipe.ReplaceLines(lines, [OneInclusion(ordinal: 1)], Clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(recipe.Ingredients);
+        Assert.Single(recipe.Inclusions);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void ReplaceLines_N1_Rejects_NonPositive_Servings(int servings)
+    {
+        var recipe = NewRecipe();
+
+        var result = recipe.ReplaceLines([], [OneInclusion(servings: servings)], Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Recipes.InvalidInclusionServings", result.Error.Code);
+    }
+
+    [Fact]
+    public void ReplaceLines_N2_Rejects_Self_Inclusion()
+    {
+        var recipe = NewRecipe();
+
+        var result = recipe.ReplaceLines([], [OneInclusion(subId: recipe.Id)], Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Recipes.SelfInclusion", result.Error.Code);
+    }
+
+    [Fact]
+    public void ReplaceLines_N3_Rejects_NonContiguous_Ordinals_Across_Union()
+    {
+        var recipe = NewRecipe();
+        // Ingredient at 0, inclusion at 2 — gap at 1 across the union.
+        var lines = new[] { new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0) };
+
+        var result = recipe.ReplaceLines(lines, [OneInclusion(ordinal: 2)], Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Recipes.NonContiguousOrdinals", result.Error.Code);
+    }
+
+    [Fact]
+    public void ReplaceLines_N3_Accepts_Contiguous_Ordinals_Across_Union()
+    {
+        var recipe = NewRecipe();
+        var lines = new[] { new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0) };
+
+        var result = recipe.ReplaceLines(lines, [OneInclusion(ordinal: 1)], Clock);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public void ReplaceLines_Sets_Household_RecipeId_SubRecipeId_On_Inclusions()
+    {
+        var recipe = NewRecipe();
+        var sub = RecipeId.New();
+
+        recipe.ReplaceLines([], [OneInclusion(subId: sub, servings: 3m)], Clock);
+
+        var inc = Assert.Single(recipe.Inclusions);
+        Assert.Equal(Household, inc.HouseholdId);
+        Assert.Equal(recipe.Id, inc.RecipeId);
+        Assert.Equal(sub, inc.SubRecipeId);
+        Assert.Equal(3m, inc.Servings);
+    }
+
+    [Fact]
+    public void ReplaceLines_Remints_InclusionIds_On_Each_Call()
+    {
+        var recipe = NewRecipe();
+        recipe.ReplaceLines([], [OneInclusion()], Clock);
+        var firstId = recipe.Inclusions[0].Id;
+
+        recipe.ReplaceLines([], [OneInclusion()], Clock);
+
+        Assert.NotEqual(firstId, recipe.Inclusions[0].Id);
+    }
+
+    [Fact]
+    public void ReplaceLines_Emits_Single_RecipeUpdated()
+    {
+        var recipe = NewRecipe();
+        recipe.ClearDomainEvents();
+        var lines = new[] { new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0) };
+
+        recipe.ReplaceLines(lines, [OneInclusion(ordinal: 1)], Clock);
+
+        var evt = Assert.Single(recipe.DomainEvents);
+        Assert.IsType<RecipeUpdatedEvent>(evt);
+    }
+
+    [Fact]
+    public void ReplaceIngredients_Overload_Clears_Existing_Inclusions()
+    {
+        var recipe = NewRecipe();
+        recipe.ReplaceLines([], [OneInclusion()], Clock);
+        Assert.Single(recipe.Inclusions);
+
+        // The ingredient-only overload replaces BOTH line sets (inclusions = empty).
+        recipe.ReplaceIngredients(OneIngredient(), Clock);
+
+        Assert.Single(recipe.Ingredients);
+        Assert.Empty(recipe.Inclusions);
+    }
+
     // ── ChangeDefaultServings ─────────────────────────────────────────────────
 
     [Fact]
@@ -444,6 +587,42 @@ public sealed class RecipeTests
         Assert.True(result.IsSuccess);
         Assert.Equal(2, recipe.DefaultServings);
         Assert.Equal(100m, recipe.Ingredients[0].Quantity); // 200 * (2/4)
+    }
+
+    [Fact]
+    public void ChangeDefaultServings_Proportional_Scales_Inclusion_Servings()
+    {
+        var recipe = NewRecipe(servings: 4);
+        recipe.ReplaceLines([], [OneInclusion(servings: 2m)], Clock);
+
+        var result = recipe.ChangeDefaultServings(8, ScaleMode.Proportional, Clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(4m, recipe.Inclusions[0].Servings); // 2 * (8/4)
+    }
+
+    [Fact]
+    public void ChangeDefaultServings_Keep_Leaves_Inclusion_Servings_Unchanged()
+    {
+        var recipe = NewRecipe(servings: 4);
+        recipe.ReplaceLines([], [OneInclusion(servings: 2m)], Clock);
+
+        var result = recipe.ChangeDefaultServings(8, ScaleMode.Keep, Clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2m, recipe.Inclusions[0].Servings);
+    }
+
+    [Fact]
+    public void ChangeDefaultServings_Proportional_Remints_InclusionIds()
+    {
+        var recipe = NewRecipe(servings: 4);
+        recipe.ReplaceLines([], [OneInclusion(servings: 2m)], Clock);
+        var originalId = recipe.Inclusions[0].Id;
+
+        recipe.ChangeDefaultServings(2, ScaleMode.Proportional, Clock);
+
+        Assert.NotEqual(originalId, recipe.Inclusions[0].Id);
     }
 
     [Fact]
@@ -496,6 +675,31 @@ public sealed class RecipeTests
         recipe.ChangeDefaultServings(2, ScaleMode.Keep, Clock);
 
         Assert.Equal(originalId, recipe.Ingredients[0].Id);
+    }
+
+    // ── Archive ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Archive_Stamps_ArchivedAt()
+    {
+        var recipe = NewRecipe();
+        var later = new FixedClock(Later);
+
+        recipe.Archive(later);
+
+        Assert.Equal(Later, recipe.ArchivedAt);
+    }
+
+    [Fact]
+    public void Archive_Is_Idempotent_Keeping_Original_Timestamp()
+    {
+        var recipe = NewRecipe();
+        recipe.Archive(new FixedClock(Later));
+        var first = recipe.ArchivedAt;
+
+        recipe.Archive(new FixedClock(Later.AddDays(1)));
+
+        Assert.Equal(first, recipe.ArchivedAt);
     }
 
     // ── UpdatedAt touched ─────────────────────────────────────────────────────

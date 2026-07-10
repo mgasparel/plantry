@@ -18,6 +18,7 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
 {
     public DbSet<Recipe> Recipes => Set<Recipe>();
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
+    public DbSet<Inclusion> Inclusions => Set<Inclusion>();
     public DbSet<RecipePhoto> RecipePhotos => Set<RecipePhoto>();
     public DbSet<CookEvent> CookEvents => Set<CookEvent>();
     public DbSet<CookConsumeLine> CookConsumeLines => Set<CookConsumeLine>();
@@ -60,6 +61,16 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             b.Navigation(r => r.Ingredients)
                 .UsePropertyAccessMode(PropertyAccessMode.Field)
                 .HasField("_ingredients");
+
+            // Child inclusion collection — backed by _inclusions field (recipe-composition.md §3).
+            b.HasMany(r => r.Inclusions)
+                .WithOne()
+                .HasForeignKey(i => i.RecipeId)
+                .HasPrincipalKey(r => r.Id)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(r => r.Inclusions)
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .HasField("_inclusions");
 
             // Tag membership join — backed by _tags field.
             b.HasMany(r => r.Tags)
@@ -119,6 +130,40 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             b.HasIndex(i => new { i.RecipeId, i.Ordinal })
                 .IsUnique()
                 .HasDatabaseName("ux_recipe_ingredient_recipe_ordinal");
+            b.HasQueryFilter(i => i.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<Inclusion>(b =>
+        {
+            b.ToTable("recipe_inclusion");
+            b.HasKey(i => i.Id);
+            b.Property(i => i.Id)
+                .HasConversion(id => id.Value, v => InclusionId.From(v))
+                .HasColumnName("inclusion_id")
+                .ValueGeneratedNever();
+            b.Property(i => i.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(i => i.RecipeId)
+                .HasConversion(id => id.Value, v => RecipeId.From(v))
+                .HasColumnName("recipe_id")
+                .IsRequired();
+            b.Property(i => i.SubRecipeId)
+                .HasConversion(id => id.Value, v => RecipeId.From(v))
+                .HasColumnName("sub_recipe_id")
+                .IsRequired();
+            b.Property(i => i.Servings).HasColumnName("servings").HasPrecision(12, 3).IsRequired();
+            b.Property(i => i.GroupHeading).HasColumnName("group_heading");
+            b.Property(i => i.Ordinal).HasColumnName("ordinal").IsRequired();
+
+            // Leads with recipe_id, so it also serves the composite-FK lookup back to the parent recipe.
+            b.HasIndex(i => new { i.RecipeId, i.Ordinal })
+                .IsUnique()
+                .HasDatabaseName("ux_recipe_inclusion_recipe_ordinal");
+            // Reverse index powers the N5 includers lookup (who includes a given sub-recipe).
+            b.HasIndex(i => new { i.HouseholdId, i.SubRecipeId })
+                .HasDatabaseName("ix_recipe_inclusion_household_sub");
             b.HasQueryFilter(i => i.HouseholdId == HouseholdId.From(_householdId));
         });
 

@@ -38,6 +38,10 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     private readonly List<Ingredient> _ingredients = [];
     public IReadOnlyList<Ingredient> Ingredients => _ingredients.AsReadOnly();
 
+    private readonly List<Inclusion> _inclusions = [];
+    /// <summary>Included sub-recipes — a sibling line type next to <see cref="Ingredients"/> (D1).</summary>
+    public IReadOnlyList<Inclusion> Inclusions => _inclusions.AsReadOnly();
+
     private readonly List<RecipeTag> _tags = [];
     public IReadOnlyList<RecipeTag> Tags => _tags.AsReadOnly();
 
@@ -201,49 +205,84 @@ public sealed class Recipe : AggregateRoot<RecipeId>
         Touch(clock);
     }
 
-    // ── Ingredient replacement ─────────────────────────────────────────────────
+    // ── Line replacement (ingredients + inclusions) ────────────────────────────
 
     /// <summary>
-    /// Wholesale-replaces the ingredient list. Enforces:
-    /// R3: at least one ingredient required;
-    /// R4: every ProductId must be non-empty;
-    /// R5: Quantity and UnitId must both be set or both null;
-    /// R6: ordinals must be contiguous from the minimum value.
-    /// Re-mints IngredientId per line (O1). Emits <see cref="RecipeUpdatedEvent"/>.
+    /// Wholesale-replaces the ingredient list with no inclusions — the backward-compatible entry point
+    /// (delegates to <see cref="ReplaceLines"/> with an empty inclusion set). Retained so existing callers
+    /// that only author ingredients keep compiling (recipe-composition.md §3 gotcha).
     /// </summary>
-    public Result ReplaceIngredients(IReadOnlyList<IngredientLine> lines, IClock clock)
-    {
-        // R3 — at least one ingredient
-        if (lines.Count == 0)
-            return Error.Custom("Recipes.NoIngredients", "A recipe must have at least one ingredient.");
+    public Result ReplaceIngredients(IReadOnlyList<IngredientLine> lines, IClock clock) =>
+        ReplaceLines(lines, [], clock);
 
-        // R4 — every ProductId non-null / non-empty
-        foreach (var line in lines)
+    /// <summary>
+    /// Wholesale-replaces both line types (ingredients and inclusions) in a single operation, emitting one
+    /// <see cref="RecipeUpdatedEvent"/> (recipe-composition.md §3). Enforces:
+    /// R3′: at least one ingredient OR inclusion is required (D3);
+    /// R4: every ingredient ProductId must be non-empty;
+    /// R5: ingredient Quantity and UnitId must both be set or both null;
+    /// N1: every inclusion Servings must be &gt; 0;
+    /// N2: no inclusion may reference this recipe (no self-inclusion);
+    /// N3 (R6 widened): ordinals must be contiguous across the UNION of ingredient and inclusion lines.
+    /// Re-mints <see cref="IngredientId"/> and <see cref="InclusionId"/> per line (O1). The DAG / same-household
+    /// / sub-existence checks (N4) are cross-aggregate and enforced by the application layer before this call.
+    /// </summary>
+    public Result ReplaceLines(
+        IReadOnlyList<IngredientLine> ingredients,
+        IReadOnlyList<InclusionLine> inclusions,
+        IClock clock)
+    {
+        // R3′ — at least one ingredient OR inclusion
+        if (ingredients.Count == 0 && inclusions.Count == 0)
+            return Error.Custom("Recipes.NoIngredients",
+                "A recipe must have at least one ingredient or included recipe.");
+
+        // R4 — every ingredient ProductId non-null / non-empty
+        foreach (var line in ingredients)
         {
             if (line.ProductId == Guid.Empty)
                 return Error.Custom("Recipes.InvalidProductId", "Each ingredient must reference a product.");
         }
 
-        // R5 — qty/unit both-set or both-null
-        foreach (var line in lines)
+        // R5 — ingredient qty/unit both-set or both-null
+        foreach (var line in ingredients)
         {
             if (line.Quantity.HasValue != line.UnitId.HasValue)
                 return Error.Custom("Recipes.QtyUnitMismatch",
                     "Quantity and UnitId must both be set or both be null.");
         }
 
-        // R6 — ordinals contiguous from min value (0 or 1 per issue)
-        var ordinals = lines.Select(l => l.Ordinal).OrderBy(o => o).ToList();
+        // N1 — every inclusion serving count > 0
+        foreach (var inc in inclusions)
+        {
+            if (inc.Servings <= 0)
+                return Error.Custom("Recipes.InvalidInclusionServings",
+                    "An included recipe must specify a positive number of servings.");
+        }
+
+        // N2 — no self-inclusion (the degenerate cycle)
+        foreach (var inc in inclusions)
+        {
+            if (inc.SubRecipeId == Id)
+                return Error.Custom("Recipes.SelfInclusion",
+                    "A recipe cannot include itself.");
+        }
+
+        // N3 (R6 widened) — ordinals contiguous from min value across the union of BOTH line types
+        var ordinals = ingredients.Select(l => l.Ordinal)
+            .Concat(inclusions.Select(l => l.Ordinal))
+            .OrderBy(o => o)
+            .ToList();
         var minOrdinal = ordinals[0];
         for (var i = 0; i < ordinals.Count; i++)
         {
             if (ordinals[i] != minOrdinal + i)
                 return Error.Custom("Recipes.NonContiguousOrdinals",
-                    "Ingredient ordinals must be contiguous.");
+                    "Recipe line ordinals must be contiguous across ingredients and inclusions.");
         }
 
         _ingredients.Clear();
-        foreach (var line in lines)
+        foreach (var line in ingredients)
         {
             _ingredients.Add(Ingredient.Create(
                 IngredientId.New(),
@@ -256,6 +295,19 @@ public sealed class Recipe : AggregateRoot<RecipeId>
                 line.Ordinal));
         }
 
+        _inclusions.Clear();
+        foreach (var inc in inclusions)
+        {
+            _inclusions.Add(Inclusion.Create(
+                InclusionId.New(),
+                HouseholdId,
+                Id,
+                inc.SubRecipeId,
+                inc.Servings,
+                inc.GroupHeading,
+                inc.Ordinal));
+        }
+
         Touch(clock);
         RaiseDomainEvent(new RecipeUpdatedEvent(Id, HouseholdId, UpdatedAt));
         return Result.Success();
@@ -265,35 +317,73 @@ public sealed class Recipe : AggregateRoot<RecipeId>
 
     /// <summary>
     /// Changes the default serving count. When <paramref name="mode"/> is
-    /// <see cref="ScaleMode.Proportional"/>, ingredient quantities are multiplied by
-    /// new/old ratio (J7 step 3). <paramref name="newServings"/> must be >= 1.
+    /// <see cref="ScaleMode.Proportional"/>, ingredient quantities AND inclusion serving counts are
+    /// multiplied by the new/old ratio (J7 step 3; recipe-composition.md D13 — a parent rescale scales all
+    /// lines uniformly). Inclusion amounts are in servings of the sub, so scaling them by the parent ratio
+    /// keeps the parent's per-serving composition constant. <see cref="ScaleMode.Keep"/> ("fixed") leaves
+    /// both untouched. <paramref name="newServings"/> must be &gt;= 1.
     /// </summary>
     public Result ChangeDefaultServings(int newServings, ScaleMode mode, IClock clock)
     {
         if (newServings < 1)
             return Error.Custom("Recipes.InvalidServings", "Default servings must be at least 1.");
 
-        if (mode == ScaleMode.Proportional && _ingredients.Count > 0)
+        if (mode == ScaleMode.Proportional)
         {
             var ratio = (decimal)newServings / DefaultServings;
-            // Rebuild ingredients with scaled quantities (re-mint ids per O1)
-            var scaled = _ingredients.Select(ing => Ingredient.Create(
-                IngredientId.New(),
-                ing.HouseholdId,
-                ing.RecipeId,
-                ing.ProductId,
-                ing.Quantity.HasValue ? Math.Round(ing.Quantity.Value * ratio, 3) : null,
-                ing.UnitId,
-                ing.GroupHeading,
-                ing.Ordinal)).ToList();
 
-            _ingredients.Clear();
-            _ingredients.AddRange(scaled);
+            if (_ingredients.Count > 0)
+            {
+                // Rebuild ingredients with scaled quantities (re-mint ids per O1)
+                var scaledIngredients = _ingredients.Select(ing => Ingredient.Create(
+                    IngredientId.New(),
+                    ing.HouseholdId,
+                    ing.RecipeId,
+                    ing.ProductId,
+                    ing.Quantity.HasValue ? Math.Round(ing.Quantity.Value * ratio, 3) : null,
+                    ing.UnitId,
+                    ing.GroupHeading,
+                    ing.Ordinal)).ToList();
+
+                _ingredients.Clear();
+                _ingredients.AddRange(scaledIngredients);
+            }
+
+            if (_inclusions.Count > 0)
+            {
+                // Rebuild inclusions with scaled serving counts (re-mint ids per O1)
+                var scaledInclusions = _inclusions.Select(inc => Inclusion.Create(
+                    InclusionId.New(),
+                    inc.HouseholdId,
+                    inc.RecipeId,
+                    inc.SubRecipeId,
+                    Math.Round(inc.Servings * ratio, 3),
+                    inc.GroupHeading,
+                    inc.Ordinal)).ToList();
+
+                _inclusions.Clear();
+                _inclusions.AddRange(scaledInclusions);
+            }
         }
 
         DefaultServings = newServings;
         Touch(clock);
         return Result.Success();
+    }
+
+    // ── Archival (soft delete) ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Soft-deletes the recipe by stamping <see cref="ArchivedAt"/> (Resolved call 1). Idempotent — a
+    /// re-archive keeps the original timestamp. The N5 guard — blocking archival while the recipe is
+    /// referenced by another recipe's inclusion — is cross-aggregate and enforced by the application layer
+    /// (recipe-composition.md D12/N5) before this call.
+    /// </summary>
+    public void Archive(IClock clock)
+    {
+        if (ArchivedAt is not null) return;
+        ArchivedAt = clock.UtcNow;
+        Touch(clock);
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────

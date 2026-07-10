@@ -606,6 +606,13 @@ internal sealed class MetricsTestRecipeRepository : IRecipeRepository
     public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(
         IReadOnlyList<RecipeId> ids, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<RecipeId, string>>(new Dictionary<RecipeId, string>());
+
+    public Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeInclusionEdge>>([]);
+
+    public Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(
+        RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());
 }
 
 internal sealed class MetricsTestCookEventRepository : ICookEventRepository

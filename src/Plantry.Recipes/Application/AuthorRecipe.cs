@@ -213,12 +213,72 @@ public sealed class AuthorRecipe(
                 tagIds.Add(tag.Id);
         }
 
-        // ── Assemble the ordered, validated lines with contiguous 0-based ordinals ──
-        var domainLines = resolved
-            .OrderBy(r => r.Line.Ordinal)
-            .Select((r, index) => new IngredientLine(
-                r.ProductId, r.Line.Quantity, r.Line.UnitId, r.Line.GroupHeading, index))
+        // ── Inclusion resolution (recipe-composition.md N4): same-household + sub-existence + DAG ──
+        // GetByIdAsync applies the household RLS query filter, so a sub in another household resolves to
+        // null (same-household check folds into sub-existence). The DAG cycle walk runs after — and only on
+        // an edit, where the owning recipe already exists in the persisted graph (a brand-new recipe cannot
+        // be part of a cycle: nothing references it yet).
+        var commandInclusions = command.Inclusions ?? [];
+        var resolvedInclusions = new List<AuthorInclusionLine>(commandInclusions.Count);
+        foreach (var inc in commandInclusions)
+        {
+            if (inc.SubRecipeId == Guid.Empty)
+                return new AuthorRecipeResult.Invalid(
+                    Error.Custom("Recipes.InvalidSubRecipe", "Each inclusion must reference a sub-recipe."));
+
+            var subId = RecipeId.From(inc.SubRecipeId);
+            if (existing is not null && subId == existing.Id)
+                return new AuthorRecipeResult.Invalid(
+                    Error.Custom("Recipes.SelfInclusion", "A recipe cannot include itself."));
+
+            var sub = await recipes.GetByIdAsync(subId, ct);
+            if (sub is null)
+                return new AuthorRecipeResult.Invalid(
+                    Error.Custom("Recipes.UnknownSubRecipe", "An included recipe does not exist in this household."));
+
+            resolvedInclusions.Add(inc);
+        }
+
+        // N4 — reject cycles. Walk the household's existing inclusion edges forward from each sub; if the
+        // recipe being edited is reachable, adding these inclusions would close a cycle (direct A→B→A or
+        // transitive A→B→C→A). Only meaningful on an edit (owner already in the graph).
+        if (existing is not null && resolvedInclusions.Count > 0)
+        {
+            var edges = await recipes.ListInclusionEdgesAsync(ct);
+            if (CreatesCycle(existing.Id, resolvedInclusions.Select(i => RecipeId.From(i.SubRecipeId)), edges))
+                return new AuthorRecipeResult.Invalid(Error.Custom(
+                    "Recipes.InclusionCycle",
+                    "Including that recipe would create a cycle (a recipe cannot include itself, directly or indirectly)."));
+        }
+
+        // ── Assemble the ordered, validated lines with contiguous 0-based ordinals across BOTH line types ──
+        // Merge ingredients and inclusions by their author-supplied ordinal (LINQ OrderBy is stable, so ties
+        // keep ingredient-before-inclusion order), then re-number the union 0..n-1 so N3 (shared-space
+        // contiguity) holds regardless of how the author interleaved the two line types.
+        var merged = resolved
+            .Select((r, i) => (Ordinal: r.Line.Ordinal, IsInclusion: false, Index: i))
+            .Concat(resolvedInclusions.Select((_, i) => (Ordinal: resolvedInclusions[i].Ordinal, IsInclusion: true, Index: i)))
+            .OrderBy(x => x.Ordinal)
             .ToList();
+
+        var domainLines = new List<IngredientLine>(resolved.Count);
+        var domainInclusions = new List<InclusionLine>(resolvedInclusions.Count);
+        for (var pos = 0; pos < merged.Count; pos++)
+        {
+            var item = merged[pos];
+            if (item.IsInclusion)
+            {
+                var inc = resolvedInclusions[item.Index];
+                domainInclusions.Add(new InclusionLine(
+                    RecipeId.From(inc.SubRecipeId), inc.Servings, inc.GroupHeading, pos));
+            }
+            else
+            {
+                var r = resolved[item.Index];
+                domainLines.Add(new IngredientLine(
+                    r.ProductId, r.Line.Quantity, r.Line.UnitId, r.Line.GroupHeading, pos));
+            }
+        }
 
         // ── Create or edit the aggregate ──
         Recipe recipe;
@@ -230,7 +290,7 @@ public sealed class AuthorRecipe(
             recipe = created.Value;
             ApplyScalars(recipe, command);
 
-            var replace = recipe.ReplaceIngredients(domainLines, clock);
+            var replace = recipe.ReplaceLines(domainLines, domainInclusions, clock);
             if (replace.IsFailure)
                 return new AuthorRecipeResult.Invalid(replace.Error);
 
@@ -245,7 +305,7 @@ public sealed class AuthorRecipe(
                 return new AuthorRecipeResult.Invalid(rename.Error);
             ApplyScalars(recipe, command);
 
-            var replace = recipe.ReplaceIngredients(domainLines, clock);
+            var replace = recipe.ReplaceLines(domainLines, domainInclusions, clock);
             if (replace.IsFailure)
                 return new AuthorRecipeResult.Invalid(replace.Error);
 
@@ -274,6 +334,36 @@ public sealed class AuthorRecipe(
         recipe.SetDirections(command.Directions, clock);
     }
 
+    /// <summary>
+    /// N4 DAG check — does adding inclusions from <paramref name="ownerId"/> to <paramref name="subIds"/>
+    /// close a cycle? Walks the existing household inclusion edges forward from each sub; a cycle exists iff
+    /// the owner is reachable (owner ← … ← sub means sub already includes owner transitively). The new edges
+    /// are not yet in <paramref name="edges"/>, which is exactly right — we test whether adding them would
+    /// create a cycle. Carries a visited set so a pre-existing (validated) DAG never loops.
+    /// </summary>
+    private static bool CreatesCycle(
+        RecipeId ownerId, IEnumerable<RecipeId> subIds, IReadOnlyList<RecipeInclusionEdge> edges)
+    {
+        var adjacency = edges
+            .GroupBy(e => e.ParentId)
+            .ToDictionary(g => g.Key, g => g.Select(e => e.SubId).ToList());
+
+        var visited = new HashSet<RecipeId>();
+        var stack = new Stack<RecipeId>(subIds);
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            if (current == ownerId)
+                return true;
+            if (!visited.Add(current))
+                continue;
+            if (adjacency.TryGetValue(current, out var children))
+                foreach (var child in children)
+                    stack.Push(child);
+        }
+        return false;
+    }
+
     /// <summary>A tracked line whose unit differs from the product default needs a conversion path (R7).</summary>
     private static bool NeedsConversionCheck(ResolvedLine r) =>
         r.TrackStock && r.Line.UnitId is { } unit && unit != r.DefaultUnitId;
@@ -299,7 +389,22 @@ public sealed record AuthorRecipeCommand(
     int? CookTimeMinutes = null,
     string? Directions = null,
     ScaleMode ScaleMode = ScaleMode.Keep,
-    bool DeferMissingConversions = false);
+    bool DeferMissingConversions = false,
+    IReadOnlyList<AuthorInclusionLine>? Inclusions = null);
+
+/// <summary>
+/// One authored inclusion row (recipe-composition.md §3 / D1): "<see cref="Servings"/> servings of
+/// <see cref="SubRecipeId"/>". <see cref="Ordinal"/> is in the SHARED ordinal space with
+/// <see cref="AuthorIngredientLine"/> — the service canonicalises the union of both line types to a
+/// contiguous 0-based sequence, preserving the author's relative order. Same-household reference,
+/// sub-existence, and the DAG check (N4) are enforced by <see cref="AuthorRecipe"/> before the aggregate
+/// call; N1 (Servings &gt; 0) and N2 (no self-inclusion) are enforced by <see cref="Recipe.ReplaceLines"/>.
+/// </summary>
+public sealed record AuthorInclusionLine(
+    Guid SubRecipeId,
+    decimal Servings,
+    string? GroupHeading,
+    int Ordinal);
 
 /// <summary>
 /// One authored ingredient row. Carries <b>either</b> a chosen <see cref="ProductId"/> (search/select)
