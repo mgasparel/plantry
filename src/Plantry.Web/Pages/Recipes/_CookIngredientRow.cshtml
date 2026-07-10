@@ -1,0 +1,203 @@
+@model Plantry.Web.Pages.Recipes.CookLineView
+@{
+    var line = Model;
+    // Alpine/form identity: bare IngredientId for a direct line, "{PathKey}|{IngredientId}" for an
+    // expanded inclusion line. Direct lines keep the bare id so pre-composition markup is byte-identical.
+    var key = line.LineKey;
+    // A line is greyed / its controls disabled when it is individually skipped OR (for inclusion lines)
+    // its whole inclusion is skipped from the group header. For a direct line PathKey is empty and this
+    // reduces to the pre-composition expression, so the emitted DOM is unchanged.
+    var skippedExpr = line.IsInclusion
+        ? $"isSkipped('{key}') || isInclusionSkipped('{line.PathKey}')"
+        : $"isSkipped('{key}')";
+    var defaultVariant = line.VariantOptions.FirstOrDefault(v => v.IsAutoSelected)?.VariantId.ToString() ?? "";
+}
+
+@if (line.IsUntracked)
+{
+    @* Untracked staple (C12): shown greyed, no qty, no picker *@
+    <div class="cook-ing-row cook-ing-row--untracked" role="listitem">
+        <div class="cook-ing-row__name">@line.ProductName</div>
+        <div class="cook-ing-row__sub">to taste</div>
+    </div>
+}
+else
+{
+    @* Tracked ingredient: skip toggle + variant picker if parent *@
+    <div class="cook-ing-row"
+         role="listitem"
+         :class="{ 'cook-ing-row--skipped': @skippedExpr }"
+         x-data="{}">
+
+        @* Status indicator *@
+        @if (line.IsUnitGap)
+        {
+            <div class="cook-ing-status cook-ing-status--unitgap" aria-label="Needs unit conversion">
+                <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+            </div>
+        }
+        else if (line.IsShortfall)
+        {
+            <div class="cook-ing-status cook-ing-status--shortfall" aria-label="Shortfall">
+                <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg>
+            </div>
+        }
+        else
+        {
+            <div class="cook-ing-status cook-ing-status--ok" aria-label="In stock">
+                <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            </div>
+        }
+
+        <div class="cook-ing-row__body">
+            <div class="cook-ing-row__name">
+                @line.ProductName
+                @if (line.IsShortfall && line.ScaledQuantity.HasValue && line.AvailableQuantity.HasValue)
+                {
+                    <span class="cook-shortfall-tag">
+                        have @(FormatQty(line.AvailableQuantity.Value)) / need @(FormatQty(line.ScaledQuantity.Value)) @line.UnitCode
+                    </span>
+                }
+                else if (line.IsUnitGap && line.StockQuantity.HasValue)
+                {
+                    <span class="cook-unitgap-tag">
+                        @(FormatQty(line.StockQuantity.Value)) @line.StockUnitCode on hand · no @line.UnitCode↔@line.StockUnitCode conversion
+                    </span>
+                }
+            </div>
+
+            @* Unit gap: honest state — link out to the product page where the
+               Add-conversion / ADR-022 Confirm affordance already lives (plantry-qll2.5).
+               Stays a plain link; timing is irrelevant (sibling plantry-qll2.6 settles the ledger later). *@
+            @if (line.IsUnitGap)
+            {
+                <a href="/Catalog/Products/@line.ProductId" class="cook-unitgap-link">
+                    Add conversion
+                    <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                </a>
+            }
+
+            @* Quantity stepper (C9 modify) — only when ScaledQuantity known.
+               Uses value-bind/:value + input-handler/@input (not x-model) because
+               quantities are tracked per line key via _quantities object. *@
+            @if (line.ScaledQuantity.HasValue)
+            {
+                <div class="cook-ing-row__qty-edit">
+                    <stepper name=""
+                             value-bind="quantity('@key')"
+                             input-handler="setQuantity('@key', $event.target.value)"
+                             input-disabled="@skippedExpr"
+                             decrease-click="adjustQty('@key', -1)"
+                             decrease-disabled="@skippedExpr"
+                             increase-click="adjustQty('@key', 1)"
+                             increase-disabled="@skippedExpr"
+                             decrease-label="Decrease"
+                             increase-label="Increase" />
+                    @if (!string.IsNullOrEmpty(line.UnitCode))
+                    {
+                        <span class="cook-ing-row__unit">@line.UnitCode</span>
+                    }
+                </div>
+            }
+
+            @* Variant Disambiguation Picker (C7/C11) *@
+            @if (line.IsParent && line.VariantOptions.Count > 0)
+            {
+                <div class="cook-picker" id="cook-picker-@key">
+                    <div class="cook-picker__label">Choose variant</div>
+                    <div class="suggest-opts">
+                        @foreach (var variant in line.VariantOptions)
+                        {
+                            var variantIdStr = variant.VariantId.ToString();
+                            if (!variant.IsCompatible)
+                            {
+                                @* Unit-incompatible: visible but disabled (C11) *@
+                                <button type="button"
+                                        class="suggest-opt"
+                                        disabled
+                                        title="Unit incompatible — cannot use for this ingredient"
+                                        aria-disabled="true">
+                                    @variant.VariantName
+                                    @if (variant.AvailableQuantity > 0)
+                                    {
+                                        <span class="rk">@(FormatQty(variant.AvailableQuantity)) @variant.UnitCode</span>
+                                    }
+                                    <span class="rk cook-picker__incompat">unit mismatch</span>
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button"
+                                        class="suggest-opt"
+                                        :class="{ 'sel': pickerVariant('@key') === '@variantIdStr' }"
+                                        @@click="setVariant('@key', '@variantIdStr')"
+                                        :disabled="@skippedExpr">
+                                    <svg class="icon" aria-hidden="true"
+                                         x-show="pickerVariant('@key') === '@variantIdStr'">
+                                        <use href="#i-check" />
+                                    </svg>
+                                    @variant.VariantName
+                                    <span class="rk">
+                                        @if (variant.AvailableQuantity > 0)
+                                        {
+                                            @(FormatQty(variant.AvailableQuantity))
+                                            @(" ")@variant.UnitCode
+                                        }
+                                        else
+                                        {
+                                            <span>none</span>
+                                        }
+                                    </span>
+                                    @if (variant.IsAutoSelected)
+                                    {
+                                        <span class="rk">best</span>
+                                    }
+                                </button>
+                            }
+                        }
+                    </div>
+                    @* Hidden input carries the chosen variant id to the form post. Direct ingredients use
+                       the flat PickerSelections[ingredientId] contract (unchanged); expanded inclusion lines
+                       post the path-qualified InclusionPickerSelections[lineKey] map. *@
+                    @if (!line.IsInclusion)
+                    {
+                        <input type="hidden"
+                               name="PickerSelections[@line.IngredientId].IngredientId"
+                               value="@line.IngredientId" />
+                        <input type="hidden"
+                               name="PickerSelections[@line.IngredientId].VariantId"
+                               :value="pickerVariant('@key') ?? '@defaultVariant'" />
+                    }
+                    else
+                    {
+                        <input type="hidden"
+                               name="InclusionPickerSelections[@key]"
+                               :value="pickerVariant('@key') ?? '@defaultVariant'" />
+                    }
+                </div>
+            }
+        </div>
+
+        @* Skip toggle (C9) — individual line skip *@
+        <div class="cook-ing-row__actions">
+            <button type="button"
+                    class="btn btn--ghost btn--sm cook-skip-btn"
+                    @@click="toggleSkip('@key')"
+                    :aria-pressed="isSkipped('@key')"
+                    aria-label="Skip ingredient">
+                <span x-show="!isSkipped('@key')">Skip</span>
+                <span x-show="isSkipped('@key')">Undo</span>
+            </button>
+        </div>
+
+        @* Skipped overlay *@
+        <div class="cook-ing-row__skip-overlay"
+             x-show="@skippedExpr"
+             x-cloak>Skipped</div>
+    </div>
+}
+
+@functions {
+    // Canonical amount rendering (plantry-jun6) — one rule shared with Details and the editor.
+    private static string FormatQty(decimal qty) => IngredientAmount.Format(qty);
+}
