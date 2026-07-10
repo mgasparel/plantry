@@ -44,6 +44,7 @@ public sealed class EditModel(
     IUnitConverter unitConverter,
     SuggestRecipeTags suggestRecipeTags,
     DietTagNudgeService dietTagNudge,
+    RecipeExpansionService recipeExpansion,
     ManageTagsService manageTags,
     IAiAssistanceGateReader aiGate,
     RecipeConversionSeedTrigger conversionSeedTrigger,
@@ -523,15 +524,18 @@ public sealed class EditModel(
             DeferMissingConversions: deferConversions,
             Inclusions: inclusions);
 
-        // Diet-tag nudge guard (plantry-qll2.3): capture the recipe's ingredient ProductId set BEFORE the save,
-        // for edits only, so the post-save trigger can tell whether the ingredient set actually changed (an
-        // ingredient-neutral edit must fire nothing). Create (J6) is owned by the qll2.2 tag chips, never nudged.
+        // Diet-tag nudge guard (plantry-qll2.3 / recipe-composition.md §8, D9): capture the recipe's EXPANDED
+        // ProductId set BEFORE the save — direct ingredients plus every nested inclusion's products — for edits
+        // only, so the post-save trigger can tell whether the effective ingredient set actually changed (an
+        // effective-neutral edit must fire nothing; editing which recipes are included DOES change it). One
+        // recursive repo walk, still no LLM and no name resolution. Create (J6) is owned by the qll2.2 tag chips,
+        // never nudged.
         IReadOnlySet<Guid> previousProductIds = new HashSet<Guid>();
         if (Id is { } nudgeEditId)
         {
-            var preSave = await recipes.GetByIdAsync(RecipeId.From(nudgeEditId), ct);
-            if (preSave is not null)
-                previousProductIds = preSave.Ingredients.Select(i => i.ProductId).Distinct().ToHashSet();
+            var preExpanded = await recipeExpansion.ExpandedProductIdsAsync(RecipeId.From(nudgeEditId), ct);
+            if (preExpanded.IsSuccess)
+                previousProductIds = preExpanded.Value;
         }
 
         var result = await authorRecipe.ExecuteAsync(command, ct);

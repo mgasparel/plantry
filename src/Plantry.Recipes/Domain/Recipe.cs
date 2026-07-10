@@ -26,12 +26,16 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     public DateTimeOffset UpdatedAt { get; private set; }
 
     /// <summary>
-    /// The ingredient-ProductId-set hash the user has already reconciled against this recipe's Diet-category
+    /// The <b>expanded</b> ProductId-set hash the user has already reconciled against this recipe's Diet-category
     /// tags — set when they dismiss ("Keep it") or act on ("Remove tag") the edit-moment diet-tag contradiction
-    /// nudge (plantry-qll2.3). Null until the nudge is first resolved. The nudge only re-appears once the
-    /// distinct ProductId set changes to something OTHER than this reconciled hash, so dismissing is remembered
-    /// for that exact (recipe, ingredient-set) and does not re-nag on a subsequent no-ingredient-change save.
-    /// See <see cref="CurrentIngredientProductHash"/> for how the hash is derived.
+    /// nudge (plantry-qll2.3, recipe-composition.md §8 / D9). Null until the nudge is first resolved. The nudge
+    /// only re-appears once the distinct EXPANDED ProductId set (direct ingredients plus every nested inclusion's
+    /// products) changes to something OTHER than this reconciled hash, so dismissing is remembered for that exact
+    /// (recipe, expanded-set) and does not re-nag on a subsequent no-effective-change save.
+    /// <para>The expanded set needs cross-aggregate reads (the included sub-recipes), so it is computed in the
+    /// application layer via <c>RecipeExpansionService</c> and passed to <see cref="DismissDietNudge"/>; the
+    /// in-aggregate <see cref="CurrentIngredientProductHash"/> still hashes only this recipe's DIRECT set and is
+    /// used for the fast free path. Both use the same <see cref="IngredientProductHash"/> rule.</para>
     /// </summary>
     public string? DietNudgeDismissedHash { get; private set; }
 
@@ -142,14 +146,16 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     // ── Edit-moment diet-tag nudge reconciliation (plantry-qll2.3) ───────────────
 
     /// <summary>
-    /// Records the recipe's current ingredient set as reconciled with its Diet-category tags — called when the
-    /// user dismisses ("Keep it") or acts on ("Remove tag") the contradiction nudge. Stamps
-    /// <see cref="DietNudgeDismissedHash"/> with <see cref="CurrentIngredientProductHash"/> so the same
-    /// (recipe, ingredient-set) never re-nags on a later no-ingredient-change save.
+    /// Records the recipe's current <b>expanded</b> product set as reconciled with its Diet-category tags —
+    /// called when the user dismisses ("Keep it") or acts on ("Remove tag") the contradiction nudge. Stamps
+    /// <see cref="DietNudgeDismissedHash"/> with <paramref name="expandedProductHash"/> (the
+    /// <see cref="IngredientProductHash"/> of the fully expanded distinct ProductId set, computed by the
+    /// application layer's <c>RecipeExpansionService</c> — the aggregate cannot read its included sub-recipes)
+    /// so the same (recipe, expanded-set) never re-nags on a later no-effective-change save (D9).
     /// </summary>
-    public void DismissDietNudge(IClock clock)
+    public void DismissDietNudge(string expandedProductHash, IClock clock)
     {
-        DietNudgeDismissedHash = CurrentIngredientProductHash();
+        DietNudgeDismissedHash = expandedProductHash;
         Touch(clock);
     }
 

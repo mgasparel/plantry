@@ -16,10 +16,11 @@ public sealed record DietTagNudgeView(Guid RecipeId, string IngredientName, Guid
 /// It keeps the two-stage guard the epic (plantry-qll2) design calls for in one place:
 /// <list type="number">
 ///   <item><see cref="ShouldOfferAfterSaveAsync"/> — the <b>cheap</b> post-save trigger the editor POST runs to
-///   decide whether to defer a check at all. It fires only when the ProductId set actually changed AND the recipe
-///   carries a Diet-category tag AND that new set has not already been reconciled. No LLM, no Catalog name
-///   resolution — the ProductId-set hash is derived from in-aggregate ids (free). This is what keeps "most saves
-///   trigger nothing" true and confines the AI strictly to the edit moment (never a corpus sweep).</item>
+///   decide whether to defer a check at all. It fires only when the <b>expanded</b> ProductId set (direct
+///   ingredients plus every nested inclusion's products, D9) actually changed AND the recipe carries a
+///   Diet-category tag AND that new set has not already been reconciled. No LLM, no Catalog name resolution — the
+///   ProductId-set hash comes from one recursive repo walk of the included recipes (cheap). This is what keeps
+///   "most saves trigger nothing" true and confines the AI strictly to the edit moment (never a corpus sweep).</item>
 ///   <item><see cref="EvaluateAsync"/> — the <b>deferred</b> check the post-save landing runs via htmx: the
 ///   household assistive-AI gate (<see cref="IAiAssistanceGateReader"/>, plantry-qll2.1), then the cross-context
 ///   name resolution and the untrusted LLM call, only once the guard has already fired.</item>
@@ -30,6 +31,7 @@ public sealed record DietTagNudgeView(Guid RecipeId, string IngredientName, Guid
 /// </summary>
 public sealed class DietTagNudgeService(
     IRecipeRepository recipes,
+    RecipeExpansionService expansion,
     ITagRepository tags,
     ICatalogProductReader products,
     IAiAssistanceGateReader gate,
@@ -39,11 +41,15 @@ public sealed class DietTagNudgeService(
 {
     /// <summary>
     /// Cheap, no-LLM post-save trigger guard. Returns true only when a deferred contradiction check is warranted:
-    /// the recipe still exists, its distinct ProductId set differs from <paramref name="previousProductIds"/> (the
-    /// set BEFORE this save — an ingredient-neutral edit changes nothing here, acceptance criterion 2), it carries
-    /// at least one Diet-category tag (criterion 3), and the new set has not already been dismissed for this recipe.
+    /// the recipe still exists, its distinct <b>expanded</b> ProductId set — direct ingredients plus every nested
+    /// inclusion's products (D9) — differs from <paramref name="previousProductIds"/> (the expanded set BEFORE this
+    /// save, so an effective-set-neutral edit changes nothing here, acceptance criterion 2, and editing which
+    /// recipes are included re-triggers), it carries at least one Diet-category tag (criterion 3), and the new set
+    /// has not already been dismissed for this recipe. Computing the expanded set adds ONE recursive repo walk of
+    /// the included recipes — still no LLM and no Catalog name resolution, so "most saves trigger nothing" survives.
     /// The household assistive-AI gate is deliberately checked later, in <see cref="EvaluateAsync"/>, so the toggle
-    /// still governs the LLM call itself (criterion 4) without a gate round-trip on every save.
+    /// still governs the LLM call itself (criterion 4) without a gate round-trip on every save. A recipe whose
+    /// expansion cannot be resolved (missing sub) never nags — the advisory check fails safe.
     /// </summary>
     public async Task<bool> ShouldOfferAfterSaveAsync(
         RecipeId recipeId, IReadOnlySet<Guid> previousProductIds, CancellationToken ct = default)
@@ -51,22 +57,26 @@ public sealed class DietTagNudgeService(
         var recipe = await recipes.GetByIdAsync(recipeId, ct);
         if (recipe is null) return false;
 
-        var currentIds = DistinctProductIds(recipe);
-        if (currentIds.SetEquals(previousProductIds)) return false; // ingredient set unchanged (criterion 2)
+        var expanded = await expansion.ExpandedProductIdsAsync(recipeId, ct);
+        if (expanded.IsFailure) return false; // advisory: an unresolvable expansion never nags
+
+        var currentIds = expanded.Value;
+        if (currentIds.SetEquals(previousProductIds)) return false; // expanded set unchanged (criterion 2)
 
         var dietTags = await DietTagsAsync(recipe, ct);
         if (dietTags.Count == 0) return false; // no Diet-category tag (criterion 3)
 
-        // Already reconciled for this exact ingredient set — don't re-nag (criterion 1, "dismiss remembered").
-        return recipe.CurrentIngredientProductHash() != recipe.DietNudgeDismissedHash;
+        // Already reconciled for this exact EXPANDED set — don't re-nag (criterion 1, "dismiss remembered").
+        return Recipe.IngredientProductHash(currentIds) != recipe.DietNudgeDismissedHash;
     }
 
     /// <summary>
-    /// The deferred check: re-verifies the guard, applies the assistive-AI gate, resolves ingredient names via the
-    /// Catalog ACL (<c>Ingredient</c> has no Name — cross-context by construction), and asks the untrusted checker
+    /// The deferred check: re-verifies the guard, applies the assistive-AI gate, resolves the <b>expanded</b>
+    /// ingredient names via the Catalog ACL (<c>Ingredient</c> has no Name — cross-context by construction) so a
+    /// dairy product inside a sub-recipe of a Vegan-tagged parent is catchable (D9), and asks the untrusted checker
     /// for contradictions. Returns the first contradiction mapped back to the recipe's own Diet-category tag id (so
-    /// the "Remove tag" action can target it), or <c>null</c> when the gate is off, nothing changed, or nothing
-    /// contradicts. Never throws — the checker soft-fails to an empty list.
+    /// the "Remove tag" action can target it), or <c>null</c> when the gate is off, nothing changed, the expansion
+    /// cannot be resolved, or nothing contradicts. Never throws — the checker soft-fails to an empty list.
     /// </summary>
     public async Task<DietTagNudgeView?> EvaluateAsync(RecipeId recipeId, CancellationToken ct = default)
     {
@@ -79,10 +89,14 @@ public sealed class DietTagNudgeService(
         var dietTags = await DietTagsAsync(recipe, ct);
         if (dietTags.Count == 0) return null;
 
-        // Defence in depth: an already-reconciled set never reaches the LLM even if the deferred load races a dismiss.
-        if (recipe.CurrentIngredientProductHash() == recipe.DietNudgeDismissedHash) return null;
+        var expanded = await expansion.ExpandedProductIdsAsync(recipeId, ct);
+        if (expanded.IsFailure) return null; // unresolvable expansion — nothing to check
 
-        var distinctIds = DistinctProductIds(recipe).ToList();
+        // Defence in depth: an already-reconciled EXPANDED set never reaches the LLM even if the deferred load
+        // races a dismiss.
+        if (Recipe.IngredientProductHash(expanded.Value) == recipe.DietNudgeDismissedHash) return null;
+
+        var distinctIds = expanded.Value.ToList();
         var summaries = await products.ResolveSummariesAsync(distinctIds, ct);
         var ingredientNames = summaries.Values
             .Select(s => s.Name)
@@ -112,10 +126,10 @@ public sealed class DietTagNudgeService(
     {
         var recipe = await recipes.GetByIdAsync(recipeId, ct);
         if (recipe is null) return;
-        recipe.DismissDietNudge(clock);
+        recipe.DismissDietNudge(await ExpandedProductHashAsync(recipe, ct), clock);
         await recipes.SaveChangesAsync(ct);
         logger.LogInformation(
-            "Diet-tag nudge kept (dismissed) for recipe {RecipeId}; ingredient set reconciled.", recipeId.Value);
+            "Diet-tag nudge kept (dismissed) for recipe {RecipeId}; expanded ingredient set reconciled.", recipeId.Value);
     }
 
     /// <summary>
@@ -128,15 +142,26 @@ public sealed class DietTagNudgeService(
         var recipe = await recipes.GetByIdAsync(recipeId, ct);
         if (recipe is null) return;
         recipe.RemoveTag(TagId.From(tagId), clock);
-        recipe.DismissDietNudge(clock);
+        recipe.DismissDietNudge(await ExpandedProductHashAsync(recipe, ct), clock);
         await recipes.SaveChangesAsync(ct);
         logger.LogInformation(
-            "Diet-tag nudge: user removed tag {TagId} from recipe {RecipeId}; ingredient set reconciled.",
+            "Diet-tag nudge: user removed tag {TagId} from recipe {RecipeId}; expanded ingredient set reconciled.",
             tagId, recipeId.Value);
     }
 
-    private static HashSet<Guid> DistinctProductIds(Recipe recipe) =>
-        recipe.Ingredients.Select(i => i.ProductId).Distinct().ToHashSet();
+    /// <summary>
+    /// The <see cref="Recipe.IngredientProductHash"/> of the recipe's fully expanded distinct ProductId set (D9),
+    /// used to stamp <see cref="Recipe.DietNudgeDismissedHash"/> on reconciliation. If the expansion cannot be
+    /// resolved (missing sub), falls back to the aggregate's direct-set hash so a dismiss still records something
+    /// deterministic — the guard already refuses to nag on an unresolvable expansion, so this fallback is defensive.
+    /// </summary>
+    private async Task<string> ExpandedProductHashAsync(Recipe recipe, CancellationToken ct)
+    {
+        var expanded = await expansion.ExpandedProductIdsAsync(recipe.Id, ct);
+        return expanded.IsSuccess
+            ? Recipe.IngredientProductHash(expanded.Value)
+            : recipe.CurrentIngredientProductHash();
+    }
 
     /// <summary>
     /// The recipe's applied tags that are Diet-category. Tags are a small per-household set, so one

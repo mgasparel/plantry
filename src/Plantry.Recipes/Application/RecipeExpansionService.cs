@@ -45,6 +45,23 @@ public sealed class RecipeExpansionService(IRecipeRepository recipes)
     }
 
     /// <summary>
+    /// The distinct set of ProductIds across the fully expanded recipe — its own direct ingredients plus every
+    /// nested inclusion's ingredients, resolved through <see cref="ExpandAsync"/>'s single recursive repo walk.
+    /// This is the cheap cross-aggregate signal the diet-tag nudge guard hashes (recipe-composition.md §8 / D9):
+    /// still no LLM and no Catalog name resolution. Propagates the expansion error (missing sub / cycle)
+    /// unchanged so callers can decide how to degrade.
+    /// </summary>
+    public async Task<Result<IReadOnlySet<Guid>>> ExpandedProductIdsAsync(
+        RecipeId recipeId, CancellationToken ct = default)
+    {
+        var expanded = await ExpandAsync(recipeId, ct);
+        if (expanded.IsFailure)
+            return Result<IReadOnlySet<Guid>>.Failure(expanded.Error);
+        IReadOnlySet<Guid> ids = expanded.Value.Select(l => l.ProductId).ToHashSet();
+        return Result<IReadOnlySet<Guid>>.Success(ids);
+    }
+
+    /// <summary>
     /// Depth-first expansion of one recipe at a given path/factor, appending to <paramref name="sink"/>.
     /// Returns a non-null <see cref="Error"/> to abort (missing sub or cycle); null on success.
     /// </summary>

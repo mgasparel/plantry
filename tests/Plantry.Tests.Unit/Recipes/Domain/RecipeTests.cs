@@ -749,10 +749,11 @@ public sealed class RecipeTests
     }
 
     [Fact]
-    public void DismissDietNudge_Stamps_The_Current_Ingredient_Set_Hash()
+    public void DismissDietNudge_Stamps_The_Supplied_Expanded_Set_Hash()
     {
         var pasta = Guid.CreateVersion7();
         var cheese = Guid.CreateVersion7();
+        var subOnlyProduct = Guid.CreateVersion7();
         var recipe = NewRecipe();
         recipe.ReplaceIngredients(
         [
@@ -761,10 +762,14 @@ public sealed class RecipeTests
         ], Clock);
         Assert.Null(recipe.DietNudgeDismissedHash);
 
-        recipe.DismissDietNudge(Clock);
+        // D9: the app layer computes the EXPANDED-set hash (direct + every included sub's products) and passes
+        // it in — the aggregate stamps exactly what it is given (it cannot read its own included sub-recipes).
+        var expandedHash = Recipe.IngredientProductHash([pasta, cheese, subOnlyProduct]);
+        recipe.DismissDietNudge(expandedHash, Clock);
 
-        Assert.Equal(Recipe.IngredientProductHash([pasta, cheese]), recipe.DietNudgeDismissedHash);
-        Assert.Equal(recipe.CurrentIngredientProductHash(), recipe.DietNudgeDismissedHash);
+        Assert.Equal(expandedHash, recipe.DietNudgeDismissedHash);
+        // The stamped expanded hash is distinct from the aggregate's DIRECT-set hash when a sub adds a product.
+        Assert.NotEqual(recipe.CurrentIngredientProductHash(), recipe.DietNudgeDismissedHash);
     }
 
     [Fact]
