@@ -22,5 +22,12 @@ public interface IHouseholdInviteRepository
     /// </summary>
     Task<HouseholdInvite?> FindByTokenAsync(string token, CancellationToken ct = default);
 
+    /// <summary>
+    /// Lists the current household's pending invites, most-recently-issued first. Tenant-scoped: the
+    /// household-scoped EF query filter (and the Postgres RLS policy) apply, so only the active
+    /// household's invites are returned. Feeds the Settings &gt; Members roster of outstanding invites.
+    /// </summary>
+    Task<IReadOnlyList<HouseholdInvite>> ListPendingAsync(CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }

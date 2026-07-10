@@ -20,6 +20,14 @@ public sealed class HouseholdInviteRepository(PlantryIdentityDbContext db) : IHo
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(i => i.Token == token, ct);
 
+    // Tenant-scoped: the household-scoped EF query filter on HouseholdInvites (and the RLS policy)
+    // restrict this to the active household's invites. Most-recently-issued first.
+    public async Task<IReadOnlyList<HouseholdInvite>> ListPendingAsync(CancellationToken ct = default) =>
+        await db.HouseholdInvites
+            .Where(i => i.Status == InviteStatus.Pending)
+            .OrderByDescending(i => i.CreatedAt)
+            .ToListAsync(ct);
+
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);
 }

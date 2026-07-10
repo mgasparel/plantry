@@ -1,0 +1,53 @@
+@page
+@model Plantry.Web.Pages.Settings.MembersModel
+@{
+    ViewData["Title"] = "Members";
+}
+
+<div class="cfg-wrap" data-screen-label="Members">
+    <div class="cfg-head">
+        <div class="eyebrow">Household</div>
+        <h1>Members</h1>
+        <p>
+            See who&rsquo;s in your household and invite someone new. There&rsquo;s no email in the
+            alpha &mdash; issuing an invite gives you a join link to share directly with the person
+            you&rsquo;re inviting.
+        </p>
+    </div>
+
+    @* Members roster *@
+    <div class="card">
+        <div class="card__head">
+            <h3 class="card__head-title">Members</h3>
+            <span class="ch-sub">&middot; @Model.Members.Count</span>
+        </div>
+        <div class="card__body">
+            @if (Model.Members.Count == 0)
+            {
+                <p class="catalog-section__empty">No members yet.</p>
+            }
+            else
+            {
+                <ul class="member-list" role="list">
+                    @{ var idx = 0; }
+                    @foreach (var m in Model.Members)
+                    {
+                        <li class="member-row">
+                            <span class="pl-av member-row__av" data-av-color="@(idx % 8)">@m.Initial</span>
+                            <span class="member-row__name">@m.DisplayName</span>
+                        </li>
+                        idx++;
+                    }
+                </ul>
+            }
+        </div>
+    </div>
+
+    @* Pending invites region (htmx-swappable) *@
+    <div id="invites-region"
+         hx-get="/Settings/Members?handler=Invites"
+         hx-trigger="none"
+         hx-swap="innerHTML">
+        @await Html.PartialAsync("Settings/_InvitesList", Model)
+    </div>
+</div>

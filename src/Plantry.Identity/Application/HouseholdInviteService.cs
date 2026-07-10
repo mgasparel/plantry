@@ -14,6 +14,21 @@ namespace Plantry.Identity.Application;
 public readonly record struct AcceptedInvite(HouseholdId HouseholdId, string Email);
 
 /// <summary>
+/// Read model for a pending <see cref="HouseholdInvite"/>, surfaced on the Settings &gt; Members page:
+/// the invitee email, the share <see cref="Token"/> (used to build the join link), who issued it, and
+/// its lifecycle timestamps. <see cref="IsExpired"/> is evaluated against the current clock so the UI
+/// can render lapsed-but-not-yet-swept invites inert (there is no background expiry sweep yet).
+/// </summary>
+public sealed record PendingInvite(
+    HouseholdInviteId Id,
+    string Email,
+    string Token,
+    Guid InvitedByUserId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset ExpiresAt,
+    bool IsExpired);
+
+/// <summary>
 /// The Identity application-layer operations over <see cref="HouseholdInvite"/> — issue, revoke, and
 /// accept. This is the future roles-authorization seam: issue/revoke run under an authenticated
 /// household (read from <see cref="ITenantContext"/>), while accept runs with <b>no tenant context</b>
@@ -53,6 +68,25 @@ public sealed class HouseholdInviteService(
             invite.Id.Value, householdGuid, invitedByUserId);
 
         return invite.Id;
+    }
+
+    /// <summary>
+    /// Lists the current household's pending invites (most-recent first) as read models for the
+    /// Settings &gt; Members roster. Returns an empty list when no household is in context. The
+    /// tenant-scoped repository query guarantees a household only sees its own invites; each entry's
+    /// <see cref="PendingInvite.IsExpired"/> is computed against the clock so the UI can mark lapsed
+    /// invites inert.
+    /// </summary>
+    public async Task<IReadOnlyList<PendingInvite>> ListPendingAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is null)
+            return [];
+
+        var pending = await invites.ListPendingAsync(ct);
+        return pending
+            .Select(i => new PendingInvite(
+                i.Id, i.Email, i.Token, i.InvitedByUserId, i.CreatedAt, i.ExpiresAt, i.IsExpired(clock)))
+            .ToList();
     }
 
     /// <summary>

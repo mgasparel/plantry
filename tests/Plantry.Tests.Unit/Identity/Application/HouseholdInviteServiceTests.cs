@@ -62,6 +62,52 @@ public sealed class HouseholdInviteServiceTests
         Assert.Empty(repo.Invites);
     }
 
+    // ── List pending ─────────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "ListPending returns only pending invites as read models, flagging expiry against the clock")]
+    public async Task ListPending_Returns_Pending_ReadModels()
+    {
+        var issuedClock = new FixedClock(Now);
+        // Fresh pending (7-day default validity → not expired at the Now+3d read below).
+        var fresh = HouseholdInvite.Issue(HouseholdId.From(HouseholdA), "fresh@example.com", Inviter, issuedClock);
+        // Lapsed-but-still-pending (no sweep) — 1-day validity, so expired by the Now+3d read.
+        var lapsed = HouseholdInvite.Issue(
+            HouseholdId.From(HouseholdA), "lapsed@example.com", Inviter, issuedClock, TimeSpan.FromDays(1));
+        // Revoked → must be excluded.
+        var revoked = HouseholdInvite.Issue(HouseholdId.From(HouseholdA), "gone@example.com", Inviter, issuedClock);
+        revoked.Revoke();
+
+        var repo = new FakeInviteRepository();
+        await repo.AddAsync(fresh);
+        await repo.AddAsync(lapsed);
+        await repo.AddAsync(revoked);
+
+        var readAt = new FixedClock(Now + TimeSpan.FromDays(3));
+        var result = await Service(repo, HouseholdA, readAt).ListPendingAsync();
+
+        Assert.Equal(2, result.Count);
+        Assert.DoesNotContain(result, i => i.Email == "gone@example.com");
+
+        var freshRm = Assert.Single(result, i => i.Email == "fresh@example.com");
+        Assert.False(freshRm.IsExpired);
+        Assert.Equal(fresh.Token, freshRm.Token);
+        Assert.Equal(Inviter, freshRm.InvitedByUserId);
+
+        var lapsedRm = Assert.Single(result, i => i.Email == "lapsed@example.com");
+        Assert.True(lapsedRm.IsExpired);
+    }
+
+    [Fact(DisplayName = "ListPending returns empty when there is no household in context")]
+    public async Task ListPending_Requires_Household()
+    {
+        var invite = HouseholdInvite.Issue(HouseholdId.From(HouseholdA), "invitee@example.com", Inviter, new FixedClock(Now));
+        var repo = new FakeInviteRepository(invite);
+
+        var result = await Service(repo, household: null).ListPendingAsync();
+
+        Assert.Empty(result);
+    }
+
     // ── Accept (no tenant context; by token) ───────────────────────────────────
 
     [Fact(DisplayName = "Accept resolves by token with no tenant context and returns the joined household + email")]
@@ -225,6 +271,12 @@ public sealed class HouseholdInviteServiceTests
 
         public Task<HouseholdInvite?> FindByTokenAsync(string token, CancellationToken ct = default) =>
             Task.FromResult(Invites.SingleOrDefault(i => i.Token == token));
+
+        public Task<IReadOnlyList<HouseholdInvite>> ListPendingAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<HouseholdInvite>>(
+                Invites.Where(i => i.Status == InviteStatus.Pending)
+                    .OrderByDescending(i => i.CreatedAt)
+                    .ToList());
 
         public Task SaveChangesAsync(CancellationToken ct = default)
         {

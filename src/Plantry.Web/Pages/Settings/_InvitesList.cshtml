@@ -1,0 +1,97 @@
+@model Plantry.Web.Pages.Settings.MembersModel
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert--danger" role="alert">@Model.ErrorMessage</div>
+}
+
+<div class="card card--overflow-visible" style="margin-top: var(--spacing-4)">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">Pending invites</h3>
+            <p class="card__head-sub">Share the join link with the person you&rsquo;re inviting &mdash; no email is sent.</p>
+        </div>
+        <span class="ch-sub">&middot; @Model.Invites.Count</span>
+    </div>
+    <div class="card__body">
+
+        @* Issue a new invite *@
+        <div class="invite-add" x-data="{ email: '' }">
+            <input type="email"
+                   name="email"
+                   x-model="email"
+                   class="field__input invite-add__email"
+                   placeholder="name@@example.com"
+                   aria-label="Invitee email"
+                   x-on:keydown.enter.prevent="if (email.trim()) $el.closest('.invite-add').querySelector('.invite-add__btn').click()" />
+
+            <button type="button"
+                    class="btn btn--soft invite-add__btn"
+                    x-bind:disabled="!email.trim()"
+                    hx-post="/Settings/Members?handler=Invite"
+                    hx-target="#invites-region"
+                    hx-swap="innerHTML"
+                    hx-include="closest .invite-add"
+                    hx-on::after-request="email = ''">
+                <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                Invite member
+            </button>
+        </div>
+
+        @if (Model.Invites.Count == 0)
+        {
+            <p class="catalog-section__empty">No pending invites.</p>
+        }
+        else
+        {
+            <ul class="invite-list" role="list">
+                @foreach (var inv in Model.Invites)
+                {
+                    <li class="invite-row" data-invite-id="@inv.Id">
+                        <div class="invite-row__head">
+                            <span class="invite-row__email">@inv.Email</span>
+                            @if (inv.IsExpired)
+                            {
+                                <span class="badge badge--warning">Expired</span>
+                            }
+                            <span class="invite-row__meta">
+                                Invited by @inv.InvitedBy &middot;
+                                @(inv.IsExpired ? "expired" : "expires") @inv.ExpiresAt.ToString("MMM d, yyyy")
+                            </span>
+                        </div>
+
+                        @* Copy-able join link *@
+                        <div class="invite-link" x-data="{ copied: false }">
+                            <input class="field__input invite-link__url"
+                                   type="text"
+                                   readonly
+                                   value="@inv.JoinUrl"
+                                   x-ref="link"
+                                   x-on:focus="$event.target.select()"
+                                   aria-label="Invite join link for @inv.Email" />
+                            <button type="button"
+                                    class="btn btn--sm btn--secondary invite-link__copy"
+                                    x-on:click="navigator.clipboard.writeText($refs.link.value); copied = true; setTimeout(() => copied = false, 2000)">
+                                <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                <span x-show="!copied">Copy link</span>
+                                <span x-show="copied" x-cloak>Copied!</span>
+                            </button>
+                        </div>
+
+                        <div class="invite-row__acts">
+                            <button type="button"
+                                    class="btn btn--ghost btn--sm"
+                                    hx-post="/Settings/Members?handler=Revoke&id=@inv.Id"
+                                    hx-target="#invites-region"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="Revoke the invite for @inv.Email? The join link will stop working.">
+                                <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                                Revoke
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>
