@@ -35,6 +35,13 @@
     </div>
 }
 
+@if (Model.DeflattenSuccessMessage is not null)
+{
+    <div class="alert alert--success" role="alert">
+        <strong>Nestings converted.</strong> @Model.DeflattenSuccessMessage
+    </div>
+}
+
 @if (!Model.ManifestExists)
 {
     <div class="card" style="max-width: 40rem">
@@ -124,9 +131,68 @@
                         }
                     </button>
                 </form>
+                @* De-flatten step — available once recipes are committed. Re-imports the Grocy nesting
+                   edges as native inclusion lines for untouched-since-import parents (D16). *@
+                @if (Model.RecipeCrosswalkFound && Model.NestingEdgeParentCount > 0)
+                {
+                    <form method="post" asp-page-handler="DeflattenNestings" style="display: inline">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn--ghost" style="font-size: 0.875rem"
+                                title="Re-import the @Model.NestingEdgeParentCount nested recipe(s) as inclusion lines">
+                            Convert nestings → inclusions
+                        </button>
+                    </form>
+                }
             }
         </div>
     </div>
+
+    @if (Model.DeflattenSummary is { } deflatten)
+    {
+        <div class="card__body" style="border-top: 1px solid var(--color-border, #e5e7eb)">
+            <h4 style="margin: 0 0 0.5rem">Nesting → inclusion conversion</h4>
+            <p class="card__head-sub" style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0 0 0.75rem">
+                <span><span class="badge badge--success" style="font-size: 0.7rem">converted</span> @deflatten.Converted</span>
+                <span><span class="badge badge--neutral" style="font-size: 0.7rem">already converted</span> @deflatten.AlreadyConverted</span>
+                <span><span class="badge badge--warning" style="font-size: 0.7rem">edited — skipped</span> @deflatten.SkippedEdited</span>
+                <span><span class="badge badge--warning" style="font-size: 0.7rem">uncommitted sub — skipped</span> @deflatten.SkippedMissingSub</span>
+                @if (deflatten.SkippedParentNotCommitted > 0)
+                {
+                    <span><span class="badge badge--warning" style="font-size: 0.7rem">parent not committed</span> @deflatten.SkippedParentNotCommitted</span>
+                }
+                @if (deflatten.Failed > 0)
+                {
+                    <span><span class="badge badge--danger" style="font-size: 0.7rem">failed</span> @deflatten.Failed</span>
+                }
+            </p>
+            <table class="data-grid__table" style="min-width: 40rem">
+                <caption class="data-grid__caption sr-only">Nesting conversion results</caption>
+                <thead>
+                    <tr>
+                        <th scope="col" class="data-grid__header">Parent recipe</th>
+                        <th scope="col" class="data-grid__header">Sub-recipe(s)</th>
+                        <th scope="col" class="data-grid__header">Outcome</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in deflatten.Results)
+                    {
+                        <tr>
+                            <td class="data-grid__cell">@r.ParentName</td>
+                            <td class="data-grid__cell">@string.Join(", ", r.SubRecipeNames)</td>
+                            <td class="data-grid__cell">
+                                <strong>@r.Disposition</strong>
+                                @if (r.Note is not null)
+                                {
+                                    <span style="color: var(--color-text-faint); display: block; font-size: 0.8rem">@r.Note</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
 
     <div class="card__body" style="padding: 0; overflow-x: auto">
         <table class="data-grid__table" style="min-width: 60rem" id="recipes-staging-table">
