@@ -389,6 +389,7 @@ public sealed class ReviewModel(
             SaveLineUrl: Url.Page("./Review", "SaveLine", new { Id })!,
             DismissLineUrl: Url.Page("./Review", "DismissLine", new { Id })!,
             RestoreLineUrl: Url.Page("./Review", "RestoreLine", new { Id })!,
+            ReopenLineUrl: Url.Page("./Review", "ReopenLine", new { Id })!,
             Products: products,
             Units: units,
             Locations: locations,

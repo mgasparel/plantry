@@ -19,6 +19,11 @@ import {
   buildSaveLineBody,
   commitBarCounts,
   estimateHint,
+  hasCompletePrefill,
+  isReadyPending,
+  decisionVariant,
+  questionCopy,
+  firstNeedsLineId,
 } from "../intake-review-logic.js";
 
 // ── test helpers ─────────────────────────────────────────────────────────────
@@ -261,66 +266,17 @@ describe("buildSaveLineBody", () => {
 // ── makeLine ─────────────────────────────────────────────────────────────────
 
 describe("makeLine", () => {
-  describe("drawerOpen predicate", () => {
-    it("opens when Pending + Low confidence + no productId + not isNewProduct", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "Low",
-        productId: null,
-        isNewProduct: false,
-      });
-      assert.equal(ls.drawerOpen.value, true);
-    });
-
-    it("opens when Pending + None confidence + no productId + not isNewProduct", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "None",
-        productId: null,
-        isNewProduct: false,
-      });
-      assert.equal(ls.drawerOpen.value, true);
-    });
-
-    it("stays closed when confidence is High (matched row)", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "High",
-        productId: "prod-abc",
-        isNewProduct: false,
-      });
-      assert.equal(ls.drawerOpen.value, false);
-    });
-
-    it("stays closed when productId is set even if confidence is Low", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "Low",
-        productId: "prod-abc", // already has a product
-        isNewProduct: false,
-      });
-      assert.equal(ls.drawerOpen.value, false);
-    });
-
-    it("stays closed when isNewProduct is true even if confidence is Low and no productId", () => {
-      const ls = makeState({
-        status: "Pending",
-        confidence: "Low",
-        productId: null,
-        isNewProduct: true,
-      });
-      assert.equal(ls.drawerOpen.value, false);
-    });
-
-    it("stays closed when status is not Pending", () => {
-      for (const status of /** @type {const} */ (["Confirmed", "Dismissed", "Committed"])) {
-        const ls = makeState({
-          status,
-          confidence: "Low",
-          productId: null,
-          isNewProduct: false,
-        });
-        assert.equal(ls.drawerOpen.value, false, `expected closed for status=${status}`);
+  describe("drawerOpen (exceptions-first: focus drives the question drawer, not this flag)", () => {
+    it("always starts closed — the focused exception's drawer is opened by the island's focusId", () => {
+      for (const seed of [
+        { status: "Pending", confidence: "Low", productId: null, isNewProduct: false },
+        { status: "Pending", confidence: "None", productId: null, isNewProduct: false },
+        { status: "Pending", confidence: "High", productId: "prod-abc", isNewProduct: false },
+        { status: "Confirmed", confidence: "High", productId: "prod-abc", isNewProduct: false },
+        { status: "Dismissed", confidence: "None", productId: null, isNewProduct: false },
+      ]) {
+        const ls = makeState(seed);
+        assert.equal(ls.drawerOpen.value, false, `expected closed for ${JSON.stringify(seed)}`);
       }
     });
   });
@@ -432,9 +388,151 @@ describe("lineSection", () => {
     assert.equal(lineSection(ls), "ready");
   });
 
-  it("returns 'needs' for Pending", () => {
-    const ls = makeState({ status: "Pending" });
+  it("returns 'ready' for a Pending High-confidence line with a complete prefill (auto-confirm at commit)", () => {
+    // default makeState is High + complete prefill (product/qty/unit/location all set)
+    const ls = makeState({ status: "Pending", confidence: "High" });
+    assert.equal(lineSection(ls), "ready");
+  });
+
+  it("returns 'needs' for a Pending High-confidence line with an INCOMPLETE prefill (missing location)", () => {
+    const ls = makeState({ status: "Pending", confidence: "High" }, { locationId: null });
     assert.equal(lineSection(ls), "needs");
+  });
+
+  it("returns 'needs' for a Pending Low-confidence line even with a complete prefill", () => {
+    const ls = makeState({ status: "Pending", confidence: "Low" });
+    assert.equal(lineSection(ls), "needs");
+  });
+
+  it("returns 'needs' for a Pending None-confidence unmatched line", () => {
+    const ls = makeState(
+      { status: "Pending", confidence: "None", productId: null },
+      { productId: null },
+    );
+    assert.equal(lineSection(ls), "needs");
+  });
+});
+
+// ── hasCompletePrefill / isReadyPending ─────────────────────────────────────────
+
+describe("hasCompletePrefill", () => {
+  it("true when product, qty>0, unit and location are all present", () => {
+    assert.equal(hasCompletePrefill(makeState()), true);
+  });
+
+  it("false when product is missing", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { productId: null })), false);
+  });
+
+  it("false when location is missing", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { locationId: null })), false);
+  });
+
+  it("false when unit is missing", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { unitId: null })), false);
+  });
+
+  it("false when quantity is zero or absent", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { quantity: 0 })), false);
+    assert.equal(hasCompletePrefill(makeState({}, { quantity: null })), false);
+  });
+});
+
+describe("isReadyPending", () => {
+  it("true only for Pending + High + complete prefill", () => {
+    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "High" })), true);
+  });
+
+  it("false for Low confidence", () => {
+    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "Low" })), false);
+  });
+
+  it("false for High but incomplete prefill", () => {
+    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "High" }, { unitId: null })), false);
+  });
+
+  it("false for non-Pending statuses", () => {
+    for (const status of ["Confirmed", "Dismissed", "Committed"]) {
+      assert.equal(isReadyPending(makeState({ status, confidence: "High" })), false, status);
+    }
+  });
+});
+
+// ── decisionVariant ─────────────────────────────────────────────────────────────
+
+describe("decisionVariant", () => {
+  it("'create' when createNew is set", () => {
+    const ls = makeState();
+    ls.createNew.value = true;
+    assert.equal(decisionVariant(ls, 0), "create");
+  });
+
+  it("'create' when there is no product and no alternatives", () => {
+    const ls = makeState({ productId: null }, { productId: null });
+    assert.equal(decisionVariant(ls, 0), "create");
+  });
+
+  it("'estimate' when the line carries a weight→each estimate", () => {
+    const ls = makeLine(
+      { line: lineSeed(), prefill: prefill(), alternatives: null,
+        estimate: { eachCount: 7, weight: 1.34, weightUnit: "lb", confidence: "High" } },
+      sig,
+    );
+    assert.equal(decisionVariant(ls, 0), "estimate");
+  });
+
+  it("'match' when 2+ alternatives are present (and no estimate)", () => {
+    const alts = [
+      { productId: "p1", productName: "A", confidence: 0.8 },
+      { productId: "p2", productName: "B", confidence: 0.5 },
+    ];
+    const ls = makeLine({ line: lineSeed(), prefill: prefill(), alternatives: alts }, sig);
+    assert.equal(decisionVariant(ls, 0), "match");
+  });
+
+  it("'sku' when the drafted product has 2+ pack sizes (no estimate, <2 alternatives)", () => {
+    const ls = makeState();
+    assert.equal(decisionVariant(ls, 2), "sku");
+  });
+
+  it("'fields' as the fallback for a matched line with a single sku", () => {
+    const ls = makeState();
+    assert.equal(decisionVariant(ls, 1), "fields");
+  });
+});
+
+// ── questionCopy ─────────────────────────────────────────────────────────────────
+
+describe("questionCopy", () => {
+  it("returns a distinct non-empty question + why for every variant", () => {
+    const seen = new Set();
+    for (const v of ["create", "estimate", "match", "sku", "fields"]) {
+      const c = questionCopy(/** @type {any} */ (v));
+      assert.ok(c.question && c.why, `variant ${v} must have copy`);
+      assert.ok(!seen.has(c.question), `variant ${v} question must be distinct`);
+      seen.add(c.question);
+    }
+  });
+
+  it("falls back to the generic copy for an unknown variant", () => {
+    assert.deepEqual(questionCopy(/** @type {any} */ ("nope")), questionCopy("fields"));
+  });
+});
+
+// ── firstNeedsLineId ─────────────────────────────────────────────────────────────
+
+describe("firstNeedsLineId", () => {
+  it("returns the lineId of the first line still in the needs section", () => {
+    const ready = makeState({ lineId: "a", status: "Confirmed" });
+    const needs1 = makeState({ lineId: "b", status: "Pending", confidence: "Low" });
+    const needs2 = makeState({ lineId: "c", status: "Pending", confidence: "Low" });
+    assert.equal(firstNeedsLineId([ready, needs1, needs2]), "b");
+  });
+
+  it("returns null when nothing needs review", () => {
+    const ready = makeState({ lineId: "a", status: "Confirmed" });
+    const skipped = makeState({ lineId: "b", status: "Dismissed" });
+    assert.equal(firstNeedsLineId([ready, skipped]), null);
   });
 });
 

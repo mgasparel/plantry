@@ -97,22 +97,23 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             // The Parse handler runs the (fake) parse synchronously and HX-Redirects to the review form.
             await page.WaitForURLAsync("**/Intake/Review/**");
 
-            // Two rows: the matched line (high confidence) and the unmatched line.
+            // Two rows: the matched line (high confidence, but missing a location so it is a genuine
+            // exception) and the unmatched line. Both need resolving in the exceptions-first flow.
             var rows = page.Locator(".import-row");
             await Assertions.Expect(rows).ToHaveCountAsync(2);
 
-            // ── Resolve the matched line against the existing seeded product ─────
-            // The matched (high-confidence) row renders with its edit drawer closed. Capture its stable
-            // DOM id first: confirming swaps the row's outerHTML (its state class flips matched→confirmed),
-            // so a class-based locator would go stale — re-locate by #id after each action instead.
+            // ── Resolve the focused matched exception against the existing seeded product ──
+            // Exceptions-first (plantry-15l3): the first exception — the matched line, whose only gap is a
+            // location — is auto-focused with its question drawer already OPEN (no toggle click needed).
+            // Capture its stable DOM id first: confirming moves it to the Ready section (its state class
+            // flips matched→confirmed), so a class-based locator would go stale — re-locate by #id.
             var matchedRowId = await page.Locator(".import-row.import-row--matched").GetAttributeAsync("id")
                 ?? throw new InvalidOperationException("Matched import row had no id.");
             var matchedRow = page.Locator($"#{matchedRowId}");
-            await matchedRow.Locator(".import-row__toggle").ClickAsync();
 
-            // Pick the seeded product via the row's searchable-select, then fill qty/unit/location.
-            // Price is prefilled from the receipt and carried in a hidden input — there is no visible
-            // price field to fill (and the prefilled value still produces a price observation on commit).
+            // The product is prefilled from the high-confidence AI match; reselect it explicitly for
+            // determinism, then fill qty/unit/location. Price is prefilled from the receipt into a hidden
+            // input (no visible field), and still produces a price observation on commit.
             var productSearch = matchedRow.Locator("input[role='combobox']");
             await productSearch.FillAsync(matchedProductName);
             var productOption = matchedRow.Locator(".searchable-select__listbox li[role='option']",
@@ -123,13 +124,14 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await matchedRow.Locator("[name='Edit.Quantity']").FillAsync("2");
             await matchedRow.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
             await matchedRow.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
-            await matchedRow.Locator("button:has-text('Confirm item')").ClickAsync();
+            await matchedRow.Locator("button:has-text('Confirm & next')").ClickAsync();
 
-            // Row swaps (same #id) to the confirmed state.
+            // Row moves to the Ready section (same #id) and shows the Ready flag.
             await Assertions.Expect(matchedRow.Locator(".import-row__confirmed-flag")).ToBeVisibleAsync();
 
-            // ── Confirm the unmatched line as a brand-new product ───────────────
-            // The unmatched row renders with its drawer already open. Capture its id for the same reason.
+            // ── Confirm the next exception (the unmatched line) as a brand-new product ──
+            // Resolving the matched line advanced focus to the unmatched line, so its question drawer is
+            // now open. Capture its id for the same reason.
             var unmatchedRowId = await page.Locator(".import-row.import-row--unmatched").GetAttributeAsync("id")
                 ?? throw new InvalidOperationException("Unmatched import row had no id.");
             var unmatchedRow = page.Locator($"#{unmatchedRowId}");
@@ -142,7 +144,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await unmatchedRow.Locator("[name='Edit.Quantity']").FillAsync("1");
             await unmatchedRow.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
             await unmatchedRow.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
-            await unmatchedRow.Locator("button:has-text('Confirm item')").ClickAsync();
+            await unmatchedRow.Locator("button:has-text('Confirm & next')").ClickAsync();
 
             await Assertions.Expect(unmatchedRow.Locator(".import-row__confirmed-flag")).ToBeVisibleAsync();
 

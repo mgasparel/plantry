@@ -112,13 +112,11 @@
  * Pure function of its arguments — signal() is injected so tests can pass a
  * plain-object factory rather than real Preact signals.
  *
- * The drawerOpen predicate: a line starts open (needing attention) only when
- * all four conditions hold simultaneously:
- *   1. status === "Pending"   — the line has not been actioned
- *   2. confidence !== "High"  — the match is uncertain
- *   3. productId === null     — no product has been associated yet
- *   4. !isNewProduct          — it is not already flagged as a new product
- * A High-confidence matched line starts closed (user can open it to adjust).
+ * drawerOpen governs the READY-row inline edit drawer only (it starts closed;
+ * the user toggles it). The exceptions-first flow (plantry-15l3) drives the
+ * focused exception's question drawer from a single global `focusId` signal in
+ * the island, NOT from this per-line flag — exactly one exception is ever open,
+ * so a per-line "starts open" predicate would fight that single-focus model.
  *
  * @template {SignalLike<any>} S
  * @param {{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null, estimate?: EstimateHydration|null}} seed
@@ -138,14 +136,9 @@ export function makeLine(seed, signalFn) {
     price: signalFn(typeof effectivePrice === "number" ? effectivePrice : null),
     saving: signalFn(false),
     error: signalFn(/** @type {string|null} */ (null)),
-    // Matched (Pending+High) rows start closed; user clicks toggle to expand.
-    // Unmatched (Pending+Low/None/productId=null) rows start open for attention.
-    drawerOpen: signalFn(
-      line.status === "Pending" &&
-      line.confidence !== "High" &&
-      line.productId === null &&
-      !line.isNewProduct,
-    ),
+    // Ready-row edit drawer starts closed; the island opens the FOCUSED exception's
+    // question drawer via the global focusId signal, not this flag (plantry-15l3).
+    drawerOpen: signalFn(false),
     searchOpen: signalFn(false),
     createNew: signalFn(line.isNewProduct),
     draftProductId: signalFn(prefill.productId ?? ""),
@@ -186,10 +179,55 @@ export function estimateHint(estimate) {
     : `Sold by weight (${weight}) · ${count}?`;
 }
 
+// ── ready predicate (mirrors the server's commit-time auto-confirm) ─────────────
+
+/**
+ * A line's server-side prefill is "complete" — the four fields the commit-time
+ * auto-confirm requires are all present: an existing product, a quantity > 0, a
+ * unit, and a location. The island reads them off the draft signals (which are
+ * seeded from the same server prefill the auto-confirm re-derives), so the
+ * displayed section and the server's commit decision agree.
+ *
+ * SINGLE SOURCE OF TRUTH — this MUST stay identical to the server predicate in
+ * CommitSessionCommand.ExecuteAsync (plantry-v0wl):
+ *   prefill.ProductId is not null && prefill.Qty is > 0m
+ *   && prefill.UnitId is not null && prefill.LocationId is not null
+ * If the two drift, the commit gate and the server will disagree about which
+ * High-confidence Pending lines are "ready".
+ *
+ * @param {LineState} ls
+ * @returns {boolean}
+ */
+export function hasCompletePrefill(ls) {
+  return (
+    !!ls.draftProductId.value &&
+    parseFloat(ls.draftQty.value) > 0 &&
+    !!ls.draftUnitId.value &&
+    !!ls.draftLocationId.value
+  );
+}
+
+/**
+ * A still-Pending line that the server will auto-confirm at commit time: High
+ * confidence AND a complete prefill. Such a line is "ready" (no exception, no
+ * per-row Confirm button) — the commit-time auto-confirm handles it. Mirror of
+ * the server predicate; see {@link hasCompletePrefill}.
+ *
+ * @param {LineState} ls
+ * @returns {boolean}
+ */
+export function isReadyPending(ls) {
+  return ls.status.value === "Pending" && ls.confidence === "High" && hasCompletePrefill(ls);
+}
+
 // ── lineSection ───────────────────────────────────────────────────────────────
 
 /**
- * Derive which display section a line belongs to.
+ * Derive which display section a line belongs to (exceptions-first flow, plantry-15l3):
+ *   • "skipped" — Dismissed.
+ *   • "ready"   — Confirmed / Committed, OR a Pending line that will be auto-confirmed
+ *                 at commit (High confidence + complete prefill; see {@link isReadyPending}).
+ *   • "needs"   — every other Pending line (a genuine exception the user must resolve).
  *
  * @param {LineState} ls
  * @returns {"needs" | "ready" | "skipped"}
@@ -198,15 +236,98 @@ export function lineSection(ls) {
   const s = ls.status.value;
   if (s === "Dismissed") return "skipped";
   if (s === "Confirmed" || s === "Committed") return "ready";
-  return "needs";
+  return isReadyPending(ls) ? "ready" : "needs";
+}
+
+// ── decisionVariant / questionCopy ──────────────────────────────────────────────
+
+/**
+ * Classify the kind of question a focused exception asks — all derivable from
+ * existing hydration (no new AI data). Priority:
+ *   1. "create"   — createNew already set, OR nothing to match to (no product and
+ *                   no alternatives) → offer the create-or-link path.
+ *   2. "estimate" — a weight→each estimate is present → "how should we count this?".
+ *   3. "match"    — 2+ resolved alternatives → "which product is this?".
+ *   4. "sku"      — the matched product has 2+ pack sizes → "which size did you buy?".
+ *   5. "fields"   — a High-confidence match with only a missing/edited field → just
+ *                   confirm the details.
+ *
+ * @param {LineState} ls
+ * @param {number} skuCount  — pack-size count for the currently-drafted product (island-derived)
+ * @returns {"create" | "estimate" | "match" | "sku" | "fields"}
+ */
+export function decisionVariant(ls, skuCount = 0) {
+  if (ls.createNew.value) return "create";
+  const hasProduct = !!ls.draftProductId.value;
+  const alts = ls.alternatives;
+  if (!hasProduct && (!alts || alts.length === 0)) return "create";
+  if (ls.estimate) return "estimate";
+  if (alts && alts.length >= 2) return "match";
+  if (skuCount >= 2) return "sku";
+  return "fields";
+}
+
+/**
+ * Static UI copy (a question + a why-line) for each decision variant. UI copy,
+ * not a domain decision — kept here so it is covered by the same node --test rig.
+ *
+ * @param {"create" | "estimate" | "match" | "sku" | "fields"} variant
+ * @returns {{ question: string, why: string }}
+ */
+export function questionCopy(variant) {
+  switch (variant) {
+    case "create":
+      return {
+        question: "First time seeing this — add it as a new product?",
+        why: "nothing in your catalog matches; the name and category are drafted from the receipt",
+      };
+    case "estimate":
+      return {
+        question: "How should we count this?",
+        why: "it was sold by weight, but your pantry may track it a different way",
+      };
+    case "match":
+      return {
+        question: "Which product is this?",
+        why: "a few products in your catalog share these words",
+      };
+    case "sku":
+      return {
+        question: "Which size did you buy?",
+        why: "this product comes in more than one pack size",
+      };
+    default:
+      return {
+        question: "Add this to your pantry?",
+        why: "confirm the details below",
+      };
+  }
+}
+
+// ── exception-queue helpers ─────────────────────────────────────────────────────
+
+/**
+ * The lineId of the first line still in the "needs" section (the next exception to
+ * focus), or null when the queue is empty. Drives single-focus advance after a
+ * resolve/skip and the initial focus on mount.
+ *
+ * @param {LineState[]} lines
+ * @returns {string|null}
+ */
+export function firstNeedsLineId(lines) {
+  for (const ls of lines) {
+    if (lineSection(ls) === "needs") return ls.lineId;
+  }
+  return null;
 }
 
 // ── isUnmatched ───────────────────────────────────────────────────────────────
 
 /**
- * Returns true when the line is in a state that needs user attention:
- * Pending + not High confidence. (High-confidence lines are auto-matched
- * and show a quick-confirm button; Low/None lines need manual review.)
+ * Returns true for a Pending line whose AI match is not High confidence — used
+ * only to pick the row's visual state class (unmatched vs matched left-border).
+ * NOT the sectioning predicate: whether a line is an exception is {@link lineSection}
+ * (a High-confidence line with an incomplete prefill is still a "needs" exception).
  *
  * @param {LineState} ls
  * @returns {boolean}
@@ -222,6 +343,10 @@ export function isUnmatched(ls) {
  * counts the commit bar shows AND the commit gate: `remaining` (the bar's "N to resolve") and
  * `canCommit` both derive from `needsCount`, so the displayed count and the disabled-button
  * state can never disagree (they previously came from two different definitions of "done").
+ *
+ * Under the exceptions-first flow (plantry-15l3) `needsCount` counts only genuine exceptions —
+ * a High-confidence Pending line with a complete prefill sections as "ready" (it is auto-confirmed
+ * at commit), so it never blocks the gate. See {@link lineSection} / {@link isReadyPending}.
  * @param {("needs"|"ready"|"skipped")[]} sections — lineSection(ls) for each line
  * @returns {{ needsCount: number, readyCount: number, skippedCount: number, totalItems: number,
  *             canCommit: boolean, remaining: number, progressPct: number }}

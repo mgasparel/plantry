@@ -6521,6 +6521,33 @@ kbd, .kbd {
 }
 @media (max-width: 720px) { .kbd-bar { display: none; } }
 
+/* ── Intake exceptions-first flow additions (plantry-15l3) ───────────────────
+   The exact CSS the canonical prototype (.preview/intake-review-canonical.html)
+   marked as proposed-additions blocks 2–6. Each composes an existing primitive;
+   only the noted property is net-new. (Block 1 — the receipt minimap — belongs to
+   the follow-up issue plantry-zuh4 and is intentionally NOT added here.) */
+
+/* 2. Toast action button — extends the shared .toast with an inline action (Undo).
+      --color-cook reads well on the dark pill. */
+.toast__action { background: none; border: none; color: var(--color-cook); font-weight: 700; font-size: 13px; font-family: inherit; cursor: pointer; }
+
+/* 3. Inline variant of the keyboard-hint bar — same anatomy, in-flow placement for
+      pages that already own the viewport bottom (here: the commit bar). */
+.kbd-bar--inline { position: static; justify-content: flex-start; padding: var(--space-2) var(--space-1) 0; background: none; border-top: none; backdrop-filter: none; }
+
+/* 4. <kbd> chip inside a suggest-opt — composes two existing primitives; only spacing is new. */
+.suggest-opt kbd { margin-left: 2px; }
+
+/* 5. Focused-row emphasis — the row currently holding the keyboard/decision focus.
+      Extends the existing .import-row--matched/--open state family. */
+.import-row--focus { box-shadow: var(--shadow-card); }
+.import-row__main[data-action] { cursor: pointer; }
+
+/* 6. Question header inside the edit drawer — one line of type styling; sits where
+      .match-suggest__label sits and reuses its tone scale at drawer-headline size. */
+.review-q { font-size: var(--font-size-base); font-weight: 700; }
+.review-q + .match-suggest__label { margin-top: -4px; }
+
 /* ── Guided-flow step nav (.steps / .step) ──────────────────────────────────
    Jumpable step tabs for a multi-pass flow. NOT the <stepper> tag helper — that
    is the −[value]+ quantity control. Each step carries a mono count chip; when

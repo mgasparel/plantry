@@ -48,7 +48,17 @@
 
 import { render, html, signal, computed, batch } from "./runtime.js?v=1";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBody, commitBarCounts, estimateHint } from "./intake-review-logic.js?v=1";
+import {
+  makeLine as makeLineFromSeed,
+  lineSection,
+  isUnmatched,
+  buildSaveLineBody,
+  commitBarCounts,
+  estimateHint,
+  decisionVariant,
+  questionCopy,
+  firstNeedsLineId,
+} from "./intake-review-logic.js?v=2";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -151,6 +161,7 @@ import { makeLine as makeLineFromSeed, lineSection, isUnmatched, buildSaveLineBo
  * @property {string} saveLineUrl
  * @property {string} dismissLineUrl
  * @property {string} restoreLineUrl
+ * @property {string} reopenLineUrl
  * @property {ProductHydration[]} products
  * @property {UnitHydration[]} units
  * @property {LocationHydration[]} locations
@@ -217,11 +228,10 @@ function makeLine(seed) {
 // ── ProductSearch component ──────────────────────────────────────────────────
 
 /**
-/**
- * Posts a save-line body and applies the result to the line's signals. Shared by the drawer
- * Save and the row quick-confirm so there is ONE submit path: on failure it sets the error and
- * reopens the drawer; on success it clears the error and calls onSaved; it always clears
- * `saving` in finally. (Callers own validation + body construction via buildSaveLineBody.)
+ * Posts a save-line body and applies the result to the line's signals. The single SaveLine submit
+ * path — shared by the focused exception's "Confirm & next" and a ready row's edit save: on failure it
+ * sets the error and reopens the drawer; on success it clears the error and calls onSaved; it always
+ * clears `saving` in finally. (Callers own validation + body construction via buildSaveLineBody.)
  * @param {LineState} ls
  * @param {object} body
  * @param {string} saveLineUrl
@@ -357,11 +367,27 @@ function ProductSearch({ ls, products, listboxId }) {
 // hydration confidence score.
 
 /**
+ * Selects the nth (0-based) alternative for a line, mirroring a suggest-opt click. Shared by the
+ * click handler and the focused exception's 1–9 keyboard shortcut (plantry-15l3).
+ * @param {LineState} ls @param {number} k
+ */
+function pickAlternative(ls, k) {
+  const alt = ls.alternatives?.[k];
+  if (!alt) return;
+  batch(() => {
+    ls.draftProductId.value = alt.productId;
+    ls.draftProductName.value = alt.productName;
+    ls.draftSkuId.value = "";
+  });
+}
+
+/**
  * @param {{
  *   ls: LineState,
+ *   showKbd?: boolean,
  * }} props
  */
-function AlternativesStrip({ ls }) {
+function AlternativesStrip({ ls, showKbd = false }) {
   if (!ls.alternatives || ls.createNew.value) return null;
   return html`
     <div class="match-suggest">
@@ -375,13 +401,10 @@ function AlternativesStrip({ ls }) {
           return html`
             <button key=${alt.productId} type="button"
                     class=${"suggest-opt" + (selected ? " sel" : "")}
-                    onClick=${() => {
-                      ls.draftProductId.value = alt.productId;
-                      ls.draftProductName.value = alt.productName;
-                      ls.draftSkuId.value = "";
-                    }}>
+                    onClick=${() => pickAlternative(ls, i)}>
               ${selected && html`<svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>`}
               ${alt.productName}
+              ${showKbd && i < 9 && html`<kbd>${i + 1}</kbd>`}
               <span class="rk">${rankLabel}</span>
             </button>
           `;
@@ -469,22 +492,31 @@ function ExpiryPriceFields({ ls, units, today, priceReadOnly }) {
 // ── ReviewDrawer component ──────────────────────────────────────────────────
 
 /**
+ * The inline edit / question drawer for one line. Two modes (plantry-15l3):
+ *   • "focus" — the single focused exception. Renders a question header (review-q + why),
+ *     numbered alternative shortcuts, and a "Confirm & next" primary that advances the queue.
+ *   • "ready" — a ready row's edit drawer. Saves via SaveLine (re-confirming the line) and
+ *     offers "Wrong product — review again" (ReopenLine + refocus).
+ * Save / skip / rematch are delegated to the mount-scope handlers so the keyboard shortcuts and
+ * the buttons share one code path; the drawer is otherwise presentational.
+ *
  * @param {{
  *   ls: LineState,
  *   products: ProductHydration[],
  *   units: UnitHydration[],
  *   locations: LocationHydration[],
  *   categories: CategoryHydration[],
- *   token: string,
- *   saveLineUrl: string,
- *   dismissLineUrl: string,
  *   today: string,
- *   onSaved: (ls: LineState, data: object) => void,
- *   onDismissed: (ls: LineState) => void,
+ *   mode: "focus" | "ready",
+ *   question: { question: string, why: string } | null,
+ *   onSave: (ls: LineState, mode: "focus" | "ready") => void,
+ *   onSkip: (ls: LineState) => void,
+ *   onRematch: (ls: LineState) => void,
  * }} props
  */
-function ReviewDrawer({ ls, products, units, locations, categories, token, saveLineUrl, dismissLineUrl, today, onSaved, onDismissed }) {
+function ReviewDrawer({ ls, products, units, locations, categories, today, mode, question, onSave, onSkip, onRematch }) {
   const listboxId = `edit-product-${ls.lineId}-listbox`;
+  const isFocus = mode === "focus";
 
   const locationDisplay = computed(() => {
     const id = ls.draftLocationId.value;
@@ -492,62 +524,8 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
     return locations.find((l) => l.id === id)?.name ?? "—";
   });
 
-  /** @param {Event} e */
-  async function handleSave(e) {
-    e.preventDefault();
-    if (ls.saving.value) return;
-
-    // Client-side validation mirror (Boundary judgment call 3 — server is authoritative)
-    const qty = parseFloat(ls.draftQty.value);
-    if (ls.createNew.value) {
-      if (!ls.draftNewName.value.trim() || !ls.draftNewCategoryId.value) {
-        ls.error.value = "A new product needs a name and a category.";
-        return;
-      }
-    } else {
-      if (!ls.draftProductId.value) {
-        ls.error.value = "Choose a product, or switch to creating a new one.";
-        return;
-      }
-    }
-    if (!qty || qty <= 0) {
-      ls.error.value = "Enter a quantity greater than zero.";
-      return;
-    }
-    if (!ls.draftUnitId.value) {
-      ls.error.value = "Choose a unit.";
-      return;
-    }
-    if (!ls.draftLocationId.value) {
-      ls.error.value = "Choose a location.";
-      return;
-    }
-
-    ls.saving.value = true;
-    ls.error.value = null;
-    await submitSaveLine(ls, buildSaveLineBody(ls), saveLineUrl, token, onSaved);
-  }
-
-  async function handleDismiss() {
-    if (ls.saving.value) return;
-    ls.saving.value = true;
-    ls.error.value = null;
-    try {
-      const resp = await postJson(`${dismissLineUrl}&lineId=${ls.lineId}`, {}, token);
-      const data = await resp.json();
-      if (!resp.ok || data.error) {
-        ls.error.value = data.error ?? `Dismiss failed (${resp.status})`;
-      } else {
-        onDismissed(ls);
-      }
-    } catch {
-      ls.error.value = "Network error — please try again.";
-    } finally {
-      ls.saving.value = false;
-    }
-  }
-
   const priceReadOnly = !!ls.price.value;
+  const primaryLabel = ls.saving.value ? "Saving…" : (isFocus ? "Confirm & next" : "Save changes");
 
   return html`
     <div class="import-row__edit review-row__edit">
@@ -557,8 +535,12 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
           ${ls.error.value}
         </div>
       `}
-      <form onSubmit=${handleSave}>
-        <${AlternativesStrip} ls=${ls} />
+      <form onSubmit=${(/** @type {Event} */ e) => { e.preventDefault(); onSave(ls, mode); }}>
+        ${isFocus && question && html`
+          <div class="review-q">${question.question}</div>
+          <div class="match-suggest__label">${question.why}</div>
+        `}
+        <${AlternativesStrip} ls=${ls} showKbd=${isFocus} />
 
         <div class="import-row__edit-grid">
           <${ProductSearch} ls=${ls} products=${products} listboxId=${listboxId} />
@@ -654,15 +636,22 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
             ${ls.createNew.value && html`<span class="import-row__new"> · new product</span>`}
           </div>
           <span class="import-row__edit-spacer"></span>
+          ${mode === "ready" && html`
+            <button type="button" class="btn btn--ghost btn--sm"
+                    disabled=${ls.saving.value}
+                    onClick=${() => onRematch(ls)}>
+              Wrong product — review again
+            </button>
+          `}
           <button type="button" class="btn btn--ghost btn--sm import-row__edit-danger"
                   disabled=${ls.saving.value}
-                  onClick=${handleDismiss}>
+                  onClick=${() => onSkip(ls)}>
             Not pantry stock — remove
           </button>
           <button type="submit" class="btn btn--primary btn--sm"
                   disabled=${ls.saving.value}>
             <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-            ${ls.saving.value ? "Saving…" : "Confirm item"}
+            ${primaryLabel}
           </button>
         </div>
       </form>
@@ -673,50 +662,74 @@ function ReviewDrawer({ ls, products, units, locations, categories, token, saveL
 // ── ReviewRow component ──────────────────────────────────────────────────────
 
 /**
+ * One review row. Its section (needs / ready / skipped) is derived from lineSection(ls); the flow is
+ * exceptions-first (plantry-15l3):
+ *   • skipped  — a dismissed non-stock line with "Add anyway".
+ *   • ready    — Confirmed / Committed, OR an auto-confirmable Pending line. No per-row Confirm button
+ *                (commit-time auto-confirm handles High-confidence complete lines); a chevron opens the
+ *                ready-mode edit drawer.
+ *   • needs    — a genuine exception. The FOCUSED one (focusId === lineId) auto-opens its question
+ *                drawer; the rest are collapsed and clicking one jumps focus to it.
+ *
  * @param {{
  *   ls: LineState,
  *   products: ProductHydration[],
  *   units: UnitHydration[],
  *   locations: LocationHydration[],
  *   categories: CategoryHydration[],
- *   token: string,
- *   saveLineUrl: string,
- *   dismissLineUrl: string,
- *   restoreLineUrl: string,
  *   today: string,
  *   filter: import("@preact/signals").Signal<string>,
- *   onSaved: (ls: LineState, data: object) => void,
- *   onDismissed: (ls: LineState) => void,
- *   onRestored: (ls: LineState) => void,
+ *   focusId: import("@preact/signals").Signal<string|null>,
+ *   onSave: (ls: LineState, mode: "focus" | "ready") => void,
+ *   onSkip: (ls: LineState) => void,
+ *   onRematch: (ls: LineState) => void,
+ *   onRestore: (ls: LineState) => void,
+ *   onJumpFocus: (lineId: string) => void,
  * }} props
  */
-function ReviewRow({ ls, products, units, locations, categories, token, saveLineUrl, dismissLineUrl, restoreLineUrl, today, filter, onSaved, onDismissed, onRestored }) {
+function ReviewRow({ ls, products, units, locations, categories, today, filter, focusId, onSave, onSkip, onRematch, onRestore, onJumpFocus }) {
   const section = computed(() => lineSection(ls));
-  const visible = computed(() => {
-    const f = filter.value;
-    const s = section.value;
-    if (f === "all") return true;
-    if (f === "review") return s === "needs";
-    if (f === "ready") return s === "ready";
-    return false;
-  });
-
-  if (!visible.value) return null;
-
   const status = ls.status.value;
-  const isDismissed = status === "Dismissed";
-  const isConfirmed = status === "Confirmed";
+  const sect = section.value;
+  const isDismissed = sect === "skipped";
   const isCommitted = status === "Committed";
-  const isMatched = status === "Pending" && ls.confidence === "High";
+  const isFocused = focusId.value === ls.lineId;
   const unmatch = isUnmatched(ls);
 
-  const stateClass = isDismissed ? "import-row--dismissed"
-    : isConfirmed ? "import-row--confirmed"
-    : isCommitted ? "import-row--committed"
-    : isMatched ? "import-row--matched"
-    : "import-row--unmatched";
+  // Two symmetric latches keep a row from jumping sections mid-interaction:
+  //  • the focused exception stays an exception even once its draft becomes complete-prefill (which
+  //    would otherwise flip its lineSection to "ready" and close the question drawer under the user);
+  //  • a ready row whose own edit drawer is open stays in the ready section even if an in-flight edit
+  //    (e.g. clearing the quantity to retype it) transiently makes its prefill incomplete — otherwise
+  //    the row would eject to "needs" and its drawer would unmount. Focused exceptions keep
+  //    drawerOpen=false and unfocused needs rows never set it, so neither is affected by this latch.
+  const asException = !isDismissed && !ls.drawerOpen.value && (sect === "needs" || isFocused);
+  const isReady = !isDismissed && !asException; // ready row (incl. an open, mid-edit one) — not the focused exception
 
-  // Resolve display product name
+  const visible = computed(() => {
+    const f = filter.value;
+    if (f === "all") return true;
+    if (f === "review") return asException;
+    if (f === "ready") return isReady;
+    return false;
+  });
+  if (!visible.value) return null;
+
+  // Row state class: ready rows read confirmed/committed; exceptions read matched/unmatched by whether
+  // a product is resolvable. The focused exception also carries the --open/--focus emphasis.
+  const stateClass = isDismissed ? "import-row--dismissed"
+    : isCommitted ? "import-row--committed"
+    : isReady ? "import-row--confirmed"
+    : unmatch ? "import-row--unmatched"
+    : "import-row--matched";
+
+  // Pack sizes for the drafted product — feeds the "which size?" decision variant.
+  const skuCount = computed(() => {
+    const pid = ls.draftProductId.value;
+    return products.find((p) => p.id === pid)?.skus?.length ?? 0;
+  });
+  const question = computed(() => questionCopy(decisionVariant(ls, skuCount.value)));
+
   const displayProductName = computed(() => {
     if (ls.isNewProduct) return ls.newProductName;
     const pid = ls.draftProductId.value;
@@ -727,79 +740,47 @@ function ReviewRow({ ls, products, units, locations, categories, token, saveLine
     return ls.draftProductName.value || null;
   });
 
-  // Price display
   const priceDisplay = computed(() => {
     const p = ls.price.value;
     if (p == null) return "—";
     return p.toLocaleString(undefined, { style: "currency", currency: "CAD", minimumFractionDigits: 2 });
   });
-
-  // Qty display
   const qtyDisplay = computed(() => {
     const q = ls.draftQty.value;
     const n = parseFloat(q);
     if (!q || isNaN(n)) return "—";
     return n.toLocaleString(undefined, { maximumFractionDigits: 3 });
   });
-
-  // Unit display
   const unitDisplay = computed(() => {
     const uid = ls.draftUnitId.value;
     if (!uid) return "";
     return units.find((u) => u.id === uid)?.code ?? "";
   });
-
-  // Expiry display
   const expiryDisplay = computed(() => {
     if (ls.draftExpiryMode.value !== "has" || !ls.draftExpiry.value) return "—";
     const d = new Date(ls.draftExpiry.value + "T00:00:00");
     return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
   });
 
-  // Quick confirm: available when pending + matched + all required fields filled
-  const canQuickConfirm = computed(() =>
-    status === "Pending" && !unmatch &&
-    !!ls.draftProductId.value &&
-    parseFloat(ls.draftQty.value) > 0 &&
-    !!ls.draftUnitId.value &&
-    !!ls.draftLocationId.value
-  );
-
-  async function handleQuickConfirm() {
-    if (ls.saving.value) return;
-    ls.saving.value = true;
-    ls.error.value = null;
-    // Quick-confirm a matched line as-is — same single payload builder + submit path as the drawer
-    // (createNew is false here, so buildSaveLineBody produces the confirm-existing body).
-    await submitSaveLine(ls, buildSaveLineBody(ls), saveLineUrl, token, onSaved);
-  }
-
-  async function handleRestore() {
-    if (ls.saving.value) return;
-    ls.saving.value = true;
-    try {
-      const resp = await postJson(`${restoreLineUrl}&lineId=${ls.lineId}`, {}, token);
-      const data = await resp.json();
-      if (!resp.ok || data.error) {
-        ls.error.value = data.error ?? `Restore failed (${resp.status})`;
-      } else {
-        onRestored(ls);
-      }
-    } catch {
-      ls.error.value = "Network error — please try again.";
-    } finally {
-      ls.saving.value = false;
-    }
-  }
-
   const rowId = `import-line-${ls.lineId}`;
+  // A "needs" row shows its drawer when it is the focused exception; a "ready" row shows its edit
+  // drawer when its own drawerOpen toggle is set.
+  const drawerVisible = isReady ? ls.drawerOpen.value : isFocused;
+  const drawerMode = isReady ? "ready" : "focus";
+
+  // Confidence badge for exception rows (canonical _ConfidenceBadge tones).
+  const confidenceBadge = () => (!displayProductName.value
+    ? html`<span class="badge badge-confidence--none"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> No match</span>`
+    : html`<span class="badge badge-confidence--low"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> Check match</span>`);
 
   return html`
     <div id=${rowId}
-         class=${"import-row " + stateClass + (ls.drawerOpen.value ? " import-row--open" : "")}
-         data-status=${section.value}>
+         class=${"import-row " + stateClass
+            + (drawerVisible ? " import-row--open" : "")
+            + (!isReady && !isDismissed && isFocused ? " import-row--focus" : "")}
+         data-status=${sect}>
 
-      ${ls.error.value && !ls.drawerOpen.value && html`
+      ${ls.error.value && !drawerVisible && html`
         <div class="import-row__error" role="alert">
           <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> ${ls.error.value}
         </div>
@@ -819,13 +800,16 @@ function ReviewRow({ ls, products, units, locations, categories, token, saveLine
             </div>
             <button type="button" class="btn btn--ghost btn--sm"
                     disabled=${ls.saving.value}
-                    onClick=${handleRestore}>
+                    onClick=${() => onRestore(ls)}>
               Add anyway
             </button>
           </div>
         `
-        : html`
-          <div class="import-row__main">
+        : isReady
+        ? html`
+          <div class="import-row__main"
+               data-action=${isCommitted ? undefined : "toggle-edit"}
+               onClick=${isCommitted ? undefined : () => { ls.drawerOpen.value = !ls.drawerOpen.value; }}>
             <div class="import-row__id">
               <div class="import-row__name">
                 ${displayProductName.value
@@ -860,54 +844,74 @@ function ReviewRow({ ls, products, units, locations, categories, token, saveLine
             </div>
 
             <div class="import-row__act">
-              ${isConfirmed && html`
-                <span class="import-row__confirmed-flag">
-                  <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Matched
-                </span>
-              `}
-              ${isCommitted && html`
-                <span class="import-row__locked">
-                  <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg> Added
-                </span>
-              `}
-              ${!isConfirmed && !isCommitted && canQuickConfirm.value && html`
-                <button type="button" class="btn btn--secondary btn--sm"
-                        disabled=${ls.saving.value}
-                        onClick=${handleQuickConfirm}>
-                  <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-                  ${ls.saving.value ? "Saving…" : "Confirm"}
-                </button>
-              `}
-              ${!isCommitted && html`
-                <button type="button" class="import-row__toggle"
-                        onClick=${() => { ls.drawerOpen.value = !ls.drawerOpen.value; }}
-                        aria-expanded=${String(ls.drawerOpen.value)}
-                        aria-label="Edit line">
-                  <svg class=${"icon import-row__chev" + (ls.drawerOpen.value ? " import-row__chev--open" : "")}
-                       aria-hidden="true">
-                    <use href="#i-chevron" />
-                  </svg>
-                </button>
-              `}
+              ${isCommitted
+                ? html`
+                  <span class="import-row__locked">
+                    <svg class="icon" aria-hidden="true"><use href="#i-lock" /></svg> Added
+                  </span>`
+                : html`
+                  <span class="import-row__confirmed-flag">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Ready
+                  </span>
+                  <button type="button" class="import-row__toggle"
+                          onClick=${(/** @type {Event} */ e) => { e.stopPropagation(); ls.drawerOpen.value = !ls.drawerOpen.value; }}
+                          aria-expanded=${String(ls.drawerOpen.value)}
+                          aria-label="Edit line">
+                    <svg class=${"icon import-row__chev" + (ls.drawerOpen.value ? " import-row__chev--open" : "")}
+                         aria-hidden="true">
+                      <use href="#i-chevron" />
+                    </svg>
+                  </button>`
+              }
             </div>
           </div>
-
-          ${ls.drawerOpen.value && !isCommitted && html`
-            <${ReviewDrawer}
-              ls=${ls}
-              products=${products}
-              units=${units}
-              locations=${locations}
-              categories=${categories}
-              token=${token}
-              saveLineUrl=${saveLineUrl}
-              dismissLineUrl=${dismissLineUrl}
-              today=${today}
-              onSaved=${onSaved}
-              onDismissed=${onDismissed} />
-          `}
+        `
+        : html`
+          <div class="import-row__main"
+               data-action=${isFocused ? undefined : "jump"}
+               onClick=${isFocused ? undefined : () => onJumpFocus(ls.lineId)}>
+            <div class="import-row__id">
+              <div class="import-row__name">
+                ${displayProductName.value
+                  ? html`<span class="import-row__product">${displayProductName.value}</span>`
+                  : html`<span class="import-row__unrecognized">Unrecognized item</span>`
+                }
+              </div>
+              <div class="import-row__raw">
+                <span class="import-row__raw-tag">receipt</span>
+                <span>${ls.receiptText}</span>
+              </div>
+            </div>
+            <div class="import-row__conf">${confidenceBadge()}</div>
+            <div class="import-row__act">
+              <button type="button" class="import-row__toggle"
+                      onClick=${(/** @type {Event} */ e) => { e.stopPropagation(); onJumpFocus(ls.lineId); }}
+                      aria-expanded=${String(isFocused)}
+                      aria-label="Review line">
+                <svg class=${"icon import-row__chev" + (isFocused ? " import-row__chev--open" : "")}
+                     aria-hidden="true">
+                  <use href="#i-chevron" />
+                </svg>
+              </button>
+            </div>
+          </div>
         `
       }
+
+      ${drawerVisible && !isDismissed && !isCommitted && html`
+        <${ReviewDrawer}
+          ls=${ls}
+          products=${products}
+          units=${units}
+          locations=${locations}
+          categories=${categories}
+          today=${today}
+          mode=${drawerMode}
+          question=${drawerMode === "focus" ? question.value : null}
+          onSave=${onSave}
+          onSkip=${onSkip}
+          onRematch=${onRematch} />
+      `}
     </div>
   `;
 }
@@ -921,18 +925,24 @@ function ReviewRow({ ls, products, units, locations, categories, token, saveLine
  *   units: UnitHydration[],
  *   locations: LocationHydration[],
  *   categories: CategoryHydration[],
- *   token: string,
  *   session: SessionHydration,
  *   filter: import("@preact/signals").Signal<string>,
+ *   focusId: import("@preact/signals").Signal<string|null>,
  *   alert: import("@preact/signals").Signal<string>,
- *   onSaved: (ls: LineState, data: object) => void,
- *   onDismissed: (ls: LineState) => void,
- *   onRestored: (ls: LineState) => void,
+ *   toastMsg: import("@preact/signals").Signal<string>,
+ *   toastUndo: import("@preact/signals").Signal<boolean>,
+ *   onSave: (ls: LineState, mode: "focus" | "ready") => void,
+ *   onSkip: (ls: LineState) => void,
+ *   onRematch: (ls: LineState) => void,
+ *   onRestore: (ls: LineState) => void,
+ *   onJumpFocus: (lineId: string) => void,
+ *   onUndo: () => void,
+ *   onDismissToast: () => void,
  *   onCommit: () => void,
  *   onDiscard: () => void,
  * }} props
  */
-function App({ lines, products, units, locations, categories, token, session, filter, alert, onSaved, onDismissed, onRestored, onCommit, onDiscard }) {
+function App({ lines, products, units, locations, categories, session, filter, focusId, alert, toastMsg, toastUndo, onSave, onSkip, onRematch, onRestore, onJumpFocus, onUndo, onDismissToast, onCommit, onDiscard }) {
   const allLines = lines.value;
 
   // Commit-bar arithmetic — one pure source of truth (commitBarCounts in logic.js), so the
@@ -941,21 +951,17 @@ function App({ lines, products, units, locations, categories, token, session, fi
   const bar = computed(() => commitBarCounts(lines.value.map(lineSection)));
   const needsCount = computed(() => bar.value.needsCount);
   const readyCount = computed(() => bar.value.readyCount);
-  const skippedCount = computed(() => bar.value.skippedCount);
   const totalItems = computed(() => bar.value.totalItems);
   const canCommit = computed(() => bar.value.canCommit);
   const progressPct = computed(() => bar.value.progressPct);
-
-  // Commit bar: count + value of confirmed+committed non-dismissed lines
-  const confirmedCount = computed(() =>
-    lines.value.filter((l) => l.status.value === "Confirmed" || l.status.value === "Committed").length
-  );
-  const confirmedValue = computed(() =>
-    lines.value
-      .filter((l) => l.status.value === "Confirmed" || l.status.value === "Committed")
-      .reduce((sum, l) => sum + (l.price.value ?? 0), 0)
-  );
   const remaining = computed(() => bar.value.remaining);
+
+  // "Adding N items · $val" — everything that will land in the pantry on commit is the ready section
+  // (Confirmed / Committed + the High-confidence Pending lines the server auto-confirms), so the
+  // summary is section-driven, matching the commit gate.
+  const readyLines = computed(() => lines.value.filter((l) => lineSection(l) === "ready"));
+  const addingCount = computed(() => readyLines.value.length);
+  const addingValue = computed(() => readyLines.value.reduce((sum, l) => sum + (l.price.value ?? 0), 0));
 
   // Receipt total: non-dismissed lines
   const receiptTotal = computed(() =>
@@ -964,16 +970,35 @@ function App({ lines, products, units, locations, categories, token, session, fi
       .reduce((sum, l) => sum + (l.price.value ?? 0), 0)
   );
 
+  const fmtCad = (/** @type {number} */ n) =>
+    n.toLocaleString(undefined, { style: "currency", currency: "CAD", minimumFractionDigits: 2 });
+
   const needsMeta = computed(() => {
-    if (canCommit.value) return `<span><b>All set.</b> ${totalItems.value} items ready to add.</span>`;
-    return `<span><b>${needsCount.value}</b> ${needsCount.value === 1 ? "item needs" : "items need"} a quick look · <b>${readyCount.value}</b> ready</span>`;
+    if (canCommit.value) return `<span><b>All set.</b> ${readyCount.value} items ready to add.</span>`;
+    return `<span><b>${needsCount.value}</b> ${needsCount.value === 1 ? "decision" : "decisions"} left · <b>${readyCount.value}</b> ready</span>`;
   });
 
-  const sectionRows = computed(() => ({
-    needs: lines.value.filter((l) => lineSection(l) === "needs"),
-    ready: lines.value.filter((l) => lineSection(l) === "ready"),
-    skipped: lines.value.filter((l) => lineSection(l) === "skipped"),
-  }));
+  // DISPLAY partition (vs the commit-truth partition above), with the same two latches ReviewRow
+  // applies so a row never relocates lists mid-interaction: the focused line stays in the exceptions
+  // area until resolved, and a ready row with its edit drawer open stays in the ready section even if
+  // an in-flight edit transiently makes its prefill incomplete.
+  const sectionRows = computed(() => {
+    const fid = focusId.value;
+    /** @param {LineState} l @returns {"needs"|"ready"|"skipped"} */
+    const displaySect = (l) => {
+      const s = lineSection(l);
+      if (s === "skipped") return "skipped";
+      if (l.lineId === fid) return "needs";        // focused-exception latch
+      if (l.drawerOpen.value) return "ready";      // ready-row edit-in-progress latch
+      return s;
+    };
+    const rows = lines.value;
+    return {
+      needs: rows.filter((l) => displaySect(l) === "needs"),
+      ready: rows.filter((l) => displaySect(l) === "ready"),
+      skipped: rows.filter((l) => displaySect(l) === "skipped"),
+    };
+  });
 
   const showNeeds = filter.value === "all" || filter.value === "review";
   const showReady = filter.value === "all" || filter.value === "ready";
@@ -1092,29 +1117,44 @@ function App({ lines, products, units, locations, categories, token, session, fi
                   Needs your review <span class="sec-label__count">· ${sectionRows.value.needs.length}</span>
                 </div>
               `}
-              ${lines.value.filter((l) => lineSection(l) === "needs" && showNeeds).map((ls) => html`
+              ${sectionRows.value.needs.filter(() => showNeeds).map((ls) => html`
                 <${ReviewRow} key=${ls.lineId} ls=${ls}
                   products=${products} units=${units} locations=${locations} categories=${categories}
-                  token=${token} saveLineUrl=${session.saveLineUrl}
-                  dismissLineUrl=${session.dismissLineUrl} restoreLineUrl=${session.restoreLineUrl}
                   today=${session.today}
-                  filter=${filter}
-                  onSaved=${onSaved} onDismissed=${onDismissed} onRestored=${onRestored} />
+                  filter=${filter} focusId=${focusId}
+                  onSave=${onSave} onSkip=${onSkip} onRematch=${onRematch}
+                  onRestore=${onRestore} onJumpFocus=${onJumpFocus} />
               `)}
+              ${showNeeds && focusId.value && sectionRows.value.needs.length > 0 && html`
+                <div class="kbd-bar kbd-bar--inline">
+                  <span><kbd>1</kbd>–<kbd>9</kbd> choose</span>
+                  <span><kbd>Enter</kbd> confirm &amp; next</span>
+                  <span><kbd>N</kbd> new product</span>
+                  <span><kbd>S</kbd> skip</span>
+                  <span><kbd>U</kbd> undo</span>
+                </div>
+              `}
+              ${showNeeds && sectionRows.value.needs.length === 0 && filter.value !== "ready" && html`
+                <div class="sec-label">
+                  Needs your review <span class="sec-label__count">· 0</span>
+                </div>
+                <p class="review__empty" style="padding: var(--space-3)">
+                  <b>All caught up.</b> Everything below goes to your pantry when you commit.
+                </p>
+              `}
 
               ${showReady && sectionRows.value.ready.length > 0 && html`
                 <div class="sec-label">
-                  Matched &amp; ready <span class="sec-label__count">· ${sectionRows.value.ready.length}</span>
+                  Ready to add <span class="sec-label__count">· ${sectionRows.value.ready.length} · ${fmtCad(sectionRows.value.ready.reduce((s, l) => s + (l.price.value ?? 0), 0))}</span>
                 </div>
               `}
-              ${lines.value.filter((l) => lineSection(l) === "ready" && showReady).map((ls) => html`
+              ${sectionRows.value.ready.filter(() => showReady).map((ls) => html`
                 <${ReviewRow} key=${ls.lineId} ls=${ls}
                   products=${products} units=${units} locations=${locations} categories=${categories}
-                  token=${token} saveLineUrl=${session.saveLineUrl}
-                  dismissLineUrl=${session.dismissLineUrl} restoreLineUrl=${session.restoreLineUrl}
                   today=${session.today}
-                  filter=${filter}
-                  onSaved=${onSaved} onDismissed=${onDismissed} onRestored=${onRestored} />
+                  filter=${filter} focusId=${focusId}
+                  onSave=${onSave} onSkip=${onSkip} onRematch=${onRematch}
+                  onRestore=${onRestore} onJumpFocus=${onJumpFocus} />
               `)}
 
               ${showSkipped && sectionRows.value.skipped.length > 0 && html`
@@ -1122,14 +1162,13 @@ function App({ lines, products, units, locations, categories, token, session, fi
                   Skipped — not inventory <span class="sec-label__count">· ${sectionRows.value.skipped.length}</span>
                 </div>
               `}
-              ${lines.value.filter((l) => lineSection(l) === "skipped" && showSkipped).map((ls) => html`
+              ${sectionRows.value.skipped.filter(() => showSkipped).map((ls) => html`
                 <${ReviewRow} key=${ls.lineId} ls=${ls}
                   products=${products} units=${units} locations=${locations} categories=${categories}
-                  token=${token} saveLineUrl=${session.saveLineUrl}
-                  dismissLineUrl=${session.dismissLineUrl} restoreLineUrl=${session.restoreLineUrl}
                   today=${session.today}
-                  filter=${filter}
-                  onSaved=${onSaved} onDismissed=${onDismissed} onRestored=${onRestored} />
+                  filter=${filter} focusId=${focusId}
+                  onSave=${onSave} onSkip=${onSkip} onRematch=${onRematch}
+                  onRestore=${onRestore} onJumpFocus=${onJumpFocus} />
               `)}
             </div>
           `
@@ -1138,11 +1177,7 @@ function App({ lines, products, units, locations, categories, token, session, fi
         <div id="commit-bar" class="review__commit">
           <div class="commit-bar">
             <button type="button" class="btn btn--ghost commit-bar__cancel"
-                    onClick=${() => {
-                      if (confirm("Discard this import? Nothing will be added to your pantry.")) {
-                        onDiscard();
-                      }
-                    }}>
+                    onClick=${onDiscard}>
               Cancel
             </button>
             <span class="commit-bar__spacer"></span>
@@ -1153,8 +1188,8 @@ function App({ lines, products, units, locations, categories, token, session, fi
               </span>
             `}
             <div class="commit-bar__summary">
-              Adding <b>${confirmedCount}</b> items ·
-              <b class="mono">${confirmedValue.value.toLocaleString(undefined, { style: "currency", currency: "CAD", minimumFractionDigits: 2 })}</b>
+              Adding <b>${addingCount}</b> items ·
+              <b class="mono">${fmtCad(addingValue.value)}</b>
             </div>
             <button type="button" class="btn btn--primary"
                     disabled=${!canCommit.value}
@@ -1165,6 +1200,19 @@ function App({ lines, products, units, locations, categories, token, session, fi
           </div>
         </div>
       </section>
+
+      ${toastMsg.value && html`
+        <div class="toast" role="status" aria-live="polite"
+             onClick=${(/** @type {MouseEvent} */ e) => {
+               if (!(/** @type {HTMLElement} */ (e.target).closest("[data-action]"))) onDismissToast();
+             }}>
+          <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+          <span>${toastMsg.value}</span>
+          ${toastUndo.value && html`
+            <button type="button" class="toast__action" data-action="undo" onClick=${onUndo}>Undo</button>
+          `}
+        </div>
+      `}
     </div>
   `;
 }
@@ -1181,13 +1229,66 @@ export function mountIntakeReview(root, hydration) {
   const filter = signal("all");
   const alertMsg = signal("");
 
-  /**
-   * Called after a successful saveLine: update the line's reactive state from the server response.
-   * The server is authoritative (ADR-020 §2/§7).
-   * @param {LineState} ls
-   * @param {object} data
-   */
-  function onSaved(ls, data) {
+  // Exceptions-first flow state (plantry-15l3): the single focused exception, and the undo toast.
+  const focusId = signal(/** @type {string|null} */ (firstNeedsLineId(linesSignal.value)));
+  const toastMsg = signal("");
+  const toastUndo = signal(false);
+  /** @type {{ fn: (() => void | Promise<void>) | null }} */
+  const undoRef = { fn: null };
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let toastTimer;
+
+  // ── Focus / toast primitives ─────────────────────────────────────────────────
+
+  /** Advance the queue to the next unresolved exception (or clear focus when none remain). */
+  function advanceFocus() {
+    focusId.value = firstNeedsLineId(linesSignal.value);
+  }
+
+  /** @param {string} lineId */
+  function focusLine(lineId) {
+    focusId.value = lineId;
+    // Scroll the newly-focused row into view after Preact commits the open drawer.
+    setTimeout(() => {
+      document.getElementById(`import-line-${lineId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
+  }
+
+  /** @param {string} msg @param {(() => void | Promise<void>) | null} undoFn */
+  function showToast(msg, undoFn) {
+    undoRef.fn = undoFn ?? null;
+    batch(() => { toastMsg.value = msg; toastUndo.value = !!undoFn; });
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, 6000);
+  }
+
+  function hideToast() {
+    undoRef.fn = null;
+    batch(() => { toastMsg.value = ""; toastUndo.value = false; });
+    clearTimeout(toastTimer);
+  }
+
+  async function doUndo() {
+    const fn = undoRef.fn;
+    hideToast();
+    if (fn) await fn();
+  }
+
+  /** @param {LineState} ls @returns {string} */
+  function displayName(ls) {
+    if (ls.isNewProduct && ls.newProductName) return ls.newProductName;
+    const pid = ls.draftProductId.value;
+    if (pid) {
+      const p = hydration.products.find((x) => x.id === pid);
+      if (p) return p.name;
+    }
+    return ls.draftProductName.value || ls.receiptText;
+  }
+
+  // ── Server state application (server is authoritative — ADR-020 §2/§7) ─────────
+
+  /** @param {LineState} ls @param {object} data */
+  function baseOnSaved(ls, data) {
     batch(() => {
       ls.status.value = data.status ?? ls.status.value;
       ls.isNewProduct = data.isNewProduct ?? ls.isNewProduct;
@@ -1200,22 +1301,151 @@ export function mountIntakeReview(root, hydration) {
     });
   }
 
-  /** @param {LineState} ls */
-  function onDismissed(ls) {
-    batch(() => {
-      ls.status.value = "Dismissed";
-      ls.drawerOpen.value = false;
-      ls.error.value = null;
+  /**
+   * POSTs a lineId-scoped status action (Dismiss/Restore/Reopen) and returns the JSON body on
+   * success or false on failure (setting ls.error). Shared by skip/restore/rematch and their undos.
+   * @param {string} url @param {LineState} ls @returns {Promise<any|false>}
+   */
+  async function postAction(url, ls) {
+    if (ls.saving.value) return false;
+    ls.saving.value = true;
+    ls.error.value = null;
+    try {
+      const resp = await postJson(`${url}&lineId=${ls.lineId}`, {}, token);
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        ls.error.value = data.error ?? `Action failed (${resp.status})`;
+        return false;
+      }
+      return data;
+    } catch {
+      ls.error.value = "Network error — please try again.";
+      return false;
+    } finally {
+      ls.saving.value = false;
+    }
+  }
+
+  /** @param {LineState} ls @returns {Promise<boolean>} */
+  async function postDismiss(ls) {
+    const data = await postAction(hydration.dismissLineUrl, ls);
+    if (!data) return false;
+    batch(() => { ls.status.value = "Dismissed"; ls.drawerOpen.value = false; ls.error.value = null; });
+    return true;
+  }
+
+  /** @param {LineState} ls @returns {Promise<boolean>} */
+  async function postRestore(ls) {
+    const data = await postAction(hydration.restoreLineUrl, ls);
+    if (!data) return false;
+    batch(() => { ls.status.value = data.status ?? "Pending"; ls.error.value = null; });
+    return true;
+  }
+
+  /** @param {LineState} ls @returns {Promise<boolean>} */
+  async function postReopen(ls) {
+    const data = await postAction(hydration.reopenLineUrl, ls);
+    if (!data) return false;
+    batch(() => { ls.status.value = data.status ?? "Pending"; ls.error.value = null; });
+    return true;
+  }
+
+  // ── Client-side validation mirror (server re-validates and is authoritative) ────
+
+  /** @param {LineState} ls @returns {string|null} */
+  function validateLine(ls) {
+    const qty = parseFloat(ls.draftQty.value);
+    if (ls.createNew.value) {
+      if (!ls.draftNewName.value.trim() || !ls.draftNewCategoryId.value)
+        return "A new product needs a name and a category.";
+    } else if (!ls.draftProductId.value) {
+      return "Choose a product, or switch to creating a new one.";
+    }
+    if (!qty || qty <= 0) return "Enter a quantity greater than zero.";
+    if (!ls.draftUnitId.value) return "Choose a unit.";
+    if (!ls.draftLocationId.value) return "Choose a location.";
+    return null;
+  }
+
+  // ── Queue actions ──────────────────────────────────────────────────────────────
+
+  /**
+   * Resolve a line via SaveLine (confirming it). In "focus" mode this is "Confirm & next": it advances
+   * the queue and offers an Undo that reopens the line. In "ready" mode it is a ready-row edit save.
+   * @param {LineState} ls @param {"focus" | "ready"} mode
+   */
+  async function saveLine(ls, mode) {
+    if (ls.saving.value) return;
+    const err = validateLine(ls);
+    if (err) { ls.error.value = err; return; }
+    ls.saving.value = true;
+    ls.error.value = null;
+    await submitSaveLine(ls, buildSaveLineBody(ls), hydration.saveLineUrl, token, (l, data) => {
+      baseOnSaved(l, data);
+      const name = displayName(l);
+      if (mode === "focus") {
+        showToast(`${name} confirmed`, () => undoResolve(l));
+        advanceFocus();
+      } else {
+        showToast(`${name} updated`, null);
+      }
     });
   }
 
-  /** @param {LineState} ls */
-  function onRestored(ls) {
-    batch(() => {
-      ls.status.value = "Pending";
-      ls.error.value = null;
-    });
+  /** Skip / remove a line as not-pantry-stock (DismissLine), with an Undo that restores it. @param {LineState} ls */
+  async function skipLine(ls) {
+    if (ls.saving.value) return;
+    const name = displayName(ls);
+    const wasFocused = focusId.value === ls.lineId;
+    if (await postDismiss(ls)) {
+      showToast(`${name} skipped`, () => undoSkip(ls));
+      if (wasFocused) advanceFocus();
+    }
   }
+
+  /** "Add anyway" on a skipped row (RestoreLine), with an Undo that dismisses it again. @param {LineState} ls */
+  async function restoreLine(ls) {
+    if (ls.saving.value) return;
+    const name = displayName(ls);
+    if (await postRestore(ls)) {
+      showToast(`${name} added back`, () => undoRestore(ls));
+      if (lineSection(ls) === "needs") focusLine(ls.lineId);
+    }
+  }
+
+  /**
+   * "Wrong product — review again" on a ready row: reopen a Confirmed line to Pending, clear the product
+   * match so it re-enters the exceptions queue, and focus it. @param {LineState} ls
+   */
+  async function rematchLine(ls) {
+    if (ls.saving.value) return;
+    if (ls.status.value === "Confirmed") {
+      if (!(await postReopen(ls))) return;
+    }
+    batch(() => {
+      ls.draftProductId.value = "";
+      ls.draftSkuId.value = "";
+      ls.createNew.value = false;
+      ls.drawerOpen.value = false;
+    });
+    focusLine(ls.lineId);
+  }
+
+  /** @param {string} lineId */
+  function jumpFocus(lineId) {
+    focusLine(lineId);
+  }
+
+  // ── Undo closures (each maps to the inverse server endpoint) ────────────────────
+
+  /** @param {LineState} ls */
+  async function undoResolve(ls) { if (await postReopen(ls)) focusLine(ls.lineId); }
+  /** @param {LineState} ls */
+  async function undoSkip(ls) { if (await postRestore(ls) && lineSection(ls) === "needs") focusLine(ls.lineId); }
+  /** @param {LineState} ls */
+  async function undoRestore(ls) { await postDismiss(ls); }
+
+  // ── Commit / discard ─────────────────────────────────────────────────────────
 
   async function onCommit() {
     try {
@@ -1225,9 +1455,7 @@ export function mountIntakeReview(root, hydration) {
         alertMsg.value = data.error ?? `Commit failed (${resp.status})`;
         return;
       }
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl;
-      }
+      if (data.redirectUrl) window.location.href = data.redirectUrl;
     } catch {
       alertMsg.value = "Network error — please try again.";
     }
@@ -1241,13 +1469,46 @@ export function mountIntakeReview(root, hydration) {
         alertMsg.value = data.error ?? `Discard failed (${resp.status})`;
         return;
       }
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl;
-      }
+      if (data.redirectUrl) window.location.href = data.redirectUrl;
     } catch {
       alertMsg.value = "Network error — please try again.";
     }
   }
+
+  // ── Keyboard shortcuts (exceptions-first flow) ──────────────────────────────────
+  //
+  // 1–9 pick an alternative · Enter confirm-and-next · N new product · S skip · U undo.
+  // Shortcuts other than Undo require a focused exception and do not fire while typing in a field
+  // (except Enter inside the focused form, which confirms — but never inside the product combobox,
+  // which owns Enter for its own listbox).
+  document.addEventListener("keydown", (e) => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    const tag = target?.tagName;
+    const inField = tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA";
+
+    if (!inField && (e.key === "u" || e.key === "U")) { e.preventDefault(); doUndo(); return; }
+
+    const fid = focusId.value;
+    const ls = fid ? linesSignal.value.find((l) => l.lineId === fid) : null;
+    if (!ls) return;
+
+    if (e.key === "Enter") {
+      // A field inside a NON-focused row (e.g. a ready row's own edit drawer, which opens on its own
+      // drawerOpen signal independent of focus) owns its Enter → that form's native submit; the product
+      // combobox owns Enter for its listbox. Only a bare Enter, or one inside the focused exception's own
+      // row, drives confirm-and-next. (Suppressing the default here for a non-focused field would kill
+      // that row's submit AND mis-action the focused line.)
+      if (inField && (target.getAttribute("role") === "combobox" || !target.closest(`#import-line-${fid}`))) return;
+      e.preventDefault();
+      saveLine(ls, "focus");
+      return;
+    }
+    if (inField) return; // remaining shortcuts don't fire mid-typing
+
+    if (/^[1-9]$/.test(e.key) && !ls.createNew.value) { e.preventDefault(); pickAlternative(ls, Number(e.key) - 1); }
+    else if (e.key === "n" || e.key === "N") { e.preventDefault(); ls.createNew.value = true; }
+    else if (e.key === "s" || e.key === "S") { e.preventDefault(); skipLine(ls); }
+  });
 
   // E2E / test seam
   window.__intakeReviewIsland = {
@@ -1259,10 +1520,14 @@ export function mountIntakeReview(root, hydration) {
     readyCount() {
       return linesSignal.value.filter((l) => lineSection(l) === "ready").length;
     },
-    /** @param {string} lineId */
+    /** @returns {string|null} */
+    focusId() { return focusId.value; },
+    /** @param {string} lineId — focus a needs exception, or open a ready row's edit drawer. */
     openDrawer(lineId) {
       const ls = linesSignal.value.find((l) => l.lineId === lineId);
-      if (ls) ls.drawerOpen.value = true;
+      if (!ls) return;
+      if (lineSection(ls) === "needs") focusLine(lineId);
+      else ls.drawerOpen.value = true;
     },
   };
 
@@ -1273,13 +1538,19 @@ export function mountIntakeReview(root, hydration) {
       units=${hydration.units}
       locations=${hydration.locations}
       categories=${hydration.categories}
-      token=${token}
       session=${hydration}
       filter=${filter}
+      focusId=${focusId}
       alert=${alertMsg}
-      onSaved=${onSaved}
-      onDismissed=${onDismissed}
-      onRestored=${onRestored}
+      toastMsg=${toastMsg}
+      toastUndo=${toastUndo}
+      onSave=${saveLine}
+      onSkip=${skipLine}
+      onRematch=${rematchLine}
+      onRestore=${restoreLine}
+      onJumpFocus=${jumpFocus}
+      onUndo=${doUndo}
+      onDismissToast=${hideToast}
       onCommit=${onCommit}
       onDiscard=${onDiscard} />`,
     root,
