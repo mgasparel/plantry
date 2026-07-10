@@ -39,6 +39,21 @@ public sealed class DetailsModel(
     [BindProperty(SupportsGet = true, Name = "dietNudge")]
     public bool DietNudge { get; set; }
 
+    /// <summary>
+    /// Comma-joined ids of the including PARENT recipes the editor's cheap reverse-ripple guard flagged after saving
+    /// THIS recipe as a sub (recipe-composition.md D10 / plantry-fqb0.7). Set only on the editor's post-save redirect
+    /// (<c>?rippleParents=g1,g2</c>); a plain view carries none, so the per-parent LLM check runs only on the save
+    /// landing — never on a browse. Parsed into <see cref="RippleParentIds"/>.
+    /// </summary>
+    [BindProperty(SupportsGet = true, Name = "rippleParents")]
+    public string? RippleParents { get; set; }
+
+    /// <summary>
+    /// Parsed, de-duplicated parent ids from <see cref="RippleParents"/> (empty on a plain view). Each renders one
+    /// deferred htmx ripple-nudge placeholder on this sub's landing (recipe-composition.md D10).
+    /// </summary>
+    public IReadOnlyList<Guid> RippleParentIds { get; private set; } = [];
+
     public RecipeDetailView Recipe { get; private set; } = null!;
 
     /// <summary>
@@ -105,6 +120,11 @@ public sealed class DetailsModel(
         // Diet-tag nudge (plantry-qll2.3): render the deferred check only when the editor's post-save redirect set
         // ?dietNudge=true. A plain view of the recipe carries no flag, so no LLM check runs on a browse.
         ShowDietNudgeCheck = DietNudge;
+
+        // Reverse ripple (recipe-composition.md D10 / plantry-fqb0.7): the editor's post-save redirect lists the
+        // including PARENTS its cheap guard flagged in ?rippleParents. Parse them into placeholders here; a plain
+        // view carries none, so the per-parent LLM check runs only on this save landing (no corpus sweep).
+        RippleParentIds = ParseRippleParents(RippleParents);
 
         // Batch-resolve the ingredient list in a fixed number of round-trips (no per-row N+1):
         // one query for product display facts, one for the unit codes the quantities render with.
@@ -474,6 +494,26 @@ public sealed class DetailsModel(
             recipe, desiredServings, productLookup, unitLookup, effectiveLines, fulfillment, oob: false, summary: outcome, ct);
 
         return Partial("_DetailsFulfilmentCard", vm);
+    }
+
+    /// <summary>
+    /// Parses the comma-joined <c>?rippleParents</c> redirect token into distinct parent recipe ids (D10). Blank,
+    /// malformed, or duplicate segments are dropped; empty/null input yields an empty list — so a plain view (no
+    /// token) renders no ripple placeholders. The ids are advisory candidates only; the deferred fragment re-runs
+    /// the full gate + check per parent, so a stale or foreign id simply resolves to nothing.
+    /// </summary>
+    private static IReadOnlyList<Guid> ParseRippleParents(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return [];
+
+        var ids = new List<Guid>();
+        var seen = new HashSet<Guid>();
+        foreach (var segment in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (Guid.TryParse(segment, out var id) && seen.Add(id))
+                ids.Add(id);
+        }
+        return ids;
     }
 
     /// <summary>

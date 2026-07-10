@@ -12,6 +12,16 @@ namespace Plantry.Recipes.Application;
 public sealed record DietTagNudgeView(Guid RecipeId, string IngredientName, Guid DietTagId, string DietTagName);
 
 /// <summary>
+/// A single reverse-ripple diet-tag nudge (recipe-composition.md D10): surfaced on a saved SUB-recipe's landing
+/// for one including PARENT whose <b>expanded</b> product set now contradicts its Diet tag ("may conflict with
+/// 'Vegan' on Nachos"). Carries the parent's id + display name (the landing is the sub's page, so the parent must
+/// be named), the offending ingredient, and the parent's own contradicted Diet tag (id + name) — the "Keep it" /
+/// "Remove tag" actions and the dismissal hash all target the PARENT, identical to the direct nudge but per-parent.
+/// </summary>
+public sealed record DietTagRippleNudgeView(
+    Guid ParentRecipeId, string ParentName, string IngredientName, Guid DietTagId, string DietTagName);
+
+/// <summary>
 /// Application service behind the recipe editor's edit-moment diet-tag contradiction nudge (plantry-qll2.3).
 /// It keeps the two-stage guard the epic (plantry-qll2) design calls for in one place:
 /// <list type="number">
@@ -68,6 +78,75 @@ public sealed class DietTagNudgeService(
 
         // Already reconciled for this exact EXPANDED set — don't re-nag (criterion 1, "dismiss remembered").
         return Recipe.IngredientProductHash(currentIds) != recipe.DietNudgeDismissedHash;
+    }
+
+    /// <summary>
+    /// Reverse-ripple guard (recipe-composition.md §8 / D10) — the cheap, no-LLM post-save trigger the editor POST
+    /// runs after saving <paramref name="savedRecipeId"/>. Saving a recipe changes the <b>expanded</b> product set
+    /// of every recipe that INCLUDES it, with no parent save to fire the direct nudge — so this reverse-looks-up the
+    /// transitively-including parents (<see cref="IRecipeRepository.GetIncluderIdsAsync"/>, transitive) and returns
+    /// the ids of those that (a) carry at least one Diet-category tag and (b) whose current expanded-set hash differs
+    /// from their own <see cref="Recipe.DietNudgeDismissedHash"/> — i.e. unchanged-or-already-reconciled parents are
+    /// skipped, per-parent. Ordered by parent name for a stable landing render. No LLM and no Catalog name
+    /// resolution here (those live in the deferred <see cref="EvaluateRippleAsync"/>); expansion is computed only for
+    /// the diet-tagged includers, so a save whose recipe has no includers — or no diet-tagged includers — does no
+    /// expansion and no LLM work beyond the includers lookup (acceptance criterion 4). A parent whose expansion
+    /// cannot be resolved (missing sub) never nags — the advisory check fails safe.
+    /// </summary>
+    public async Task<IReadOnlyList<RecipeId>> IncludersNeedingRippleNudgeAsync(
+        RecipeId savedRecipeId, CancellationToken ct = default)
+    {
+        var includerIds = await recipes.GetIncluderIdsAsync(savedRecipeId, transitive: true, ct);
+        if (includerIds.Count == 0) return []; // no includers — nothing beyond the lookup (criterion 4)
+
+        // Diet-tag vocabulary loaded ONCE (a small per-household set; archived included so a diet tag archived since
+        // the parent was saved still counts) so classifying includers costs no per-parent tag round-trip.
+        var allTags = await tags.ListAllAsync(activeOnly: false, ct);
+        var dietTagIds = allTags.Where(t => t.Category == TagCategory.Diet).Select(t => t.Id).ToHashSet();
+
+        var matches = new List<Recipe>();
+        foreach (var parentId in includerIds)
+        {
+            var parent = await recipes.GetByIdAsync(parentId, ct);
+            if (parent is null) continue;
+
+            // Not diet-tagged — skip BEFORE any expansion, so a non-diet includer costs no expensive work (criterion 4).
+            if (!parent.Tags.Any(rt => dietTagIds.Contains(rt.TagId))) continue;
+
+            var expanded = await expansion.ExpandedProductIdsAsync(parentId, ct);
+            if (expanded.IsFailure) continue; // advisory: an unresolvable expansion never nags
+
+            // Unchanged or already reconciled for this exact expanded set — skip (per-parent dismissal, D10).
+            if (Recipe.IngredientProductHash(expanded.Value) == parent.DietNudgeDismissedHash) continue;
+
+            matches.Add(parent);
+        }
+
+        return matches
+            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(r => r.Id)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The deferred per-parent ripple check (D10): runs the very same assistive-AI gate + expanded-set name
+    /// resolution + untrusted LLM check as <see cref="EvaluateAsync"/> for an including <paramref name="parentRecipeId"/>,
+    /// then wraps the result with the parent's display name so the sub's save landing can name the conflict ("may
+    /// conflict with 'Vegan' on Nachos"). Returns <c>null</c> whenever the direct check would (gate off, parent gone,
+    /// expanded set already reconciled, or nothing contradicts). The mapped tag id, the "Remove tag" action, and the
+    /// dismissal hash all target the PARENT — dismissal/gate semantics are identical to the direct nudge, per-parent.
+    /// </summary>
+    public async Task<DietTagRippleNudgeView?> EvaluateRippleAsync(
+        RecipeId parentRecipeId, CancellationToken ct = default)
+    {
+        var view = await EvaluateAsync(parentRecipeId, ct);
+        if (view is null) return null;
+
+        var parent = await recipes.GetByIdAsync(parentRecipeId, ct);
+        if (parent is null) return null; // raced deletion — nothing to name
+
+        return new DietTagRippleNudgeView(
+            view.RecipeId, parent.Name, view.IngredientName, view.DietTagId, view.DietTagName);
     }
 
     /// <summary>

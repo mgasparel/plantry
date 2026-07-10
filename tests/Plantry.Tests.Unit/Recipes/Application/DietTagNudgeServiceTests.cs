@@ -328,6 +328,128 @@ public sealed class DietTagNudgeServiceTests
         Assert.True(await h.Service.ShouldOfferAfterSaveAsync(
             h.Parent.Id, new HashSet<Guid> { PastaId, SubDairyId }));
     }
+
+    // ── Reverse ripple: sub save nudges diet-tagged includers (recipe-composition.md §8 / D10) ──
+
+    [Fact]
+    public async Task Ripple_Flags_A_Diet_Tagged_Includer_Whose_Expanded_Set_Is_Unreconciled()
+    {
+        var h = BuildWithInclusion();
+        // Saving the SUB reverse-looks-up its includers: the Vegan parent's expanded set carries the sub's dairy and
+        // has never been reconciled, so the cheap guard flags it — with no LLM and no Catalog name resolution
+        // (acceptance criterion 1). Editing the sub, not the parent, is exactly the case with no parent save to fire.
+        var parents = await h.Service.IncludersNeedingRippleNudgeAsync(h.Sub.Id);
+        Assert.Equal([h.Parent.Id], parents);
+        Assert.False(h.Checker.WasCalled);
+    }
+
+    [Fact]
+    public async Task Ripple_Skips_An_Includer_Already_Reconciled_For_Its_Expanded_Set()
+    {
+        var h = BuildWithInclusion();
+        // The parent already dismissed its current expanded set ({pasta, parmesan}); a sub save that leaves that set
+        // unchanged must not re-nag it (per-parent dismissal, acceptance criterion 1 — "already reconciled skipped").
+        h.Parent.DismissDietNudge(Recipe.IngredientProductHash([PastaId, SubDairyId]), SystemClock.Instance);
+        var parents = await h.Service.IncludersNeedingRippleNudgeAsync(h.Sub.Id);
+        Assert.Empty(parents);
+    }
+
+    [Fact]
+    public async Task Ripple_Skips_A_Non_Diet_Tagged_Includer()
+    {
+        var h = BuildWithInclusion();
+        // Strip the parent's Vegan tag: it still includes the sub, but with no Diet-category tag there is nothing to
+        // contradict, so it is skipped before any expansion or LLM (acceptance criterion 4).
+        h.Parent.SetTags([], SystemClock.Instance);
+        var parents = await h.Service.IncludersNeedingRippleNudgeAsync(h.Sub.Id);
+        Assert.Empty(parents);
+        Assert.False(h.Checker.WasCalled);
+    }
+
+    [Fact]
+    public async Task Ripple_With_No_Includers_Returns_Empty_And_Never_Calls_The_Checker()
+    {
+        // A flat recipe that nothing includes: the reverse lookup is empty, so the guard returns immediately with no
+        // expansion and no LLM — zero work beyond the includers lookup (acceptance criterion 4).
+        var h = Build();
+        var parents = await h.Service.IncludersNeedingRippleNudgeAsync(h.Recipe.Id);
+        Assert.Empty(parents);
+        Assert.False(h.Checker.WasCalled);
+    }
+
+    [Fact]
+    public async Task Ripple_Reaches_A_Transitive_Diet_Tagged_Includer()
+    {
+        var clock = SystemClock.Instance;
+        var household = DomainHousehold.From(HouseholdAId);
+
+        var products = new FakeCatalogProductReader();
+        products.RegisterTracked(PastaId, "Rigatoni");
+        products.RegisterTracked(SubDairyId, "Parmesan");
+
+        var tags = new FakeTagRepository();
+        var vegan = Tag.Create(household, "Vegan", TagCategory.Diet, clock);
+        tags.Items.Add(vegan);
+
+        var recipes = new FakeRecipeRepository();
+
+        // sub (dairy) ← parent ← grandparent(Vegan). Editing the sub must ripple to the transitive grandparent.
+        var sub = Recipe.Create(household, "Cheese Sauce", 2, clock).Value;
+        sub.ReplaceLines([new IngredientLine(SubDairyId, 100m, UnitId, null, 0)], [], clock);
+        recipes.Items.Add(sub);
+
+        var parent = Recipe.Create(household, "Nacho Layer", 2, clock).Value;
+        parent.ReplaceLines([], [new InclusionLine(sub.Id, 1m, null, 0)], clock);
+        recipes.Items.Add(parent);
+
+        var grandparent = Recipe.Create(household, "Vegan Nachos", 2, clock).Value;
+        grandparent.ReplaceLines(
+            [new IngredientLine(PastaId, 200m, UnitId, null, 0)],
+            [new InclusionLine(parent.Id, 1m, null, 1)],
+            clock);
+        grandparent.SetTags([vegan.Id], clock);
+        recipes.Items.Add(grandparent);
+
+        var checker = new RecordingDietChecker([new DietTagContradiction("Parmesan", "Vegan")]);
+        var service = new DietTagNudgeService(
+            recipes, new RecipeExpansionService(recipes), tags, products,
+            new FakeAiAssistanceGateReader(true), checker, clock, NullLogger<DietTagNudgeService>.Instance);
+
+        // The untagged intermediate parent is skipped; only the diet-tagged grandparent is flagged.
+        var flagged = await service.IncludersNeedingRippleNudgeAsync(sub.Id);
+        Assert.Equal([grandparent.Id], flagged);
+    }
+
+    [Fact]
+    public async Task EvaluateRipple_Names_The_Parent_And_Maps_The_Contradiction_To_Its_Diet_Tag()
+    {
+        var h = BuildWithInclusion();
+        var view = await h.Service.EvaluateRippleAsync(h.Parent.Id);
+
+        Assert.NotNull(view);
+        Assert.Equal(h.Parent.Id.Value, view!.ParentRecipeId);
+        Assert.Equal("Vegan Nachos", view.ParentName); // the landing is the sub's page, so the parent is named (D10)
+        Assert.Equal("Parmesan", view.IngredientName);
+        Assert.Equal("Vegan", view.DietTagName);
+        Assert.Equal(h.DietTagId.Value, view.DietTagId); // "Remove tag" / dismissal target the PARENT's own tag
+    }
+
+    [Fact]
+    public async Task EvaluateRipple_Gate_Off_Returns_Null_And_Never_Calls_The_Checker()
+    {
+        var h = BuildWithInclusion(gateEnabled: false);
+        Assert.Null(await h.Service.EvaluateRippleAsync(h.Parent.Id)); // AI gate off ⇒ no LLM, no nudge (criterion 3)
+        Assert.False(h.Checker.WasCalled);
+    }
+
+    [Fact]
+    public async Task EvaluateRipple_Returns_Null_When_The_Parent_Set_Is_Already_Reconciled()
+    {
+        var h = BuildWithInclusion();
+        h.Parent.DismissDietNudge(Recipe.IngredientProductHash([PastaId, SubDairyId]), SystemClock.Instance);
+        Assert.Null(await h.Service.EvaluateRippleAsync(h.Parent.Id));
+        Assert.False(h.Checker.WasCalled); // short-circuits before the LLM, like the direct nudge
+    }
 }
 
 /// <summary>Records the arguments the service passed and returns a canned contradiction set.</summary>

@@ -33,3 +33,35 @@
         </div>
     </div>
 }
+@* Reverse-ripple diet-tag nudge (recipe-composition.md D10 / plantry-fqb0.7). Rendered one-per-conflicting-parent
+   on a saved SUB-recipe's landing when editing the sub changed a diet-tagged includer's EXPANDED product set. Names
+   the PARENT ("may conflict with 'Vegan' on Nachos"); the Keep-it / Remove-tag actions and the dismissal hash all
+   target the PARENT, per-parent, identical to the direct nudge. Same .callout warn primitive — no new CSS. Advisory
+   only: the sub's save already landed (C9). The callout id is parent-scoped so multiple ripple callouts (and the
+   direct #diet-nudge) never collide. *@
+@if (Model.Ripple is { } r)
+{
+    <div class="callout" data-tone="warn" id="diet-ripple-@r.ParentRecipeId">
+        <span class="co-ico">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+        </span>
+        <div>
+            <div class="co-title">Still @r.DietTagName on @r.ParentName?</div>
+            <div class="co-body">This change may conflict with @r.DietTagName on @r.ParentName — it now includes @r.IngredientName.</div>
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <button type="button" class="co-link"
+                        hx-post="/Recipes/DietNudge?handler=RippleRemoveTag&id=@r.ParentRecipeId&tagId=@r.DietTagId"
+                        hx-target="#diet-ripple-@r.ParentRecipeId"
+                        hx-swap="outerHTML">
+                    Remove @r.DietTagName tag from @r.ParentName
+                </button>
+                <button type="button" class="co-link"
+                        hx-post="/Recipes/DietNudge?handler=Dismiss&id=@r.ParentRecipeId"
+                        hx-target="#diet-ripple-@r.ParentRecipeId"
+                        hx-swap="outerHTML">
+                    Keep it
+                </button>
+            </div>
+        </div>
+    </div>
+}

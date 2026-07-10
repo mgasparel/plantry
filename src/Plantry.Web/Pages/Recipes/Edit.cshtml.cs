@@ -561,9 +561,21 @@ public sealed class EditModel(
                 var offerNudge = !IsCreate
                     && await dietTagNudge.ShouldOfferAfterSaveAsync(saved.RecipeId, previousProductIds, ct);
 
+                // Reverse ripple (recipe-composition.md §8 / D10): saving this recipe changes the EXPANDED product
+                // set of any recipe that INCLUDES it — with no parent save to fire the direct nudge. Run the cheap,
+                // no-LLM guard for each transitively-including diet-tagged parent and carry the unreconciled ones to
+                // this recipe's save landing, where a per-parent deferred nudge names the conflict ("may conflict with
+                // 'Vegan' on Nachos"). Skipped on create (a brand-new recipe has no includers); does no expansion/LLM
+                // work beyond the includers lookup when nothing diet-tagged includes this recipe (criterion 4).
+                var rippleParentIds = IsCreate
+                    ? []
+                    : await dietTagNudge.IncludersNeedingRippleNudgeAsync(saved.RecipeId, ct);
+
                 var detailsRoute = new RouteValueDictionary { ["id"] = saved.RecipeId.Value };
                 if (offerNudge)
                     detailsRoute["dietNudge"] = true;
+                if (rippleParentIds.Count > 0)
+                    detailsRoute["rippleParents"] = string.Join(",", rippleParentIds.Select(p => p.Value));
                 return RedirectToPage("./Details", detailsRoute);
 
             case AuthorRecipeResult.NeedsConversion needs:

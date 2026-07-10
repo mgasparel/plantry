@@ -245,6 +245,17 @@
                          hx-swap="outerHTML"></div>
                 }
 
+                @* ── Reverse-ripple diet-tag nudges (recipe-composition.md D10 / plantry-fqb0.7) ──
+                   One deferred placeholder per including PARENT the editor's cheap guard flagged after this recipe was
+                   saved as a sub. Each loads the /Recipes/DietNudge Ripple fragment for that parent — the gate + LLM
+                   run there, only on this save landing (?rippleParents), never on a plain view. Advisory only (C9). *@
+                @foreach (var rippleParentId in Model.RippleParentIds)
+                {
+                    <div hx-get="/Recipes/DietNudge?handler=Ripple&id=@rippleParentId"
+                         hx-trigger="load"
+                         hx-swap="outerHTML"></div>
+                }
+
                 @* ── Ingredients card with servings stepper in header ────────── *@
                 <div class="rd-ing-card">
                     <div class="rd-ing-head">
