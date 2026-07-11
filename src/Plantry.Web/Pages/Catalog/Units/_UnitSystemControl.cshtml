@@ -1,0 +1,36 @@
+@using Plantry.Catalog.Domain
+@model Unit
+@*
+    Per-unit measurement-system selector (quantity-display.md Q5) — the metric/imperial simplification
+    firewall. A .seg-ctrl (component library) whose radios htmx-POST the choice and swap this fragment
+    back with the new state, mirroring _UnitDisplayStyleControl. The antiforgery token is attached
+    automatically by htmx-antiforgery.js from the page's existing <form method="post">.
+*@
+@{
+    var id = Model.Id.Value;
+    var system = Model.UnitSystem;
+    var group = $"unit-system-{id}";
+}
+<div class="seg-ctrl" id="unit-system-@id" role="group" aria-label="Measurement system for @Model.Name">
+    <label class="seg-ctrl__item">
+        <input type="radio" name="@group" value="Unspecified" @(system == UnitSystem.Unspecified ? "checked" : "")
+               hx-post="?handler=UnitSystem&amp;unitId=@id&amp;system=Unspecified"
+               hx-target="#unit-system-@id"
+               hx-swap="outerHTML" />
+        <span>None</span>
+    </label>
+    <label class="seg-ctrl__item">
+        <input type="radio" name="@group" value="Metric" @(system == UnitSystem.Metric ? "checked" : "")
+               hx-post="?handler=UnitSystem&amp;unitId=@id&amp;system=Metric"
+               hx-target="#unit-system-@id"
+               hx-swap="outerHTML" />
+        <span>Metric</span>
+    </label>
+    <label class="seg-ctrl__item">
+        <input type="radio" name="@group" value="UsCustomary" @(system == UnitSystem.UsCustomary ? "checked" : "")
+               hx-post="?handler=UnitSystem&amp;unitId=@id&amp;system=UsCustomary"
+               hx-target="#unit-system-@id"
+               hx-swap="outerHTML" />
+        <span>US</span>
+    </label>
+</div>

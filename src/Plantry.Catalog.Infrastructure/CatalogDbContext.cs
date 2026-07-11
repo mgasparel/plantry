@@ -44,6 +44,21 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
                 .IsRequired();
             b.Property(u => u.FactorToBase).HasColumnName("factor_to_base");
             b.Property(u => u.IsBase).HasColumnName("is_base");
+            // Display style (quantity-display.md Q2): C# enum persisted as text + CHECK (Gate 7),
+            // never a Postgres ENUM. The CHECK constraint lives in the migration, matching the
+            // ProductConversion.Source convention.
+            b.Property(u => u.DisplayStyle)
+                .HasConversion(s => s.ToDbValue(), v => DisplayStyleExtensions.Parse(v))
+                .HasColumnName("display_style")
+                .HasMaxLength(20)
+                .IsRequired();
+            // Unit system (quantity-display.md Q5): C# enum persisted as text + CHECK (Gate 7), the
+            // metric/imperial simplification firewall. CHECK constraint lives in the migration.
+            b.Property(u => u.UnitSystem)
+                .HasConversion(s => s.ToDbValue(), v => UnitSystemExtensions.Parse(v))
+                .HasColumnName("unit_system")
+                .HasMaxLength(20)
+                .IsRequired();
 
             b.HasIndex(u => new { u.HouseholdId, u.Code }).IsUnique();
 

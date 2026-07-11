@@ -53,4 +53,96 @@ public sealed class UnitCommandsTests
         Assert.Single(repo.Items);
         Assert.Equal(0, repo.SaveChangesCalls);
     }
+
+    [Fact]
+    public async Task SetDisplayStyleCommand_Persists_New_Style()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(householdId);
+        var unit = CatalogUnit.Create(Plantry.SharedKernel.HouseholdId.From(householdId), "cup", "cup", Dimension.Volume, 240m);
+        repo.Items.Add(unit);
+
+        var result = await new SetDisplayStyleCommand(unit.Id, DisplayStyle.Fraction, repo, tenant).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(DisplayStyle.Fraction, unit.DisplayStyle);
+        Assert.Equal(1, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task SetDisplayStyleCommand_Fails_When_No_Household_In_Context()
+    {
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(null);
+        var unit = CatalogUnit.Create(Plantry.SharedKernel.HouseholdId.From(Guid.NewGuid()), "cup", "cup", Dimension.Volume, 240m);
+        repo.Items.Add(unit);
+
+        var result = await new SetDisplayStyleCommand(unit.Id, DisplayStyle.Fraction, repo, tenant).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+        Assert.Equal(DisplayStyle.Decimal, unit.DisplayStyle);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task SetDisplayStyleCommand_Fails_When_Unit_Not_Found()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(householdId);
+
+        var result = await new SetDisplayStyleCommand(UnitId.New(), DisplayStyle.Fraction, repo, tenant).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task SetUnitSystemCommand_Persists_New_System()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(householdId);
+        var unit = CatalogUnit.Create(Plantry.SharedKernel.HouseholdId.From(householdId), "cup", "cup", Dimension.Volume, 240m);
+        repo.Items.Add(unit);
+
+        var result = await new SetUnitSystemCommand(unit.Id, UnitSystem.UsCustomary, repo, tenant).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(UnitSystem.UsCustomary, unit.UnitSystem);
+        Assert.Equal(1, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task SetUnitSystemCommand_Fails_When_No_Household_In_Context()
+    {
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(null);
+        var unit = CatalogUnit.Create(Plantry.SharedKernel.HouseholdId.From(Guid.NewGuid()), "cup", "cup", Dimension.Volume, 240m);
+        repo.Items.Add(unit);
+
+        var result = await new SetUnitSystemCommand(unit.Id, UnitSystem.UsCustomary, repo, tenant).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+        Assert.Equal(UnitSystem.Unspecified, unit.UnitSystem);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task SetUnitSystemCommand_Fails_When_Unit_Not_Found()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(householdId);
+
+        var result = await new SetUnitSystemCommand(UnitId.New(), UnitSystem.Metric, repo, tenant).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
 }

@@ -317,6 +317,10 @@ public sealed class CookConfirmFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeCookUnitConverter());
 
+            // Quantity-display formatter (quantity-display.md) — decimal passthrough over the fixture's
+            // Decimal-styled units, so integer quantities render exactly as before.
+            services.AddFakeQuantityFormatter();
+
             // Stubs so that CookRecipe (which is sealed, not replaced) can execute in the POST path
             // without a real DB — the L4 snapshot tests only exercise GET, but the WAF must still boot.
             services.RemoveAll<IInventoryConsumer>();

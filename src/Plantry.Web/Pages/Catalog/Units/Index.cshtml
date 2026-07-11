@@ -17,6 +17,8 @@
                     <span class="catalog-list__primary">@unit.Name</span>
                     <span class="catalog-list__secondary">@unit.Code</span>
                     <span class="catalog-list__meta">×@unit.FactorToBase.ToString("0.######") @(unit.IsBase ? "(base)" : "")</span>
+                    <partial name="_UnitDisplayStyleControl" model="unit" />
+                    <partial name="_UnitSystemControl" model="unit" />
                 </li>
             }
         </ul>

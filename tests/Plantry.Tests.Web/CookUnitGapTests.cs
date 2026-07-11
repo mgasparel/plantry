@@ -267,6 +267,7 @@ public sealed class CookUnitGapFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeUnitGapConverter());
+            services.AddFakeQuantityFormatter();
 
             services.RemoveAll<IInventoryConsumer>();
             services.AddSingleton<IInventoryConsumer>(new FakeCookInventoryConsumer());
