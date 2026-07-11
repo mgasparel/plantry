@@ -1,6 +1,7 @@
 using Plantry.SharedKernel;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
 using Dimension = Plantry.Catalog.Domain.Dimension;
+using DisplayStyle = Plantry.Catalog.Domain.DisplayStyle;
 
 namespace Plantry.Tests.Unit.Catalog.Domain;
 
@@ -61,5 +62,36 @@ public sealed class UnitTests
         var unit = CatalogUnit.Create(HouseholdId, "g", "Gram", Dimension.Mass, 1m);
 
         Assert.Throws<ArgumentException>(() => unit.Rename("  "));
+    }
+
+    [Fact]
+    public void Create_Defaults_DisplayStyle_To_Decimal()
+    {
+        var unit = CatalogUnit.Create(HouseholdId, "cup", "cup", Dimension.Volume, 240m);
+
+        Assert.Equal(DisplayStyle.Decimal, unit.DisplayStyle);
+    }
+
+    [Theory]
+    [InlineData(DisplayStyle.Fraction)]
+    [InlineData(DisplayStyle.Decimal)]
+    public void SetDisplayStyle_Updates_Style(DisplayStyle style)
+    {
+        var unit = CatalogUnit.Create(HouseholdId, "cup", "cup", Dimension.Volume, 240m);
+
+        unit.SetDisplayStyle(style);
+
+        Assert.Equal(style, unit.DisplayStyle);
+    }
+
+    [Fact]
+    public void SetDisplayStyle_Can_Toggle_Back_To_Decimal()
+    {
+        var unit = CatalogUnit.Create(HouseholdId, "cup", "cup", Dimension.Volume, 240m);
+
+        unit.SetDisplayStyle(DisplayStyle.Fraction);
+        unit.SetDisplayStyle(DisplayStyle.Decimal);
+
+        Assert.Equal(DisplayStyle.Decimal, unit.DisplayStyle);
     }
 }

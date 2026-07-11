@@ -39,6 +39,13 @@ public sealed class CatalogReferenceDataSeeder(CatalogDbContext db) : IReference
         var tsp   = Unit.Create(hid, "tsp",   "teaspoon",   Dimension.Volume, 4.92892m);
         var tbsp  = Unit.Create(hid, "tbsp",  "tablespoon", Dimension.Volume, 14.7868m);
 
+        // Scoop-measured volume units read best as vulgar fractions (quantity-display.md Q10).
+        // Everything else keeps the Decimal default. A one-time data migration marks the same
+        // units for households seeded before this feature.
+        cup.SetDisplayStyle(DisplayStyle.Fraction);
+        tsp.SetDisplayStyle(DisplayStyle.Fraction);
+        tbsp.SetDisplayStyle(DisplayStyle.Fraction);
+
         // Count units (base: each)
         var each  = Unit.Create(hid, "ea",  "each",  Dimension.Count, 1m, isBase: true);
         var pack  = Unit.Create(hid, "pk",  "pack",  Dimension.Count, 1m);

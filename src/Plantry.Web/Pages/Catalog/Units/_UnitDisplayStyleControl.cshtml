@@ -1,0 +1,28 @@
+@using Plantry.Catalog.Domain
+@model Unit
+@*
+    Per-unit display-style toggle (quantity-display.md Q2). A .seg-ctrl (component library) whose
+    radios htmx-POST the choice and swap this fragment back with the new state. The antiforgery token
+    is attached automatically by htmx-antiforgery.js from the page's existing <form method="post">.
+*@
+@{
+    var id = Model.Id.Value;
+    var isFraction = Model.DisplayStyle == DisplayStyle.Fraction;
+    var group = $"display-style-{id}";
+}
+<div class="seg-ctrl" id="unit-style-@id" role="group" aria-label="Display style for @Model.Name">
+    <label class="seg-ctrl__item">
+        <input type="radio" name="@group" value="Decimal" @(isFraction ? "" : "checked")
+               hx-post="?handler=DisplayStyle&amp;unitId=@id&amp;style=Decimal"
+               hx-target="#unit-style-@id"
+               hx-swap="outerHTML" />
+        <span>Decimal</span>
+    </label>
+    <label class="seg-ctrl__item">
+        <input type="radio" name="@group" value="Fraction" @(isFraction ? "checked" : "")
+               hx-post="?handler=DisplayStyle&amp;unitId=@id&amp;style=Fraction"
+               hx-target="#unit-style-@id"
+               hx-swap="outerHTML" />
+        <span>Fraction</span>
+    </label>
+</div>

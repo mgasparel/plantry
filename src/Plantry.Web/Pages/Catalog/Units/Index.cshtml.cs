@@ -4,12 +4,17 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Web.Pages.Catalog.Units;
 
 [Authorize]
-public sealed class IndexModel(IUnitRepository units, ITenantContext tenant, ILogger<CreateUnitCommand> createUnitLogger) : PageModel
+public sealed class IndexModel(
+    IUnitRepository units,
+    ITenantContext tenant,
+    ILogger<CreateUnitCommand> createUnitLogger,
+    ILogger<SetDisplayStyleCommand> setDisplayStyleLogger) : PageModel
 {
     public IReadOnlyList<Unit> Units { get; private set; } = [];
 
@@ -54,5 +59,23 @@ public sealed class IndexModel(IUnitRepository units, ITenantContext tenant, ILo
         }
 
         return RedirectToPage();
+    }
+
+    /// <summary>
+    /// htmx handler for the per-unit display-style toggle (quantity-display.md Q2). Persists the
+    /// choice and returns the re-rendered control fragment for an outerHTML swap.
+    /// </summary>
+    public async Task<IActionResult> OnPostDisplayStyleAsync(Guid unitId, DisplayStyle style)
+    {
+        var id = UnitId.From(unitId);
+        var result = await new SetDisplayStyleCommand(id, style, units, tenant, setDisplayStyleLogger).ExecuteAsync();
+        if (result.IsFailure)
+            return result.Error.Code == Error.NotFound.Code ? NotFound() : Forbid();
+
+        var unit = await units.FindAsync(id);
+        if (unit is null)
+            return NotFound();
+
+        return Partial("_UnitDisplayStyleControl", unit);
     }
 }

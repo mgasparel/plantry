@@ -17,6 +17,14 @@ public sealed class Unit : AggregateRoot<UnitId>
     public decimal FactorToBase { get; private set; }
     public bool IsBase { get; private set; }
 
+    /// <summary>
+    /// How quantities in this unit render at the presentation edge (quantity-display.md Q2).
+    /// Display-only — never affects stored quantities, scaling, or consumption. Defaults to
+    /// <see cref="DisplayStyle.Decimal"/>; households opt volume units like cup/tbsp/tsp into
+    /// <see cref="DisplayStyle.Fraction"/> on the Catalog → Units page.
+    /// </summary>
+    public DisplayStyle DisplayStyle { get; private set; } = DisplayStyle.Decimal;
+
     private Unit() { } // EF
 
     private Unit(UnitId id, HouseholdId householdId, string code, string name,
@@ -29,6 +37,7 @@ public sealed class Unit : AggregateRoot<UnitId>
         Dimension = dimension;
         FactorToBase = factorToBase;
         IsBase = isBase;
+        DisplayStyle = DisplayStyle.Decimal;
     }
 
     public static Unit Create(HouseholdId householdId, string code, string name,
@@ -49,4 +58,10 @@ public sealed class Unit : AggregateRoot<UnitId>
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Name = name.Trim();
     }
+
+    /// <summary>
+    /// Sets how quantities in this unit render (quantity-display.md Q2). Display-only: changes no
+    /// stored quantity or downstream calculation.
+    /// </summary>
+    public void SetDisplayStyle(DisplayStyle style) => DisplayStyle = style;
 }
