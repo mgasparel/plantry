@@ -393,6 +393,66 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
         Assert.Contains("/Pantry", redirectUrl.GetString()!);
     }
 
+    // ── JSON endpoint: ConfirmLines (plantry-kr9h) ────────────────────────────────────────────
+
+    [Fact]
+    public async Task ConfirmLines_returns_json_with_confirmed_ids_and_status()
+    {
+        using var localFactory = new ReviewFragmentFactory();
+        var client = localFactory.CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, ReviewSessionFixture.HouseholdAId.ToString());
+
+        var url = $"/Intake/Review/{localFactory.SessionAId}";
+        var pageHtml = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        var token = AntiforgeryToken(pageHtml);
+
+        // WHOLE MILK 2L is Pending, High-confidence, with a complete server-side prefill — it qualifies.
+        var milkLine = localFactory.SessionA.Lines.Single(l => l.ReceiptText == "WHOLE MILK 2L");
+        var payload = new { lineIds = new[] { milkLine.Id.Value } };
+
+        var request = new HttpRequestMessage(HttpMethod.Post,
+            $"/Intake/Review/{localFactory.SessionAId}?handler=ConfirmLines");
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        request.Headers.Add("RequestVerificationToken", token);
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+        Assert.Equal("Confirmed", root.GetProperty("status").GetString());
+        var confirmedIds = root.GetProperty("confirmedLineIds").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new[] { milkLine.Id.Value.ToString() }, confirmedIds);
+        Assert.Null(root.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task ConfirmLines_with_a_non_qualifying_id_returns_json_error_and_confirms_nothing()
+    {
+        using var localFactory = new ReviewFragmentFactory();
+        var client = localFactory.CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, ReviewSessionFixture.HouseholdAId.ToString());
+
+        var url = $"/Intake/Review/{localFactory.SessionAId}";
+        var pageHtml = await (await client.GetAsync(url)).Content.ReadAsStringAsync();
+        var token = AntiforgeryToken(pageHtml);
+
+        // The dismissed line ("PLASTIC BAG") is not confirmable; the whole call must fail as JSON.
+        var dismissedLine = localFactory.SessionA.Lines.Single(l => l.ReceiptText == "PLASTIC BAG");
+        var payload = new { lineIds = new[] { dismissedLine.Id.Value } };
+
+        var request = new HttpRequestMessage(HttpMethod.Post,
+            $"/Intake/Review/{localFactory.SessionAId}?handler=ConfirmLines");
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        request.Headers.Add("RequestVerificationToken", token);
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        AssertErrorContains(root, "PLASTIC BAG");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────
 
     private static Guid FirstLineId(ReviewFragmentFactory f) => f.SessionA.Lines.First().Id.Value;

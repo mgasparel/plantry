@@ -74,10 +74,14 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await page.WaitForURLAsync("**/Today**");
 
             // ── Seed one catalog product so the fake parser has a real match to suggest ──
+            // Give it a DEFAULT LOCATION as well as a default unit: the fake parser's matched line carries no
+            // unit/location, so the product's defaults make its server-side prefill COMPLETE — which lands it
+            // in the deck flow's pre-checked "sure things" checklist (exercised via the bulk-confirm below).
             await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", matchedProductName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "ea — each" });
+            await page.SelectOptionAsync("[name='Input.DefaultLocationId']", new SelectOptionValue { Label = "Pantry" });
             await page.ClickAsync("button:has-text('Add product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
@@ -97,60 +101,39 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             // The Parse handler runs the (fake) parse synchronously and HX-Redirects to the review form.
             await page.WaitForURLAsync("**/Intake/Review/**");
 
-            // Two rows: the matched line (high confidence, but missing a location so it is a genuine
-            // exception) and the unmatched line. Both need resolving in the exceptions-first flow.
-            var rows = page.Locator(".import-row");
-            await Assertions.Expect(rows).ToHaveCountAsync(2);
+            // Two scanned lines drive the two deck-flow pools: the matched line (High confidence + a complete
+            // prefill from the product's defaults) becomes a pre-checked "sure thing" in the checklist; the
+            // unmatched no-match line becomes a create card in the judgement deck. Wait for both to render.
+            await Assertions.Expect(page.Locator(".check-row")).ToHaveCountAsync(1);   // the sure thing
+            await Assertions.Expect(page.Locator(".focus-card")).ToBeVisibleAsync();   // the deck card
 
-            // ── Resolve the focused matched exception against the existing seeded product ──
-            // Exceptions-first (plantry-15l3): the first exception — the matched line, whose only gap is a
-            // location — is auto-focused with its question drawer already OPEN (no toggle click needed).
-            // Capture its stable DOM id first: confirming moves it to the Ready section (its state class
-            // flips matched→confirmed), so a class-based locator would go stale — re-locate by #id.
-            var matchedRowId = await page.Locator(".import-row.import-row--matched").GetAttributeAsync("id")
-                ?? throw new InvalidOperationException("Matched import row had no id.");
-            var matchedRow = page.Locator($"#{matchedRowId}");
+            // ── Bulk-confirm the sure thing via the checklist "Confirm N matches" action ──
+            // The matched line is pre-checked; one click promotes just the checked ids through ConfirmLines
+            // (values re-derived server-side from the prefill) and it moves to the Confirmed list.
+            await page.Locator(".step-foot button:has-text('Confirm 1 match')").ClickAsync();
+            var matchedConfirmedRow = page.Locator(".import-row--confirmed", new() { HasText = matchedProductName });
+            await Assertions.Expect(matchedConfirmedRow).ToBeVisibleAsync();
+            await Assertions.Expect(matchedConfirmedRow.Locator(".import-row__confirmed-flag")).ToBeVisibleAsync();
 
-            // The product is prefilled from the high-confidence AI match; reselect it explicitly for
-            // determinism, then fill qty/unit/location. Price is prefilled from the receipt into a hidden
-            // input (no visible field), and still produces a price observation on commit.
-            var productSearch = matchedRow.Locator("input[role='combobox']");
-            await productSearch.FillAsync(matchedProductName);
-            var productOption = matchedRow.Locator(".searchable-select__listbox li[role='option']",
-                new() { HasText = matchedProductName });
-            await Assertions.Expect(productOption).ToBeVisibleAsync();
-            await productOption.ClickAsync();
+            // ── Resolve the deck card (the unmatched line) as a brand-new product ──
+            // A no-match line is a create card: fill the new-product name + category and the card's details
+            // strip (qty/unit/location carry the same Edit.* field names as the confirmed-row edit drawer),
+            // then confirm. Price is prefilled from the receipt and still produces a price observation.
+            var deckCard = page.Locator(".focus-card");
+            await deckCard.Locator("[name='Edit.NewProductName']").FillAsync(newProductName);
+            await deckCard.Locator("[name='Edit.NewProductCategoryId']").SelectOptionAsync(new SelectOptionValue { Index = 1 });
+            await deckCard.Locator("[name='Edit.Quantity']").FillAsync("1");
+            await deckCard.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
+            await deckCard.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
+            await deckCard.Locator("button:has-text('Add new & next')").ClickAsync();
 
-            await matchedRow.Locator("[name='Edit.Quantity']").FillAsync("2");
-            await matchedRow.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
-            await matchedRow.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
-            await matchedRow.Locator("button:has-text('Confirm & next')").ClickAsync();
-
-            // Row moves to the Ready section (same #id) and shows the Ready flag.
-            await Assertions.Expect(matchedRow.Locator(".import-row__confirmed-flag")).ToBeVisibleAsync();
-
-            // ── Confirm the next exception (the unmatched line) as a brand-new product ──
-            // Resolving the matched line advanced focus to the unmatched line, so its question drawer is
-            // now open. Capture its id for the same reason.
-            var unmatchedRowId = await page.Locator(".import-row.import-row--unmatched").GetAttributeAsync("id")
-                ?? throw new InvalidOperationException("Unmatched import row had no id.");
-            var unmatchedRow = page.Locator($"#{unmatchedRowId}");
-
-            // Switch the row to "New product" mode (the drawer's toggle button) and fill the create fields.
-            // As with the matched row, price is prefilled from the receipt into a hidden input.
-            await unmatchedRow.Locator("button:has-text('Add as new product')").ClickAsync();
-            await unmatchedRow.Locator("[name='Edit.NewProductName']").FillAsync(newProductName);
-            await unmatchedRow.Locator("[name='Edit.NewProductCategoryId']").SelectOptionAsync(new SelectOptionValue { Index = 1 });
-            await unmatchedRow.Locator("[name='Edit.Quantity']").FillAsync("1");
-            await unmatchedRow.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
-            await unmatchedRow.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
-            await unmatchedRow.Locator("button:has-text('Confirm & next')").ClickAsync();
-
-            await Assertions.Expect(unmatchedRow.Locator(".import-row__confirmed-flag")).ToBeVisibleAsync();
+            // Both lines confirmed → the new product shows in the Confirmed list and the deck empties.
+            var newConfirmedRow = page.Locator(".import-row--confirmed", new() { HasText = newProductName });
+            await Assertions.Expect(newConfirmedRow).ToBeVisibleAsync();
 
             // ── Commit — both lines confirmed, so the Commit button is enabled ──
-            // The island recomputes the commit-bar state client-side after each row confirmation, so
-            // the button should be enabled without a reload once both lines are confirmed.
+            // The island recomputes the commit-bar state client-side after each confirmation, so the button
+            // should be enabled without a reload once nothing is left in the sure/needs pools.
             var commitButton = page.Locator(".commit-bar button:has-text('Add to pantry')");
             await Assertions.Expect(commitButton).ToBeEnabledAsync();
             await commitButton.ClickAsync();

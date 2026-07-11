@@ -6565,15 +6565,26 @@ kbd, .kbd {
 /* 4. <kbd> chip inside a suggest-opt — composes two existing primitives; only spacing is new. */
 .suggest-opt kbd { margin-left: 2px; }
 
-/* 5. Focused-row emphasis — the row currently holding the keyboard/decision focus.
-      Extends the existing .import-row--matched/--open state family. */
-.import-row--focus { box-shadow: var(--shadow-card); }
+/* 5. First composition of the deck match block with the ranked candidate family — deals cards carry
+      a single suggestion; intake surfaces alternatives inside .focus-card__match. Only spacing is new. */
+.focus-card__match .suggest-opts { margin-top: var(--space-3); }
+
+/* 6. Details strip inside a deck card — intake needs qty / unit / location / expiry on the card
+      (deals cards have no equivalent). A compact 4-up grid between the match block and the verbs. */
+.focus-card__details { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3); margin-top: var(--space-4); }
+@media (max-width: 640px) { .focus-card__details { grid-template-columns: 1fr 1fr; } }
+
+/* 7. Generic clickable-row cursor — the confirmed row's main opens its edit drawer on click. */
 .import-row__main[data-action] { cursor: pointer; }
 
-/* 6. Question header inside the edit drawer — one line of type styling; sits where
-      .match-suggest__label sits and reuses its tone scale at drawer-headline size. */
-.review-q { font-size: var(--font-size-base); font-weight: 700; }
-.review-q + .match-suggest__label { margin-top: -4px; }
+/* 8. Skipped lines at checklist density — a read-only .check-row variant so the skipped pool matches
+      the page's row rhythm instead of the airy nonstock boxes; the raw name strikes through. */
+.check-row--skipped { cursor: default; }
+.check-row--skipped:hover { background: none; }
+.check-row--skipped .raw b { color: var(--color-text-muted); text-decoration: line-through; font-weight: 500; }
+
+/* 9. Rail-jump flash — a sure-things row briefly highlights when jumped to from the receipt minimap. */
+.check-row.flash { background: var(--color-warning-bg); }
 
 /* ── Guided-flow step nav (.steps / .step) ──────────────────────────────────
    Jumpable step tabs for a multi-pass flow. NOT the <stepper> tag helper — that

@@ -2,6 +2,15 @@
 //
 // intake-review-logic.js — pure transforms for the Intake Review island (ADR-020, bead plantry-2zvm.11).
 //
+// The Intake review surface follows the DEALS-DECK flow (epic plantry-wmgg / prototype
+// .preview/intake-review-deck.html): one screen with four pools — a "judgement calls" deck of
+// exceptions, a "sure things" checklist, a confirmed list, and a skipped list. The deck's order /
+// skip-stack / swipe-geometry primitives are the SAME ones the Deals judgement deck uses, so this
+// module re-uses (never re-implements) the already-extracted, tested transforms from
+// deal-deck-logic.js (Gate 6 reuse discipline). Intake-specific transforms — four-way sectioning
+// with the ConfirmLines-mirroring "sure" predicate, uncheck-demote decision synthesis, rail glyph
+// state, and money reconciliation — live here.
+//
 // CONVENTION (island testing):
 //   Pure transforms are extracted into a sibling `*-logic.js` module.
 //   The island (`intake-review.js`) imports and calls them.
@@ -12,13 +21,36 @@
 //
 // What belongs here (ADR-020 §2 / §7 boundary):
 //   UI/draft state transforms — hydration→signal factories, draft→POST-body
-//   builders, and display-value helpers. These are pure functions of their
-//   arguments and hold NO domain logic. They do not compute fulfillment, cost,
-//   validation-as-truth, or any catalog/unit-semantics rule.
+//   builders, deck presentation order, and display-value helpers. These are pure
+//   functions of their arguments and hold NO domain logic. They do not compute
+//   fulfillment, cost, validation-as-truth, or any catalog/unit-semantics rule.
 //
 // What does NOT belong here:
 //   Anything that crosses the ADR-020 §7 tripwire. If you need domain rules,
-//   call a server endpoint instead.
+//   call a server endpoint instead. The deck verbs still round-trip through the
+//   JSON endpoints (SaveLine / DismissLine / ConfirmLines / Reopen / Restore);
+//   this module only owns order, drag geometry, sectioning, and display.
+
+// ── Reused deck primitives (Gate 6: extract-before-repeat — deal-deck-logic already owns these) ──
+//
+// Deck membership/order (rebuilt from truth while preserving skip-rotation order), skip/back
+// rotation, skip-stack reconciliation, swipe geometry, and the high-water progress baseline are
+// identical to the Deals judgement deck. Import + re-export them so the island imports from one
+// place and the intake test suite covers intake's use of them (acceptance #1: "deck order +
+// skip-stack rotation"). The ?v= token busts this transitive import's browser cache (plantry-hxkf).
+export {
+  buildDeckOrder,
+  rotateToEnd,
+  applySkip,
+  applyBack,
+  reconcileSkipStack,
+  swipeVerb,
+  stampOpacity,
+  cardTransform,
+  nextBaseline,
+  deckProgress,
+  DECK_SWIPE_THRESHOLD,
+} from "./deal-deck-logic.js?v=1";
 
 /**
  * @typedef {Object} PrefillData
@@ -55,7 +87,7 @@
  * @typedef {Object} AlternativeHydration
  * @property {string} productId
  * @property {string} productName
- * @property {number} confidence
+ * @property {number} confidence  0..1 fraction
  */
 
 /**
@@ -89,6 +121,8 @@
  * @property {SignalLike<boolean>} drawerOpen
  * @property {SignalLike<boolean>} searchOpen
  * @property {SignalLike<boolean>} createNew
+ * @property {SignalLike<boolean>} checked   sure-things checkbox (pre-checked; meaningful only in the "sure" section)
+ * @property {SignalLike<boolean>} demoted   a sure line the user pushed into the deck (client-only override)
  * @property {SignalLike<string>} draftProductId
  * @property {SignalLike<string>} draftProductName
  * @property {SignalLike<string>} draftSkuId
@@ -112,11 +146,10 @@
  * Pure function of its arguments — signal() is injected so tests can pass a
  * plain-object factory rather than real Preact signals.
  *
- * drawerOpen governs the READY-row inline edit drawer only (it starts closed;
- * the user toggles it). The exceptions-first flow (plantry-15l3) drives the
- * focused exception's question drawer from a single global `focusId` signal in
- * the island, NOT from this per-line flag — exactly one exception is ever open,
- * so a per-line "starts open" predicate would fight that single-focus model.
+ * `checked` starts true so a sure-things line is pre-checked in the checklist (deck flow); `demoted`
+ * starts false — it flips to true only when the user unchecks a sure line and pushes it into the deck.
+ * `drawerOpen` governs the confirmed-row inline edit drawer only (it starts closed; the user toggles
+ * it). The deck's top card is order[0] in the island, never a per-line flag.
  *
  * @template {SignalLike<any>} S
  * @param {{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null, estimate?: EstimateHydration|null}} seed
@@ -136,11 +169,11 @@ export function makeLine(seed, signalFn) {
     price: signalFn(typeof effectivePrice === "number" ? effectivePrice : null),
     saving: signalFn(false),
     error: signalFn(/** @type {string|null} */ (null)),
-    // Ready-row edit drawer starts closed; the island opens the FOCUSED exception's
-    // question drawer via the global focusId signal, not this flag (plantry-15l3).
     drawerOpen: signalFn(false),
     searchOpen: signalFn(false),
     createNew: signalFn(line.isNewProduct),
+    checked: signalFn(true),
+    demoted: signalFn(false),
     draftProductId: signalFn(prefill.productId ?? ""),
     draftProductName: signalFn(prefill.productName ?? ""),
     draftSkuId: signalFn(prefill.skuId ?? ""),
@@ -160,12 +193,8 @@ export function makeLine(seed, signalFn) {
 // ── estimateHint ───────────────────────────────────────────────────────────────
 
 /**
- * Human-readable weight→each affordance for the drawer (plantry-1mu). Returns null when the line
+ * Human-readable weight→each affordance for the card (plantry-1mu). Returns null when the line
  * carries no estimate. Pure display formatting — no domain decision (the prefill choice is server-side).
- *
- * High confidence → the count is already pre-filled, so we phrase it as a provenance note
- * ("~7 each · estimated from 1.34 lb"). Low confidence → we phrase it as a soft suggestion
- * ("Sold by weight (1.34 lb) · ~7 each?") since the drawer left the weight in place.
  *
  * @param {EstimateHydration|null} estimate
  * @returns {string|null}
@@ -179,21 +208,22 @@ export function estimateHint(estimate) {
     : `Sold by weight (${weight}) · ${count}?`;
 }
 
-// ── ready predicate (mirrors the server's commit-time auto-confirm) ─────────────
+// ── "sure" predicate (client mirror of the server's ConfirmLines qualification) ──
 
 /**
- * A line's server-side prefill is "complete" — the four fields the commit-time
- * auto-confirm requires are all present: an existing product, a quantity > 0, a
- * unit, and a location. The island reads them off the draft signals (which are
- * seeded from the same server prefill the auto-confirm re-derives), so the
- * displayed section and the server's commit decision agree.
+ * A line's server-side prefill is "complete" — the four fields the bulk confirm requires are all
+ * present: an existing product, a quantity > 0, a unit, and a location. The island reads them off the
+ * draft signals (seeded from the same server prefill ConfirmLines re-derives), so the displayed
+ * "sure" section and the server's bulk-confirm decision agree.
  *
  * SINGLE SOURCE OF TRUTH — this MUST stay identical to the server predicate in
- * CommitSessionCommand.ExecuteAsync (plantry-v0wl):
+ * {@link "../../../Plantry.Intake/Application/ConfirmLinesCommand.cs"} ConfirmLinesCommand.ExecuteAsync
+ * (plantry-kr9h), which since this rewrite holds the ONE authoritative qualification predicate (the
+ * old CommitSessionCommand commit-time auto-confirm pre-pass that used to duplicate it is deleted):
  *   prefill.ProductId is not null && prefill.Qty is > 0m
  *   && prefill.UnitId is not null && prefill.LocationId is not null
- * If the two drift, the commit gate and the server will disagree about which
- * High-confidence Pending lines are "ready".
+ * If the two drift, the checklist and the server will disagree about which High-confidence Pending
+ * lines can be bulk-confirmed.
  *
  * @param {LineState} ls
  * @returns {boolean}
@@ -208,49 +238,53 @@ export function hasCompletePrefill(ls) {
 }
 
 /**
- * A still-Pending line that the server will auto-confirm at commit time: High
- * confidence AND a complete prefill. Such a line is "ready" (no exception, no
- * per-row Confirm button) — the commit-time auto-confirm handles it. Mirror of
- * the server predicate; see {@link hasCompletePrefill}.
+ * A "sure thing": a still-Pending line the AI was High-confident about whose prefill is complete —
+ * the checklist's pre-checked, bulk-confirmable rows. Mirrors the server {@link hasCompletePrefill}
+ * predicate, plus the client-only `demoted` override: a sure line the user unchecked and pushed into
+ * the deck is NOT shown as a sure thing (it is a "needs" deck card) even though the server would still
+ * accept it — the user asked to double-check it, so it goes to the deck.
  *
  * @param {LineState} ls
  * @returns {boolean}
  */
-export function isReadyPending(ls) {
-  return ls.status.value === "Pending" && ls.confidence === "High" && hasCompletePrefill(ls);
+export function isSurePending(ls) {
+  return (
+    ls.status.value === "Pending" &&
+    ls.confidence === "High" &&
+    !ls.demoted.value &&
+    hasCompletePrefill(ls)
+  );
 }
 
-// ── lineSection ───────────────────────────────────────────────────────────────
+// ── lineSection ─────────────────────────────────────────────────────────────────
 
 /**
- * Derive which display section a line belongs to (exceptions-first flow, plantry-15l3):
- *   • "skipped" — Dismissed.
- *   • "ready"   — Confirmed / Committed, OR a Pending line that will be auto-confirmed
- *                 at commit (High confidence + complete prefill; see {@link isReadyPending}).
- *   • "needs"   — every other Pending line (a genuine exception the user must resolve).
+ * Derive which display pool a line belongs to (deals-deck flow):
+ *   • "skipped"   — Dismissed.
+ *   • "confirmed" — Confirmed / Committed (going to the pantry on commit).
+ *   • "sure"      — a Pending, High-confidence, complete-prefill line (the pre-checked checklist).
+ *   • "needs"     — every other Pending line, plus any sure line the user demoted (the judgement deck).
  *
  * @param {LineState} ls
- * @returns {"needs" | "ready" | "skipped"}
+ * @returns {"confirmed" | "sure" | "needs" | "skipped"}
  */
 export function lineSection(ls) {
   const s = ls.status.value;
   if (s === "Dismissed") return "skipped";
-  if (s === "Confirmed" || s === "Committed") return "ready";
-  return isReadyPending(ls) ? "ready" : "needs";
+  if (s === "Confirmed" || s === "Committed") return "confirmed";
+  return isSurePending(ls) ? "sure" : "needs";
 }
 
-// ── decisionVariant / questionCopy ──────────────────────────────────────────────
+// ── deck card classification (which question the exception asks) ─────────────────
 
 /**
- * Classify the kind of question a focused exception asks — all derivable from
- * existing hydration (no new AI data). Priority:
- *   1. "create"   — createNew already set, OR nothing to match to (no product and
- *                   no alternatives) → offer the create-or-link path.
+ * Classify the kind of decision a deck card asks — all derivable from existing hydration (no new AI
+ * data). Priority:
+ *   1. "create"   — createNew already set, OR nothing to match to (no product and no alternatives).
  *   2. "estimate" — a weight→each estimate is present → "how should we count this?".
  *   3. "match"    — 2+ resolved alternatives → "which product is this?".
  *   4. "sku"      — the matched product has 2+ pack sizes → "which size did you buy?".
- *   5. "fields"   — a High-confidence match with only a missing/edited field → just
- *                   confirm the details.
+ *   5. "fields"   — a match with only details left to confirm (e.g. a demoted or incomplete line).
  *
  * @param {LineState} ls
  * @param {number} skuCount  — pack-size count for the currently-drafted product (island-derived)
@@ -268,102 +302,67 @@ export function decisionVariant(ls, skuCount = 0) {
 }
 
 /**
- * Static UI copy (a question + a why-line) for each decision variant. UI copy,
- * not a domain decision — kept here so it is covered by the same node --test rig.
+ * The reasoning line rendered inside the deck card's `.focus-card__match` (a STATEMENT, not the old
+ * single-focus question framing — that `.review-q` copy is removed with the canonical flow). Static UI
+ * copy, kept here so it is covered by the same node --test rig.
  *
  * @param {"create" | "estimate" | "match" | "sku" | "fields"} variant
- * @returns {{ question: string, why: string }}
+ * @returns {string}
  */
-export function questionCopy(variant) {
+export function deckReasoning(variant) {
   switch (variant) {
     case "create":
-      return {
-        question: "First time seeing this — add it as a new product?",
-        why: "nothing in your catalog matches; the name and category are drafted from the receipt",
-      };
+      return "Nothing in your catalog matches — add it as a new product, match it yourself, or reject it.";
     case "estimate":
-      return {
-        question: "How should we count this?",
-        why: "it was sold by weight, but your pantry may track it a different way",
-      };
+      return "It was sold by weight, but your pantry may count it a different way — pick how to count it.";
     case "match":
-      return {
-        question: "Which product is this?",
-        why: "a few products in your catalog share these words",
-      };
+      return "A few products in your catalog share these words — the top pick is the one you buy most.";
     case "sku":
-      return {
-        question: "Which size did you buy?",
-        why: "this product comes in more than one pack size",
-      };
+      return "This product comes in more than one pack size — pick the one you bought.";
     default:
-      return {
-        question: "Add this to your pantry?",
-        why: "confirm the details below",
-      };
+      return "Double-check the match and details below, then add it.";
   }
 }
 
-// ── exception-queue helpers ─────────────────────────────────────────────────────
-
 /**
- * The lineId of the first line still in the "needs" section (the next exception to
- * focus), or null when the queue is empty. Drives single-focus advance after a
- * resolve/skip and the initial focus on mount.
+ * The rank badge (`.rk`) label for a candidate in the deck's `.suggest-opts`: the top recommended
+ * option reads "best"; the rest read their confidence as a percentage; a zero-confidence option
+ * (e.g. a "no specific size" escape) shows nothing. Pure display formatting — mirrors AlternativesStrip.
  *
- * @param {LineState[]} lines
- * @returns {string|null}
+ * @param {number} index          0-based rank
+ * @param {number} confidence     0..1 fraction
+ * @param {boolean} isRecommended the option is the recommended top pick
+ * @returns {string}
  */
-export function firstNeedsLineId(lines) {
-  for (const ls of lines) {
-    if (lineSection(ls) === "needs") return ls.lineId;
-  }
-  return null;
+export function optionRankLabel(index, confidence, isRecommended) {
+  if (index === 0 && isRecommended) return "best";
+  if (confidence > 0) return `${Math.round(confidence * 100)}%`;
+  return "";
 }
 
-// ── isUnmatched ───────────────────────────────────────────────────────────────
+// ── uncheck-demote decision synthesis ────────────────────────────────────────────
 
 /**
- * Returns true for a Pending line whose AI match is not High confidence — used
- * only to pick the row's visual state class (unmatched vs matched left-border).
- * NOT the sectioning predicate: whether a line is an exception is {@link lineSection}
- * (a High-confidence line with an incomplete prefill is still a "needs" exception).
+ * The synthetic single-option decision shown when a user UNCHECKS a sure thing and it demotes into the
+ * deck (deal-deck-flow checklist semantics). The deck card renders one candidate — the line's current
+ * match — under a "double-check the match" prompt, so the user re-confirms (or changes / rejects) it
+ * deliberately instead of it sliding into the pantry unreviewed. Pure: derives the option purely from
+ * the line's already-held product match.
  *
- * @param {LineState} ls
- * @returns {boolean}
+ * @param {string} productName  the current matched product's display name
+ * @param {string|null} productId  the current matched product id (null if unresolved)
+ * @param {number} confidence   0..1 fraction (defaults to 0 when unknown)
+ * @returns {{ reasoning: string, option: { label: string, productId: string|null, confidence: number, recommended: true } }}
  */
-export function isUnmatched(ls) {
-  return ls.status.value === "Pending" && ls.confidence !== "High";
-}
-
-// ── commitBarCounts ───────────────────────────────────────────────────────────
-
-/**
- * Pure commit-bar arithmetic over an array of line sections. Single source of truth for the
- * counts the commit bar shows AND the commit gate: `remaining` (the bar's "N to resolve") and
- * `canCommit` both derive from `needsCount`, so the displayed count and the disabled-button
- * state can never disagree (they previously came from two different definitions of "done").
- *
- * Under the exceptions-first flow (plantry-15l3) `needsCount` counts only genuine exceptions —
- * a High-confidence Pending line with a complete prefill sections as "ready" (it is auto-confirmed
- * at commit), so it never blocks the gate. See {@link lineSection} / {@link isReadyPending}.
- * @param {("needs"|"ready"|"skipped")[]} sections — lineSection(ls) for each line
- * @returns {{ needsCount: number, readyCount: number, skippedCount: number, totalItems: number,
- *             canCommit: boolean, remaining: number, progressPct: number }}
- */
-export function commitBarCounts(sections) {
-  const needsCount = sections.filter((s) => s === "needs").length;
-  const readyCount = sections.filter((s) => s === "ready").length;
-  const skippedCount = sections.filter((s) => s === "skipped").length;
-  const totalItems = needsCount + readyCount;
+export function demotedDecision(productName, productId, confidence = 0) {
   return {
-    needsCount,
-    readyCount,
-    skippedCount,
-    totalItems,
-    canCommit: needsCount === 0 && totalItems > 0,
-    remaining: needsCount,
-    progressPct: totalItems > 0 ? Math.round((readyCount / totalItems) * 100) : 100,
+    reasoning: "You unchecked this in the sure things — double-check the match before adding it.",
+    option: {
+      label: productName,
+      productId: productId ?? null,
+      confidence,
+      recommended: true,
+    },
   };
 }
 
@@ -372,36 +371,25 @@ export function commitBarCounts(sections) {
 /**
  * Build the POST body for the SaveLine endpoint from the current LineState.
  *
- * This is the payload that mutates inventory — extract + test explicitly so
- * every edge (garbage qty, createNew branch, expiry mode, optional coercions)
- * has a contract.
+ * This is the payload that resolves a line — extract + test explicitly so every edge (garbage qty,
+ * createNew branch, expiry mode, optional coercions) has a contract.
  *
  * Rules:
- * - `quantity` is always `parseFloat(ls.draftQty.value)` — callers must
- *   validate > 0 before calling this; NaN propagates and the server rejects.
- * - In the `createNew` branch: `productId` and `skuId` are null; `newProductName`
- *   is trimmed and `newProductCategoryId` is the raw value or null.
- * - In the existing-product branch: `newProductName` and `newProductCategoryId`
- *   are null; `productId` / `skuId` use `(value || null)` so empty strings
- *   become null.
- * - `expiryDate` is non-null only when `draftExpiryMode === "has"` AND
- *   `draftExpiry` is non-empty; otherwise null.
+ * - `quantity` is always `parseFloat(ls.draftQty.value)` — callers must validate > 0 before calling
+ *   this; NaN propagates and the server rejects.
+ * - In the `createNew` branch: `productId` and `skuId` are null; `newProductName` is trimmed and
+ *   `newProductCategoryId` is the raw value or null.
+ * - In the existing-product branch: `newProductName` and `newProductCategoryId` are null; `productId`
+ *   / `skuId` use `(value || null)` so empty strings become null.
+ * - `expiryDate` is non-null only when `draftExpiryMode === "has"` AND `draftExpiry` is non-empty.
  * - `price` is `parseFloat(draftPrice)` when non-empty; otherwise null.
  * - `unitId` and `locationId` use `(value || null)`.
  *
  * @param {LineState} ls
  * @returns {{
- *   lineId: string,
- *   createNew: boolean,
- *   productId: string|null,
- *   skuId: string|null,
- *   newProductName: string|null,
- *   newProductCategoryId: string|null,
- *   quantity: number,
- *   unitId: string|null,
- *   locationId: string|null,
- *   expiryDate: string|null,
- *   price: number|null,
+ *   lineId: string, createNew: boolean, productId: string|null, skuId: string|null,
+ *   newProductName: string|null, newProductCategoryId: string|null, quantity: number,
+ *   unitId: string|null, locationId: string|null, expiryDate: string|null, price: number|null,
  * }}
  */
 export function buildSaveLineBody(ls) {
@@ -420,34 +408,72 @@ export function buildSaveLineBody(ls) {
   };
 }
 
-// ── receipt minimap: per-line glyph state (plantry-zuh4) ────────────────────────
+// ── commit-bar arithmetic ───────────────────────────────────────────────────────
 
 /**
- * Per-line view state for the receipt minimap (the navigable facsimile rail). Pure
- * function of the line's display section + whether it currently holds focus — the
- * island turns this into the rail row's class list and status glyph. Derives from the
- * SAME {@link lineSection} the review list uses, so the rail and the list never disagree
- * about which lines are done / undecided / skipped.
+ * Pure commit-bar arithmetic over an array of line sections. Single source of truth for the commit
+ * gate and the counts it shows: `remaining` (the bar's "N to resolve") and `canCommit` both derive
+ * from the still-unresolved pools (sure + needs), so the displayed count and the disabled-button state
+ * can never disagree. This matches the reverted server contract — CommitSessionCommand now blocks on
+ * ANY still-Pending line (both the "sure" and "needs" pools are Pending), so commit is enabled only
+ * once every sure thing has been bulk-confirmed and every deck card resolved.
  *
- *   • "ready"   → `done: true` (the name dims via .rcpt-line--done) + a "tick" glyph.
- *   • "needs"   → a pulsing "dot" glyph (still awaiting a decision).
- *   • "skipped" → `dim: true` (composes the existing .dim modifier) + no glyph.
- * The focused line additionally gets `active: true` (.rcpt-line--active highlight).
+ * `progressPct` mirrors the receipt prototype's meter: (confirmed + skipped) / all-lines — how much of
+ * the receipt is dealt with, including skipped fees.
  *
- * @param {"needs" | "ready" | "skipped"} section — lineSection(ls)
- * @param {boolean} isActive — the line currently holds the exception focus
+ * @param {("confirmed"|"sure"|"needs"|"skipped")[]} sections — lineSection(ls) for each line
+ * @returns {{ confirmedCount: number, sureCount: number, needsCount: number, skippedCount: number,
+ *             unresolved: number, totalItems: number, canCommit: boolean, remaining: number, progressPct: number }}
+ */
+export function commitBarCounts(sections) {
+  const confirmedCount = sections.filter((s) => s === "confirmed").length;
+  const sureCount = sections.filter((s) => s === "sure").length;
+  const needsCount = sections.filter((s) => s === "needs").length;
+  const skippedCount = sections.filter((s) => s === "skipped").length;
+  const unresolved = sureCount + needsCount;
+  const totalItems = confirmedCount + unresolved; // destined for the pantry (skipped excluded)
+  const allLines = totalItems + skippedCount;
+  const done = confirmedCount + skippedCount;
+  return {
+    confirmedCount,
+    sureCount,
+    needsCount,
+    skippedCount,
+    unresolved,
+    totalItems,
+    canCommit: unresolved === 0 && confirmedCount > 0,
+    remaining: unresolved,
+    progressPct: allLines > 0 ? Math.round((done / allLines) * 100) : 100,
+  };
+}
+
+// ── receipt minimap: per-line glyph state ────────────────────────────────────────
+
+/**
+ * Per-line view state for the receipt minimap (the navigable facsimile rail). Pure function of the
+ * line's display section + whether it currently holds the deck's active (top-card) slot. Derives from
+ * the SAME {@link lineSection} the review list uses, so the rail and the list never disagree.
+ *
+ *   • "confirmed" → `done: true` (the name dims via .rcpt-line--done) + a "tick" glyph.
+ *   • "needs"     → a pulsing "dot" glyph (an open judgement call).
+ *   • "sure"      → no glyph, not dimmed (an unconfirmed sure thing).
+ *   • "skipped"   → `dim: true` (composes the existing .dim modifier) + no glyph.
+ * The active line (the deck's top card) additionally gets `active: true` (.rcpt-line--active highlight).
+ *
+ * @param {"confirmed" | "sure" | "needs" | "skipped"} section — lineSection(ls)
+ * @param {boolean} isActive — the line is the deck's top card
  * @returns {{ done: boolean, dim: boolean, active: boolean, glyph: "tick" | "dot" | null }}
  */
 export function railLineView(section, isActive) {
   return {
-    done: section === "ready",
+    done: section === "confirmed",
     dim: section === "skipped",
     active: !!isActive,
-    glyph: section === "ready" ? "tick" : section === "needs" ? "dot" : null,
+    glyph: section === "confirmed" ? "tick" : section === "needs" ? "dot" : null,
   };
 }
 
-// ── receipt minimap: money reconciliation (plantry-zuh4) ────────────────────────
+// ── receipt minimap: money reconciliation ────────────────────────────────────────
 
 /** Round to cents, guarding against float drift (e.g. 0.1 + 0.2). @param {number} n */
 function round2(n) {
@@ -455,36 +481,35 @@ function round2(n) {
 }
 
 /**
- * Money reconciliation for the receipt footer. PURE DISPLAY ARITHMETIC — it partitions
- * the line prices by their display section and pairs them with the receipt's own
- * subtotal/tax/total from hydration. It crosses no ADR-020 §7 boundary: it computes no
- * domain rule, only sums numbers the UI already holds.
+ * Money reconciliation for the receipt footer. PURE DISPLAY ARITHMETIC — it partitions the line prices
+ * by their display section and pairs them with the receipt's own tax/total from hydration. It crosses
+ * no ADR-020 §7 boundary: it computes no domain rule, only sums numbers the UI already holds.
  *
- * Footer reads: "$pantry going to pantry · $undecided undecided · $skippedFees fees
- * skipped · $tax tax = $total receipt total". The island omits the undecided / fees /
- * tax segments when they are zero or absent.
+ * Buckets (deal-deck flow): `pantry` = the confirmed pool (going to the pantry on commit); `undecided`
+ * = everything still to resolve (sure + needs); `skippedFees` = the skipped pool.
  *
- * GRACEFUL DEGRADATION (acceptance #3): hydration subtotal/tax/total are nullable. A
- * missing (or non-finite) tax/total becomes `null` here — never NaN — so the island can
- * drop the corresponding segment rather than render "$NaN". The pantry/undecided/fees
- * sums are always finite (a null line price counts as 0).
+ * Footer reads: "$pantry going to pantry · $undecided undecided · $skippedFees fees skipped · $tax tax
+ * = $total receipt total". The island omits the undecided / fees / tax segments when zero or absent.
  *
- * `reconciles` is true only when a total is present AND the parts add up to it within a
- * cent — it drives the "✓" confirmation, so a torn receipt (parts ≠ total) simply shows
- * the breakdown without the tick rather than a false all-clear.
+ * GRACEFUL DEGRADATION: hydration tax/total are nullable. A missing (or non-finite) tax/total becomes
+ * `null` here — never NaN — so the island drops the segment rather than render "$NaN". The
+ * pantry/undecided/fees sums are always finite (a null line price counts as 0).
  *
- * @param {Array<{ section: "needs" | "ready" | "skipped", price: number|null }>} items
+ * `reconciles` is true only when a total is present AND the parts add up to it within a cent — it
+ * drives the "✓" confirmation, so a torn receipt (parts ≠ total) shows the breakdown without the tick.
+ *
+ * @param {Array<{ section: "confirmed" | "sure" | "needs" | "skipped", price: number|null }>} items
  * @param {number|null|undefined} tax   — hydration receipt tax (nullable)
  * @param {number|null|undefined} total — hydration receipt total (nullable)
  * @returns {{ pantry: number, undecided: number, skippedFees: number,
  *             tax: number|null, total: number|null, reconciles: boolean }}
  */
 export function reconciliation(items, tax, total) {
-  const sumOf = (/** @type {"needs"|"ready"|"skipped"} */ section) =>
-    round2(items.filter((i) => i.section === section).reduce((s, i) => s + (i.price ?? 0), 0));
-  const pantry = sumOf("ready");
-  const undecided = sumOf("needs");
-  const skippedFees = sumOf("skipped");
+  const sumWhere = (/** @type {(section: string) => boolean} */ pred) =>
+    round2(items.filter((i) => pred(i.section)).reduce((s, i) => s + (i.price ?? 0), 0));
+  const pantry = sumWhere((s) => s === "confirmed");
+  const undecided = sumWhere((s) => s === "sure" || s === "needs");
+  const skippedFees = sumWhere((s) => s === "skipped");
   const taxVal = typeof tax === "number" && isFinite(tax) ? tax : null;
   const totalVal = typeof total === "number" && isFinite(total) ? total : null;
   let reconciles = false;

@@ -419,6 +419,206 @@ public sealed class ReviewCommandsTests
         Assert.Equal(0, repo.SaveChangesCalls);
     }
 
+    // ── ConfirmLinesCommand (plantry-kr9h) ────────────────────────────────────────────────────────
+
+    /// <summary>Reference data with a single matched product (default unit + location) so a Pending
+    /// High-confidence line carrying that product/quantity/unit resolves to a COMPLETE server-side prefill.</summary>
+    private FakeReviewReferenceDataProvider MatchedReference() => ReferenceWithProductLocation(_locationId);
+
+    /// <summary>Same, but with the product's default location set explicitly — pass null to model a product
+    /// with NO default location, i.e. an INCOMPLETE prefill that must block a bulk confirm.</summary>
+    private FakeReviewReferenceDataProvider ReferenceWithProductLocation(Guid? defaultLocationId) =>
+        new(new ReviewReferenceData(
+            Products: [new ReviewProductOption(_productId, "Flour", "kg", DefaultUnitId: _unitId, DefaultLocationId: defaultLocationId, Skus: [])],
+            Units: [new ReviewUnitOption(_unitId, "kg", "Kilogram", ReviewUnitDimension.Mass)],
+            Locations: [new ReviewLocationOption(_locationId, "Pantry")],
+            Categories: []));
+
+    /// <summary>Adds a Pending line whose AI proposal is High-confidence with a full prefill chain
+    /// (resolvable product, receipt unit, quantity) — the qualifying input a bulk confirm accepts.</summary>
+    private static ImportLine AddQualifyingLine(ImportSession session, int lineNo, string text, Guid productId) =>
+        session.AddLine(lineNo, text, SuggestedConfidence.High, """{"x":1}""",
+            suggestedProductId: productId, suggestedQuantity: 2m, suggestedUnitLabel: "kg", suggestedPrice: 4.99m);
+
+    private ConfirmLinesCommand ConfirmLines(
+        ImportSession session, IReadOnlyList<ImportLineId> lineIds, FakeImportSessionRepository repo,
+        FakeReviewReferenceDataProvider reference, Guid? household) =>
+        new(session.Id, lineIds, repo, reference, Clock, new FakeTenantContext(household));
+
+    [Fact]
+    public async Task ConfirmLines_Confirms_A_Set_Of_Qualifying_Lines_Atomically_From_Prefill()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var l1 = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        var l2 = AddQualifyingLine(session, 2, "FLOUR 2KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [l1.Id, l2.Id], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new[] { l1.Id.Value, l2.Id.Value }, result.Value);
+        foreach (var line in new[] { l1, l2 })
+        {
+            Assert.Equal(LineStatus.Confirmed, line.Status);
+            Assert.Equal(_productId, line.ProductId);   // re-derived from prefill, never the client
+            Assert.Equal(2m, line.Quantity);
+            Assert.Equal(_unitId, line.UnitId);
+            Assert.Equal(_locationId, line.LocationId);
+            Assert.Equal(4.99m, line.Price);
+        }
+        Assert.Equal(1, repo.SaveChangesCalls);         // one save for the whole batch
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_The_Whole_Command_When_Any_Id_Is_Low_Confidence_And_Confirms_Nothing()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var good = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        var lowConf = session.AddLine(2, "MYSTERY ITEM", SuggestedConfidence.Low, """{"x":1}""",
+            suggestedProductId: _productId, suggestedQuantity: 1m, suggestedUnitLabel: "kg");
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [good.Id, lowConf.Id], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmable", result.Error.Code);
+        Assert.Contains("MYSTERY ITEM", result.Error.Description);   // error names the offending line
+        Assert.Equal(LineStatus.Pending, good.Status);               // atomic — the good line was NOT confirmed
+        Assert.Equal(LineStatus.Pending, lowConf.Status);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_When_A_Qualifying_Line_Has_An_Incomplete_Prefill()
+    {
+        // High confidence + resolvable product/unit, but the product has no default location and the receipt
+        // gave none → the server-side prefill is incomplete (no location), so the line cannot bulk-confirm.
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [line.Id], repo,
+            ReferenceWithProductLocation(defaultLocationId: null), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmable", result.Error.Code);
+        Assert.Contains("FLOUR 1KG", result.Error.Description);
+        Assert.Equal(LineStatus.Pending, line.Status);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_When_An_Id_Is_Not_Part_Of_The_Session()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = RepoWith(session);
+
+        var alien = ImportLineId.New(); // id from another session / household
+        var result = await ConfirmLines(session, [line.Id, alien], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotInSession", result.Error.Code);
+        Assert.Equal(LineStatus.Pending, line.Status);   // nothing confirmed
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_When_A_Line_Is_Already_Confirmed()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(_productId, skuId: null, 2m, _unitId, _locationId, expiryDate: null, price: 4.99m);
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [line.Id], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmable", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_When_A_Line_Is_Dismissed()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Dismiss();
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [line.Id], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmable", result.Error.Code);
+        Assert.Equal(LineStatus.Dismissed, line.Status);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_When_No_Household_In_Context()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [line.Id], repo, MatchedReference(), household: null).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Unauthorized", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_When_Session_Not_Found()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = new FakeImportSessionRepository(); // not added
+
+        var result = await ConfirmLines(session, [line.Id], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_When_Session_Not_Ready()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        session.Discard(); // session no longer Ready
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [line.Id], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.SessionNotReady", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Fails_When_The_Id_List_Is_Empty()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        AddQualifyingLine(session, 1, "FLOUR 1KG", _productId);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.NoLinesToConfirm", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
     // ── DiscardSessionCommand ─────────────────────────────────────────────────────────────────────
 
     [Fact]

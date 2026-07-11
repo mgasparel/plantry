@@ -6,9 +6,9 @@ namespace Plantry.Intake.Application;
 /// The server-side prefill priority chain for the intake review form (ADR-020 §3, Boundary judgment
 /// call 1: this is domain, it stays server-side and is never re-derived in the island). Lives in the
 /// Application layer so both callers reach it: the review page's hydration builder (<c>ReviewModel</c>)
-/// and <see cref="CommitSessionCommand"/>'s commit-time auto-confirm of high-confidence lines
-/// (plantry-v0wl) — the latter re-derives the AI-suggested values from the stored line rather than
-/// trusting anything the client echoes back.
+/// and <see cref="ConfirmLinesCommand"/>'s bulk-confirm of high-confidence "sure things" (plantry-kr9h) —
+/// the latter re-derives the AI-suggested values from the stored line rather than trusting anything the
+/// client echoes back.
 /// </summary>
 public static class ReviewPrefill
 {
@@ -22,7 +22,7 @@ public static class ReviewPrefill
         IReadOnlyDictionary<Guid, int?> ProductDefaultDueDaysById);
 
     /// <summary>Builds the <see cref="Lookups"/> from reference data — the single construction point shared
-    /// by the hydration builder and the commit auto-confirm pass.</summary>
+    /// by the hydration builder and the <see cref="ConfirmLinesCommand"/> bulk-confirm predicate.</summary>
     public static Lookups BuildLookups(ReviewReferenceData reference) =>
         new(
             reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase),
