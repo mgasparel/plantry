@@ -268,7 +268,9 @@ public sealed class IndexModel(
                 .ToList();
         }
 
-        var generateResult = await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, ct);
+        // Bulk pass (whole-week Generate or "just today"): scopeSlotId stays null, so slots opted
+        // out of auto-planning are skipped (plantry-av8z).
+        var generateResult = await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, scopeSlotId: null, ct);
 
         // Re-merge surviving proposals when a per-day scope was used.
         if (scopeDate.HasValue && otherDayProposals is { Count: > 0 })
@@ -441,12 +443,15 @@ public sealed class IndexModel(
 
         // 3. Re-run generation scoped to just this one cell (scopeDate + single-slot).
         //    Uses default weights — regeneration is an in-grid action, not popover-driven.
+        //    scopeSlotId targets this cell explicitly, so it bypasses any auto-plan opt-out on the
+        //    slot and generates ONLY this cell (plantry-av8z decision 1).
         await generatePlanService.ExecuteAsync(
             householdId,
             DomainMealPlan.NormalizeToMonday(parsedDate),
             storeKey,
             weights: null,
             scopeDate: parsedDate,
+            scopeSlotId: sid,
             ct);
 
         // 4. Merge: read the newly-staged proposal(s) for this cell, then SetAsync
@@ -491,13 +496,16 @@ public sealed class IndexModel(
             .Where(p => CellKey(p.Date, p.MealSlotId) != cellKey)
             .ToList();
 
-        // 2. Generate scoped to this cell's date (default weights — in-grid action, not popover-driven).
+        // 2. Generate scoped to this cell (default weights — in-grid action, not popover-driven).
+        //    scopeSlotId targets this cell explicitly, so it bypasses any auto-plan opt-out on the
+        //    slot and generates ONLY this cell (plantry-av8z decision 1).
         await generatePlanService.ExecuteAsync(
             householdId,
             DomainMealPlan.NormalizeToMonday(parsedDate),
             storeKey,
             weights: null,
             scopeDate: parsedDate,
+            scopeSlotId: sid,
             ct);
 
         // 3. ExecuteAsync fills ALL empty cells on the date; keep ONLY the new proposal for THIS

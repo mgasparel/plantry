@@ -25,6 +25,7 @@ public sealed class MealSlot : Entity<MealSlotId>
         Label = label;
         Ordinal = ordinal;
         DefaultAttendees = [];
+        IncludeInAutoPlan = true;
     }
 
     public HouseholdId HouseholdId { get; private set; }
@@ -37,6 +38,14 @@ public sealed class MealSlot : Entity<MealSlotId>
     /// identity user_id soft-refs (DM-3 / mealplanning.md resolved call 1).
     /// </summary>
     public List<Guid> DefaultAttendees { get; private set; } = [];
+
+    /// <summary>
+    /// Whether this slot is included in <b>bulk</b> AI auto-planning (whole-week Generate and the
+    /// "just today" scope). Defaults to <c>true</c> (opt-out model). Explicit per-cell Auto-fill /
+    /// Regenerate on a specific cell ignore this flag — the user pointed at that cell (plantry-av8z
+    /// decision 1). Manual planning is always unaffected.
+    /// </summary>
+    public bool IncludeInAutoPlan { get; private set; }
 
     /// <summary>Null means the slot is active.</summary>
     public DateTimeOffset? ArchivedAt { get; private set; }
@@ -57,6 +66,8 @@ public sealed class MealSlot : Entity<MealSlotId>
 
     internal void SetDefaultAttendees(IReadOnlyList<Guid> memberIds) =>
         DefaultAttendees = [..memberIds];
+
+    internal void SetIncludeInAutoPlan(bool included) => IncludeInAutoPlan = included;
 
     internal void Archive(DateTimeOffset now) => ArchivedAt = now;
 }

@@ -395,6 +395,65 @@ public sealed class GeneratePlanServiceTests
         // ProposedCount may be 0 if the FakeMealPlanner returns nothing, but cells WERE submitted.
     }
 
+    // ── Per-slot auto-plan opt-out (plantry-av8z) ─────────────────────────────────
+
+    [Fact(DisplayName = "Execute_Bulk_SkipsOptedOutSlots — a slot with IncludeInAutoPlan=false is not dispatched")]
+    public async Task Execute_Bulk_SkipsOptedOutSlots()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var lunch = config.Slots.First(s => s.Label == "Lunch");
+        config.SetAutoPlanEnabled(breakfast.Id, enabled: false, Clock);
+
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(slotConfig: config, planner: planner);
+
+        // Bulk pass: scopeSlotId stays null → the opt-out filter applies.
+        await generateService.ExecuteAsync(Household, Monday, "opt-out-bulk", null);
+
+        // The opted-out Breakfast slot was never dispatched to the planner …
+        Assert.DoesNotContain(planner.SeenContexts, c => c.MealSlotId == breakfast.Id);
+        // … but the still-eligible Lunch slot was.
+        Assert.Contains(planner.SeenContexts, c => c.MealSlotId == lunch.Id);
+    }
+
+    [Fact(DisplayName = "Execute_ScopeSlotId_TargetsSingleCell_IgnoresOptOut — explicit per-cell gesture bypasses the flag")]
+    public async Task Execute_ScopeSlotId_TargetsSingleCell_IgnoresOptOut()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        // Breakfast is opted OUT of bulk — but an explicit per-cell target must still generate it.
+        config.SetAutoPlanEnabled(breakfast.Id, enabled: false, Clock);
+
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(slotConfig: config, planner: planner);
+
+        await generateService.ExecuteAsync(
+            Household, Monday, "opt-out-cell", null, scopeDate: Monday, scopeSlotId: breakfast.Id);
+
+        // Exactly one cell — Monday Breakfast — was dispatched, despite the opt-out (decision 1),
+        // and no throwaway proposals for the date's other slots.
+        Assert.Single(planner.SeenContexts);
+        Assert.Equal(breakfast.Id, planner.SeenContexts[0].MealSlotId);
+        Assert.Equal(Monday, planner.SeenContexts[0].Date);
+    }
+
+    [Fact(DisplayName = "Execute_AllSlotsOptedOut_ReturnsZero_WithoutCallingPlanner — no eligible slots short-circuits")]
+    public async Task Execute_AllSlotsOptedOut_ReturnsZero_WithoutCallingPlanner()
+    {
+        var config = BuildDefaultSlotConfig();
+        foreach (var slot in config.Slots.Where(s => s.IsActive).ToList())
+            config.SetAutoPlanEnabled(slot.Id, enabled: false, Clock);
+
+        var planner = new TrackingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(slotConfig: config, planner: planner);
+
+        var result = await generateService.ExecuteAsync(Household, Monday, "opt-out-all", null);
+
+        Assert.Equal(0, result.ProposedCount);
+        Assert.False(planner.WasCalled);
+    }
+
     // ── Test doubles ──────────────────────────────────────────────────────────────
 
     private sealed class FakeSlotConfigRepo(MealSlotConfig config) : IMealSlotConfigRepository
@@ -453,6 +512,21 @@ public sealed class GeneratePlanServiceTests
             IReadOnlyList<TagGroup> groups = [new TagGroup("Diet", 150,
                 [new TagSummary(tagId, tagName, "Diet", 150)])];
             return Task.FromResult(groups);
+        }
+    }
+
+    /// <summary>Records every context ProposeWeekAsync was asked to plan (proposes nothing).</summary>
+    private sealed class RecordingMealPlanner : IMealPlanner
+    {
+        public List<PlannerMealSlotContext> SeenContexts { get; } = [];
+
+        public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
+            IReadOnlyList<PlannerMealSlotContext> contexts,
+            PlanningWeights weights,
+            CancellationToken ct = default)
+        {
+            SeenContexts.AddRange(contexts);
+            return Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
         }
     }
 

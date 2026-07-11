@@ -29,6 +29,7 @@ public sealed class ReconcilePendingCooksTests
     {
         public required FakeCookEventRepository CookEvents { get; init; }
         public required FakeInventoryConsumer Consumer { get; init; }
+        public required FakeInventoryProducer Producer { get; init; }
         public required ReconcilePendingCooks Service { get; init; }
         public HouseholdId Household { get; init; }
     }
@@ -37,12 +38,14 @@ public sealed class ReconcilePendingCooksTests
     {
         var cookEvents = new FakeCookEventRepository();
         var consumer = new FakeInventoryConsumer();
+        var producer = new FakeInventoryProducer();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
-        var service = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var service = new ReconcilePendingCooks(cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         return new Harness
         {
             CookEvents = cookEvents,
             Consumer = consumer,
+            Producer = producer,
             Service = service,
             Household = HouseholdId.From(_householdGuid),
         };
@@ -64,6 +67,77 @@ public sealed class ReconcilePendingCooksTests
         cookEvent.AddConsumeLine(Guid.CreateVersion7(), productId, quantity, unitId);
         h.CookEvents.Items.Add(cookEvent);
         return (cookEvent, productId, unitId);
+    }
+
+    /// <summary>
+    /// Builds a CookEvent whose only pending work is a yield-on-cook produce line (plantry-854a) and
+    /// registers it. Returns the cook event and the produce line's product id.
+    /// </summary>
+    private static (CookEvent cookEvent, Guid productId, Guid unitId) SeedPendingProduceCook(
+        Harness h, decimal quantity = 3m)
+    {
+        var recipeId = RecipeId.New();
+        var productId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+        var userId = Guid.CreateVersion7();
+
+        var cookEvent = CookEvent.Record(recipeId, h.Household, servingsCooked: 4, userId, Clock).Value;
+        cookEvent.AddProduceLine(productId, quantity, unitId, new DateOnly(2026, 8, 1));
+        h.CookEvents.Items.Add(cookEvent);
+        return (cookEvent, productId, unitId);
+    }
+
+    // ── Yield-on-cook produce lines are re-driven (plantry-854a) ──────────────────
+
+    [Fact]
+    public async Task Reconciles_Pending_Produce_Line_Via_ProduceAsync()
+    {
+        var h = BuildHarness();
+        var (cookEvent, productId, unitId) = SeedPendingProduceCook(h, quantity: 3m);
+
+        var result = await h.Service.ExecuteAsync();
+
+        Assert.Equal(1, result.ReconciledLineCount);
+        var call = Assert.Single(h.Producer.Calls);
+        Assert.Equal(productId, call.ProductId);
+        Assert.Equal(3m, call.Quantity);
+        Assert.Equal(unitId, call.UnitId);
+        var produceLine = Assert.Single(cookEvent.ProduceLines);
+        Assert.Equal(CookProduceLineStatus.Applied, produceLine.Status);
+        // The sourceLineRef re-driven is the produce line's own id (idempotency token).
+        Assert.Equal(produceLine.Id.Value, call.SourceLineRef);
+    }
+
+    [Fact]
+    public async Task Produce_Failure_During_Reconcile_Marks_Line_Failed_Not_Retried()
+    {
+        var h = BuildHarness();
+        var (cookEvent, productId, _) = SeedPendingProduceCook(h);
+        h.Producer.ThrowFail(productId);
+
+        var result = await h.Service.ExecuteAsync();
+
+        Assert.Equal(1, result.ReconciledLineCount);
+        Assert.Equal(CookProduceLineStatus.Failed, Assert.Single(cookEvent.ProduceLines).Status);
+
+        // A second pass finds nothing pending — a Failed produce is terminal.
+        h.Producer.Calls.Clear();
+        var second = await h.Service.ExecuteAsync();
+        Assert.Equal(0, second.ReconciledLineCount);
+        Assert.Empty(h.Producer.Calls);
+    }
+
+    [Fact]
+    public async Task Already_Applied_Produce_Line_Is_Not_Redriven()
+    {
+        var h = BuildHarness();
+        var (cookEvent, _, _) = SeedPendingProduceCook(h);
+        Assert.Single(cookEvent.ProduceLines).MarkApplied();
+
+        var result = await h.Service.ExecuteAsync();
+
+        Assert.Equal(0, result.ReconciledLineCount);
+        Assert.Empty(h.Producer.Calls);
     }
 
     // ── No-op paths ────────────────────────────────────────────────────────────────

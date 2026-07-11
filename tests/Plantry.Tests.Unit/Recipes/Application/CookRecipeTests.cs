@@ -32,6 +32,7 @@ public sealed class CookRecipeTests
         public required FakeRecipeRepository Recipes { get; init; }
         public required FakeCookEventRepository CookEvents { get; init; }
         public required FakeInventoryConsumer Consumer { get; init; }
+        public required FakeInventoryProducer Producer { get; init; }
         public required FakeCatalogProductReader Products { get; init; }
         public required FakeDomainEventDispatcher EventDispatcher { get; init; }
         public required CookRecipe Service { get; init; }
@@ -42,19 +43,21 @@ public sealed class CookRecipeTests
         var recipes = new FakeRecipeRepository();
         var cookEvents = new FakeCookEventRepository();
         var consumer = new FakeInventoryConsumer();
+        var producer = new FakeInventoryProducer();
         var products = new FakeCatalogProductReader();
         var dispatcher = new FakeDomainEventDispatcher();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, consumer, products, expansion, dispatcher, Clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, consumer, producer, products, expansion, dispatcher, Clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
         return new Harness
         {
             Recipes = recipes,
             CookEvents = cookEvents,
             Consumer = consumer,
+            Producer = producer,
             Products = products,
             EventDispatcher = dispatcher,
             Service = service,
@@ -437,6 +440,133 @@ public sealed class CookRecipeTests
         // First consume must have seen exactly 1 SaveChanges already (the anchor commit).
         Assert.NotEmpty(consumeCallsSeen);
         Assert.Equal(1, consumeCallsSeen[0]);
+    }
+
+    // ── Yield-on-cook produce step (plantry-854a, recipe-composition.md §9) ───────
+
+    /// <summary>Adds a yield declaration to a recipe already registered in the harness.</summary>
+    private (Guid yieldProductId, Guid yieldUnitId) AddYield(
+        Recipe recipe, decimal yieldQuantity = 4m)
+    {
+        var yieldProductId = Guid.CreateVersion7();
+        var yieldUnitId = Guid.CreateVersion7();
+        var result = recipe.SetYield(yieldProductId, yieldQuantity, yieldUnitId, Clock);
+        Assert.True(result.IsSuccess);
+        return (yieldProductId, yieldUnitId);
+    }
+
+    [Fact]
+    public async Task Cook_With_Stored_Yield_Adds_Inventory_Lot_Via_Producer()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4);
+        var (yieldProductId, yieldUnitId) = AddYield(recipe);
+        var expiry = new DateOnly(2026, 8, 1);
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 2m, StoredYieldExpiry: expiry);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        var produceCall = Assert.Single(h.Producer.Calls);
+        Assert.Equal(yieldProductId, produceCall.ProductId);
+        Assert.Equal(2m, produceCall.Quantity);
+        Assert.Equal(yieldUnitId, produceCall.UnitId);
+        Assert.Equal(expiry, produceCall.ExpiryDate); // expiry passed through
+        Assert.Equal(ProduceReason.Recipe, produceCall.Reason);
+
+        // The produce line is persisted and marked Applied; its Id is the idempotency sourceLineRef.
+        var evt = Assert.Single(h.CookEvents.Items);
+        var produceLine = Assert.Single(evt.ProduceLines);
+        Assert.Equal(CookProduceLineStatus.Applied, produceLine.Status);
+        Assert.Equal(produceLine.Id.Value, produceCall.SourceLineRef);
+        Assert.Equal(evt.Id.Value, produceCall.CookEventId);
+    }
+
+    [Fact]
+    public async Task Cook_With_Zero_Stored_Yield_Adds_Nothing()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4);
+        AddYield(recipe);
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 0m);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        Assert.Empty(h.Producer.Calls);
+        var evt = Assert.Single(h.CookEvents.Items);
+        Assert.Empty(evt.ProduceLines); // storing 0 stages no produce line at all
+    }
+
+    [Fact]
+    public async Task Cook_Recipe_Without_Yield_Ignores_Stored_Quantity()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4); // no yield declared
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 5m, StoredYieldExpiry: new DateOnly(2026, 8, 1));
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        Assert.Empty(h.Producer.Calls);
+        var evt = Assert.Single(h.CookEvents.Items);
+        Assert.Empty(evt.ProduceLines);
+    }
+
+    [Fact]
+    public async Task Cook_Stored_Yield_Produce_Line_Pending_At_Anchor_Commit_Before_Produce_Call()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4);
+        AddYield(recipe);
+
+        // Capture the produce line's status at the moment the produce call is made — it must already be
+        // durable (the anchor commit staged it Pending before the inventory call runs).
+        CookProduceLineStatus? statusAtProduceTime = null;
+        h.Producer.OnProduceAsync = () =>
+        {
+            var evt = h.CookEvents.Items.Single();
+            statusAtProduceTime = evt.ProduceLines.Single().Status;
+        };
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 2m);
+
+        await h.Service.ExecuteAsync(command);
+
+        // At produce time the line was still Pending (staged in the anchor commit); it is Applied afterwards.
+        Assert.Equal(CookProduceLineStatus.Pending, statusAtProduceTime);
+        Assert.Equal(CookProduceLineStatus.Applied, h.CookEvents.Items.Single().ProduceLines.Single().Status);
+    }
+
+    [Fact]
+    public async Task Cook_Stored_Yield_Produce_Failure_Marks_Failed_And_Cook_Still_Succeeds()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4);
+        var (yieldProductId, _) = AddYield(recipe);
+        h.Producer.ThrowFail(yieldProductId); // simulate an unrecordable add
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 2m);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        // A failed produce never blocks the cook (C8/R9 tolerance).
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        var produceLine = Assert.Single(h.CookEvents.Items.Single().ProduceLines);
+        Assert.Equal(CookProduceLineStatus.Failed, produceLine.Status);
     }
 
     // ── After cook: all lines are Applied or Shorted, none left Pending (292b L2) ───
@@ -1208,7 +1338,8 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
         if (OnListWithPendingLines is not null)
             return OnListWithPendingLines(ct);
         return Task.FromResult<IReadOnlyList<CookEvent>>(Items
-            .Where(e => e.ConsumeLines.Any(l => l.Status == CookConsumeLineStatus.Pending))
+            .Where(e => e.ConsumeLines.Any(l => l.Status == CookConsumeLineStatus.Pending)
+                || e.ProduceLines.Any(p => p.Status == CookProduceLineStatus.Pending))
             .ToList());
     }
 
@@ -1289,6 +1420,39 @@ internal sealed class FakeInventoryConsumer : IInventoryConsumer
         Calls.Add(new ConsumeCall(productId, quantity, unitId, reason, cookEventId, userId, sourceLineRef));
         var shortfall = _shortfalls.GetValueOrDefault(productId, 0m);
         return Task.FromResult(new ConsumeResult(shortfall, unitId));
+    }
+}
+
+internal sealed class FakeInventoryProducer : IInventoryProducer
+{
+    public sealed record ProduceCall(
+        Guid ProductId, decimal Quantity, Guid UnitId, DateOnly? ExpiryDate,
+        ProduceReason Reason, Guid CookEventId, Guid UserId, Guid SourceLineRef);
+
+    public List<ProduceCall> Calls { get; } = [];
+    private readonly HashSet<Guid> _failThrows = [];
+
+    /// <summary>Optional callback invoked at the start of each <see cref="ProduceAsync"/> call.</summary>
+    public Action? OnProduceAsync { get; set; }
+
+    /// <summary>
+    /// Configures the fake to throw <see cref="InvalidOperationException"/> for
+    /// <paramref name="productId"/> — simulating an unrecordable add (unknown product / no location).
+    /// </summary>
+    public void ThrowFail(Guid productId) => _failThrows.Add(productId);
+
+    public Task ProduceAsync(
+        Guid productId, decimal quantity, Guid unitId, DateOnly? expiryDate,
+        ProduceReason reason, Guid cookEventId, Guid userId,
+        Guid sourceLineRef, CancellationToken ct = default)
+    {
+        OnProduceAsync?.Invoke();
+
+        if (_failThrows.Contains(productId))
+            throw new InvalidOperationException($"Produce failed for product {productId}.");
+
+        Calls.Add(new ProduceCall(productId, quantity, unitId, expiryDate, reason, cookEventId, userId, sourceLineRef));
+        return Task.CompletedTask;
     }
 }
 

@@ -184,6 +184,59 @@ public sealed class MealSlotConfigTests
         Assert.Contains(memberB, slot.DefaultAttendees);
     }
 
+    // ── SetAutoPlanEnabled (plantry-av8z) ─────────────────────────────────────
+
+    [Fact]
+    public void CreateWithDefaults_Seeds_All_Slots_With_AutoPlan_On()
+    {
+        var config = CreateDefault();
+
+        Assert.All(config.Slots, s => Assert.True(s.IncludeInAutoPlan));
+    }
+
+    [Fact]
+    public void AddSlot_Defaults_IncludeInAutoPlan_True()
+    {
+        var config = CreateDefault();
+
+        var slot = config.AddSlot("Supper", Clock);
+
+        Assert.True(slot.IncludeInAutoPlan);
+    }
+
+    [Fact]
+    public void SetAutoPlanEnabled_Toggles_Flag_On_Active_Slot()
+    {
+        var config = CreateDefault();
+        var slotId = config.Slots.First(s => s.Label == "Breakfast").Id;
+
+        config.SetAutoPlanEnabled(slotId, enabled: false, Clock);
+        Assert.False(config.Slots.First(s => s.Id == slotId).IncludeInAutoPlan);
+
+        config.SetAutoPlanEnabled(slotId, enabled: true, Clock);
+        Assert.True(config.Slots.First(s => s.Id == slotId).IncludeInAutoPlan);
+    }
+
+    [Fact]
+    public void SetAutoPlanEnabled_Throws_For_Unknown_Id()
+    {
+        var config = CreateDefault();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            config.SetAutoPlanEnabled(MealSlotId.New(), enabled: false, Clock));
+    }
+
+    [Fact]
+    public void SetAutoPlanEnabled_Throws_For_Archived_Slot()
+    {
+        var config = CreateDefault();
+        var lunchId = config.Slots.First(s => s.Label == "Lunch").Id;
+        config.ArchiveSlot(lunchId, Clock);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            config.SetAutoPlanEnabled(lunchId, enabled: false, Clock));
+    }
+
     // ── ArchiveSlot ──────────────────────────────────────────────────────────
 
     [Fact]

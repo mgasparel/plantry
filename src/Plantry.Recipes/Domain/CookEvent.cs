@@ -39,6 +39,18 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
     /// </summary>
     public IReadOnlyList<CookConsumeLine> ConsumeLines => _lines.AsReadOnly();
 
+    // ── Produce plan children (yield-on-cook, plantry-854a) ──────────────────
+    private readonly List<CookProduceLine> _produceLines = [];
+
+    /// <summary>
+    /// The planned yield-on-cook inventory ADDs for this cook (plantry-854a). Committed in
+    /// <see cref="CookProduceLineStatus.Pending"/> in the same anchor-first commit as the consume
+    /// lines, before any inventory call; each transitions to <see cref="CookProduceLineStatus.Applied"/>
+    /// or <see cref="CookProduceLineStatus.Failed"/> after its inventory add returns. Empty for a cook
+    /// of a recipe with no yield, or when the user stored nothing.
+    /// </summary>
+    public IReadOnlyList<CookProduceLine> ProduceLines => _produceLines.AsReadOnly();
+
     private CookEvent() { } // EF
 
     private CookEvent(
@@ -121,6 +133,33 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
             unitId,
             sourceRecipeId);
         _lines.Add(line);
+        return line;
+    }
+
+    /// <summary>
+    /// Appends a planned yield-on-cook produce line in <see cref="CookProduceLineStatus.Pending"/> state
+    /// (plantry-854a). Called by <c>CookRecipe</c> before the anchor <c>SaveChangesAsync</c> so the
+    /// intended inventory ADD is durable before the produce call runs — reconcilable on interruption
+    /// exactly like a consume line. The <c>sourceLineRef</c> idempotency token on the produce call is the
+    /// returned line's own <see cref="CookProduceLine.Id"/>.
+    /// </summary>
+    /// <param name="productId">The yield product to store (soft-ref, DM-3).</param>
+    /// <param name="quantity">The stored quantity (must be &gt; 0 — the caller skips a zero store).</param>
+    /// <param name="unitId">Unit of <paramref name="quantity"/> — the recipe's declared yield unit.</param>
+    /// <param name="expiryDate">User-supplied use-by date for the stored lot; null for none.</param>
+    /// <returns>The newly-added <see cref="CookProduceLine"/>.</returns>
+    public CookProduceLine AddProduceLine(
+        Guid productId, decimal quantity, Guid unitId, DateOnly? expiryDate)
+    {
+        var line = new CookProduceLine(
+            CookProduceLineId.New(),
+            HouseholdId,
+            Id,
+            productId,
+            quantity,
+            unitId,
+            expiryDate);
+        _produceLines.Add(line);
         return line;
     }
 }

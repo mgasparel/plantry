@@ -93,6 +93,7 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
         services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>();
         services.AddScoped<IInventoryConsumer, InventoryConsumerAdapter>();
+        services.AddScoped<IInventoryProducer, InventoryProducerAdapter>();
         services.AddScoped<Plantry.Recipes.Application.IExpiringSoonHorizonReader,
             Plantry.Web.Recipes.ExpiringSoonHorizonReaderAdapter>();
         services.AddScoped<IPriceReader, PriceReaderAdapter>();

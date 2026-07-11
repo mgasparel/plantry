@@ -36,12 +36,21 @@ public sealed class GeneratePlanService(
     /// When non-null, only fills empty cells on this specific date (C13 "just today" scope).
     /// When null, fills all empty cells across the whole week (default).
     /// </param>
+    /// <param name="scopeSlotId">
+    /// When non-null, targets exactly this one slot — an explicit per-cell Auto-fill / Regenerate
+    /// gesture (plantry-av8z decision 1). That gesture wins over the slot's bulk auto-plan opt-out,
+    /// so the <see cref="MealSlot.IncludeInAutoPlan"/> filter is NOT applied. Only that slot's cell
+    /// is generated (no throwaway proposals for the date's other cells).
+    /// When null, this is a bulk pass (whole week, or "just today" via <paramref name="scopeDate"/>)
+    /// and slots opted out of auto-planning are filtered out.
+    /// </param>
     public async Task<GeneratePlanResult> ExecuteAsync(
         HouseholdId householdId,
         DateOnly weekStart,
         string storeKey,
         PlanningWeights? weights,
         DateOnly? scopeDate = null,
+        MealSlotId? scopeSlotId = null,
         CancellationToken ct = default)
     {
         var monday = Domain.MealPlan.NormalizeToMonday(weekStart);
@@ -72,6 +81,26 @@ public sealed class GeneratePlanService(
                 householdId.Value, monday);
             return new GeneratePlanResult(0, 0, [], []);
         }
+
+        // 2b. Narrow the slot set for THIS pass (plantry-av8z):
+        //   • scopeSlotId set → explicit per-cell Auto-fill / Regenerate gesture. Target exactly that
+        //     slot and IGNORE its IncludeInAutoPlan opt-out (decision 1 — the user pointed at the cell).
+        //     Only that slot is generated, so we stop staging throwaway proposals for the date's others.
+        //   • scopeSlotId null → bulk pass (whole week, or "just today" via scopeDate). Filter out slots
+        //     the household opted out of bulk auto-planning.
+        var eligibleSlots = scopeSlotId is { } targetSlotId
+            ? activeSlots.Where(s => s.Id == targetSlotId).ToList()
+            : activeSlots.Where(s => s.IncludeInAutoPlan).ToList();
+
+        if (eligibleSlots.Count == 0)
+        {
+            logger.LogInformation(
+                "Meal plan generation produced no proposals for household {HouseholdId}, week {WeekStart} — no eligible slots after auto-plan filtering (scopeSlotId: {ScopeSlotId}).",
+                householdId.Value, monday, scopeSlotId?.Value);
+            return new GeneratePlanResult(0, 0, [], []);
+        }
+
+        activeSlots = eligibleSlots;
 
         // 3. Load all household member preferences
         var allPrefs = new List<UserPreference>();

@@ -320,6 +320,11 @@ public sealed class AuthorRecipe(
             recipe.SetTags(tagIds, clock);
         }
 
+        // ── Yield-on-cook declaration (plantry-854a, recipe-composition.md §9) ──
+        var yieldError = await ApplyYieldAsync(recipe, command, existing, ct);
+        if (yieldError is { } ye)
+            return new AuthorRecipeResult.Invalid(ye);
+
         await recipes.SaveChangesAsync(ct);
         logger.LogInformation(
             "Recipe '{RecipeName}' {Action} with id {RecipeId}.",
@@ -332,6 +337,58 @@ public sealed class AuthorRecipe(
         recipe.SetSource(command.Source, clock);
         recipe.SetCookTime(command.CookTimeMinutes, clock);
         recipe.SetDirections(command.Directions, clock);
+    }
+
+    /// <summary>
+    /// Applies the yield-on-cook declaration (plantry-854a, recipe-composition.md §9). Clears the yield
+    /// when disabled; otherwise validates the unit + positive quantity, resolves the yield product
+    /// (explicit choice → the recipe's already-declared product → an existing same-named tracked product
+    /// → a freshly auto-created tracked product named after the recipe), and calls <see cref="Recipe.SetYield"/>.
+    /// Returns an <see cref="Error"/> to abort the save, or null on success. The existing-product reuse
+    /// avoids a duplicate-name Catalog rejection when a yield is re-enabled after being cleared.
+    /// </summary>
+    private async Task<Error?> ApplyYieldAsync(
+        Recipe recipe, AuthorRecipeCommand command, Recipe? existing, CancellationToken ct)
+    {
+        if (!command.YieldEnabled)
+        {
+            var cleared = recipe.SetYield(null, null, null, clock);
+            return cleared.IsFailure ? cleared.Error : null;
+        }
+
+        if (command.YieldUnitId is not { } yieldUnit || yieldUnit == Guid.Empty)
+            return Error.Custom("Recipes.MissingYieldUnit", "A yield needs a unit.");
+        if (command.YieldQuantity is not { } yieldQty || yieldQty <= 0m)
+            return Error.Custom("Recipes.InvalidYieldQuantity", "Yield quantity must be greater than zero.");
+
+        Guid yieldProductId;
+        if (command.YieldProductId is { } chosen && chosen != Guid.Empty)
+        {
+            // Author chose an existing product for the yield.
+            var product = await products.FindAsync(chosen, ct);
+            if (product is null)
+                return Error.Custom("Recipes.UnknownYieldProduct", "The chosen yield product does not exist.");
+            yieldProductId = product.Id;
+        }
+        else if (existing?.YieldProductId is { } prior)
+        {
+            // Yield was already enabled — reuse the declared product rather than minting a duplicate.
+            yieldProductId = prior;
+        }
+        else
+        {
+            // First enablement (or re-enablement after clearing) with no explicit product. Reuse an existing
+            // tracked product whose name matches the recipe if one exists (so re-enabling never mints a
+            // duplicate-name product Catalog would reject), otherwise auto-create one from the recipe name.
+            var matches = await products.SearchAsync(recipe.Name, ct);
+            var match = matches.FirstOrDefault(m =>
+                m.TrackStock && string.Equals(m.Name, recipe.Name, StringComparison.OrdinalIgnoreCase));
+            yieldProductId = match?.Id
+                ?? await catalogWriter.CreateTrackedProductAsync(recipe.Name, yieldUnit, categoryId: null, ct);
+        }
+
+        var set = recipe.SetYield(yieldProductId, yieldQty, yieldUnit, clock);
+        return set.IsFailure ? set.Error : null;
     }
 
     /// <summary>
@@ -379,6 +436,16 @@ public sealed class AuthorRecipe(
 /// <see cref="TagIds"/> are household tag ids submitted by the closed-vocabulary picker; unknown/foreign
 /// ids are dropped silently (server validates; no minting).
 /// </summary>
+/// <param name="YieldEnabled">
+/// Yield-on-cook (plantry-854a, recipe-composition.md §9): true when the author declares a yield.
+/// When false the recipe's yield is cleared. When true, <paramref name="YieldQuantity"/> (&gt; 0) and
+/// <paramref name="YieldUnitId"/> are required; the yield product is <paramref name="YieldProductId"/>
+/// when the author chose an existing product, otherwise auto-created from the recipe name (reusing an
+/// existing same-named tracked product if one already exists, so re-enabling never mints a duplicate).
+/// </param>
+/// <param name="YieldProductId">Chosen existing yield product; null ⇒ auto-create from the recipe name.</param>
+/// <param name="YieldQuantity">Declared yield quantity for the default servings (&gt; 0 when enabled).</param>
+/// <param name="YieldUnitId">Unit of the yield quantity — a servings-like count unit by default.</param>
 public sealed record AuthorRecipeCommand(
     RecipeId? RecipeId,
     string Name,
@@ -390,7 +457,11 @@ public sealed record AuthorRecipeCommand(
     string? Directions = null,
     ScaleMode ScaleMode = ScaleMode.Keep,
     bool DeferMissingConversions = false,
-    IReadOnlyList<AuthorInclusionLine>? Inclusions = null);
+    IReadOnlyList<AuthorInclusionLine>? Inclusions = null,
+    bool YieldEnabled = false,
+    Guid? YieldProductId = null,
+    decimal? YieldQuantity = null,
+    Guid? YieldUnitId = null);
 
 /// <summary>
 /// One authored inclusion row (recipe-composition.md §3 / D1): "<see cref="Servings"/> servings of

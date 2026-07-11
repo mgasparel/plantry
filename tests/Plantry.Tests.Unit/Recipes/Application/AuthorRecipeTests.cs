@@ -739,4 +739,119 @@ public sealed class AuthorRecipeTests
         Assert.IsType<AuthorRecipeResult.Saved>(result);
         Assert.Equal(c.Id, Assert.Single(b.Inclusions).SubRecipeId);
     }
+
+    // ── Yield-on-cook (plantry-854a, recipe-composition.md §9) ────────────────
+
+    [Fact]
+    public async Task Create_With_Yield_Enabled_Auto_Creates_Tracked_Product_From_Recipe_Name()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var product = h.Products.AddTracked(unit);
+        var yieldUnit = Guid.CreateVersion7();
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Nacho Cheese",
+            DefaultServings: 4,
+            Lines: [new AuthorIngredientLine(product.Id, 200m, unit, null, 0)],
+            TagIds: [],
+            YieldEnabled: true,
+            YieldQuantity: 6m,
+            YieldUnitId: yieldUnit);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        var recipe = Assert.Single(h.Recipes.Items);
+        Assert.True(recipe.HasYield);
+        Assert.Equal(6m, recipe.YieldQuantity);
+        Assert.Equal(yieldUnit, recipe.YieldUnitId);
+        // The yield product was auto-created from the recipe name via ICatalogWriter.
+        var created = Assert.Single(h.Writer.TrackedProductsCreated);
+        Assert.Equal("Nacho Cheese", created.Name);
+        Assert.Equal(yieldUnit, created.DefaultUnitId);
+        Assert.NotNull(recipe.YieldProductId);
+    }
+
+    [Fact]
+    public async Task Edit_Reenabling_Yield_Reuses_Existing_Same_Named_Product_Not_A_Duplicate()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var product = h.Products.AddTracked(unit);
+        var yieldUnit = Guid.CreateVersion7();
+        // A tracked product already named after the recipe exists in the catalog.
+        var existingYield = h.Products.AddTracked(yieldUnit, name: "Pie Crust");
+
+        var recipe = Recipe.Create(Household, "Pie Crust", 4, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(product.Id, 100m, unit, null, 0)], Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: recipe.Id,
+            Name: "Pie Crust",
+            DefaultServings: 4,
+            Lines: [new AuthorIngredientLine(product.Id, 100m, unit, null, 0)],
+            TagIds: [],
+            YieldEnabled: true,
+            YieldQuantity: 2m,
+            YieldUnitId: yieldUnit);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        // Reused the existing same-named product; no duplicate create.
+        Assert.Empty(h.Writer.TrackedProductsCreated);
+        Assert.Equal(existingYield.Id, recipe.YieldProductId);
+    }
+
+    [Fact]
+    public async Task Edit_With_Yield_Disabled_Clears_The_Yield()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var product = h.Products.AddTracked(unit);
+
+        var recipe = Recipe.Create(Household, "Soup", 4, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(product.Id, 100m, unit, null, 0)], Clock);
+        recipe.SetYield(Guid.CreateVersion7(), 4m, Guid.CreateVersion7(), Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: recipe.Id,
+            Name: "Soup",
+            DefaultServings: 4,
+            Lines: [new AuthorIngredientLine(product.Id, 100m, unit, null, 0)],
+            TagIds: [],
+            YieldEnabled: false);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        Assert.False(recipe.HasYield);
+    }
+
+    [Fact]
+    public async Task Create_With_Yield_Enabled_But_Missing_Unit_Is_Invalid()
+    {
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var product = h.Products.AddTracked(unit);
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Broth",
+            DefaultServings: 4,
+            Lines: [new AuthorIngredientLine(product.Id, 100m, unit, null, 0)],
+            TagIds: [],
+            YieldEnabled: true,
+            YieldQuantity: 4m,
+            YieldUnitId: null);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        var invalid = Assert.IsType<AuthorRecipeResult.Invalid>(result);
+        Assert.Equal("Recipes.MissingYieldUnit", invalid.Error.Code);
+    }
 }

@@ -19,7 +19,9 @@ public sealed class CookEventRepository(RecipesDbContext db) : ICookEventReposit
     public async Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default) =>
         await db.CookEvents
             .Include(c => c.ConsumeLines)
-            .Where(c => c.ConsumeLines.Any(l => l.Status == CookConsumeLineStatus.Pending))
+            .Include(c => c.ProduceLines)
+            .Where(c => c.ConsumeLines.Any(l => l.Status == CookConsumeLineStatus.Pending)
+                || c.ProduceLines.Any(p => p.Status == CookProduceLineStatus.Pending))
             .ToListAsync(ct);
 
     /// <inheritdoc />

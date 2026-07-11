@@ -681,6 +681,58 @@ public sealed class ProductCommitServiceTests
     }
 
     [Fact]
+    public async Task CommitAsync_StaleCrosswalkEntry_MissingFromDb_ReCreatesProduct()
+    {
+        // Regression for plantry-c89g: the crosswalk sidecar maps grocy id 1 to a plantry
+        // product id, but that product does NOT exist in the current DB (dev volume recreated,
+        // household changed, prod restored from backup). The commit must not trust the sidecar —
+        // it must verify against the live DB, find nothing, and re-create the product,
+        // overwriting the stale mapping instead of reporting a silent success with zero rows.
+        var (service, productRepo, unitRepo) = BuildService();
+
+        var unit = MakeUnit(Dimension.Count, "ea");
+        unitRepo.Items.Add(unit);
+
+        var row = MakeStagingRow(1, "Milk", defaultUnitId: unit.Id.Value);
+        var unitCrosswalk = new Dictionary<int, Guid>();
+
+        var tmpManifest = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-manifest.json");
+        try
+        {
+            // Pre-seed a crosswalk pointing at an id that was never committed to this repo.
+            var staleId = Guid.CreateVersion7();
+            var priorCrosswalk = new ProductCrosswalk
+            {
+                CommittedAt = DateTimeOffset.UtcNow,
+                Mappings    = new Dictionary<string, Guid?> { ["1"] = staleId },
+            };
+            await priorCrosswalk.WriteAsync(ProductCrosswalk.ResolvePath(tmpManifest));
+
+            var (results, crosswalkPath) = await service.CommitAsync(
+                [row], EmptyManifest(), unitCrosswalk, tmpManifest);
+
+            var result = Assert.Single(results);
+            Assert.True(result.Success);
+            Assert.False(result.Skipped);
+
+            // The product was actually created — not a silent no-op.
+            var product = Assert.Single(productRepo.Items);
+            Assert.Equal("Milk", product.Name);
+            Assert.NotEqual(staleId, product.Id.Value);          // fresh id, not the stale one
+            Assert.Equal(product.Id.Value, result.PlantryProductId);
+
+            // The stale mapping was overwritten with the real, live id.
+            var reloaded = await ProductCrosswalk.TryReadAsync(crosswalkPath);
+            Assert.NotNull(reloaded);
+            Assert.Equal(product.Id.Value, reloaded!.Mappings["1"]);
+        }
+        finally
+        {
+            TryDeleteCrosswalk(tmpManifest);
+        }
+    }
+
+    [Fact]
     public async Task CommitAsync_DroppedProduct_SkippedAndNullWrittenToCrosswalk()
     {
         var (service, productRepo, unitRepo) = BuildService();

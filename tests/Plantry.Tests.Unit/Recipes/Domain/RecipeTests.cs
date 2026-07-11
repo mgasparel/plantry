@@ -788,4 +788,73 @@ public sealed class RecipeTests
         recipe.RemoveTag(TagId.New(), Clock);
         Assert.Equal([keep], recipe.Tags.Select(rt => rt.TagId));
     }
+
+    // ── Yield-on-cook (plantry-854a, recipe-composition.md §9) ────────────────
+
+    [Fact]
+    public void SetYield_Declares_A_Yield_When_All_Fields_Provided()
+    {
+        var recipe = NewRecipe();
+        var productId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+
+        var result = recipe.SetYield(productId, 4m, unitId, Clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(recipe.HasYield);
+        Assert.Equal(productId, recipe.YieldProductId);
+        Assert.Equal(4m, recipe.YieldQuantity);
+        Assert.Equal(unitId, recipe.YieldUnitId);
+    }
+
+    [Fact]
+    public void SetYield_With_All_Null_Clears_The_Yield()
+    {
+        var recipe = NewRecipe();
+        recipe.SetYield(Guid.CreateVersion7(), 4m, Guid.CreateVersion7(), Clock);
+
+        var result = recipe.SetYield(null, null, null, Clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(recipe.HasYield);
+        Assert.Null(recipe.YieldProductId);
+        Assert.Null(recipe.YieldQuantity);
+        Assert.Null(recipe.YieldUnitId);
+    }
+
+    [Fact]
+    public void SetYield_Rejects_Missing_Product()
+    {
+        var recipe = NewRecipe();
+
+        var result = recipe.SetYield(null, 4m, Guid.CreateVersion7(), Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Recipes.InvalidYieldProduct", result.Error.Code);
+        Assert.False(recipe.HasYield);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-2)]
+    public void SetYield_Rejects_NonPositive_Quantity(int quantity)
+    {
+        var recipe = NewRecipe();
+
+        var result = recipe.SetYield(Guid.CreateVersion7(), quantity, Guid.CreateVersion7(), Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Recipes.InvalidYieldQuantity", result.Error.Code);
+    }
+
+    [Fact]
+    public void SetYield_Rejects_Missing_Unit()
+    {
+        var recipe = NewRecipe();
+
+        var result = recipe.SetYield(Guid.CreateVersion7(), 4m, null, Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Recipes.InvalidYieldUnit", result.Error.Code);
+    }
 }

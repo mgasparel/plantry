@@ -216,6 +216,59 @@ public sealed class RecipeCommitServiceTests
         if (File.Exists(crosswalkPath)) File.Delete(crosswalkPath);
     }
 
+    // ──────────── Divergence: stale crosswalk entry re-created (plantry-c89g) ──
+
+    [Fact]
+    public async Task CommitAsync_StaleCrosswalkEntry_MissingFromDb_ReCreatesRecipe()
+    {
+        // Regression for plantry-c89g: the crosswalk sidecar maps grocy id 5 to a
+        // plantry recipe id, but that recipe does NOT exist in the current DB (e.g. the
+        // dev volume was recreated or a prod backup was restored). The commit must NOT
+        // trust the sidecar — it must verify against the live DB, find nothing, and
+        // re-author the recipe, overwriting the stale mapping.
+        var h = BuildHarness();
+        var manifestPath = ManifestPath();
+        var crosswalkPath = RecipeCrosswalk.ResolvePath(manifestPath);
+
+        // Sidecar points at an id that was never committed to this (fresh) repo.
+        var staleId = Guid.CreateVersion7();
+        var crosswalk = new RecipeCrosswalk
+        {
+            CommittedAt = DateTimeOffset.UtcNow,
+            Mappings    = new Dictionary<string, Guid?> { ["5"] = staleId },
+        };
+        await crosswalk.WriteAsync(crosswalkPath);
+
+        var row = MakeRow(5, "Brownies", ingredients:
+        [
+            MakeIngredient(1, ProductAId, UnitId, 200m),
+        ]);
+
+        try
+        {
+            var (results, _) = await h.Service.CommitAsync([row], manifestPath, default);
+
+            var result = Assert.Single(results);
+            Assert.True(result.Success);
+            Assert.False(result.Skipped);
+
+            // The recipe was actually created — not a silent no-op.
+            var recipe = Assert.Single(h.Recipes.Items);
+            Assert.Equal("Brownies", recipe.Name);
+            Assert.NotEqual(staleId, recipe.Id.Value);          // a fresh id, not the stale one
+            Assert.Equal(recipe.Id.Value, result.PlantryRecipeId);
+
+            // The stale mapping was overwritten with the real, live id.
+            var reloaded = await RecipeCrosswalk.TryReadAsync(crosswalkPath);
+            Assert.NotNull(reloaded);
+            Assert.Equal(recipe.Id.Value, reloaded!.Mappings["5"]);
+        }
+        finally
+        {
+            if (File.Exists(crosswalkPath)) File.Delete(crosswalkPath);
+        }
+    }
+
     // ──────────── Idempotency: DuplicateName treated as already committed ──────
 
     [Fact]

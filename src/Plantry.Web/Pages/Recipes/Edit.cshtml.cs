@@ -139,6 +139,10 @@ public sealed class EditModel(
             Input.Source = recipe.Source;
             Input.Directions = recipe.Directions;
             Input.ScaleMode = ScaleMode.Keep;
+            // Yield-on-cook (plantry-854a, recipe-composition.md §9)
+            Input.YieldEnabled = recipe.HasYield;
+            Input.YieldQuantity = recipe.YieldQuantity;
+            Input.YieldUnitId = recipe.YieldUnitId;
 
             // Pre-populate tags — resolve id+name for the Alpine chip state ({id,name} objects).
             // ResolveNamesAsync includes archived tags so chips survive for tags archived since the
@@ -522,7 +526,13 @@ public sealed class EditModel(
             Directions: string.IsNullOrWhiteSpace(Input.Directions) ? null : Input.Directions,
             ScaleMode: Input.ScaleMode,
             DeferMissingConversions: deferConversions,
-            Inclusions: inclusions);
+            Inclusions: inclusions,
+            // Yield-on-cook (plantry-854a): the product is auto-created from the recipe name (or the
+            // existing declared product is reused on edit), so the UI supplies only quantity + unit.
+            YieldEnabled: Input.YieldEnabled,
+            YieldProductId: null,
+            YieldQuantity: Input.YieldEnabled ? Input.YieldQuantity : null,
+            YieldUnitId: Input.YieldEnabled ? Input.YieldUnitId : null);
 
         // Diet-tag nudge guard (plantry-qll2.3 / recipe-composition.md §8, D9): capture the recipe's EXPANDED
         // ProductId set BEFORE the save — direct ingredients plus every nested inclusion's products — for edits
@@ -869,6 +879,16 @@ public sealed class RecipeEditInput
     public int? CookTimeMinutes { get; set; }
     public string? Source { get; set; }
     public string? Directions { get; set; }
+
+    // ── Yield-on-cook (plantry-854a, recipe-composition.md §9) ───────────────────
+    /// <summary>Whether the recipe declares a yield (stored leftover / prepped stock on cook).</summary>
+    public bool YieldEnabled { get; set; }
+
+    /// <summary>Declared yield quantity for the default servings (&gt; 0 when enabled).</summary>
+    public decimal? YieldQuantity { get; set; }
+
+    /// <summary>Unit of the yield quantity — a servings-like count unit by default.</summary>
+    public Guid? YieldUnitId { get; set; }
 
     /// <summary>
     /// Selected tag ids — posted by the closed-vocabulary picker as hidden inputs (one per chip).

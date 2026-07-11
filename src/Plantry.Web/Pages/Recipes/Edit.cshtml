@@ -651,6 +651,41 @@
             </div>
         </div>
 
+        @* ── Yield-on-cook card (plantry-854a, recipe-composition.md §9) ───────── *@
+        <div class="card" x-data="{ yieldOn: @(Model.Input.YieldEnabled ? "true" : "false") }">
+            <div class="card__head">
+                <div>
+                    <h3 class="card__head-title">Yield (leftovers &amp; prepped stock)</h3>
+                    <p class="card__head-sub">If cooking this makes stock you store and use later, declare it here — cooking will offer to add it to your pantry.</p>
+                </div>
+            </div>
+            <div class="card__body">
+                <label style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer">
+                    <input asp-for="Input.YieldEnabled" type="checkbox" x-model="yieldOn" />
+                    <span>This recipe yields stored leftovers or prepped stock</span>
+                </label>
+
+                <div class="form-grid" x-show="yieldOn" x-cloak style="margin-top:var(--space-3)">
+                    <field asp-for="Input.YieldQuantity" stacked label="Yield quantity">
+                        <input asp-for="Input.YieldQuantity" class="field__input" type="number" min="0" step="0.001"
+                               placeholder="e.g. 4" />
+                        <span asp-validation-for="Input.YieldQuantity" class="field__error"></span>
+                    </field>
+
+                    <field asp-for="Input.YieldUnitId" stacked label="Yield unit">
+                        <select asp-for="Input.YieldUnitId" asp-items="Model.UnitOptions" class="field__input">
+                            <option value="">Choose a unit…</option>
+                        </select>
+                        <span asp-validation-for="Input.YieldUnitId" class="field__error"></span>
+                    </field>
+                </div>
+
+                <p x-show="yieldOn" x-cloak style="margin-top:var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+                    A tracked product named after this recipe holds your stored stock. Use a count unit for servings, or a real unit (cups) for prep recipes.
+                </p>
+            </div>
+        </div>
+
         @* ── Servings scale offer (J7 step 3) — shown on edit when servings change ── *@
         @if (!Model.IsCreate)
         {

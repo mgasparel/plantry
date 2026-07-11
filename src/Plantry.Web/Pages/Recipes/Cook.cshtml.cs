@@ -120,6 +120,20 @@ public sealed class CookModel(
     [BindProperty]
     public Dictionary<string, decimal> InclusionQuantityOverrides { get; set; } = [];
 
+    // ── Yield-on-cook inputs (plantry-854a, recipe-composition.md §9) ─────────────────────────────
+
+    /// <summary>
+    /// Yield-on-cook: how much of the recipe's declared yield product the user is STORING as leftover /
+    /// prepped stock ("cooked 4, eating 2, storing 2"), in the recipe's yield unit. Zero — or a recipe with
+    /// no yield — stores nothing. Only meaningful when the recipe declares a yield.
+    /// </summary>
+    [BindProperty]
+    public decimal StoreYieldQuantity { get; set; }
+
+    /// <summary>User-supplied use-by date for the stored yield lot (plantry-854a); null for none.</summary>
+    [BindProperty]
+    public DateOnly? StoreYieldExpiry { get; set; }
+
     /// <summary>
     /// Unit options for the added-product rows' unit selector (plantry-7zjm). Loaded on GET via the
     /// Catalog anti-corruption port; the Cook page never queries Catalog repositories directly (Gate 2).
@@ -306,6 +320,20 @@ public sealed class CookModel(
             .Select(u => new SelectListItem(u.Code, u.Id.ToString()))
             .ToList();
 
+        // Yield-on-cook (plantry-854a, recipe-composition.md §9): surface the declared yield so the
+        // confirmation can offer "storing N". The suggested quantity is the declared yield scaled to this
+        // cook's servings (3-dp rounded), pre-filling the store field; the user overrides it freely.
+        CookYieldView? yieldView = null;
+        if (recipe is { HasYield: true, YieldProductId: { } yieldProductId, YieldUnitId: { } yieldUnitId })
+        {
+            var yieldProduct = await catalog.FindAsync(yieldProductId, ct);
+            var yieldUnitCodes = await catalog.ResolveUnitCodesAsync([yieldUnitId], ct);
+            yieldView = new CookYieldView(
+                ProductName: yieldProduct?.Name ?? recipe.Name,
+                UnitCode: yieldUnitCodes.GetValueOrDefault(yieldUnitId, string.Empty),
+                SuggestedQuantity: Math.Round((recipe.YieldQuantity ?? 0m) * scale, 3));
+        }
+
         Cook = new CookViewModel(
             RecipeId: recipe.Id.Value,
             RecipeName: recipe.Name,
@@ -313,7 +341,8 @@ public sealed class CookModel(
             DefaultServings: recipe.DefaultServings,
             Scale: scale,
             Lines: directLines,
-            InclusionGroups: inclusionGroups);
+            InclusionGroups: inclusionGroups,
+            Yield: yieldView);
 
         return Page();
     }
@@ -662,12 +691,18 @@ public sealed class CookModel(
             .Select(a => new AdHocLine(a.ProductId, a.Quantity, a.UnitId))
             .ToList();
 
+        // Yield-on-cook (plantry-854a): store a positive quantity of the recipe's yield; a non-positive
+        // value or a recipe with no yield stores nothing (the command guards on recipe.HasYield too).
+        var storedYield = StoreYieldQuantity > 0m ? StoreYieldQuantity : 0m;
+
         var command = new CookRecipeCommand(
             RecipeId: id,
             DesiredServings: desiredServings,
             UserId: Guid.Parse(userId),
             Resolutions: resolutions,
-            AdHocLines: adHocLines);
+            AdHocLines: adHocLines,
+            StoredYieldQuantity: storedYield,
+            StoredYieldExpiry: storedYield > 0m ? StoreYieldExpiry : null);
 
         var result = await cookService.ExecuteAsync(command, ct);
 
@@ -725,7 +760,22 @@ public sealed record CookViewModel(
     int DefaultServings,
     decimal Scale,
     IReadOnlyList<CookLineView> Lines,
-    IReadOnlyList<CookInclusionGroupView> InclusionGroups);
+    IReadOnlyList<CookInclusionGroupView> InclusionGroups,
+    CookYieldView? Yield = null);
+
+/// <summary>
+/// The recipe's declared yield surfaced on the Cook confirmation page (plantry-854a, recipe-composition.md
+/// §9) — drives the "storing N" store-as-inventory affordance. Null when the recipe declares no yield.
+/// </summary>
+/// <param name="ProductName">Display name of the yield product being stored.</param>
+/// <param name="UnitCode">Display code of the yield unit (e.g. "servings", "cups").</param>
+/// <param name="SuggestedQuantity">
+/// The declared yield scaled to this cook's servings — pre-fills the "storing N" field.
+/// </param>
+public sealed record CookYieldView(
+    string ProductName,
+    string UnitCode,
+    decimal SuggestedQuantity);
 
 /// <summary>
 /// One inclusion group on the Cook page (recipe-composition.md §6, D6/D7): the sub-recipe's expanded

@@ -40,6 +40,7 @@ public sealed class CookRecipe(
     IRecipeRepository recipes,
     ICookEventRepository cookEvents,
     IInventoryConsumer consumer,
+    IInventoryProducer producer,
     ICatalogProductReader products,
     RecipeExpansionService expansion,
     IDomainEventDispatcher eventDispatcher,
@@ -279,8 +280,24 @@ public sealed class CookRecipe(
             cookEvent.AddConsumeLine(
                 target.IngredientId.Value, target.ProductId, target.Quantity, target.UnitId, target.SourceRecipeId);
 
+        // ── Yield-on-cook produce line (plantry-854a, recipe-composition.md §9) ──
+        // If the recipe declares a yield AND the user is storing a positive quantity, stage the inventory
+        // ADD as a Pending produce line in THIS anchor commit — before the produce call runs — so it is
+        // reconcilable on interruption exactly like a consume line. Storing 0 (or a recipe with no yield)
+        // adds nothing. The stored amount is denominated in the recipe's declared YieldUnitId.
+        var storeYield = recipe is { HasYield: true }
+            && command.StoredYieldQuantity > 0m
+            && recipe.YieldProductId is { } yieldProduct
+            && recipe.YieldUnitId is { } yieldUnit;
+        if (storeYield)
+            cookEvent.AddProduceLine(
+                recipe.YieldProductId!.Value,
+                command.StoredYieldQuantity,
+                recipe.YieldUnitId!.Value,
+                command.StoredYieldExpiry);
+
         await cookEvents.AddAsync(cookEvent, ct);
-        await cookEvents.SaveChangesAsync(ct); // ← anchor commit: CookEvent + Pending lines are durable
+        await cookEvents.SaveChangesAsync(ct); // ← anchor commit: CookEvent + Pending consume & produce lines are durable
 
         // ── Execute consumes; transition each line to Applied or Shorted ─────────
         var lineResults = new List<CookLineResult>();
@@ -339,6 +356,45 @@ public sealed class CookRecipe(
 
         // Persist the line status transitions (Applied / Shorted) — second Recipes commit.
         await cookEvents.SaveChangesAsync(ct);
+
+        // ── Execute produces; transition each produce line to Applied or Failed (854a) ──
+        // Mirrors the consume loop above: each Pending produce line drives one inventory ADD via
+        // IInventoryProducer, idempotent through its sourceLineRef token (the line's own Id). A produce
+        // that cannot be recorded (unknown product / cannot hold stock / no location) is marked Failed and
+        // the cook proceeds — a stored yield never blocks the cook, mirroring shortfall tolerance (C8/R9).
+        if (cookEvent.ProduceLines.Count > 0)
+        {
+            foreach (var produceLine in cookEvent.ProduceLines)
+            {
+                try
+                {
+                    await producer.ProduceAsync(
+                        produceLine.ProductId,
+                        produceLine.Quantity,
+                        produceLine.UnitId,
+                        produceLine.ExpiryDate,
+                        ProduceReason.Recipe,
+                        cookEvent.Id.Value,
+                        command.UserId,
+                        sourceLineRef: produceLine.Id.Value,
+                        ct);
+
+                    produceLine.MarkApplied();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // The yield add could not be recorded — record Failed (terminal) and continue. Logged at
+                    // Warning so a systematically failing produce is visible without failing the whole cook.
+                    logger.LogWarning(ex,
+                        "Yield produce failed for cook {CookEventId}, product {ProductId} — recorded Failed; cook proceeds.",
+                        cookEvent.Id.Value, produceLine.ProductId);
+                    produceLine.MarkFailed();
+                }
+            }
+
+            // Persist the produce line status transitions — third Recipes commit.
+            await cookEvents.SaveChangesAsync(ct);
+        }
 
         // ── Emit RecipeCooked (§9) ───────────────────────────────────────────────
         // Dispatched post-commit and non-transactionally: if dispatch fails, the CookEvent and
@@ -429,12 +485,24 @@ public sealed class CookRecipe(
 /// added line has no ingredient to key on; it materializes into a <see cref="CookConsumeLine"/> with
 /// <see cref="CookConsumeLine.IngredientId"/> = <see cref="Guid.Empty"/>.
 /// </param>
+/// <param name="StoredYieldQuantity">
+/// Yield-on-cook (plantry-854a): how much of the recipe's declared yield product the user is STORING as
+/// leftover / prepped stock ("cooked 4, eating 2, storing 2"). Expressed in the recipe's
+/// <c>YieldUnitId</c>. Zero (the default) — or a recipe with no yield — adds nothing to inventory. Eaten-now
+/// portions need no inventory action.
+/// </param>
+/// <param name="StoredYieldExpiry">
+/// User-supplied use-by date for the stored yield lot (plantry-854a); null for none. Ignored when
+/// <paramref name="StoredYieldQuantity"/> is zero or the recipe declares no yield.
+/// </param>
 public sealed record CookRecipeCommand(
     RecipeId RecipeId,
     int DesiredServings,
     Guid UserId,
     IReadOnlyList<IngredientResolution> Resolutions,
-    IReadOnlyList<AdHocLine>? AdHocLines = null);
+    IReadOnlyList<AdHocLine>? AdHocLines = null,
+    decimal StoredYieldQuantity = 0m,
+    DateOnly? StoredYieldExpiry = null);
 
 /// <summary>
 /// One existing catalog product added to a single cook via the Cook-page search picker (plantry-7zjm).

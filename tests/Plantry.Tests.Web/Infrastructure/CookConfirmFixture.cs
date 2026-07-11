@@ -41,6 +41,10 @@ public static class CookConfirmFixture
     public static readonly Guid EachUnitId = Guid.Parse("aaaaaaaa-2222-0000-0000-000000000002");
     public static readonly Guid TbspUnitId = Guid.Parse("aaaaaaaa-3333-0000-0000-000000000003"); // GarlicGranule default unit
 
+    // Yield-on-cook (plantry-854a): a declared yield product + a servings-like count unit.
+    public static readonly Guid YieldProductId  = Guid.Parse("77777777-7777-7777-7777-777777777777");
+    public static readonly Guid ServingsUnitId  = Guid.Parse("aaaaaaaa-4444-0000-0000-000000000004");
+
     public static Recipe Build()
     {
         var hid = HouseholdId.From(HouseholdAId);
@@ -57,6 +61,35 @@ public static class CookConfirmFixture
         ], clock);
 
         return recipe;
+    }
+
+    /// <summary>
+    /// The fixture recipe with a declared yield (plantry-854a): stores <see cref="YieldProductId"/> in
+    /// <see cref="ServingsUnitId"/>, declared 4 for the default 4 servings. Used by the yield OnPost tests.
+    /// </summary>
+    public static Recipe BuildWithYield()
+    {
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+        var recipe = Build();
+        recipe.SetYield(YieldProductId, 4m, ServingsUnitId, clock);
+        return recipe;
+    }
+
+    /// <summary>Fixture products plus the yield product, for the yield OnPost tests.</summary>
+    public static IReadOnlyDictionary<Guid, CatalogProduct> ProductsWithYield()
+    {
+        var map = new Dictionary<Guid, CatalogProduct>(Products())
+        {
+            [YieldProductId] = new(YieldProductId, "Garlic Pasta", TrackStock: true, ServingsUnitId, null, IsParent: false, []),
+        };
+        return map;
+    }
+
+    /// <summary>Fixture unit codes plus the servings yield unit, for the yield OnPost tests.</summary>
+    public static IReadOnlyDictionary<Guid, string> UnitCodesWithYield()
+    {
+        var map = new Dictionary<Guid, string>(UnitCodes()) { [ServingsUnitId] = "servings" };
+        return map;
     }
 
     public static IReadOnlyDictionary<Guid, CatalogProduct> Products() =>
@@ -202,6 +235,30 @@ public sealed class RecordingFakeCookInventoryConsumer : IInventoryConsumer
 
 /// <summary>Recorded arguments from one <see cref="IInventoryConsumer.ConsumeAsync"/> call.</summary>
 public sealed record ConsumeCall(Guid ProductId, decimal Quantity, Guid UnitId);
+
+/// <summary>
+/// Recording IInventoryProducer for yield-on-cook OnPostAsync tests (plantry-854a). Captures every
+/// ProduceAsync call so tests can assert what (if anything) was stored as inventory.
+/// </summary>
+public sealed class RecordingFakeCookInventoryProducer : IInventoryProducer
+{
+    private readonly List<ProduceCall> _calls = [];
+
+    /// <summary>All ProduceAsync calls received, in invocation order.</summary>
+    public IReadOnlyList<ProduceCall> Calls => _calls;
+
+    public Task ProduceAsync(
+        Guid productId, decimal quantity, Guid unitId, DateOnly? expiryDate,
+        ProduceReason reason, Guid cookEventId, Guid userId,
+        Guid sourceLineRef, CancellationToken ct = default)
+    {
+        _calls.Add(new ProduceCall(productId, quantity, unitId, expiryDate));
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>Recorded arguments from one <see cref="IInventoryProducer.ProduceAsync"/> call.</summary>
+public sealed record ProduceCall(Guid ProductId, decimal Quantity, Guid UnitId, DateOnly? ExpiryDate);
 
 /// <summary>No-op ICookEventRepository for Cook L4 tests.</summary>
 public sealed class FakeCookEventRepository : ICookEventRepository

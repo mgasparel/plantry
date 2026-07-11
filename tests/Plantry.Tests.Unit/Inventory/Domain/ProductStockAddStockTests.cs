@@ -133,4 +133,58 @@ public sealed class ProductStockAddStockTests
         var ex = Assert.Throws<ArgumentException>(() => stock.AddStock(3m, Unit, Location, User, clock, reason: reason));
         Assert.Equal("reason", ex.ParamName);
     }
+
+    // ── Idempotency short-circuit (yield-on-cook produce, plantry-854a) ───────────
+
+    [Fact(DisplayName = "AddStock with a matching (sourceRef, sourceLineRef) is a no-op on re-drive")]
+    public void AddStock_Is_Idempotent_On_Repeated_SourceLineRef()
+    {
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(Household, Product, clock);
+        var cookEventId = Guid.NewGuid();
+        var lineRef = Guid.NewGuid();
+
+        var first = stock.AddStock(
+            2m, Unit, Location, User, clock,
+            sourceType: StockSourceType.Cook, sourceRef: cookEventId, sourceLineRef: lineRef);
+
+        // Re-drive (reconciliation after an interrupted cook) — same tokens.
+        var second = stock.AddStock(
+            2m, Unit, Location, User, clock,
+            sourceType: StockSourceType.Cook, sourceRef: cookEventId, sourceLineRef: lineRef);
+
+        // No second lot, no second journal row — the re-drive returned the original lot.
+        Assert.Same(first, second);
+        Assert.Single(stock.Entries);
+        Assert.Single(stock.Journal);
+        Assert.Equal(lineRef, Assert.Single(stock.Journal).SourceLineRef);
+    }
+
+    [Fact(DisplayName = "AddStock with a different sourceLineRef adds a second lot")]
+    public void AddStock_Distinct_SourceLineRef_Adds_Second_Lot()
+    {
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(Household, Product, clock);
+        var cookEventId = Guid.NewGuid();
+
+        stock.AddStock(2m, Unit, Location, User, clock,
+            sourceType: StockSourceType.Cook, sourceRef: cookEventId, sourceLineRef: Guid.NewGuid());
+        stock.AddStock(2m, Unit, Location, User, clock,
+            sourceType: StockSourceType.Cook, sourceRef: cookEventId, sourceLineRef: Guid.NewGuid());
+
+        Assert.Equal(2, stock.Entries.Count);
+        Assert.Equal(2, stock.Journal.Count);
+    }
+
+    [Fact(DisplayName = "AddStock without a sourceLineRef token never short-circuits (manual/intake add)")]
+    public void AddStock_Without_Token_Is_Not_Idempotent()
+    {
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(Household, Product, clock);
+
+        stock.AddStock(2m, Unit, Location, User, clock);
+        stock.AddStock(2m, Unit, Location, User, clock);
+
+        Assert.Equal(2, stock.Entries.Count);
+    }
 }

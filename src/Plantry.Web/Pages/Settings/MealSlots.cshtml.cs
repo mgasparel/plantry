@@ -9,7 +9,10 @@ using Plantry.SharedKernel.Tenancy;
 namespace Plantry.Web.Pages.Settings;
 
 [Authorize]
-public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext tenant) : PageModel
+public sealed class MealSlotsModel(
+    ManageSlotsService service,
+    ITenantContext tenant,
+    ILogger<MealSlotsModel> logger) : PageModel
 {
     public List<SlotViewModel> Slots { get; private set; } = [];
     public List<HouseholdMember> Members { get; private set; } = [];
@@ -18,7 +21,8 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
         MealSlotId Id,
         string Label,
         int Ordinal,
-        List<Guid> DefaultAttendees);
+        List<Guid> DefaultAttendees,
+        bool IncludeInAutoPlan);
 
     public async Task OnGetAsync(CancellationToken ct = default)
     {
@@ -40,7 +44,11 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
             return BadRequest();
         var hid = HouseholdId.From(tenant.HouseholdId!.Value);
         try { await service.AddSlotAsync(hid, label.Trim(), ct); }
-        catch (InvalidOperationException ex) { ModelState.AddModelError("label", ex.Message); }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogDebug(ex, "Add meal slot rejected for household {HouseholdId} (benign — duplicate/invalid label)", tenant.HouseholdId);
+            ModelState.AddModelError("label", ex.Message);
+        }
         await LoadAsync(ct);
         return Partial("_SlotsList", this);
     }
@@ -54,7 +62,10 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
             return BadRequest();
         var hid = HouseholdId.From(tenant.HouseholdId!.Value);
         try { await service.RenameSlotAsync(hid, MealSlotId.From(id), label.Trim(), ct); }
-        catch (InvalidOperationException) { /* label unchanged — tolerate */ }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogDebug(ex, "Rename of meal slot {SlotId} tolerated (benign — label unchanged or slot already archived)", id);
+        }
         await LoadAsync(ct);
         return Partial("_SlotsList", this);
     }
@@ -66,7 +77,10 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
         var hid = HouseholdId.From(tenant.HouseholdId!.Value);
         var slotIds = ids.Select(MealSlotId.From).ToList();
         try { await service.ReorderSlotsAsync(hid, slotIds, ct); }
-        catch (InvalidOperationException) { /* ignore reorder of unknown ids */ }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogDebug(ex, "Reorder of meal slots {SlotIds} tolerated (benign — one or more slots unknown/archived)", string.Join(",", ids));
+        }
         await LoadAsync(ct);
         return Partial("_SlotsList", this);
     }
@@ -82,13 +96,31 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
         return Partial("_SlotsList", this);
     }
 
+    public async Task<IActionResult> OnPostAutoPlanAsync(
+        [FromQuery] Guid id,
+        [FromForm] bool enabled,
+        CancellationToken ct = default)
+    {
+        var hid = HouseholdId.From(tenant.HouseholdId!.Value);
+        try { await service.SetAutoPlanEnabledAsync(hid, MealSlotId.From(id), enabled, ct); }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogDebug(ex, "Auto-plan toggle of meal slot {SlotId} tolerated (benign — slot not found / already archived)", id);
+        }
+        await LoadAsync(ct);
+        return Partial("_SlotsList", this);
+    }
+
     public async Task<IActionResult> OnPostArchiveAsync(
         [FromQuery] Guid id,
         CancellationToken ct = default)
     {
         var hid = HouseholdId.From(tenant.HouseholdId!.Value);
         try { await service.ArchiveSlotAsync(hid, MealSlotId.From(id), ct); }
-        catch (InvalidOperationException) { /* slot not found — already archived */ }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogDebug(ex, "Archive of meal slot {SlotId} tolerated (benign — slot not found / already archived)", id);
+        }
         await LoadAsync(ct);
         return Partial("_SlotsList", this);
     }
@@ -102,7 +134,7 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
         Slots = config?.Slots
             .Where(s => s.IsActive)
             .OrderBy(s => s.Ordinal)
-            .Select(s => new SlotViewModel(s.Id, s.Label, s.Ordinal, [..s.DefaultAttendees]))
+            .Select(s => new SlotViewModel(s.Id, s.Label, s.Ordinal, [..s.DefaultAttendees], s.IncludeInAutoPlan))
             .ToList() ?? [];
     }
 }

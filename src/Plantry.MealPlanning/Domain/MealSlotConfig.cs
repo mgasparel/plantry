@@ -126,6 +126,20 @@ public sealed class MealSlotConfig : AggregateRoot<MealSlotConfigId>
     }
 
     /// <summary>
+    /// Sets whether the given active slot is included in bulk AI auto-planning (plantry-av8z).
+    /// Governs whole-week Generate and "just today" scope only — explicit per-cell auto-fill
+    /// bypasses the flag. Throws if the slot is not an active slot in this config.
+    /// </summary>
+    public void SetAutoPlanEnabled(MealSlotId id, bool enabled, IClock clock)
+    {
+        var slot = _slots.FirstOrDefault(s => s.Id == id && s.IsActive)
+            ?? throw new InvalidOperationException($"Active slot '{id}' not found in this config.");
+
+        slot.SetIncludeInAutoPlan(enabled);
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
     /// Soft-archives the slot (sets ArchivedAt). Active ordinals are renumbered 1..n for remaining
     /// active slots so ordinal contiguity is preserved (M9/M10).
     /// </summary>

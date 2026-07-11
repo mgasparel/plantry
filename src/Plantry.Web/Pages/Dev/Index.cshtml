@@ -375,6 +375,35 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Toggle switch</h2>
+    </div>
+    <p>
+        <code>.pl-switch</code> is a reusable boolean on/off control — a visually-hidden native
+        checkbox driving an accessible track + thumb. The "on" track fills with the accent colour;
+        state colours come from theme tokens so it dark-mode-adapts automatically. The trailing
+        <code>.pl-switch__text</code> label is optional. For htmx, post the new state on
+        <code>change</code> with <code>hx-vals='js:{...event.target.checked}'</code> (a native
+        unchecked checkbox omits its value, so read <code>event.target.checked</code> explicitly).
+    </p>
+
+    <div style="display: flex; gap: var(--space-5); align-items: center">
+        <label class="pl-switch">
+            <input type="checkbox" role="switch" checked aria-label="Demo on" />
+            <span class="pl-switch__track" aria-hidden="true"><span class="pl-switch__thumb"></span></span>
+            <span class="pl-switch__text">Auto-plan</span>
+        </label>
+        <label class="pl-switch">
+            <input type="checkbox" role="switch" aria-label="Demo off" />
+            <span class="pl-switch__track" aria-hidden="true"><span class="pl-switch__thumb"></span></span>
+            <span class="pl-switch__text">Auto-plan</span>
+        </label>
+    </div>
+
+    <pre class="code-sample"><code>@("<label class=\"pl-switch\" title=\"Include this meal when auto-planning\">\n  <input type=\"checkbox\" role=\"switch\" checked\n         hx-post=\"...&handler=AutoPlan&id=@slot.Id\"\n         hx-vals='js:{\"enabled\": event.target.checked}'\n         hx-trigger=\"change\" hx-target=\"#region\" hx-swap=\"innerHTML\"\n         aria-label=\"Auto-plan @label\" />\n  <span class=\"pl-switch__track\" aria-hidden=\"true\"><span class=\"pl-switch__thumb\"></span></span>\n  <span class=\"pl-switch__text\">Auto-plan</span>\n</label>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Match suggest ("Did you mean")</h2>
     </div>
     <p>
