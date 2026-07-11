@@ -18,7 +18,8 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
         MealSlotId Id,
         string Label,
         int Ordinal,
-        List<Guid> DefaultAttendees);
+        List<Guid> DefaultAttendees,
+        bool IncludeInAutoPlan);
 
     public async Task OnGetAsync(CancellationToken ct = default)
     {
@@ -82,6 +83,18 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
         return Partial("_SlotsList", this);
     }
 
+    public async Task<IActionResult> OnPostAutoPlanAsync(
+        [FromQuery] Guid id,
+        [FromForm] bool enabled,
+        CancellationToken ct = default)
+    {
+        var hid = HouseholdId.From(tenant.HouseholdId!.Value);
+        try { await service.SetAutoPlanEnabledAsync(hid, MealSlotId.From(id), enabled, ct); }
+        catch (InvalidOperationException) { /* slot not found — already archived */ }
+        await LoadAsync(ct);
+        return Partial("_SlotsList", this);
+    }
+
     public async Task<IActionResult> OnPostArchiveAsync(
         [FromQuery] Guid id,
         CancellationToken ct = default)
@@ -102,7 +115,7 @@ public sealed class MealSlotsModel(ManageSlotsService service, ITenantContext te
         Slots = config?.Slots
             .Where(s => s.IsActive)
             .OrderBy(s => s.Ordinal)
-            .Select(s => new SlotViewModel(s.Id, s.Label, s.Ordinal, [..s.DefaultAttendees]))
+            .Select(s => new SlotViewModel(s.Id, s.Label, s.Ordinal, [..s.DefaultAttendees], s.IncludeInAutoPlan))
             .ToList() ?? [];
     }
 }

@@ -217,6 +217,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
                 .HasColumnName("default_attendees")
                 .HasColumnType("uuid[]")
                 .HasDefaultValueSql("'{}'::uuid[]");
+            b.Property(s => s.IncludeInAutoPlan)
+                .HasColumnName("include_in_auto_plan")
+                .IsRequired()
+                .HasDefaultValue(true);
             b.Property(s => s.ArchivedAt).HasColumnName("archived_at");
 
             // UNIQUE (household_id, meal_slot_id) — anchor for planned_meal composite FK

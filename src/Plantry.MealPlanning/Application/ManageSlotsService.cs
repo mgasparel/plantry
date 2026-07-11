@@ -77,6 +77,21 @@ public sealed class ManageSlotsService(
         logger.LogInformation("Default attendees set for meal slot {SlotId} in household {HouseholdId}.", slotId.Value, householdId.Value);
     }
 
+    /// <summary>Sets whether an active slot participates in bulk AI auto-planning (plantry-av8z).</summary>
+    public async Task SetAutoPlanEnabledAsync(
+        HouseholdId householdId,
+        MealSlotId slotId,
+        bool enabled,
+        CancellationToken ct = default)
+    {
+        var config = await RequireConfigAsync(householdId, ct);
+        config.SetAutoPlanEnabled(slotId, enabled, clock);
+        await repository.SaveChangesAsync(ct);
+        logger.LogInformation(
+            "Auto-plan {State} for meal slot {SlotId} in household {HouseholdId}.",
+            enabled ? "enabled" : "disabled", slotId.Value, householdId.Value);
+    }
+
     /// <summary>Soft-archives an active slot; renumbers remaining active ordinals.</summary>
     public async Task ArchiveSlotAsync(
         HouseholdId householdId,

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Plantry.MealPlanning.Infrastructure;
@@ -12,9 +13,11 @@ using Plantry.MealPlanning.Infrastructure;
 namespace Plantry.MealPlanning.Infrastructure.Migrations
 {
     [DbContext(typeof(MealPlanningDbContext))]
-    partial class MealPlanningDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260711110223_AddMealSlotIncludeInAutoPlan")]
+    partial class AddMealSlotIncludeInAutoPlan
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

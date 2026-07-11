@@ -136,6 +136,21 @@
                                     </div>
                                 </div>
                             </div>
+
+                            @* Auto-plan opt-out toggle (plantry-av8z). Governs BULK generation only —
+                               per-cell Auto-fill / Regenerate still work on an opted-out slot. *@
+                            <label class="pl-switch" title="Include this meal when auto-planning the whole week">
+                                <input type="checkbox" role="switch"
+                                       checked="@(slot.IncludeInAutoPlan ? "checked" : null)"
+                                       hx-post="/Settings/MealSlots?handler=AutoPlan&id=@slot.Id.Value"
+                                       hx-vals='js:{"enabled": event.target.checked}'
+                                       hx-trigger="change"
+                                       hx-target="#slots-region"
+                                       hx-swap="innerHTML"
+                                       aria-label="Auto-plan @slot.Label" />
+                                <span class="pl-switch__track" aria-hidden="true"><span class="pl-switch__thumb"></span></span>
+                                <span class="pl-switch__text">Auto-plan</span>
+                            </label>
                         </div>
 
                         @* Actions: up/down + archive *@

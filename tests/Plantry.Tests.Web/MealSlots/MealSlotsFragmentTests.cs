@@ -98,7 +98,70 @@ public sealed class MealSlotsFragmentTests : IClassFixture<MealSlotsFragmentFact
         Assert.Contains("Supper", html);
     }
 
+    [Fact(DisplayName = "GET /Settings/MealSlots renders an Auto-plan switch, on by default (plantry-av8z)")]
+    public async Task Get_Page_Renders_AutoPlan_Switch_On_By_Default()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add(
+            TestAuthHandler.HouseholdHeader,
+            MealSlotsFixture.HouseholdAId.ToString());
+
+        var html = await (await client.GetAsync("/Settings/MealSlots")).Content.ReadAsStringAsync();
+
+        Assert.Contains("pl-switch", html);
+        Assert.Contains("Auto-plan", html);
+        // Default is opted IN — at least one switch renders checked (order-independent given the
+        // class-shared fixture config).
+        Assert.True(CountCheckedSwitches(html) >= 1, "Expected at least one auto-plan switch to be checked by default.");
+    }
+
+    [Fact(DisplayName = "POST AutoPlan enabled=false persists and survives reload (plantry-av8z)")]
+    public async Task Post_AutoPlan_Off_Persists_And_Survives_Reload()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add(
+            TestAuthHandler.HouseholdHeader,
+            MealSlotsFixture.HouseholdAId.ToString());
+
+        var pageHtml = await (await client.GetAsync("/Settings/MealSlots")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+        // Pick a slot that is currently opted IN, so turning it off is a real state change.
+        var slotId = ExtractCheckedAutoPlanSlotId(pageHtml);
+        var before = CountCheckedSwitches(pageHtml);
+
+        var content = new FormUrlEncodedContent([
+            new("__RequestVerificationToken", token),
+            new("enabled", "false"),
+        ]);
+
+        var response = await client.PostAsync($"/Settings/MealSlots?handler=AutoPlan&id={slotId}", content);
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        // Exactly one slot flipped off → one fewer checked switch in the returned partial.
+        Assert.Equal(before - 1, CountCheckedSwitches(html));
+
+        // Survives reload: a fresh GET of the region reflects the persisted opt-out.
+        var reloaded = await (await client.GetAsync("/Settings/MealSlots?handler=Slots")).Content.ReadAsStringAsync();
+        Assert.Equal(before - 1, CountCheckedSwitches(reloaded));
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    // Only the pl-switch checkbox renders checked="checked" on this page, so counting it
+    // yields the number of slots opted IN to auto-planning.
+    private static int CountCheckedSwitches(string html) =>
+        System.Text.RegularExpressions.Regex.Matches(html, "checked=\"checked\"").Count;
+
+    // Captures the slot id of a switch that is currently checked. The rendered input carries the
+    // checked attribute before its hx-post URL (which HTML-encodes '&' to '&amp;').
+    private static string ExtractCheckedAutoPlanSlotId(string html)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            html, "checked=\"checked\"[^>]*handler=AutoPlan&(?:amp;)?id=([0-9a-fA-F-]{36})");
+        Assert.True(match.Success, "No checked Auto-plan switch found on the page.");
+        return match.Groups[1].Value;
+    }
 
     private static string ExtractAntiforgeryToken(string html)
     {
