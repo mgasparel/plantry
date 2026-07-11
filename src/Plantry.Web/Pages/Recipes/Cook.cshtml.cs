@@ -34,7 +34,8 @@ public sealed class CookModel(
     IInventoryStockReader stockReader,
     IUnitConverter unitConverter,
     RecipeExpansionService expansion,
-    CookRecipe cookService) : PageModel
+    CookRecipe cookService,
+    ILogger<CookModel> logger) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
@@ -170,6 +171,10 @@ public sealed class CookModel(
         // expansion failure (missing sub / in-memory cycle — N4 prevents the latter at save) fall back
         // to the recipe's own direct ingredients so the page still renders rather than 500ing.
         var expandResult = await expansion.ExpandAsync(recipe.Id, ct);
+        if (expandResult.IsFailure)
+            logger.LogWarning(
+                "Cook page (GET) expansion failed for recipe {RecipeId}: {ErrorCode}. Falling back to the recipe direct ingredients; inclusion groups dropped.",
+                recipe.Id.Value, expandResult.Error.Code);
         var expandedLines = expandResult.IsSuccess
             ? expandResult.Value
             : recipe.Ingredients
@@ -559,6 +564,10 @@ public sealed class CookModel(
         // Expand to the same flat, path-qualified line list the GET rendered (D6). Fall back to the
         // recipe's own direct ingredients on a defensive expansion failure so a normal cook still posts.
         var expandResult = await expansion.ExpandAsync(recipe.Id, ct);
+        if (expandResult.IsFailure)
+            logger.LogWarning(
+                "Cook page (POST) expansion failed for recipe {RecipeId}: {ErrorCode}. Falling back to the recipe direct ingredients; inclusion groups dropped.",
+                recipe.Id.Value, expandResult.Error.Code);
         var expandedLines = expandResult.IsSuccess
             ? expandResult.Value
             : recipe.Ingredients

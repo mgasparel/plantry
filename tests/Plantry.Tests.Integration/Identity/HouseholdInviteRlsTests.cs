@@ -93,6 +93,25 @@ public sealed class HouseholdInviteRlsTests(PostgresFixture db) : IAsyncLifetime
         Assert.DoesNotContain(invites, i => i.HouseholdId == _householdB);
     }
 
+    [Fact(DisplayName = "ListPendingAsync returns only the ambient household's pending invites")]
+    public async Task ListPending_ScopedToA_ReturnsOnlyAInvites()
+    {
+        await SeedInviteAsync(_householdA, "a@example.com");
+        await SeedInviteAsync(_householdB, "b@example.com");
+
+        // Owner connection (RLS bypassed) isolates the app-layer EF query filter alone; arming household A
+        // via SetHouseholdId drives ListPendingAsync's inherited household filter through the real repository.
+        await using var identityDb = new PlantryIdentityDbContext(BuildOptions(db.ConnectionString));
+        identityDb.SetHouseholdId(_householdA.Value);
+
+        var pending = await new HouseholdInviteRepository(identityDb).ListPendingAsync();
+
+        Assert.Single(pending);
+        Assert.Equal(_householdA, pending[0].HouseholdId);
+        Assert.Equal("a@example.com", pending[0].Email);
+        Assert.DoesNotContain(pending, i => i.HouseholdId == _householdB);
+    }
+
     [Fact(DisplayName = "The token unique index rejects a duplicate token (R4)")]
     public async Task DuplicateToken_Violates_UniqueIndex()
     {
