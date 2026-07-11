@@ -55,7 +55,8 @@ public sealed class ReviewModel(
     ILogger<ResolveLineCommand> resolveLogger,
     ILogger<ConfirmLineAsNewCommand> confirmAsNewLogger,
     ILogger<RestoreLineCommand> restoreLogger,
-    ILogger<ReopenLineCommand> reopenLogger) : PageModel
+    ILogger<ReopenLineCommand> reopenLogger,
+    ILogger<ConfirmLinesCommand> confirmLinesLogger) : PageModel
 {
     /// <summary>Session id from the route; bound on GET and carried on every POST via the URL.</summary>
     [BindProperty(SupportsGet = true)]
@@ -230,6 +231,47 @@ public sealed class ReviewModel(
         return new JsonResult(new { status = "Pending", error = (string?)null });
     }
 
+    /// <summary>Request body for <see cref="OnPostConfirmLinesAsync"/> — the island sends ONLY line ids;
+    /// the AI-suggested values are re-derived server-side and never echoed back (Gate 5).</summary>
+    public sealed class ConfirmLinesInput
+    {
+        public List<Guid> LineIds { get; set; } = [];
+    }
+
+    /// <summary>Bulk-confirms a set of Pending, High-confidence, complete-prefill lines from their
+    /// server-side prefill values (the deck-flow checklist enabler, plantry-kr9h). Atomic: any non-qualifying
+    /// id fails the whole call and confirms nothing. Returns the confirmed line ids + their new status as
+    /// JSON, mirroring the per-line handlers' shape. Id is route-bound (from
+    /// /Intake/Review/{id:guid}?handler=ConfirmLines).</summary>
+    public async Task<IActionResult> OnPostConfirmLinesAsync(CancellationToken ct)
+    {
+        ConfirmLinesInput input;
+        try
+        {
+            input = await ReadJsonBodyAsync<ConfirmLinesInput>(ct) ?? new ConfirmLinesInput();
+        }
+        catch
+        {
+            return JsonError("Invalid request body.");
+        }
+
+        var lineIds = input.LineIds.Select(ImportLineId.From).ToList();
+
+        var result = await new ConfirmLinesCommand(
+            ImportSessionId.From(Id), lineIds, sessions, referenceData, clock, tenant, confirmLinesLogger)
+            .ExecuteAsync(ct);
+
+        if (result.IsFailure)
+            return JsonError(result.Error.Description);
+
+        return new JsonResult(new
+        {
+            confirmedLineIds = result.Value.Select(id => id.ToString()).ToList(),
+            status = LineStatus.Confirmed.ToString(),
+            error = (string?)null,
+        });
+    }
+
     // ── Commit / discard — return redirect target so the island can navigate ────────
 
     public async Task<IActionResult> OnPostCommitAsync(CancellationToken ct)
@@ -390,6 +432,7 @@ public sealed class ReviewModel(
             DismissLineUrl: Url.Page("./Review", "DismissLine", new { Id })!,
             RestoreLineUrl: Url.Page("./Review", "RestoreLine", new { Id })!,
             ReopenLineUrl: Url.Page("./Review", "ReopenLine", new { Id })!,
+            ConfirmLinesUrl: Url.Page("./Review", "ConfirmLines", new { Id })!,
             Products: products,
             Units: units,
             Locations: locations,

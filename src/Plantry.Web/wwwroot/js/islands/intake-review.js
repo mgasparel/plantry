@@ -164,6 +164,7 @@ import {
  * @property {string} dismissLineUrl
  * @property {string} restoreLineUrl
  * @property {string} reopenLineUrl
+ * @property {string} confirmLinesUrl
  * @property {ProductHydration[]} products
  * @property {UnitHydration[]} units
  * @property {LocationHydration[]} locations
