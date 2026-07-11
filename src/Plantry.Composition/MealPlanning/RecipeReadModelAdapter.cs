@@ -13,9 +13,19 @@ namespace Plantry.Web.MealPlanning;
 /// (<see cref="FulfillmentService"/> / <see cref="CostingService"/>) — MealPlanning borrows
 /// these computations and rolls them up, never reimplements them (domain-model §1).
 /// Lives in Plantry.Web (the composition root) to keep MealPlanning free of Recipes dependencies.
+///
+/// <para>The enrichment roll-up and ShopForWeek shortfall (J6) read a recipe's <b>expanded</b> view
+/// (recipe-composition.md §7, D4) via <see cref="RecipeExpansionService"/>, so a dish that draws its
+/// ingredients from included sub-recipes rolls up the SAME expanded cost/fulfillment/shortfall shown on the
+/// recipe's Details page (J5) — no J5/J6 drift. A meal-plan week is low-N (≈7–21 dishes), so each dish is
+/// expanded per call through the single repo-backed choke point. Defensive: if expansion fails because an
+/// inclusion dangles (a tampered request that bypassed the picker — N5 blocks archiving an included recipe,
+/// so this cannot happen for legitimate recipes), that dish degrades to FLAT computation rather than
+/// disappearing from the plan.</para>
 /// </summary>
 public sealed class RecipeReadModelAdapter(
     RecipesDbContext db,
+    RecipeExpansionService expansion,
     FulfillmentService fulfillmentService,
     CostingService costingService) : IRecipeReadModel
 {
@@ -82,30 +92,46 @@ public sealed class RecipeReadModelAdapter(
 
         if (recipe is null) return null;
 
-        // Borrow Recipes' domain services — MealPlanning rolls up, never recomputes.
-        var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
-        var cost = await costingService.ComputeAsync(recipe, servings, ct);
+        // Borrow Recipes' domain services — MealPlanning rolls up, never recomputes. Expand to the flat
+        // product-level view (D4 choke point) so included recipes' products are reflected; degrade to flat
+        // on the degenerate dangling-inclusion case (see class remarks).
+        var expandResult = await expansion.ExpandAsync(rid, ct);
 
-        // Compute fulfillment % from the ingredient-level results.
+        IReadOnlyList<IngredientStatus> statuses;
+        bool hasExpiring;
+        CostPerServing cost;
+        if (expandResult.IsSuccess)
+        {
+            var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
+            var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+                effectiveLines, recipe.DefaultServings, servings, today, ct);
+            cost = await costingService.ComputeExpandedAsync(effectiveLines, recipe.DefaultServings, servings, ct);
+            statuses = fulfillment.Lines.Select(l => l.Status).ToList();
+            hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+        }
+        else
+        {
+            var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
+            cost = await costingService.ComputeAsync(recipe, servings, ct);
+            statuses = fulfillment.Lines.Select(l => l.Status).ToList();
+            hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+        }
+
+        // Compute fulfillment % from the (expanded or flat) line-level results.
         // Untracked staples are excluded (always satisfied, C12). Only tracked lines contribute.
-        var trackedLines = fulfillment.Lines
-            .Where(l => l.Status != IngredientStatus.Untracked)
-            .ToList();
+        var trackedCount = statuses.Count(s => s != IngredientStatus.Untracked);
 
         int pct;
-        if (trackedLines.Count == 0)
+        if (trackedCount == 0)
         {
             // No tracked ingredients → treat as 100% (untracked-only recipe is always cookable).
             pct = 100;
         }
         else
         {
-            var inStockCount = trackedLines.Count(l => l.Status == IngredientStatus.InStock);
-            pct = (int)Math.Round(100.0 * inStockCount / trackedLines.Count);
+            var inStockCount = statuses.Count(s => s == IngredientStatus.InStock);
+            pct = (int)Math.Round(100.0 * inStockCount / trackedCount);
         }
-
-        var hasExpiring = fulfillment.Lines
-            .Any(l => l.ExpiresWithinDays.HasValue);
 
         // TotalCost = CostPerServing.Amount × servings (Amount is per-serving; we want the total).
         decimal? totalCost = cost.Amount.HasValue ? cost.Amount.Value * servings : null;
@@ -142,11 +168,27 @@ public sealed class RecipeReadModelAdapter(
         if (recipe is null) return [];
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
 
-        // Delegate to the shared shortfall calculator (Missing + Low, shortfall = scaledRequired − available)
-        // so this path and AddMissingToShoppingList (J5) cannot diverge.
-        var shortfallLines = RecipeShortfallCalculator.Compute(recipe, fulfillment, servings);
+        // Expand to the flat product-level view (D4 choke point) and compute shortfall over the expanded set,
+        // so ShopForWeek buys for included recipes' products too. Delegate to the shared shortfall calculator
+        // (Missing + Low, shortfall = scaledRequired − available) so this path and AddMissingToShoppingList
+        // (J5) cannot diverge. Degrade to flat on the degenerate dangling-inclusion case (see class remarks).
+        var expandResult = await expansion.ExpandAsync(rid, ct);
+
+        IReadOnlyList<IngredientShortfall> shortfallLines;
+        if (expandResult.IsSuccess)
+        {
+            var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
+            var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+                effectiveLines, recipe.DefaultServings, servings, today, ct);
+            shortfallLines = RecipeShortfallCalculator.Compute(
+                effectiveLines, fulfillment, recipe.DefaultServings, servings);
+        }
+        else
+        {
+            var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
+            shortfallLines = RecipeShortfallCalculator.Compute(recipe, fulfillment, servings);
+        }
 
         return shortfallLines
             .Select(s => new RecipeMissingIngredient(s.ProductId, s.ShortfallQuantity, s.UnitId))

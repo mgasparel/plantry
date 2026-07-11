@@ -26,6 +26,7 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
     public async Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
         await db.Recipes
             .Include(r => r.Ingredients)
+            .Include(r => r.Inclusions)
             .Include(r => r.Tags)
             .Where(r => r.ArchivedAt == null)
             .OrderBy(r => r.Name)

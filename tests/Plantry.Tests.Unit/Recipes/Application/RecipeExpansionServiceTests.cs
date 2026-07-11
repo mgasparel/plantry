@@ -279,4 +279,58 @@ public sealed class RecipeExpansionServiceTests
         Assert.True(result.IsFailure);
         Assert.Equal("NotFound", result.Error.Code);
     }
+
+    // ── Resolver parity: repo path vs batched map path (Browse Option B — plantry-ckzc) ──────────
+
+    [Fact]
+    public async Task RepoPath_And_MapPath_Produce_Identical_Expansion()
+    {
+        // A three-level tree with direct ingredients at every level, so factor accumulation, ordering, and
+        // provenance are all exercised. The batched map path (Browse Option B) must produce byte-for-byte the
+        // same expansion as the repo path — they share the single recursive core, only the id→Recipe source
+        // differs — so Browse's badges cannot drift from the Details-page (repo) figures.
+        var (service, repo) = Build();
+        var leaf = Seed(repo, "Cashew Cream", 2, [Ing(10m, UnitG, ordinal: 0)]);
+        var mid = Seed(repo, "Cheese Sauce", 5, [Ing(7m, UnitG, ordinal: 0)], [new InclusionLine(leaf.Id, 4m, null, 1)]);
+        var top = Seed(repo, "Loaded Nachos", 3, [Ing(2m, UnitG, ordinal: 0)], [new InclusionLine(mid.Id, 15m, null, 1)]);
+
+        var viaRepo = await service.ExpandAsync(top.Id);
+        var map = repo.Items.ToDictionary(r => r.Id);
+        var viaMap = await service.ExpandAsync(top.Id, map);
+
+        Assert.True(viaRepo.IsSuccess);
+        Assert.True(viaMap.IsSuccess);
+        Assert.Equal(
+            viaRepo.Value.Select(l => (l.PathKey, l.IngredientId, l.SourceRecipeId, l.ProductId, l.Quantity, l.UnitId, string.Join('|', l.GroupPath))).ToList(),
+            viaMap.Value.Select(l => (l.PathKey, l.IngredientId, l.SourceRecipeId, l.ProductId, l.Quantity, l.UnitId, string.Join('|', l.GroupPath))).ToList());
+    }
+
+    [Fact]
+    public async Task MapPath_Missing_Sub_Returns_ExpansionSubNotFound()
+    {
+        // The map omits a legitimately-referenced sub (models a dangling/archived inclusion absent from the
+        // non-archived Browse set). The resolver returns null and expansion fails — the CALLER degrades that
+        // one row to flat, but the service itself surfaces the well-known error.
+        var (service, repo) = Build();
+        var sub = Seed(repo, "Sub", 2, [Ing(10m, UnitG, ordinal: 0)]);
+        var parent = Seed(repo, "Parent", 2, [], [new InclusionLine(sub.Id, 2m, null, 0)]);
+
+        var map = new Dictionary<RecipeId, Recipe> { [parent.Id] = parent }; // sub deliberately absent
+
+        var result = await service.ExpandAsync(parent.Id, map);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Recipes.ExpansionSubNotFound", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task MapPath_Missing_Root_Returns_NotFound()
+    {
+        var (service, _) = Build();
+
+        var result = await service.ExpandAsync(RecipeId.New(), new Dictionary<RecipeId, Recipe>());
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
 }

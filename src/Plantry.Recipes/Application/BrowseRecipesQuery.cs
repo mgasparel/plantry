@@ -5,9 +5,18 @@ namespace Plantry.Recipes.Application;
 
 /// <summary>
 /// Read-model query that assembles the Browse page view model (J1/J2, recipes.md resolved call 6).
-/// Loads all household recipes (lean — no photo join), then computes <see cref="FulfillmentResult"/>
-/// and <see cref="CostPerServing"/> per recipe at default servings via the domain services, then applies
-/// the requested filter and sort, returning <see cref="BrowseRecipesResult"/>.
+/// Loads all household recipes (lean — no photo join), expands each against the loaded set, then computes
+/// <see cref="ExpandedFulfillmentResult"/> and <see cref="CostPerServing"/> per recipe at default servings
+/// via the domain services, then applies the requested filter and sort, returning <see cref="BrowseRecipesResult"/>.
+///
+/// <para>Fulfillment and cost badges reflect a recipe's <b>expanded</b> view (recipe-composition.md §7, D4),
+/// so a recipe that draws its ingredients from included sub-recipes shows the same expanded figures on Browse
+/// as on its Details page (J5) — no J5/J6 drift. Because Browse sorts by fulfillment/cost, expanded values
+/// must be computed EAGERLY for every recipe, so a lazy per-row strategy cannot help. Expansion is done as
+/// pure in-memory work against an id→<see cref="Recipe"/> map built from the SAME bulk load Browse already
+/// issues (Option B): <see cref="IRecipeRepository.ListForBrowseAsync"/> loads every non-archived recipe with
+/// its ingredients + inclusions, so every legitimately-included sub-recipe (N5 blocks archiving an included
+/// recipe) is already in the set — zero per-sub round-trips.</para>
 ///
 /// Sort strategy (per recipes.md resolved call 6):
 ///   <list type="bullet">
@@ -21,6 +30,7 @@ namespace Plantry.Recipes.Application;
 public sealed class BrowseRecipesQuery(
     IRecipeRepository recipes,
     ITagRepository tags,
+    RecipeExpansionService expansion,
     FulfillmentService fulfillment,
     CostingService costing,
     ITenantContext tenant)
@@ -51,6 +61,13 @@ public sealed class BrowseRecipesQuery(
         // Selects only the PK column from recipe_photo — no bytea loaded, honouring resolved call 3.
         var photoIds = await recipes.ListRecipeIdsWithPhotoAsync(ct);
 
+        // Batched in-memory expansion (Option B, recipe-composition.md D4/D5): every non-archived recipe is
+        // already loaded (with ingredients + inclusions) by ListForBrowseAsync, so build an id→Recipe map and
+        // expand each recipe against the MAP — no per-sub round-trips. Expansion runs through the single
+        // RecipeExpansionService choke point (map-resolver overload), so Browse's expanded figures cannot
+        // drift from the Details page's repo-path figures on factor math / rounding / duplicate subs.
+        var recipesById = allRecipes.ToDictionary(r => r.Id);
+
         // Compute fulfillment + cost per recipe sequentially.
         // Task.WhenAll would launch concurrent awaits over the shared scoped DbContexts
         // (CatalogDbContext, InventoryDbContext) within a single HTTP request, which throws
@@ -61,9 +78,7 @@ public sealed class BrowseRecipesQuery(
         var computed = new List<RecipeBrowseRow>(allRecipes.Count);
         foreach (var r in allRecipes)
         {
-            var fulfillmentResult = await fulfillment.ComputeAsync(r, r.DefaultServings, today, ct);
-            var costResult = await costing.ComputeAsync(r, r.DefaultServings, ct);
-            computed.Add(BuildRow(r, fulfillmentResult, costResult, photoIds));
+            computed.Add(await BuildRowAsync(r, recipesById, photoIds, today, ct));
         }
 
         var cookableCount = computed.Count(row => row.FullyCookable);
@@ -117,12 +132,68 @@ public sealed class BrowseRecipesQuery(
         return new BrowseRecipesResult(allTags, rows, cookableCount);
     }
 
-    private static RecipeBrowseRow BuildRow(Recipe recipe, FulfillmentResult fulfillmentResult, CostPerServing costResult, IReadOnlySet<RecipeId> photoIds)
+    /// <summary>
+    /// Expands one recipe against the pre-loaded <paramref name="recipesById"/> map and computes its
+    /// expanded fulfillment + cost badges. Defensive fallback (recipe-composition.md Edge 1): if expansion
+    /// fails because a sub id is absent from the non-archived map (a dangling/archived inclusion authored by a
+    /// tampered request that bypassed the picker — N5 rules this out for legitimate recipes), THIS ONE ROW
+    /// degrades to FLAT computation (no worse than before this change) rather than failing the whole page.
+    /// </summary>
+    private async Task<RecipeBrowseRow> BuildRowAsync(
+        Recipe recipe,
+        IReadOnlyDictionary<RecipeId, Recipe> recipesById,
+        IReadOnlySet<RecipeId> photoIds,
+        DateOnly today,
+        CancellationToken ct)
     {
-        // inStock = ingredients that are InStock or Untracked (satisfied)
-        var totalTracked = fulfillmentResult.Lines.Count(l => l.Status != IngredientStatus.Untracked);
-        var inStock = fulfillmentResult.Lines.Count(l =>
-            l.Status is IngredientStatus.InStock or IngredientStatus.Untracked);
+        var expandResult = await expansion.ExpandAsync(recipe.Id, recipesById, ct);
+        if (expandResult.IsSuccess)
+        {
+            // Expanded path: aggregate the flat lines by (ProductId, UnitId) — duplicate subs (D14) merge —
+            // and compute fulfillment/cost over the effective set at the recipe's own DefaultServings (Edge 2).
+            var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
+            var fulfillmentResult = await fulfillment.ComputeExpandedAsync(
+                effectiveLines, recipe.DefaultServings, recipe.DefaultServings, today, ct);
+            var costResult = await costing.ComputeExpandedAsync(
+                effectiveLines, recipe.DefaultServings, recipe.DefaultServings, ct);
+
+            return BuildRow(
+                recipe,
+                fulfillmentResult.Overall,
+                fulfillmentResult.Lines.Select(l => l.Status).ToList(),
+                fulfillmentResult.Lines.Any(l => l.ExpiresWithinDays.HasValue),
+                costResult,
+                photoIds);
+        }
+
+        // Defensive flat fallback (Edge 1): compute over the recipe's own direct ingredients only.
+        var flatFulfillment = await fulfillment.ComputeAsync(recipe, recipe.DefaultServings, today, ct);
+        var flatCost = await costing.ComputeAsync(recipe, recipe.DefaultServings, ct);
+        return BuildRow(
+            recipe,
+            flatFulfillment.Overall,
+            flatFulfillment.Lines.Select(l => l.Status).ToList(),
+            flatFulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue),
+            flatCost,
+            photoIds);
+    }
+
+    /// <summary>
+    /// Assembles a <see cref="RecipeBrowseRow"/> from an already-computed per-line status set and cost.
+    /// Shared by the expanded and flat-fallback paths (fed the expanded product-line statuses or the flat
+    /// ingredient statuses respectively) so the badge maths cannot diverge between them.
+    /// </summary>
+    private static RecipeBrowseRow BuildRow(
+        Recipe recipe,
+        FulfillmentOverall overall,
+        IReadOnlyList<IngredientStatus> statuses,
+        bool hasExpiringSoon,
+        CostPerServing costResult,
+        IReadOnlySet<RecipeId> photoIds)
+    {
+        // inStock = lines that are InStock or Untracked (satisfied)
+        var totalTracked = statuses.Count(s => s != IngredientStatus.Untracked);
+        var inStock = statuses.Count(s => s is IngredientStatus.InStock or IngredientStatus.Untracked);
 
         // Fulfillment percentage (0–100): ratio of InStock+Untracked to all lines.
         // Recipes with no tracked ingredients are trivially 100% cookable.
@@ -130,12 +201,7 @@ public sealed class BrowseRecipesQuery(
         if (totalTracked == 0)
             pct = 100;
         else
-            pct = (int)Math.Round(
-                (double)fulfillmentResult.Lines.Count(l =>
-                    l.Status is IngredientStatus.InStock or IngredientStatus.Untracked)
-                / fulfillmentResult.Lines.Count * 100);
-
-        var hasExpiringSoon = fulfillmentResult.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+            pct = (int)Math.Round((double)inStock / statuses.Count * 100);
 
         return new RecipeBrowseRow(
             RecipeId: recipe.Id.Value,
@@ -144,11 +210,11 @@ public sealed class BrowseRecipesQuery(
             DefaultServings: recipe.DefaultServings,
             CreatedAt: recipe.CreatedAt,
             TagIds: recipe.Tags.Select(t => t.TagId.Value).ToList(),
-            FullyCookable: fulfillmentResult.Overall.FullyCookable,
+            FullyCookable: overall.FullyCookable,
             FulfillmentPct: pct,
             InStockCount: inStock,
-            TotalIngredientCount: fulfillmentResult.Lines.Count,
-            MissingCount: fulfillmentResult.Overall.MissingCount,
+            TotalIngredientCount: statuses.Count,
+            MissingCount: overall.MissingCount,
             HasIngredientExpiringSoon: hasExpiringSoon,
             CostPerServing: costResult.Completeness != CostCompleteness.None ? costResult.Amount : null,
             CostCompleteness: costResult.Completeness,

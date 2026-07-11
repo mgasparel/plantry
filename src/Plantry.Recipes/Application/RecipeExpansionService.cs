@@ -22,15 +22,57 @@ namespace Plantry.Recipes.Application;
 public sealed class RecipeExpansionService(IRecipeRepository recipes)
 {
     /// <summary>
-    /// Expands <paramref name="recipeId"/> to its flat <see cref="ExpandedLine"/> list. Returns
-    /// <see cref="Error.NotFound"/> when the recipe (or a referenced sub-recipe) cannot be loaded, and a
-    /// <c>Recipes.ExpansionCycle</c> error if a cyclic inclusion is encountered (defensive — N4 should
-    /// prevent this at save).
+    /// A source that resolves a <see cref="RecipeId"/> to its loaded <see cref="Recipe"/> aggregate, or
+    /// <c>null</c> when the recipe cannot be resolved. The single recursive core (<see cref="ExpandCoreAsync"/>)
+    /// is written against this delegate so that the repo-backed path (<see cref="ExpandAsync(RecipeId,CancellationToken)"/>)
+    /// and the batched in-memory path (<see cref="ExpandAsync(RecipeId,IReadOnlyDictionary{RecipeId,Recipe},CancellationToken)"/>)
+    /// share ONE expansion implementation — the factor math, 3-dp leaf rounding, D14 duplicate-sub handling,
+    /// untracked passthrough and N3 ordering cannot drift between the two sources.
     /// </summary>
-    public async Task<Result<IReadOnlyList<ExpandedLine>>> ExpandAsync(
-        RecipeId recipeId, CancellationToken ct = default)
+    private delegate ValueTask<Recipe?> RecipeResolver(RecipeId id, CancellationToken ct);
+
+    /// <summary>
+    /// Expands <paramref name="recipeId"/> to its flat <see cref="ExpandedLine"/> list, loading the recipe
+    /// and every referenced sub-recipe from the repository. Returns <see cref="Error.NotFound"/> when the
+    /// recipe (or a referenced sub-recipe) cannot be loaded, and a <c>Recipes.ExpansionCycle</c> error if a
+    /// cyclic inclusion is encountered (defensive — N4 should prevent this at save).
+    /// </summary>
+    public Task<Result<IReadOnlyList<ExpandedLine>>> ExpandAsync(
+        RecipeId recipeId, CancellationToken ct = default) =>
+        ExpandCoreAsync(recipeId, (id, token) => new ValueTask<Recipe?>(recipes.GetByIdAsync(id, token)), ct);
+
+    /// <summary>
+    /// Expands <paramref name="recipeId"/> against a pre-loaded id→<see cref="Recipe"/> map instead of the
+    /// repository — the batched in-memory path used by the Browse read model (recipe-composition.md D4/D5).
+    /// The caller loads EVERY non-archived recipe (with ingredients + inclusions) in one bulk query and
+    /// passes the resulting map here, so expansion issues zero further round-trips. Because
+    /// <c>ArchiveRecipe</c> (N5) blocks archiving a recipe that is still included by another, a live recipe's
+    /// inclusions provably target only non-archived subs, so <paramref name="recipesById"/> is complete for
+    /// all legitimate inclusions. If a sub id is nonetheless absent (a tampered request that bypassed the
+    /// picker authored a dangling/archived inclusion), the resolver returns <c>null</c> and this method fails
+    /// with <c>Recipes.ExpansionSubNotFound</c> — the caller degrades that ONE recipe to flat computation
+    /// rather than failing the page.
+    /// </summary>
+    /// <param name="recipeId">The root recipe to expand — must itself be present in <paramref name="recipesById"/>.</param>
+    /// <param name="recipesById">The pre-loaded non-archived recipe set keyed by id (from the Browse bulk load).</param>
+    public Task<Result<IReadOnlyList<ExpandedLine>>> ExpandAsync(
+        RecipeId recipeId,
+        IReadOnlyDictionary<RecipeId, Recipe> recipesById,
+        CancellationToken ct = default) =>
+        ExpandCoreAsync(
+            recipeId,
+            (id, _) => new ValueTask<Recipe?>(recipesById.TryGetValue(id, out var r) ? r : null),
+            ct);
+
+    /// <summary>
+    /// The single recursive expansion implementation, parameterised over how a recipe id is resolved to its
+    /// aggregate (<paramref name="resolve"/>). Both public overloads funnel through here so the repo-backed
+    /// and batched in-memory paths cannot diverge.
+    /// </summary>
+    private async Task<Result<IReadOnlyList<ExpandedLine>>> ExpandCoreAsync(
+        RecipeId recipeId, RecipeResolver resolve, CancellationToken ct)
     {
-        var root = await recipes.GetByIdAsync(recipeId, ct);
+        var root = await resolve(recipeId, ct);
         if (root is null)
             return Result<IReadOnlyList<ExpandedLine>>.Failure(Error.NotFound);
 
@@ -38,7 +80,7 @@ public sealed class RecipeExpansionService(IRecipeRepository recipes)
         // The ancestor set holds only the recipes on the CURRENT DFS branch — a sub legitimately included
         // twice in different branches (D14) is not a cycle, so ids are removed on backtrack.
         var ancestors = new HashSet<RecipeId> { root.Id };
-        var error = await ExpandRecipeAsync(root, [], 1m, [], ancestors, sink, ct);
+        var error = await ExpandRecipeAsync(root, [], 1m, [], ancestors, sink, resolve, ct);
         return error is not null
             ? Result<IReadOnlyList<ExpandedLine>>.Failure(error)
             : Result<IReadOnlyList<ExpandedLine>>.Success(sink);
@@ -72,6 +114,7 @@ public sealed class RecipeExpansionService(IRecipeRepository recipes)
         IReadOnlyList<string> groupPrefix,
         HashSet<RecipeId> ancestors,
         List<ExpandedLine> sink,
+        RecipeResolver resolve,
         CancellationToken ct)
     {
         // Emit lines in author order across the union of both line types (N3 shared ordinal space), so a
@@ -116,7 +159,7 @@ public sealed class RecipeExpansionService(IRecipeRepository recipes)
                 return Error.Custom("Recipes.ExpansionCycle",
                     $"Cyclic inclusion detected: recipe {inc.SubRecipeId} includes itself transitively.");
 
-            var sub = await recipes.GetByIdAsync(inc.SubRecipeId, ct);
+            var sub = await resolve(inc.SubRecipeId, ct);
             if (sub is null)
                 return Error.Custom("Recipes.ExpansionSubNotFound",
                     $"Included recipe {inc.SubRecipeId} could not be loaded.");
@@ -127,7 +170,7 @@ public sealed class RecipeExpansionService(IRecipeRepository recipes)
             var subGroupPrefix = new List<string>(groupPrefix) { sub.Name };
 
             ancestors.Add(inc.SubRecipeId);
-            var error = await ExpandRecipeAsync(sub, subPath, subFactor, subGroupPrefix, ancestors, sink, ct);
+            var error = await ExpandRecipeAsync(sub, subPath, subFactor, subGroupPrefix, ancestors, sink, resolve, ct);
             ancestors.Remove(inc.SubRecipeId);
             if (error is not null)
                 return error;
