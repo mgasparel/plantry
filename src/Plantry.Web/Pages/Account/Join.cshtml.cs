@@ -1,11 +1,9 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Identity.Application;
 using Plantry.Identity.Infrastructure;
-using Plantry.Web.Tenancy;
 
 namespace Plantry.Web.Pages.Account;
 
@@ -17,17 +15,22 @@ namespace Plantry.Web.Pages.Account;
 /// NEW household and seeds reference data. This flow deliberately runs neither the household-registration command
 /// nor the reference-data seeders: the household already exists with its own units/categories/tags.
 ///
-/// ADR-010 two-aggregate rule: user creation (Identity/UserManager) and invite acceptance are two steps, not one
-/// transaction. We create the user FIRST, then mark the invite accepted — because a pending invite that already
-/// produced its user is the recoverable state, whereas an accepted invite with no user is not. Everything here runs
-/// with NO tenant context (the invitee is unauthenticated), so the household_invites / users RLS no-context
-/// carve-out serves both the token lookup and the user insert.
+/// ADR-010 amendment (2026-07-11, plantry-bmfg): join-via-invite commits user-creation + invite-acceptance
+/// <b>atomically</b> within the Identity context — both are ONE bounded context / ONE DbContext, so the
+/// within-context transaction crosses no aggregate seam. This supersedes the earlier create-user-first,
+/// log-and-continue ordering (plantry-mfli). The page no longer orchestrates the saga: it runs the pre-checks
+/// (validate token, ModelState, email-not-already-a-user) OUTSIDE the transaction, then hands the three writes
+/// to <see cref="JoinHouseholdCommand"/>, which wraps create-user → stamp-claim → accept-invite in one
+/// transaction. If acceptance loses the single-use race, the command rolls back (the user INSERT vanishes) and
+/// this page shows the dead-end. <see cref="SignInManager{TUser}.SignInAsync(TUser, bool, string)"/> runs strictly
+/// AFTER the commit. Everything runs with NO tenant context (the invitee is unauthenticated), so the
+/// household_invites / users RLS no-context carve-out serves both the token lookup and the user insert.
 /// </summary>
 public sealed class JoinModel(
-    UserManager<AppUser> userManager,
     SignInManager<AppUser> signInManager,
     HouseholdInviteService invites,
-    ILogger<JoinModel> logger) : PageModel
+    JoinHouseholdCommand joinHousehold,
+    UserManager<AppUser> userManager) : PageModel
 {
     /// <summary>The invite token, carried from the query string on GET and round-tripped through the POST form.</summary>
     [BindProperty]
@@ -108,51 +111,39 @@ public sealed class JoinModel(
             return Page();
         }
 
-        var householdId = validation.Value.HouseholdId.Value;
+        // Hand the three writes (create user → stamp claim → accept invite) to the Identity-module command,
+        // which runs them as ONE transaction (ADR-010 amendment, plantry-bmfg). We DON'T sign in here — the
+        // command owns the atomic write; sign-in happens only after it reports a committed success.
+        var join = await joinHousehold.ExecuteAsync(
+            Token,
+            validation.Value.HouseholdId,
+            Input.Email,
+            Input.DisplayName,
+            Input.Password,
+            ct);
 
-        // Step 1 (ADR-010): create the Identity user in the INVITING household. No RegisterHouseholdCommand,
-        // no reference-data seeders — the household already has its data. Runs with no tenant context; the
-        // identity.users RLS no-context carve-out permits the insert.
-        var user = new AppUser
+        switch (join.Outcome)
         {
-            UserName = Input.Email,
-            Email = Input.Email,
-            DisplayName = Input.DisplayName,
-            HouseholdId = householdId
-        };
+            case JoinOutcome.UserCreationFailed:
+                foreach (var error in join.UserCreationErrors)
+                    ModelState.AddModelError(string.Empty, error.Description);
+                return Page();
 
-        var identityResult = await userManager.CreateAsync(user, Input.Password);
-        if (!identityResult.Succeeded)
-        {
-            foreach (var error in identityResult.Errors)
-                ModelState.AddModelError(string.Empty, error.Description);
-            return Page();
+            case JoinOutcome.InviteUnavailable:
+                // The invite was accepted/revoked/expired between our pre-check and the write — most often a
+                // concurrent double-submit that another request won. The command already rolled back, so no
+                // second user exists. Show the friendly dead-end rather than a stale form.
+                SetDeadEnd(join.InviteError.Description);
+                return Page();
+
+            case JoinOutcome.Succeeded:
+                // Sign in strictly AFTER the commit (the command returns only on a committed success).
+                await signInManager.SignInAsync(join.User!, isPersistent: false);
+                return RedirectToPage("/Today/Index");
+
+            default:
+                throw new InvalidOperationException($"Unhandled join outcome '{join.Outcome}'.");
         }
-
-        // Stamp the household claim exactly as registration does — it is baked into the auth cookie and
-        // drives RLS for every subsequent authenticated request.
-        await userManager.AddClaimAsync(user, new Claim(HouseholdIdClaims.ClaimType, householdId.ToString()));
-
-        // Step 2 (ADR-010): only now mark the invite accepted (one-way, records accepted_at). If this fails
-        // (e.g. a concurrent double-submit accepted it first), the user already exists as a valid member —
-        // the recoverable state. Log and continue rather than orphaning them or rolling back into the worse
-        // "accepted invite, no user" state. (Concurrency hardening is tracked separately as plantry-bmfg.)
-        var accept = await invites.AcceptAsync(Token, ct);
-        if (accept.IsFailure)
-        {
-            logger.LogWarning(
-                "Join: user {UserId} was created into household {HouseholdId} but AcceptAsync failed — {Code}: {Description}. "
-                + "The user is a valid member; the invite was left unmarked.",
-                user.Id, householdId, accept.Error.Code, accept.Error.Description);
-        }
-
-        // Happy-path domain event (Gate 9): a new member joined an existing household via an invite.
-        // IDs only — never the email/display name (PII).
-        logger.LogInformation(
-            "Join: user {UserId} joined household {HouseholdId} via an accepted invite.", user.Id, householdId);
-
-        await signInManager.SignInAsync(user, isPersistent: false);
-        return RedirectToPage("/Today/Index");
     }
 
     private void SetDeadEnd(string message)

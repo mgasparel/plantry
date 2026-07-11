@@ -1,11 +1,14 @@
 using System.Security.Claims;
+using Plantry.Identity.Infrastructure;
 using Plantry.SharedKernel;
 
 namespace Plantry.Web.Tenancy;
 
 public static class HouseholdIdClaims
 {
-    public const string ClaimType = "household_id";
+    // Single source of truth lives in the Identity module (the writer of this claim). Aliased here so
+    // the web tier's readers/callers keep using HouseholdIdClaims.ClaimType unchanged.
+    public const string ClaimType = HouseholdClaimTypes.HouseholdId;
 
     public static HouseholdId? TryResolve(ClaimsPrincipal user)
     {

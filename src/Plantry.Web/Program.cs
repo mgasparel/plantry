@@ -198,6 +198,9 @@ builder.Services.AddScoped<IAiAssistanceGate>(sp => sp.GetRequiredService<AiAssi
 // accept runs pre-auth and resolves the invite by its unique token (identity schema).
 builder.Services.AddScoped<IHouseholdInviteRepository, HouseholdInviteRepository>();
 builder.Services.AddScoped<HouseholdInviteService>();
+// Atomic join-via-invite (plantry-bmfg): create user + stamp claim + accept invite in ONE transaction
+// on the shared identity DbContext. Extracted from the Join page so it no longer orchestrates the saga.
+builder.Services.AddScoped<JoinHouseholdCommand>();
 
 // plantry-m1u: cross-context ACL adapters + the domain-event dispatch machinery (dispatcher +
 // interceptor pair + transactional buffer) are wired from the dedicated Plantry.Composition assembly
