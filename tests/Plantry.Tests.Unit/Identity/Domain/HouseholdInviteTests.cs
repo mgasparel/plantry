@@ -14,6 +14,7 @@ public sealed class HouseholdInviteTests
     private static readonly DateTimeOffset Now = new(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
     private static readonly HouseholdId Household = HouseholdId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001"));
     private static readonly Guid Inviter = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000001");
+    private static readonly Guid Accepter = Guid.Parse("cccccccc-0000-0000-0000-000000000001");
 
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {
@@ -74,11 +75,13 @@ public sealed class HouseholdInviteTests
         var invite = Issue(new FixedClock(Now));
         var acceptClock = new FixedClock(Now + TimeSpan.FromDays(1));
 
-        var result = invite.Accept(acceptClock);
+        var result = invite.Accept(Accepter, acceptClock);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(InviteStatus.Accepted, invite.Status);
         Assert.Equal(acceptClock.UtcNow, invite.AcceptedAt);
+        // The joining user is stamped as the audit link (accepted_by_user_id, plantry-bmfg).
+        Assert.Equal(Accepter, invite.AcceptedByUserId);
     }
 
     [Fact(DisplayName = "Accept is one-way: a second accept fails and leaves the first accepted_at intact (R4)")]
@@ -86,9 +89,9 @@ public sealed class HouseholdInviteTests
     {
         var invite = Issue(new FixedClock(Now));
         var firstAcceptAt = Now + TimeSpan.FromDays(1);
-        invite.Accept(new FixedClock(firstAcceptAt));
+        invite.Accept(Accepter, new FixedClock(firstAcceptAt));
 
-        var result = invite.Accept(new FixedClock(Now + TimeSpan.FromDays(2)));
+        var result = invite.Accept(Accepter, new FixedClock(Now + TimeSpan.FromDays(2)));
 
         Assert.True(result.IsFailure);
         Assert.Equal("Invite.NotPending", result.Error.Code);
@@ -101,7 +104,7 @@ public sealed class HouseholdInviteTests
     {
         var invite = Issue(new FixedClock(Now), validity: TimeSpan.FromDays(7));
 
-        var result = invite.Accept(new FixedClock(Now + TimeSpan.FromDays(7)));
+        var result = invite.Accept(Accepter, new FixedClock(Now + TimeSpan.FromDays(7)));
 
         Assert.True(result.IsFailure);
         Assert.Equal("Invite.Expired", result.Error.Code);
@@ -115,7 +118,7 @@ public sealed class HouseholdInviteTests
         var invite = Issue(new FixedClock(Now), validity: TimeSpan.FromDays(7));
         var justBefore = invite.ExpiresAt - TimeSpan.FromTicks(1);
 
-        Assert.True(invite.Accept(new FixedClock(justBefore)).IsSuccess);
+        Assert.True(invite.Accept(Accepter, new FixedClock(justBefore)).IsSuccess);
     }
 
     [Fact(DisplayName = "A revoked invite cannot be accepted (R4)")]
@@ -124,7 +127,7 @@ public sealed class HouseholdInviteTests
         var invite = Issue(new FixedClock(Now));
         invite.Revoke();
 
-        var result = invite.Accept(new FixedClock(Now + TimeSpan.FromDays(1)));
+        var result = invite.Accept(Accepter, new FixedClock(Now + TimeSpan.FromDays(1)));
 
         Assert.True(result.IsFailure);
         Assert.Equal("Invite.NotPending", result.Error.Code);
@@ -161,7 +164,7 @@ public sealed class HouseholdInviteTests
     public void Validate_Fails_When_Accepted()
     {
         var invite = Issue(new FixedClock(Now));
-        invite.Accept(new FixedClock(Now + TimeSpan.FromDays(1)));
+        invite.Accept(Accepter, new FixedClock(Now + TimeSpan.FromDays(1)));
 
         var result = invite.Validate(new FixedClock(Now + TimeSpan.FromDays(2)));
 
@@ -208,7 +211,7 @@ public sealed class HouseholdInviteTests
     public void Revoke_Fails_When_Accepted()
     {
         var invite = Issue(new FixedClock(Now));
-        invite.Accept(new FixedClock(Now + TimeSpan.FromDays(1)));
+        invite.Accept(Accepter, new FixedClock(Now + TimeSpan.FromDays(1)));
 
         var result = invite.Revoke();
 

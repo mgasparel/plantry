@@ -1,10 +1,15 @@
 @page "/Recipes/{id:guid}/Cook"
 @using System.Globalization
 @model Plantry.Web.Pages.Recipes.CookModel
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @{
     ViewData["Title"] = $"Cook {Model.Cook.RecipeName}";
     ViewData["ContentClass"] = "page-content--wide";
     var cook = Model.Cook;
+    // Versioned path for the pure skip/count module, loaded ahead of the Alpine factory (cache-bust via
+    // ?v= — the island convention, see Dev/Index.cshtml). Query-string, so the base path is stable.
+    var cookLogicSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/islands/cook-logic.js");
     // All lines across the recipe's own direct ingredients AND every inclusion group — the notices,
     // Alpine seed payload, and rail counts consider both (recipe-composition.md §6).
     var allLines = cook.Lines.Concat(cook.InclusionGroups.SelectMany(g => g.Lines)).ToList();
@@ -27,20 +32,10 @@
     var unitsJson = System.Text.Json.JsonSerializer.Serialize(
         Model.UnitOptions.Select(u => new { id = u.Value, code = u.Text }));
 
-    // Build the x-data init. A recipe with no inclusions emits the exact pre-composition 2-arg call
-    // (no snapshot churn); a recipe with inclusions passes a 3rd arg mapping each inclusion path to its
-    // tracked-line count so the rail's active count subtracts whole-inclusion skips.
-    string xData;
-    if (hasInclusions)
-    {
-        var inclCountsJson = System.Text.Json.JsonSerializer.Serialize(
-            cook.InclusionGroups.ToDictionary(g => g.PathKey, g => g.Lines.Count(l => !l.IsUntracked)));
-        xData = $"cookConfirm({linesJson}, {unitsJson}, {inclCountsJson})";
-    }
-    else
-    {
-        xData = $"cookConfirm({linesJson}, {unitsJson})";
-    }
+    // Build the x-data init. The active-ingredient count is now AUTHORITATIVE (set-based over the seeded
+    // line keys, cook-logic.js), so the rail no longer needs a per-inclusion line-count map — flat and
+    // composed recipes both emit the same 2-arg call (a flat recipe is byte-for-byte pre-composition).
+    var xData = $"cookConfirm({linesJson}, {unitsJson})";
 }
 
 @* ── Alpine scope: per-line skip state + variant picker selections ────────── *@
@@ -152,10 +147,15 @@
                                     @FormatServings(group.EffectiveServings) serving@(group.EffectiveServings == 1m ? "" : "s")
                                 </p>
                             </div>
+                            @* A descendant group's own Skip-all is disabled when an ANCESTOR inclusion is
+                               whole-skipped (its lines are already dropped by the ancestor — consume parity,
+                               Q2). A strict-ancestor test (not the exact self) keeps THIS group's Undo live
+                               when only it is skipped. *@
                             <button type="button"
                                     class="btn btn--ghost btn--sm cook-inclusion-skip-btn"
                                     @@click="toggleInclusion('@group.PathKey')"
                                     :aria-pressed="isInclusionSkipped('@group.PathKey')"
+                                    :disabled="isAncestorInclusionSkipped('@group.PathKey')"
                                     aria-label="Skip @group.SubRecipeName">
                                 <span x-show="!isInclusionSkipped('@group.PathKey')">Skip all</span>
                                 <span x-show="isInclusionSkipped('@group.PathKey')">Undo</span>
@@ -338,14 +338,19 @@
 }
 
 @section Scripts {
+@* Pure skip/count predicates (plantry-xvdo). Loaded as a CLASSIC (non-deferred) script BEFORE the
+   inline cookConfirm factory so both run during parse, ahead of the deferred alpine.min.js that
+   evaluates x-data — see cook-logic.js header for the load-order rationale. It sets window.CookLogic. *@
+<script src="@cookLogicSrc"></script>
 <script>
-function cookConfirm(lines, units, inclusionCounts) {
+function cookConfirm(lines, units) {
     // lines: [{id: "lineKey", variantId: "guid-or-null", qty: <number|null>}, ...]
     //   lineKey == IngredientId for a direct line, or "{pathKey}|{ingredientId}" for an expanded
     //   inclusion line (recipe-composition.md §6, D6).
     // units: [{id: "guid", code: "g"}, ...] — for the Add-product row unit selector (plantry-7zjm).
-    // inclusionCounts: {[pathKey]: trackedLineCount} — present only when the recipe has inclusions, so
-    //   the active count can subtract whole-inclusion skips.
+    // The active-ingredient count and every skip/grey predicate delegate to window.CookLogic (a pure,
+    // node --test-covered module) so the rail stat, per-line greying, and group-card greying share one
+    // authoritative, order-independent, prefix-aware definition that matches the server's consume.
     return {
         // Track which lines are individually skipped (by lineKey — direct and inclusion alike).
         skippedIds: [],
@@ -363,8 +368,8 @@ function cookConfirm(lines, units, inclusionCounts) {
         _origQuantities: Object.fromEntries(
             lines.filter(l => l.qty != null).map(l => [l.id, l.qty])
         ),
-        _total: lines.length,
-        _inclCounts: inclusionCounts || null,
+        // Every tracked line key, seeded once — the authoritative set the active count reduces over.
+        _lineKeys: lines.map(l => l.id),
 
         // ── Added products (plantry-7zjm) ─────────────────────────────────────
         // Existing catalog products the user added to just this cook. Each row posts as
@@ -383,8 +388,17 @@ function cookConfirm(lines, units, inclusionCounts) {
         },
 
         // ── Whole-inclusion skip (D7) ─────────────────────────────────────────
+        // PREFIX-AWARE: an inclusion path is skipped when it is exactly skipped OR sits under a
+        // whole-skipped ANCESTOR — matching the server's WholeInclusionSkip prefix consume. This one
+        // predicate drives (a) activeCount, (b) per-line greying (skippedExpr), and (c) the group card
+        // :class, so a nested descendant card/line greys when an ancestor is whole-skipped.
         isInclusionSkipped(pathKey) {
-            return pathKey !== '' && this.skippedInclusions.includes(pathKey);
+            return CookLogic.isPathUnderSkip(pathKey, this.skippedInclusions);
+        },
+        // A STRICT ancestor of this path is whole-skipped (exact self excluded) — disables a descendant
+        // group's own Skip-all under a skipped ancestor while keeping its own Undo live.
+        isAncestorInclusionSkipped(pathKey) {
+            return CookLogic.isAncestorSkipped(pathKey, this.skippedInclusions);
         },
         toggleInclusion(pathKey) {
             if (this.isInclusionSkipped(pathKey)) {
@@ -441,15 +455,12 @@ function cookConfirm(lines, units, inclusionCounts) {
         get inclusionSkips() { return this.skippedIds.filter(k => k.includes('|')); },
         get directModifiedQuantities() { return this.modifiedQuantities.filter(m => !m.id.includes('|')); },
         get inclusionModifiedQuantities() { return this.modifiedQuantities.filter(m => m.id.includes('|')); },
+        // AUTHORITATIVE, set-based: count each tracked line once, excluding it when individually skipped
+        // OR under any whole-inclusion skip path. Order-independent and correct for nested inclusions —
+        // no double-count (a line both skipped and under a skipped group drops once) and no nested
+        // under-count (a descendant drops under a skipped ancestor). See cook-logic.js.
         get activeCount() {
-            let n = this._total - this.skippedIds.length;
-            if (this._inclCounts) {
-                // Whole-inclusion skips drop every line beneath the path — subtract those tracked counts.
-                for (const p of this.skippedInclusions) {
-                    n -= (this._inclCounts[p] || 0);
-                }
-            }
-            return n;
+            return CookLogic.activeLineCount(this._lineKeys, this.skippedIds, this.skippedInclusions);
         },
     };
 }

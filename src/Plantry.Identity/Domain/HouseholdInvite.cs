@@ -35,6 +35,14 @@ public sealed class HouseholdInvite : AggregateRoot<HouseholdInviteId>
     public DateTimeOffset ExpiresAt { get; private set; }
     public DateTimeOffset? AcceptedAt { get; private set; }
 
+    /// <summary>
+    /// The Identity user who accepted this invite — stamped inside the join transaction so the invite
+    /// row is the audit link between "which member joined" and "which invite let them in" (roles/removal
+    /// will need it). Null while pending/revoked. A soft cross-reference to <c>identity.users</c> (id only),
+    /// same shape as <see cref="InvitedByUserId"/>.
+    /// </summary>
+    public Guid? AcceptedByUserId { get; private set; }
+
     private HouseholdInvite() { } // EF
 
     private HouseholdInvite(
@@ -92,9 +100,12 @@ public sealed class HouseholdInvite : AggregateRoot<HouseholdInviteId>
     /// <summary>
     /// Accepts the invite: the one-way <c>pending → accepted</c> transition (R4). Fails if the invite
     /// is not pending or has expired (R5, checked against <paramref name="clock"/> via
-    /// <see cref="Validate"/>). Records <see cref="AcceptedAt"/> on success.
+    /// <see cref="Validate"/>). Records <see cref="AcceptedAt"/> and stamps <see cref="AcceptedByUserId"/>
+    /// (<paramref name="acceptedByUserId"/> — the just-created joining user) on success. This in-memory
+    /// guard is the aggregate half of single-use; the durable backstop against a concurrent double-accept
+    /// is the <c>xmin</c> optimistic-concurrency token on the row (plantry-bmfg).
     /// </summary>
-    public Result Accept(IClock clock)
+    public Result Accept(Guid acceptedByUserId, IClock clock)
     {
         var check = Validate(clock);
         if (check.IsFailure)
@@ -102,6 +113,7 @@ public sealed class HouseholdInvite : AggregateRoot<HouseholdInviteId>
 
         Status = InviteStatus.Accepted;
         AcceptedAt = clock.UtcNow;
+        AcceptedByUserId = acceptedByUserId;
         return Result.Success();
     }
 

@@ -96,6 +96,37 @@ public sealed class CookInclusionTests : IDisposable
             html, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The whole-inclusion skip wiring (plantry-xvdo): expanded inclusion lines DISABLE their per-line
+    /// Skip toggle when the inclusion is whole-skipped (Q1), the group's own Skip-all is disabled only
+    /// under a skipped ANCESTOR (isAncestorInclusionSkipped, not the exact self), and the authoritative
+    /// set-based active count + prefix-aware skip predicate are wired through the extracted CookLogic
+    /// module (loaded ahead of the Alpine factory). Direct lines never carry the disable attribute.
+    /// </summary>
+    [Fact]
+    public async Task Inclusion_skip_wiring_disables_controls_and_uses_authoritative_count()
+    {
+        var html = await GetPageAsync(DefaultServings);
+        var lineKey = _factory.LineKeyFor(CookInclusionFixture.CashewsId);
+        var path = _factory.InclusionPathKey;
+
+        // (a) Per-line Skip on an expanded inclusion line is disabled when its inclusion is whole-skipped
+        //     (prefix-aware, so also under a skipped ancestor). Bound next to the toggle for that key.
+        Assert.Contains($"toggleSkip('{lineKey}')", html, StringComparison.Ordinal);
+        Assert.Contains($":disabled=\"isInclusionSkipped('{path}')\"", html, StringComparison.Ordinal);
+
+        // (b) The group's own Skip-all disables only under a skipped ANCESTOR (its own exact skip keeps
+        //     Undo live) — the strict-ancestor predicate.
+        Assert.Contains($":disabled=\"isAncestorInclusionSkipped('{path}')\"", html, StringComparison.Ordinal);
+
+        // (c) The count is authoritative/set-based and the predicates delegate to the pure CookLogic
+        //     module — the old per-inclusion subtraction arithmetic is gone.
+        Assert.Contains("CookLogic.activeLineCount", html, StringComparison.Ordinal);
+        Assert.Contains("CookLogic.isPathUnderSkip", html, StringComparison.Ordinal);
+        Assert.Contains("/js/islands/cook-logic.js", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("_inclCounts", html, StringComparison.Ordinal);
+    }
+
     /// <summary>The group's effective servings rescale with the desired servings (D2).</summary>
     [Fact]
     public async Task Inclusion_effective_servings_rescale_with_desired_servings()

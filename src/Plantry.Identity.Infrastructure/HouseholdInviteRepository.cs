@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Plantry.Identity.Domain;
+using Plantry.SharedKernel;
 
 namespace Plantry.Identity.Infrastructure;
 
@@ -28,6 +29,19 @@ public sealed class HouseholdInviteRepository(PlantryIdentityDbContext db) : IHo
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync(ct);
 
-    public Task SaveChangesAsync(CancellationToken ct = default) =>
-        db.SaveChangesAsync(ct);
+    // Translate EF's provider-specific optimistic-concurrency failure (the xmin-guarded accept/revoke
+    // UPDATE matching zero rows because a concurrent transaction won the race) into the EF-free
+    // SharedKernel exception the application service reacts to. All other persistence failures propagate.
+    public async Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            throw new ConcurrencyConflictException(
+                "A concurrent transaction changed this household_invite before this write landed.", ex);
+        }
+    }
 }

@@ -17,6 +17,7 @@ public sealed class HouseholdInviteServiceTests
     private static readonly DateTimeOffset Now = new(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
     private static readonly Guid HouseholdA = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid Inviter = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000001");
+    private static readonly Guid Accepter = Guid.Parse("cccccccc-0000-0000-0000-000000000001");
 
     private static HouseholdInviteService Service(FakeInviteRepository repo, Guid? household, IClock? clock = null) =>
         new(repo, new FakeTenantContext(household), clock ?? new FixedClock(Now),
@@ -118,7 +119,7 @@ public sealed class HouseholdInviteServiceTests
 
         // No tenant context — the unauthenticated invitee path.
         var result = await Service(repo, household: null, clock: new FixedClock(Now + TimeSpan.FromDays(1)))
-            .AcceptAsync(invite.Token);
+            .AcceptAsync(invite.Token, Accepter);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(HouseholdId.From(HouseholdA), result.Value.HouseholdId);
@@ -131,7 +132,7 @@ public sealed class HouseholdInviteServiceTests
     public async Task Accept_Unknown_Token_NotFound()
     {
         var repo = new FakeInviteRepository();
-        var result = await Service(repo, household: null).AcceptAsync("deadbeef");
+        var result = await Service(repo, household: null).AcceptAsync("deadbeef", Accepter);
 
         Assert.True(result.IsFailure);
         Assert.Equal(Error.NotFound, result.Error);
@@ -146,7 +147,7 @@ public sealed class HouseholdInviteServiceTests
         var repo = new FakeInviteRepository(invite);
 
         var result = await Service(repo, household: null, clock: new FixedClock(Now + TimeSpan.FromDays(8)))
-            .AcceptAsync(invite.Token);
+            .AcceptAsync(invite.Token, Accepter);
 
         Assert.True(result.IsFailure);
         Assert.Equal("Invite.Expired", result.Error.Code);
@@ -158,22 +159,38 @@ public sealed class HouseholdInviteServiceTests
     public async Task Accept_AlreadyAccepted_Fails()
     {
         var invite = HouseholdInvite.Issue(HouseholdId.From(HouseholdA), "invitee@example.com", Inviter, new FixedClock(Now));
-        invite.Accept(new FixedClock(Now + TimeSpan.FromDays(1)));
+        invite.Accept(Accepter, new FixedClock(Now + TimeSpan.FromDays(1)));
         var repo = new FakeInviteRepository(invite);
 
         var result = await Service(repo, household: null, clock: new FixedClock(Now + TimeSpan.FromDays(2)))
-            .AcceptAsync(invite.Token);
+            .AcceptAsync(invite.Token, Accepter);
 
         Assert.True(result.IsFailure);
         Assert.Equal("Invite.NotPending", result.Error.Code);
         Assert.Equal(0, repo.SaveChangesCalls);
     }
 
+    [Fact(DisplayName = "Accept folds a lost concurrency race (xmin) into a NotPending failure, not an exception")]
+    public async Task Accept_ConcurrencyConflict_Returns_NotPending()
+    {
+        // The invite passes the in-memory pending check, but the persistence layer reports that a
+        // concurrent accept won the xmin race (SaveChanges → ConcurrencyConflictException). The service
+        // must translate that into a clean NotPending failure — the caller rolls its transaction back.
+        var invite = HouseholdInvite.Issue(HouseholdId.From(HouseholdA), "invitee@example.com", Inviter, new FixedClock(Now));
+        var repo = new FakeInviteRepository(invite) { ThrowConcurrencyOnSave = true };
+
+        var result = await Service(repo, household: null, clock: new FixedClock(Now + TimeSpan.FromDays(1)))
+            .AcceptAsync(invite.Token, Accepter);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Invite.NotPending", result.Error.Code);
+    }
+
     [Fact(DisplayName = "Accept rejects a blank token")]
     public async Task Accept_Blank_Token_Fails()
     {
         var repo = new FakeInviteRepository();
-        var result = await Service(repo, household: null).AcceptAsync("   ");
+        var result = await Service(repo, household: null).AcceptAsync("   ", Accepter);
 
         Assert.True(result.IsFailure);
         Assert.Equal("Invite.TokenRequired", result.Error.Code);
@@ -293,7 +310,7 @@ public sealed class HouseholdInviteServiceTests
     public async Task Revoke_Accepted_Fails()
     {
         var invite = HouseholdInvite.Issue(HouseholdId.From(HouseholdA), "invitee@example.com", Inviter, new FixedClock(Now));
-        invite.Accept(new FixedClock(Now + TimeSpan.FromDays(1)));
+        invite.Accept(Accepter, new FixedClock(Now + TimeSpan.FromDays(1)));
         var repo = new FakeInviteRepository(invite);
 
         var result = await Service(repo, HouseholdA).RevokeAsync(invite.Id);
@@ -325,6 +342,10 @@ public sealed class HouseholdInviteServiceTests
         public List<HouseholdInvite> Invites { get; } = [];
         public int SaveChangesCalls { get; private set; }
 
+        /// <summary>When set, <see cref="SaveChangesAsync"/> simulates losing the xmin race by throwing
+        /// the same translated exception the real repository raises for a concurrency conflict.</summary>
+        public bool ThrowConcurrencyOnSave { get; init; }
+
         public FakeInviteRepository() { }
         public FakeInviteRepository(HouseholdInvite seeded) => Invites.Add(seeded);
 
@@ -348,6 +369,9 @@ public sealed class HouseholdInviteServiceTests
 
         public Task SaveChangesAsync(CancellationToken ct = default)
         {
+            if (ThrowConcurrencyOnSave)
+                throw new ConcurrencyConflictException(
+                    "simulated xmin race", new InvalidOperationException("inner"));
             SaveChangesCalls++;
             return Task.CompletedTask;
         }

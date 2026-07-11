@@ -73,6 +73,17 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
             b.Property(i => i.CreatedAt).HasColumnName("created_at");
             b.Property(i => i.ExpiresAt).HasColumnName("expires_at");
             b.Property(i => i.AcceptedAt).HasColumnName("accepted_at");
+            // Audit link invite → joining member, stamped inside the join transaction (plantry-bmfg).
+            // Nullable: only accepted invites carry it; pre-existing rows backfill to NULL.
+            b.Property(i => i.AcceptedByUserId).HasColumnName("accepted_by_user_id");
+
+            // Single-use backstop (plantry-bmfg): Postgres' xmin system column as an optimistic-concurrency
+            // token, mirroring inventory.product_stock. No stored column, no migration, no app-side
+            // increment — Npgsql maps this uint shadow property to the system column and composes it into
+            // the concurrency-guarded UPDATE. Two concurrent accepts of the same token both read the same
+            // xmin; the winner's commit bumps it, so the loser's UPDATE (…WHERE xmin = old) matches zero
+            // rows and EF raises DbUpdateConcurrencyException. Hardens Accept AND the Accept-vs-Revoke race.
+            b.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
 
             // R4: the accept-link token is globally unique across households.
             b.HasIndex(i => i.Token).IsUnique().HasDatabaseName("ux_household_invites_token");

@@ -120,9 +120,41 @@ public sealed class BrowseRecipesQueryTests
         public Harness()
         {
             var tenant = new FakeTenantContext(HouseholdGuid);
+            var expansionSvc = new RecipeExpansionService(Recipes);
             var fulfillmentSvc = new FulfillmentService(Stock, Catalog, Converter, new FakeExpiringSoonHorizonReader());
             var costingSvc = new CostingService(Prices, Converter);
-            Query = new BrowseRecipesQuery(Recipes, Tags, fulfillmentSvc, costingSvc, tenant);
+            Query = new BrowseRecipesQuery(Recipes, Tags, expansionSvc, fulfillmentSvc, costingSvc, tenant);
+        }
+
+        /// <summary>
+        /// Adds a parent recipe that includes <paramref name="sub"/> (and has no direct ingredients),
+        /// so its Browse figures are entirely driven by the expanded sub — proves inclusion-sourced badges.
+        /// </summary>
+        public Recipe AddParentIncluding(string name, Recipe sub, decimal servings, int defaultServings = 2)
+        {
+            var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
+            var result = recipe.ReplaceLines([], [new InclusionLine(sub.Id, servings, null, 0)], Clock);
+            Assert.True(result.IsSuccess, $"AddParentIncluding failed: {result.Error.Code}");
+            Recipes.Items.Add(recipe);
+            return recipe;
+        }
+
+        /// <summary>
+        /// Adds a recipe with one direct tracked ingredient AND an inclusion of a sub-recipe id that is NOT
+        /// in the repository — modelling a tampered/dangling inclusion that bypassed the picker (N5 rules this
+        /// out for legitimate recipes). Expansion against the non-archived map misses the sub, so the Browse
+        /// row must degrade to FLAT computation over the direct ingredient rather than failing the page.
+        /// </summary>
+        public Recipe AddRecipeWithDanglingInclusion(string name, Guid productId, Guid unitId, int defaultServings = 2)
+        {
+            var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
+            var result = recipe.ReplaceLines(
+                [new IngredientLine(productId, 100m, unitId, null, 0)],
+                [new InclusionLine(RecipeId.New(), 2m, null, 1)],
+                Clock);
+            Assert.True(result.IsSuccess, $"AddRecipeWithDanglingInclusion failed: {result.Error.Code}");
+            Recipes.Items.Add(recipe);
+            return recipe;
         }
 
         /// <summary>
@@ -439,5 +471,65 @@ public sealed class BrowseRecipesQueryTests
         var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter());
 
         Assert.True(result.Rows[0].HasIngredientExpiringSoon);
+    }
+
+    // ── Inclusion-aware badges (recipe-composition.md §7, D4 — plantry-ckzc) ─────
+
+    [Fact]
+    public async Task Row_Reflects_Expanded_Figures_When_Ingredients_Live_In_An_Inclusion()
+    {
+        // A parent with NO direct ingredients that includes a sub whose single tracked ingredient is Missing
+        // and priced. Expanded → the parent's badges reflect the sub's cheese: Missing, priced.
+        // A (buggy) FLAT computation over the parent's own (empty) ingredient list would instead show
+        // TotalIngredientCount 0, MissingCount 0, FullyCookable true, CostCompleteness None — so these
+        // assertions fail unless expansion is actually driving the row.
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+
+        var cheese = h.Catalog.AddTrackedLeaf(unit, "Cheese");
+        // No stock for cheese → Missing.
+        h.Prices.Add(cheese.Id, 0.01m, unit); // $0.01/unit
+
+        // Sub: DefaultServings 2, one tracked ingredient of 100 cheese.
+        var sub = h.AddRecipe("Cheese Sauce", defaultServings: 2, productId: cheese.Id, unitId: unit);
+        // Parent: DefaultServings 2, includes 2 servings of the sub → factor = 2/2 = 1, no direct ingredients.
+        h.AddParentIncluding("Nachos", sub, servings: 2m, defaultServings: 2);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter(NameQuery: "Nachos"));
+
+        var row = Assert.Single(result.Rows);
+        Assert.Equal("Nachos", row.Name);
+        Assert.Equal(1, row.TotalIngredientCount);      // the expanded cheese line (not the 0 direct ingredients)
+        Assert.False(row.FullyCookable);
+        Assert.Equal(1, row.MissingCount);
+        Assert.Equal(0, row.FulfillmentPct);
+        // Cost is the expanded, scaled cheese cost per serving: (100 × $0.01) / 2 servings = $0.50.
+        Assert.Equal(CostCompleteness.Full, row.CostCompleteness);
+        Assert.Equal(0.5m, row.CostPerServing);
+    }
+
+    [Fact]
+    public async Task Dangling_Inclusion_Degrades_That_Row_To_Flat_Without_Failing_The_Page()
+    {
+        // A recipe with a direct tracked (Missing) ingredient AND an inclusion whose sub id is absent from the
+        // non-archived set (a tampered/dangling inclusion). Expansion fails for THIS row; it must degrade to
+        // flat computation over the direct ingredient (Edge 1) — the page renders, the row is present.
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var butter = h.Catalog.AddTrackedLeaf(unit, "Butter");
+        // No stock → Missing.
+
+        h.AddRecipe("Healthy", defaultServings: 2, productId: butter.Id, unitId: unit); // a normal sibling row
+        h.AddRecipeWithDanglingInclusion("Tampered", butter.Id, unit, defaultServings: 2);
+
+        // The whole query must succeed (no throw) and return BOTH rows.
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter());
+
+        Assert.Equal(2, result.Rows.Count);
+        var tampered = Assert.Single(result.Rows, r => r.Name == "Tampered");
+        // Flat fallback computed over the single direct ingredient (the dangling inclusion contributes nothing).
+        Assert.Equal(1, tampered.TotalIngredientCount);
+        Assert.Equal(1, tampered.MissingCount);
+        Assert.False(tampered.FullyCookable);
     }
 }

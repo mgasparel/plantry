@@ -128,7 +128,19 @@ public sealed class HouseholdInviteService(
             return result;
         }
 
-        await invites.SaveChangesAsync(ct);
+        try
+        {
+            await invites.SaveChangesAsync(ct);
+        }
+        catch (ConcurrencyConflictException)
+        {
+            // A concurrent accept of the same invite won the xmin race between our load and our write:
+            // the invite is no longer pending, so it is no longer revocable. Same closed-loop semantics
+            // as a sequential revoke of an already-accepted invite.
+            logger.LogWarning("RevokeInvite lost the concurrency race for {InviteId} — already accepted.", inviteId.Value);
+            return Error.Custom("Invite.NotPending", "Only a pending invite can be revoked.");
+        }
+
         logger.LogInformation("Invite {InviteId} revoked.", inviteId.Value);
         return Result.Success();
     }
@@ -167,12 +179,22 @@ public sealed class HouseholdInviteService(
     }
 
     /// <summary>
-    /// Accepts the invite identified by <paramref name="token"/>. MUST be called with <b>no tenant
-    /// context</b> (the invitee is unauthenticated): the token lookup relies on the household_invites
-    /// RLS no-context carve-out. Validates the invite is pending and unexpired (R4/R5), performs the
-    /// one-way transition to accepted, and returns which household the invitee joined.
+    /// Accepts the invite identified by <paramref name="token"/> on behalf of <paramref name="acceptedByUserId"/>
+    /// (the just-created joining user, stamped onto the invite as the audit link). MUST be called with <b>no
+    /// tenant context</b> (the invitee is unauthenticated): the token lookup relies on the household_invites
+    /// RLS no-context carve-out. Validates the invite is pending and unexpired (R4/R5), performs the one-way
+    /// transition to accepted, and returns which household the invitee joined.
+    /// <para>
+    /// Single-use is enforced two ways (plantry-bmfg): the aggregate's in-memory pending check, AND the
+    /// row's <c>xmin</c> optimistic-concurrency token. Under two concurrent accepts of the same token, both
+    /// pass the in-memory check but only one UPDATE lands; the loser's write matches zero rows and surfaces
+    /// as <see cref="ConcurrencyConflictException"/>, which is folded into an <c>Invite.NotPending</c> failure
+    /// — identical semantics to a sequential second attempt. The caller (the join transaction) rolls back on
+    /// this failure, so the loser's user INSERT vanishes and no second member is created.
+    /// </para>
     /// </summary>
-    public async Task<Result<AcceptedInvite>> AcceptAsync(string token, CancellationToken ct = default)
+    public async Task<Result<AcceptedInvite>> AcceptAsync(
+        string token, Guid acceptedByUserId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(token))
             return Error.Custom("Invite.TokenRequired", "An invite token is required.");
@@ -184,7 +206,7 @@ public sealed class HouseholdInviteService(
             return Error.NotFound;
         }
 
-        var result = invite.Accept(clock);
+        var result = invite.Accept(acceptedByUserId, clock);
         if (result.IsFailure)
         {
             logger.LogWarning(
@@ -193,7 +215,21 @@ public sealed class HouseholdInviteService(
             return result.Error;
         }
 
-        await invites.SaveChangesAsync(ct);
+        try
+        {
+            await invites.SaveChangesAsync(ct);
+        }
+        catch (ConcurrencyConflictException)
+        {
+            // Lost the xmin race: another accept of the same token committed between our load and our
+            // write. The invite is already accepted, so this is a not-pending outcome — the same closed
+            // result a sequential second attempt gets. The caller rolls its transaction back.
+            logger.LogWarning(
+                "AcceptInvite lost the concurrency race for {InviteId} — invite already accepted by another submit.",
+                invite.Id.Value);
+            return Error.Custom("Invite.NotPending", "Only a pending invite can be accepted.");
+        }
+
         logger.LogInformation(
             "Invite {InviteId} accepted into household {HouseholdId}.", invite.Id.Value, invite.HouseholdId.Value);
 

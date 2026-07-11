@@ -10,6 +10,16 @@
     var skippedExpr = line.IsInclusion
         ? $"isSkipped('{key}') || isInclusionSkipped('{line.PathKey}')"
         : $"isSkipped('{key}')";
+    // The per-line Skip toggle is DISABLED when the line's whole inclusion is skipped (Q1) — including
+    // under a whole-skipped ANCESTOR (isInclusionSkipped is prefix-aware) — consistent with the already
+    // -disabled stepper/picker. Emitted only for inclusion lines; a direct line (empty PathKey) never
+    // carries the attribute, so its markup stays byte-for-byte pre-composition. (Its own individual skip
+    // does NOT disable it — the toggle must stay live to Undo.) Raw so the ':disabled' Alpine binding
+    // keeps literal single quotes, matching the stepper/picker bindings (a @@-substituted value would
+    // HTML-encode them). PathKey is a '/'-joined guid chain, so nothing here needs encoding.
+    var skipDisabledAttr = line.IsInclusion
+        ? new Microsoft.AspNetCore.Html.HtmlString($":disabled=\"isInclusionSkipped('{line.PathKey}')\"")
+        : null;
     var defaultVariant = line.VariantOptions.FirstOrDefault(v => v.IsAutoSelected)?.VariantId.ToString() ?? "";
 }
 
@@ -184,6 +194,7 @@ else
                     class="btn btn--ghost btn--sm cook-skip-btn"
                     @@click="toggleSkip('@key')"
                     :aria-pressed="isSkipped('@key')"
+                    @skipDisabledAttr
                     aria-label="Skip ingredient">
                 <span x-show="!isSkipped('@key')">Skip</span>
                 <span x-show="isSkipped('@key')">Undo</span>
