@@ -14,7 +14,8 @@ public sealed class IndexModel(
     IUnitRepository units,
     ITenantContext tenant,
     ILogger<CreateUnitCommand> createUnitLogger,
-    ILogger<SetDisplayStyleCommand> setDisplayStyleLogger) : PageModel
+    ILogger<SetDisplayStyleCommand> setDisplayStyleLogger,
+    ILogger<SetUnitSystemCommand> setUnitSystemLogger) : PageModel
 {
     public IReadOnlyList<Unit> Units { get; private set; } = [];
 
@@ -77,5 +78,24 @@ public sealed class IndexModel(
             return NotFound();
 
         return Partial("_UnitDisplayStyleControl", unit);
+    }
+
+    /// <summary>
+    /// htmx handler for the per-unit measurement-system selector (quantity-display.md Q5) — the
+    /// metric/imperial simplification firewall. Persists the choice and returns the re-rendered control
+    /// fragment for an outerHTML swap.
+    /// </summary>
+    public async Task<IActionResult> OnPostUnitSystemAsync(Guid unitId, UnitSystem system)
+    {
+        var id = UnitId.From(unitId);
+        var result = await new SetUnitSystemCommand(id, system, units, tenant, setUnitSystemLogger).ExecuteAsync();
+        if (result.IsFailure)
+            return result.Error.Code == Error.NotFound.Code ? NotFound() : Forbid();
+
+        var unit = await units.FindAsync(id);
+        if (unit is null)
+            return NotFound();
+
+        return Partial("_UnitSystemControl", unit);
     }
 }

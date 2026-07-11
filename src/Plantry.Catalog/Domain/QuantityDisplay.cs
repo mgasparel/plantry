@@ -80,10 +80,13 @@ public static class QuantityDisplay
     /// Re-expresses <paramref name="scaledAmount"/> (already in the unit <paramref name="unitId"/>) in
     /// the same-dimension sibling unit that reads with the fewest measures (Q2/§4). Call only when the
     /// recipe scale ≠ 1; at 1× the authored unit is always kept. Candidates (Q5) are the authored unit
-    /// itself plus every household unit sharing its <see cref="Unit.Dimension"/>, styled
-    /// <see cref="DisplayStyle.Fraction"/>, and in a whole-number conversion ratio to it — the
-    /// integer-ratio rule is the metric/imperial firewall (tbsp→cup = 16 qualifies; tbsp→ml ≈ 14.79 does
-    /// not). Representations that do not snap under the Q3 rule are discarded (whole numbers count as
+    /// itself plus every household unit sharing its <see cref="Unit.Dimension"/>, sharing its non-
+    /// <see cref="UnitSystem.Unspecified"/> <see cref="Unit.UnitSystem"/> (the explicit metric/imperial
+    /// firewall — tbsp never proposes ml even though 15:1 is whole), styled
+    /// <see cref="DisplayStyle.Fraction"/>, and in a whole-number conversion ratio to it (the math
+    /// guarantee that the rewrite lands on clean fractions — tbsp→cup = 16 qualifies). An authored unit
+    /// tagged <see cref="UnitSystem.Unspecified"/> anchors no family and always keeps its unit.
+    /// Representations that do not snap under the Q3 rule are discarded (whole numbers count as
     /// snapped); the survivor with the lowest measure-count score wins, ties resolving to the authored
     /// unit and then to the larger unit (Q6). If nothing snaps in any unit the input is returned
     /// unchanged (Q7) — <see cref="FormatAmount"/> then renders the decimal fallback.
@@ -100,7 +103,14 @@ public static class QuantityDisplay
         {
             if (u.Id.Value == unitId) continue;
             if (u.Dimension != authored.Dimension) continue;
+            // Metric/imperial firewall (Q5): only cross between units sharing the same, stated system.
+            // An Unspecified authored unit anchors no family (both checks below reject every sibling),
+            // and an Unspecified sibling is never a target — so metric never rewrites as imperial even
+            // when a whole-number ratio coincidentally exists (cup=240 : ml=1 → 480 ml stays 480 ml).
+            if (u.UnitSystem == UnitSystem.Unspecified) continue;
+            if (u.UnitSystem != authored.UnitSystem) continue;
             if (u.DisplayStyle != DisplayStyle.Fraction) continue;
+            // Math guarantee (Q5): a whole-number conversion ratio keeps the rewrite on clean fractions.
             if (!IsIntegerRatio(authored.FactorToBase, u.FactorToBase)) continue;
             candidates.Add(u);
         }

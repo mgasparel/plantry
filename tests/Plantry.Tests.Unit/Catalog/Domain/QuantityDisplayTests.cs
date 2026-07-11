@@ -25,19 +25,20 @@ public sealed class QuantityDisplayTests
     private static readonly HouseholdId HouseholdId = HouseholdId.New();
 
     private static CatalogUnit MakeUnit(string code, Dimension dimension, decimal factorToBase,
-        DisplayStyle style, bool isBase = false)
+        DisplayStyle style, UnitSystem system, bool isBase = false)
     {
-        var unit = CatalogUnit.Create(HouseholdId, code, code, dimension, factorToBase, isBase);
+        var unit = CatalogUnit.Create(HouseholdId, code, code, dimension, factorToBase, isBase, system);
         unit.SetDisplayStyle(style);
         return unit;
     }
 
-    // Exact-ratio spoon family (3 tsp = 1 tbsp, 16 tbsp = 1 cup) plus Decimal metric units.
-    private static readonly CatalogUnit Ml   = MakeUnit("ml",   Dimension.Volume, 1m,         DisplayStyle.Decimal, isBase: true);
-    private static readonly CatalogUnit Tsp  = MakeUnit("tsp",  Dimension.Volume, 4.92892m,   DisplayStyle.Fraction);
-    private static readonly CatalogUnit Tbsp = MakeUnit("tbsp", Dimension.Volume, 14.78676m,  DisplayStyle.Fraction); // 3 × tsp
-    private static readonly CatalogUnit Cup  = MakeUnit("cup",  Dimension.Volume, 236.58816m, DisplayStyle.Fraction); // 16 × tbsp
-    private static readonly CatalogUnit Gram = MakeUnit("g",    Dimension.Mass,   1m,         DisplayStyle.Decimal, isBase: true);
+    // Exact-ratio spoon family (3 tsp = 1 tbsp, 16 tbsp = 1 cup), tagged UsCustomary, plus Metric
+    // Decimal units. The metric/imperial firewall (Q5) is now the explicit UnitSystem tag.
+    private static readonly CatalogUnit Ml   = MakeUnit("ml",   Dimension.Volume, 1m,         DisplayStyle.Decimal,  UnitSystem.Metric, isBase: true);
+    private static readonly CatalogUnit Tsp  = MakeUnit("tsp",  Dimension.Volume, 4.92892m,   DisplayStyle.Fraction, UnitSystem.UsCustomary);
+    private static readonly CatalogUnit Tbsp = MakeUnit("tbsp", Dimension.Volume, 14.78676m,  DisplayStyle.Fraction, UnitSystem.UsCustomary); // 3 x tsp
+    private static readonly CatalogUnit Cup  = MakeUnit("cup",  Dimension.Volume, 236.58816m, DisplayStyle.Fraction, UnitSystem.UsCustomary); // 16 x tbsp
+    private static readonly CatalogUnit Gram = MakeUnit("g",    Dimension.Mass,   1m,         DisplayStyle.Decimal,  UnitSystem.Metric, isBase: true);
 
     private static readonly IReadOnlyList<CatalogUnit> Units = [Ml, Tsp, Tbsp, Cup, Gram];
 
@@ -167,8 +168,8 @@ public sealed class QuantityDisplayTests
         //   A rep "2"  → 2 + 0 + 0(authored) = 2
         //   B rep "1"  → 1 + 0 + 1(changed)  = 2   ← tie
         // Tie resolves to the authored unit A.
-        var a = MakeUnit("a", Dimension.Volume, 1m, DisplayStyle.Fraction, isBase: true);
-        var b = MakeUnit("b", Dimension.Volume, 2m, DisplayStyle.Fraction);
+        var a = MakeUnit("a", Dimension.Volume, 1m, DisplayStyle.Fraction, UnitSystem.UsCustomary, isBase: true);
+        var b = MakeUnit("b", Dimension.Volume, 2m, DisplayStyle.Fraction, UnitSystem.UsCustomary);
         IReadOnlyList<CatalogUnit> synthetic = [a, b];
 
         var (_, unitId) = QuantityDisplay.Simplify(2m, a.Id.Value, synthetic);
@@ -184,9 +185,9 @@ public sealed class QuantityDisplayTests
         //   B (factor 8)  rep "1"  → 1 + 0 + 1 = 2
         //   C (factor 16) rep "½"  → 0 + 1 + 1 = 2   ← tie with B
         // Tie resolves to the larger unit → C.
-        var a = MakeUnit("a", Dimension.Volume, 1m,  DisplayStyle.Fraction, isBase: true);
-        var b = MakeUnit("b", Dimension.Volume, 8m,  DisplayStyle.Fraction);
-        var c = MakeUnit("c", Dimension.Volume, 16m, DisplayStyle.Fraction);
+        var a = MakeUnit("a", Dimension.Volume, 1m,  DisplayStyle.Fraction, UnitSystem.UsCustomary, isBase: true);
+        var b = MakeUnit("b", Dimension.Volume, 8m,  DisplayStyle.Fraction, UnitSystem.UsCustomary);
+        var c = MakeUnit("c", Dimension.Volume, 16m, DisplayStyle.Fraction, UnitSystem.UsCustomary);
         IReadOnlyList<CatalogUnit> synthetic = [a, b, c];
 
         var (amount, unitId) = QuantityDisplay.Simplify(8m, a.Id.Value, synthetic);
@@ -208,8 +209,8 @@ public sealed class QuantityDisplayTests
     [Fact]
     public void Simplify_NeverProposes_MetricUnit_ForSpoonAmount()
     {
-        // Authored tbsp with ml present: ml is Decimal-styled AND at a non-integer ratio to tbsp
-        // (14.78676 ml/tbsp) — the firewall must never propose it, at any scale.
+        // Authored tbsp (UsCustomary) with ml (Metric) present: the UnitSystem firewall must never
+        // propose ml, at any scale.
         foreach (var scale in new[] { 0.5m, 1.5m, 2m, 3m, 7m })
         {
             var (_, unitId) = QuantityDisplay.Simplify(2m * scale, Tbsp.Id.Value, Units);
@@ -218,12 +219,62 @@ public sealed class QuantityDisplayTests
     }
 
     [Fact]
+    public void Simplify_NeverProposes_MetricUnit_EvenAtWholeNumberRatio()
+    {
+        // The seed-factor gap the UnitSystem tag closes: an imperial→metric rewrite with an EXACT
+        // whole-number ratio. Authored tbsp = 15, ml = 1 (both Fraction-styled here so only the system
+        // tag differs), 15 ml/tbsp is a whole ratio — the old integer-ratio-only firewall would have let
+        // "1 tbsp × 2 = 30 ml" through. The system tag blocks it: tbsp keeps its family, never ml.
+        var tbsp = MakeUnit("tbsp", Dimension.Volume, 15m, DisplayStyle.Fraction, UnitSystem.UsCustomary);
+        var mlF  = MakeUnit("ml",   Dimension.Volume, 1m,  DisplayStyle.Fraction, UnitSystem.Metric, isBase: true);
+        IReadOnlyList<CatalogUnit> family = [tbsp, mlF];
+
+        foreach (var scale in new[] { 2m, 3m, 8m })
+        {
+            var (_, unitId) = QuantityDisplay.Simplify(1m * scale, tbsp.Id.Value, family);
+            Assert.NotEqual(mlF.Id.Value, unitId);
+        }
+    }
+
+    [Fact]
+    public void Simplify_MetricAuthored_NeverProposesImperial_EvenAtWholeNumberRatio()
+    {
+        // The reverse breach (metric→imperial) the old firewall allowed live: authored 480 ml with a
+        // Fraction-styled cup = 240 present. 480 / 240 = 2 is an exact whole ratio, so integer-ratio
+        // alone would rewrite "480 ml" → "2 cup". The system tag (ml Metric ≠ cup UsCustomary) keeps it
+        // 480 ml — and because ml's own rep snaps to whole "480", the authored unit is returned unchanged.
+        var mlF = MakeUnit("ml",  Dimension.Volume, 1m,   DisplayStyle.Fraction, UnitSystem.Metric, isBase: true);
+        var cup = MakeUnit("cup", Dimension.Volume, 240m, DisplayStyle.Fraction, UnitSystem.UsCustomary);
+        IReadOnlyList<CatalogUnit> family = [mlF, cup];
+
+        var (amount, unitId) = QuantityDisplay.Simplify(480m, mlF.Id.Value, family);
+
+        Assert.Equal(mlF.Id.Value, unitId);
+        Assert.Equal(480m, amount);
+    }
+
+    [Fact]
+    public void Simplify_UnspecifiedAuthored_AnchorsNoFamily_ReturnsInputUnchanged()
+    {
+        // An authored unit with Unspecified system anchors no simplification family: even with a
+        // same-dimension, Fraction-styled, whole-ratio sibling present, nothing is proposed.
+        var custom  = MakeUnit("scoop", Dimension.Volume, 60m, DisplayStyle.Fraction, UnitSystem.Unspecified);
+        var cup     = MakeUnit("cup",   Dimension.Volume, 240m, DisplayStyle.Fraction, UnitSystem.UsCustomary); // 4 × scoop
+        IReadOnlyList<CatalogUnit> family = [custom, cup];
+
+        var (amount, unitId) = QuantityDisplay.Simplify(4m, custom.Id.Value, family);
+
+        Assert.Equal(custom.Id.Value, unitId);
+        Assert.Equal(4m, amount);
+    }
+
+    [Fact]
     public void Simplify_NeverProposes_FractionSibling_WithNonIntegerRatio()
     {
-        // A Fraction-styled dessertspoon at 10 ml sits at a non-integer ratio to tbsp
-        // (14.78676 / 10 = 1.478…). Even though it opts into fractions, the integer-ratio firewall
-        // (not merely the DisplayStyle filter) must exclude it.
-        var dsp = MakeUnit("dsp", Dimension.Volume, 10m, DisplayStyle.Fraction);
+        // A Fraction-styled, UsCustomary dessertspoon at 10 ml sits at a non-integer ratio to tbsp
+        // (14.78676 / 10 = 1.478…). Even though it shares the system AND opts into fractions, the
+        // integer-ratio math guarantee (not merely the system/DisplayStyle filters) must exclude it.
+        var dsp = MakeUnit("dsp", Dimension.Volume, 10m, DisplayStyle.Fraction, UnitSystem.UsCustomary);
         IReadOnlyList<CatalogUnit> withDsp = [Ml, Tsp, Tbsp, Cup, Gram, dsp];
 
         var (_, unitId) = QuantityDisplay.Simplify(4m, Tbsp.Id.Value, withDsp);

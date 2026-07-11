@@ -25,10 +25,20 @@ public sealed class Unit : AggregateRoot<UnitId>
     /// </summary>
     public DisplayStyle DisplayStyle { get; private set; } = DisplayStyle.Decimal;
 
+    /// <summary>
+    /// The measurement system this unit belongs to (quantity-display.md Q5). The explicit
+    /// metric/imperial firewall for <see cref="QuantityDisplay.Simplify"/>: simplification only crosses
+    /// units sharing the same non-<see cref="UnitSystem.Unspecified"/> system. Display-only — never
+    /// affects stored quantities, scaling, or consumption. Defaults to <see cref="UnitSystem.Unspecified"/>
+    /// (user-created and count units stay unclassified); the seeder tags the standard metric/US units and
+    /// households can reclassify on the Catalog → Units page.
+    /// </summary>
+    public UnitSystem UnitSystem { get; private set; } = UnitSystem.Unspecified;
+
     private Unit() { } // EF
 
     private Unit(UnitId id, HouseholdId householdId, string code, string name,
-        Dimension dimension, decimal factorToBase, bool isBase)
+        Dimension dimension, decimal factorToBase, bool isBase, UnitSystem unitSystem)
     {
         Id = id;
         HouseholdId = householdId;
@@ -38,10 +48,12 @@ public sealed class Unit : AggregateRoot<UnitId>
         FactorToBase = factorToBase;
         IsBase = isBase;
         DisplayStyle = DisplayStyle.Decimal;
+        UnitSystem = unitSystem;
     }
 
     public static Unit Create(HouseholdId householdId, string code, string name,
-        Dimension dimension, decimal factorToBase, bool isBase = false)
+        Dimension dimension, decimal factorToBase, bool isBase = false,
+        UnitSystem unitSystem = UnitSystem.Unspecified)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -50,7 +62,7 @@ public sealed class Unit : AggregateRoot<UnitId>
         if (isBase && factorToBase != 1m)
             throw new ArgumentException("The base unit of a dimension must have factor_to_base = 1.", nameof(factorToBase));
 
-        return new Unit(UnitId.New(), householdId, code.Trim(), name.Trim(), dimension, factorToBase, isBase);
+        return new Unit(UnitId.New(), householdId, code.Trim(), name.Trim(), dimension, factorToBase, isBase, unitSystem);
     }
 
     public void Rename(string name)
@@ -64,4 +76,11 @@ public sealed class Unit : AggregateRoot<UnitId>
     /// stored quantity or downstream calculation.
     /// </summary>
     public void SetDisplayStyle(DisplayStyle style) => DisplayStyle = style;
+
+    /// <summary>
+    /// Sets which measurement system this unit belongs to (quantity-display.md Q5). Display-only: the tag
+    /// only gates which units <see cref="QuantityDisplay.Simplify"/> may cross between; it changes no
+    /// stored quantity or downstream calculation.
+    /// </summary>
+    public void SetUnitSystem(UnitSystem system) => UnitSystem = system;
 }

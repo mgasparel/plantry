@@ -2,6 +2,7 @@ using Plantry.SharedKernel;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
 using Dimension = Plantry.Catalog.Domain.Dimension;
 using DisplayStyle = Plantry.Catalog.Domain.DisplayStyle;
+using UnitSystem = Plantry.Catalog.Domain.UnitSystem;
 
 namespace Plantry.Tests.Unit.Catalog.Domain;
 
@@ -93,5 +94,47 @@ public sealed class UnitTests
         unit.SetDisplayStyle(DisplayStyle.Decimal);
 
         Assert.Equal(DisplayStyle.Decimal, unit.DisplayStyle);
+    }
+
+    [Fact]
+    public void Create_Defaults_UnitSystem_To_Unspecified()
+    {
+        var unit = CatalogUnit.Create(HouseholdId, "bunch", "bunch", Dimension.Count, 1m);
+
+        Assert.Equal(UnitSystem.Unspecified, unit.UnitSystem);
+    }
+
+    [Theory]
+    [InlineData(UnitSystem.Metric)]
+    [InlineData(UnitSystem.UsCustomary)]
+    public void Create_Accepts_UnitSystem_Parameter(UnitSystem system)
+    {
+        var unit = CatalogUnit.Create(HouseholdId, "cup", "cup", Dimension.Volume, 240m, unitSystem: system);
+
+        Assert.Equal(system, unit.UnitSystem);
+    }
+
+    [Theory]
+    [InlineData(UnitSystem.Metric)]
+    [InlineData(UnitSystem.UsCustomary)]
+    [InlineData(UnitSystem.Unspecified)]
+    public void SetUnitSystem_Updates_System(UnitSystem system)
+    {
+        var unit = CatalogUnit.Create(HouseholdId, "cup", "cup", Dimension.Volume, 240m);
+
+        unit.SetUnitSystem(system);
+
+        Assert.Equal(system, unit.UnitSystem);
+    }
+
+    [Fact]
+    public void SetUnitSystem_Can_Toggle_Back_To_Unspecified()
+    {
+        var unit = CatalogUnit.Create(HouseholdId, "cup", "cup", Dimension.Volume, 240m);
+
+        unit.SetUnitSystem(UnitSystem.UsCustomary);
+        unit.SetUnitSystem(UnitSystem.Unspecified);
+
+        Assert.Equal(UnitSystem.Unspecified, unit.UnitSystem);
     }
 }

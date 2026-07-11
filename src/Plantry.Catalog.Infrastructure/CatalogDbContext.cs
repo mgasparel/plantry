@@ -52,6 +52,13 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
                 .HasColumnName("display_style")
                 .HasMaxLength(20)
                 .IsRequired();
+            // Unit system (quantity-display.md Q5): C# enum persisted as text + CHECK (Gate 7), the
+            // metric/imperial simplification firewall. CHECK constraint lives in the migration.
+            b.Property(u => u.UnitSystem)
+                .HasConversion(s => s.ToDbValue(), v => UnitSystemExtensions.Parse(v))
+                .HasColumnName("unit_system")
+                .HasMaxLength(20)
+                .IsRequired();
 
             b.HasIndex(u => new { u.HouseholdId, u.Code }).IsUnique();
 
