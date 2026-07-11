@@ -242,13 +242,27 @@ public sealed class ProductCommitService(
             var conversionResults = new List<ConversionCommitResult>();
             SkuCommitResult? skuResult = null;
 
-            // ── Idempotency: already in crosswalk? ──────────────────────────
+            // ── Idempotency: already in crosswalk AND still present in the DB? ──
+            // A crosswalk entry alone is NOT proof the product still exists (plantry-c89g):
+            // the sidecar can outlive the rows it maps (dev volume recreated, household
+            // changed, prod restored from backup). Verify the mapped id against the live,
+            // RLS-scoped DB and only skip creation when the product is actually there. When it
+            // is missing, fall through and re-create, overwriting the stale mapping — otherwise
+            // every commit becomes a silent no-op that reports success while creating zero rows.
+            Guid? verifiedExistingId = null;
             if (crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingIdNullable)
-                && existingIdNullable is { } existingId)
+                && existingIdNullable is { } existingId
+                && await products.FindAsync(Catalog.Domain.ProductId.From(existingId), ct) is not null)
             {
-                plantryId = existingId;
-                // Still need to proceed to add any missing conversions/SKUs on re-run
-                // (they are idempotent — duplicate attempts are caught by the product aggregate)
+                verifiedExistingId = existingId;
+            }
+
+            if (verifiedExistingId is { } confirmedId)
+            {
+                plantryId = confirmedId;
+                // Re-run: product already committed and confirmed present — still proceed to add
+                // any missing conversions/SKUs (idempotent — duplicate attempts are caught by
+                // the product aggregate).
             }
             else
             {

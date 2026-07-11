@@ -175,15 +175,26 @@ public sealed class RecipeCommitService(
                     PhotoNote: null);
             }
 
-            // ── Idempotency: already in crosswalk? ───────────────────────────
+            // ── Idempotency: already in crosswalk AND still present in the DB? ─
+            // A crosswalk entry alone is NOT proof the recipe still exists (plantry-c89g):
+            // the sidecar can outlive the rows it maps (dev volume recreated, household
+            // changed, prod restored from backup). Verify the mapped id against the live,
+            // RLS-scoped DB and only skip creation when the recipe is actually there. When it
+            // is missing, fall through and re-author, overwriting the stale mapping — otherwise
+            // every commit becomes a silent no-op that reports success while creating zero rows.
             Guid plantryId;
-            var alreadyInCrosswalk = crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingIdNullable)
-                && existingIdNullable is not null;
-
-            if (alreadyInCrosswalk)
+            Guid? verifiedExistingId = null;
+            if (crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingIdNullable)
+                && existingIdNullable is { } mappedId
+                && await recipes.GetByIdAsync(Recipes.Domain.RecipeId.From(mappedId), ct) is not null)
             {
-                plantryId = existingIdNullable!.Value;
-                // Re-run: recipe body already committed — only need to check photo.
+                verifiedExistingId = mappedId;
+            }
+
+            if (verifiedExistingId is { } confirmedId)
+            {
+                plantryId = confirmedId;
+                // Re-run: recipe body already committed and confirmed present — only check photo.
             }
             else
             {
