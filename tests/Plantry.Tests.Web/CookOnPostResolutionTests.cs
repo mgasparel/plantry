@@ -430,6 +430,7 @@ internal sealed class CookPostFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeCookUnitConverter());
+            services.AddFakeQuantityFormatter();
 
             // Recording consumer — the same instance is shared across requests so the test
             // can inspect calls after the POST completes.

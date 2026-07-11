@@ -33,6 +33,7 @@ public sealed class CookModel(
     ICatalogProductReader catalog,
     IInventoryStockReader stockReader,
     IUnitConverter unitConverter,
+    IQuantityFormatter quantityFormatter,
     RecipeExpansionService expansion,
     CookRecipe cookService,
     ILogger<CookModel> logger) : PageModel
@@ -275,6 +276,9 @@ public sealed class CookModel(
         var directLines = new List<CookLineView>();
         var groupLines = new Dictionary<string, List<CookLineView>>();
         var groupOrder = new List<string>();
+        // Display-formatting requests for the machine-computed scaled amounts (quantity-display.md §7):
+        // Simplify fires only when scale != 1 (Q4) — a scale-1 cook just formats in the authored unit.
+        var displayRequests = new List<QuantityFormatRequest>();
         foreach (var line in expandedLines)
         {
             // Direct ingredients carry their own GroupHeading (the deepest GroupPath segment when the
@@ -285,6 +289,10 @@ public sealed class CookModel(
 
             var view = await BuildLineViewAsync(line, groupHeading, scale, renderContext, ct);
             if (view is null) continue; // unknown product — skip
+
+            if (!view.IsUntracked && view.ScaledQuantity.HasValue && line.UnitId.HasValue)
+                displayRequests.Add(new QuantityFormatRequest(
+                    view.LineKey, view.ScaledQuantity.Value, line.UnitId.Value, Simplify: scale != 1m));
 
             if (line.Path.Count == 0)
             {
@@ -301,6 +309,34 @@ public sealed class CookModel(
                 list.Add(view);
             }
         }
+
+        // Resolve the pretty display for every tracked line in one formatter round-trip. A simplified line
+        // may re-express in a sibling unit (tbsp → cup), so resolve any display-unit code not already known.
+        var formatted = await quantityFormatter.FormatAsync(displayRequests, ct);
+        var extraUnitIds = formatted.Values
+            .Select(f => f.UnitId)
+            .Where(uid => !unitCodes.ContainsKey(uid))
+            .Distinct()
+            .ToList();
+        var extraUnitCodes = extraUnitIds.Count > 0
+            ? await catalog.ResolveUnitCodesAsync(extraUnitIds, ct)
+            : new Dictionary<Guid, string>();
+
+        string DisplayCodeFor(Guid unitId) =>
+            unitCodes.GetValueOrDefault(unitId) ?? extraUnitCodes.GetValueOrDefault(unitId) ?? string.Empty;
+
+        void ApplyDisplay(List<CookLineView> list)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (formatted.TryGetValue(list[i].LineKey, out var f))
+                    list[i] = list[i] with { DisplayQuantity = f.Amount, DisplayUnitCode = DisplayCodeFor(f.UnitId) };
+            }
+        }
+
+        ApplyDisplay(directLines);
+        foreach (var list in groupLines.Values)
+            ApplyDisplay(list);
 
         var inclusionGroups = groupOrder
             .Select(pathKey =>
@@ -809,6 +845,17 @@ public sealed record CookInclusionGroupView(
 /// <paramref name="IsUnitGap"/> is true.</param>
 /// <param name="StockUnitCode">The stock unit's display code (e.g. "g") — set only when
 /// <paramref name="IsUnitGap"/> is true.</param>
+/// <param name="DisplayQuantity">
+/// The pretty rendering of the machine-computed <paramref name="ScaledQuantity"/> (quantity-display.md §7):
+/// at scale ≠ 1 it may be simplified into a sibling unit and shown as a vulgar fraction ("¼"); at scale 1
+/// it is the authored-unit fraction/decimal. The view shows this read-only display for a line at its
+/// machine default; once the user overrides the quantity, the display switches to the verbatim decimal in
+/// the authored unit (Q9). Null for untracked / quantity-less lines.
+/// </param>
+/// <param name="DisplayUnitCode">
+/// The display code for the (possibly re-expressed) unit <paramref name="DisplayQuantity"/> renders in —
+/// e.g. "cup" when 4 tbsp simplified to ¼ cup. Equals <paramref name="UnitCode"/> at scale 1.
+/// </param>
 public sealed record CookLineView(
     Guid IngredientId,
     string LineKey,
@@ -826,7 +873,9 @@ public sealed record CookLineView(
     bool IsShortfall,
     bool IsUnitGap = false,
     decimal? StockQuantity = null,
-    string? StockUnitCode = null);
+    string? StockUnitCode = null,
+    string? DisplayQuantity = null,
+    string? DisplayUnitCode = null);
 
 /// <summary>One variant option within a parent-product ingredient's Variant Disambiguation Picker (C7/C11).</summary>
 public sealed record VariantOptionView(

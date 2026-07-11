@@ -476,6 +476,14 @@ function cookConfirm(lines, units) {
                 })
                 .map(([id, qty]) => ({ id, qty }));
         },
+        // True once this line's quantity has been overridden from its machine-computed default (C9 modify).
+        // Drives the per-line display toggle: the pretty simplified default (quantity-display.md §7) versus
+        // the verbatim decimal in the authored unit an override shows (Q9). Pure function of held state.
+        isModified(lineKey) {
+            const v = this._quantities[lineKey];
+            if (v == null || isNaN(v) || v < 0) return false;
+            return v !== (this._origQuantities[lineKey] ?? null);
+        },
         // Split the resolution sets by line kind so direct lines post the flat pre-composition
         // contract and inclusion lines post the path-qualified fields (lineKey carries a '|').
         get directSkips() { return this.skippedIds.filter(k => !k.includes('|')); },

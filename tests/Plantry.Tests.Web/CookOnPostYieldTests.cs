@@ -163,6 +163,7 @@ internal sealed class CookYieldPostFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeCookUnitConverter());
+            services.AddFakeQuantityFormatter();
 
             services.RemoveAll<IInventoryConsumer>();
             services.AddSingleton<IInventoryConsumer>(new FakeCookInventoryConsumer());

@@ -91,6 +91,7 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<Plantry.Recipes.Application.ICatalogProductReader, CatalogProductReaderAdapter>();
         services.AddScoped<ICatalogWriter, CatalogWriterAdapter>();
         services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
+        services.AddScoped<IQuantityFormatter, RecipesQuantityFormatterAdapter>();
         services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>();
         services.AddScoped<IInventoryConsumer, InventoryConsumerAdapter>();
         services.AddScoped<IInventoryProducer, InventoryProducerAdapter>();

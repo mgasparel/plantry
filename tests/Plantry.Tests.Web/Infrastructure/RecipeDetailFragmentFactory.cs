@@ -119,6 +119,7 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             // Unit converter: identity (ingredient unit == product default unit in fixture).
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
+            services.AddFakeQuantityFormatter();
 
             // Shopping list writer: no-op for GET-path tests (AddMissing is POST-only).
             // Satisfies the AddMissingToShoppingList DI constructor without a real Shopping DB.

@@ -195,6 +195,7 @@ internal sealed class CookInclusionFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeCookUnitConverter());
+            services.AddFakeQuantityFormatter();
 
             services.RemoveAll<IInventoryConsumer>();
             services.AddSingleton<IInventoryConsumer>(Consumer);

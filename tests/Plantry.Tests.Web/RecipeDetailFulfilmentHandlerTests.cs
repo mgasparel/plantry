@@ -170,6 +170,7 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
+            services.AddFakeQuantityFormatter();
 
             services.RemoveAll<IShoppingListWriter>();
             services.AddSingleton<IShoppingListWriter>(NullShoppingListWriterForFulfilment.Instance);

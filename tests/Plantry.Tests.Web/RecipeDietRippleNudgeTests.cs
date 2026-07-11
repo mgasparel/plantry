@@ -248,6 +248,7 @@ internal sealed class RippleNudgeFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeUnitConverter());
+            services.AddFakeQuantityFormatter();
 
             services.RemoveAll<IAiAssistanceGateReader>();
             services.AddSingleton<IAiAssistanceGateReader>(new StubGateReader(_gateEnabled));

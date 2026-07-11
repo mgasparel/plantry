@@ -87,7 +87,13 @@
             <div class="rd-ing-amt">
                 @if (!item.IsUntracked && item.Quantity.HasValue)
                 {
-                    <span class="rd-ing-qty" x-text="fmt(@(item.Quantity.Value.ToString(CultureInfo.InvariantCulture)))">@IngredientAmount.Format(item.Quantity.Value)</span>
+                    @* Server render is the 1× vulgar-fraction display (quantity-display.md Q1/§7). The
+                       servings stepper scales the amount client-side; the JS twin is decimal-only
+                       (plantry-jun6), so keep the server-rendered fraction at scale === 1 and only hand off
+                       to the decimal scaler when scaled — never clobbering the 1× fraction on first paint. *@
+                    var displayText = item.DisplayQuantity ?? IngredientAmount.Format(item.Quantity.Value);
+                    var qtyLiteral = item.Quantity.Value.ToString(CultureInfo.InvariantCulture);
+                    <span class="rd-ing-qty" x-text="scale === 1 ? @Html.Raw(JsLiteral(displayText)) : fmt(@qtyLiteral)">@displayText</span>
                     @if (!string.IsNullOrEmpty(item.UnitCode))
                     {
                         <span> @item.UnitCode</span>
@@ -100,4 +106,12 @@
 @if (Model.Count == 0 || Model.All(g => g.Items.Count == 0))
 {
     <p class="rd-ing-row" style="color:var(--color-text-faint);font-size:14px">No ingredients yet.</p>
+}
+
+@functions {
+    // Single-quoted JS string literal for an Alpine x-text expression (the attribute itself is
+    // double-quoted). The value is a server-formatted amount (digits + fraction glyphs); escape defensively
+    // so it stays a valid literal regardless. Emitted via Html.Raw so the quotes/backslashes are not encoded.
+    private static string JsLiteral(string s) =>
+        "'" + s.Replace("\\", "\\\\").Replace("'", "\\'") + "'";
 }

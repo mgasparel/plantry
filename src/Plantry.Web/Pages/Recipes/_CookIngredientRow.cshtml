@@ -87,26 +87,35 @@ else
                 </a>
             }
 
-            @* Quantity stepper (C9 modify) — only when ScaledQuantity known.
-               Uses value-bind/:value + input-handler/@input (not x-model) because
-               quantities are tracked per line key via _quantities object. *@
+            @* Quantity area (C9 modify) — only when ScaledQuantity known.
+               The read-only display shows the machine-computed default in its pretty (simplified,
+               vulgar-fraction) form (quantity-display.md §7). Once the user overrides the quantity it
+               shows the override verbatim as a decimal in the AUTHORED unit (Q9) — pretty rendering
+               applies only to the machine default. The stepper is the override control and is untouched:
+               it stays decimal in the authored unit (Q9), tracked per line key via the _quantities object. *@
             @if (line.ScaledQuantity.HasValue)
             {
-                <div class="cook-ing-row__qty-edit">
-                    <stepper name=""
-                             value-bind="quantity('@key')"
-                             input-handler="setQuantity('@key', $event.target.value)"
-                             input-disabled="@skippedExpr"
-                             decrease-click="adjustQty('@key', -1)"
-                             decrease-disabled="@skippedExpr"
-                             increase-click="adjustQty('@key', 1)"
-                             increase-disabled="@skippedExpr"
-                             decrease-label="Decrease"
-                             increase-label="Increase" />
-                    @if (!string.IsNullOrEmpty(line.UnitCode))
-                    {
-                        <span class="cook-ing-row__unit">@line.UnitCode</span>
-                    }
+                <div class="cook-ing-row__qty">
+                    @* DisplayQuantity is set whenever the line carries a unit (R5 makes qty/unit both-or-neither),
+                       so the fallback only guards a defensive null — mirrors the Details row's decimal fallback. *@
+                    <span class="cook-ing-row__qty-display" x-show="!isModified('@key')">@(line.DisplayQuantity ?? FormatQty(line.ScaledQuantity!.Value))@(string.IsNullOrEmpty(line.DisplayUnitCode) ? "" : " " + line.DisplayUnitCode)</span>
+                    <span class="cook-ing-row__qty-display" x-show="isModified('@key')" x-cloak><span x-text="quantity('@key')"></span>@(string.IsNullOrEmpty(line.UnitCode) ? "" : " " + line.UnitCode)</span>
+                    <div class="cook-ing-row__qty-edit">
+                        <stepper name=""
+                                 value-bind="quantity('@key')"
+                                 input-handler="setQuantity('@key', $event.target.value)"
+                                 input-disabled="@skippedExpr"
+                                 decrease-click="adjustQty('@key', -1)"
+                                 decrease-disabled="@skippedExpr"
+                                 increase-click="adjustQty('@key', 1)"
+                                 increase-disabled="@skippedExpr"
+                                 decrease-label="Decrease"
+                                 increase-label="Increase" />
+                        @if (!string.IsNullOrEmpty(line.UnitCode))
+                        {
+                            <span class="cook-ing-row__unit">@line.UnitCode</span>
+                        }
+                    </div>
                 </div>
             }
 
