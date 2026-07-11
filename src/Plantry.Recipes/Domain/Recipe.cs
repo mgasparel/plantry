@@ -39,6 +39,27 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     /// </summary>
     public string? DietNudgeDismissedHash { get; private set; }
 
+    // ── Yield-on-cook (plantry-854a, recipe-composition.md §9) ───────────────────
+    // A recipe MAY declare a yield: cooking it can add leftover/prepped servings to inventory as a
+    // catalog product. The three fields form a tri-state — all set together or all null (Y1). When set,
+    // YieldProductId is an ordinary tracked catalog product (auto-creatable from the recipe name at the
+    // Web/application boundary), YieldQuantity (> 0, Y2) is the declared yield for the recipe's default
+    // servings (a hint that pre-fills the cook-time "storing N" field), and YieldUnitId is a
+    // servings-like count unit by default (a real unit — cups — is allowed for prep recipes). All are
+    // bare soft-refs (DM-3) — no FK to catalog.
+
+    /// <summary>The catalog product a cook of this recipe can store as yield; null when no yield is declared.</summary>
+    public Guid? YieldProductId { get; private set; }
+
+    /// <summary>The declared yield quantity for <see cref="DefaultServings"/>; &gt; 0 when set, null otherwise.</summary>
+    public decimal? YieldQuantity { get; private set; }
+
+    /// <summary>Unit of <see cref="YieldQuantity"/> — a servings-like count unit by default; null when no yield.</summary>
+    public Guid? YieldUnitId { get; private set; }
+
+    /// <summary>True when this recipe declares a yield (all three yield fields are set).</summary>
+    public bool HasYield => YieldProductId is not null;
+
     private readonly List<Ingredient> _ingredients = [];
     public IReadOnlyList<Ingredient> Ingredients => _ingredients.AsReadOnly();
 
@@ -116,6 +137,33 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     {
         Directions = directions;
         Touch(clock);
+    }
+
+    /// <summary>
+    /// Sets or clears the recipe's yield declaration (plantry-854a, recipe-composition.md §9). The three
+    /// arguments are a tri-state: pass all three to declare/edit a yield, or all null to remove it (Y1). A
+    /// declared yield requires a non-empty product, a positive quantity (Y2), and a unit; a partial set is
+    /// rejected. The yield product is expected to be a tracked catalog product — the application layer
+    /// auto-creates it from the recipe name when the author first enables the yield, and passes its id here.
+    /// </summary>
+    public Result SetYield(Guid? productId, decimal? quantity, Guid? unitId, IClock clock)
+    {
+        var anySet = productId is not null || quantity is not null || unitId is not null;
+        if (anySet)
+        {
+            if (productId is null || productId.Value == Guid.Empty)
+                return Error.Custom("Recipes.InvalidYieldProduct", "A yield must reference a product.");
+            if (quantity is null || quantity.Value <= 0m)
+                return Error.Custom("Recipes.InvalidYieldQuantity", "Yield quantity must be greater than zero.");
+            if (unitId is null || unitId.Value == Guid.Empty)
+                return Error.Custom("Recipes.InvalidYieldUnit", "A yield must specify a unit.");
+        }
+
+        YieldProductId = productId;
+        YieldQuantity = quantity;
+        YieldUnitId = unitId;
+        Touch(clock);
+        return Result.Success();
     }
 
     // ── Tag membership ─────────────────────────────────────────────────────────

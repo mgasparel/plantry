@@ -310,6 +310,33 @@
                                 </div>
                             </div>
 
+                            @* Yield-on-cook (plantry-854a, recipe-composition.md §9): store leftover / prepped
+                               servings as inventory. Only shown when the recipe declares a yield. Leave the
+                               quantity at 0 to store nothing. *@
+                            @if (cook.Yield is { } y)
+                            {
+                                <div class="cook-rail-yield" x-data="{ store: @(y.SuggestedQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)) }"
+                                     style="margin-top:16px;padding:12px;border:1px solid var(--border,#ddd);border-radius:8px">
+                                    <label class="field__label" for="StoreYieldQuantity">
+                                        Storing leftovers of <strong>@y.ProductName</strong>?
+                                    </label>
+                                    <div class="form-grid__unit-suffix" style="margin-top:6px">
+                                        <input id="StoreYieldQuantity" name="StoreYieldQuantity" type="number"
+                                               min="0" step="0.001" class="field__input"
+                                               x-model.number="store" value="@y.SuggestedQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)" />
+                                        <span class="form-grid__unit-suffix__label">@y.UnitCode</span>
+                                    </div>
+                                    <div x-show="store > 0" x-cloak style="margin-top:8px">
+                                        <label class="field__label" for="StoreYieldExpiry">Use by (optional)</label>
+                                        <input id="StoreYieldExpiry" name="StoreYieldExpiry" type="date"
+                                               class="field__input" />
+                                    </div>
+                                    <p style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+                                        Adds a lot of @y.ProductName to your pantry. Eaten-now servings need no action.
+                                    </p>
+                                </div>
+                            }
+
                             <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
                                 <button type="submit" class="btn btn--cook btn--full">
                                     <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>

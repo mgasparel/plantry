@@ -36,6 +36,7 @@ namespace Plantry.Recipes.Application;
 public sealed class ReconcilePendingCooks(
     ICookEventRepository cookEvents,
     IInventoryConsumer consumer,
+    IInventoryProducer producer,
     ITenantContext tenant,
     ILogger<ReconcilePendingCooks> logger)
 {
@@ -70,7 +71,11 @@ public sealed class ReconcilePendingCooks(
                 .Where(l => l.Status == CookConsumeLineStatus.Pending)
                 .ToList();
 
-            if (pendingLines.Count == 0)
+            var pendingProduceLines = cookEvent.ProduceLines
+                .Where(l => l.Status == CookProduceLineStatus.Pending)
+                .ToList();
+
+            if (pendingLines.Count == 0 && pendingProduceLines.Count == 0)
                 continue;
 
             foreach (var line in pendingLines)
@@ -111,6 +116,38 @@ public sealed class ReconcilePendingCooks(
                         "Reconcile line {LineId} for cook {CookEventId} shorted — product {ProductId} has no stock record.",
                         line.Id.Value, cookEvent.Id.Value, line.ProductId);
                     line.MarkShorted();
+                }
+
+                reconciledCount++;
+            }
+
+            // Re-drive Pending yield-on-cook produce lines (plantry-854a). Idempotent through the
+            // sourceLineRef token exactly like consumes: if the produce already committed a journal row,
+            // the re-drive is a no-op; if it never ran, it adds the yield lot now. A produce that cannot be
+            // recorded is marked Failed (terminal) so it is not re-attempted on the next pass.
+            foreach (var produceLine in pendingProduceLines)
+            {
+                try
+                {
+                    await producer.ProduceAsync(
+                        produceLine.ProductId,
+                        produceLine.Quantity,
+                        produceLine.UnitId,
+                        produceLine.ExpiryDate,
+                        ProduceReason.Recipe,
+                        cookEvent.Id.Value,
+                        cookEvent.CookedBy,
+                        sourceLineRef: produceLine.Id.Value,
+                        ct);
+
+                    produceLine.MarkApplied();
+                }
+                catch (InvalidOperationException)
+                {
+                    logger.LogWarning(
+                        "Reconcile produce line {LineId} for cook {CookEventId} failed — product {ProductId} could not be stored.",
+                        produceLine.Id.Value, cookEvent.Id.Value, produceLine.ProductId);
+                    produceLine.MarkFailed();
                 }
 
                 reconciledCount++;

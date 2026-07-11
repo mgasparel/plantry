@@ -26,7 +26,9 @@ public sealed class AddStockCommand(
     IClock clock,
     ITenantContext tenant,
     StockSourceType sourceType = StockSourceType.Manual,
-    ILogger<AddStockCommand>? logger = null)
+    ILogger<AddStockCommand>? logger = null,
+    Guid? sourceRef = null,
+    Guid? sourceLineRef = null)
 {
     public async Task<Result<StockEntryId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -55,14 +57,19 @@ public sealed class AddStockCommand(
         }
 
         var household = HouseholdId.From(householdId);
-        var stock = await stocks.FindAsync(household, productId, ct);
+        // When an idempotency token is supplied (yield-on-cook produce, plantry-854a) the journal must be
+        // loaded so AddStock can short-circuit a re-driven produce; FindWithHistoryAsync brings it in.
+        // Manual / intake adds pass no token and stay on the cheaper Entries-only FindAsync.
+        var stock = sourceLineRef is null
+            ? await stocks.FindAsync(household, productId, ct)
+            : await stocks.FindWithHistoryAsync(household, productId, ct);
         var isNew = stock is null;
         stock ??= ProductStock.Start(household, productId, clock);
 
         var entry = stock.AddStock(
             quantity, unitId, locationId, userId, clock,
             skuId: skuId, expiryDate: expiryDate, purchasedAt: purchasedAt,
-            sourceType: sourceType);
+            sourceType: sourceType, sourceRef: sourceRef, sourceLineRef: sourceLineRef);
 
         if (isNew)
         {
@@ -70,11 +77,13 @@ public sealed class AddStockCommand(
             {
                 // Concurrent first-intake race: another request won the root insert.
                 // Reload and re-add the lot to the existing root.
-                stock = (await stocks.FindAsync(household, productId, ct))!;
+                stock = (sourceLineRef is null
+                    ? await stocks.FindAsync(household, productId, ct)
+                    : await stocks.FindWithHistoryAsync(household, productId, ct))!;
                 entry = stock.AddStock(
                     quantity, unitId, locationId, userId, clock,
                     skuId: skuId, expiryDate: expiryDate, purchasedAt: purchasedAt,
-                    sourceType: sourceType);
+                    sourceType: sourceType, sourceRef: sourceRef, sourceLineRef: sourceLineRef);
                 await stocks.SaveChangesAsync(ct);
             }
         }

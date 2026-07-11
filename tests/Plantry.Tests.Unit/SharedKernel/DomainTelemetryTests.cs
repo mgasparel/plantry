@@ -367,10 +367,11 @@ public sealed class DomainTelemetryTests
         var recipes = new MetricsTestRecipeRepository();
         var cookEvents = new MetricsTestCookEventRepository();
         var consumer = new MetricsTestInventoryConsumer();
+        var producer = new MetricsTestInventoryProducer();
         var products = new MetricsTestCatalogProductReader();
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
         products.AddTracked(productId, unitId);
@@ -380,7 +381,7 @@ public sealed class DomainTelemetryTests
         recipes.Items.Add(recipe);
 
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, consumer, products, expansion, dispatcher, clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, consumer, producer, products, expansion, dispatcher, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -402,14 +403,15 @@ public sealed class DomainTelemetryTests
         var recipes = new MetricsTestRecipeRepository(); // empty
         var cookEvents = new MetricsTestCookEventRepository();
         var consumer = new MetricsTestInventoryConsumer();
+        var producer = new MetricsTestInventoryProducer();
         var products = new MetricsTestCatalogProductReader();
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, consumer, products, expansion, dispatcher, clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, consumer, producer, products, expansion, dispatcher, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -639,6 +641,15 @@ internal sealed class MetricsTestInventoryConsumer : IInventoryConsumer
         ConsumeReason reason, Guid cookEventId, Guid userId,
         Guid sourceLineRef, CancellationToken ct = default) =>
         Task.FromResult(new ConsumeResult(0m, unitId));
+}
+
+internal sealed class MetricsTestInventoryProducer : IInventoryProducer
+{
+    public Task ProduceAsync(
+        Guid productId, decimal quantity, Guid unitId, DateOnly? expiryDate,
+        ProduceReason reason, Guid cookEventId, Guid userId,
+        Guid sourceLineRef, CancellationToken ct = default) =>
+        Task.CompletedTask;
 }
 
 internal sealed class MetricsTestCatalogProductReader : ICatalogProductReader

@@ -95,19 +95,38 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
         decimal quantity, Guid unitId, Guid locationId, Guid userId, IClock clock,
         Guid? skuId = null, DateOnly? expiryDate = null, DateOnly? purchasedAt = null,
         StockSourceType sourceType = StockSourceType.Manual, Guid? sourceRef = null,
-        StockReason reason = StockReason.Purchase)
+        StockReason reason = StockReason.Purchase, Guid? sourceLineRef = null)
     {
         if (quantity <= 0m)
             throw new ArgumentOutOfRangeException(nameof(quantity), "Intake quantity must be positive.");
         if (!reason.IsAddition())
             throw new ArgumentException($"AddStock cannot record a {reason} reason; only Purchase or Correction are addition reasons.", nameof(reason));
 
+        // Idempotency short-circuit (yield-on-cook, plantry-854a) — the ADD counterpart to the Consume
+        // guard (plantry-292a / plantry-fks). When a sourceLineRef token is supplied and any journal row
+        // already carries this (sourceRef, sourceLineRef) pair, the lot was already added by the original
+        // produce — return the existing lot without adding a second one. This lets ReconcilePendingCooks
+        // re-drive a Pending produce line after an interrupted cook without double-adding stock. Both
+        // dimensions are required: sourceLineRef alone is not unique across cooks, so sourceRef (the
+        // CookEvent id) scopes the check, matching the (household_id, source_ref, source_line_ref) index.
+        // Callers with no token (manual/intake add) pass null and are unaffected.
+        if (sourceLineRef is { } token)
+        {
+            var priorRow = _journal.FirstOrDefault(j => j.SourceLineRef == token && j.SourceRef == sourceRef);
+            if (priorRow is not null)
+            {
+                var existing = _entries.FirstOrDefault(e => e.Id == priorRow.StockEntryId);
+                if (existing is not null)
+                    return existing; // no-op: this produce already added its lot
+            }
+        }
+
         var now = clock.UtcNow;
         var entry = StockEntry.Create(HouseholdId, ProductId, skuId, quantity, unitId, locationId, expiryDate, purchasedAt, now);
         _entries.Add(entry);
         _journal.Add(StockJournalEntry.Record(
             HouseholdId, ProductId, entry.Id, +quantity, unitId,
-            reason, sourceType, sourceRef, sourceLineRef: null, now, userId));
+            reason, sourceType, sourceRef, sourceLineRef: sourceLineRef, now, userId));
         UpdatedAt = now;
         return entry;
     }
