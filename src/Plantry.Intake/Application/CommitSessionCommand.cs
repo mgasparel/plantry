@@ -13,14 +13,13 @@ namespace Plantry.Intake.Application;
 /// committed with those refs. Finally the session itself is marked committed (raising
 /// <c>ImportSessionCommittedEvent</c>).
 ///
-/// <para><b>Commit-time auto-confirm (plantry-v0wl).</b> Before the commit loop, still-Pending lines are
-/// resolved server-side: a line with <c>SuggestedConfidence.High</c> whose server-side prefill chain
-/// (<see cref="ReviewPrefill.ComputePrefill"/>) is complete — an existing product, quantity &gt; 0, and both
-/// a unit and a location — is Confirmed from its re-derived values (the client never echoes AI suggestions
-/// back). Any other Pending line (Low/None confidence, or High with an incomplete prefill) fails the
-/// <em>whole</em> commit with a descriptive error naming the line — never silently skipped, never
-/// half-committed (ADR-010 amendment 2026-07-10). So by the time the loop runs, every line is Confirmed,
-/// Dismissed, or already-Committed.</para>
+/// <para><b>Strict commit gate (ADR-010 amendment 2026-07-11, plantry-gpdb).</b> Commit requires that no
+/// line is still <c>Pending</c>. The deck-flow review surface confirms every "sure thing" up front via the
+/// explicit <see cref="ConfirmLinesCommand"/> bulk action and resolves every judgement call in the deck, so
+/// the user has already gated each high-confidence line — there is no longer a silent commit-time
+/// auto-confirm pre-pass. Any still-<c>Pending</c> line is therefore a genuinely unresolved line: it fails
+/// the <em>whole</em> commit with a descriptive error naming it — never silently skipped, never
+/// half-committed. So by the time the loop runs, every line is Confirmed, Dismissed, or already-Committed.</para>
 ///
 /// <para><b>Resumable.</b> Each line is saved with its committed refs before the next line runs, and lines
 /// that are not Confirmed at loop time (Dismissed, or already-Committed on a retry) are skipped — so a
@@ -70,52 +69,22 @@ public sealed class CommitSessionCommand(
         Guid? purchaseStoreId = null;
         var storeResolved = false;
 
-        // ── Commit-time auto-confirm (plantry-v0wl) ────────────────────────────────────────────────
-        // Still-Pending lines are resolved here, server-side, BEFORE the commit loop — never client-driven,
-        // so the AI's suggested values never round-trip through the browser (Gate 5: only user-approved,
-        // server-derived fields commit). A line qualifies only when the AI was High-confident AND the
-        // server-side prefill chain (the same one the review page renders) yields a COMPLETE resolution: an
-        // existing product, quantity > 0, and both a unit and a location. Qualifying lines are Confirmed with
-        // those prefill values; the once-set receipt/suggestion data is untouched, so a weight→each line
-        // still prices and seeds correctly in the loop below. A Pending line that does NOT qualify (Low/None
-        // confidence, or High with an incomplete prefill) fails the whole commit with a descriptive error
-        // naming the line — exactly as an unresolved line must, never silently skipped, never half-committed.
-        var pendingLines = session.Lines.Where(l => l.Status == LineStatus.Pending).ToList();
-        if (pendingLines.Count > 0)
+        // ── Strict commit gate (ADR-010 amendment 2026-07-11, plantry-gpdb) ──────────────────────────
+        // The deck-flow review surface confirms every "sure thing" up front via the explicit ConfirmLines
+        // bulk action and resolves every judgement call in the deck, so by commit time the user has already
+        // gated each line — there is no silent commit-time auto-confirm any more. Any still-Pending line is a
+        // genuinely unresolved line: it fails the WHOLE commit with a descriptive error naming it — never
+        // silently skipped, never half-committed. So by the time the loop runs, every line is Confirmed,
+        // Dismissed, or already-Committed.
+        var unresolved = session.Lines.FirstOrDefault(l => l.Status == LineStatus.Pending);
+        if (unresolved is not null)
         {
-            reference ??= await referenceData.GetAsync(ct);
-            var lookups = ReviewPrefill.BuildLookups(reference);
-            foreach (var line in pendingLines)
-            {
-                var prefill = ReviewPrefill.ComputePrefill(ReviewLineView.FromDomain(line), lookups, purchasedOn);
-
-                var qualifies = line.SuggestedConfidence == SuggestedConfidence.High
-                    && prefill.ProductId is not null
-                    && prefill.Qty is > 0m
-                    && prefill.UnitId is not null
-                    && prefill.LocationId is not null;
-
-                if (!qualifies)
-                {
-                    logger.LogWarning(
-                        "Import session {SessionId} commit blocked — line {LineNo} is unresolved and does not qualify for commit-time auto-confirm.",
-                        sessionId.Value, line.LineNo);
-                    return Error.Custom(
-                        "Intake.UnresolvedLine",
-                        $"Line {line.LineNo} (\"{line.ReceiptText}\") is still unresolved and can't be added — review it first.");
-                }
-
-                var autoConfirm = line.Confirm(
-                    prefill.ProductId!.Value, line.SkuId, prefill.Qty!.Value, prefill.UnitId!.Value,
-                    prefill.LocationId!.Value, prefill.Expiry, prefill.Price);
-                if (autoConfirm.IsFailure)
-                    return autoConfirm.Error;
-            }
-
-            await sessions.SaveChangesAsync(ct);
-            logger.LogInformation(
-                "Import session {SessionId}: auto-confirmed {Count} high-confidence line(s) at commit.",
-                sessionId.Value, pendingLines.Count);
+            logger.LogWarning(
+                "Import session {SessionId} commit blocked — line {LineNo} is still unresolved (Pending).",
+                sessionId.Value, unresolved.LineNo);
+            return Error.Custom(
+                "Intake.UnresolvedLine",
+                $"Line {unresolved.LineNo} (\"{unresolved.ReceiptText}\") is still unresolved and can't be added — review it first.");
         }
 
         try

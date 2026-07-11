@@ -45,9 +45,10 @@ public sealed record ReviewLineView(
 {
     /// <summary>
     /// Projects a domain <see cref="ImportLine"/> onto its read view — the single mapping point shared by
-    /// <see cref="GetSessionForReviewQuery"/> and <see cref="CommitSessionCommand"/>'s commit-time
-    /// auto-confirm pass, so both feed the prefill chain (<see cref="ReviewPrefill.ComputePrefill"/>) the
-    /// exact same shape. Alternatives are surfaced only when there are two or more credible candidates.
+    /// <see cref="GetSessionForReviewQuery"/> (the review hydration builder) and
+    /// <see cref="ConfirmLinesCommand"/> (the bulk-confirm predicate), so both feed the prefill chain
+    /// (<see cref="ReviewPrefill.ComputePrefill"/>) the exact same shape. Alternatives are surfaced only
+    /// when there are two or more credible candidates.
     /// </summary>
     public static ReviewLineView FromDomain(ImportLine l)
     {

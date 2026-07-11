@@ -1,6 +1,6 @@
 // @ts-check
 //
-// Unit tests for intake-review-logic.js (ADR-020, bead plantry-2zvm.11).
+// Unit tests for intake-review-logic.js (ADR-020, bead plantry-2zvm.11 / deck-flow rewrite plantry-gpdb).
 //
 // Run with: node --test  (from repo root)
 // Or:       npm test
@@ -15,38 +15,35 @@ import assert from "node:assert/strict";
 import {
   makeLine,
   lineSection,
-  isUnmatched,
+  isSurePending,
+  hasCompletePrefill,
   buildSaveLineBody,
   commitBarCounts,
   estimateHint,
-  hasCompletePrefill,
-  isReadyPending,
   decisionVariant,
-  questionCopy,
-  firstNeedsLineId,
+  deckReasoning,
+  optionRankLabel,
+  demotedDecision,
   railLineView,
   reconciliation,
+  // reused deck primitives (deal-deck-logic.js) — covered here for intake's use of them
+  buildDeckOrder,
+  applySkip,
+  applyBack,
+  reconcileSkipStack,
 } from "../intake-review-logic.js";
 
 // ── test helpers ─────────────────────────────────────────────────────────────
 
 /**
  * Minimal signal stub — a plain object with a `value` property.
- * The logic functions only read `.value`; they never call signal-specific
- * methods like `.subscribe` or `.peek`.
- *
- * @template T
- * @param {T} v
- * @returns {{ value: T }}
+ * @template T @param {T} v @returns {{ value: T }}
  */
 function sig(v) {
   return { value: v };
 }
 
 /**
- * Build a minimal LineSeed with sensible defaults. Individual tests override
- * only the fields that matter for that case.
- *
  * @param {Partial<import("../intake-review-logic.js").LineSeed>} overrides
  * @returns {import("../intake-review-logic.js").LineSeed}
  */
@@ -72,8 +69,6 @@ function lineSeed(overrides = {}) {
 }
 
 /**
- * Build a minimal PrefillData with sensible defaults.
- *
  * @param {Partial<import("../intake-review-logic.js").PrefillData>} overrides
  * @returns {import("../intake-review-logic.js").PrefillData}
  */
@@ -92,9 +87,6 @@ function prefill(overrides = {}) {
 }
 
 /**
- * Build a complete LineState from seed + prefill using the stub signal factory.
- * Shorthand so test bodies stay focused.
- *
  * @param {Partial<import("../intake-review-logic.js").LineSeed>} lineOverrides
  * @param {Partial<import("../intake-review-logic.js").PrefillData>} prefillOverrides
  * @returns {import("../intake-review-logic.js").LineState}
@@ -112,366 +104,221 @@ describe("buildSaveLineBody", () => {
   it("assembles a well-formed body for an existing-product line", () => {
     const ls = makeState();
     const body = buildSaveLineBody(ls);
-
     assert.equal(body.lineId, "line-1");
     assert.equal(body.createNew, false);
     assert.equal(body.productId, "prod-abc");
-    assert.equal(body.skuId, null);          // prefill.skuId is null → null
+    assert.equal(body.skuId, null);
     assert.equal(body.newProductName, null);
     assert.equal(body.newProductCategoryId, null);
     assert.equal(body.quantity, 1);
     assert.equal(body.unitId, "unit-L");
     assert.equal(body.locationId, "loc-fridge");
-    assert.equal(body.expiryDate, null);      // draftExpiryMode is "never"
+    assert.equal(body.expiryDate, null);
     assert.equal(body.price, 3.99);
   });
 
-  it("parseFloat of a valid string quantity", () => {
-    const ls = makeState({}, { quantity: 2.5 });
-    const body = buildSaveLineBody(ls);
-    assert.equal(body.quantity, 2.5);
-  });
-
-  it("parseFloat of garbage qty yields NaN (caller must validate before calling)", () => {
+  it("parseFloat of garbage / empty qty yields NaN (caller must validate before calling)", () => {
     const ls = makeState();
     ls.draftQty.value = "abc";
-    const body = buildSaveLineBody(ls);
-    assert.ok(Number.isNaN(body.quantity), "expected NaN for garbage qty");
-  });
-
-  it("parseFloat of empty-string qty yields NaN", () => {
-    const ls = makeState();
+    assert.ok(Number.isNaN(buildSaveLineBody(ls).quantity));
     ls.draftQty.value = "";
-    const body = buildSaveLineBody(ls);
-    assert.ok(Number.isNaN(body.quantity), "expected NaN for empty qty string");
+    assert.ok(Number.isNaN(buildSaveLineBody(ls).quantity));
   });
 
-  it("createNew branch: nulls productId and skuId, populates newProductName and category", () => {
+  it("createNew branch: nulls productId/skuId, trims name, (value || null) for category", () => {
     const ls = makeState(
       { isNewProduct: true, newProductName: "Oat Milk", newProductCategoryId: "cat-dairy" },
-      { productId: null, productName: null, skuId: null },
+      { productId: null, productName: null },
     );
     ls.createNew.value = true;
-    ls.draftNewName.value = "  Oat Milk  "; // should be trimmed
+    ls.draftNewName.value = "  Oat Milk  ";
     ls.draftNewCategoryId.value = "cat-dairy";
-    ls.draftProductId.value = "";            // even if something leaked in, it must be ignored
+    ls.draftProductId.value = "leaked";
     ls.draftSkuId.value = "sku-xyz";
-
     const body = buildSaveLineBody(ls);
-
     assert.equal(body.createNew, true);
-    assert.equal(body.productId, null, "productId must be null in createNew branch");
-    assert.equal(body.skuId, null, "skuId must be null in createNew branch");
-    assert.equal(body.newProductName, "Oat Milk", "newProductName must be trimmed");
+    assert.equal(body.productId, null);
+    assert.equal(body.skuId, null);
+    assert.equal(body.newProductName, "Oat Milk");
     assert.equal(body.newProductCategoryId, "cat-dairy");
-  });
 
-  it("createNew branch: newProductCategoryId uses (value || null) — empty string becomes null", () => {
-    const ls = makeState({ isNewProduct: true }, { productId: null });
-    ls.createNew.value = true;
-    ls.draftNewName.value = "Coconut Yoghurt";
     ls.draftNewCategoryId.value = "";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.newProductCategoryId, null);
+    assert.equal(buildSaveLineBody(ls).newProductCategoryId, null);
   });
 
-  it("existing-product branch: productId uses (value || null) — empty string becomes null", () => {
+  it("existing-product branch: empty productId/skuId/unit/location become null", () => {
     const ls = makeState();
     ls.createNew.value = false;
     ls.draftProductId.value = "";
-
+    ls.draftSkuId.value = "";
+    ls.draftUnitId.value = "";
+    ls.draftLocationId.value = "";
     const body = buildSaveLineBody(ls);
-
     assert.equal(body.productId, null);
+    assert.equal(body.skuId, null);
+    assert.equal(body.unitId, null);
+    assert.equal(body.locationId, null);
     assert.equal(body.newProductName, null);
   });
 
-  it("existing-product branch: skuId uses (value || null) — empty string becomes null", () => {
-    const ls = makeState();
-    ls.createNew.value = false;
-    ls.draftSkuId.value = "";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.skuId, null);
-  });
-
-  it("expiryDate is set when draftExpiryMode is 'has' and draftExpiry is non-empty", () => {
+  it("expiryDate honours the has/never mode", () => {
     const ls = makeState();
     ls.draftExpiryMode.value = "has";
     ls.draftExpiry.value = "2026-12-31";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.expiryDate, "2026-12-31");
-  });
-
-  it("expiryDate is null when draftExpiryMode is 'has' but draftExpiry is empty", () => {
-    const ls = makeState();
-    ls.draftExpiryMode.value = "has";
+    assert.equal(buildSaveLineBody(ls).expiryDate, "2026-12-31");
     ls.draftExpiry.value = "";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.expiryDate, null);
-  });
-
-  it("expiryDate is null when draftExpiryMode is 'never' even if draftExpiry has a value", () => {
-    const ls = makeState();
+    assert.equal(buildSaveLineBody(ls).expiryDate, null);
     ls.draftExpiryMode.value = "never";
     ls.draftExpiry.value = "2026-12-31";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.expiryDate, null);
+    assert.equal(buildSaveLineBody(ls).expiryDate, null);
   });
 
-  it("price is null when draftPrice is empty", () => {
-    const ls = makeState();
-    ls.draftPrice.value = "";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.price, null);
-  });
-
-  it("price is parseFloat when draftPrice is a valid number string", () => {
+  it("price is parseFloat when set, null when empty", () => {
     const ls = makeState();
     ls.draftPrice.value = "5.49";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.price, 5.49);
-  });
-
-  it("unitId uses (value || null) — empty string becomes null", () => {
-    const ls = makeState();
-    ls.draftUnitId.value = "";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.unitId, null);
-  });
-
-  it("locationId uses (value || null) — empty string becomes null", () => {
-    const ls = makeState();
-    ls.draftLocationId.value = "";
-
-    const body = buildSaveLineBody(ls);
-
-    assert.equal(body.locationId, null);
+    assert.equal(buildSaveLineBody(ls).price, 5.49);
+    ls.draftPrice.value = "";
+    assert.equal(buildSaveLineBody(ls).price, null);
   });
 });
 
 // ── makeLine ─────────────────────────────────────────────────────────────────
 
 describe("makeLine", () => {
-  describe("drawerOpen (exceptions-first: focus drives the question drawer, not this flag)", () => {
-    it("always starts closed — the focused exception's drawer is opened by the island's focusId", () => {
-      for (const seed of [
-        { status: "Pending", confidence: "Low", productId: null, isNewProduct: false },
-        { status: "Pending", confidence: "None", productId: null, isNewProduct: false },
-        { status: "Pending", confidence: "High", productId: "prod-abc", isNewProduct: false },
-        { status: "Confirmed", confidence: "High", productId: "prod-abc", isNewProduct: false },
-        { status: "Dismissed", confidence: "None", productId: null, isNewProduct: false },
-      ]) {
-        const ls = makeState(seed);
-        assert.equal(ls.drawerOpen.value, false, `expected closed for ${JSON.stringify(seed)}`);
-      }
-    });
+  it("checked starts true (pre-checked in the sure-things checklist) and demoted starts false", () => {
+    const ls = makeState();
+    assert.equal(ls.checked.value, true);
+    assert.equal(ls.demoted.value, false);
+  });
+
+  it("drawerOpen always starts closed (the confirmed-row edit drawer is user-toggled)", () => {
+    for (const seed of [
+      { status: "Pending", confidence: "High" },
+      { status: "Confirmed", confidence: "High" },
+      { status: "Dismissed", confidence: "None" },
+    ]) {
+      assert.equal(makeState(seed).drawerOpen.value, false, JSON.stringify(seed));
+    }
   });
 
   describe("draft coercions", () => {
-    it("draftQty is String(prefill.quantity) when non-null", () => {
-      const ls = makeState({}, { quantity: 3 });
-      assert.equal(ls.draftQty.value, "3");
+    it("draftQty is String(prefill.quantity) or '' when null", () => {
+      assert.equal(makeState({}, { quantity: 3 }).draftQty.value, "3");
+      assert.equal(makeState({}, { quantity: null }).draftQty.value, "");
     });
 
-    it("draftQty is empty string when prefill.quantity is null", () => {
-      const ls = makeState({}, { quantity: null });
-      assert.equal(ls.draftQty.value, "");
+    it("draftExpiryMode reflects prefill.expiry presence", () => {
+      const withExp = makeState({}, { expiry: "2026-06-30" });
+      assert.equal(withExp.draftExpiryMode.value, "has");
+      assert.equal(withExp.draftExpiry.value, "2026-06-30");
+      const noExp = makeState({}, { expiry: null });
+      assert.equal(noExp.draftExpiryMode.value, "never");
+      assert.equal(noExp.draftExpiry.value, "");
     });
 
-    it("draftExpiryMode is 'has' when prefill.expiry is non-null", () => {
-      const ls = makeState({}, { expiry: "2026-06-30" });
-      assert.equal(ls.draftExpiryMode.value, "has");
-      assert.equal(ls.draftExpiry.value, "2026-06-30");
-    });
-
-    it("draftExpiryMode is 'never' when prefill.expiry is null", () => {
-      const ls = makeState({}, { expiry: null });
-      assert.equal(ls.draftExpiryMode.value, "never");
-      assert.equal(ls.draftExpiry.value, "");
-    });
-
-    it("draftPrice is String(prefill.price) when non-null", () => {
-      const ls = makeState({}, { price: 2.49 });
-      assert.equal(ls.draftPrice.value, "2.49");
-    });
-
-    it("draftPrice is empty string when prefill.price is null", () => {
-      const ls = makeState({}, { price: null });
-      assert.equal(ls.draftPrice.value, "");
-    });
-
-    it("draftProductId falls back to empty string when prefill.productId is null", () => {
-      const ls = makeState({}, { productId: null });
-      assert.equal(ls.draftProductId.value, "");
-    });
-
-    it("draftSkuId falls back to empty string when prefill.skuId is null", () => {
-      const ls = makeState({}, { skuId: null });
-      assert.equal(ls.draftSkuId.value, "");
+    it("draftProductId / draftSkuId fall back to empty string", () => {
+      assert.equal(makeState({}, { productId: null }).draftProductId.value, "");
+      assert.equal(makeState({}, { skuId: null }).draftSkuId.value, "");
     });
   });
 
   describe("price signal", () => {
-    it("uses line.price when set (price wins over suggestedPrice)", () => {
-      const ls = makeState({ price: 4.99, suggestedPrice: 3.99 });
-      assert.equal(ls.price.value, 4.99);
-    });
-
-    it("falls back to suggestedPrice when line.price is null", () => {
-      const ls = makeState({ price: null, suggestedPrice: 3.99 });
-      assert.equal(ls.price.value, 3.99);
-    });
-
-    it("is null when both line.price and suggestedPrice are null", () => {
-      const ls = makeState({ price: null, suggestedPrice: null });
-      assert.equal(ls.price.value, null);
+    it("line.price wins over suggestedPrice; falls back to suggestedPrice; null when both null", () => {
+      assert.equal(makeState({ price: 4.99, suggestedPrice: 3.99 }).price.value, 4.99);
+      assert.equal(makeState({ price: null, suggestedPrice: 3.99 }).price.value, 3.99);
+      assert.equal(makeState({ price: null, suggestedPrice: null }).price.value, null);
     });
   });
 
-  it("createNew starts true when line.isNewProduct is true", () => {
-    const ls = makeState({ isNewProduct: true });
-    assert.equal(ls.createNew.value, true);
+  it("createNew starts from line.isNewProduct", () => {
+    assert.equal(makeState({ isNewProduct: true }).createNew.value, true);
+    assert.equal(makeState({ isNewProduct: false }).createNew.value, false);
   });
 
-  it("createNew starts false when line.isNewProduct is false", () => {
-    const ls = makeState({ isNewProduct: false });
-    assert.equal(ls.createNew.value, false);
-  });
-
-  it("alternatives is null when seed alternatives is null", () => {
-    const ls = makeLine(
-      { line: lineSeed(), prefill: prefill(), alternatives: null },
-      sig,
-    );
-    assert.equal(ls.alternatives, null);
-  });
-
-  it("alternatives is propagated when provided", () => {
+  it("alternatives passthrough (null by default, propagated when provided)", () => {
+    assert.equal(makeState().alternatives, null);
     const alts = [{ productId: "p2", productName: "Skim Milk", confidence: 0.85 }];
-    const ls = makeLine(
-      { line: lineSeed(), prefill: prefill(), alternatives: alts },
-      sig,
-    );
+    const ls = makeLine({ line: lineSeed(), prefill: prefill(), alternatives: alts }, sig);
     assert.deepEqual(ls.alternatives, alts);
   });
 });
 
-// ── lineSection ───────────────────────────────────────────────────────────────
+// ── lineSection (four-way: confirmed / sure / needs / skipped) ────────────────────
 
 describe("lineSection", () => {
   it("returns 'skipped' for Dismissed", () => {
-    const ls = makeState({ status: "Dismissed" });
-    assert.equal(lineSection(ls), "skipped");
+    assert.equal(lineSection(makeState({ status: "Dismissed" })), "skipped");
   });
 
-  it("returns 'ready' for Confirmed", () => {
-    const ls = makeState({ status: "Confirmed" });
-    assert.equal(lineSection(ls), "ready");
+  it("returns 'confirmed' for Confirmed and Committed", () => {
+    assert.equal(lineSection(makeState({ status: "Confirmed" })), "confirmed");
+    assert.equal(lineSection(makeState({ status: "Committed" })), "confirmed");
   });
 
-  it("returns 'ready' for Committed", () => {
-    const ls = makeState({ status: "Committed" });
-    assert.equal(lineSection(ls), "ready");
+  it("returns 'sure' for a Pending High-confidence line with a complete prefill", () => {
+    assert.equal(lineSection(makeState({ status: "Pending", confidence: "High" })), "sure");
   });
 
-  it("returns 'ready' for a Pending High-confidence line with a complete prefill (auto-confirm at commit)", () => {
-    // default makeState is High + complete prefill (product/qty/unit/location all set)
+  it("returns 'needs' for a sure line the user demoted (unchecked into the deck)", () => {
     const ls = makeState({ status: "Pending", confidence: "High" });
-    assert.equal(lineSection(ls), "ready");
-  });
-
-  it("returns 'needs' for a Pending High-confidence line with an INCOMPLETE prefill (missing location)", () => {
-    const ls = makeState({ status: "Pending", confidence: "High" }, { locationId: null });
+    ls.demoted.value = true;
     assert.equal(lineSection(ls), "needs");
   });
 
-  it("returns 'needs' for a Pending Low-confidence line even with a complete prefill", () => {
-    const ls = makeState({ status: "Pending", confidence: "Low" });
-    assert.equal(lineSection(ls), "needs");
+  it("returns 'needs' for a Pending High line with an incomplete prefill (missing location)", () => {
+    assert.equal(lineSection(makeState({ status: "Pending", confidence: "High" }, { locationId: null })), "needs");
   });
 
-  it("returns 'needs' for a Pending None-confidence unmatched line", () => {
-    const ls = makeState(
-      { status: "Pending", confidence: "None", productId: null },
-      { productId: null },
-    );
-    assert.equal(lineSection(ls), "needs");
+  it("returns 'needs' for Pending Low/None confidence lines", () => {
+    assert.equal(lineSection(makeState({ status: "Pending", confidence: "Low" })), "needs");
+    assert.equal(lineSection(makeState({ status: "Pending", confidence: "None", productId: null }, { productId: null })), "needs");
   });
 });
 
-// ── hasCompletePrefill / isReadyPending ─────────────────────────────────────────
+// ── hasCompletePrefill / isSurePending (mirror of the ConfirmLines predicate) ─────
 
 describe("hasCompletePrefill", () => {
   it("true when product, qty>0, unit and location are all present", () => {
     assert.equal(hasCompletePrefill(makeState()), true);
   });
 
-  it("false when product is missing", () => {
+  it("false when any of product / unit / location is missing or qty is not > 0", () => {
     assert.equal(hasCompletePrefill(makeState({}, { productId: null })), false);
-  });
-
-  it("false when location is missing", () => {
-    assert.equal(hasCompletePrefill(makeState({}, { locationId: null })), false);
-  });
-
-  it("false when unit is missing", () => {
     assert.equal(hasCompletePrefill(makeState({}, { unitId: null })), false);
-  });
-
-  it("false when quantity is zero or absent", () => {
+    assert.equal(hasCompletePrefill(makeState({}, { locationId: null })), false);
     assert.equal(hasCompletePrefill(makeState({}, { quantity: 0 })), false);
     assert.equal(hasCompletePrefill(makeState({}, { quantity: null })), false);
   });
 });
 
-describe("isReadyPending", () => {
-  it("true only for Pending + High + complete prefill", () => {
-    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "High" })), true);
+describe("isSurePending", () => {
+  it("true only for Pending + High + complete prefill + not demoted", () => {
+    assert.equal(isSurePending(makeState({ status: "Pending", confidence: "High" })), true);
   });
 
-  it("false for Low confidence", () => {
-    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "Low" })), false);
+  it("false when demoted (the user pushed it to the deck)", () => {
+    const ls = makeState({ status: "Pending", confidence: "High" });
+    ls.demoted.value = true;
+    assert.equal(isSurePending(ls), false);
   });
 
-  it("false for High but incomplete prefill", () => {
-    assert.equal(isReadyPending(makeState({ status: "Pending", confidence: "High" }, { unitId: null })), false);
-  });
-
-  it("false for non-Pending statuses", () => {
+  it("false for Low confidence, incomplete prefill, or non-Pending status", () => {
+    assert.equal(isSurePending(makeState({ status: "Pending", confidence: "Low" })), false);
+    assert.equal(isSurePending(makeState({ status: "Pending", confidence: "High" }, { unitId: null })), false);
     for (const status of ["Confirmed", "Dismissed", "Committed"]) {
-      assert.equal(isReadyPending(makeState({ status, confidence: "High" })), false, status);
+      assert.equal(isSurePending(makeState({ status, confidence: "High" })), false, status);
     }
   });
 });
 
-// ── decisionVariant ─────────────────────────────────────────────────────────────
+// ── decisionVariant / deckReasoning / optionRankLabel ────────────────────────────
 
 describe("decisionVariant", () => {
-  it("'create' when createNew is set", () => {
-    const ls = makeState();
-    ls.createNew.value = true;
-    assert.equal(decisionVariant(ls, 0), "create");
-  });
-
-  it("'create' when there is no product and no alternatives", () => {
-    const ls = makeState({ productId: null }, { productId: null });
-    assert.equal(decisionVariant(ls, 0), "create");
+  it("'create' when createNew is set or there is no product and no alternatives", () => {
+    const cn = makeState();
+    cn.createNew.value = true;
+    assert.equal(decisionVariant(cn, 0), "create");
+    assert.equal(decisionVariant(makeState({ productId: null }, { productId: null }), 0), "create");
   });
 
   it("'estimate' when the line carries a weight→each estimate", () => {
@@ -483,137 +330,116 @@ describe("decisionVariant", () => {
     assert.equal(decisionVariant(ls, 0), "estimate");
   });
 
-  it("'match' when 2+ alternatives are present (and no estimate)", () => {
+  it("'match' when 2+ alternatives are present (no estimate)", () => {
     const alts = [
       { productId: "p1", productName: "A", confidence: 0.8 },
       { productId: "p2", productName: "B", confidence: 0.5 },
     ];
-    const ls = makeLine({ line: lineSeed(), prefill: prefill(), alternatives: alts }, sig);
-    assert.equal(decisionVariant(ls, 0), "match");
+    assert.equal(decisionVariant(makeLine({ line: lineSeed(), prefill: prefill(), alternatives: alts }, sig), 0), "match");
   });
 
-  it("'sku' when the drafted product has 2+ pack sizes (no estimate, <2 alternatives)", () => {
-    const ls = makeState();
-    assert.equal(decisionVariant(ls, 2), "sku");
-  });
-
-  it("'fields' as the fallback for a matched line with a single sku", () => {
-    const ls = makeState();
-    assert.equal(decisionVariant(ls, 1), "fields");
+  it("'sku' when the drafted product has 2+ pack sizes; 'fields' as the fallback", () => {
+    assert.equal(decisionVariant(makeState(), 2), "sku");
+    assert.equal(decisionVariant(makeState(), 1), "fields");
   });
 });
 
-// ── questionCopy ─────────────────────────────────────────────────────────────────
-
-describe("questionCopy", () => {
-  it("returns a distinct non-empty question + why for every variant", () => {
+describe("deckReasoning", () => {
+  it("returns a distinct non-empty statement for every variant", () => {
     const seen = new Set();
     for (const v of ["create", "estimate", "match", "sku", "fields"]) {
-      const c = questionCopy(/** @type {any} */ (v));
-      assert.ok(c.question && c.why, `variant ${v} must have copy`);
-      assert.ok(!seen.has(c.question), `variant ${v} question must be distinct`);
-      seen.add(c.question);
+      const r = deckReasoning(/** @type {any} */ (v));
+      assert.ok(r && typeof r === "string", `variant ${v} must have copy`);
+      assert.ok(!seen.has(r), `variant ${v} must be distinct`);
+      seen.add(r);
     }
   });
 
-  it("falls back to the generic copy for an unknown variant", () => {
-    assert.deepEqual(questionCopy(/** @type {any} */ ("nope")), questionCopy("fields"));
+  it("falls back to the generic (fields) copy for an unknown variant", () => {
+    assert.equal(deckReasoning(/** @type {any} */ ("nope")), deckReasoning("fields"));
   });
 });
 
-// ── firstNeedsLineId ─────────────────────────────────────────────────────────────
-
-describe("firstNeedsLineId", () => {
-  it("returns the lineId of the first line still in the needs section", () => {
-    const ready = makeState({ lineId: "a", status: "Confirmed" });
-    const needs1 = makeState({ lineId: "b", status: "Pending", confidence: "Low" });
-    const needs2 = makeState({ lineId: "c", status: "Pending", confidence: "Low" });
-    assert.equal(firstNeedsLineId([ready, needs1, needs2]), "b");
+describe("optionRankLabel", () => {
+  it("the recommended top pick reads 'best'", () => {
+    assert.equal(optionRankLabel(0, 0.78, true), "best");
   });
 
-  it("returns null when nothing needs review", () => {
-    const ready = makeState({ lineId: "a", status: "Confirmed" });
-    const skipped = makeState({ lineId: "b", status: "Dismissed" });
-    assert.equal(firstNeedsLineId([ready, skipped]), null);
-  });
-});
-
-// ── isUnmatched ───────────────────────────────────────────────────────────────
-
-describe("isUnmatched", () => {
-  it("returns true for Pending + Low confidence", () => {
-    const ls = makeState({ status: "Pending", confidence: "Low" });
-    assert.equal(isUnmatched(ls), true);
+  it("non-top options read their confidence as a percentage", () => {
+    assert.equal(optionRankLabel(1, 0.44, false), "44%");
+    assert.equal(optionRankLabel(2, 0.31, false), "31%");
   });
 
-  it("returns true for Pending + None confidence", () => {
-    const ls = makeState({ status: "Pending", confidence: "None" });
-    assert.equal(isUnmatched(ls), true);
+  it("a zero-confidence option (escape hatch) shows nothing", () => {
+    assert.equal(optionRankLabel(2, 0, false), "");
   });
 
-  it("returns false for Pending + High confidence (matched row)", () => {
-    const ls = makeState({ status: "Pending", confidence: "High" });
-    assert.equal(isUnmatched(ls), false);
-  });
-
-  it("returns false for Confirmed even if confidence is Low", () => {
-    const ls = makeState({ status: "Confirmed", confidence: "Low" });
-    assert.equal(isUnmatched(ls), false);
-  });
-
-  it("returns false for Dismissed", () => {
-    const ls = makeState({ status: "Dismissed", confidence: "None" });
-    assert.equal(isUnmatched(ls), false);
-  });
-
-  it("returns false for Committed", () => {
-    const ls = makeState({ status: "Committed", confidence: "Low" });
-    assert.equal(isUnmatched(ls), false);
+  it("a non-recommended index-0 falls through to its percentage", () => {
+    assert.equal(optionRankLabel(0, 0.5, false), "50%");
   });
 });
 
-// ── commitBarCounts ─────────────────────────────────────────────────────────
+// ── demotedDecision (uncheck-demote synthesis) ───────────────────────────────────
+
+describe("demotedDecision", () => {
+  it("synthesises a single-option 'double-check the match' decision from the current match", () => {
+    const d = demotedDecision("Greek yogurt (plain)", "prod-gy", 0.96);
+    assert.match(d.reasoning, /double-check the match/i);
+    assert.equal(d.option.label, "Greek yogurt (plain)");
+    assert.equal(d.option.productId, "prod-gy");
+    assert.equal(d.option.confidence, 0.96);
+    assert.equal(d.option.recommended, true);
+  });
+
+  it("defaults confidence to 0 and tolerates a null product id", () => {
+    const d = demotedDecision("Mystery", null);
+    assert.equal(d.option.confidence, 0);
+    assert.equal(d.option.productId, null);
+  });
+});
+
+// ── commitBarCounts (deck-flow: sure + needs both block commit) ──────────────────
 
 describe("commitBarCounts", () => {
-  it("counts each section and totalItems = needs + ready (skipped excluded)", () => {
-    const r = commitBarCounts(["needs", "ready", "ready", "skipped"]);
+  it("counts each pool; totalItems = confirmed + sure + needs (skipped excluded)", () => {
+    const r = commitBarCounts(["confirmed", "sure", "needs", "skipped"]);
+    assert.equal(r.confirmedCount, 1);
+    assert.equal(r.sureCount, 1);
     assert.equal(r.needsCount, 1);
-    assert.equal(r.readyCount, 2);
     assert.equal(r.skippedCount, 1);
     assert.equal(r.totalItems, 3);
   });
 
-  it("remaining equals needsCount — the gate and the displayed count share one primitive", () => {
+  it("remaining = sure + needs — the gate and the displayed count share one primitive", () => {
     for (const sections of [
       [],
-      ["needs"],
-      ["needs", "needs", "ready"],
-      ["ready", "ready", "skipped"],
-      ["needs", "ready", "skipped", "needs"],
+      ["sure"],
+      ["needs", "sure", "confirmed"],
+      ["confirmed", "confirmed", "skipped"],
+      ["sure", "needs", "skipped", "confirmed"],
     ]) {
-      const r = commitBarCounts(sections);
-      assert.equal(r.remaining, r.needsCount, JSON.stringify(sections));
+      const r = commitBarCounts(/** @type {any} */ (sections));
+      assert.equal(r.remaining, r.sureCount + r.needsCount, JSON.stringify(sections));
+      assert.equal(r.unresolved, r.remaining);
     }
   });
 
-  it("canCommit only when nothing needs resolving AND there is something to commit", () => {
-    assert.equal(commitBarCounts(["ready", "ready"]).canCommit, true);
-    assert.equal(commitBarCounts(["needs", "ready"]).canCommit, false);
-    // all skipped → nothing to commit
-    assert.equal(commitBarCounts(["skipped", "skipped"]).canCommit, false);
-    // empty → nothing to commit
+  it("canCommit only when nothing is unresolved AND something is confirmed", () => {
+    assert.equal(commitBarCounts(["confirmed", "confirmed"]).canCommit, true);
+    assert.equal(commitBarCounts(["sure", "confirmed"]).canCommit, false);   // a sure thing still blocks
+    assert.equal(commitBarCounts(["needs", "confirmed"]).canCommit, false);  // a deck card still blocks
+    assert.equal(commitBarCounts(["skipped", "skipped"]).canCommit, false);  // nothing to commit
     assert.equal(commitBarCounts([]).canCommit, false);
   });
 
-  it("progressPct is ready/total, and 100 when there is nothing to do", () => {
-    assert.equal(commitBarCounts(["ready", "ready", "needs", "needs"]).progressPct, 50);
-    assert.equal(commitBarCounts(["ready", "ready", "ready"]).progressPct, 100);
-    assert.equal(commitBarCounts(["skipped"]).progressPct, 100); // totalItems 0
+  it("progressPct = (confirmed + skipped) / all lines, 100 when there is nothing", () => {
+    assert.equal(commitBarCounts(["confirmed", "confirmed", "sure", "needs"]).progressPct, 50);
+    assert.equal(commitBarCounts(["confirmed", "skipped"]).progressPct, 100);
     assert.equal(commitBarCounts([]).progressPct, 100);
   });
 
   it("a skipped line never counts toward remaining or blocks commit", () => {
-    const r = commitBarCounts(["ready", "skipped", "skipped"]);
+    const r = commitBarCounts(["confirmed", "skipped", "skipped"]);
     assert.equal(r.remaining, 0);
     assert.equal(r.canCommit, true);
   });
@@ -624,127 +450,87 @@ describe("commitBarCounts", () => {
 describe("estimateHint", () => {
   it("returns null when there is no estimate", () => {
     assert.equal(estimateHint(null), null);
-    assert.equal(estimateHint(undefined ?? null), null);
   });
 
-  it("high confidence phrases the each-count as a provenance note", () => {
-    const hint = estimateHint({ eachCount: 7, weight: 1.34, weightUnit: "lb", confidence: "High" });
-    assert.equal(hint, "~7 each · estimated from 1.34 lb");
-  });
-
-  it("low confidence phrases it as a soft weight-first suggestion", () => {
-    const hint = estimateHint({ eachCount: 6, weight: 0.9, weightUnit: "kg", confidence: "Low" });
-    assert.equal(hint, "Sold by weight (0.9 kg) · ~6 each?");
+  it("high confidence phrases the each-count as provenance; low confidence as a soft suggestion", () => {
+    assert.equal(
+      estimateHint({ eachCount: 7, weight: 1.34, weightUnit: "lb", confidence: "High" }),
+      "~7 each · estimated from 1.34 lb",
+    );
+    assert.equal(
+      estimateHint({ eachCount: 6, weight: 0.9, weightUnit: "kg", confidence: "Low" }),
+      "Sold by weight (0.9 kg) · ~6 each?",
+    );
   });
 });
 
-describe("makeLine estimate passthrough", () => {
-  it("carries the estimate object onto line state, defaulting to null", () => {
-    const est = { eachCount: 7, weight: 1.34, weightUnit: "lb", confidence: "High" };
-    const withEst = makeLine(
-      { line: lineSeed(), prefill: /** @type {any} */ ({}), alternatives: null, estimate: est },
-      sig,
-    );
-    assert.deepEqual(withEst.estimate, est);
-
-    const withoutEst = makeLine(
-      { line: lineSeed(), prefill: /** @type {any} */ ({}), alternatives: null },
-      sig,
-    );
-    assert.equal(withoutEst.estimate, null);
-  });
-});
-
-// ── railLineView (plantry-zuh4 — receipt minimap glyph state) ───────────────────
+// ── railLineView (receipt minimap glyph state, four-way) ─────────────────────────
 
 describe("railLineView", () => {
-  it("a ready line is done + tick, name dims", () => {
-    const v = railLineView("ready", false);
-    assert.equal(v.done, true);
-    assert.equal(v.dim, false);
-    assert.equal(v.glyph, "tick");
+  it("a confirmed line is done + tick", () => {
+    const v = railLineView("confirmed", false);
+    assert.deepEqual({ done: v.done, dim: v.dim, glyph: v.glyph }, { done: true, dim: false, glyph: "tick" });
   });
 
-  it("a needs line pulses a dot, is neither done nor dim", () => {
+  it("a needs line pulses a dot", () => {
     const v = railLineView("needs", false);
-    assert.equal(v.done, false);
-    assert.equal(v.dim, false);
-    assert.equal(v.glyph, "dot");
+    assert.deepEqual({ done: v.done, dim: v.dim, glyph: v.glyph }, { done: false, dim: false, glyph: "dot" });
   });
 
-  it("a skipped line dims (composing .dim) with no glyph", () => {
+  it("a sure line shows no glyph, is neither done nor dim (an unconfirmed sure thing)", () => {
+    const v = railLineView("sure", false);
+    assert.deepEqual({ done: v.done, dim: v.dim, glyph: v.glyph }, { done: false, dim: false, glyph: null });
+  });
+
+  it("a skipped line dims with no glyph", () => {
     const v = railLineView("skipped", false);
-    assert.equal(v.done, false);
-    assert.equal(v.dim, true);
-    assert.equal(v.glyph, null);
+    assert.deepEqual({ done: v.done, dim: v.dim, glyph: v.glyph }, { done: false, dim: true, glyph: null });
   });
 
-  it("the focused line is active regardless of section", () => {
+  it("the active (deck top) line is active regardless of section", () => {
     assert.equal(railLineView("needs", true).active, true);
-    assert.equal(railLineView("ready", true).active, true);
+    assert.equal(railLineView("confirmed", true).active, true);
     assert.equal(railLineView("needs", false).active, false);
   });
 });
 
-// ── reconciliation (plantry-zuh4 — receipt money footer) ────────────────────────
+// ── reconciliation (receipt money footer, deck buckets) ──────────────────────────
 
 describe("reconciliation", () => {
-  /** A realistic scanned session: 2 ready + 1 undecided + 1 skipped fee. */
+  /** 2 confirmed (pantry) + 1 sure + 1 needs (both undecided) + 1 skipped fee. */
   const items = [
-    { section: /** @type {const} */ ("ready"), price: 10.0 },
-    { section: /** @type {const} */ ("ready"), price: 5.5 },
-    { section: /** @type {const} */ ("needs"), price: 4.0 },
+    { section: /** @type {const} */ ("confirmed"), price: 10.0 },
+    { section: /** @type {const} */ ("confirmed"), price: 5.5 },
+    { section: /** @type {const} */ ("sure"), price: 2.0 },
+    { section: /** @type {const} */ ("needs"), price: 2.0 },
     { section: /** @type {const} */ ("skipped"), price: 0.1 },
   ];
 
-  it("partitions line prices into pantry / undecided / fees sums", () => {
+  it("pantry = confirmed; undecided = sure + needs; fees = skipped", () => {
     const r = reconciliation(items, 1.4, 21.0);
     assert.equal(r.pantry, 15.5);
     assert.equal(r.undecided, 4.0);
     assert.equal(r.skippedFees, 0.1);
   });
 
-  it("passes through a finite tax and total", () => {
-    const r = reconciliation(items, 1.4, 21.0);
-    assert.equal(r.tax, 1.4);
-    assert.equal(r.total, 21.0);
-  });
-
   it("reconciles (✓) only when parts + tax add up to the total within a cent", () => {
-    // 15.5 + 4.0 + 0.1 + 1.4 = 21.0 → reconciles
     assert.equal(reconciliation(items, 1.4, 21.0).reconciles, true);
-    // a torn/short total does not falsely all-clear
     assert.equal(reconciliation(items, 1.4, 25.0).reconciles, false);
   });
 
-  it("degrades a null/undefined/NaN total to null — never NaN (acceptance #3)", () => {
+  it("degrades a null/undefined/NaN total or tax to null — never NaN", () => {
     assert.equal(reconciliation(items, 1.4, null).total, null);
-    assert.equal(reconciliation(items, 1.4, undefined).total, null);
     assert.equal(reconciliation(items, 1.4, NaN).total, null);
-    // with no total there is nothing to reconcile against
+    assert.equal(reconciliation(items, null, 21.0).tax, null);
+    assert.equal(reconciliation(items, NaN, 21.0).tax, null);
     assert.equal(reconciliation(items, 1.4, null).reconciles, false);
   });
 
-  it("degrades a null/undefined/NaN tax to null — the segment is dropped, not NaN", () => {
-    assert.equal(reconciliation(items, null, 21.0).tax, null);
-    assert.equal(reconciliation(items, undefined, 21.0).tax, null);
-    assert.equal(reconciliation(items, NaN, 21.0).tax, null);
-  });
-
-  it("treats a null line price as zero (the sums stay finite)", () => {
-    const withNull = [
-      { section: /** @type {const} */ ("ready"), price: null },
-      { section: /** @type {const} */ ("ready"), price: 3.0 },
-    ];
-    const r = reconciliation(withNull, null, null);
-    assert.equal(r.pantry, 3.0);
-    assert.ok(Number.isFinite(r.pantry));
-  });
-
-  it("rounds float drift to cents (0.1 + 0.2 = 0.3, not 0.30000000000000004)", () => {
+  it("treats a null line price as zero and rounds float drift to cents", () => {
     const drift = [
-      { section: /** @type {const} */ ("ready"), price: 0.1 },
-      { section: /** @type {const} */ ("ready"), price: 0.2 },
+      { section: /** @type {const} */ ("confirmed"), price: 0.1 },
+      { section: /** @type {const} */ ("confirmed"), price: 0.2 },
+      { section: /** @type {const} */ ("confirmed"), price: null },
     ];
     assert.equal(reconciliation(drift, null, null).pantry, 0.3);
   });
@@ -755,5 +541,32 @@ describe("reconciliation", () => {
       { pantry: r.pantry, undecided: r.undecided, skippedFees: r.skippedFees, tax: r.tax, total: r.total, reconciles: r.reconciles },
       { pantry: 0, undecided: 0, skippedFees: 0, tax: null, total: null, reconciles: false },
     );
+  });
+});
+
+// ── reused deck primitives — intake's use of deal-deck-logic (acceptance #1) ─────
+
+describe("deck order + skip-stack rotation (reused deal-deck-logic primitives)", () => {
+  it("buildDeckOrder keeps prior skip-rotation order and appends newly-eligible ids", () => {
+    // needs pool = [a, b, c]; the deck previously had them rotated to [b, c, a] via a skip.
+    assert.deepEqual(buildDeckOrder(["a", "b", "c"], ["b", "c", "a"]), ["b", "c", "a"]);
+    // a resolved card (a) drops out of the needs pool; a demoted card (d) is appended at the end.
+    assert.deepEqual(buildDeckOrder(["b", "c", "d"], ["b", "c", "a"]), ["b", "c", "d"]);
+  });
+
+  it("applySkip rotates the top card to the back and records it for undo", () => {
+    const r = applySkip(["a", "b", "c"], []);
+    assert.deepEqual(r.order, ["b", "c", "a"]);
+    assert.deepEqual(r.skipStack, ["a"]);
+  });
+
+  it("applyBack restores the last-skipped card to the front", () => {
+    const r = applyBack(["b", "c", "a"], ["a"]);
+    assert.deepEqual(r.order, ["a", "b", "c"]);
+    assert.deepEqual(r.skipStack, []);
+  });
+
+  it("reconcileSkipStack drops ids no longer in the deck (skipped then resolved elsewhere)", () => {
+    assert.deepEqual(reconcileSkipStack(["a", "gone"], ["a", "b"]), ["a"]);
   });
 });

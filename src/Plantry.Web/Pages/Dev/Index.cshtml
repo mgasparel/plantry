@@ -378,26 +378,26 @@
         <h2 class="catalog-section__heading">Match suggest ("Did you mean")</h2>
     </div>
     <p>
-        <code>.match-suggest</code> is the ranked-suggestion block shown inside the review row edit drawer
-        (a sibling rendered <em>before</em> the edit-grid) when the AI matched several credible product
-        candidates for the same receipt line. It renders a label plus a <code>.suggest-opts</code> flex
-        row of <code>.suggest-opt</code> buttons.
+        <code>.match-suggest</code> is the ranked-suggestion wrapper (label + a <code>.suggest-opts</code>
+        flex row of <code>.suggest-opt</code> buttons) shown when the AI matched several credible product
+        candidates for the same line. Its live user is the <strong>Deals</strong> review card
+        (<code>_DealReviewCard</code>). The <strong>Intake</strong> review island composes the same
+        <code>.suggest-opts</code> / <code>.suggest-opt</code> / <code>.rk</code> candidate family directly
+        inside its judgement-deck <code>.focus-card__match</code> block (deals-deck flow, plantry-gpdb) — so
+        the ranked-candidate primitive is shared, even though the two surfaces host it differently.
     </p>
     <p>
         The AI's top pick is rendered first as a pre-selected <em>best</em> chip, followed by the resolved
-        alternative candidates (<c>rowModel.Alternatives</c>), each carrying its real AI confidence
-        percentage in a <code>.rk</code> rank tag. The block is server-rendered and only present when there
-        are two or more resolved alternatives (extras-only — excluding the primary) and the line is not yet
-        confirmed or committed. The selected candidate gets the <code>.sel</code> modifier (accent border +
-        background + check icon). Clicking a button pre-selects the product in the drawer's
-        searchable-select — nothing commits until the user clicks <em>Confirm item</em>.
+        alternative candidates, each carrying its real AI confidence percentage in a <code>.rk</code> rank
+        tag. The selected candidate gets the <code>.sel</code> modifier (accent border + background + check
+        icon). Clicking a button pre-selects that product — nothing commits until the user confirms the line.
     </p>
     <p>
         <strong>Related — Product search / create sheet:</strong> the <code>_ProductSearchCreateSheet</code>
         control (see below) is the other member of this "match suggestion" family. Both use
         <code>best</code>/<code>N%</code> labels via <code>.rk</code>, but they are deliberately separate
-        implementations: Intake's block shows AI-precomputed candidates unprompted; the sheet's ranked list
-        reacts as-you-type from the deterministic <code>ProductNameMatcher</code> fuzzy ranker.
+        implementations: the AI-precomputed candidate block shows suggestions unprompted; the sheet's ranked
+        list reacts as-you-type from the deterministic <code>ProductNameMatcher</code> fuzzy ranker.
     </p>
     <div style="max-width: 36rem" x-data="{ sel: 'a' }">
         <div class="match-suggest">
@@ -528,8 +528,8 @@
         without active classes and Alpine adds them at runtime.
     </p>
 
-    @* ── Dot variant (intake review chips — success tone for "All" + "Ready", warning for "Needs review") *@
-    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Dot variant — intake review (all active)</h3>
+    @* ── Dot variant (status/review filter — success tone for "All" + "Ready", warning for "Needs review") *@
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Dot variant — status filter (all active)</h3>
     <div class="filter-chip-bar" style="margin-bottom: var(--space-4)">
         <button type="button" class="filter-chip is-active filter-chip--success">
             <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("All", Count: 13)' />
@@ -582,7 +582,7 @@
         <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">← off / on →</span>
     </div>
 
-    <pre class="code-sample"><code>@("<!-- Container -->\n<div class=\"filter-chip-bar\">\n\n  <!-- Server-driven active (tag filter / use-soon) -->\n  <button type=\"button\"\n          class=\"filter-chip @(isActive ? \"is-active filter-chip--accent\" : \"\")\"\n          hx-get=\"/Recipes\" hx-target=\"#recipes-results\" hx-swap=\"innerHTML\"\n          hx-include=\"form\" hx-vals='{\"tagId\": \"@(isActive ? \"\" : tag.Id)\"}'>\n    <partial name=\"Shared/_FilterChip\"\n             model='new FilterChipViewModel(tag.Name, DotColor: isActive ? null : color)' />\n  </button>\n\n  <!-- Alpine-driven active (intake review) -->\n  <button type=\"button\"\n          class=\"filter-chip\"\n          :class=\"filter === 'all' ? 'is-active filter-chip--success' : ''\"\n          @@click=\"filter = 'all'\"\n          data-count-total=\"@total\">\n    <partial name=\"Shared/_FilterChip\"\n             model='new FilterChipViewModel(\"All\", Count: total)' />\n  </button>\n\n</div>")</code></pre>
+    <pre class="code-sample"><code>@("<!-- Container -->\n<div class=\"filter-chip-bar\">\n\n  <!-- Server-driven active (tag filter / use-soon) -->\n  <button type=\"button\"\n          class=\"filter-chip @(isActive ? \"is-active filter-chip--accent\" : \"\")\"\n          hx-get=\"/Recipes\" hx-target=\"#recipes-results\" hx-swap=\"innerHTML\"\n          hx-include=\"form\" hx-vals='{\"tagId\": \"@(isActive ? \"\" : tag.Id)\"}'>\n    <partial name=\"Shared/_FilterChip\"\n             model='new FilterChipViewModel(tag.Name, DotColor: isActive ? null : color)' />\n  </button>\n\n  <!-- Alpine-driven active (status filter) -->\n  <button type=\"button\"\n          class=\"filter-chip\"\n          :class=\"filter === 'all' ? 'is-active filter-chip--success' : ''\"\n          @@click=\"filter = 'all'\"\n          data-count-total=\"@total\">\n    <partial name=\"Shared/_FilterChip\"\n             model='new FilterChipViewModel(\"All\", Count: total)' />\n  </button>\n\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">

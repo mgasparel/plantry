@@ -9,11 +9,13 @@ namespace Plantry.Intake.Application;
 /// <summary>
 /// Bulk-confirms a set of still-Pending <see cref="ImportLine"/>s from their server-side prefill values —
 /// the server enabler for the deck-flow review checklist (plantry-kr9h). The client sends ONLY line ids;
-/// the AI-suggested values never round-trip through the browser (Gate 5), exactly as the commit-time
-/// auto-confirm pre-pass does (<see cref="CommitSessionCommand"/>). Every id must qualify: the line exists
-/// in the session, is <see cref="LineStatus.Pending"/>, was <see cref="SuggestedConfidence.High"/>, and its
-/// re-derived <see cref="ReviewPrefill"/> chain is COMPLETE — an existing product, quantity &gt; 0, and both
-/// a unit and a location (the exact predicate the commit auto-confirm pass uses).
+/// the AI-suggested values never round-trip through the browser (Gate 5). Every id must qualify: the line
+/// exists in the session, is <see cref="LineStatus.Pending"/>, was <see cref="SuggestedConfidence.High"/>,
+/// and its re-derived <see cref="ReviewPrefill"/> chain is COMPLETE — an existing product, quantity &gt; 0,
+/// and both a unit and a location. This command holds the SINGLE AUTHORITATIVE qualification predicate for a
+/// bulk-confirmable "sure thing"; the island's client-side "sure" sectioning (<c>isSurePending</c>) mirrors
+/// it. (The old <see cref="CommitSessionCommand"/> commit-time auto-confirm pre-pass that once duplicated
+/// this predicate was removed with the deals-deck rewrite, plantry-gpdb.)
 ///
 /// <para><b>Atomic.</b> Every id is validated BEFORE any line is mutated, so a single non-qualifying id
 /// (Low/None confidence, incomplete prefill, already-Confirmed/Dismissed/Committed, or an id from another
@@ -71,7 +73,7 @@ public sealed class ConfirmLinesCommand(
 
             var prefill = ReviewPrefill.ComputePrefill(ReviewLineView.FromDomain(line), lookups, today);
 
-            // The exact qualification predicate CommitSessionCommand's commit-time auto-confirm uses: a
+            // The single authoritative qualification predicate for a bulk-confirmable "sure thing": a
             // still-Pending line the AI was High-confident about, whose server-side prefill is complete.
             var qualifies = line.Status == LineStatus.Pending
                 && line.SuggestedConfidence == SuggestedConfidence.High

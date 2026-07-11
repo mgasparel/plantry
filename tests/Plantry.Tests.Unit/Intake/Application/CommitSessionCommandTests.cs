@@ -66,7 +66,7 @@ public sealed class CommitSessionCommandTests
     public async Task Only_Confirmed_Lines_Commit_Dismissed_Are_Skipped()
     {
         // A dismissed line is skipped (not stocked, not blocked); a confirmed line commits. (A Pending line
-        // is no longer a valid input at commit — it either auto-confirms or blocks, covered separately.)
+        // at commit blocks the whole commit — covered separately.)
         var session = ReadySession();
         var confirmed = session.AddLine(1, "Flour", SuggestedConfidence.High, null);
         var dismissed = session.AddLine(2, "Loyalty points", SuggestedConfidence.None, null);
@@ -86,49 +86,41 @@ public sealed class CommitSessionCommandTests
         Assert.Equal(LineStatus.Dismissed, dismissed.Status); // skipped, unchanged
     }
 
-    // ── Commit-time auto-confirm of high-confidence lines (plantry-v0wl) ────────────────────────────
-
-    private FakeReviewReferenceDataProvider MatchedProductReference(Guid productId, Guid? defaultLocationId) =>
-        new(new ReviewReferenceData(
-            Products: [new ReviewProductOption(productId, "Flour", "kg", DefaultUnitId: _unitId, DefaultLocationId: defaultLocationId, Skus: [])],
-            Units: [new ReviewUnitOption(_unitId, "kg", "Kilogram", ReviewUnitDimension.Mass)],
-            Locations: [new ReviewLocationOption(_locationId, "Pantry")],
-            Categories: []));
+    // ── Strict commit gate — any still-Pending line blocks the commit (plantry-gpdb) ────────────────
+    // The deck-flow review confirms sure things (ConfirmLinesCommand) and resolves the deck up front; the
+    // commit-time auto-confirm pre-pass is removed. A Pending line at commit is genuinely unresolved and
+    // fails the whole commit, naming the offending line — never silently skipped, never half-committed.
 
     [Fact]
-    public async Task Auto_Confirms_A_High_Confidence_Pending_Line_With_Complete_Prefill_And_Stocks_It()
+    public async Task Blocks_Commit_When_A_High_Confidence_Pending_Line_Remains_No_Auto_Confirm()
     {
+        // A High-confidence line with a full suggested product/qty/unit — which the removed commit-time
+        // auto-confirm pre-pass used to promote silently — is now left Pending and BLOCKS the commit. The
+        // user must confirm it first via the deck-flow "Confirm N matches" bulk action (ConfirmLinesCommand).
         var session = ReadySession();
-        var productId = Guid.CreateVersion7();
-        // Pending, never user-resolved — the AI proposal is High-confidence with a full server-side prefill:
-        // a resolvable product, a receipt unit ("kg"), a quantity, and (from the product) a default location.
-        var line = session.AddLine(1, "FLOUR 1KG", SuggestedConfidence.High, """{"x":1}""",
-            suggestedProductId: productId, suggestedQuantity: 2m, suggestedUnitLabel: "kg", suggestedPrice: 4.99m);
+        var confirmed = session.AddLine(1, "Flour", SuggestedConfidence.High, null);
+        var highPending = session.AddLine(2, "FLOUR 1KG", SuggestedConfidence.High, """{"x":1}""",
+            suggestedProductId: Guid.CreateVersion7(), suggestedQuantity: 2m, suggestedUnitLabel: "kg", suggestedPrice: 4.99m);
         session.MarkReady("Superstore", Clock.UtcNow);
+        confirmed.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, 2.50m);
 
         var repo = new FakeImportSessionRepository();
         repo.Sessions.Add(session);
         var add = new FakeAddStockPort();
-        var price = new FakeRecordPricePort();
 
-        var result = await Commit(session, repo, new(), add, price,
-            reference: MatchedProductReference(productId, defaultLocationId: _locationId)).ExecuteAsync();
+        var result = await Commit(session, repo, new(), add, new()).ExecuteAsync();
 
-        Assert.True(result.IsSuccess);
-        // The line was confirmed server-side with the prefill values, then committed and stocked.
-        Assert.Equal(LineStatus.Committed, line.Status);
-        Assert.Equal(productId, line.ProductId);
-        Assert.Equal(2m, line.Quantity);
-        Assert.Equal(_unitId, line.UnitId);
-        Assert.Equal(_locationId, line.LocationId);
-        Assert.Equal(productId, Assert.Single(add.ProductIds));
-        Assert.Equal(2m, Assert.Single(price.Quantities));   // stocked/priced in the prefill quantity
-        Assert.Equal(_unitId, Assert.Single(price.UnitIds)); // …and the prefill unit
-        Assert.Equal(ImportStatus.Committed, session.Status);
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.UnresolvedLine", result.Error.Code);
+        Assert.Contains("FLOUR 1KG", result.Error.Description);    // error names the offending line
+        Assert.Empty(add.ProductIds);                              // nothing stocked — never half-committed
+        Assert.Equal(ImportStatus.Ready, session.Status);          // session not marked committed
+        Assert.Equal(LineStatus.Confirmed, confirmed.Status);      // the confirmed line was not committed either
+        Assert.Equal(LineStatus.Pending, highPending.Status);      // high line left Pending, NOT auto-confirmed
     }
 
     [Fact]
-    public async Task Blocks_Commit_When_A_Low_Confidence_Pending_Line_Cannot_Auto_Confirm()
+    public async Task Blocks_Commit_When_A_Low_Confidence_Pending_Line_Remains()
     {
         var session = ReadySession();
         var confirmed = session.AddLine(1, "Flour", SuggestedConfidence.High, null);
@@ -150,32 +142,6 @@ public sealed class CommitSessionCommandTests
         Assert.Equal(ImportStatus.Ready, session.Status);          // session not marked committed
         Assert.Equal(LineStatus.Confirmed, confirmed.Status);      // the confirmed line was not committed either
         Assert.Equal(LineStatus.Pending, lowPending.Status);       // low line left Pending
-    }
-
-    [Fact]
-    public async Task Blocks_Commit_When_A_High_Confidence_Pending_Line_Has_Incomplete_Prefill()
-    {
-        // High confidence, resolvable product and unit — but the product has no default location and the
-        // receipt gave none, so the server-side prefill is incomplete (no location) and commit must block.
-        var session = ReadySession();
-        var productId = Guid.CreateVersion7();
-        var line = session.AddLine(1, "FLOUR 1KG", SuggestedConfidence.High, """{"x":1}""",
-            suggestedProductId: productId, suggestedQuantity: 2m, suggestedUnitLabel: "kg", suggestedPrice: 4.99m);
-        session.MarkReady("Superstore", Clock.UtcNow);
-
-        var repo = new FakeImportSessionRepository();
-        repo.Sessions.Add(session);
-        var add = new FakeAddStockPort();
-
-        var result = await Commit(session, repo, new(), add, new(),
-            reference: MatchedProductReference(productId, defaultLocationId: null)).ExecuteAsync();
-
-        Assert.True(result.IsFailure);
-        Assert.Equal("Intake.UnresolvedLine", result.Error.Code);
-        Assert.Contains("FLOUR 1KG", result.Error.Description);
-        Assert.Empty(add.ProductIds);
-        Assert.Equal(LineStatus.Pending, line.Status);    // not auto-confirmed
-        Assert.Equal(ImportStatus.Ready, session.Status);
     }
 
     [Fact]
