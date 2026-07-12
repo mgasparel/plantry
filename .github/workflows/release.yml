@@ -263,8 +263,16 @@ jobs:
   # Pulls the exact semver images verified + published above and rolls prod.
   # The migrator one-shot is the critical gate: a non-zero exit leaves the old
   # web container running and fails the workflow — the old version keeps serving.
+  #
+  # GATED: this push-based SSH deploy only runs when the repository variable
+  # DEPLOY_ENABLED is set to "true" (Settings → Secrets and variables → Actions
+  # → Variables). Left unset, tag pushes build + publish images and skip this
+  # job cleanly — the model for pull-based hosts (homelab: `docker compose pull
+  # && up -d` on the box itself). Enable it, along with the DEPLOY_* secrets,
+  # once a runner-reachable web host with a public TLS domain exists.
   deploy:
     needs: release
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Configure a "production" GitHub environment (with deployment protection

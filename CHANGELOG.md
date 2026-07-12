@@ -37,6 +37,12 @@ A breaking schema migration is signalled by a major version bump. There is **no 
 
 ## Unreleased
 
+## 0.1.0 — 2026-07-12
+
+First alpha release. Pre-`1.0.0`: no stability guarantees — breaking schema
+migrations may appear at any version. Published as `linux/amd64` GHCR images
+(`ghcr.io/mgasparel/plantry/web:0.1.0`, `.../migrator:0.1.0`) for self-hosting.
+
 ### Added
 
 - OSS publish surface: `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `CHANGELOG.md`, and public-PR runner policy (`docs/Operations/public-pr-runner-policy.md`). (plantry-wzz6.11)
