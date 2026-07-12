@@ -5,10 +5,10 @@
 > [ADR-017](../ADRs/ADR-017.md) (migrations). Your own production deployment is
 > [deployment.md](deployment.md).
 >
-> **Status: planned.** We build as if Plantry will be open-sourced; the decision to
-> actually publish is deferred but does **not** block this work. The pipeline and
-> artifacts are built OSS-ready — what waits on the decision is only flipping
-> repository/image visibility and standing up the contributor surface.
+> **Status: live.** The repository and container images are public. Each version
+> tag (`vX.Y.Z`) publishes `web` + `migrator` images to GHCR under
+> `ghcr.io/mgasparel/plantry/*`; self-hosters pull them directly — no token needed.
+> Pre-`1.0.0` releases carry no stability guarantees (see [CHANGELOG](../../CHANGELOG.md)).
 
 A self-hosted instance is the same container stack as production, run by the
 operator on their own hardware. Your CI/CD does **not** reach into a self-hosted
@@ -18,7 +18,7 @@ instance — the operator updates it by pulling new images.
 
 | Artifact | Notes |
 |---|---|
-| **Public images** | `plantry-web` and `plantry-migrator` on GHCR, marked public (no pull token). |
+| **Public images** | `ghcr.io/mgasparel/plantry/web` and `.../plantry/migrator` on GHCR, public (no pull token). |
 | **Version tags** | Semver is the public contract: `:1.4.0`, `:1.4`, `:1`, plus `:latest`. Operators pin `:1` or `:1.4`. |
 | **`docker-compose.yml` + `.env.example`** | The actual product for self-hosters — published as a release asset. Differs from your prod compose mainly in not assuming your specific host/proxy. |
 | **Optional `docker-compose.caddy.yml`** | TLS overlay, opt-in. Default compose exposes a plain port so operators can front it with their existing proxy. |
@@ -52,6 +52,27 @@ Required in `.env`:
 | AI API key | **Optional.** Without it, the receipt/meal-plan AI shows a locked-feature UI and the rest of the app works normally. Operators bring their own key. |
 
 Demo/seed data is Development-only, so a self-hosted instance starts empty.
+
+## Exposing Plantry (HTTPS)
+
+The default `docker-compose.yml` publishes plain HTTP on `${HTTP_PORT:-8080}` and
+takes **no opinion** on TLS — Plantry is designed to sit behind whatever you
+already run. Pick the one topology that matches your setup:
+
+| Your setup | What to do |
+|---|---|
+| **You already run a reverse proxy** (nginx, Traefik, Nginx Proxy Manager, a Caddy on the host, a Cloudflare Tunnel…) | Use the default compose as-is. Point your proxy at `http://<host>:8080` (or put `plantry-web` on the proxy's Docker network and target `plantry-web:8080` without publishing the port). This is the common case. |
+| **You want Plantry to handle TLS itself via Let's Encrypt** | Overlay the bundled Caddy: `docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d`. Requires `DOMAIN` in `.env`, public DNS pointing at the host, and ports 80/443 open for ACME. |
+| **You mount your own PEM certs into containers** (e.g. a certbot container, no shared proxy) | Let Kestrel terminate TLS directly — no proxy, no Caddy. Uncomment the in-container-TLS blocks in `docker-compose.yml` (ports `443:8443`, the `Kestrel__Certificates__*` env vars, and the cert volume mount). Keep the `8080` port line: the container healthcheck probes `/alive` over plain HTTP, so an HTTPS-only Kestrel breaks liveness. |
+
+For the certbot/mounted-cert case: the cert is mounted read-only, so after a
+renewal Kestrel keeps serving the **old** cert until the container restarts —
+add `docker compose restart plantry-web` to your renew/deploy hook. With a real
+CA cert on the origin you can run Cloudflare in **Full (strict)** mode.
+
+> **Don't stack terminators.** Use exactly one of the three. Running the Caddy
+> overlay *and* your own proxy (or in-container TLS) means two things fighting
+> over ports 80/443.
 
 ## DataProtection key ring encryption
 
@@ -224,14 +245,12 @@ data in spans or log lines that the OTLP backend persists.
 
 ---
 
-## When Plantry goes public
+## OSS surface
 
-The OSS publish surface is now in place:
+Plantry is public. The supporting surface:
 
 - **Changelog and support matrix** — [`CHANGELOG.md`](../../CHANGELOG.md) at the repo root defines the semver tag convention and the version support policy.
 - **Contributor docs** — [`CONTRIBUTING.md`](../../CONTRIBUTING.md) explains the current policy (outside contributions not accepted), the agentic workflow, and how to report issues.
 - **PR template** — [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) guides both agent and human PR authors.
 - **CODEOWNERS** — [`.github/CODEOWNERS`](../../.github/CODEOWNERS) requires explicit maintainer approval before any PR can merge.
 - **Public-PR runner policy** — [`docs/Operations/public-pr-runner-policy.md`](public-pr-runner-policy.md) documents how fork PRs are handled safely (no secrets in `pull_request` jobs, no self-hosted runners for fork-triggered jobs).
-
-The only remaining step at publish time is flipping repository and container-image visibility to public.

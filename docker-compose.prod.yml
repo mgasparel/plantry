@@ -104,7 +104,7 @@ services:
   # app_user password, then exits. Web will not start until this completes
   # successfully (service_completed_successfully). See ADR-017.
   migrator:
-    image: ${MIGRATOR_IMAGE:-ghcr.io/gastownhall/plantry/migrator:latest}
+    image: ${MIGRATOR_IMAGE:-ghcr.io/mgasparel/plantry/migrator:latest}
     restart: "no"
     depends_on:
       postgres:
@@ -117,7 +117,7 @@ services:
   # Connects as the least-privilege app_user only — never the owner.
   # Row-level security enforces household data isolation at the database layer.
   plantry-web:
-    image: ${PLANTRY_WEB_IMAGE:-ghcr.io/gastownhall/plantry/web:latest}
+    image: ${PLANTRY_WEB_IMAGE:-ghcr.io/mgasparel/plantry/web:latest}
     restart: unless-stopped
     depends_on:
       migrator:

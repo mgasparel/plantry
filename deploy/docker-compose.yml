@@ -11,7 +11,7 @@
 #        docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
 #
 #   2. No backup sidecar — operators manage their own backup policy.
-#      See https://github.com/gastownhall/plantry/blob/main/deploy/backup.sh
+#      See https://github.com/mgasparel/plantry/blob/main/deploy/backup.sh
 #      for a pg_dump helper you can run from a host crontab.
 #
 # Quick start:
@@ -25,7 +25,7 @@
 #
 # The migrator runs automatically before the web app starts and is idempotent —
 # multi-version jumps (e.g. 1.0 -> 1.7) are handled in one shot.
-# See https://github.com/gastownhall/plantry/blob/main/docs/Operations/self-hosting.md
+# See https://github.com/mgasparel/plantry/blob/main/docs/Operations/self-hosting.md
 
 services:
 
@@ -107,7 +107,7 @@ services:
   # then exits.  The web app will not start until this completes successfully.
   # Re-running is safe — MigrateAsync is idempotent when already current.
   migrator:
-    image: ${MIGRATOR_IMAGE:-ghcr.io/gastownhall/plantry/migrator:latest}
+    image: ${MIGRATOR_IMAGE:-ghcr.io/mgasparel/plantry/migrator:latest}
     restart: "no"
     depends_on:
       postgres:
@@ -120,7 +120,7 @@ services:
   # Connects as the least-privilege app_user only.
   # Row-level security enforces household data isolation at the database layer.
   plantry-web:
-    image: ${PLANTRY_WEB_IMAGE:-ghcr.io/gastownhall/plantry/web:latest}
+    image: ${PLANTRY_WEB_IMAGE:-ghcr.io/mgasparel/plantry/web:latest}
     restart: unless-stopped
     depends_on:
       migrator:

@@ -2,7 +2,7 @@
 
 All notable changes to Plantry are documented here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions correspond to semver image tags published to GHCR (`plantry-web:<version>`).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions correspond to semver image tags published to GHCR (`ghcr.io/mgasparel/plantry/web:<version>`).
 
 ---
 
