@@ -209,26 +209,61 @@ public sealed class DetailsModel(
             ? await catalog.ResolveUnitCodesAsync(exUnitIds, ct)
             : new Dictionary<Guid, string>();
 
-        return recipe.Inclusions
-            .OrderBy(i => i.Ordinal)
+        // Resolve each inclusion's ordered preview lines up front (Preview = expanded lines whose top-level
+        // path element is THIS inclusion — D6 path identity) so a single formatter call can span every
+        // preview line before the views are built.
+        var orderedInclusions = recipe.Inclusions.OrderBy(i => i.Ordinal).ToList();
+        var previewLinesByInclusion = orderedInclusions.ToDictionary(
+            inc => inc.Id,
+            inc => expandedLines.Where(l => l.Path.Count > 0 && l.Path[0] == inc.Id).ToList());
+
+        // Batch the vulgar-fraction display for every preview line that will show a quantity (tracked product,
+        // Quantity + UnitId present) into ONE FormatAsync call across ALL inclusions — mirrors
+        // ComputeIngredientDisplayAsync; never per inclusion or per line. Details renders at 1× so Simplify is
+        // false (authored unit, no Q2 simplification — quantity-display.md §7). Preview lines carry no ingredient
+        // id, so key by a synthetic "{inclusionId}:{lineIndex}" stable within the page render.
+        var previewRequests = new List<QuantityFormatRequest>();
+        foreach (var (incId, lines) in previewLinesByInclusion)
+        {
+            for (var idx = 0; idx < lines.Count; idx++)
+            {
+                var l = lines[idx];
+                exProductLookup.TryGetValue(l.ProductId, out var p);
+                var isUntracked = p is { TrackStock: false };
+                if (!isUntracked && l.Quantity.HasValue && l.UnitId.HasValue)
+                    previewRequests.Add(new QuantityFormatRequest(
+                        $"{incId.Value}:{idx}", l.Quantity.Value, l.UnitId.Value, Simplify: false));
+            }
+        }
+        var previewDisplay = previewRequests.Count > 0
+            ? await quantityFormatter.FormatAsync(previewRequests, ct)
+            : new Dictionary<string, FormattedQuantity>();
+
+        return orderedInclusions
             .Select(inc =>
             {
                 subInfo.TryGetValue(inc.SubRecipeId, out var info);
 
-                // Preview = expanded lines whose top-level path element is THIS inclusion (D6 path identity).
-                var preview = expandedLines
-                    .Where(l => l.Path.Count > 0 && l.Path[0] == inc.Id)
-                    .Select(l =>
-                    {
-                        exProductLookup.TryGetValue(l.ProductId, out var p);
-                        var isUntracked = p is { TrackStock: false };
-                        var unitCode = l.UnitId is { } u ? exUnitLookup.GetValueOrDefault(u) : null;
-                        return new InclusionPreviewItem(
-                            ProductName: p?.Name ?? "(unknown product)",
-                            Quantity: isUntracked ? null : l.Quantity,
-                            UnitCode: isUntracked ? null : unitCode);
-                    })
-                    .ToList();
+                var lines = previewLinesByInclusion[inc.Id];
+                var preview = new List<InclusionPreviewItem>(lines.Count);
+                for (var idx = 0; idx < lines.Count; idx++)
+                {
+                    var l = lines[idx];
+                    exProductLookup.TryGetValue(l.ProductId, out var p);
+                    var isUntracked = p is { TrackStock: false };
+                    var unitCode = l.UnitId is { } u ? exUnitLookup.GetValueOrDefault(u) : null;
+                    // Vulgar-fraction display at 1× (quantity-display.md Q1/§7) — same shape as the primary rows.
+                    // Null for untracked / unit-less lines and formatter misses (unknown unit): the view then
+                    // falls back to the canonical decimal, identical to BuildIngredientGroups.
+                    var displayQuantity = !isUntracked && l.Quantity.HasValue
+                        ? previewDisplay.GetValueOrDefault($"{inc.Id.Value}:{idx}")?.Amount
+                        : null;
+                    preview.Add(new InclusionPreviewItem(
+                        ProductName: p?.Name ?? "(unknown product)",
+                        Quantity: isUntracked ? null : l.Quantity,
+                        UnitCode: isUntracked ? null : unitCode,
+                        DisplayQuantity: displayQuantity));
+                }
 
                 return new InclusionDetailView(
                     SubRecipeId: inc.SubRecipeId.Value,
@@ -667,7 +702,12 @@ public sealed record InclusionDetailView(
     IReadOnlyList<InclusionPreviewItem> Preview);
 
 /// <summary>One expanded product-level line in an inclusion's read-only preview (untracked staples carry no qty/unit).</summary>
-public sealed record InclusionPreviewItem(string ProductName, decimal? Quantity, string? UnitCode);
+/// <param name="DisplayQuantity">
+/// The pretty (vulgar-fraction) rendering of <paramref name="Quantity"/> at 1× in the authored unit's
+/// DisplayStyle (quantity-display.md Q1/§7) — matching the primary ingredient rows for the same amount. Null
+/// for untracked / unit-less lines and formatter misses; the view then falls back to the <c>0.###</c> decimal.
+/// </param>
+public sealed record InclusionPreviewItem(string ProductName, decimal? Quantity, string? UnitCode, string? DisplayQuantity = null);
 
 /// <summary>A group of ingredients sharing the same optional section heading (C6).</summary>
 public sealed record IngredientGroupView(
