@@ -78,6 +78,7 @@ jobs:
         run: >
           dotnet test tests/Plantry.Tests.Unit
           --no-build --configuration Release
+          --settings coverage.runsettings
           --collect:"XPlat Code Coverage"
           --results-directory coverage/unit
           --
@@ -88,6 +89,7 @@ jobs:
         run: >
           dotnet test tests/Plantry.Tests.Integration
           --no-build --configuration Release
+          --settings coverage.runsettings
           --collect:"XPlat Code Coverage"
           --results-directory coverage/integration
           --
@@ -98,6 +100,7 @@ jobs:
         run: >
           dotnet test tests/Plantry.Tests.E2E
           --no-build --configuration Release
+          --settings coverage.runsettings
           --collect:"XPlat Code Coverage"
           --results-directory coverage/e2e
           --

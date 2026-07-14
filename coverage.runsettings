@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Coverage denominator correction for coverlet.collector ("XPlat Code Coverage").
+
+  Excludes files that appear in the coverage denominator but can never be
+  exercised by tests, so they stop being counted as "0% covered" (penalised) and
+  instead become "no coverage data" (out of scope). See bead plantry-96zg for the
+  zero-coverage analysis behind each category. Repowise inherits the corrected
+  denominator on the next `repowise coverage add`.
+
+  Wire this in wherever tests run with coverage, by passing it as the test
+  runner's settings file (the "settings" option) alongside "XPlat Code Coverage"
+  collection. See release.yml and the plantry-preflight skill for the call sites.
+
+  ExcludeByFile takes comma-separated file-path globs (**, *, ?). coverlet trims
+  each entry, so the multi-line form below is safe. Razor .cshtml views are NOT
+  excluded — some are legitimately hit by E2E/Web tests. Interface-only and
+  enum-only files have no coverable lines and never enter the denominator, so
+  they need no exclusion.
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <ExcludeByFile>
+            **/Migrations/*.cs,
+            **/*DbContextFactory.cs,
+            **/Plantry.Migration.Grocy/**/*.cs,
+            **/Plantry.Migrator/**/*.cs,
+            **/Pages/Import/**/*,
+            **/Pages/Dev/**/*,
+            **/Dev/FakeDataSeeder.cs,
+            **/Intake/FakeReceiptParser.cs,
+            **/Intake/SampleReceiptParser.cs,
+            **/Deals/DisabledDealMatcher.cs,
+            **/Recipes/DisabledDietTagContradictionChecker.cs,
+            **/Recipes/DisabledRecipeTagSuggester.cs,
+            **/FlippOptions.cs,
+            **/IntakeAiOptions.cs,
+            **/MealPlanningAiOptions.cs
+          </ExcludeByFile>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>
