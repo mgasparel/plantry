@@ -94,7 +94,7 @@ public sealed class DealReviewQueueBuilder(ReviewDeals reviewDeals, DealsReviewF
     /// the empty-state renders and a refresh stays put. Folds over the three partitioned lists the same way the
     /// page model's <c>FirstNonEmptyStep</c>/<c>StepCount</c> do over their copies.
     /// </summary>
-    private static ReviewStep ResolveStep(
+    internal static ReviewStep ResolveStep(
         int? requested, bool autoAdvance,
         IReadOnlyList<DealReviewView> step1, IReadOnlyList<DealReviewView> step2, IReadOnlyList<DealReviewView> step3)
     {
