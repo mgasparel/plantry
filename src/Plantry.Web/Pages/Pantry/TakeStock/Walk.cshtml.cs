@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
@@ -93,16 +92,22 @@ public sealed class WalkModel(
             return Content("", "text/html");
 
         var hits = await reader.SearchProductsAsync(q.Trim(), ct);
-        var enc = HtmlEncoder.Default;
 
         // Emit ranked <li> markup. The ranking label (.rk span) mirrors Intake's AlternativesStrip
         // vocabulary (best / N%) for cross-feature consistency per the design (plantry-hl4a §3).
         // The product name is stored in data-name so the click handler uses data-name rather than
-        // textContent (which would otherwise include the .rk label text).
+        // textContent (which would otherwise include the .rk label text). data-default-location is
+        // carried on the element but not into the payload (read elsewhere), hence a null payload key.
         var html = string.Join("", hits.Select((p, i) =>
         {
             var label = ProductNameMatcher.RankLabel(p.Score, isTopHit: i == 0);
-            return $$"""<li role="option" data-value="{{p.ProductId}}" data-name="{{enc.Encode(p.Name)}}" data-track="true" data-default-location="{{p.DefaultLocationId}}" data-default-unit="{{p.DefaultUnitId}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: 'true', defaultUnitId: $el.dataset.defaultUnit})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+            return ProductSearchOptionRenderer.RenderPickProductOption(
+                p.ProductId.ToString(), p.Name, label,
+                [
+                    new ProductOptionField("track", "true", "track", "'true'"),
+                    new ProductOptionField("default-location", p.DefaultLocationId.ToString()),
+                    new ProductOptionField("default-unit", p.DefaultUnitId.ToString(), "defaultUnitId"),
+                ]);
         }));
         return Content(html, "text/html");
     }

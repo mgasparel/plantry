@@ -1,4 +1,3 @@
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -284,7 +283,6 @@ public sealed class EditModel(
             return Content("", "text/html");
 
         var hits = await products.SearchAsync(q.Trim(), ct);
-        var enc = HtmlEncoder.Default;
 
         // Resolve default unit codes in one batch so the pick-product event can carry
         // defaultUnitCode alongside defaultUnit, enabling the in-sheet conversion prompt
@@ -305,7 +303,13 @@ public sealed class EditModel(
         {
             var label = ProductNameMatcher.RankLabel(p.Score, isTopHit: i == 0);
             var unitCode = unitCodes.GetValueOrDefault(p.DefaultUnitId, "");
-            return $$"""<li role="option" data-value="{{p.Id}}" data-name="{{enc.Encode(p.Name)}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" data-default-unit-code="{{enc.Encode(unitCode)}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit, defaultUnitCode: $el.dataset.defaultUnitCode})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+            return ProductSearchOptionRenderer.RenderPickProductOption(
+                p.Id.ToString(), p.Name, label,
+                [
+                    new ProductOptionField("track", p.TrackStock ? "true" : "false", "track"),
+                    new ProductOptionField("default-unit", p.DefaultUnitId.ToString(), "defaultUnit"),
+                    new ProductOptionField("default-unit-code", unitCode, "defaultUnitCode"),
+                ]);
         }));
         return Content(html, "text/html");
     }

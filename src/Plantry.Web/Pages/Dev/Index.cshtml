@@ -294,6 +294,20 @@
         plain listbox above (Shopping's mode: fuzzy ranking, no create option) is the same component with
         the parameter simply omitted.
     </p>
+    <p>
+        <strong>Emitting the option markup (server side).</strong> The <code>&lt;li role="option"&gt;</code>
+        rows an <code>hx-get</code> search handler returns are the canonical output of
+        <code>ProductSearchOptionRenderer</code> (<code>Pages/Shared</code>) — never hand-built interpolated
+        strings, which drifted across six handlers before plantry-su0y. Two variants match the two
+        interaction protocols: <code>RenderSelectOption(value, label, rankLabel?, extraBodyHtml?)</code> for
+        the bound <code>select()</code> protocol (Shopping add-item; the demo above is a living consumer via
+        <code>FuzzySearchGroceries</code>), and
+        <code>RenderPickProductOption(value, name, rankLabel, extraFields)</code> for the unbound
+        <code>pick-product</code> dispatch (Deals correction, Take&nbsp;Stock inline-add, Recipes Cook/Edit).
+        Each <code>ProductOptionField</code> contributes one <code>data-*</code> attribute <em>and</em> its
+        matching <code>$dispatch</code> payload key from the same source, so the attribute/payload contract
+        the sheet and <code>searchable-select.js</code> read can never silently diverge.
+    </p>
 
     <div x-data="{ created: '' }" @@product-search-create="created = $event.detail.query" style="max-width: 28rem">
         <form method="post" class="form-stack">

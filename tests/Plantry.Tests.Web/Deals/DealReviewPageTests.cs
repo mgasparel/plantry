@@ -803,6 +803,112 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Equal(HttpStatusCode.Unauthorized, dismiss.StatusCode);
     }
 
+    // ── L5 verb-failure feedback — surface command failures as a toast (plantry-ofeb) ──────────────
+
+    [Fact(DisplayName = "A failing single Confirm surfaces a failure toast via HX-Trigger and leaves the deal pending")]
+    public async Task Confirm_Failure_Toasts_The_User()
+    {
+        factory.Reset();
+        var deal = factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        factory.ProductReader.MissingProducts.Add(factory.MilkProduct); // suggestion no longer live → ConfirmAsync fails
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={deal.Id.Value}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        // The command failed, so the deal is untouched — and the user is told via the shared toast event.
+        Assert.Equal(DealStatus.Pending, deal.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+        Assert.True(response.Headers.TryGetValues("HX-Trigger", out var trig));
+        var payload = string.Join("", trig!);
+        Assert.Contains("deals-bulk-done", payload);   // the one shared toast event
+        Assert.Contains("confirm that deal", payload); // "Couldn't confirm that deal — try again."
+    }
+
+    [Fact(DisplayName = "A failing single Correct (no product supplied) surfaces a correction-failed toast")]
+    public async Task Correct_Failure_Toasts_The_User()
+    {
+        factory.Reset();
+        var deal = factory.SeedPending("Sourdough Loaf", MatchConfidence.Low, factory.BreadProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // Neither an existing productId nor a new-product name → ResolveCorrectionProductAsync fails.
+        var response = await PostAsync(client, "/Deals/Review?handler=Correct",
+            Kv("__RequestVerificationToken", token),
+            Kv("dealId", deal.Id.Value.ToString()));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Pending, deal.Status);
+        Assert.True(response.Headers.TryGetValues("HX-Trigger", out var trig));
+        var payload = string.Join("", trig!);
+        Assert.Contains("deals-bulk-done", payload);
+        Assert.Contains("save that correction", payload); // "Couldn't save that correction — try again."
+    }
+
+    [Fact(DisplayName = "ConfirmAll with a mix of live and dead suggestions reports both counts in one toast")]
+    public async Task ConfirmAll_Partial_Failure_Reports_Both_Counts()
+    {
+        factory.Reset();
+        var milk = factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        var bread = factory.SeedPending("Sourdough", MatchConfidence.High, factory.BreadProduct);
+        factory.ProductReader.MissingProducts.Add(factory.BreadProduct); // one High's suggestion is dead → it fails
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(milk)}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, milk.Status);  // the live one committed
+        Assert.Equal(DealStatus.Pending, bread.Status);   // the dead-suggestion one stayed pending
+        Assert.Equal(1, factory.Observations.Calls);
+        Assert.True(response.Headers.TryGetValues("HX-Trigger", out var trig));
+        Assert.Contains("Confirmed 1, 1 failed", string.Join("", trig!));
+    }
+
+    [Fact(DisplayName = "A fully-failed ConfirmAll still toasts (today it is silent) and confirms nothing")]
+    public async Task ConfirmAll_Fully_Failed_Still_Toasts()
+    {
+        factory.Reset();
+        var a = factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        var b = factory.SeedPending("Sourdough", MatchConfidence.High, factory.BreadProduct);
+        factory.ProductReader.MissingProducts.Add(factory.MilkProduct);
+        factory.ProductReader.MissingProducts.Add(factory.BreadProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(a)}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Pending, a.Status);
+        Assert.Equal(DealStatus.Pending, b.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+        Assert.True(response.Headers.TryGetValues("HX-Trigger", out var trig));
+        var payload = string.Join("", trig!);
+        Assert.Contains("2 failed", payload);   // "Couldn't confirm — 2 failed. Try again."
+        Assert.Contains("Try again", payload);
+    }
+
+    [Fact(DisplayName = "A ConfirmAll with nothing eligible stays silent — no HX-Trigger (stay-silent regression guard)")]
+    public async Task ConfirmAll_With_Nothing_Eligible_Stays_Silent()
+    {
+        factory.Reset();
+        // Only None-tier deals in the flyer — nothing is a confirmable High, so ConfirmAll has an empty set.
+        var none = factory.SeedPending("Mystery Item", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(none)}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.False(response.Headers.Contains("HX-Trigger")); // nothing eligible → no toast at all
+    }
+
     // ── L4 guided-flow shell — demotion, uncheck persistence, empty steps, idempotency (q9zr.13) ────
 
     [Fact(DisplayName = "Committing step 1 with a High unchecked confirms the checked ones and demotes the unchecked into step 2 exactly once")]
@@ -997,6 +1103,7 @@ public sealed class DealReviewFactory : WebApplicationFactory<Program>
         Memories.Items.Clear();
         Observations.Calls = 0;
         Products.Items.Clear();
+        ProductReader.MissingProducts.Clear();
         FlyerImports.Refs.Clear();
         FlyerImports.ParsedRefsCalls.Clear();
     }
@@ -1109,7 +1216,15 @@ public sealed class FakeReviewProductReader : ICatalogProductReader
     public Dictionary<Guid, DealProductInfo> Names { get; } = new();
     public List<ProductCandidate> Candidates { get; } = [];
 
-    public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(true);
+    /// <summary>
+    /// Product ids to treat as NOT live in the catalog — <see cref="ExistsAsync"/> returns false for them, so
+    /// <c>ConfirmDeal</c> resolves <c>UnknownProduct</c> and the verb fails. Lets a test force a verb-command
+    /// failure while the deal's suggestion still resolves a display name (so it stays a confirmable High).
+    /// </summary>
+    public HashSet<Guid> MissingProducts { get; } = [];
+
+    public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult(!MissingProducts.Contains(productId));
 
     public Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ProductCandidate>>(Candidates);

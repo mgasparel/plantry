@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -44,7 +43,8 @@ public sealed class ReviewModel(
     ReviewDeals reviewDeals,
     ConfirmDeal confirmDeal,
     RejectDeal rejectDeal,
-    IReviewFlowStateStore flowStore,
+    DealReviewQueueBuilder queueBuilder,
+    DealsReviewFlowSession flowSession,
     ICatalogProductReader catalogProducts,
     IProductRepository products,
     IUnitRepository units,
@@ -163,7 +163,7 @@ public sealed class ReviewModel(
             return RedirectToPage("./Review");
         }
 
-        await BuildQueueAsync(flyer, step, autoAdvance: false, ct);
+        await PopulateQueueAsync(flyer, step, autoAdvance: false, ct);
 
         // Flyer / step navigation is an htmx swap of #review-region — return just the fragment. A full
         // navigation / refresh (?flyer=&step= in the address bar) renders the whole page, so the deep-link is
@@ -187,12 +187,13 @@ public sealed class ReviewModel(
 
         var candidates = await catalogProducts.ListCandidatesAsync(ct);
         var hits = ProductNameMatcher.Rank(candidates.Select(c => (c.Id, c.Name)), q.Trim());
-        var enc = HtmlEncoder.Default;
 
         var html = string.Join("", hits.Select((h, i) =>
         {
             var label = ProductNameMatcher.RankLabel(h.Score, isTopHit: i == 0);
-            return $$"""<li role="option" data-value="{{h.Id}}" data-name="{{enc.Encode(h.Name)}}" data-track="true" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: 'true'})">{{enc.Encode(h.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+            return ProductSearchOptionRenderer.RenderPickProductOption(
+                h.Id.ToString(), h.Name, label,
+                [new ProductOptionField("track", "true", "track", "'true'")]);
         }));
         return Content(html, "text/html");
     }
@@ -211,8 +212,7 @@ public sealed class ReviewModel(
         if (tenant.HouseholdId is null)
             return Forbid();
 
-        await EnsureSessionStartedAsync(ct);
-        await flowStore.SetUncheckedAsync(FlowStoreKey(), dealId, isUnchecked: !isChecked, ct);
+        await flowSession.SetUncheckedAsync(dealId, isUnchecked: !isChecked, ct);
         return new NoContentResult();
     }
 
@@ -233,63 +233,78 @@ public sealed class ReviewModel(
         {
             // A None/"Unrecognized" deal has no suggestion to accept — the UI never offers Confirm here.
             logger.LogWarning("Confirm rejected for deal {DealId}: no suggested product to accept.", dealId);
+            SetToast("Couldn't confirm that deal — try again.");
             return await QueueFragmentAsync(flyer, step, ct);
         }
 
         var result = await confirmDeal.ConfirmAsync(DealId.From(dealId), productId, CurrentUserId, ct);
         if (result.IsFailure)
+        {
             logger.LogWarning("Confirm deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
+            SetToast("Couldn't confirm that deal — try again.");
+        }
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
 
     /// <summary>
     /// Correct: re-resolve to a searched or inline-created product and supersede. Handles a Pending deal
-    /// and an already-confirmed auto-matched deal uniformly (<see cref="ConfirmDeal.CorrectAsync"/>).
+    /// and an already-confirmed auto-matched deal uniformly (<see cref="ConfirmDeal.CorrectAsync"/>). The
+    /// posted fields (<c>dealId</c>, <c>productId</c>, <c>newProductName</c>, <c>newProductUnitId</c>,
+    /// <c>newProductCategoryId</c>, <c>flyer</c>, <c>step</c>) bind case-insensitively onto
+    /// <see cref="CorrectDealForm"/> without a prefix — the Razor markup field names are unchanged.
     /// </summary>
-    public async Task<IActionResult> OnPostCorrectAsync(
-        [FromForm] Guid dealId,
-        [FromForm] Guid? productId,
-        [FromForm] string? newProductName,
-        [FromForm] Guid? newProductUnitId,
-        [FromForm] Guid? newProductCategoryId,
-        [FromForm] string? flyer,
-        [FromForm] int? step,
-        CancellationToken ct = default)
+    public async Task<IActionResult> OnPostCorrectAsync([FromForm] CorrectDealForm form, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
             return Forbid();
 
-        Guid resolvedProductId;
-        if (productId is { } existing && existing != Guid.Empty)
+        // Both resolve failures (inline-create failed, or neither an existing nor a new product supplied) and a
+        // CorrectAsync failure surface the same short correction-failed toast — the log already carries the code.
+        var resolved = await ResolveCorrectionProductAsync(form, ct);
+        if (resolved.IsFailure)
         {
-            resolvedProductId = existing;
+            SetToast("Couldn't save that correction — try again.");
+            return await QueueFragmentAsync(form.Flyer, form.Step, ct);
         }
-        else if (!string.IsNullOrWhiteSpace(newProductName) && newProductUnitId is { } unitId && unitId != Guid.Empty)
+
+        var result = await confirmDeal.CorrectAsync(DealId.From(form.DealId), resolved.Value, CurrentUserId, ct);
+        if (result.IsFailure)
         {
-            // Inline create (§2d twin): mint the catalog product, then correct the deal against it. The
-            // create is a Web composition-root orchestration (Catalog owns product creation), mirroring
-            // Intake's CreateProductAdapter — the deal never creates a product in its own domain.
-            var created = await CreateProductAsync(newProductName.Trim(), unitId, newProductCategoryId, ct);
+            logger.LogWarning("Correct deal {DealId} failed: {ErrorCode}.", form.DealId, result.Error.Code);
+            SetToast("Couldn't save that correction — try again.");
+        }
+
+        return await QueueFragmentAsync(form.Flyer, form.Step, ct);
+    }
+
+    /// <summary>
+    /// Resolves the correction's target product from the posted <paramref name="form"/>: an existing non-empty
+    /// <see cref="CorrectDealForm.ProductId"/> wins; else a supplied <see cref="CorrectDealForm.NewProductName"/>
+    /// plus a valid <see cref="CorrectDealForm.NewProductUnitId"/> inline-creates a catalog product (§2d twin:
+    /// a Web composition-root orchestration mirroring Intake's CreateProductAdapter — the deal never creates a
+    /// product in its own domain); otherwise a failure. Both failure paths log the same warnings as before —
+    /// the inline-create failure logs the created error code, the neither-supplied case logs the rejection.
+    /// </summary>
+    private async Task<Result<Guid>> ResolveCorrectionProductAsync(CorrectDealForm form, CancellationToken ct)
+    {
+        if (form.ProductId is { } existing && existing != Guid.Empty)
+            return existing;
+
+        if (!string.IsNullOrWhiteSpace(form.NewProductName) && form.NewProductUnitId is { } unitId && unitId != Guid.Empty)
+        {
+            var created = await CreateProductAsync(form.NewProductName.Trim(), unitId, form.NewProductCategoryId, ct);
             if (created.IsFailure)
             {
                 logger.LogWarning(
-                    "Inline product create failed while correcting deal {DealId}: {ErrorCode}.", dealId, created.Error.Code);
-                return await QueueFragmentAsync(flyer, step, ct);
+                    "Inline product create failed while correcting deal {DealId}: {ErrorCode}.", form.DealId, created.Error.Code);
+                return created.Error;
             }
-            resolvedProductId = created.Value;
-        }
-        else
-        {
-            logger.LogWarning("Correct deal {DealId} rejected: neither an existing nor a new product was supplied.", dealId);
-            return await QueueFragmentAsync(flyer, step, ct);
+            return created.Value;
         }
 
-        var result = await confirmDeal.CorrectAsync(DealId.From(dealId), resolvedProductId, CurrentUserId, ct);
-        if (result.IsFailure)
-            logger.LogWarning("Correct deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
-
-        return await QueueFragmentAsync(flyer, step, ct);
+        logger.LogWarning("Correct deal {DealId} rejected: neither an existing nor a new product was supplied.", form.DealId);
+        return Error.Custom("Deal.Correct.NoProduct", "Neither an existing nor a new product was supplied.");
     }
 
     /// <summary>Reject: leave the queue, write no price observation (D5).</summary>
@@ -301,7 +316,10 @@ public sealed class ReviewModel(
 
         var result = await rejectDeal.RejectAsync(DealId.From(dealId), CurrentUserId, ct: ct);
         if (result.IsFailure)
+        {
             logger.LogWarning("Reject deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
+            SetToast("Couldn't dismiss that deal — try again.");
+        }
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -329,8 +347,6 @@ public sealed class ReviewModel(
         if (tenant.HouseholdId is null)
             return Forbid();
 
-        await EnsureSessionStartedAsync(ct);
-
         var eligible = await EligibleActiveFlyerDealsAsync(
             flyer,
             d => ReviewStepClassifier.IsConfirmableHigh(d),
@@ -352,30 +368,38 @@ public sealed class ReviewModel(
         }
 
         var confirmed = 0;
+        var failed = 0;
         foreach (var deal in toConfirm)
         {
             // Per-deal server-side suggestion — identical semantics to the single Confirm verb.
             var productId = deal.SuggestedProductId!.Value;
             var result = await confirmDeal.ConfirmAsync(deal.DealId, productId, CurrentUserId, ct);
             if (result.IsSuccess)
+            {
                 confirmed++;
+            }
             else
+            {
+                failed++;
                 logger.LogWarning("ConfirmAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+            }
         }
 
         if (checklistCommit)
         {
             // Demote the unchecked Highs into step 2's pool, and clear the whole eligible set's checkbox state
             // (the confirmed Highs left the queue; the demoted ones now live in step 2 with no checkbox).
-            await flowStore.CommitAsync(
-                FlowStoreKey(),
+            await flowSession.CommitAsync(
                 demote: toDemote.Select(d => d.DealId.Value),
                 clearUnchecked: eligible.Select(d => d.DealId.Value),
                 ct);
         }
 
-        if (confirmed > 0)
-            SetBulkToast($"Confirmed {confirmed} {(confirmed == 1 ? "match" : "matches")}");
+        // Toast the outcome whenever anything was eligible (a success-only run keeps its original text; a
+        // partial or fully-failed run now surfaces the failure count). Nothing eligible → stay silent (the
+        // idempotent re-POST / demote-all cases), matching today.
+        if (toConfirm.Count > 0)
+            SetToast(ConfirmOutcomeToast(confirmed, failed));
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -400,17 +424,25 @@ public sealed class ReviewModel(
         eligible = ScopeToRequestedIds(eligible, dealIds, verb: "DismissAll");
 
         var dismissed = 0;
+        var failed = 0;
         foreach (var deal in eligible)
         {
             var result = await rejectDeal.RejectAsync(deal.DealId, CurrentUserId, ct: ct);
             if (result.IsSuccess)
+            {
                 dismissed++;
+            }
             else
+            {
+                failed++;
                 logger.LogWarning("DismissAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+            }
         }
 
-        if (dismissed > 0)
-            SetBulkToast($"Dismissed {dismissed} {(dismissed == 1 ? "deal" : "deals")}");
+        // Toast whenever anything was eligible; a success-only run keeps its original text, a partial or
+        // fully-failed run surfaces the failure count. Nothing eligible (idempotent re-POST) → stay silent.
+        if (eligible.Count > 0)
+            SetToast(DismissOutcomeToast(dismissed, failed));
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -464,12 +496,44 @@ public sealed class ReviewModel(
 
     /// <summary>
     /// Fires the shared toast (q9zr.1) with plain status feedback via an <c>HX-Trigger</c> response header.
-    /// htmx dispatches the event on the triggering button before the swap; it bubbles to the persistent
-    /// Alpine host, which flashes the <c>.toast</c> primitive. No undo affordance — ruled out for P1 (q9zr.9).
+    /// htmx dispatches the event on the triggering element before the swap; it bubbles to the persistent
+    /// Alpine host, which flashes the <c>.toast</c> primitive. Used by both the bulk verbs (success/mixed
+    /// counts) and the single verbs (failure feedback) — the event name stays <c>deals-bulk-done</c> so the
+    /// one Razor host listener serves every caller. No undo affordance — ruled out for P1 (q9zr.9).
+    /// <para><b>HX-Trigger is a single header value</b> — compose ONE message per request and never call this
+    /// twice in one handler (a second write would clobber the first; each verb path sets at most one toast).</para>
     /// </summary>
-    private void SetBulkToast(string message) =>
+    private void SetToast(string message) =>
         Response.Headers["HX-Trigger"] = System.Text.Json.JsonSerializer.Serialize(
             new Dictionary<string, object> { ["deals-bulk-done"] = new { message } });
+
+    /// <summary>
+    /// Composes the ConfirmAll outcome toast: all-succeeded keeps the original "Confirmed N matches" text;
+    /// a partial run reports both counts ("Confirmed 3, 2 failed"); an all-failed run still toasts
+    /// ("Couldn't confirm — 2 failed. Try again."). Caller stays silent when nothing was eligible.
+    /// </summary>
+    private static string ConfirmOutcomeToast(int confirmed, int failed)
+    {
+        if (failed == 0)
+            return $"Confirmed {confirmed} {(confirmed == 1 ? "match" : "matches")}";
+        if (confirmed == 0)
+            return $"Couldn't confirm — {failed} failed. Try again.";
+        return $"Confirmed {confirmed}, {failed} failed";
+    }
+
+    /// <summary>
+    /// Composes the DismissAll outcome toast — the reject-side twin of <see cref="ConfirmOutcomeToast"/>:
+    /// all-succeeded keeps "Dismissed N deals"; partial reports both counts; all-failed still toasts. Caller
+    /// stays silent when nothing was eligible.
+    /// </summary>
+    private static string DismissOutcomeToast(int dismissed, int failed)
+    {
+        if (failed == 0)
+            return $"Dismissed {dismissed} {(dismissed == 1 ? "deal" : "deals")}";
+        if (dismissed == 0)
+            return $"Couldn't dismiss — {failed} failed. Try again.";
+        return $"Dismissed {dismissed}, {failed} failed";
+    }
 
 
     private async Task<Result<Guid>> CreateProductAsync(string name, Guid unitId, Guid? categoryId, CancellationToken ct)
@@ -486,51 +550,20 @@ public sealed class ReviewModel(
 
     private async Task<IActionResult> QueueFragmentAsync(string? flyer, int? step, CancellationToken ct)
     {
-        await BuildQueueAsync(flyer, step, autoAdvance: true, ct);
+        await PopulateQueueAsync(flyer, step, autoAdvance: true, ct);
         return Partial("_ReviewQueue", this);
     }
 
     /// <summary>
-    /// Builds the flyer-chaptered, step-partitioned queue view (q9zr.3 + q9zr.13): projects the pending queue
-    /// into flyer blocks + progress counts, resolves the active flyer, partitions its pending deals into the
-    /// three step views over the household's demoted-deal set, and resolves the active step from
-    /// <paramref name="step"/>. A POST verb (<paramref name="autoAdvance"/>=true) advances off a step it just
-    /// emptied; a GET jump keeps an explicitly-requested empty step (rendering the empty-state) so a refresh is
-    /// idempotent. <see cref="Deals"/> is the active flyer's pending set; the rail chapters the whole queue.
+    /// Thin glue between a request and the queue view: loads the sheet chrome, delegates the flyer-chaptered,
+    /// step-partitioned projection to <see cref="DealReviewQueueBuilder"/>, copies the result onto the view
+    /// properties, and writes the <c>HX-Push-Url</c> header. All queue-building logic (projection, rail, handoff,
+    /// step partitioning and resolution) lives in the builder; only the HTTP concerns stay here.
     /// </summary>
-    private async Task BuildQueueAsync(string? flyer, int? step, bool autoAdvance, CancellationToken ct)
+    private async Task PopulateQueueAsync(string? flyer, int? step, bool autoAdvance, CancellationToken ct)
     {
         await LoadSheetOptionsAsync(ct);
-        await EnsureSessionStartedAsync(ct);
-
-        var projection = await reviewDeals.ProjectPendingQueueAsync(ct);
-        ReviewedCount = projection.ReviewedCount;
-        TotalCount = projection.TotalCount;
-
-        ActiveFlyerKey = FlyerRail.ResolveActiveKey(projection.Flyers, flyer);
-        ActiveFlyer = projection.Flyers.FirstOrDefault(f => f.Key == ActiveFlyerKey);
-        // The rail renders pending + Confirm-finished (done) chapters (plantry-8f7v); routing/handoff/progress
-        // above stay keyed off the pending-only set. FlyerRail.Build's done-last ordering places done chips last,
-        // and ResolveActiveKey only ever picks a pending block, so a done chip can never become active.
-        Rail = FlyerRail.Build([.. projection.Flyers, .. projection.DoneFlyers], ActiveFlyerKey);
-
-        // Handoff: a specific flyer was requested but it is no longer in the pending set (its last deal was
-        // just resolved), while other flyers still have work — show the done interstitial pointing at the
-        // next (now-active) flyer. A null request (fresh load) never triggers it.
-        ShowHandoff = flyer is not null
-            && projection.Flyers.All(f => f.Key != flyer)
-            && projection.Flyers.Count > 0;
-
-        Deals = ActiveFlyer?.Deals ?? [];
-
-        // Partition the active flyer's pending deals into the three step views over the demoted set.
-        var flow = await flowStore.GetAsync(FlowStoreKey(), ct);
-        UncheckedIds = flow.Unchecked;
-        Step1Deals = Deals.Where(d => ReviewStepClassifier.StepOf(d, flow.Demoted) == ReviewStep.Confirm).ToList();
-        Step2Deals = Deals.Where(d => ReviewStepClassifier.StepOf(d, flow.Demoted) == ReviewStep.Judgement).ToList();
-        Step3Deals = Deals.Where(d => ReviewStepClassifier.StepOf(d, flow.Demoted) == ReviewStep.Everything).ToList();
-
-        ActiveStep = ResolveStep(step, autoAdvance);
+        ApplyQueue(await queueBuilder.BuildAsync(flyer, step, autoAdvance, ct));
 
         // Keep the address bar (and therefore a refresh) on the effective step. The step buttons and rail chips
         // carry their own hx-push-url for GET jumps; a POST verb that auto-advanced needs the header to update.
@@ -538,22 +571,21 @@ public sealed class ReviewModel(
             Response.Headers["HX-Push-Url"] = $"/Deals/Review?flyer={ActiveFlyerKey}&step={(int)ActiveStep}";
     }
 
-    /// <summary>
-    /// Resolves the active step. No request → the first step with work (entry, <c>startPhaseFor</c>). An
-    /// explicit step that still has work → that step. An explicit step now empty → auto-advance to the first
-    /// step with work on a POST verb (it just emptied under the user's action), else honour it on a GET jump so
-    /// the empty-state renders and a refresh stays put.
-    /// </summary>
-    private ReviewStep ResolveStep(int? requested, bool autoAdvance)
+    /// <summary>Copies the built queue view onto the page's render properties — the one place they are set.</summary>
+    private void ApplyQueue(DealReviewQueueView view)
     {
-        var first = FirstNonEmptyStep();
-        if (requested is null)
-            return first ?? ReviewStep.Confirm;
-
-        var req = (ReviewStep)Math.Clamp(requested.Value, 1, 3);
-        if (StepCount(req) > 0)
-            return req;
-        return autoAdvance ? (first ?? req) : req;
+        Deals = view.Deals;
+        Rail = view.Rail;
+        ActiveFlyer = view.ActiveFlyer;
+        ActiveFlyerKey = view.ActiveFlyerKey;
+        ReviewedCount = view.ReviewedCount;
+        TotalCount = view.TotalCount;
+        ShowHandoff = view.ShowHandoff;
+        Step1Deals = view.Step1Deals;
+        Step2Deals = view.Step2Deals;
+        Step3Deals = view.Step3Deals;
+        ActiveStep = view.ActiveStep;
+        UncheckedIds = view.UncheckedIds;
     }
 
     private async Task LoadSheetOptionsAsync(CancellationToken ct)
@@ -574,30 +606,27 @@ public sealed class ReviewModel(
     /// </summary>
     public string SearchUrl => Url.Page("./Review", "SearchProducts")!;
 
-    // ── Guided-flow presentation-state store (q9zr.13) ────────────────────────────
-
-    /// <summary>
-    /// Ensures the ASP.NET Core session is started and the <c>.AspNetCore.Session</c> cookie is issued so
-    /// <see cref="Microsoft.AspNetCore.Http.ISession.Id"/> is stable across requests — otherwise the id
-    /// regenerates each request and the flow-state store key rotates (the SO5.2 session-key bug). Writing a
-    /// sentinel byte forces cookie issuance. Must run before <see cref="FlowStoreKey"/> on every read/write.
-    /// </summary>
-    private async Task EnsureSessionStartedAsync(CancellationToken ct = default)
-    {
-        await HttpContext.Session.LoadAsync(ct);
-        if (!HttpContext.Session.TryGetValue("_drf", out _))
-            HttpContext.Session.Set("_drf", [0x01]);
-    }
-
-    /// <summary>
-    /// The guided-flow state store key: <c>deals-review-flow_{householdId:N}_{sessionId}</c>. Presentation
-    /// state (demoted + unchecked deal ids) is per household + browser session — see <see cref="IReviewFlowStateStore"/>.
-    /// </summary>
-    private string FlowStoreKey() =>
-        $"deals-review-flow_{tenant.HouseholdId ?? Guid.Empty:N}_{HttpContext.Session.Id}";
-
     // Defensive parse: under [Authorize] the NameIdentifier claim is always present, but a missing/malformed
     // claim degrades to Guid.Empty (the same "no principal" sentinel) rather than throwing a 500.
     private Guid CurrentUserId =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
+
+    /// <summary>
+    /// The Correct verb's posted form (replaces the former 8-parameter handler signature). Property names line
+    /// up with the camelCase fields the Razor markup / <c>submitCorrect</c> htmx values post, so complex-model
+    /// binding matches them case-insensitively with no prefix — the markup field names are unchanged. Either an
+    /// existing <see cref="ProductId"/> or a new-product triple (<see cref="NewProductName"/> +
+    /// <see cref="NewProductUnitId"/> + optional <see cref="NewProductCategoryId"/>) resolves the target product;
+    /// <see cref="Flyer"/> / <see cref="Step"/> thread the re-render back to the active view.
+    /// </summary>
+    public sealed class CorrectDealForm
+    {
+        public Guid DealId { get; init; }
+        public Guid? ProductId { get; init; }
+        public string? NewProductName { get; init; }
+        public Guid? NewProductUnitId { get; init; }
+        public Guid? NewProductCategoryId { get; init; }
+        public string? Flyer { get; init; }
+        public int? Step { get; init; }
+    }
 }

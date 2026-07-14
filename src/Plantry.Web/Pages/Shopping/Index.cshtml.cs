@@ -11,6 +11,7 @@ using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Shopping.Application;
 using Plantry.Shopping.Domain;
+using Plantry.Web.Pages.Shared;
 using Plantry.Web.TagHelpers;
 
 namespace Plantry.Web.Pages.Shopping;
@@ -140,25 +141,24 @@ public sealed class IndexModel(
         var html = new StringBuilder();
         foreach (var match in matches)
         {
-            html.Append($"""<li role="option" data-value="{enc.Encode(match.ProductId.ToString())}" @click="select($el.dataset.value, $el.querySelector('[data-label]')?.dataset.label ?? $el.textContent.trim())">""");
-            html.Append($"""<span data-label="{enc.Encode(match.Name)}">{enc.Encode(match.Name)}</span>""");
-            if (match.RankLabel is { } rankLabel)
-            {
-                html.Append($"""<span class="rk">{enc.Encode(rankLabel)}</span>""");
-            }
+            // Shopping-specific trailing enrichment: the pantry-stock badge that sits after the
+            // .rk span inside the option. Built here (host owns per-item enrichment) and handed to
+            // the shared renderer as already-encoded trailing HTML.
+            string? stockBadge = null;
             if (stockLevels.TryGetValue(match.ProductId, out var stock))
             {
                 if (stock.OnHand > 0)
                 {
                     var lowClass = stock.IsLow ? " low" : "";
-                    html.Append($"""<span class="ostock{lowClass}">{enc.Encode(stock.OnHand.ToString("0.###"))} {enc.Encode(stock.UnitCode)} in pantry</span>""");
+                    stockBadge = $"""<span class="ostock{lowClass}">{enc.Encode(stock.OnHand.ToString("0.###"))} {enc.Encode(stock.UnitCode)} in pantry</span>""";
                 }
                 else
                 {
-                    html.Append("""<span class="ostock out">out</span>""");
+                    stockBadge = """<span class="ostock out">out</span>""";
                 }
             }
-            html.Append("</li>");
+            html.Append(ProductSearchOptionRenderer.RenderSelectOption(
+                match.ProductId.ToString(), match.Name, match.RankLabel, stockBadge));
         }
         return Content(html.ToString(), "text/html");
     }
