@@ -43,7 +43,7 @@ public sealed class ReviewModel(
     ReviewDeals reviewDeals,
     ConfirmDeal confirmDeal,
     RejectDeal rejectDeal,
-    IReviewFlowStateStore flowStore,
+    DealsReviewFlowSession flowSession,
     ICatalogProductReader catalogProducts,
     IProductRepository products,
     IUnitRepository units,
@@ -211,8 +211,7 @@ public sealed class ReviewModel(
         if (tenant.HouseholdId is null)
             return Forbid();
 
-        await EnsureSessionStartedAsync(ct);
-        await flowStore.SetUncheckedAsync(FlowStoreKey(), dealId, isUnchecked: !isChecked, ct);
+        await flowSession.SetUncheckedAsync(dealId, isUnchecked: !isChecked, ct);
         return new NoContentResult();
     }
 
@@ -347,8 +346,6 @@ public sealed class ReviewModel(
         if (tenant.HouseholdId is null)
             return Forbid();
 
-        await EnsureSessionStartedAsync(ct);
-
         var eligible = await EligibleActiveFlyerDealsAsync(
             flyer,
             d => ReviewStepClassifier.IsConfirmableHigh(d),
@@ -391,8 +388,7 @@ public sealed class ReviewModel(
         {
             // Demote the unchecked Highs into step 2's pool, and clear the whole eligible set's checkbox state
             // (the confirmed Highs left the queue; the demoted ones now live in step 2 with no checkbox).
-            await flowStore.CommitAsync(
-                FlowStoreKey(),
+            await flowSession.CommitAsync(
                 demote: toDemote.Select(d => d.DealId.Value),
                 clearUnchecked: eligible.Select(d => d.DealId.Value),
                 ct);
@@ -568,7 +564,6 @@ public sealed class ReviewModel(
     private async Task BuildQueueAsync(string? flyer, int? step, bool autoAdvance, CancellationToken ct)
     {
         await LoadSheetOptionsAsync(ct);
-        await EnsureSessionStartedAsync(ct);
 
         var projection = await reviewDeals.ProjectPendingQueueAsync(ct);
         ReviewedCount = projection.ReviewedCount;
@@ -591,7 +586,7 @@ public sealed class ReviewModel(
         Deals = ActiveFlyer?.Deals ?? [];
 
         // Partition the active flyer's pending deals into the three step views over the demoted set.
-        var flow = await flowStore.GetAsync(FlowStoreKey(), ct);
+        var flow = await flowSession.GetAsync(ct);
         UncheckedIds = flow.Unchecked;
         Step1Deals = Deals.Where(d => ReviewStepClassifier.StepOf(d, flow.Demoted) == ReviewStep.Confirm).ToList();
         Step2Deals = Deals.Where(d => ReviewStepClassifier.StepOf(d, flow.Demoted) == ReviewStep.Judgement).ToList();
@@ -640,28 +635,6 @@ public sealed class ReviewModel(
     /// The Correct sheet's search endpoint URL — emitted into the shared sheet's <c>SearchUrl</c>.
     /// </summary>
     public string SearchUrl => Url.Page("./Review", "SearchProducts")!;
-
-    // ── Guided-flow presentation-state store (q9zr.13) ────────────────────────────
-
-    /// <summary>
-    /// Ensures the ASP.NET Core session is started and the <c>.AspNetCore.Session</c> cookie is issued so
-    /// <see cref="Microsoft.AspNetCore.Http.ISession.Id"/> is stable across requests — otherwise the id
-    /// regenerates each request and the flow-state store key rotates (the SO5.2 session-key bug). Writing a
-    /// sentinel byte forces cookie issuance. Must run before <see cref="FlowStoreKey"/> on every read/write.
-    /// </summary>
-    private async Task EnsureSessionStartedAsync(CancellationToken ct = default)
-    {
-        await HttpContext.Session.LoadAsync(ct);
-        if (!HttpContext.Session.TryGetValue("_drf", out _))
-            HttpContext.Session.Set("_drf", [0x01]);
-    }
-
-    /// <summary>
-    /// The guided-flow state store key: <c>deals-review-flow_{householdId:N}_{sessionId}</c>. Presentation
-    /// state (demoted + unchecked deal ids) is per household + browser session — see <see cref="IReviewFlowStateStore"/>.
-    /// </summary>
-    private string FlowStoreKey() =>
-        $"deals-review-flow_{tenant.HouseholdId ?? Guid.Empty:N}_{HttpContext.Session.Id}";
 
     // Defensive parse: under [Authorize] the NameIdentifier claim is always present, but a missing/malformed
     // claim degrades to Guid.Empty (the same "no principal" sentinel) rather than throwing a 500.

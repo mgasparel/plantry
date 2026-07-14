@@ -372,7 +372,11 @@ builder.Services.AddScoped<ReviewDeals>();
 // Deals — guided-flow presentation state (q9zr.13). Which step shows a deal ("demoted") and the step-1
 // checkbox state are per household+session UI staging, NOT domain facts — held in a session-keyed
 // IDistributedCache store (the vetted IPendingProposalStore pattern), never a column on the Deal aggregate.
+// Page code reaches the store ONLY through DealsReviewFlowSession, which owns session-start + key derivation
+// so the SO5.2 session-key invariant is structural (a handler cannot get a key without starting the session).
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<Plantry.Web.Pages.Deals.IReviewFlowStateStore, Plantry.Web.Pages.Deals.DistributedCacheReviewFlowStateStore>();
+builder.Services.AddScoped<Plantry.Web.Pages.Deals.DealsReviewFlowSession>();
 
 // Deals — P5-10 stock-up alerts (DJ5). StockUpAlerts intersects an active-deal partition the caller supplies
 // (the Deals page's single BrowseDeals read, ADR-010) with Inventory's purchase-journal frequency (IPurchaseFrequencyReader over InventoryQueryService,
