@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -7,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
+using Plantry.Web.Pages.Shared;
 
 namespace Plantry.Web.Pages.Recipes;
 
@@ -155,7 +155,6 @@ public sealed class CookModel(
             return Content("", "text/html");
 
         var hits = await catalog.SearchAsync(q.Trim(), ct);
-        var enc = HtmlEncoder.Default;
 
         var defaultUnitIds = hits.Select(p => p.DefaultUnitId).Distinct().ToList();
         var unitCodes = defaultUnitIds.Count > 0
@@ -166,7 +165,13 @@ public sealed class CookModel(
         {
             var label = ProductNameMatcher.RankLabel(p.Score, isTopHit: i == 0);
             var unitCode = unitCodes.GetValueOrDefault(p.DefaultUnitId, "");
-            return $$"""<li role="option" data-value="{{p.Id}}" data-name="{{enc.Encode(p.Name)}}" data-track="{{(p.TrackStock ? "true" : "false")}}" data-default-unit="{{p.DefaultUnitId}}" data-default-unit-code="{{enc.Encode(unitCode)}}" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: $el.dataset.track, defaultUnit: $el.dataset.defaultUnit, defaultUnitCode: $el.dataset.defaultUnitCode})">{{enc.Encode(p.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+            return ProductSearchOptionRenderer.RenderPickProductOption(
+                p.Id.ToString(), p.Name, label,
+                [
+                    new ProductOptionField("track", p.TrackStock ? "true" : "false", "track"),
+                    new ProductOptionField("default-unit", p.DefaultUnitId.ToString(), "defaultUnit"),
+                    new ProductOptionField("default-unit-code", unitCode, "defaultUnitCode"),
+                ]);
         }));
         return Content(html, "text/html");
     }

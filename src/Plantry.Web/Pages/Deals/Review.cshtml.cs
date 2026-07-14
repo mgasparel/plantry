@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -187,12 +186,13 @@ public sealed class ReviewModel(
 
         var candidates = await catalogProducts.ListCandidatesAsync(ct);
         var hits = ProductNameMatcher.Rank(candidates.Select(c => (c.Id, c.Name)), q.Trim());
-        var enc = HtmlEncoder.Default;
 
         var html = string.Join("", hits.Select((h, i) =>
         {
             var label = ProductNameMatcher.RankLabel(h.Score, isTopHit: i == 0);
-            return $$"""<li role="option" data-value="{{h.Id}}" data-name="{{enc.Encode(h.Name)}}" data-track="true" @click="query = $el.dataset.name; open = false; $dispatch('pick-product', {value: $el.dataset.value, name: $el.dataset.name, track: 'true'})">{{enc.Encode(h.Name)}}<span class="rk">{{enc.Encode(label)}}</span></li>""";
+            return ProductSearchOptionRenderer.RenderPickProductOption(
+                h.Id.ToString(), h.Name, label,
+                [new ProductOptionField("track", "true", "track", "'true'")]);
         }));
         return Content(html, "text/html");
     }

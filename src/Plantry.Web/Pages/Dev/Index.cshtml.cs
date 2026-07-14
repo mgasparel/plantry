@@ -205,7 +205,6 @@ public sealed class IndexModel : PageModel
         if (string.IsNullOrWhiteSpace(q))
             return Content("", "text/html");
 
-        var enc = HtmlEncoder.Default;
         var ranked = ProductNameMatcher.Rank(GroceryItems, name => name, q.Trim());
 
         var html = new StringBuilder();
@@ -213,7 +212,7 @@ public sealed class IndexModel : PageModel
         {
             var r = ranked[i];
             var label = ProductNameMatcher.RankLabel(r.Score, isTopHit: i == 0);
-            html.Append($"""<li role="option" data-value="{enc.Encode(r.Name)}" @click="select($el.dataset.value, $el.querySelector('[data-label]')?.dataset.label ?? $el.textContent.trim())"><span data-label="{enc.Encode(r.Name)}">{enc.Encode(r.Name)}</span><span class="rk">{enc.Encode(label)}</span></li>""");
+            html.Append(ProductSearchOptionRenderer.RenderSelectOption(r.Name, r.Name, label));
         }
         return Content(html.ToString(), "text/html");
     }
