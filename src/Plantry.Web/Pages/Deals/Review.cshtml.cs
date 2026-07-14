@@ -233,12 +233,16 @@ public sealed class ReviewModel(
         {
             // A None/"Unrecognized" deal has no suggestion to accept — the UI never offers Confirm here.
             logger.LogWarning("Confirm rejected for deal {DealId}: no suggested product to accept.", dealId);
+            SetToast("Couldn't confirm that deal — try again.");
             return await QueueFragmentAsync(flyer, step, ct);
         }
 
         var result = await confirmDeal.ConfirmAsync(DealId.From(dealId), productId, CurrentUserId, ct);
         if (result.IsFailure)
+        {
             logger.LogWarning("Confirm deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
+            SetToast("Couldn't confirm that deal — try again.");
+        }
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -255,13 +259,21 @@ public sealed class ReviewModel(
         if (tenant.HouseholdId is null)
             return Forbid();
 
+        // Both resolve failures (inline-create failed, or neither an existing nor a new product supplied) and a
+        // CorrectAsync failure surface the same short correction-failed toast — the log already carries the code.
         var resolved = await ResolveCorrectionProductAsync(form, ct);
         if (resolved.IsFailure)
+        {
+            SetToast("Couldn't save that correction — try again.");
             return await QueueFragmentAsync(form.Flyer, form.Step, ct);
+        }
 
         var result = await confirmDeal.CorrectAsync(DealId.From(form.DealId), resolved.Value, CurrentUserId, ct);
         if (result.IsFailure)
+        {
             logger.LogWarning("Correct deal {DealId} failed: {ErrorCode}.", form.DealId, result.Error.Code);
+            SetToast("Couldn't save that correction — try again.");
+        }
 
         return await QueueFragmentAsync(form.Flyer, form.Step, ct);
     }
@@ -304,7 +316,10 @@ public sealed class ReviewModel(
 
         var result = await rejectDeal.RejectAsync(DealId.From(dealId), CurrentUserId, ct: ct);
         if (result.IsFailure)
+        {
             logger.LogWarning("Reject deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
+            SetToast("Couldn't dismiss that deal — try again.");
+        }
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -355,15 +370,21 @@ public sealed class ReviewModel(
         }
 
         var confirmed = 0;
+        var failed = 0;
         foreach (var deal in toConfirm)
         {
             // Per-deal server-side suggestion — identical semantics to the single Confirm verb.
             var productId = deal.SuggestedProductId!.Value;
             var result = await confirmDeal.ConfirmAsync(deal.DealId, productId, CurrentUserId, ct);
             if (result.IsSuccess)
+            {
                 confirmed++;
+            }
             else
+            {
+                failed++;
                 logger.LogWarning("ConfirmAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+            }
         }
 
         if (checklistCommit)
@@ -377,8 +398,11 @@ public sealed class ReviewModel(
                 ct);
         }
 
-        if (confirmed > 0)
-            SetBulkToast($"Confirmed {confirmed} {(confirmed == 1 ? "match" : "matches")}");
+        // Toast the outcome whenever anything was eligible (a success-only run keeps its original text; a
+        // partial or fully-failed run now surfaces the failure count). Nothing eligible → stay silent (the
+        // idempotent re-POST / demote-all cases), matching today.
+        if (toConfirm.Count > 0)
+            SetToast(ConfirmOutcomeToast(confirmed, failed));
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -403,17 +427,25 @@ public sealed class ReviewModel(
         eligible = ScopeToRequestedIds(eligible, dealIds, verb: "DismissAll");
 
         var dismissed = 0;
+        var failed = 0;
         foreach (var deal in eligible)
         {
             var result = await rejectDeal.RejectAsync(deal.DealId, CurrentUserId, ct: ct);
             if (result.IsSuccess)
+            {
                 dismissed++;
+            }
             else
+            {
+                failed++;
                 logger.LogWarning("DismissAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+            }
         }
 
-        if (dismissed > 0)
-            SetBulkToast($"Dismissed {dismissed} {(dismissed == 1 ? "deal" : "deals")}");
+        // Toast whenever anything was eligible; a success-only run keeps its original text, a partial or
+        // fully-failed run surfaces the failure count. Nothing eligible (idempotent re-POST) → stay silent.
+        if (eligible.Count > 0)
+            SetToast(DismissOutcomeToast(dismissed, failed));
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -467,12 +499,44 @@ public sealed class ReviewModel(
 
     /// <summary>
     /// Fires the shared toast (q9zr.1) with plain status feedback via an <c>HX-Trigger</c> response header.
-    /// htmx dispatches the event on the triggering button before the swap; it bubbles to the persistent
-    /// Alpine host, which flashes the <c>.toast</c> primitive. No undo affordance — ruled out for P1 (q9zr.9).
+    /// htmx dispatches the event on the triggering element before the swap; it bubbles to the persistent
+    /// Alpine host, which flashes the <c>.toast</c> primitive. Used by both the bulk verbs (success/mixed
+    /// counts) and the single verbs (failure feedback) — the event name stays <c>deals-bulk-done</c> so the
+    /// one Razor host listener serves every caller. No undo affordance — ruled out for P1 (q9zr.9).
+    /// <para><b>HX-Trigger is a single header value</b> — compose ONE message per request and never call this
+    /// twice in one handler (a second write would clobber the first; each verb path sets at most one toast).</para>
     /// </summary>
-    private void SetBulkToast(string message) =>
+    private void SetToast(string message) =>
         Response.Headers["HX-Trigger"] = System.Text.Json.JsonSerializer.Serialize(
             new Dictionary<string, object> { ["deals-bulk-done"] = new { message } });
+
+    /// <summary>
+    /// Composes the ConfirmAll outcome toast: all-succeeded keeps the original "Confirmed N matches" text;
+    /// a partial run reports both counts ("Confirmed 3, 2 failed"); an all-failed run still toasts
+    /// ("Couldn't confirm — 2 failed. Try again."). Caller stays silent when nothing was eligible.
+    /// </summary>
+    private static string ConfirmOutcomeToast(int confirmed, int failed)
+    {
+        if (failed == 0)
+            return $"Confirmed {confirmed} {(confirmed == 1 ? "match" : "matches")}";
+        if (confirmed == 0)
+            return $"Couldn't confirm — {failed} failed. Try again.";
+        return $"Confirmed {confirmed}, {failed} failed";
+    }
+
+    /// <summary>
+    /// Composes the DismissAll outcome toast — the reject-side twin of <see cref="ConfirmOutcomeToast"/>:
+    /// all-succeeded keeps "Dismissed N deals"; partial reports both counts; all-failed still toasts. Caller
+    /// stays silent when nothing was eligible.
+    /// </summary>
+    private static string DismissOutcomeToast(int dismissed, int failed)
+    {
+        if (failed == 0)
+            return $"Dismissed {dismissed} {(dismissed == 1 ? "deal" : "deals")}";
+        if (dismissed == 0)
+            return $"Couldn't dismiss — {failed} failed. Try again.";
+        return $"Dismissed {dismissed}, {failed} failed";
+    }
 
 
     private async Task<Result<Guid>> CreateProductAsync(string name, Guid unitId, Guid? categoryId, CancellationToken ct)
