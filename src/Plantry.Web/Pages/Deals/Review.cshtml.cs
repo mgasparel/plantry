@@ -245,51 +245,54 @@ public sealed class ReviewModel(
 
     /// <summary>
     /// Correct: re-resolve to a searched or inline-created product and supersede. Handles a Pending deal
-    /// and an already-confirmed auto-matched deal uniformly (<see cref="ConfirmDeal.CorrectAsync"/>).
+    /// and an already-confirmed auto-matched deal uniformly (<see cref="ConfirmDeal.CorrectAsync"/>). The
+    /// posted fields (<c>dealId</c>, <c>productId</c>, <c>newProductName</c>, <c>newProductUnitId</c>,
+    /// <c>newProductCategoryId</c>, <c>flyer</c>, <c>step</c>) bind case-insensitively onto
+    /// <see cref="CorrectDealForm"/> without a prefix — the Razor markup field names are unchanged.
     /// </summary>
-    public async Task<IActionResult> OnPostCorrectAsync(
-        [FromForm] Guid dealId,
-        [FromForm] Guid? productId,
-        [FromForm] string? newProductName,
-        [FromForm] Guid? newProductUnitId,
-        [FromForm] Guid? newProductCategoryId,
-        [FromForm] string? flyer,
-        [FromForm] int? step,
-        CancellationToken ct = default)
+    public async Task<IActionResult> OnPostCorrectAsync([FromForm] CorrectDealForm form, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
             return Forbid();
 
-        Guid resolvedProductId;
-        if (productId is { } existing && existing != Guid.Empty)
+        var resolved = await ResolveCorrectionProductAsync(form, ct);
+        if (resolved.IsFailure)
+            return await QueueFragmentAsync(form.Flyer, form.Step, ct);
+
+        var result = await confirmDeal.CorrectAsync(DealId.From(form.DealId), resolved.Value, CurrentUserId, ct);
+        if (result.IsFailure)
+            logger.LogWarning("Correct deal {DealId} failed: {ErrorCode}.", form.DealId, result.Error.Code);
+
+        return await QueueFragmentAsync(form.Flyer, form.Step, ct);
+    }
+
+    /// <summary>
+    /// Resolves the correction's target product from the posted <paramref name="form"/>: an existing non-empty
+    /// <see cref="CorrectDealForm.ProductId"/> wins; else a supplied <see cref="CorrectDealForm.NewProductName"/>
+    /// plus a valid <see cref="CorrectDealForm.NewProductUnitId"/> inline-creates a catalog product (§2d twin:
+    /// a Web composition-root orchestration mirroring Intake's CreateProductAdapter — the deal never creates a
+    /// product in its own domain); otherwise a failure. Both failure paths log the same warnings as before —
+    /// the inline-create failure logs the created error code, the neither-supplied case logs the rejection.
+    /// </summary>
+    private async Task<Result<Guid>> ResolveCorrectionProductAsync(CorrectDealForm form, CancellationToken ct)
+    {
+        if (form.ProductId is { } existing && existing != Guid.Empty)
+            return existing;
+
+        if (!string.IsNullOrWhiteSpace(form.NewProductName) && form.NewProductUnitId is { } unitId && unitId != Guid.Empty)
         {
-            resolvedProductId = existing;
-        }
-        else if (!string.IsNullOrWhiteSpace(newProductName) && newProductUnitId is { } unitId && unitId != Guid.Empty)
-        {
-            // Inline create (§2d twin): mint the catalog product, then correct the deal against it. The
-            // create is a Web composition-root orchestration (Catalog owns product creation), mirroring
-            // Intake's CreateProductAdapter — the deal never creates a product in its own domain.
-            var created = await CreateProductAsync(newProductName.Trim(), unitId, newProductCategoryId, ct);
+            var created = await CreateProductAsync(form.NewProductName.Trim(), unitId, form.NewProductCategoryId, ct);
             if (created.IsFailure)
             {
                 logger.LogWarning(
-                    "Inline product create failed while correcting deal {DealId}: {ErrorCode}.", dealId, created.Error.Code);
-                return await QueueFragmentAsync(flyer, step, ct);
+                    "Inline product create failed while correcting deal {DealId}: {ErrorCode}.", form.DealId, created.Error.Code);
+                return created.Error;
             }
-            resolvedProductId = created.Value;
-        }
-        else
-        {
-            logger.LogWarning("Correct deal {DealId} rejected: neither an existing nor a new product was supplied.", dealId);
-            return await QueueFragmentAsync(flyer, step, ct);
+            return created.Value;
         }
 
-        var result = await confirmDeal.CorrectAsync(DealId.From(dealId), resolvedProductId, CurrentUserId, ct);
-        if (result.IsFailure)
-            logger.LogWarning("Correct deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
-
-        return await QueueFragmentAsync(flyer, step, ct);
+        logger.LogWarning("Correct deal {DealId} rejected: neither an existing nor a new product was supplied.", form.DealId);
+        return Error.Custom("Deal.Correct.NoProduct", "Neither an existing nor a new product was supplied.");
     }
 
     /// <summary>Reject: leave the queue, write no price observation (D5).</summary>
@@ -600,4 +603,23 @@ public sealed class ReviewModel(
     // claim degrades to Guid.Empty (the same "no principal" sentinel) rather than throwing a 500.
     private Guid CurrentUserId =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
+
+    /// <summary>
+    /// The Correct verb's posted form (replaces the former 8-parameter handler signature). Property names line
+    /// up with the camelCase fields the Razor markup / <c>submitCorrect</c> htmx values post, so complex-model
+    /// binding matches them case-insensitively with no prefix — the markup field names are unchanged. Either an
+    /// existing <see cref="ProductId"/> or a new-product triple (<see cref="NewProductName"/> +
+    /// <see cref="NewProductUnitId"/> + optional <see cref="NewProductCategoryId"/>) resolves the target product;
+    /// <see cref="Flyer"/> / <see cref="Step"/> thread the re-render back to the active view.
+    /// </summary>
+    public sealed class CorrectDealForm
+    {
+        public Guid DealId { get; init; }
+        public Guid? ProductId { get; init; }
+        public string? NewProductName { get; init; }
+        public Guid? NewProductUnitId { get; init; }
+        public Guid? NewProductCategoryId { get; init; }
+        public string? Flyer { get; init; }
+        public int? Step { get; init; }
+    }
 }
