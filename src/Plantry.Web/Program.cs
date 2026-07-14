@@ -378,6 +378,11 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<Plantry.Web.Pages.Deals.IReviewFlowStateStore, Plantry.Web.Pages.Deals.DistributedCacheReviewFlowStateStore>();
 builder.Services.AddScoped<Plantry.Web.Pages.Deals.DealsReviewFlowSession>();
 
+// Deals — the review queue builder (q9zr.3 + q9zr.13): the presentation orchestration (projection → flyer rail
+// → handoff → step partition/resolution) lifted out of the ReviewModel page so the page stays thin handlers.
+// Web-project presentation only (composes ReviewDeals + FlyerRail + the flow session), never in Plantry.Deals.
+builder.Services.AddScoped<Plantry.Web.Pages.Deals.DealReviewQueueBuilder>();
+
 // Deals — P5-10 stock-up alerts (DJ5). StockUpAlerts intersects an active-deal partition the caller supplies
 // (the Deals page's single BrowseDeals read, ADR-010) with Inventory's purchase-journal frequency (IPurchaseFrequencyReader over InventoryQueryService,
 // DL-O4); "Add to list" reuses the P2-4 Shopping AddItems seam via a Deals-side writer port (DM-18). Both

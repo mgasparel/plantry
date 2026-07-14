@@ -43,6 +43,7 @@ public sealed class ReviewModel(
     ReviewDeals reviewDeals,
     ConfirmDeal confirmDeal,
     RejectDeal rejectDeal,
+    DealReviewQueueBuilder queueBuilder,
     DealsReviewFlowSession flowSession,
     ICatalogProductReader catalogProducts,
     IProductRepository products,
@@ -162,7 +163,7 @@ public sealed class ReviewModel(
             return RedirectToPage("./Review");
         }
 
-        await BuildQueueAsync(flyer, step, autoAdvance: false, ct);
+        await PopulateQueueAsync(flyer, step, autoAdvance: false, ct);
 
         // Flyer / step navigation is an htmx swap of #review-region — return just the fragment. A full
         // navigation / refresh (?flyer=&step= in the address bar) renders the whole page, so the deep-link is
@@ -549,50 +550,20 @@ public sealed class ReviewModel(
 
     private async Task<IActionResult> QueueFragmentAsync(string? flyer, int? step, CancellationToken ct)
     {
-        await BuildQueueAsync(flyer, step, autoAdvance: true, ct);
+        await PopulateQueueAsync(flyer, step, autoAdvance: true, ct);
         return Partial("_ReviewQueue", this);
     }
 
     /// <summary>
-    /// Builds the flyer-chaptered, step-partitioned queue view (q9zr.3 + q9zr.13): projects the pending queue
-    /// into flyer blocks + progress counts, resolves the active flyer, partitions its pending deals into the
-    /// three step views over the household's demoted-deal set, and resolves the active step from
-    /// <paramref name="step"/>. A POST verb (<paramref name="autoAdvance"/>=true) advances off a step it just
-    /// emptied; a GET jump keeps an explicitly-requested empty step (rendering the empty-state) so a refresh is
-    /// idempotent. <see cref="Deals"/> is the active flyer's pending set; the rail chapters the whole queue.
+    /// Thin glue between a request and the queue view: loads the sheet chrome, delegates the flyer-chaptered,
+    /// step-partitioned projection to <see cref="DealReviewQueueBuilder"/>, copies the result onto the view
+    /// properties, and writes the <c>HX-Push-Url</c> header. All queue-building logic (projection, rail, handoff,
+    /// step partitioning and resolution) lives in the builder; only the HTTP concerns stay here.
     /// </summary>
-    private async Task BuildQueueAsync(string? flyer, int? step, bool autoAdvance, CancellationToken ct)
+    private async Task PopulateQueueAsync(string? flyer, int? step, bool autoAdvance, CancellationToken ct)
     {
         await LoadSheetOptionsAsync(ct);
-
-        var projection = await reviewDeals.ProjectPendingQueueAsync(ct);
-        ReviewedCount = projection.ReviewedCount;
-        TotalCount = projection.TotalCount;
-
-        ActiveFlyerKey = FlyerRail.ResolveActiveKey(projection.Flyers, flyer);
-        ActiveFlyer = projection.Flyers.FirstOrDefault(f => f.Key == ActiveFlyerKey);
-        // The rail renders pending + Confirm-finished (done) chapters (plantry-8f7v); routing/handoff/progress
-        // above stay keyed off the pending-only set. FlyerRail.Build's done-last ordering places done chips last,
-        // and ResolveActiveKey only ever picks a pending block, so a done chip can never become active.
-        Rail = FlyerRail.Build([.. projection.Flyers, .. projection.DoneFlyers], ActiveFlyerKey);
-
-        // Handoff: a specific flyer was requested but it is no longer in the pending set (its last deal was
-        // just resolved), while other flyers still have work — show the done interstitial pointing at the
-        // next (now-active) flyer. A null request (fresh load) never triggers it.
-        ShowHandoff = flyer is not null
-            && projection.Flyers.All(f => f.Key != flyer)
-            && projection.Flyers.Count > 0;
-
-        Deals = ActiveFlyer?.Deals ?? [];
-
-        // Partition the active flyer's pending deals into the three step views over the demoted set.
-        var flow = await flowSession.GetAsync(ct);
-        UncheckedIds = flow.Unchecked;
-        Step1Deals = Deals.Where(d => ReviewStepClassifier.StepOf(d, flow.Demoted) == ReviewStep.Confirm).ToList();
-        Step2Deals = Deals.Where(d => ReviewStepClassifier.StepOf(d, flow.Demoted) == ReviewStep.Judgement).ToList();
-        Step3Deals = Deals.Where(d => ReviewStepClassifier.StepOf(d, flow.Demoted) == ReviewStep.Everything).ToList();
-
-        ActiveStep = ResolveStep(step, autoAdvance);
+        ApplyQueue(await queueBuilder.BuildAsync(flyer, step, autoAdvance, ct));
 
         // Keep the address bar (and therefore a refresh) on the effective step. The step buttons and rail chips
         // carry their own hx-push-url for GET jumps; a POST verb that auto-advanced needs the header to update.
@@ -600,22 +571,21 @@ public sealed class ReviewModel(
             Response.Headers["HX-Push-Url"] = $"/Deals/Review?flyer={ActiveFlyerKey}&step={(int)ActiveStep}";
     }
 
-    /// <summary>
-    /// Resolves the active step. No request → the first step with work (entry, <c>startPhaseFor</c>). An
-    /// explicit step that still has work → that step. An explicit step now empty → auto-advance to the first
-    /// step with work on a POST verb (it just emptied under the user's action), else honour it on a GET jump so
-    /// the empty-state renders and a refresh stays put.
-    /// </summary>
-    private ReviewStep ResolveStep(int? requested, bool autoAdvance)
+    /// <summary>Copies the built queue view onto the page's render properties — the one place they are set.</summary>
+    private void ApplyQueue(DealReviewQueueView view)
     {
-        var first = FirstNonEmptyStep();
-        if (requested is null)
-            return first ?? ReviewStep.Confirm;
-
-        var req = (ReviewStep)Math.Clamp(requested.Value, 1, 3);
-        if (StepCount(req) > 0)
-            return req;
-        return autoAdvance ? (first ?? req) : req;
+        Deals = view.Deals;
+        Rail = view.Rail;
+        ActiveFlyer = view.ActiveFlyer;
+        ActiveFlyerKey = view.ActiveFlyerKey;
+        ReviewedCount = view.ReviewedCount;
+        TotalCount = view.TotalCount;
+        ShowHandoff = view.ShowHandoff;
+        Step1Deals = view.Step1Deals;
+        Step2Deals = view.Step2Deals;
+        Step3Deals = view.Step3Deals;
+        ActiveStep = view.ActiveStep;
+        UncheckedIds = view.UncheckedIds;
     }
 
     private async Task LoadSheetOptionsAsync(CancellationToken ct)
