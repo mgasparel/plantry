@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
@@ -58,6 +57,10 @@ public sealed class ReviewModel(
     ILogger<ReopenLineCommand> reopenLogger,
     ILogger<ConfirmLinesCommand> confirmLinesLogger) : PageModel
 {
+    /// <summary>Pure hydration-JSON projector (plantry-uk4u). Stateless and dependency-free, so it is
+    /// held as a shared instance rather than threaded through the (already 18-dep) primary constructor.</summary>
+    private static readonly IntakeReviewHydrationBuilder hydrationBuilder = new();
+
     /// <summary>Session id from the route; bound on GET and carried on every POST via the URL.</summary>
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
@@ -96,7 +99,8 @@ public sealed class ReviewModel(
         if (Session.Status != ImportStatus.Ready)
             return RedirectToPage("/Pantry/Index");
 
-        IslandHydrationJson = BuildHydrationJson();
+        var hydration = hydrationBuilder.Build(Session, Today, clock.UtcNow, BuildHandlerUrls());
+        IslandHydrationJson = JsonSerializer.Serialize(hydration, IntakeHydrationJson.Options);
         return Page();
     }
 
@@ -328,155 +332,17 @@ public sealed class ReviewModel(
         return null;
     }
 
-    /// <summary>Builds the full island hydration JSON from the loaded session and reference data.
-    /// Must be called after <see cref="LoadAsync"/> succeeds. This is the single emission point
-    /// for the island's initial state — the priority chain lives here, not in the island.</summary>
-    private string BuildHydrationJson()
-    {
-        var reference = Session.ReferenceData;
-        var today = Today;
-
-        // Products — include defaults so the island can fill empty unit/location/expiry
-        // on product re-selection (Boundary judgment call 2: form-filling from held data = UI, allowed).
-        var products = reference.Products.Select(p => new ProductHydration(
-            Id: p.Id.ToString(),
-            Name: p.Name,
-            Skus: p.Skus.Select(s => new SkuOption(s.Id.ToString(), s.Label)).ToList(),
-            Defaults: new ProductDefaults(
-                UnitId: p.DefaultUnitId.ToString(),
-                LocationId: p.DefaultLocationId?.ToString(),
-                Expiry: p.DefaultDueDays is { } n ? today.AddDays(n).ToString("yyyy-MM-dd") : null))).ToList();
-
-        var units = reference.Units
-            .Select(u => new UnitHydration(u.Id.ToString(), u.Code, u.Name)).ToList();
-
-        var locations = reference.Locations
-            .Select(l => new LocationHydration(l.Id.ToString(), l.Name)).ToList();
-
-        var categories = reference.Categories
-            .Select(c => new CategoryHydration(c.Id.ToString(), c.Name, c.Hue)).ToList();
-
-        var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
-        var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
-        var productDefaultLocationById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultLocationId);
-        var productDefaultUnitById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultUnitId);
-        var productDefaultDueDaysById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultDueDays);
-
-        var skusByProductId = reference.Products
-            .Where(p => p.Skus.Count > 0)
-            .ToDictionary(
-                p => p.Id.ToString(),
-                p => (IReadOnlyList<ReviewSkuOption>)p.Skus);
-
-        // Per-line: line data + server-computed prefill (Boundary judgment call 1: chain stays server-side)
-        var lines = Session.Lines.Select(l =>
-        {
-            var (prefillProductId, prefillProductName, prefillQty, prefillUnitId, prefillLocationId, prefillPrice, prefillExpiry) =
-                ReviewPrefill.ComputePrefill(l, unitIdByCode, productNameById, productDefaultLocationById,
-                    productDefaultUnitById, productDefaultDueDaysById, today);
-
-            // Alternatives: only resolved catalog entries, 2+ required
-            IReadOnlyList<AlternativeHydration>? alternatives = null;
-            if (l.SuggestedAlternatives is { Count: >= ImportLine.MinAlternativesForSuggestion } alts)
-            {
-                var resolved = alts
-                    .Where(a => a.ProductId is { } p && productNameById.ContainsKey(p))
-                    .Select(a => new AlternativeHydration(
-                        ProductId: a.ProductId!.Value.ToString(),
-                        ProductName: productNameById.TryGetValue(a.ProductId!.Value, out var n) ? n : a.ProductName,
-                        Confidence: a.Confidence))
-                    .ToList();
-                if (resolved.Count >= ImportLine.MinAlternativesForSuggestion)
-                    alternatives = resolved;
-            }
-
-            return new LineHydration(
-                Line: new LineSeed(
-                    LineId: l.LineId.ToString(),
-                    ReceiptText: l.ReceiptText,
-                    Confidence: l.SuggestedConfidence.ToString(),
-                    Status: l.Status.ToString(),
-                    ProductId: l.ProductId?.ToString(),
-                    SkuId: l.SkuId?.ToString(),
-                    Quantity: l.Quantity,
-                    UnitId: l.UnitId?.ToString(),
-                    LocationId: l.LocationId?.ToString(),
-                    ExpiryDate: l.ExpiryDate?.ToString("yyyy-MM-dd"),
-                    Price: l.Price,
-                    IsNewProduct: l.IsNewProduct,
-                    NewProductName: l.NewProductName,
-                    NewProductCategoryId: l.NewProductCategoryId?.ToString(),
-                    SuggestedPrice: l.SuggestedPrice),
-                Prefill: new PrefillData(
-                    ProductId: prefillProductId?.ToString(),
-                    ProductName: prefillProductName,
-                    Quantity: prefillQty,
-                    UnitId: prefillUnitId?.ToString(),
-                    LocationId: prefillLocationId?.ToString(),
-                    Price: prefillPrice,
-                    Expiry: prefillExpiry?.ToString("yyyy-MM-dd"),
-                    SkuId: l.SkuId?.ToString()),
-                Alternatives: alternatives,
-                Estimate: l is { ReceiptWeight: { } w, ReceiptWeightUnitLabel: { } wu, EstimatedEachCount: { } ec }
-                    ? new EstimateHydration(ec, w, wu, (l.EstimatedEachConfidence ?? SuggestedConfidence.Low).ToString())
-                    : null);
-        }).ToList();
-
-        var hydration = new SessionHydration(
-            MerchantText: string.IsNullOrWhiteSpace(Session.MerchantText) ? "Receipt" : Session.MerchantText,
-            SessionDate: Session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture),
-            Today: today.ToString("yyyy-MM-dd"),
-            CommitUrl: Url.Page("./Review", "Commit", new { Id })!,
-            DiscardUrl: Url.Page("./Review", "Discard", new { Id })!,
-            SaveLineUrl: Url.Page("./Review", "SaveLine", new { Id })!,
-            DismissLineUrl: Url.Page("./Review", "DismissLine", new { Id })!,
-            RestoreLineUrl: Url.Page("./Review", "RestoreLine", new { Id })!,
-            ReopenLineUrl: Url.Page("./Review", "ReopenLine", new { Id })!,
-            ConfirmLinesUrl: Url.Page("./Review", "ConfirmLines", new { Id })!,
-            Products: products,
-            Units: units,
-            Locations: locations,
-            Categories: categories,
-            Lines: lines,
-            // Receipt-panel metadata — via tag reflects the source; the rest is present-only display data.
-            ScanVia: Session.SourceType == ImportSourceType.Receipt ? "photo" : "email",
-            ScannedLabel: RelativeScanLabel(Session.CreatedAt, clock.UtcNow),
-            StoreBranch: NullIfBlank(Session.StoreBranch),
-            PurchaseDate: Session.PurchaseDate is { } pd
-                ? pd.ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture) : null,
-            PurchaseTime: Session.PurchaseTime is { } pt
-                ? pt.ToString("h:mm tt", CultureInfo.CurrentCulture) : null,
-            Subtotal: Session.Subtotal,
-            Tax: Session.Tax,
-            Total: Session.Total,
-            Payment: NullIfBlank(Session.PaymentDescriptor),
-            ReceiptNo: NullIfBlank(Session.ReceiptNumber));
-
-        return JsonSerializer.Serialize(hydration, IntakeHydrationJson.Options);
-    }
-
-    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
-
-    /// <summary>Humanises how long ago the receipt was scanned, for the receipt panel's meta line
-    /// ("scanned just now" / "scanned 5 minutes ago" / "scanned on Jun 7, 2026"). Coarse buckets only —
-    /// this is ambient display copy, not a precise timestamp.</summary>
-    private static string RelativeScanLabel(DateTimeOffset scannedAt, DateTimeOffset now)
-    {
-        var elapsed = now - scannedAt;
-        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
-        if (elapsed < TimeSpan.FromMinutes(1)) return "scanned just now";
-        if (elapsed < TimeSpan.FromHours(1))
-        {
-            var mins = (int)elapsed.TotalMinutes;
-            return $"scanned {mins} minute{(mins == 1 ? "" : "s")} ago";
-        }
-        if (elapsed < TimeSpan.FromDays(1))
-        {
-            var hours = (int)elapsed.TotalHours;
-            return $"scanned {hours} hour{(hours == 1 ? "" : "s")} ago";
-        }
-        return "scanned on " + scannedAt.ToLocalTime().ToString("MMM d, yyyy", CultureInfo.CurrentCulture);
-    }
+    /// <summary>Computes the seven row-action handler URLs for the hydration payload. <c>Url.Page(...)</c>
+    /// needs PageModel context, so this stays page-side and the values are handed to the pure
+    /// <see cref="IntakeReviewHydrationBuilder"/> (plantry-uk4u).</summary>
+    private ReviewHandlerUrls BuildHandlerUrls() => new(
+        Commit: Url.Page("./Review", "Commit", new { Id })!,
+        Discard: Url.Page("./Review", "Discard", new { Id })!,
+        SaveLine: Url.Page("./Review", "SaveLine", new { Id })!,
+        DismissLine: Url.Page("./Review", "DismissLine", new { Id })!,
+        RestoreLine: Url.Page("./Review", "RestoreLine", new { Id })!,
+        Reopen: Url.Page("./Review", "ReopenLine", new { Id })!,
+        ConfirmLines: Url.Page("./Review", "ConfirmLines", new { Id })!);
 
     private IActionResult JsonError(string message) =>
         new JsonResult(new { error = message }) { StatusCode = 200 };
