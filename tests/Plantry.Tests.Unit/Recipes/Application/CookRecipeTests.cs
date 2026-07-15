@@ -47,10 +47,11 @@ public sealed class CookRecipeTests
         var products = new FakeCatalogProductReader();
         var dispatcher = new FakeDomainEventDispatcher();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var lineDriver = new CookLineDriver(consumer, producer);
+        var reconciler = new ReconcilePendingCooks(cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, consumer, producer, products, expansion, dispatcher, Clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, expansion, dispatcher, Clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
         return new Harness
         {

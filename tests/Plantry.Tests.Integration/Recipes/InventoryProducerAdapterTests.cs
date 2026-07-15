@@ -334,8 +334,9 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
         var consumer = new InventoryConsumerAdapter(
             stocks, catalog, conversions, Clock, tenant, NullLogger<ConsumeStockCommand>.Instance);
 
+        var lineDriver = new CookLineDriver(consumer, producer);
         return new ReconcilePendingCooks(
-            cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+            cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
     }
 
     private (ICatalogReadFacade Catalog, ProductStockRepository Stocks, CatalogLocationRepository Locations, TestTenant Tenant)

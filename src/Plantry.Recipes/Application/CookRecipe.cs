@@ -39,8 +39,7 @@ namespace Plantry.Recipes.Application;
 public sealed class CookRecipe(
     IRecipeRepository recipes,
     ICookEventRepository cookEvents,
-    IInventoryConsumer consumer,
-    IInventoryProducer producer,
+    CookLineDriver lineDriver,
     ICatalogProductReader products,
     RecipeExpansionService expansion,
     IDomainEventDispatcher eventDispatcher,
@@ -179,54 +178,19 @@ public sealed class CookRecipe(
 
         foreach (var line in cookEvent.ConsumeLines)
         {
-            // Never block on shortfall (C8/R9). ConsumeAsync reports shortfall in the result.
-            // ConsumeAsync throws InvalidOperationException when the product has no stock record
-            // at all (no lots ever added). Treat that as a Shorted line — cook proceeds and the
-            // caller sees a fully-short line rather than an unhandled 500.
-            decimal shortfall;
-            Guid shortfallUnit;
-            try
-            {
-                var consumeResult = await consumer.ConsumeAsync(
-                    line.ProductId,
-                    line.Quantity,
-                    line.UnitId,
-                    ConsumeReason.Recipe,
-                    cookEvent.Id.Value,
-                    command.UserId,
-                    sourceLineRef: line.Id.Value,
-                    ct);
-
-                shortfall = consumeResult.ShortfallAmount;
-                shortfallUnit = consumeResult.RequestUnitId;
-                line.MarkApplied(shortfall);
-            }
-            catch (DeferredUnitGapException)
-            {
-                // No conversion bridges the ingredient unit to the product's stock unit (plantry-qll2.6).
-                // This is NOT a shortfall — the consume planning pass failed atomically before touching any
-                // lot, so the pantry is untouched. Record it as a deferred unit gap: the consume is owed and
-                // will be retro-applied automatically when a conversion for the pair lands (never Shorted,
-                // which is reserved for a genuine no-stock product and is never retried).
-                shortfall = line.Quantity;
-                shortfallUnit = line.UnitId;
-                line.MarkDeferredUnitGap();
-            }
-            catch (InvalidOperationException)
-            {
-                // No stock record for this product — fully short (C8).
-                shortfall = line.Quantity;
-                shortfallUnit = line.UnitId;
-                line.MarkShorted();
-            }
+            // The exception-to-status mapping (Applied / DeferredUnitGap / Shorted) lives in CookLineDriver
+            // (plantry-dq16) so a live cook and a reconcile classify the same failure identically. Never
+            // blocks on shortfall (C8/R9); OperationCanceledException propagates. This loop owns only the
+            // per-line CookLineResult aggregation for the confirmation UI and the SaveChanges cadence below.
+            var outcome = await lineDriver.DriveConsumeAsync(line, cookEvent.Id.Value, command.UserId, ct);
 
             lineResults.Add(new CookLineResult(
                 IngredientId.From(line.IngredientId),
                 line.ProductId,
                 line.Quantity,
                 line.UnitId,
-                shortfall,
-                shortfallUnit));
+                outcome.ShortfallAmount,
+                outcome.ShortfallUnitId));
         }
 
         // Persist the line status transitions (Applied / Shorted) — second Recipes commit.
@@ -241,30 +205,17 @@ public sealed class CookRecipe(
         {
             foreach (var produceLine in cookEvent.ProduceLines)
             {
-                try
-                {
-                    await producer.ProduceAsync(
-                        produceLine.ProductId,
-                        produceLine.Quantity,
-                        produceLine.UnitId,
-                        produceLine.ExpiryDate,
-                        ProduceReason.Recipe,
-                        cookEvent.Id.Value,
-                        command.UserId,
-                        sourceLineRef: produceLine.Id.Value,
-                        ct);
+                // Same driver-owned mapping as the consume loop (plantry-dq16): CookLineDriver drives the
+                // produce and marks the line Applied/Failed; this loop owns only how loudly to log a failure.
+                var outcome = await lineDriver.DriveProduceAsync(
+                    produceLine, cookEvent.Id.Value, command.UserId, ct);
 
-                    produceLine.MarkApplied();
-                }
-                catch (InvalidOperationException ex)
-                {
-                    // The yield add could not be recorded — record Failed (terminal) and continue. Logged at
-                    // Warning so a systematically failing produce is visible without failing the whole cook.
-                    logger.LogWarning(ex,
+                if (outcome.Status == CookProduceDriveStatus.Failed)
+                    // Logged at Warning so a systematically failing produce is visible without failing the
+                    // whole cook — a stored yield never blocks the cook (mirrors shortfall tolerance, C8/R9).
+                    logger.LogWarning(outcome.Failure,
                         "Yield produce failed for cook {CookEventId}, product {ProductId} — recorded Failed; cook proceeds.",
                         cookEvent.Id.Value, produceLine.ProductId);
-                    produceLine.MarkFailed();
-                }
             }
 
             // Persist the produce line status transitions — third Recipes commit.

@@ -608,6 +608,13 @@ builder.Services.AddSingleton<RecipeConversionBackfillCycle>();
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
 
+// Cook line-drive protocol (plantry-dq16). The single owner of the anchor-first exception-to-status
+// mapping (Applied / DeferredUnitGap / Shorted for consumes; Applied / Failed for produces) shared by
+// CookRecipe and ReconcilePendingCooks, so a live cook and a reconcile can never classify the same
+// failure differently. Wraps the IInventoryConsumer / IInventoryProducer adapters registered in
+// Composition (AddCrossContextAdapters).
+builder.Services.AddScoped<CookLineDriver>();
+
 // Reconcile-pending-cooks service (P2-3d / plantry-292c). Re-drives Pending consume lines left by
 // interrupted cooks — called opportunistically at CookRecipe entry and on-demand via the dedicated
 // endpoint. No background poller (ADR-010 defers infra until needed).

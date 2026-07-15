@@ -371,7 +371,8 @@ public sealed class DomainTelemetryTests
         var products = new MetricsTestCatalogProductReader();
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var lineDriver = new CookLineDriver(consumer, producer);
+        var reconciler = new ReconcilePendingCooks(cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
         products.AddTracked(productId, unitId);
@@ -381,7 +382,7 @@ public sealed class DomainTelemetryTests
         recipes.Items.Add(recipe);
 
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, consumer, producer, products, expansion, dispatcher, clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, expansion, dispatcher, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -407,11 +408,12 @@ public sealed class DomainTelemetryTests
         var products = new MetricsTestCatalogProductReader();
         var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
-        var reconciler = new ReconcilePendingCooks(cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var lineDriver = new CookLineDriver(consumer, producer);
+        var reconciler = new ReconcilePendingCooks(cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, consumer, producer, products, expansion, dispatcher, clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, expansion, dispatcher, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");

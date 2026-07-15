@@ -35,8 +35,7 @@ namespace Plantry.Recipes.Application;
 /// </summary>
 public sealed class ReconcilePendingCooks(
     ICookEventRepository cookEvents,
-    IInventoryConsumer consumer,
-    IInventoryProducer producer,
+    CookLineDriver lineDriver,
     ITenantContext tenant,
     ILogger<ReconcilePendingCooks> logger)
 {
@@ -80,42 +79,28 @@ public sealed class ReconcilePendingCooks(
 
             foreach (var line in pendingLines)
             {
-                // Re-drive via IInventoryConsumer. Idempotent through the sourceLineRef token (292a):
-                // if the consume already committed a journal row with this token, the call is a no-op.
-                // If it never ran, the consume-available deducts whatever stock exists now (C8/R9).
-                try
-                {
-                    var result = await consumer.ConsumeAsync(
-                        line.ProductId,
-                        line.Quantity,
-                        line.UnitId,
-                        ConsumeReason.Recipe,
-                        cookEvent.Id.Value,
-                        cookEvent.CookedBy,
-                        sourceLineRef: line.Id.Value,
-                        ct);
+                // Re-drive via the shared CookLineDriver (plantry-dq16) — the SAME exception-to-status mapping
+                // a live cook applies, so a reconcile can never classify a failure differently. Idempotent
+                // through the sourceLineRef token (292a): if the consume already committed a journal row with
+                // this token the call is a no-op; if it never ran, consume-available deducts whatever stock
+                // exists now (C8/R9). This loop owns only the per-outcome log verbosity below.
+                var outcome = await lineDriver.DriveConsumeAsync(
+                    line, cookEvent.Id.Value, cookEvent.CookedBy, ct);
 
-                    line.MarkApplied(result.ShortfallAmount);
-                }
-                catch (DeferredUnitGapException)
+                switch (outcome.Status)
                 {
-                    // No conversion bridges the ingredient unit to the stock unit (plantry-qll2.6). This is
-                    // NOT a shortfall — the pantry is untouched — so record it as a deferred unit gap, to be
-                    // retro-applied when a conversion lands, rather than Shorted. Caught before the no-stock
-                    // catch below so the discrimination is preserved through reconciliation too.
-                    logger.LogInformation(
-                        "Reconcile line {LineId} for cook {CookEventId} deferred — no conversion bridges the unit gap for product {ProductId}.",
-                        line.Id.Value, cookEvent.Id.Value, line.ProductId);
-                    line.MarkDeferredUnitGap();
-                }
-                catch (InvalidOperationException)
-                {
-                    // Product has no stock record — fully short. Mark Shorted so this line
-                    // is not re-attempted on the next reconciliation pass.
-                    logger.LogWarning(
-                        "Reconcile line {LineId} for cook {CookEventId} shorted — product {ProductId} has no stock record.",
-                        line.Id.Value, cookEvent.Id.Value, line.ProductId);
-                    line.MarkShorted();
+                    case CookConsumeDriveStatus.DeferredUnitGap:
+                        // Owed until a conversion lands (plantry-qll2.6) — not re-attempted as Shorted.
+                        logger.LogInformation(
+                            "Reconcile line {LineId} for cook {CookEventId} deferred — no conversion bridges the unit gap for product {ProductId}.",
+                            line.Id.Value, cookEvent.Id.Value, line.ProductId);
+                        break;
+                    case CookConsumeDriveStatus.Shorted:
+                        // No stock record — marked Shorted so it is not re-attempted on the next pass.
+                        logger.LogWarning(
+                            "Reconcile line {LineId} for cook {CookEventId} shorted — product {ProductId} has no stock record.",
+                            line.Id.Value, cookEvent.Id.Value, line.ProductId);
+                        break;
                 }
 
                 reconciledCount++;
@@ -127,28 +112,16 @@ public sealed class ReconcilePendingCooks(
             // recorded is marked Failed (terminal) so it is not re-attempted on the next pass.
             foreach (var produceLine in pendingProduceLines)
             {
-                try
-                {
-                    await producer.ProduceAsync(
-                        produceLine.ProductId,
-                        produceLine.Quantity,
-                        produceLine.UnitId,
-                        produceLine.ExpiryDate,
-                        ProduceReason.Recipe,
-                        cookEvent.Id.Value,
-                        cookEvent.CookedBy,
-                        sourceLineRef: produceLine.Id.Value,
-                        ct);
+                // Same driver-owned mapping as the consume loop (plantry-dq16): re-drive the produce,
+                // idempotent through the sourceLineRef token exactly like consumes. This loop owns only the
+                // failure log below.
+                var outcome = await lineDriver.DriveProduceAsync(
+                    produceLine, cookEvent.Id.Value, cookEvent.CookedBy, ct);
 
-                    produceLine.MarkApplied();
-                }
-                catch (InvalidOperationException)
-                {
+                if (outcome.Status == CookProduceDriveStatus.Failed)
                     logger.LogWarning(
                         "Reconcile produce line {LineId} for cook {CookEventId} failed — product {ProductId} could not be stored.",
                         produceLine.Id.Value, cookEvent.Id.Value, produceLine.ProductId);
-                    produceLine.MarkFailed();
-                }
 
                 reconciledCount++;
             }
