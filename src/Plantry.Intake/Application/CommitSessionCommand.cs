@@ -54,13 +54,10 @@ public sealed class CommitSessionCommand(
         var purchasedOn = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
 
         // Weight→each support (plantry-1mu / plantry-x7j0): the household's Catalog reference data is
-        // fetched at most once per commit and cached here, then two lookups are derived from it lazily —
-        // a weight-unit-label→UnitId map (so a weight-priced line's price observation stays in the
-        // receipt's TRUE unit) and a UnitId→dimension map (so a conversion is only ever seeded when the
-        // committed unit is Count, never a bogus weight→weight factor). Loaded only if a line needs it.
-        ReviewReferenceData? reference = null;
-        IReadOnlyDictionary<string, Guid>? unitIdByLabel = null;
-        IReadOnlyDictionary<Guid, ReviewUnitDimension>? dimensionByUnitId = null;
+        // fetched at most once per commit and wrapped in a ReviewReferenceLookup — its weight-label→UnitId
+        // and UnitId→dimension maps back the pure line-commit decisions (plantry-tjl2.1). Loaded lazily,
+        // only if a line actually carries a receipt weight + label.
+        ReviewReferenceLookup? lookup = null;
 
         // Merchant → catalog.store identity (DM-16), resolved find-or-create at most once per commit and
         // reused across the session's priced lines. Blank merchant → null store_id (unchanged); MerchantText
@@ -114,32 +111,33 @@ public sealed class CommitSessionCommand(
 
                 // Resolve the receipt's true weight unit for a weight-priced line (plantry-1mu). Used for
                 // both the price observation (never a $/each estimate) and the learned conversion anchor.
+                // The reference data is loaded lazily here — at most once per commit, only for a line that
+                // actually carries a receipt weight + label (plantry-tjl2.1 preserves this laziness).
                 Guid? weightUnitId = null;
                 if (line.ReceiptWeight is not null && line.ReceiptWeightUnitLabel is { } weightLabel)
                 {
-                    reference ??= await referenceData.GetAsync(ct);
-                    unitIdByLabel ??= BuildUnitLabelMap(reference);
-                    if (unitIdByLabel.TryGetValue(weightLabel, out var resolved))
+                    lookup ??= new ReviewReferenceLookup(await referenceData.GetAsync(ct));
+                    if (lookup.TryResolveWeightUnit(weightLabel, out var resolved))
                         weightUnitId = resolved;
                 }
 
+                // Price observation (plantry-1mu / plantry-x7j0 Fix B): the pure decision picks one of
+                // NoPrice / SkipUnresolvedWeightUnit / Record. Fix B — a weight-carrying line whose receipt
+                // weight label did NOT resolve is skipped and logged, because recording would fall back to
+                // the committed unit and pollute pricing history with a wrong-unit ($/each) observation; a
+                // wrong-unit price is worse than a missing one (stock add and conversion are unaffected).
                 Guid? priceObservationId = null;
-                if (line.Price is { } price)
+                switch (LineCommitDecision.DecidePriceObservation(line, weightUnitId))
                 {
-                    // Fix B (plantry-x7j0): a weight-carrying line whose receipt weight label could NOT be
-                    // resolved to a household unit has no true unit to observe in. Recording it would fall
-                    // back to the committed unit — and if the user accepted the each-count that is a $/each
-                    // observation, exactly what plantry-1mu forbids. A wrong-unit price is worse than a
-                    // missing one, so skip the observation entirely (stock add and conversion are unaffected)
-                    // and log the unresolvable label.
-                    if (line.ReceiptWeight is not null && weightUnitId is null)
-                    {
+                    case PriceObservationDecision.SkipUnresolvedWeightUnit:
                         logger.LogWarning(
                             "Import session {SessionId} line {LineNo}: receipt weight unit label '{WeightLabel}' did not resolve to a household unit; skipping price observation to avoid recording a wrong-unit price.",
                             sessionId.Value, line.LineNo, line.ReceiptWeightUnitLabel);
-                    }
-                    else
-                    {
+                        break;
+
+                    case PriceObservationDecision.Record record:
+                        // Store is resolved find-or-create at most once per commit, on the first line that
+                        // actually records a price with a non-blank merchant (tests pin this).
                         if (!storeResolved)
                         {
                             if (!string.IsNullOrWhiteSpace(session.MerchantText))
@@ -147,19 +145,12 @@ public sealed class CommitSessionCommand(
                             storeResolved = true;
                         }
 
-                        // Pricing observes in the receipt's TRUE unit: when the line carries a receipt weight,
-                        // record the weight + resolved weight unit regardless of what unit the stock committed
-                        // in, so an accepted each-count never pollutes pricing history with a $/each
-                        // observation (plantry-1mu). weightUnitId is guaranteed non-null here for a
-                        // weight-carrying line — the unresolved case was skipped above.
-                        var (priceQty, priceUnitId) = line.ReceiptWeight is { } w
-                            ? (w, weightUnitId!.Value)
-                            : (line.Quantity!.Value, line.UnitId!.Value);
-
                         priceObservationId = await recordPrice.RecordAsync(
-                            productId, line.SkuId, price, priceQty, priceUnitId,
+                            productId, line.SkuId, record.Price, record.Quantity, record.UnitId,
                             session.MerchantText, purchaseStoreId, session.Id.Value, clock.UtcNow, session.UserId, ct);
-                    }
+                        break;
+
+                    // PriceObservationDecision.NoPrice: nothing to observe.
                 }
 
                 var mark = line.MarkCommitted(journalId, priceObservationId, createdProductId);
@@ -169,21 +160,13 @@ public sealed class CommitSessionCommand(
                 await sessions.SaveChangesAsync(ct);
 
                 // Learn the household's weight→each factor when the user accepted an estimated each-count
-                // for an existing product. Fix A (plantry-x7j0): gate on the committed unit's DIMENSION being
-                // Count — not merely "differs from the receipt weight unit". Committing a weight-priced line
-                // in a *different weight* unit (e.g. 0.6 kg on an lb receipt) must NOT seed a quantity-derived
-                // "lb→kg" factor: cross-weight conversion is a fixed physical constant, never receipt-derived.
-                // The conversion is tagged AiSuggested (plantry-3k44) and re-derivable from the preserved weight.
-                if (!line.IsNewProduct
-                    && line.HasEachEstimate
-                    && weightUnitId is { } fromUnit
-                    && (dimensionByUnitId ??= BuildDimensionMap(reference!)).TryGetValue(line.UnitId!.Value, out var committedDimension)
-                    && committedDimension == ReviewUnitDimension.Count
-                    && line.ReceiptWeight is { } receiptWeight && receiptWeight > 0m)
-                {
-                    var factor = line.Quantity!.Value / receiptWeight; // each per weight unit
-                    await seedConversion.SeedAsync(productId, fromUnit, line.UnitId!.Value, factor, ct);
-                }
+                // for an existing product (plantry-1mu / plantry-x7j0 Fix A) — decided purely from the line +
+                // resolved weight unit + reference lookup, and seeded AFTER the line's save. Fix A gates on
+                // the committed unit's DIMENSION being Count, so a cross-weight commit (0.6 kg on an lb
+                // receipt) never seeds a bogus quantity-derived factor. The conversion is tagged AiSuggested
+                // (plantry-3k44) and re-derivable from the preserved weight.
+                if (LineCommitDecision.DecideConversionSeed(line, weightUnitId, lookup) is ConversionSeedDecision.Seed seed)
+                    await seedConversion.SeedAsync(productId, seed.FromUnitId, seed.ToUnitId, seed.Factor, ct);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -211,26 +194,5 @@ public sealed class CommitSessionCommand(
             sessionId.Value);
 
         return Result.Success();
-    }
-
-    /// <summary>Builds a case-insensitive weight-unit-label → catalog UnitId map from already-fetched
-    /// reference data, so a receipt weight label ("lb"/"kg") resolves to the unit the price observation is
-    /// recorded in.</summary>
-    private static IReadOnlyDictionary<string, Guid> BuildUnitLabelMap(ReviewReferenceData reference)
-    {
-        var map = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        foreach (var unit in reference.Units)
-            map[unit.Code] = unit.Id; // last-wins; unit codes are unique per household
-        return map;
-    }
-
-    /// <summary>Builds a UnitId → dimension map from already-fetched reference data, so the conversion-seed
-    /// gate can require the committed unit be Count before learning a weight→each factor (plantry-x7j0).</summary>
-    private static IReadOnlyDictionary<Guid, ReviewUnitDimension> BuildDimensionMap(ReviewReferenceData reference)
-    {
-        var map = new Dictionary<Guid, ReviewUnitDimension>();
-        foreach (var unit in reference.Units)
-            map[unit.Id] = unit.Dimension; // last-wins; unit ids are unique per household
-        return map;
     }
 }
