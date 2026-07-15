@@ -114,6 +114,57 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(parentId.Value, variantView.ParentProductId);
     }
 
+    [Fact(DisplayName = "Reader batch-resolves products WITH the variant tree in one round-trip, archived variants excluded")]
+    public async Task Reader_FindManyWithVariants_Resolves_Tree_In_One_Query()
+    {
+        ProductId parentId;
+        ProductId skimId;
+        ProductId wholeId;
+        ProductId flourId;
+        await using (var setup = NewCatalogDb())
+        {
+            var parent = Product.Create(_household, "Milk", _gramsId, Clock);
+            parent.SetHasVariants(true, Clock);
+            await setup.Products.AddAsync(parent);
+            await setup.SaveChangesAsync();
+
+            var skim = Product.Create(_household, "Milk (skim)", _gramsId, Clock);
+            skim.MakeVariantOf(parent.Id, Clock);
+            var whole = Product.Create(_household, "Milk (whole)", _gramsId, Clock);
+            whole.MakeVariantOf(parent.Id, Clock);
+            var archivedVariant = Product.Create(_household, "Milk (lactose-free, discontinued)", _gramsId, Clock);
+            archivedVariant.MakeVariantOf(parent.Id, Clock);
+            archivedVariant.Archive(Clock); // must be excluded from the live rollup tree
+            var flour = Product.Create(_household, "Flour", _gramsId, Clock); // a plain leaf
+            await setup.Products.AddRangeAsync(skim, whole, archivedVariant, flour);
+            await setup.SaveChangesAsync();
+
+            parentId = parent.Id;
+            skimId = skim.Id;
+            wholeId = whole.Id;
+            flourId = flour.Id;
+        }
+
+        await using var read = NewCatalogDb();
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read), new CategoryRepository(read));
+
+        var resolved = await reader.FindManyWithVariantsAsync([parentId.Value, flourId.Value, Guid.NewGuid()]);
+
+        Assert.Equal(2, resolved.Count); // the unknown id is omitted
+
+        var parentView = resolved[parentId.Value];
+        Assert.True(parentView.IsParent);
+        Assert.Equal(2, parentView.VariantProductIds.Count); // archived variant excluded
+        Assert.Contains(skimId.Value, parentView.VariantProductIds);
+        Assert.Contains(wholeId.Value, parentView.VariantProductIds);
+
+        var flourView = resolved[flourId.Value];
+        Assert.False(flourView.IsParent);
+        Assert.Empty(flourView.VariantProductIds);
+
+        Assert.Empty(await reader.FindManyWithVariantsAsync([]));
+    }
+
     [Fact(DisplayName = "Reader search returns name-matching candidates and ignores a blank query")]
     public async Task Reader_Search_Returns_Candidates()
     {

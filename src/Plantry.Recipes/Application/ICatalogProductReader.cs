@@ -40,6 +40,31 @@ public interface ICatalogProductReader
     }
 
     /// <summary>
+    /// Batch analogue of <see cref="FindAsync"/> that DOES load the depth-1 parent/variant tree
+    /// (DM-19) — the tree-carrying counterpart to the lookup-only <see cref="FindManyAsync"/>. Resolves
+    /// a whole recipe's products (with their live variant children) in a single round-trip so
+    /// <c>FulfillmentService</c> can do the DM-19 stock rollup without an N+1 catalog round-trip per
+    /// ingredient (plantry-jnhs). Ids absent from this household are omitted; existence and tree
+    /// semantics match <see cref="FindAsync"/> (RLS-scoped, archived products included, archived
+    /// variants filtered out of the tree).
+    ///
+    /// <para>The default implementation falls back to a per-id <see cref="FindAsync"/> loop so test
+    /// doubles need not reimplement it; the production adapter overrides it with one batched query.</para>
+    /// </summary>
+    async Task<IReadOnlyDictionary<Guid, CatalogProduct>> FindManyWithVariantsAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, CatalogProduct>();
+        foreach (var id in productIds.Distinct())
+        {
+            var product = await FindAsync(id, ct);
+            if (product is not null)
+                result[id] = product;
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Name search for the ingredient editor — active products whose name contains
     /// <paramref name="nameQuery"/> (case-insensitive). Empty/whitespace query returns no candidates.
     /// </summary>

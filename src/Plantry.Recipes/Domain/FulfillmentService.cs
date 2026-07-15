@@ -52,18 +52,13 @@ public sealed class FulfillmentService(
 
         var (catalogById, stockById) = await ResolveCatalogAndStockAsync(allProductIds, ct);
 
-        // Compute per-ingredient fulfillment, keyed by the ingredient's own id (flat view).
-        var lines = new List<IngredientFulfillment>(recipe.Ingredients.Count);
-        foreach (var ingredient in recipe.Ingredients)
-        {
-            var (status, expires, available) = await ComputeLineAsync(
-                ingredient.ProductId, ingredient.Quantity, ingredient.UnitId,
-                scale, catalogById, stockById, today, expiringSoonDays, ct);
-            lines.Add(new IngredientFulfillment(ingredient.Id, status, expires, available));
-        }
+        // Pre-resolve every unit conversion the pure rule core will need, so the flat computation runs
+        // entirely in-memory (ADR-021: async fetches the data up front, the pure core does the math).
+        var converter = await ResolveConverterAsync(
+            recipe.Ingredients.Select(i => (i.ProductId, i.UnitId)), catalogById, stockById, ct);
 
-        var overall = BuildOverall(lines.Select(l => l.Status));
-        return new FulfillmentResult(overall, lines);
+        // Delegate to the same pure rule core the sync Compute overload uses (single rule engine).
+        return ComputeFlat(recipe.Ingredients, scale, today, catalogById, stockById, converter, expiringSoonDays);
     }
 
     /// <summary>
@@ -92,12 +87,17 @@ public sealed class FulfillmentService(
         var allProductIds = lines.Select(l => l.ProductId).Distinct().ToList();
         var (catalogById, stockById) = await ResolveCatalogAndStockAsync(allProductIds, ct);
 
+        // Pre-resolve conversions, then run the shared pure rule core per line — identical logic to the
+        // flat path, keyed on product/quantity/unit so a flat recipe yields identical statuses.
+        var converter = await ResolveConverterAsync(
+            lines.Select(l => (l.ProductId, l.UnitId)), catalogById, stockById, ct);
+
         var resultLines = new List<ExpandedIngredientFulfillment>(lines.Count);
         foreach (var line in lines)
         {
-            var (status, expires, available) = await ComputeLineAsync(
+            var (status, expires, available) = ComputeLineCore(
                 line.ProductId, line.Quantity, line.UnitId,
-                scale, catalogById, stockById, today, expiringSoonDays, ct);
+                scale, catalogById, stockById, today, converter, expiringSoonDays);
             resultLines.Add(new ExpandedIngredientFulfillment(
                 line.ProductId, line.UnitId, status, expires, available));
         }
@@ -107,49 +107,81 @@ public sealed class FulfillmentService(
     }
 
     /// <summary>
-    /// Batch-resolves catalog facts (track_stock + parent/variant tree, DM-19) for the given product ids and
-    /// reads a single batch stock snapshot for every tracked leaf / variant child. Sequential catalog awaits
-    /// are required: the adapter runs over the scoped Catalog EF DbContext which forbids concurrent operations
-    /// on the same instance (Task.WhenAll would throw InvalidOperationException for ≥2 distinct product ids).
+    /// Batch-resolves catalog facts (track_stock + parent/variant tree, DM-19) and stock snapshots for the
+    /// given product ids — each in a single round-trip (one catalog batch, one stock batch), replacing the
+    /// former per-product catalog N+1.
     /// </summary>
-    private async Task<(IReadOnlyDictionary<Guid, CatalogProduct> Catalog, IReadOnlyDictionary<Guid, Application.ProductStock> Stock)>
+    private async Task<(IReadOnlyDictionary<Guid, CatalogProduct> Catalog, IReadOnlyDictionary<Guid, ProductStock> Stock)>
         ResolveCatalogAndStockAsync(IReadOnlyList<Guid> productIds, CancellationToken ct)
     {
-        var catalogById = new Dictionary<Guid, CatalogProduct>(productIds.Count);
-        foreach (var productId in productIds)
-        {
-            var product = await catalogReader.FindAsync(productId, ct);
-            if (product is not null)
-                catalogById[product.Id] = product;
-        }
+        // One batch round-trip for the catalog facts + variant tree (was one FindAsync per product).
+        var catalogById = await catalogReader.FindManyWithVariantsAsync(productIds, ct);
 
         // Collect all product ids we actually need stock for: tracked leaf products, and the
         // variant children of any parent-product ingredients (DM-19 rollup).
         var stockProductIds = new HashSet<Guid>();
         foreach (var productId in productIds)
         {
-            if (!catalogById.TryGetValue(productId, out var catalogProduct))
-                continue;
-            if (!catalogProduct.TrackStock)
-                continue; // untracked — no stock query needed
+            if (!catalogById.TryGetValue(productId, out var catalogProduct) || !catalogProduct.TrackStock)
+                continue; // absent or untracked — no stock query needed
 
-            if (catalogProduct.IsParent)
-            {
-                foreach (var variantId in catalogProduct.VariantProductIds)
-                    stockProductIds.Add(variantId);
-            }
-            else
-            {
-                stockProductIds.Add(productId);
-            }
+            foreach (var stockRef in StockRefsFor(catalogProduct, productId))
+                stockProductIds.Add(stockRef);
         }
 
         var stockById = stockProductIds.Count > 0
             ? await stockReader.FindStockBatchAsync(stockProductIds.ToList(), ct)
-            : new Dictionary<Guid, Application.ProductStock>();
+            : new Dictionary<Guid, ProductStock>();
 
         return (catalogById, stockById);
     }
+
+    /// <summary>
+    /// Pre-resolves every unit conversion the pure rule core will need for the given lines into an
+    /// in-memory lookup, so the core can run fully synchronously (ADR-021 rule 1: SQL/async fetches the
+    /// data, C# keeps the math). Conversions are awaited <b>sequentially</b> — the converter adapter runs
+    /// over the scoped Catalog EF DbContext, which forbids concurrent operations on one instance. Each
+    /// distinct (stock ref, from-unit, to-unit) is resolved once (repeats across lines are deduplicated).
+    /// The returned delegate is the sync converter the core consumes; a stock ref whose conversion had no
+    /// path resolves to a loud failure, so the core treats it as a zero contribution (partial visibility).
+    /// </summary>
+    private async Task<Func<Guid, decimal, Guid, Guid, Result<decimal>>> ResolveConverterAsync(
+        IEnumerable<(Guid ProductId, Guid? UnitId)> lines,
+        IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
+        IReadOnlyDictionary<Guid, ProductStock> stockById,
+        CancellationToken ct)
+    {
+        var resolved = new Dictionary<(Guid StockRef, Guid FromUnit, Guid ToUnit), Result<decimal>>();
+        foreach (var (productId, unitId) in lines)
+        {
+            if (unitId is null) continue; // untracked line — no conversion needed
+            if (!catalogById.TryGetValue(productId, out var catalogProduct) || !catalogProduct.TrackStock)
+                continue;
+
+            foreach (var stockRef in StockRefsFor(catalogProduct, productId))
+            {
+                if (!stockById.TryGetValue(stockRef, out var stock)) continue;
+                var key = (stockRef, stock.DefaultUnitId, unitId.Value);
+                if (resolved.ContainsKey(key)) continue;
+                resolved[key] = await unitConverter.ConvertAsync(
+                    stockRef, stock.AvailableQuantity, stock.DefaultUnitId, unitId.Value, ct);
+            }
+        }
+
+        return (stockRef, _, fromUnit, toUnit) =>
+            resolved.GetValueOrDefault((stockRef, fromUnit, toUnit), ConversionUnavailable);
+    }
+
+    private static readonly Result<decimal> ConversionUnavailable =
+        Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No conversion path."));
+
+    /// <summary>
+    /// The stock product ids a line draws availability from: a leaf product draws from itself; a parent
+    /// product (DM-19) draws from each of its live variant children. Single source of truth for "which
+    /// stock feeds this line", shared by stock batching, conversion pre-resolution, and the rule core.
+    /// </summary>
+    private static IReadOnlyList<Guid> StockRefsFor(CatalogProduct catalogProduct, Guid productId) =>
+        catalogProduct.IsParent ? catalogProduct.VariantProductIds : [productId];
 
     /// <summary>
     /// Pure overload: computes the <see cref="FulfillmentResult"/> for <paramref name="recipe"/>
@@ -182,20 +214,51 @@ public sealed class FulfillmentService(
         int expiringSoonDays)
     {
         var scale = (decimal)desiredServings / recipe.DefaultServings;
-
-        var lines = new List<IngredientFulfillment>(recipe.Ingredients.Count);
-        foreach (var ingredient in recipe.Ingredients)
-        {
-            var fulfillment = ComputeIngredientPure(ingredient, scale, catalogById, stockById, today, converter, expiringSoonDays);
-            lines.Add(fulfillment);
-        }
-
-        var overall = BuildOverall(lines.Select(l => l.Status));
-        return new FulfillmentResult(overall, lines);
+        // Same pure rule core as the async ComputeAsync path — the caller having pre-loaded the data is
+        // the only difference (MealPlanning borrows pre-computed enrichment facts, ADR-021).
+        return ComputeFlat(recipe.Ingredients, scale, today, catalogById, stockById, converter, expiringSoonDays);
     }
 
-    private static IngredientFulfillment ComputeIngredientPure(
-        Ingredient ingredient,
+    /// <summary>
+    /// Maps a recipe's flat ingredient set through the shared per-line rule core into a
+    /// <see cref="FulfillmentResult"/>. Shared verbatim by <see cref="ComputeAsync(Recipe,int,DateOnly,CancellationToken)"/>
+    /// (which pre-resolves the converter over live ports) and the pure <see cref="Compute"/> overload
+    /// (which is handed a ready converter) — so both paths are byte-identical.
+    /// </summary>
+    private static FulfillmentResult ComputeFlat(
+        IReadOnlyList<Ingredient> ingredients,
+        decimal scale,
+        DateOnly today,
+        IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
+        IReadOnlyDictionary<Guid, ProductStock> stockById,
+        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter,
+        int expiringSoonDays)
+    {
+        var lines = new List<IngredientFulfillment>(ingredients.Count);
+        foreach (var ingredient in ingredients)
+        {
+            var (status, expires, available) = ComputeLineCore(
+                ingredient.ProductId, ingredient.Quantity, ingredient.UnitId,
+                scale, catalogById, stockById, today, converter, expiringSoonDays);
+            lines.Add(new IngredientFulfillment(ingredient.Id, status, expires, available));
+        }
+
+        return new FulfillmentResult(BuildOverall(lines.Select(l => l.Status)), lines);
+    }
+
+    /// <summary>
+    /// The single pure cookability rule engine — the one place the status rules live (C12 untracked, R5
+    /// defensive null qty/unit, DM-19 parent/variant stock rollup, unit-conversion comparison, signed
+    /// J1/J3 expiry-soon horizon). Keyed only on product/quantity/unit so it is agnostic to whether the
+    /// line came from a direct ingredient (flat) or an aggregated expanded line, and to whether the
+    /// converter is live (async path, pre-resolved) or caller-supplied (pure overload). Returns the
+    /// availability status, the signed expiry-soon days (or null), and the available quantity in the
+    /// line's unit (or null when nothing is available / the line is untracked). Does no IO.
+    /// </summary>
+    private static (IngredientStatus Status, int? ExpiresWithinDays, decimal? AvailableQuantity) ComputeLineCore(
+        Guid productId,
+        decimal? quantity,
+        Guid? unitId,
         decimal scale,
         IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
         IReadOnlyDictionary<Guid, ProductStock> stockById,
@@ -203,198 +266,45 @@ public sealed class FulfillmentService(
         Func<Guid, decimal, Guid, Guid, Result<decimal>> converter,
         int expiringSoonDays)
     {
-        // If we can't resolve the product from catalog, treat as Missing.
-        if (!catalogById.TryGetValue(ingredient.ProductId, out var catalogProduct))
-        {
-            return new IngredientFulfillment(
-                ingredient.Id, IngredientStatus.Missing, null, null);
-        }
-
-        // Untracked staples are always satisfied (C12).
-        if (!catalogProduct.TrackStock)
-        {
-            return new IngredientFulfillment(
-                ingredient.Id, IngredientStatus.Untracked, null, null);
-        }
-
-        // Null quantity/unit means untracked staple ("to taste") — defensive (R5).
-        if (ingredient.Quantity is null || ingredient.UnitId is null)
-        {
-            return new IngredientFulfillment(
-                ingredient.Id, IngredientStatus.Untracked, null, null);
-        }
-
-        var scaledRequired = ingredient.Quantity.Value * scale;
-
-        decimal totalAvailableInIngredientUnit = 0m;
-        DateOnly? soonestExpiry = null;
-
-        if (catalogProduct.IsParent)
-        {
-            // Sum stock across all non-archived variant children (DM-19 rollup).
-            foreach (var variantId in catalogProduct.VariantProductIds)
-            {
-                if (!stockById.TryGetValue(variantId, out var variantStock))
-                    continue;
-
-                var converted = converter(
-                    variantId,
-                    variantStock.AvailableQuantity,
-                    variantStock.DefaultUnitId,
-                    ingredient.UnitId.Value);
-
-                if (converted.IsSuccess)
-                    totalAvailableInIngredientUnit += converted.Value;
-
-                if (variantStock.SoonestExpiry.HasValue)
-                {
-                    if (soonestExpiry is null || variantStock.SoonestExpiry.Value < soonestExpiry.Value)
-                        soonestExpiry = variantStock.SoonestExpiry;
-                }
-            }
-        }
-        else
-        {
-            // Leaf product: single stock record.
-            if (stockById.TryGetValue(ingredient.ProductId, out var stock))
-            {
-                var converted = converter(
-                    ingredient.ProductId,
-                    stock.AvailableQuantity,
-                    stock.DefaultUnitId,
-                    ingredient.UnitId.Value);
-
-                if (converted.IsSuccess)
-                    totalAvailableInIngredientUnit = converted.Value;
-
-                soonestExpiry = stock.SoonestExpiry;
-            }
-        }
-
-        IngredientStatus status;
-        if (totalAvailableInIngredientUnit <= 0m)
-            status = IngredientStatus.Missing;
-        else if (totalAvailableInIngredientUnit < scaledRequired)
-            status = IngredientStatus.Low;
-        else
-            status = IngredientStatus.InStock;
-
-        int? expiresWithinDays = null;
-        if (soonestExpiry.HasValue)
-        {
-            var daysUntilExpiry = soonestExpiry.Value.DayNumber - today.DayNumber;
-            if (daysUntilExpiry <= expiringSoonDays)
-                expiresWithinDays = daysUntilExpiry;
-        }
-
-        return new IngredientFulfillment(
-            ingredient.Id,
-            status,
-            expiresWithinDays,
-            totalAvailableInIngredientUnit > 0m ? totalAvailableInIngredientUnit : null);
-    }
-
-    /// <summary>
-    /// Core per-line availability computation shared by the flat (<see cref="ComputeAsync(Recipe,int,DateOnly,CancellationToken)"/>)
-    /// and expanded (<see cref="ComputeExpandedAsync"/>) paths — keyed only on the product/quantity/unit so
-    /// it is agnostic to whether the line came from a direct ingredient or an aggregated expanded line. Returns
-    /// the availability status, the signed expiry-soon days (or null), and the available quantity in the line's
-    /// unit (or null when nothing is available / the line is untracked).
-    /// </summary>
-    private async Task<(IngredientStatus Status, int? ExpiresWithinDays, decimal? AvailableQuantity)> ComputeLineAsync(
-        Guid productId,
-        decimal? quantity,
-        Guid? unitId,
-        decimal scale,
-        IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
-        IReadOnlyDictionary<Guid, Application.ProductStock> stockById,
-        DateOnly today,
-        int expiringSoonDays,
-        CancellationToken ct)
-    {
-        // If we can't resolve the product from catalog, treat as Missing.
+        // Unresolvable product → Missing.
         if (!catalogById.TryGetValue(productId, out var catalogProduct))
             return (IngredientStatus.Missing, null, null);
 
-        // Untracked staples are always satisfied (C12).
-        if (!catalogProduct.TrackStock)
+        // Untracked staple (track_stock = false) is always satisfied (C12) — and, defensively, a null
+        // quantity/unit ("to taste") is treated the same even on a tracked product (R5).
+        if (!catalogProduct.TrackStock || quantity is null || unitId is null)
             return (IngredientStatus.Untracked, null, null);
 
-        // Null quantity/unit means untracked staple ("to taste") — should match track_stock = false,
-        // but be defensive and treat as Untracked here too (R5).
-        if (quantity is null || unitId is null)
-            return (IngredientStatus.Untracked, null, null);
-
-        // Scale the required quantity to the desired servings.
         var scaledRequired = quantity.Value * scale;
 
-        // Collect stock snapshot(s) for this line.
-        // Parent product (DM-19): roll up stock across all variant children.
+        // Roll up available stock (in the line's unit) and soonest expiry across the line's stock refs:
+        // a leaf draws from itself; a parent (DM-19) sums across its live variant children.
         decimal totalAvailableInLineUnit = 0m;
         DateOnly? soonestExpiry = null;
-
-        if (catalogProduct.IsParent)
+        foreach (var stockRef in StockRefsFor(catalogProduct, productId))
         {
-            // Sum stock across all non-archived variant children.
-            foreach (var variantId in catalogProduct.VariantProductIds)
-            {
-                if (!stockById.TryGetValue(variantId, out var variantStock))
-                    continue; // variant has no stock record → contributes 0
+            if (!stockById.TryGetValue(stockRef, out var stock))
+                continue; // no stock record → contributes 0
 
-                // Convert variant's available quantity from its default unit to the line's unit.
-                var converted = await unitConverter.ConvertAsync(
-                    variantId,
-                    variantStock.AvailableQuantity,
-                    variantStock.DefaultUnitId,
-                    unitId.Value,
-                    ct);
+            var converted = converter(stockRef, stock.AvailableQuantity, stock.DefaultUnitId, unitId.Value);
+            if (converted.IsSuccess)
+                totalAvailableInLineUnit += converted.Value;
+            // On conversion failure the ref contributes 0 — partial visibility is better than a crash.
 
-                if (converted.IsSuccess)
-                    totalAvailableInLineUnit += converted.Value;
-                // On conversion failure, the variant contributes 0 — partial visibility is better than crash.
-
-                // Track soonest expiry across variants.
-                if (variantStock.SoonestExpiry.HasValue)
-                {
-                    if (soonestExpiry is null || variantStock.SoonestExpiry.Value < soonestExpiry.Value)
-                        soonestExpiry = variantStock.SoonestExpiry;
-                }
-            }
-        }
-        else
-        {
-            // Leaf product: single stock record.
-            if (stockById.TryGetValue(productId, out var stock))
-            {
-                var converted = await unitConverter.ConvertAsync(
-                    productId,
-                    stock.AvailableQuantity,
-                    stock.DefaultUnitId,
-                    unitId.Value,
-                    ct);
-
-                if (converted.IsSuccess)
-                    totalAvailableInLineUnit = converted.Value;
-
-                soonestExpiry = stock.SoonestExpiry;
-            }
-            // else: no stock record → totalAvailable stays 0
+            if (stock.SoonestExpiry is { } expiry &&
+                (soonestExpiry is null || expiry < soonestExpiry.Value))
+                soonestExpiry = expiry;
         }
 
-        // Classify status.
-        IngredientStatus status;
-        if (totalAvailableInLineUnit <= 0m)
-            status = IngredientStatus.Missing;
-        else if (totalAvailableInLineUnit < scaledRequired)
-            status = IngredientStatus.Low;
-        else
-            status = IngredientStatus.InStock;
+        var status = totalAvailableInLineUnit <= 0m ? IngredientStatus.Missing
+            : totalAvailableInLineUnit < scaledRequired ? IngredientStatus.Low
+            : IngredientStatus.InStock;
 
-        // Expiry-soon flag (J1/J3): soonest expiry within the household's configured horizon of today.
+        // Expiry-soon flag (J1/J3): signed days when soonest expiry is within the household's horizon.
         int? expiresWithinDays = null;
-        if (soonestExpiry.HasValue)
+        if (soonestExpiry is { } soonest)
         {
-            var daysUntilExpiry = soonestExpiry.Value.DayNumber - today.DayNumber;
+            var daysUntilExpiry = soonest.DayNumber - today.DayNumber;
             if (daysUntilExpiry <= expiringSoonDays)
                 expiresWithinDays = daysUntilExpiry;
         }

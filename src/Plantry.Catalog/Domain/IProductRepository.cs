@@ -23,6 +23,30 @@ public interface IProductRepository
     /// </summary>
     Task<List<Product>> ListVariantsAsync(ProductId parentId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Loads the given products PLUS every variant child of any parent among them, in a single query —
+    /// for batch fulfillment resolution that needs the DM-19 parent/variant tree without an N+1
+    /// per-parent round-trip (plantry-jnhs). Archived products and variants are included (callers
+    /// filter the tree as they need). Ids absent from the household are omitted.
+    ///
+    /// <para>The default implementation falls back to a per-id <see cref="FindAsync"/> +
+    /// <see cref="ListVariantsAsync"/> loop so test doubles need not reimplement it; the EF repository
+    /// overrides it with one query.</para>
+    /// </summary>
+    async Task<List<Product>> ListWithVariantsAsync(IReadOnlyList<ProductId> ids, CancellationToken ct = default)
+    {
+        var result = new List<Product>();
+        foreach (var id in ids)
+        {
+            var product = await FindAsync(id, ct);
+            if (product is null) continue;
+            result.Add(product);
+            if (product.IsParent)
+                result.AddRange(await ListVariantsAsync(id, ct));
+        }
+        return result;
+    }
+
     Task AddAsync(Product product, CancellationToken ct = default);
     Task SaveChangesAsync(CancellationToken ct = default);
 }
