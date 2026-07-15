@@ -12,6 +12,25 @@ public interface IRecipeRepository
     /// </summary>
     Task<Recipe?> GetByIdAsync(RecipeId id, CancellationToken ct = default);
 
+    /// <summary>
+    /// Resolves which of the given recipe ids exist in the household — the sub-recipe existence check
+    /// <c>AuthorRecipe</c> runs for each inclusion (recipe-composition.md N4), in a single round-trip
+    /// instead of an await-per-id <see cref="GetByIdAsync"/> loop (plantry-xgmb). Existence semantics
+    /// match <see cref="GetByIdAsync"/>: RLS/query-filter scoped, archived recipes included; no
+    /// navigation properties are loaded (PK projection only).
+    ///
+    /// <para>The default implementation falls back to a per-id <see cref="GetByIdAsync"/> loop so test
+    /// doubles need not reimplement it; the production repository overrides it with one batched query.</para>
+    /// </summary>
+    async Task<IReadOnlySet<RecipeId>> ResolveExistingIdsAsync(IReadOnlyList<RecipeId> ids, CancellationToken ct = default)
+    {
+        var found = new HashSet<RecipeId>();
+        foreach (var id in ids)
+            if (await GetByIdAsync(id, ct) is not null)
+                found.Add(id);
+        return found;
+    }
+
     Task SaveChangesAsync(CancellationToken ct = default);
 
     /// <summary>

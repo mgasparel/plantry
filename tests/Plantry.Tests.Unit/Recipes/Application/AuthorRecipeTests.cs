@@ -31,7 +31,9 @@ public sealed class AuthorRecipeTests
         var converter = new FakeUnitConverter();
         var writer = new FakeCatalogWriter(products, converter);
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
-        var service = new AuthorRecipe(recipes, tags, products, writer, converter, Clock, tenant, NullLogger<AuthorRecipe>.Instance);
+        var lineResolver = new IngredientLineResolver(products, writer);
+        var conversionPlanner = new ConversionGapPlanner(converter, writer);
+        var service = new AuthorRecipe(recipes, tags, products, writer, lineResolver, conversionPlanner, Clock, tenant, NullLogger<AuthorRecipe>.Instance);
         return new Harness
         {
             Recipes = recipes, Tags = tags, Products = products,

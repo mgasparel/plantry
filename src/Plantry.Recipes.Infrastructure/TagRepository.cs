@@ -12,6 +12,16 @@ public sealed class TagRepository(RecipesDbContext db) : ITagRepository
     public Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default) =>
         db.Tags.FirstOrDefaultAsync(t => t.Id == id, ct);
 
+    public async Task<IReadOnlySet<TagId>> ResolveExistingIdsAsync(IReadOnlyList<TagId> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0) return new HashSet<TagId>();
+        var idList = ids.ToList();
+        // Archived tags are intentionally included (matching GetByIdAsync) so an applied-then-archived tag
+        // still resolves. RLS/query filter scopes to the household; PK projection only — no Tag loaded.
+        var found = await db.Tags.Where(t => idList.Contains(t.Id)).Select(t => t.Id).ToListAsync(ct);
+        return found.ToHashSet();
+    }
+
     public async Task<IReadOnlyDictionary<TagId, string>> ResolveNamesAsync(IReadOnlyList<TagId> ids, CancellationToken ct = default)
     {
         if (ids.Count == 0) return new Dictionary<TagId, string>();

@@ -547,7 +547,11 @@ builder.Services.AddScoped<FulfillmentService>();
 builder.Services.AddScoped<CostingService>();
 
 // Recipe authoring application service (P2-1c, recipes-domain-model.md §7) — orchestrates create/edit
-// over the Catalog ports + the recipe/tag repositories. Consumed by the P2-1d editor page.
+// over the Catalog ports + the recipe/tag repositories. Consumed by the P2-1d editor page. Its extracted
+// phase cores (plantry-xgmb) — per-line product resolution and the R7/C10 conversion planner — are
+// registered alongside it; both talk to Catalog only through the same anti-corruption ports.
+builder.Services.AddScoped<IngredientLineResolver>();
+builder.Services.AddScoped<ConversionGapPlanner>();
 builder.Services.AddScoped<AuthorRecipe>();
 
 // Archives a recipe with the N5 guard (recipe-composition.md D12): blocks while the recipe is included

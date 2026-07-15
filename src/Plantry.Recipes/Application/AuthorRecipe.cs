@@ -27,11 +27,19 @@ public sealed class AuthorRecipe(
     ITagRepository tags,
     ICatalogProductReader products,
     ICatalogWriter catalogWriter,
-    IUnitConverter unitConverter,
+    IngredientLineResolver lineResolver,
+    ConversionGapPlanner conversionPlanner,
     IClock clock,
     ITenantContext tenant,
     ILogger<AuthorRecipe> logger)
 {
+    /// <summary>
+    /// Drives Create (J6) and Edit (J7) as a thin phase pipeline over the extracted cores — line
+    /// resolution (<see cref="IngredientLineResolver"/>), conversion planning
+    /// (<see cref="ConversionGapPlanner"/>), ordinal merge (<see cref="IngredientOrdinalMerge"/>) — and
+    /// the in-service validation/persistence phases below. Behaviour is unchanged from the former inline
+    /// orchestrator, including every error code and the NeedsConversion round-trip semantics (plantry-xgmb).
+    /// </summary>
     public async Task<AuthorRecipeResult> ExecuteAsync(AuthorRecipeCommand command, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdGuid)
@@ -48,192 +56,152 @@ public sealed class AuthorRecipe(
         }
 
         var name = command.Name?.Trim() ?? string.Empty;
-        if (string.IsNullOrEmpty(name))
-            return new AuthorRecipeResult.Invalid(Error.Custom("Recipes.InvalidName", "Recipe name must not be blank."));
+        var nameError = await ValidateNameAsync(name, existing, household, ct);
+        if (nameError is { } ne)
+            return new AuthorRecipeResult.Invalid(ne);
 
-        // R1 — name unique per household. On edit, only check when the name actually changes; otherwise
-        // the recipe's own row makes the lookup a false positive.
-        var nameChanged = existing is null || !string.Equals(existing.Name, name, StringComparison.OrdinalIgnoreCase);
-        if (nameChanged && await recipes.NameExistsAsync(household, name, ct))
-            return new AuthorRecipeResult.Invalid(
-                Error.Custom("Recipes.DuplicateName", $"A recipe named '{name}' already exists."));
+        // Phase 1 — resolve every ingredient line to a typed product (batched select reads + inline creates).
+        var lineResolution = await lineResolver.ResolveAsync(command.Lines, ct);
+        if (lineResolution.Error is { } lineError)
+            return new AuthorRecipeResult.Invalid(lineError);
+        var resolved = lineResolution.Lines!;
 
-        // ── Per-line product resolution (search/select, inline untracked-staple create C12,
-        //    or inline tracked-product create plantry-orix) ──
-        var resolved = new List<ResolvedLine>(command.Lines.Count);
-        foreach (var line in command.Lines)
-        {
-            if (line.ProductId is { } chosenId)
-            {
-                var product = await products.FindAsync(chosenId, ct);
-                if (product is null)
-                    return new AuthorRecipeResult.Invalid(
-                        Error.Custom("Recipes.UnknownProduct", "A chosen ingredient product does not exist."));
-                resolved.Add(new ResolvedLine(product.Id, product.Name, product.TrackStock, product.DefaultUnitId, line));
-            }
-            else if (line.NewIsTracked && !string.IsNullOrWhiteSpace(line.NewStapleName))
-            {
-                // Tracked product create from the create-view (plantry-orix). Three sub-paths:
-                //   A. Join existing group  — newGroupId non-empty → CreateVariantCommand
-                //   B. Create new group     — newGroupName non-empty, newGroupId empty → CreateGroupedProductCommand
-                //   C. Standalone tracked   — both group fields empty → CreateProductCommand (track_stock: true)
-                if (line.NewStapleDefaultUnitId is not { } trackedUnit)
-                    return new AuthorRecipeResult.Invalid(
-                        Error.Custom("Recipes.MissingStapleUnit", "An inline tracked product needs a default unit."));
+        // Phase 2 — R5: a null qty/unit is permitted ONLY for an untracked product. Run as a separate pass
+        // AFTER full resolution so the first-failing-line error precedence matches the original loop.
+        var trackedError = ValidateTrackedQuantities(resolved);
+        if (trackedError is { } te)
+            return new AuthorRecipeResult.Invalid(te);
 
-                // R5 pre-check: a tracked ingredient must have both qty and unitId. We validate BEFORE
-                // the Catalog write so no orphan product is minted when the user hasn't set a quantity
-                // (the create-view has no qty field; the user must re-open the row in the search view
-                // to fill qty). Without this guard the product would be created in Catalog and then the
-                // recipe save would still fail, leaving the catalog in a dirty state (plantry-orix).
-                if (line.Quantity is null || line.UnitId is null)
-                    return new AuthorRecipeResult.Invalid(Error.Custom(
-                        "Recipes.TrackedRequiresQuantity",
-                        $"'{line.NewStapleName.Trim()}' (line {line.Ordinal + 1}) is tracked and needs a quantity and unit."));
-
-                var trackedName = line.NewStapleName.Trim();
-                Guid newTrackedId;
-
-                if (!string.IsNullOrWhiteSpace(line.NewGroupId) && Guid.TryParse(line.NewGroupId, out var parentGroupId))
-                {
-                    // Path A: create as a variant of an existing group.
-                    var unitOverride = trackedUnit == Guid.Empty ? (Guid?)null : trackedUnit;
-                    var catOverride  = line.NewStapleCategoryId;
-                    newTrackedId = await catalogWriter.CreateTrackedVariantAsync(
-                        parentGroupId, trackedName, unitOverride, catOverride, ct);
-                }
-                else if (!string.IsNullOrWhiteSpace(line.NewGroupName))
-                {
-                    // Path B: create new group + first variant atomically.
-                    newTrackedId = await catalogWriter.CreateTrackedGroupedProductAsync(
-                        line.NewGroupName.Trim(), trackedName,
-                        trackedUnit, line.NewStapleCategoryId, ct);
-                }
-                else
-                {
-                    // Path C: standalone tracked product (no group).
-                    newTrackedId = await catalogWriter.CreateTrackedProductAsync(
-                        trackedName, trackedUnit, line.NewStapleCategoryId, ct);
-                }
-
-                // A freshly created tracked product has trackStock: true; its default unit is the supplied unit.
-                resolved.Add(new ResolvedLine(newTrackedId, trackedName, TrackStock: true, trackedUnit, line));
-            }
-            else if (!string.IsNullOrWhiteSpace(line.NewStapleName))
-            {
-                // Untracked staple (C12, NewIsTracked = false).
-                if (line.NewStapleDefaultUnitId is not { } stapleUnit)
-                    return new AuthorRecipeResult.Invalid(
-                        Error.Custom("Recipes.MissingStapleUnit", "An inline staple needs a default unit."));
-                var newId = await catalogWriter.CreateUntrackedStapleAsync(line.NewStapleName.Trim(), stapleUnit, ct);
-                // An inline staple is untracked (track_stock = false) by construction (C12).
-                resolved.Add(new ResolvedLine(newId, line.NewStapleName.Trim(), TrackStock: false, stapleUnit, line));
-            }
-            else
-            {
-                return new AuthorRecipeResult.Invalid(
-                    Error.Custom("Recipes.LineMissingProduct", "Each ingredient must choose a product or name a new staple."));
-            }
-        }
-
-        // ── R5 — a null Quantity/UnitId is permitted ONLY for an untracked product ──
-        foreach (var r in resolved)
-        {
-            if (r.TrackStock && (r.Line.Quantity is null || r.Line.UnitId is null))
-                return new AuthorRecipeResult.Invalid(Error.Custom(
-                    "Recipes.TrackedRequiresQuantity",
-                    $"'{r.ProductName}' (line {r.Line.Ordinal + 1}) is tracked and needs a quantity and unit."));
-        }
-
-        // ── R7/C10 — unit→product-default conversion path for each tracked line ──
-        // Apply any author-supplied factors first so a just-written conversion resolves on this same pass,
-        // then collect the lines that still have no path. Save is blocked while any remain.
-        foreach (var r in resolved)
-        {
-            if (NeedsConversionCheck(r) && r.Line.ConversionFactor is { } factor && factor > 0)
-            {
-                // plantry-qno9: the author can now define the conversion against ANY unit pair
-                // ("1 kg = 8 cups"), not just recipeUnit→productDefault. When the line carries an
-                // explicit from/to (the four-field in-sheet equation), honour it verbatim; otherwise
-                // fall back to the legacy assumption (from = the recipe line unit, to = product default)
-                // used by the post-save row-level backstop's single-factor form.
-                var fromUnitId = r.Line.ConversionFromUnitId ?? r.Line.UnitId!.Value;
-                var toUnitId = r.Line.ConversionToUnitId ?? r.DefaultUnitId;
-                if (fromUnitId != toUnitId)
-                    await catalogWriter.AddConversionAsync(r.ProductId, fromUnitId, toUnitId, factor, ct);
-            }
-        }
-
-        var missing = new List<ConversionNeeded>();
-        foreach (var r in resolved)
-        {
-            if (!NeedsConversionCheck(r))
-                continue;
-            var path = await unitConverter.ConvertAsync(r.ProductId, 1m, r.Line.UnitId!.Value, r.DefaultUnitId, ct);
-            if (path.IsFailure)
-                missing.Add(new ConversionNeeded(r.Line.Ordinal, r.ProductId, r.Line.UnitId!.Value, r.DefaultUnitId));
-        }
-
-        // A missing conversion is a cross-dimension unit gap (same-dimension pairs resolve via universal
-        // factor_to_base and never reach here). By default the save is blocked so the editor can prompt for
-        // the factor inline (R7/C10). When the caller opts into deferral (edit-moment AI assistance is on
-        // and a conversion seeder is available, plantry-qll2.4) the recipe instead saves WITH the gap and
-        // carries the gaps out on Saved, so the caller can seed an ai_suggested factor asynchronously
-        // (ADR-022) — the user is never prompted and the save never waits.
-        if (missing.Count > 0 && !command.DeferMissingConversions)
+        // Phase 3 — R7/C10 unit conversions: apply supplied factors, collect gaps, then block or defer.
+        var conversion = await conversionPlanner.PlanAsync(resolved, command.DeferMissingConversions, ct);
+        if (conversion is ConversionOutcome.Blocked blocked)
         {
             logger.LogWarning(
                 "AuthorRecipe for '{RecipeName}' requires {ConversionCount} unit conversion(s) before saving.",
-                name, missing.Count);
-            return new AuthorRecipeResult.NeedsConversion(missing);
+                name, blocked.Missing.Count);
+            return new AuthorRecipeResult.NeedsConversion(blocked.Missing);
         }
-
-        var deferredConversions = command.DeferMissingConversions
-            ? (IReadOnlyList<ConversionNeeded>)missing
-            : [];
+        var deferredConversions = ((ConversionOutcome.Ready)conversion).Deferred;
         if (deferredConversions.Count > 0)
             logger.LogInformation(
                 "AuthorRecipe for '{RecipeName}' saving with {ConversionCount} deferred unit gap(s) for async AI seeding.",
                 name, deferredConversions.Count);
 
-        // ── Tag resolution — resolve each submitted TagId to an existing household tag; drop unknowns ──
-        // The picker posts closed-vocabulary TagIds; no minting occurs. Unknown/foreign ids are dropped
-        // silently so a stale client or a tampered request cannot mint or reference tags outside the
-        // household (server validates membership; RLS / query filter also applies in GetByIdAsync).
+        // Phase 4 — resolve tags + inclusions (batched membership/existence reads).
+        var tagIds = await ResolveTagIdsAsync(command.TagIds, ct);
+
+        var inclusionResolution = await ResolveInclusionsAsync(command.Inclusions ?? [], existing, ct);
+        if (inclusionResolution.Error is { } ie)
+            return new AuthorRecipeResult.Invalid(ie);
+        var resolvedInclusions = inclusionResolution.Inclusions;
+
+        // Phase 5 — canonicalise ordinals across both line types (N3), then build the domain lines.
+        var (domainLines, domainInclusions) = BuildDomainLines(resolved, resolvedInclusions);
+
+        // Phase 6 — create or edit the aggregate (+ yield) and persist.
+        var (recipe, persistError) = await PersistAsync(
+            existing, household, name, command, domainLines, domainInclusions, tagIds, ct);
+        if (persistError is { } pe)
+            return new AuthorRecipeResult.Invalid(pe);
+
+        logger.LogInformation(
+            "Recipe '{RecipeName}' {Action} with id {RecipeId}.",
+            name, existing is null ? "created" : "updated", recipe!.Id.Value);
+        return new AuthorRecipeResult.Saved(recipe.Id) { DeferredConversions = deferredConversions };
+    }
+
+    /// <summary>
+    /// R1 — name present and unique per household. On edit, uniqueness is only checked when the name
+    /// actually changes; otherwise the recipe's own row makes the lookup a false positive. Returns the
+    /// blocking <see cref="Error"/>, or null when the name is valid.
+    /// </summary>
+    private async Task<Error?> ValidateNameAsync(string name, Recipe? existing, HouseholdId household, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(name))
+            return Error.Custom("Recipes.InvalidName", "Recipe name must not be blank.");
+
+        var nameChanged = existing is null || !string.Equals(existing.Name, name, StringComparison.OrdinalIgnoreCase);
+        if (nameChanged && await recipes.NameExistsAsync(household, name, ct))
+            return Error.Custom("Recipes.DuplicateName", $"A recipe named '{name}' already exists.");
+
+        return null;
+    }
+
+    /// <summary>
+    /// R5 — a null Quantity/UnitId is permitted ONLY for an untracked product. Returns the blocking
+    /// <see cref="Error"/> (naming the offending product + 1-based line, plantry-429l) for the first
+    /// tracked line missing a quantity/unit, or null when every tracked line is complete.
+    /// </summary>
+    private static Error? ValidateTrackedQuantities(IReadOnlyList<ResolvedLine> resolved)
+    {
+        foreach (var r in resolved)
+        {
+            if (r.TrackStock && (r.Line.Quantity is null || r.Line.UnitId is null))
+                return Error.Custom(
+                    "Recipes.TrackedRequiresQuantity",
+                    $"'{r.ProductName}' (line {r.Line.Ordinal + 1}) is tracked and needs a quantity and unit.");
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Tag resolution — resolve each submitted TagId to an existing household tag; drop unknowns. The
+    /// picker posts closed-vocabulary TagIds; no minting occurs. Unknown/foreign ids are dropped silently
+    /// so a stale client or a tampered request cannot mint or reference tags outside the household (server
+    /// validates membership via one batched round-trip; RLS / query filter also applies). Order is
+    /// preserved and duplicates de-duped, matching the original per-id loop.
+    /// </summary>
+    private async Task<IReadOnlyList<TagId>> ResolveTagIdsAsync(IReadOnlyList<Guid> rawTagIds, CancellationToken ct)
+    {
+        if (rawTagIds.Count == 0)
+            return [];
+
+        var existingTagIds = await tags.ResolveExistingIdsAsync(rawTagIds.Select(TagId.From).ToList(), ct);
         var tagIds = new List<TagId>();
         var seenTagIds = new HashSet<TagId>();
-        foreach (var rawId in command.TagIds)
+        foreach (var rawId in rawTagIds)
         {
             var tid = TagId.From(rawId);
             if (!seenTagIds.Add(tid))
                 continue;
-
-            var tag = await tags.GetByIdAsync(tid, ct);
-            if (tag is not null)
-                tagIds.Add(tag.Id);
+            if (existingTagIds.Contains(tid))
+                tagIds.Add(tid);
         }
+        return tagIds;
+    }
 
-        // ── Inclusion resolution (recipe-composition.md N4): same-household + sub-existence + DAG ──
-        // GetByIdAsync applies the household RLS query filter, so a sub in another household resolves to
-        // null (same-household check folds into sub-existence). The DAG cycle walk runs after — and only on
-        // an edit, where the owning recipe already exists in the persisted graph (a brand-new recipe cannot
-        // be part of a cycle: nothing references it yet).
-        var commandInclusions = command.Inclusions ?? [];
+    /// <summary>
+    /// Inclusion resolution (recipe-composition.md N4): same-household + sub-existence + DAG. Sub-existence
+    /// is resolved in one batched round-trip up front, then each inclusion is validated in order so the
+    /// first-failing-line error precedence (empty ref → self-inclusion → unknown sub) matches the original
+    /// per-line loop. A sub in another household resolves as non-existent (RLS folds the same-household
+    /// check into existence). The DAG cycle walk runs after — and only on an edit, where the owning recipe
+    /// already exists in the persisted graph (a brand-new recipe cannot be part of a cycle: nothing
+    /// references it yet). Returns the resolved inclusions, or the first blocking <see cref="Error"/>.
+    /// </summary>
+    private async Task<InclusionResolution> ResolveInclusionsAsync(
+        IReadOnlyList<AuthorInclusionLine> commandInclusions, Recipe? existing, CancellationToken ct)
+    {
+        if (commandInclusions.Count == 0)
+            return InclusionResolution.Ok([]);
+
+        var existingSubs = await recipes.ResolveExistingIdsAsync(
+            commandInclusions.Select(i => RecipeId.From(i.SubRecipeId)).ToList(), ct);
+
         var resolvedInclusions = new List<AuthorInclusionLine>(commandInclusions.Count);
         foreach (var inc in commandInclusions)
         {
             if (inc.SubRecipeId == Guid.Empty)
-                return new AuthorRecipeResult.Invalid(
+                return InclusionResolution.Fail(
                     Error.Custom("Recipes.InvalidSubRecipe", "Each inclusion must reference a sub-recipe."));
 
             var subId = RecipeId.From(inc.SubRecipeId);
             if (existing is not null && subId == existing.Id)
-                return new AuthorRecipeResult.Invalid(
+                return InclusionResolution.Fail(
                     Error.Custom("Recipes.SelfInclusion", "A recipe cannot include itself."));
 
-            var sub = await recipes.GetByIdAsync(subId, ct);
-            if (sub is null)
-                return new AuthorRecipeResult.Invalid(
+            if (!existingSubs.Contains(subId))
+                return InclusionResolution.Fail(
                     Error.Custom("Recipes.UnknownSubRecipe", "An included recipe does not exist in this household."));
 
             resolvedInclusions.Add(inc);
@@ -246,53 +214,69 @@ public sealed class AuthorRecipe(
         {
             var edges = await recipes.ListInclusionEdgesAsync(ct);
             if (CreatesCycle(existing.Id, resolvedInclusions.Select(i => RecipeId.From(i.SubRecipeId)), edges))
-                return new AuthorRecipeResult.Invalid(Error.Custom(
+                return InclusionResolution.Fail(Error.Custom(
                     "Recipes.InclusionCycle",
                     "Including that recipe would create a cycle (a recipe cannot include itself, directly or indirectly)."));
         }
 
-        // ── Assemble the ordered, validated lines with contiguous 0-based ordinals across BOTH line types ──
-        // Merge ingredients and inclusions by their author-supplied ordinal (LINQ OrderBy is stable, so ties
-        // keep ingredient-before-inclusion order), then re-number the union 0..n-1 so N3 (shared-space
-        // contiguity) holds regardless of how the author interleaved the two line types.
-        var merged = resolved
-            .Select((r, i) => (Ordinal: r.Line.Ordinal, IsInclusion: false, Index: i))
-            .Concat(resolvedInclusions.Select((_, i) => (Ordinal: resolvedInclusions[i].Ordinal, IsInclusion: true, Index: i)))
-            .OrderBy(x => x.Ordinal)
-            .ToList();
+        return InclusionResolution.Ok(resolvedInclusions);
+    }
+
+    /// <summary>
+    /// Assembles the ordered, validated domain lines with contiguous 0-based ordinals across BOTH line
+    /// types. The canonical merge (order-by-ordinal, stable ties, re-number 0..n-1 for N3 shared-space
+    /// contiguity) lives in the pure <see cref="IngredientOrdinalMerge"/> helper; this maps each merged
+    /// entry back to its resolved line, preserving the ascending-position list order of the original.
+    /// </summary>
+    private static (IReadOnlyList<IngredientLine> Lines, IReadOnlyList<InclusionLine> Inclusions) BuildDomainLines(
+        IReadOnlyList<ResolvedLine> resolved, IReadOnlyList<AuthorInclusionLine> resolvedInclusions)
+    {
+        var merged = IngredientOrdinalMerge.Merge(
+            resolved.Select(r => r.Line.Ordinal).ToList(),
+            resolvedInclusions.Select(i => i.Ordinal).ToList());
 
         var domainLines = new List<IngredientLine>(resolved.Count);
         var domainInclusions = new List<InclusionLine>(resolvedInclusions.Count);
-        for (var pos = 0; pos < merged.Count; pos++)
+        foreach (var item in merged)
         {
-            var item = merged[pos];
             if (item.IsInclusion)
             {
-                var inc = resolvedInclusions[item.Index];
+                var inc = resolvedInclusions[item.SourceIndex];
                 domainInclusions.Add(new InclusionLine(
-                    RecipeId.From(inc.SubRecipeId), inc.Servings, inc.GroupHeading, pos));
+                    RecipeId.From(inc.SubRecipeId), inc.Servings, inc.GroupHeading, item.Position));
             }
             else
             {
-                var r = resolved[item.Index];
+                var r = resolved[item.SourceIndex];
                 domainLines.Add(new IngredientLine(
-                    r.ProductId, r.Line.Quantity, r.Line.UnitId, r.Line.GroupHeading, pos));
+                    r.ProductId, r.Line.Quantity, r.Line.UnitId, r.Line.GroupHeading, item.Position));
             }
         }
+        return (domainLines, domainInclusions);
+    }
 
-        // ── Create or edit the aggregate ──
+    /// <summary>
+    /// Creates (J6) or edits (J7) the aggregate through its guarded methods, applies the yield-on-cook
+    /// declaration (plantry-854a, recipe-composition.md §9), and persists — one aggregate, one
+    /// SaveChanges. Returns the saved recipe, or the first blocking domain <see cref="Error"/>.
+    /// </summary>
+    private async Task<(Recipe? Recipe, Error? Error)> PersistAsync(
+        Recipe? existing, HouseholdId household, string name, AuthorRecipeCommand command,
+        IReadOnlyList<IngredientLine> domainLines, IReadOnlyList<InclusionLine> domainInclusions,
+        IReadOnlyList<TagId> tagIds, CancellationToken ct)
+    {
         Recipe recipe;
         if (existing is null)
         {
             var created = Recipe.Create(household, name, command.DefaultServings, clock);
             if (created.IsFailure)
-                return new AuthorRecipeResult.Invalid(created.Error);
+                return (null, created.Error);
             recipe = created.Value;
             ApplyScalars(recipe, command);
 
             var replace = recipe.ReplaceLines(domainLines, domainInclusions, clock);
             if (replace.IsFailure)
-                return new AuthorRecipeResult.Invalid(replace.Error);
+                return (null, replace.Error);
 
             recipe.SetTags(tagIds, clock);
             await recipes.AddAsync(recipe, ct);
@@ -302,34 +286,30 @@ public sealed class AuthorRecipe(
             recipe = existing;
             var rename = recipe.Rename(name, clock);
             if (rename.IsFailure)
-                return new AuthorRecipeResult.Invalid(rename.Error);
+                return (null, rename.Error);
             ApplyScalars(recipe, command);
 
             var replace = recipe.ReplaceLines(domainLines, domainInclusions, clock);
             if (replace.IsFailure)
-                return new AuthorRecipeResult.Invalid(replace.Error);
+                return (null, replace.Error);
 
             // J7 step 3 — a servings change scales (Proportional) or preserves (Keep) the just-set lines.
             if (command.DefaultServings != recipe.DefaultServings)
             {
                 var change = recipe.ChangeDefaultServings(command.DefaultServings, command.ScaleMode, clock);
                 if (change.IsFailure)
-                    return new AuthorRecipeResult.Invalid(change.Error);
+                    return (null, change.Error);
             }
 
             recipe.SetTags(tagIds, clock);
         }
 
-        // ── Yield-on-cook declaration (plantry-854a, recipe-composition.md §9) ──
         var yieldError = await ApplyYieldAsync(recipe, command, existing, ct);
         if (yieldError is { } ye)
-            return new AuthorRecipeResult.Invalid(ye);
+            return (null, ye);
 
         await recipes.SaveChangesAsync(ct);
-        logger.LogInformation(
-            "Recipe '{RecipeName}' {Action} with id {RecipeId}.",
-            name, existing is null ? "created" : "updated", recipe.Id.Value);
-        return new AuthorRecipeResult.Saved(recipe.Id) { DeferredConversions = deferredConversions };
+        return (recipe, null);
     }
 
     private void ApplyScalars(Recipe recipe, AuthorRecipeCommand command)
@@ -421,11 +401,16 @@ public sealed class AuthorRecipe(
         return false;
     }
 
-    /// <summary>A tracked line whose unit differs from the product default needs a conversion path (R7).</summary>
-    private static bool NeedsConversionCheck(ResolvedLine r) =>
-        r.TrackStock && r.Line.UnitId is { } unit && unit != r.DefaultUnitId;
-
-    private readonly record struct ResolvedLine(Guid ProductId, string ProductName, bool TrackStock, Guid DefaultUnitId, AuthorIngredientLine Line);
+    /// <summary>
+    /// The outcome of <see cref="ResolveInclusionsAsync"/>: either the resolved inclusions
+    /// (<see cref="Inclusions"/> set, <see cref="Error"/> null) or the first blocking error
+    /// (<see cref="Error"/> set, <see cref="Inclusions"/> empty).
+    /// </summary>
+    private readonly record struct InclusionResolution(IReadOnlyList<AuthorInclusionLine> Inclusions, Error? Error)
+    {
+        public static InclusionResolution Ok(IReadOnlyList<AuthorInclusionLine> inclusions) => new(inclusions, null);
+        public static InclusionResolution Fail(Error error) => new([], error);
+    }
 }
 
 // ── Command / DTOs ──────────────────────────────────────────────────────────────────────────────

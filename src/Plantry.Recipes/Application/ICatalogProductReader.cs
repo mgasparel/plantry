@@ -14,6 +14,32 @@ public interface ICatalogProductReader
     Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default);
 
     /// <summary>
+    /// Batch resolution for the select-existing authoring path — the name, <c>track_stock</c>, and
+    /// default unit each chosen ingredient row needs, in a single round-trip. Unlike
+    /// <see cref="ResolveSummariesAsync"/> it also carries <c>DefaultUnitId</c> (needed for the R7/C10
+    /// unit→product-default conversion-path check); like it, it does <b>not</b> load the depth-1
+    /// parent/variant tree (the authoring select path never reads it). Ids absent from this household
+    /// are omitted, and existence semantics match <see cref="FindAsync"/> (RLS-scoped, archived
+    /// products included). Use over a loop of <see cref="FindAsync"/> when resolving a whole ingredient
+    /// list, to avoid an N+1 round-trip per row (plantry-xgmb).
+    ///
+    /// <para>The default implementation falls back to a per-id <see cref="FindAsync"/> loop so test
+    /// doubles need not reimplement it; the production adapter overrides it with one batched query.</para>
+    /// </summary>
+    async Task<IReadOnlyDictionary<Guid, CatalogProductLookup>> FindManyAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, CatalogProductLookup>();
+        foreach (var id in productIds.Distinct())
+        {
+            var product = await FindAsync(id, ct);
+            if (product is not null)
+                result[id] = new CatalogProductLookup(product.Id, product.Name, product.TrackStock, product.DefaultUnitId);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Name search for the ingredient editor — active products whose name contains
     /// <paramref name="nameQuery"/> (case-insensitive). Empty/whitespace query returns no candidates.
     /// </summary>
@@ -58,6 +84,14 @@ public interface ICatalogProductReader
 
 /// <summary>The display slice of a Catalog product for a recipe ingredient row (name + stock-tracking).</summary>
 public sealed record CatalogProductSummary(Guid Id, string Name, bool TrackStock);
+
+/// <summary>
+/// The slice of a Catalog product the select-existing authoring path resolves per chosen ingredient row —
+/// name, <c>track_stock</c>, and default unit (for the R7/C10 conversion-path check). Unlike
+/// <see cref="CatalogProductSummary"/> it carries <see cref="DefaultUnitId"/>; unlike
+/// <see cref="CatalogProduct"/> it omits the parent/variant tree the authoring select path never reads.
+/// </summary>
+public sealed record CatalogProductLookup(Guid Id, string Name, bool TrackStock, Guid DefaultUnitId);
 
 /// <summary>
 /// A unit option for the ingredient editor dropdown. <see cref="Dimension"/> (e.g. "mass", "volume",

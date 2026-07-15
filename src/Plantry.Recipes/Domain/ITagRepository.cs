@@ -18,6 +18,25 @@ public interface ITagRepository
     Task<Tag?> GetByIdAsync(TagId id, CancellationToken ct = default);
 
     /// <summary>
+    /// Resolves which of the given tag ids exist in the household — the membership check
+    /// <c>AuthorRecipe</c> uses to keep known ids and silently drop unknown/foreign ones, in a single
+    /// round-trip instead of an await-per-id <see cref="GetByIdAsync"/> loop (plantry-xgmb). Existence
+    /// semantics match <see cref="GetByIdAsync"/>: RLS/query-filter scoped, archived tags included (so a
+    /// tag archived after it was applied still resolves). No <see cref="Tag"/> is loaded — ids only.
+    ///
+    /// <para>The default implementation falls back to a per-id <see cref="GetByIdAsync"/> loop so test
+    /// doubles need not reimplement it; the production repository overrides it with one batched query.</para>
+    /// </summary>
+    async Task<IReadOnlySet<TagId>> ResolveExistingIdsAsync(IReadOnlyList<TagId> ids, CancellationToken ct = default)
+    {
+        var found = new HashSet<TagId>();
+        foreach (var id in ids)
+            if (await GetByIdAsync(id, ct) is not null)
+                found.Add(id);
+        return found;
+    }
+
+    /// <summary>
     /// Resolves the display names for a set of tag ids within the household — used by the recipe
     /// Detail page to render tag pills. Returns a dictionary keyed by <see cref="TagId"/> containing
     /// only the ids that exist in this household (RLS / query filter applies; missing ids are omitted).
