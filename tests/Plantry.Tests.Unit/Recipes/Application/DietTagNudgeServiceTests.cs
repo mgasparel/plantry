@@ -229,13 +229,15 @@ public sealed class DietTagNudgeServiceTests
         var recipes = new FakeRecipeRepository();
 
         var sub = Recipe.Create(household, "Cheese Sauce", 2, clock).Value;
-        sub.ReplaceLines([new IngredientLine(SubDairyId, 100m, UnitId, null, 0)], [], clock);
+        sub.ReplaceLines(RecipeLineSet.Create([new IngredientLine(SubDairyId, 100m, UnitId, null, 0)], [], sub.Id).Value, clock);
         recipes.Items.Add(sub);
 
         var parent = Recipe.Create(household, "Vegan Nachos", 2, clock).Value;
         parent.ReplaceLines(
-            [new IngredientLine(PastaId, 200m, UnitId, null, 0)],
-            [new InclusionLine(sub.Id, 2m, null, 1)],
+            RecipeLineSet.Create(
+                [new IngredientLine(PastaId, 200m, UnitId, null, 0)],
+                [new InclusionLine(sub.Id, 2m, null, 1)],
+                parent.Id).Value,
             clock);
         parent.SetTags([vegan.Id], clock);
         recipes.Items.Add(parent);
@@ -316,11 +318,13 @@ public sealed class DietTagNudgeServiceTests
         // The user swaps the included sub for one carrying a DIFFERENT product — the expanded set changes.
         var otherProduct = Guid.Parse("11111111-0003-0000-0000-000000000009");
         var newSub = Recipe.Create(DomainHousehold.From(HouseholdAId), "Nut Cream", 2, clock).Value;
-        newSub.ReplaceLines([new IngredientLine(otherProduct, 100m, UnitId, null, 0)], [], clock);
+        newSub.ReplaceLines(RecipeLineSet.Create([new IngredientLine(otherProduct, 100m, UnitId, null, 0)], [], newSub.Id).Value, clock);
         h.Recipes.Items.Add(newSub);
         h.Parent.ReplaceLines(
-            [new IngredientLine(PastaId, 200m, UnitId, null, 0)],
-            [new InclusionLine(newSub.Id, 2m, null, 1)],
+            RecipeLineSet.Create(
+                [new IngredientLine(PastaId, 200m, UnitId, null, 0)],
+                [new InclusionLine(newSub.Id, 2m, null, 1)],
+                h.Parent.Id).Value,
             clock);
 
         // The editor passes the PRE-edit expanded set; the new expanded set differs from it AND from the
@@ -395,17 +399,19 @@ public sealed class DietTagNudgeServiceTests
 
         // sub (dairy) ← parent ← grandparent(Vegan). Editing the sub must ripple to the transitive grandparent.
         var sub = Recipe.Create(household, "Cheese Sauce", 2, clock).Value;
-        sub.ReplaceLines([new IngredientLine(SubDairyId, 100m, UnitId, null, 0)], [], clock);
+        sub.ReplaceLines(RecipeLineSet.Create([new IngredientLine(SubDairyId, 100m, UnitId, null, 0)], [], sub.Id).Value, clock);
         recipes.Items.Add(sub);
 
         var parent = Recipe.Create(household, "Nacho Layer", 2, clock).Value;
-        parent.ReplaceLines([], [new InclusionLine(sub.Id, 1m, null, 0)], clock);
+        parent.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(sub.Id, 1m, null, 0)], parent.Id).Value, clock);
         recipes.Items.Add(parent);
 
         var grandparent = Recipe.Create(household, "Vegan Nachos", 2, clock).Value;
         grandparent.ReplaceLines(
-            [new IngredientLine(PastaId, 200m, UnitId, null, 0)],
-            [new InclusionLine(parent.Id, 1m, null, 1)],
+            RecipeLineSet.Create(
+                [new IngredientLine(PastaId, 200m, UnitId, null, 0)],
+                [new InclusionLine(parent.Id, 1m, null, 1)],
+                grandparent.Id).Value,
             clock);
         grandparent.SetTags([vegan.Id], clock);
         recipes.Items.Add(grandparent);

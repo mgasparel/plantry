@@ -77,6 +77,59 @@ public sealed class CatalogProductReaderAdapter(
             p => new CatalogProductSummary(p.Id.Value, p.Name, p.TrackStock));
     }
 
+    public async Task<IReadOnlyDictionary<Guid, CatalogProduct>> FindManyWithVariantsAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        if (productIds.Count == 0) return EmptyProducts;
+
+        var distinctIds = productIds.Distinct().ToList();
+
+        // One query for the requested products plus every variant child of any requested parent
+        // (DM-19), instead of a FindAsync-per-product N+1. The variant tree is rebuilt in memory below.
+        var loaded = await products.ListWithVariantsAsync(distinctIds.Select(ProductId.From).ToList(), ct);
+
+        var byId = loaded.ToDictionary(p => p.Id.Value);
+
+        // Live (non-archived) variants grouped by parent id — mirrors FindAsync, which filters archived
+        // variants out of the rollup tree.
+        var liveVariantsByParent = loaded
+            .Where(p => p.ParentProductId is not null && !p.IsArchived)
+            .GroupBy(p => p.ParentProductId!.Value.Value)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<Guid>)g.Select(v => v.Id.Value).ToList());
+
+        var result = new Dictionary<Guid, CatalogProduct>(distinctIds.Count);
+        foreach (var id in distinctIds)
+        {
+            if (!byId.TryGetValue(id, out var product)) continue;
+            IReadOnlyList<Guid> variantIds = product.IsParent
+                ? liveVariantsByParent.GetValueOrDefault(id, [])
+                : [];
+            result[id] = new CatalogProduct(
+                product.Id.Value,
+                product.Name,
+                product.TrackStock,
+                product.DefaultUnitId.Value,
+                product.ParentProductId?.Value,
+                product.IsParent,
+                variantIds);
+        }
+        return result;
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, CatalogProductLookup>> FindManyAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        if (productIds.Count == 0) return EmptyLookups;
+
+        // Single batched query (no per-row N+1). ListWithConversionsAsync is RLS-scoped and returns
+        // archived products too — matching FindAsync's existence semantics for the select path. The
+        // parent/variant tree is intentionally not loaded (the authoring select path never reads it).
+        var found = await products.ListWithConversionsAsync(productIds.Distinct().Select(ProductId.From), ct);
+        return found.ToDictionary(
+            p => p.Id.Value,
+            p => new CatalogProductLookup(p.Id.Value, p.Name, p.TrackStock, p.DefaultUnitId.Value));
+    }
+
     public async Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
         IReadOnlyList<Guid> unitIds, CancellationToken ct = default)
     {
@@ -121,5 +174,9 @@ public sealed class CatalogProductReaderAdapter(
 
     private static readonly IReadOnlyDictionary<Guid, CatalogProductSummary> EmptySummaries =
         new Dictionary<Guid, CatalogProductSummary>();
+    private static readonly IReadOnlyDictionary<Guid, CatalogProductLookup> EmptyLookups =
+        new Dictionary<Guid, CatalogProductLookup>();
+    private static readonly IReadOnlyDictionary<Guid, CatalogProduct> EmptyProducts =
+        new Dictionary<Guid, CatalogProduct>();
     private static readonly IReadOnlyDictionary<Guid, string> EmptyCodes = new Dictionary<Guid, string>();
 }

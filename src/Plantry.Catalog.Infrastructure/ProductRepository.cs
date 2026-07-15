@@ -32,6 +32,21 @@ public sealed class ProductRepository(CatalogDbContext db) : IProductRepository
             .Where(p => p.ParentProductId == parentId)
             .ToListAsync(ct);
 
+    public Task<List<Product>> ListWithVariantsAsync(IReadOnlyList<ProductId> ids, CancellationToken ct = default)
+    {
+        var idList = ids.ToList();
+        // One query for the requested products plus every variant child of any requested parent, so the
+        // DM-19 rollup gets the whole tree without a per-parent round-trip. The variant match uses a
+        // correlated EXISTS with an equality on ParentProductId (the shape ListVariantsAsync proves
+        // translatable) rather than an IN over ParentProductId — Npgsql cannot build an array mapping
+        // for the value-converted nullable FK, so `ParentProductId IN (...)` fails to translate. The
+        // fulfillment DTO needs only ids/name/track_stock/units/archived flag — no Skus/Conversions.
+        return db.Products
+            .Where(p => idList.Contains(p.Id)
+                     || db.Products.Any(parent => idList.Contains(parent.Id) && parent.Id == p.ParentProductId))
+            .ToListAsync(ct);
+    }
+
     public async Task AddAsync(Product product, CancellationToken ct = default) =>
         await db.Products.AddAsync(product, ct);
 

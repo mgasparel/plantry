@@ -134,7 +134,7 @@ public sealed class InclusionPreviewQuantityDisplayTests
         var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
         var recipe = Recipe.Create(HouseholdId.From(HouseholdGuid), "Nacho Plate", defaultServings: 2, clock).Value;
         SetId(recipe, RecipeId.From(ParentId));
-        recipe.ReplaceLines([], [new InclusionLine(RecipeId.From(SubId), 2m, null, 0)], clock);
+        recipe.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(RecipeId.From(SubId), 2m, null, 0)], recipe.Id).Value, clock);
         return recipe;
     }
 

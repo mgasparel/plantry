@@ -39,8 +39,7 @@ namespace Plantry.Recipes.Application;
 public sealed class CookRecipe(
     IRecipeRepository recipes,
     ICookEventRepository cookEvents,
-    IInventoryConsumer consumer,
-    IInventoryProducer producer,
+    CookLineDriver lineDriver,
     ICatalogProductReader products,
     RecipeExpansionService expansion,
     IDomainEventDispatcher eventDispatcher,
@@ -59,15 +58,9 @@ public sealed class CookRecipe(
         }
         var household = HouseholdId.From(householdGuid);
 
-        // ── Opportunistic reconciliation (292c) ──────────────────────────────────
-        // Sweep the household's Pending consume lines from any interrupted prior cooks before
-        // starting a new cook. No-op when there is nothing pending. Non-cancellation failures
-        // are swallowed so a stuck reconciliation never blocks the new cook from proceeding.
-        // OperationCanceledException propagates: if the request is cancelled, there's no point
-        // continuing the new cook either.
-        try { await reconciler.ExecuteAsync(ct); }
-        catch (OperationCanceledException) { throw; }
-        catch { /* reconciliation is best-effort; do not block the new cook */ }
+        // Opportunistic reconciliation sweep (292c): re-drive any Pending lines from interrupted prior
+        // cooks before this one. Best-effort — see TrySweepPendingCooksAsync.
+        await TrySweepPendingCooksAsync(ct);
 
         if (command.DesiredServings < 1)
         {
@@ -106,68 +99,27 @@ public sealed class CookRecipe(
         }
         var expandedLines = expandResult.Value;
 
-        // ── Resolution indexes keyed by path-qualified identity (§4/D6) ──────────
-        // A resolution's key is (PathKey, IngredientId) — direct lines use an empty path so existing
-        // call sites and form contracts map 1:1. A whole-inclusion skip (D7) is a skip resolution with
-        // no specific ingredient (empty IngredientId) addressing an inclusion path PREFIX; it drops every
-        // expanded line beneath that prefix.
-        var perLineResolutions = new Dictionary<(string PathKey, Guid IngredientId), IngredientResolution>();
-        var wholeInclusionSkips = new List<IReadOnlyList<InclusionId>>();
-        foreach (var r in command.Resolutions)
-        {
-            if (r.IsWholeInclusionSkip)
-                wholeInclusionSkips.Add(r.Path ?? []);
-            else
-                perLineResolutions[(r.PathKey, r.IngredientId.Value)] = r;
-        }
+        // Ad-hoc added products (plantry-7zjm): existing catalog products the user added to THIS cook
+        // via the Cook-page search picker. They participate in the same catalog TrackStock resolution,
+        // opportunistic deferred-unit-gap self-heal round-trip, and consume planning as recipe
+        // ingredients — no special-casing (the planner materializes them into consume targets).
+        var adHocLines = command.AdHocLines ?? [];
 
         // ── Batch-resolve TrackStock for all candidate product IDs in one round-trip ──
-        // Collect every product id that could potentially be consumed: the expanded line's own
-        // product (default path) plus every variant product id from explicit allocations.
-        // Resolve them all at once via ResolveSummariesAsync — one catalog round-trip for
-        // the whole recipe — then check TrackStock from the result dictionary in the loop.
-        // C12 is applied uniformly: skip any product absent from the result or with TrackStock=false.
-        var allCandidateIds = new HashSet<Guid>();
-        foreach (var line in expandedLines)
-        {
-            if (line.Quantity is null || line.UnitId is null) continue;
-            if (IsUnderSkippedInclusion(line.Path, wholeInclusionSkips)) continue;
-            allCandidateIds.Add(line.ProductId);
-            if (perLineResolutions.TryGetValue((line.PathKey, line.IngredientId.Value), out var res))
-                foreach (var alloc in res.Allocations)
-                    allCandidateIds.Add(alloc.VariantProductId);
-        }
-
-        // Ad-hoc added products (plantry-7zjm): existing catalog products the user added to THIS cook
-        // via the Cook-page search picker. They carry their own ProductId candidate so they participate
-        // in the same catalog TrackStock resolution and opportunistic deferred-unit-gap self-heal
-        // round-trip below as recipe ingredients — no special-casing.
-        var adHocLines = command.AdHocLines ?? [];
-        foreach (var adHoc in adHocLines)
-            allCandidateIds.Add(adHoc.ProductId);
+        // The planner (CookConsumePlanner) collects every product id this cook could touch — each
+        // expanded line's own product plus every explicit variant allocation (C11) plus every ad-hoc
+        // product — applying the same whole-inclusion-skip (D7) and untracked (C12) filtering it uses
+        // when planning, so the resolution set and the plan agree. Resolve them all at once via
+        // ResolveSummariesAsync (one catalog round-trip) — the planner checks TrackStock from the result.
+        var allCandidateIds = CookConsumePlanner.CollectCandidateProductIds(
+            expandedLines, command.Resolutions, adHocLines);
 
         var catalogSummaries = await products.ResolveSummariesAsync(allCandidateIds.ToList(), ct);
 
-        // ── Opportunistic deferred unit-gap self-heal (plantry-qll2.6) ────────────
-        // Alongside the reconciliation sweep above, retro-apply any DeferredUnitGap consume lines from
-        // prior cooks whose product is in THIS cook's candidate set — a conversion for the pair may have
-        // landed since (AI-seeded or user-entered) without the Composition-layer trigger firing (e.g. a
-        // failed background step). This is the self-healing net (ADR-014 "recoverable from durable state"):
-        // any missed trigger settles on the next cook that touches the product. Best-effort — a failure
-        // here must never block the new cook; OperationCanceledException still propagates.
-        if (allCandidateIds.Count > 0)
-        {
-            try { await deferredUnitGaps.ExecuteAsync(allCandidateIds, ct); }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                // Best-effort: never block the new cook. Logged (not swallowed silently) so a systematically
-                // failing self-heal — which would leave stock quietly diverging — is visible to operators.
-                logger.LogWarning(ex,
-                    "Opportunistic deferred unit-gap self-heal failed at cook entry for recipe {RecipeId}; a Composition-layer trigger or the next cook recovers from durable state.",
-                    command.RecipeId.Value);
-            }
-        }
+        // Opportunistic deferred unit-gap self-heal (plantry-qll2.6): retro-apply any DeferredUnitGap
+        // consume lines whose product is in this cook's candidate set. Best-effort — see
+        // TryHealDeferredUnitGapsAsync.
+        await TryHealDeferredUnitGapsAsync(allCandidateIds, command.RecipeId, ct);
 
         // ── Mint CookEvent up-front — its Id is the sourceRef on every consume ───
         var cookEventResult = CookEvent.Record(
@@ -185,91 +137,13 @@ public sealed class CookRecipe(
 
         var cookEvent = cookEventResult.Value;
 
-        // ── Build consume targets ─────────────────────────────────────────────────
-        var consumeTargets = new List<ConsumeTarget>();
-
-        foreach (var line in expandedLines)
-        {
-            // Untracked staple: null Quantity/UnitId means no quantity to consume (C12).
-            if (line.Quantity is null || line.UnitId is null)
-                continue;
-
-            // Whole-inclusion skip (D7): "not making the cheese tonight" drops every line under the path.
-            if (IsUnderSkippedInclusion(line.Path, wholeInclusionSkips))
-                continue;
-
-            // ServingsScale on TOP of the expansion factor already baked into line.Quantity (§6).
-            var scaledQuantity = line.Quantity.Value * scale;
-            var unitId = line.UnitId.Value;
-            // Provenance (D8): null for a direct line (empty path — no cross-recipe origin to render),
-            // the owning sub-recipe id for a line pulled in via an inclusion.
-            var sourceRecipeId = line.Path.Count == 0 ? (Guid?)null : line.SourceRecipeId.Value;
-
-            if (perLineResolutions.TryGetValue((line.PathKey, line.IngredientId.Value), out var resolution))
-            {
-                if (resolution.IsSkipped)
-                    continue; // explicit per-line skip (C9)
-
-                if (resolution.Allocations.Count > 0)
-                {
-                    // Explicit variant split or swap (C7/C9/C11).
-                    // C12 applies to all paths: skip allocation if variant is untracked or unknown.
-                    // Provenance still rides on the expanded line's owning recipe (a swap does not
-                    // change which recipe the line belongs to).
-                    foreach (var alloc in resolution.Allocations)
-                    {
-                        if (!catalogSummaries.TryGetValue(alloc.VariantProductId, out var variant) || !variant.TrackStock)
-                            continue; // untracked or unknown variant — skip (C12)
-
-                        consumeTargets.Add(new ConsumeTarget(
-                            alloc.VariantProductId,
-                            alloc.Quantity,
-                            alloc.UnitId,
-                            line.IngredientId,
-                            sourceRecipeId));
-                    }
-                    continue;
-                }
-                // Resolution with no allocations and not skipped → fall through to default auto-selection.
-            }
-
-            // Default auto-selection (C7): use the expanded line's own product + scaled quantity.
-            // Skip if untracked or absent from catalog (C12).
-            if (!catalogSummaries.TryGetValue(line.ProductId, out var summary) || !summary.TrackStock)
-                continue;
-
-            consumeTargets.Add(new ConsumeTarget(
-                line.ProductId,
-                scaledQuantity,
-                unitId,
-                line.IngredientId,
-                sourceRecipeId));
-        }
-
-        // ── Ad-hoc added products (plantry-7zjm) ──────────────────────────────────
-        // Materialize each user-added product into a consume target with NO source recipe ingredient:
-        // its IngredientId is the Guid.Empty sentinel ("ad-hoc line — render/label from ProductId").
-        // This is a bare soft-ref with no FK to recipe_ingredient (DM-3) and is NOT the idempotency
-        // token (that rides on the line's own Id, plantry-fks); the deferred/unit-gap + reconciliation
-        // services key on ProductId, never IngredientId — so an ad-hoc line flows through the identical
-        // consume path (Pending → Applied/Shorted/DeferredUnitGap) as a recipe ingredient. C12 is
-        // applied uniformly: an added product that is untracked or unknown in the catalog is skipped
-        // exactly as an untracked recipe ingredient would be (there is no stock to consume). Guards
-        // against non-positive quantity or a missing unit so a malformed row never mints a doomed line.
-        foreach (var adHoc in adHocLines)
-        {
-            if (adHoc.Quantity <= 0m || adHoc.UnitId == Guid.Empty)
-                continue;
-            if (!catalogSummaries.TryGetValue(adHoc.ProductId, out var adHocSummary) || !adHocSummary.TrackStock)
-                continue; // untracked or unknown added product — skip (C12)
-
-            consumeTargets.Add(new ConsumeTarget(
-                adHoc.ProductId,
-                adHoc.Quantity,
-                adHoc.UnitId,
-                IngredientId.From(Guid.Empty),
-                SourceRecipeId: null)); // ad-hoc lines belong to no recipe (D8)
-        }
+        // ── Plan the consume targets (ONE pure call) ─────────────────────────────
+        // The rule matrix — C7 default auto-selection, C9 per-line skip, C11 variant split/swap,
+        // C12 untracked/unknown skip, D7 whole-inclusion skip, D8 provenance, plus ad-hoc
+        // materialization (plantry-7zjm) — lives in CookConsumePlanner as a pure function of the data
+        // resolved above. No IO here; the orchestrator only feeds it what it already loaded.
+        var consumeTargets = CookConsumePlanner.Plan(
+            expandedLines, command.Resolutions, adHocLines, catalogSummaries, scale);
 
         // ── Anchor-first: add all consume lines as Pending, then commit (292b) ───
         // Stage the CookEvent and all Pending CookConsumeLines in a single Recipes
@@ -304,54 +178,19 @@ public sealed class CookRecipe(
 
         foreach (var line in cookEvent.ConsumeLines)
         {
-            // Never block on shortfall (C8/R9). ConsumeAsync reports shortfall in the result.
-            // ConsumeAsync throws InvalidOperationException when the product has no stock record
-            // at all (no lots ever added). Treat that as a Shorted line — cook proceeds and the
-            // caller sees a fully-short line rather than an unhandled 500.
-            decimal shortfall;
-            Guid shortfallUnit;
-            try
-            {
-                var consumeResult = await consumer.ConsumeAsync(
-                    line.ProductId,
-                    line.Quantity,
-                    line.UnitId,
-                    ConsumeReason.Recipe,
-                    cookEvent.Id.Value,
-                    command.UserId,
-                    sourceLineRef: line.Id.Value,
-                    ct);
-
-                shortfall = consumeResult.ShortfallAmount;
-                shortfallUnit = consumeResult.RequestUnitId;
-                line.MarkApplied(shortfall);
-            }
-            catch (DeferredUnitGapException)
-            {
-                // No conversion bridges the ingredient unit to the product's stock unit (plantry-qll2.6).
-                // This is NOT a shortfall — the consume planning pass failed atomically before touching any
-                // lot, so the pantry is untouched. Record it as a deferred unit gap: the consume is owed and
-                // will be retro-applied automatically when a conversion for the pair lands (never Shorted,
-                // which is reserved for a genuine no-stock product and is never retried).
-                shortfall = line.Quantity;
-                shortfallUnit = line.UnitId;
-                line.MarkDeferredUnitGap();
-            }
-            catch (InvalidOperationException)
-            {
-                // No stock record for this product — fully short (C8).
-                shortfall = line.Quantity;
-                shortfallUnit = line.UnitId;
-                line.MarkShorted();
-            }
+            // The exception-to-status mapping (Applied / DeferredUnitGap / Shorted) lives in CookLineDriver
+            // (plantry-dq16) so a live cook and a reconcile classify the same failure identically. Never
+            // blocks on shortfall (C8/R9); OperationCanceledException propagates. This loop owns only the
+            // per-line CookLineResult aggregation for the confirmation UI and the SaveChanges cadence below.
+            var outcome = await lineDriver.DriveConsumeAsync(line, cookEvent.Id.Value, command.UserId, ct);
 
             lineResults.Add(new CookLineResult(
                 IngredientId.From(line.IngredientId),
                 line.ProductId,
                 line.Quantity,
                 line.UnitId,
-                shortfall,
-                shortfallUnit));
+                outcome.ShortfallAmount,
+                outcome.ShortfallUnitId));
         }
 
         // Persist the line status transitions (Applied / Shorted) — second Recipes commit.
@@ -366,30 +205,17 @@ public sealed class CookRecipe(
         {
             foreach (var produceLine in cookEvent.ProduceLines)
             {
-                try
-                {
-                    await producer.ProduceAsync(
-                        produceLine.ProductId,
-                        produceLine.Quantity,
-                        produceLine.UnitId,
-                        produceLine.ExpiryDate,
-                        ProduceReason.Recipe,
-                        cookEvent.Id.Value,
-                        command.UserId,
-                        sourceLineRef: produceLine.Id.Value,
-                        ct);
+                // Same driver-owned mapping as the consume loop (plantry-dq16): CookLineDriver drives the
+                // produce and marks the line Applied/Failed; this loop owns only how loudly to log a failure.
+                var outcome = await lineDriver.DriveProduceAsync(
+                    produceLine, cookEvent.Id.Value, command.UserId, ct);
 
-                    produceLine.MarkApplied();
-                }
-                catch (InvalidOperationException ex)
-                {
-                    // The yield add could not be recorded — record Failed (terminal) and continue. Logged at
-                    // Warning so a systematically failing produce is visible without failing the whole cook.
-                    logger.LogWarning(ex,
+                if (outcome.Status == CookProduceDriveStatus.Failed)
+                    // Logged at Warning so a systematically failing produce is visible without failing the
+                    // whole cook — a stored yield never blocks the cook (mirrors shortfall tolerance, C8/R9).
+                    logger.LogWarning(outcome.Failure,
                         "Yield produce failed for cook {CookEventId}, product {ProductId} — recorded Failed; cook proceeds.",
                         cookEvent.Id.Value, produceLine.ProductId);
-                    produceLine.MarkFailed();
-                }
             }
 
             // Persist the produce line status transitions — third Recipes commit.
@@ -419,34 +245,45 @@ public sealed class CookRecipe(
         return new CookRecipeResult.Cooked(cookEvent.Id, servingsCooked, lineResults);
     }
 
-    private readonly record struct ConsumeTarget(
-        Guid ProductId,
-        decimal Quantity,
-        Guid UnitId,
-        IngredientId IngredientId,
-        Guid? SourceRecipeId);
+    /// <summary>
+    /// Opportunistic reconciliation sweep (292c): re-drives any Pending consume lines from interrupted
+    /// prior cooks before starting a new cook, so stale Pending lines clear at the earliest opportunity
+    /// without a background poller (ADR-010). No-op when nothing is pending. Best-effort — non-cancellation
+    /// failures are swallowed so a stuck reconciliation never blocks the new cook.
+    /// <see cref="OperationCanceledException"/> propagates: if the request is cancelled there is no point
+    /// continuing the new cook either.
+    /// </summary>
+    private async Task TrySweepPendingCooksAsync(CancellationToken ct)
+    {
+        try { await reconciler.ExecuteAsync(ct); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* reconciliation is best-effort; do not block the new cook */ }
+    }
 
     /// <summary>
-    /// True when <paramref name="linePath"/> lies beneath any whole-inclusion skip prefix (D7) — i.e. some
-    /// skip's path is a list-prefix of the line's path. Compared segment-wise on <see cref="InclusionId"/>s
-    /// (never on the joined string) so a prefix only matches at inclusion boundaries.
+    /// Opportunistic deferred unit-gap self-heal (plantry-qll2.6): retro-applies any DeferredUnitGap consume
+    /// lines from prior cooks whose product is in <paramref name="candidateProductIds"/> — a conversion for
+    /// the pair may have landed since (AI-seeded or user-entered) without the Composition-layer trigger
+    /// firing (e.g. a failed background step). This is the self-healing net (ADR-014 "recoverable from
+    /// durable state"): any missed trigger settles on the next cook that touches the product. Best-effort —
+    /// a failure here must never block the new cook; <see cref="OperationCanceledException"/> still propagates.
     /// </summary>
-    private static bool IsUnderSkippedInclusion(
-        IReadOnlyList<InclusionId> linePath, List<IReadOnlyList<InclusionId>> skips)
+    private async Task TryHealDeferredUnitGapsAsync(
+        IReadOnlyCollection<Guid> candidateProductIds, RecipeId recipeId, CancellationToken ct)
     {
-        foreach (var prefix in skips)
+        if (candidateProductIds.Count == 0)
+            return;
+
+        try { await deferredUnitGaps.ExecuteAsync(candidateProductIds, ct); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
         {
-            if (prefix.Count == 0 || prefix.Count > linePath.Count)
-                continue;
-            var match = true;
-            for (var i = 0; i < prefix.Count; i++)
-            {
-                if (prefix[i] != linePath[i]) { match = false; break; }
-            }
-            if (match)
-                return true;
+            // Best-effort: never block the new cook. Logged (not swallowed silently) so a systematically
+            // failing self-heal — which would leave stock quietly diverging — is visible to operators.
+            logger.LogWarning(ex,
+                "Opportunistic deferred unit-gap self-heal failed at cook entry for recipe {RecipeId}; a Composition-layer trigger or the next cook recovers from durable state.",
+                recipeId.Value);
         }
-        return false;
     }
 }
 

@@ -375,17 +375,17 @@ public sealed class AddIngredientsToShoppingListTests
 
         // Sub default 2 servings, 200 of the product.
         var sub = Recipe.Create(Household, "Pie Crust", 2, Clock).Value;
-        sub.ReplaceLines([new IngredientLine(product.Id, 200m, unitId, null, 0)], [], Clock);
+        sub.ReplaceLines(RecipeLineSet.Create([new IngredientLine(product.Id, 200m, unitId, null, 0)], [], sub.Id).Value, Clock);
         h.Recipes.Items.Add(sub);
 
         // Parent (inclusion-only) includes the SAME sub twice (D14): "Base" ×1 (f=0.5 → 100) and
         // "Lattice" ×0.5 (f=0.25 → 50). Aggregation merges by (ProductId, UnitId) → 150.
         var parent = Recipe.Create(Household, "Apple Pie", 4, Clock).Value;
-        parent.ReplaceLines([],
+        parent.ReplaceLines(RecipeLineSet.Create([],
         [
             new InclusionLine(sub.Id, 1m, "Base", 0),
             new InclusionLine(sub.Id, 0.5m, "Lattice", 1),
-        ], Clock);
+        ], parent.Id).Value, Clock);
         h.Recipes.Items.Add(parent);
 
         var result = await h.Service.ExecuteAsync(parent.Id, servings: 4);

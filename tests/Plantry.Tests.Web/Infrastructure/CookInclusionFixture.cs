@@ -53,8 +53,10 @@ public static class CookInclusionFixture
 
         var parent = Recipe.Create(hid, "Nachos", defaultServings: 4, clock).Value;
         parent.ReplaceLines(
-            ingredients: [new IngredientLine(ChipsId, 200m, GramUnitId, GroupHeading: null, Ordinal: 1)],
-            inclusions: [new InclusionLine(sub.Id, Servings: 2m, GroupHeading: null, Ordinal: 2)],
+            RecipeLineSet.Create(
+                ingredients: [new IngredientLine(ChipsId, 200m, GramUnitId, GroupHeading: null, Ordinal: 1)],
+                inclusions: [new InclusionLine(sub.Id, Servings: 2m, GroupHeading: null, Ordinal: 2)],
+                parent.Id).Value,
             clock);
 
         return (parent, sub);

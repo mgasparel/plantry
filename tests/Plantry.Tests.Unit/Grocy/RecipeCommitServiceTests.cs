@@ -50,7 +50,9 @@ public sealed class RecipeCommitServiceTests
             var converter = new FakeUnitConverter();
             var writer    = new FakeCatalogWriter(Products, converter);
             var tenant    = new FakeTenantContext(authenticated ? HouseholdGuid : (Guid?)null);
-            var author    = new AuthorRecipe(Recipes, tags, Products, writer, converter, Clock, tenant, NullLogger<AuthorRecipe>.Instance);
+            var lineResolver = new IngredientLineResolver(Products, writer);
+            var conversionPlanner = new ConversionGapPlanner(converter, writer);
+            var author    = new AuthorRecipe(Recipes, tags, Products, writer, lineResolver, conversionPlanner, Clock, tenant, NullLogger<AuthorRecipe>.Instance);
 
             Service = new RecipeCommitService(author, Recipes, Clock, tenant);
         }

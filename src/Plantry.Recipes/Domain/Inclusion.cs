@@ -11,7 +11,7 @@ namespace Plantry.Recipes.Domain;
 /// ordinal space with the ingredient lines (N3).
 /// <para>
 /// Invariants N1 (<c>Servings &gt; 0</c>) and N2 (<see cref="SubRecipeId"/> ≠ owning recipe id) are
-/// enforced by <see cref="Recipe.ReplaceLines"/>; the DAG / same-household / sub-existence checks (N4)
+/// enforced by <see cref="RecipeLineSet.Create"/>; the DAG / same-household / sub-existence checks (N4)
 /// are cross-aggregate and live in the application layer.
 /// </para>
 /// </summary>

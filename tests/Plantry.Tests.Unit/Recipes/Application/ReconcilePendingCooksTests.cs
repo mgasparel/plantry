@@ -40,7 +40,8 @@ public sealed class ReconcilePendingCooksTests
         var consumer = new FakeInventoryConsumer();
         var producer = new FakeInventoryProducer();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
-        var service = new ReconcilePendingCooks(cookEvents, consumer, producer, tenant, NullLogger<ReconcilePendingCooks>.Instance);
+        var lineDriver = new CookLineDriver(consumer, producer);
+        var service = new ReconcilePendingCooks(cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         return new Harness
         {
             CookEvents = cookEvents,

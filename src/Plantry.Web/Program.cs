@@ -547,7 +547,11 @@ builder.Services.AddScoped<FulfillmentService>();
 builder.Services.AddScoped<CostingService>();
 
 // Recipe authoring application service (P2-1c, recipes-domain-model.md §7) — orchestrates create/edit
-// over the Catalog ports + the recipe/tag repositories. Consumed by the P2-1d editor page.
+// over the Catalog ports + the recipe/tag repositories. Consumed by the P2-1d editor page. Its extracted
+// phase cores (plantry-xgmb) — per-line product resolution and the R7/C10 conversion planner — are
+// registered alongside it; both talk to Catalog only through the same anti-corruption ports.
+builder.Services.AddScoped<IngredientLineResolver>();
+builder.Services.AddScoped<ConversionGapPlanner>();
 builder.Services.AddScoped<AuthorRecipe>();
 
 // Archives a recipe with the N5 guard (recipe-composition.md D12): blocks while the recipe is included
@@ -607,6 +611,13 @@ builder.Services.AddSingleton<RecipeConversionBackfillCycle>();
 // Recipe browse query (P2-2c, J1/J2). Assembles the browse view model: lean recipe list + live
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
+
+// Cook line-drive protocol (plantry-dq16). The single owner of the anchor-first exception-to-status
+// mapping (Applied / DeferredUnitGap / Shorted for consumes; Applied / Failed for produces) shared by
+// CookRecipe and ReconcilePendingCooks, so a live cook and a reconcile can never classify the same
+// failure differently. Wraps the IInventoryConsumer / IInventoryProducer adapters registered in
+// Composition (AddCrossContextAdapters).
+builder.Services.AddScoped<CookLineDriver>();
 
 // Reconcile-pending-cooks service (P2-3d / plantry-292c). Re-drives Pending consume lines left by
 // interrupted cooks — called opportunistically at CookRecipe entry and on-demand via the dedicated

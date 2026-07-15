@@ -17,6 +17,16 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
             .Include(r => r.Photo)
             .FirstOrDefaultAsync(r => r.Id == id, ct);
 
+    public async Task<IReadOnlySet<RecipeId>> ResolveExistingIdsAsync(IReadOnlyList<RecipeId> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0) return new HashSet<RecipeId>();
+        var wanted = ids.ToHashSet();
+        // Existence check mirrors GetByIdAsync — RLS-scoped, archived recipes included; PK projection only
+        // (no Ingredients/Inclusions/Tags/Photo includes). EF translates Contains to a SQL IN (...) clause.
+        var found = await db.Recipes.Where(r => wanted.Contains(r.Id)).Select(r => r.Id).ToListAsync(ct);
+        return found.ToHashSet();
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);
 
