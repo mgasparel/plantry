@@ -48,8 +48,8 @@ public sealed class ArchiveRecipeTests
         // Two parents include the sub.
         var parent1 = SeedRecipe(repo, "Nachos");
         var parent2 = SeedRecipe(repo, "Loaded Fries");
-        parent1.ReplaceLines([], [new InclusionLine(sub.Id, 2m, null, 0)], Clock);
-        parent2.ReplaceLines([], [new InclusionLine(sub.Id, 1m, null, 0)], Clock);
+        parent1.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(sub.Id, 2m, null, 0)], parent1.Id).Value, Clock);
+        parent2.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(sub.Id, 1m, null, 0)], parent2.Id).Value, Clock);
 
         var result = await service.ExecuteAsync(sub.Id);
 
@@ -67,7 +67,7 @@ public sealed class ArchiveRecipeTests
         var (service, repo) = Build();
         var sub = SeedRecipe(repo, "Pie Crust");
         var parent = SeedRecipe(repo, "Apple Pie");
-        parent.ReplaceLines([], [new InclusionLine(sub.Id, 1m, null, 0)], Clock);
+        parent.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(sub.Id, 1m, null, 0)], parent.Id).Value, Clock);
 
         var result = await service.ExecuteAsync(sub.Id);
 

@@ -249,8 +249,10 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
             var repo = new RecipeRepository(ctx);
             var parent = Recipe.Create(_household, "Nachos Deluxe", 2, _clock).Value;
             parent.ReplaceLines(
-                [new IngredientLine(Guid.CreateVersion7(), 200m, Guid.CreateVersion7(), null, 0)],
-                [new InclusionLine(subId, 2m, "Toppings", 1)],
+                RecipeLineSet.Create(
+                    [new IngredientLine(Guid.CreateVersion7(), 200m, Guid.CreateVersion7(), null, 0)],
+                    [new InclusionLine(subId, 2m, "Toppings", 1)],
+                    parent.Id).Value,
                 _clock);
             parentId = parent.Id;
             await repo.AddAsync(parent);
@@ -287,7 +289,7 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
             await repo.AddAsync(b);
 
             var parent = Recipe.Create(_household, "Assembly", 2, _clock).Value;
-            parent.ReplaceLines([], [new InclusionLine(subA, 1m, null, 0)], _clock);
+            parent.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(subA, 1m, null, 0)], parent.Id).Value, _clock);
             parentId = parent.Id;
             await repo.AddAsync(parent);
             await repo.SaveChangesAsync();
@@ -298,7 +300,7 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         {
             var repo = new RecipeRepository(ctx);
             var parent = await repo.GetByIdAsync(parentId);
-            parent!.ReplaceLines([], [new InclusionLine(subB, 3m, null, 0)], _clock);
+            parent!.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(subB, 3m, null, 0)], parent.Id).Value, _clock);
             await repo.SaveChangesAsync();
         }
 
@@ -323,12 +325,12 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
             await repo.AddAsync(rc);
 
             var rb = Recipe.Create(_household, "B", 4, _clock).Value;
-            rb.ReplaceLines([], [new InclusionLine(c, 1m, null, 0)], _clock);
+            rb.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(c, 1m, null, 0)], rb.Id).Value, _clock);
             b = rb.Id;
             await repo.AddAsync(rb);
 
             var ra = Recipe.Create(_household, "A", 4, _clock).Value;
-            ra.ReplaceLines([], [new InclusionLine(b, 1m, null, 0)], _clock);
+            ra.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(b, 1m, null, 0)], ra.Id).Value, _clock);
             a = ra.Id;
             await repo.AddAsync(ra);
             await repo.SaveChangesAsync();
@@ -360,12 +362,12 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
             await repo.AddAsync(rSub);
 
             var ra = Recipe.Create(_household, "A", 4, _clock).Value;
-            ra.ReplaceLines([], [new InclusionLine(sub, 1m, null, 0)], _clock);
+            ra.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(sub, 1m, null, 0)], ra.Id).Value, _clock);
             a = ra.Id;
             await repo.AddAsync(ra);
 
             var rb = Recipe.Create(_household, "B", 4, _clock).Value;
-            rb.ReplaceLines([], [new InclusionLine(sub, 2m, null, 0)], _clock);
+            rb.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(sub, 2m, null, 0)], rb.Id).Value, _clock);
             b = rb.Id;
             await repo.AddAsync(rb);
             await repo.SaveChangesAsync();

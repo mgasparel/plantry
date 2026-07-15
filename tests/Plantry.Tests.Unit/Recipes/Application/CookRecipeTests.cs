@@ -1100,8 +1100,9 @@ public sealed class CookRecipeTests
         IReadOnlyList<InclusionLine> inclusions)
     {
         var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
-        var replace = recipe.ReplaceLines(directIngredients, inclusions, Clock);
+        var replace = RecipeLineSet.Create(directIngredients, inclusions, recipe.Id);
         Assert.False(replace.IsFailure);
+        recipe.ReplaceLines(replace.Value, Clock);
         h.Recipes.Items.Add(recipe);
         return recipe;
     }

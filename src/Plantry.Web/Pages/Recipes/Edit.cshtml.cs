@@ -481,7 +481,7 @@ public sealed class EditModel(
         // Inclusion lines (recipe-composition.md §3, D1). Ordinal is shared with the ingredient lines;
         // AuthorRecipe canonicalises the union of both line types to a contiguous 0-based sequence. Blank
         // rows (no sub chosen) are dropped. Same-household / sub-existence / N2 / N4 are enforced server-side
-        // by AuthorRecipe; N1 (Servings > 0) by Recipe.ReplaceLines — surfaced here as a validation banner.
+        // by AuthorRecipe; N1 (Servings > 0) by RecipeLineSet.Create — surfaced here as a validation banner.
         var inclusions = Input.Inclusions
             .Where(i => i.SubRecipeId != Guid.Empty)
             .Select(i => new AuthorInclusionLine(

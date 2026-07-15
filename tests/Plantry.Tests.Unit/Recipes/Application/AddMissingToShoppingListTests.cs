@@ -328,11 +328,11 @@ public sealed class AddMissingToShoppingListTests
         // Sub default 2 servings, 100 of the product. Parent (inclusion-only) default 4, includes 3
         // servings of the sub → factor 3/2 = 1.5 → expanded quantity = 150.
         var sub = Recipe.Create(Household, "Nacho Cheese", 2, Clock).Value;
-        sub.ReplaceLines([new IngredientLine(product.Id, 100m, unitId, null, 0)], [], Clock);
+        sub.ReplaceLines(RecipeLineSet.Create([new IngredientLine(product.Id, 100m, unitId, null, 0)], [], sub.Id).Value, Clock);
         h.Recipes.Items.Add(sub);
 
         var parent = Recipe.Create(Household, "Nachos", 4, Clock).Value;
-        parent.ReplaceLines([], [new InclusionLine(sub.Id, 3m, null, 0)], Clock);
+        parent.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(sub.Id, 3m, null, 0)], parent.Id).Value, Clock);
         h.Recipes.Items.Add(parent);
 
         var result = await h.Service.ExecuteAsync(parent.Id, desiredServings: 4);

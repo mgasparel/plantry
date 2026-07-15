@@ -44,8 +44,9 @@ public sealed class RecipeExpansionServiceTests
         IReadOnlyList<InclusionLine>? inclusions = null)
     {
         var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
-        var result = recipe.ReplaceLines(ingredients, inclusions ?? [], Clock);
+        var result = RecipeLineSet.Create(ingredients, inclusions ?? [], recipe.Id);
         Assert.True(result.IsSuccess, $"Seed failed: {result.Error.Code}");
+        recipe.ReplaceLines(result.Value, Clock);
         repo.Items.Add(recipe);
         return recipe;
     }
@@ -260,8 +261,8 @@ public sealed class RecipeExpansionServiceTests
         // in-memory graph is cyclic — exactly the state N4 prevents at save.
         var a = Seed(repo, "A", 2, [Ing(1m, UnitG, ordinal: 0)]);
         var b = Seed(repo, "B", 2, [Ing(1m, UnitG, ordinal: 0)]);
-        a.ReplaceLines([Ing(1m, UnitG, ordinal: 0)], [new InclusionLine(b.Id, 1m, null, 1)], Clock);
-        b.ReplaceLines([Ing(1m, UnitG, ordinal: 0)], [new InclusionLine(a.Id, 1m, null, 1)], Clock);
+        a.ReplaceLines(RecipeLineSet.Create([Ing(1m, UnitG, ordinal: 0)], [new InclusionLine(b.Id, 1m, null, 1)], a.Id).Value, Clock);
+        b.ReplaceLines(RecipeLineSet.Create([Ing(1m, UnitG, ordinal: 0)], [new InclusionLine(a.Id, 1m, null, 1)], b.Id).Value, Clock);
 
         var result = await service.ExpandAsync(a.Id);
 

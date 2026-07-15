@@ -105,7 +105,7 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         await repo.AddAsync(sub);
 
         var parent = Recipe.Create(_household, "Nachos", 2, Clock).Value;
-        parent.ReplaceLines([], [new InclusionLine(sub.Id, 2m, null, 0)], Clock);
+        parent.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(sub.Id, 2m, null, 0)], parent.Id).Value, Clock);
         await repo.AddAsync(parent);
 
         await repo.SaveChangesAsync();

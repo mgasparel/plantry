@@ -64,8 +64,9 @@ public sealed class ExpandedConsumersTests
         IReadOnlyList<IngredientLine> ingredients, IReadOnlyList<InclusionLine>? inclusions = null)
     {
         var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
-        var result = recipe.ReplaceLines(ingredients, inclusions ?? [], Clock);
+        var result = RecipeLineSet.Create(ingredients, inclusions ?? [], recipe.Id);
         Assert.True(result.IsSuccess, $"Seed failed: {result.Error.Code}");
+        recipe.ReplaceLines(result.Value, Clock);
         repo.Items.Add(recipe);
         return recipe;
     }

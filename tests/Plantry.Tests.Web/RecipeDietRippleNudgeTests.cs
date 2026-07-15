@@ -198,13 +198,15 @@ internal sealed class RippleNudgeFactory : WebApplicationFactory<Program>
 
         _sub = Recipe.Create(household, "Cheese Sauce", 2, clock).Value;
         SetRecipeId(_sub, SubId);
-        _sub.ReplaceLines([new IngredientLine(DairyId, 100m, GramUnitId, null, 0)], [], clock);
+        _sub.ReplaceLines(RecipeLineSet.Create([new IngredientLine(DairyId, 100m, GramUnitId, null, 0)], [], _sub.Id).Value, clock);
 
         Parent = Recipe.Create(household, "Vegan Nachos", 2, clock).Value;
         SetRecipeId(Parent, ParentId);
         Parent.ReplaceLines(
-            [new IngredientLine(PastaId, 200m, GramUnitId, null, 0)],
-            [new InclusionLine(SubId, 2m, null, 1)],
+            RecipeLineSet.Create(
+                [new IngredientLine(PastaId, 200m, GramUnitId, null, 0)],
+                [new InclusionLine(SubId, 2m, null, 1)],
+                Parent.Id).Value,
             clock);
         Parent.SetTags([VeganTagId], clock);
     }

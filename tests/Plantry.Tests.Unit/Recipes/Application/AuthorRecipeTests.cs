@@ -686,7 +686,7 @@ public sealed class AuthorRecipeTests
         var h = BuildHarness();
         var a = SeedRecipe(h, "A");
         var b = SeedRecipe(h, "B");
-        a.ReplaceLines([], [new InclusionLine(b.Id, 1m, null, 0)], Clock);
+        a.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(b.Id, 1m, null, 0)], a.Id).Value, Clock);
 
         var command = new AuthorRecipeCommand(
             RecipeId: b.Id, Name: "B", DefaultServings: 4,
@@ -707,8 +707,8 @@ public sealed class AuthorRecipeTests
         var a = SeedRecipe(h, "A");
         var b = SeedRecipe(h, "B");
         var c = SeedRecipe(h, "C");
-        a.ReplaceLines([], [new InclusionLine(b.Id, 1m, null, 0)], Clock);
-        b.ReplaceLines([], [new InclusionLine(c.Id, 1m, null, 0)], Clock);
+        a.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(b.Id, 1m, null, 0)], a.Id).Value, Clock);
+        b.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(c.Id, 1m, null, 0)], b.Id).Value, Clock);
 
         var command = new AuthorRecipeCommand(
             RecipeId: c.Id, Name: "C", DefaultServings: 4,
@@ -729,7 +729,7 @@ public sealed class AuthorRecipeTests
         var a = SeedRecipe(h, "A");
         var b = SeedRecipe(h, "B");
         var c = SeedRecipe(h, "C");
-        a.ReplaceLines([], [new InclusionLine(b.Id, 1m, null, 0)], Clock);
+        a.ReplaceLines(RecipeLineSet.Create([], [new InclusionLine(b.Id, 1m, null, 0)], a.Id).Value, Clock);
 
         var command = new AuthorRecipeCommand(
             RecipeId: b.Id, Name: "B", DefaultServings: 4,

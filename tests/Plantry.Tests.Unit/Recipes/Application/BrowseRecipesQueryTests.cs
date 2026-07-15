@@ -133,8 +133,9 @@ public sealed class BrowseRecipesQueryTests
         public Recipe AddParentIncluding(string name, Recipe sub, decimal servings, int defaultServings = 2)
         {
             var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
-            var result = recipe.ReplaceLines([], [new InclusionLine(sub.Id, servings, null, 0)], Clock);
+            var result = RecipeLineSet.Create([], [new InclusionLine(sub.Id, servings, null, 0)], recipe.Id);
             Assert.True(result.IsSuccess, $"AddParentIncluding failed: {result.Error.Code}");
+            recipe.ReplaceLines(result.Value, Clock);
             Recipes.Items.Add(recipe);
             return recipe;
         }
@@ -148,11 +149,12 @@ public sealed class BrowseRecipesQueryTests
         public Recipe AddRecipeWithDanglingInclusion(string name, Guid productId, Guid unitId, int defaultServings = 2)
         {
             var recipe = Recipe.Create(Household, name, defaultServings, Clock).Value;
-            var result = recipe.ReplaceLines(
+            var result = RecipeLineSet.Create(
                 [new IngredientLine(productId, 100m, unitId, null, 0)],
                 [new InclusionLine(RecipeId.New(), 2m, null, 1)],
-                Clock);
+                recipe.Id);
             Assert.True(result.IsSuccess, $"AddRecipeWithDanglingInclusion failed: {result.Error.Code}");
+            recipe.ReplaceLines(result.Value, Clock);
             Recipes.Items.Add(recipe);
             return recipe;
         }

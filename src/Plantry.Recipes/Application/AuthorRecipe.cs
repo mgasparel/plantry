@@ -274,9 +274,10 @@ public sealed class AuthorRecipe(
             recipe = created.Value;
             ApplyScalars(recipe, command);
 
-            var replace = recipe.ReplaceLines(domainLines, domainInclusions, clock);
-            if (replace.IsFailure)
-                return (null, replace.Error);
+            var lineSet = RecipeLineSet.Create(domainLines, domainInclusions, recipe.Id);
+            if (lineSet.IsFailure)
+                return (null, lineSet.Error);
+            recipe.ReplaceLines(lineSet.Value, clock);
 
             recipe.SetTags(tagIds, clock);
             await recipes.AddAsync(recipe, ct);
@@ -289,9 +290,10 @@ public sealed class AuthorRecipe(
                 return (null, rename.Error);
             ApplyScalars(recipe, command);
 
-            var replace = recipe.ReplaceLines(domainLines, domainInclusions, clock);
-            if (replace.IsFailure)
-                return (null, replace.Error);
+            var lineSet = RecipeLineSet.Create(domainLines, domainInclusions, recipe.Id);
+            if (lineSet.IsFailure)
+                return (null, lineSet.Error);
+            recipe.ReplaceLines(lineSet.Value, clock);
 
             // J7 step 3 — a servings change scales (Proportional) or preserves (Keep) the just-set lines.
             if (command.DefaultServings != recipe.DefaultServings)
@@ -454,7 +456,7 @@ public sealed record AuthorRecipeCommand(
 /// <see cref="AuthorIngredientLine"/> — the service canonicalises the union of both line types to a
 /// contiguous 0-based sequence, preserving the author's relative order. Same-household reference,
 /// sub-existence, and the DAG check (N4) are enforced by <see cref="AuthorRecipe"/> before the aggregate
-/// call; N1 (Servings &gt; 0) and N2 (no self-inclusion) are enforced by <see cref="Recipe.ReplaceLines"/>.
+/// call; N1 (Servings &gt; 0) and N2 (no self-inclusion) are enforced by <see cref="RecipeLineSet.Create"/>.
 /// </summary>
 public sealed record AuthorInclusionLine(
     Guid SubRecipeId,

@@ -262,81 +262,35 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     // ── Line replacement (ingredients + inclusions) ────────────────────────────
 
     /// <summary>
-    /// Wholesale-replaces the ingredient list with no inclusions — the backward-compatible entry point
-    /// (delegates to <see cref="ReplaceLines"/> with an empty inclusion set). Retained so existing callers
-    /// that only author ingredients keep compiling (recipe-composition.md §3 gotcha).
+    /// Wholesale-replaces the ingredient list with no inclusions — an ingredients-only convenience over
+    /// <see cref="ReplaceLines"/>. Builds and validates a <see cref="RecipeLineSet"/> (empty inclusion set)
+    /// through the single validation home, so the line-set invariants (R3′/R4/R5) are enforced here too;
+    /// returns the first blocking <see cref="Error"/> when they fail. Retained so ingredient-only callers
+    /// keep a one-line entry point (recipe-composition.md §3 gotcha).
     /// </summary>
-    public Result ReplaceIngredients(IReadOnlyList<IngredientLine> lines, IClock clock) =>
-        ReplaceLines(lines, [], clock);
+    public Result ReplaceIngredients(IReadOnlyList<IngredientLine> lines, IClock clock)
+    {
+        var lineSet = RecipeLineSet.Create(lines, [], Id);
+        if (lineSet.IsFailure)
+            return lineSet.Error;
+
+        ReplaceLines(lineSet.Value, clock);
+        return Result.Success();
+    }
 
     /// <summary>
-    /// Wholesale-replaces both line types (ingredients and inclusions) in a single operation, emitting one
-    /// <see cref="RecipeUpdatedEvent"/> (recipe-composition.md §3). Enforces:
-    /// R3′: at least one ingredient OR inclusion is required (D3);
-    /// R4: every ingredient ProductId must be non-empty;
-    /// R5: ingredient Quantity and UnitId must both be set or both null;
-    /// N1: every inclusion Servings must be &gt; 0;
-    /// N2: no inclusion may reference this recipe (no self-inclusion);
-    /// N3 (R6 widened): ordinals must be contiguous across the UNION of ingredient and inclusion lines.
-    /// Re-mints <see cref="IngredientId"/> and <see cref="InclusionId"/> per line (O1). The DAG / same-household
-    /// / sub-existence checks (N4) are cross-aggregate and enforced by the application layer before this call.
+    /// Wholesale-replaces both line types (ingredients and inclusions) from an already-validated
+    /// <see cref="RecipeLineSet"/>, emitting one <see cref="RecipeUpdatedEvent"/> (recipe-composition.md §3).
+    /// The line-set invariants (R3′/R4/R5/N1/N2/N3) are enforced once, at construction, by
+    /// <see cref="RecipeLineSet.Create"/> — this method carries no validation and cannot fail, so it simply
+    /// applies the set, re-minting <see cref="IngredientId"/> and <see cref="InclusionId"/> per line (O1),
+    /// touches the aggregate, and raises the update event. The DAG / same-household / sub-existence checks
+    /// (N4) are cross-aggregate and enforced by the application layer before the set is built.
     /// </summary>
-    public Result ReplaceLines(
-        IReadOnlyList<IngredientLine> ingredients,
-        IReadOnlyList<InclusionLine> inclusions,
-        IClock clock)
+    public void ReplaceLines(RecipeLineSet lineSet, IClock clock)
     {
-        // R3′ — at least one ingredient OR inclusion
-        if (ingredients.Count == 0 && inclusions.Count == 0)
-            return Error.Custom("Recipes.NoIngredients",
-                "A recipe must have at least one ingredient or included recipe.");
-
-        // R4 — every ingredient ProductId non-null / non-empty
-        foreach (var line in ingredients)
-        {
-            if (line.ProductId == Guid.Empty)
-                return Error.Custom("Recipes.InvalidProductId", "Each ingredient must reference a product.");
-        }
-
-        // R5 — ingredient qty/unit both-set or both-null
-        foreach (var line in ingredients)
-        {
-            if (line.Quantity.HasValue != line.UnitId.HasValue)
-                return Error.Custom("Recipes.QtyUnitMismatch",
-                    "Quantity and UnitId must both be set or both be null.");
-        }
-
-        // N1 — every inclusion serving count > 0
-        foreach (var inc in inclusions)
-        {
-            if (inc.Servings <= 0)
-                return Error.Custom("Recipes.InvalidInclusionServings",
-                    "An included recipe must specify a positive number of servings.");
-        }
-
-        // N2 — no self-inclusion (the degenerate cycle)
-        foreach (var inc in inclusions)
-        {
-            if (inc.SubRecipeId == Id)
-                return Error.Custom("Recipes.SelfInclusion",
-                    "A recipe cannot include itself.");
-        }
-
-        // N3 (R6 widened) — ordinals contiguous from min value across the union of BOTH line types
-        var ordinals = ingredients.Select(l => l.Ordinal)
-            .Concat(inclusions.Select(l => l.Ordinal))
-            .OrderBy(o => o)
-            .ToList();
-        var minOrdinal = ordinals[0];
-        for (var i = 0; i < ordinals.Count; i++)
-        {
-            if (ordinals[i] != minOrdinal + i)
-                return Error.Custom("Recipes.NonContiguousOrdinals",
-                    "Recipe line ordinals must be contiguous across ingredients and inclusions.");
-        }
-
         _ingredients.Clear();
-        foreach (var line in ingredients)
+        foreach (var line in lineSet.Ingredients)
         {
             _ingredients.Add(Ingredient.Create(
                 IngredientId.New(),
@@ -350,7 +304,7 @@ public sealed class Recipe : AggregateRoot<RecipeId>
         }
 
         _inclusions.Clear();
-        foreach (var inc in inclusions)
+        foreach (var inc in lineSet.Inclusions)
         {
             _inclusions.Add(Inclusion.Create(
                 InclusionId.New(),
@@ -364,7 +318,6 @@ public sealed class Recipe : AggregateRoot<RecipeId>
 
         Touch(clock);
         RaiseDomainEvent(new RecipeUpdatedEvent(Id, HouseholdId, UpdatedAt));
-        return Result.Success();
     }
 
     // ── Serving mutation ───────────────────────────────────────────────────────

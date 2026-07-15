@@ -196,7 +196,9 @@ public sealed class RecipeNestingDeflattenServiceTests
         var edited = parent.Ingredients
             .Select(i => new IngredientLine(i.ProductId, i.Quantity + 5m, i.UnitId, i.GroupHeading, i.Ordinal))
             .ToList();
-        Assert.True(parent.ReplaceLines(edited, [], Clock).IsSuccess);
+        var editedSet = RecipeLineSet.Create(edited, [], parent.Id);
+        Assert.True(editedSet.IsSuccess);
+        parent.ReplaceLines(editedSet.Value, Clock);
 
         var summary = await h.DeflattenService.DeflattenAsync(rows, manifest, manifestPath, default);
 
