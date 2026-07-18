@@ -157,7 +157,11 @@
                  newStapleCategoryId: '', newGroupId: '', newGroupName: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '',
                  convLeftAmount: '', convLeftUnitId: '', convRightAmount: '', convRightUnitId: '',
-                 convFor: '', stockUnits: [], recipeUnits: [] };
+                 convFor: '', stockUnits: [], recipeUnits: [],
+                 // plantry-obg3: true when the product's default (stock) unit is unresolvable — the prompt
+                 // then shows an explicit human-readable message instead of a blank-unit sentence + an
+                 // option-less dropdown.
+                 defaultUnitMissing: false };
          },
          openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.sheetError = ''; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
          // editingIdx carries the row's stable _id while editing (null while adding). The shared
@@ -312,6 +316,15 @@
                  if (!res.ok) return;
                  const data = await res.json();
                  if (!data.needsConversion) { row.needsConversion = false; return; }
+                 // plantry-obg3: product default unit unresolvable — show the explicit message instead of
+                 // the option-less equation (mirrors the in-sheet prompt). Clear the axis lists.
+                 if (data.defaultUnitMissing) {
+                     row.defaultUnitMissing = true;
+                     row.stockUnits = [];
+                     row.recipeUnits = [];
+                     return;
+                 }
+                 row.defaultUnitMissing = false;
                  row.defaultUnitId = data.defaultUnitId || row.defaultUnitId;
                  row.defaultUnitCode = data.defaultUnitCode || row.defaultUnitCode;
                  row.stockUnits = data.stockUnits || [];
@@ -501,6 +514,16 @@
                      const data = await res.json();
                      if (data.needsConversion) {
                          draft.needsConversion = true;
+                         // plantry-obg3: product default unit unresolvable server-side — show an explicit
+                         // message instead of mounting the equation with a blank unit label and an
+                         // option-less LEFT dropdown. Clear the axis lists so no stray options render.
+                         if (data.defaultUnitMissing) {
+                             draft.defaultUnitMissing = true;
+                             draft.stockUnits = [];
+                             draft.recipeUnits = [];
+                             return;
+                         }
+                         draft.defaultUnitMissing = false;
                          draft.defaultUnitId = data.defaultUnitId || draft.defaultUnitId;
                          draft.defaultUnitCode = data.defaultUnitCode || draft.defaultUnitCode;
                          // Axis-locked unit lists for the four-field equation (plantry-qno9): LEFT lists
@@ -833,7 +856,16 @@
 										<div x-show="rowShowConversion(row)" x-init="maybeHydrateRowConversion(row)" class="ingredient-row__conversion" :style="rowConvFilled(row)
                                                 ? 'background:var(--color-surface-2);border-top:1px solid var(--color-border);padding:var(--space-3) var(--space-4)'
                                                 : 'background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)'">
-											<p x-show="!rowConvFilled(row)" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+											<p x-show="row.defaultUnitMissing" x-cloak="" style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+												<svg class="icon" aria-hidden="true" style="flex:none">
+													<use href="#i-alert"></use>
+												</svg>
+												<span>
+													<strong x-text="row.productName"></strong>
+													has no stock unit set, so Plantry can't                                                     work out the conversion. Set a default unit for this product in your catalog first.
+												</span>
+											</p>
+											<p x-show="!rowConvFilled(row) &amp;&amp; !row.defaultUnitMissing" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
 												Plantry stocks
 												<strong x-text="row.productName"></strong>
 												in
@@ -841,20 +873,22 @@
 												<span x-text="unitLabel(row.unitId)"></span>
 												relate?
 											</p>
-											<div class="conv-eq">
-												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
-												<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">
-													<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-												</select>
-												<span class="conv-eq__op">=</span>
-												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="row.convRightAmount" aria-label="Recipe amount">
-												<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit">
-													<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-												</select>
-											</div>
-											<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
-												<span x-text="rowConversionEcho(row)"></span>
-											</p>
+											<template x-if="!row.defaultUnitMissing"><div>
+													<div class="conv-eq">
+														<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
+														<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">
+															<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+														</select>
+														<span class="conv-eq__op">=</span>
+														<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="row.convRightAmount" aria-label="Recipe amount">
+														<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit">
+															<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+														</select>
+													</div>
+													<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+														<span x-text="rowConversionEcho(row)"></span>
+													</p>
+												</div></template>
 											<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-1) 0 0;font-size:var(--font-size-sm);color:var(--color-text-muted)">
 												Saved to your catalog when you save the recipe.
 											</p>
@@ -1088,36 +1122,47 @@
 					</details>
 				</div>
 				<template x-if="draft.needsConversion"><div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)">
-						<p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
-							Plantry stocks
-							<strong x-text="draft.productName"></strong>
-							in
-							<strong x-text="draft.defaultUnitCode"></strong>.             How does 1
-							<span x-text="unitLabel(draft.unitId)"></span>
-							relate?
-						</p>
-						<div class="conv-eq">
-							<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="draft.convLeftAmount" aria-label="Stock amount">
-							<select class="field__input conv-eq__unit" x-model="draft.convLeftUnitId" aria-label="Stock unit">
-								<template x-for="u in (draft.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-							</select>
-							<span class="conv-eq__op">=</span>
-							<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="draft.convRightAmount" aria-label="Recipe amount">
-							<select class="field__input conv-eq__unit" x-model="draft.convRightUnitId" aria-label="Recipe unit">
-								<template x-for="u in (draft.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-							</select>
-						</div>
-						<p x-show="conversionEcho() !== ''" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
-							<span x-text="conversionEcho()"></span>
-						</p>
-						<p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-							Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
-						</p>
-						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''; draft.convFor = ''">
-							Measure in
-							<span x-text="draft.defaultUnitCode"></span>
-							instead
-						</button>
+						<template x-if="draft.defaultUnitMissing"><p style="margin:0;font-size:var(--font-size-sm);display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+								<svg class="icon" aria-hidden="true" style="flex:none">
+									<use href="#i-alert"></use>
+								</svg>
+								<span>
+									<strong x-text="draft.productName"></strong>
+									has no stock unit set, so Plantry can't                     work out the conversion. Set a default unit for this product in your catalog first.
+								</span>
+							</p></template>
+						<template x-if="!draft.defaultUnitMissing"><div>
+								<p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
+									Plantry stocks
+									<strong x-text="draft.productName"></strong>
+									in
+									<strong x-text="draft.defaultUnitCode"></strong>.                     How does 1
+									<span x-text="unitLabel(draft.unitId)"></span>
+									relate?
+								</p>
+								<div class="conv-eq">
+									<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="draft.convLeftAmount" aria-label="Stock amount">
+									<select class="field__input conv-eq__unit" x-model="draft.convLeftUnitId" aria-label="Stock unit">
+										<template x-for="u in (draft.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+									</select>
+									<span class="conv-eq__op">=</span>
+									<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="draft.convRightAmount" aria-label="Recipe amount">
+									<select class="field__input conv-eq__unit" x-model="draft.convRightUnitId" aria-label="Recipe unit">
+										<template x-for="u in (draft.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+									</select>
+								</div>
+								<p x-show="conversionEcho() !== ''" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+									<span x-text="conversionEcho()"></span>
+								</p>
+								<p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+									Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
+								</p>
+								<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''; draft.convFor = ''">
+									Measure in
+									<span x-text="draft.defaultUnitCode"></span>
+									instead
+								</button>
+							</div></template>
 					</div></template>
 				<div class="sheet__actions" x-show="sheetView !== 'create'">
 					<button type="button" class="btn btn--primary" @click="saveSheet()" x-text="editingIdx === null ? 'Add' : 'Save'"></button>

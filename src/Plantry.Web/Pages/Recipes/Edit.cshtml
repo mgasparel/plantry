@@ -89,6 +89,12 @@
     var _rid = 0;
     foreach (var l in Model.Input.Lines)
     {
+        // plantry-obg3: seed each row's stock/default unit from the PRODUCT's real default (hydrated on
+        // GET into l.DefaultUnitId), so the landed-row conversion heading shows the actual unit code
+        // before hydration and the client same-unit short-circuit is correct. Fall back to
+        // ConversionToUnitId for a NeedsConversion POST bounce, where OnPostAsync sets it to the needed
+        // target (product default) unit and l.DefaultUnitId is not posted back.
+        var seedDefaultUnitId = l.DefaultUnitId != Guid.Empty ? l.DefaultUnitId : l.ConversionToUnitId;
         _editorRows.Add((l.Ordinal, new
         {
             _id = _rid++,
@@ -99,9 +105,9 @@
             // Seed the qty already cleaned (plantry-jun6) so a scaled decimal (500.000) doesn't render "500.000 g".
             qty = l.Quantity.HasValue ? IngredientAmount.Format(l.Quantity.Value) : "",
             unitId = l.UnitId?.ToString() ?? "",
-            defaultUnitId = l.ConversionToUnitId.ToString(),
-            defaultUnitCode = l.ConversionToUnitId != Guid.Empty
-                ? (Model.UnitOptions.FirstOrDefault(u => u.Value == l.ConversionToUnitId.ToString())?.Text ?? "")
+            defaultUnitId = seedDefaultUnitId.ToString(),
+            defaultUnitCode = seedDefaultUnitId != Guid.Empty
+                ? (Model.UnitOptions.FirstOrDefault(u => u.Value == seedDefaultUnitId.ToString())?.Text ?? "")
                 : "",
             groupHeading = l.GroupHeading ?? "",
             isUntracked = l.IsUntracked,
@@ -130,6 +136,9 @@
             convFor = "",
             stockUnits = new object[0],
             recipeUnits = new object[0],
+            // plantry-obg3: set true by the CheckConversion fetch when the product's default unit cannot be
+            // resolved — the row then shows an explicit message instead of the option-less equation.
+            defaultUnitMissing = false,
         }));
     }
     foreach (var inc in Model.Input.Inclusions)
@@ -314,7 +323,11 @@
                  newStapleCategoryId: '', newGroupId: '', newGroupName: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '',
                  convLeftAmount: '', convLeftUnitId: '', convRightAmount: '', convRightUnitId: '',
-                 convFor: '', stockUnits: [], recipeUnits: [] };
+                 convFor: '', stockUnits: [], recipeUnits: [],
+                 // plantry-obg3: true when the product's default (stock) unit is unresolvable — the prompt
+                 // then shows an explicit human-readable message instead of a blank-unit sentence + an
+                 // option-less dropdown.
+                 defaultUnitMissing: false };
          },
          openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.sheetError = ''; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
          // editingIdx carries the row's stable _id while editing (null while adding). The shared
@@ -469,6 +482,15 @@
                  if (!res.ok) return;
                  const data = await res.json();
                  if (!data.needsConversion) { row.needsConversion = false; return; }
+                 // plantry-obg3: product default unit unresolvable — show the explicit message instead of
+                 // the option-less equation (mirrors the in-sheet prompt). Clear the axis lists.
+                 if (data.defaultUnitMissing) {
+                     row.defaultUnitMissing = true;
+                     row.stockUnits = [];
+                     row.recipeUnits = [];
+                     return;
+                 }
+                 row.defaultUnitMissing = false;
                  row.defaultUnitId = data.defaultUnitId || row.defaultUnitId;
                  row.defaultUnitCode = data.defaultUnitCode || row.defaultUnitCode;
                  row.stockUnits = data.stockUnits || [];
@@ -658,6 +680,16 @@
                      const data = await res.json();
                      if (data.needsConversion) {
                          draft.needsConversion = true;
+                         // plantry-obg3: product default unit unresolvable server-side — show an explicit
+                         // message instead of mounting the equation with a blank unit label and an
+                         // option-less LEFT dropdown. Clear the axis lists so no stray options render.
+                         if (data.defaultUnitMissing) {
+                             draft.defaultUnitMissing = true;
+                             draft.stockUnits = [];
+                             draft.recipeUnits = [];
+                             return;
+                         }
+                         draft.defaultUnitMissing = false;
                          draft.defaultUnitId = data.defaultUnitId || draft.defaultUnitId;
                          draft.defaultUnitCode = data.defaultUnitCode || draft.defaultUnitCode;
                          // Axis-locked unit lists for the four-field equation (plantry-qno9): LEFT lists
@@ -1160,8 +1192,21 @@
                                              :style="rowConvFilled(row)
                                                 ? 'background:var(--color-surface-2);border-top:1px solid var(--color-border);padding:var(--space-3) var(--space-4)'
                                                 : 'background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)'">
+                                            @* plantry-obg3: product has no resolvable stock/default unit
+                                               (unset or dangling DefaultUnitId). Show an explicit, actionable
+                                               message instead of the blank-unit sentence + option-less
+                                               equation — mirrors _IngredientConversionPrompt.cshtml. *@
+                                            <p x-show="row.defaultUnitMissing" x-cloak
+                                               style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+                                                <svg class="icon" aria-hidden="true" style="flex:none"><use href="#i-alert" /></svg>
+                                                <span>
+                                                    <strong x-text="row.productName"></strong> has no stock unit set, so Plantry can't
+                                                    work out the conversion. Set a default unit for this product in your catalog first.
+                                                </span>
+                                            </p>
+
                                             @* MISSING — informational ask (same wording family as the in-sheet prompt) *@
-                                            <p x-show="!rowConvFilled(row)"
+                                            <p x-show="!rowConvFilled(row) && !row.defaultUnitMissing"
                                                style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
                                                 Plantry stocks <strong x-text="row.productName"></strong> in <strong x-text="row.defaultUnitCode"></strong>.
                                                 How does 1 <span x-text="unitLabel(row.unitId)"></span> relate?
@@ -1169,14 +1214,23 @@
 
                                             @* Two-sided equation (LEFT stock dimension = RIGHT recipe-line dimension),
                                                each select axis-locked, + the FILLED derived-echo line — shared partial
-                                               (plantry-pqlo). The saved-on-save note below stays here (row-specific). *@
-                                            <partial name="Shared/_ConversionEquation"
-                                                     model='new Plantry.Web.Pages.Shared.ConversionEquationViewModel
-                                                     {
-                                                         Root              = "row",
-                                                         EchoExpression    = "rowConversionEcho(row)",
-                                                         EchoShowExpression = "rowConvFilled(row)",
-                                                     }' />
+                                               (plantry-pqlo). The saved-on-save note below stays here (row-specific).
+                                               Suppressed entirely when the default unit is unresolvable (plantry-obg3)
+                                               so the option-less LEFT dropdown is unreachable. *@
+                                            <template x-if="!row.defaultUnitMissing">
+                                                @* Single wrapper root: the equation partial renders two
+                                                   sibling elements (.conv-eq + echo <p>), but Alpine x-if
+                                                   needs one root — so wrap them. *@
+                                                <div>
+                                                    <partial name="Shared/_ConversionEquation"
+                                                             model='new Plantry.Web.Pages.Shared.ConversionEquationViewModel
+                                                             {
+                                                                 Root              = "row",
+                                                                 EchoExpression    = "rowConversionEcho(row)",
+                                                                 EchoShowExpression = "rowConvFilled(row)",
+                                                             }' />
+                                                </div>
+                                            </template>
 
                                             @* FILLED — saved-on-save note (row-specific), neutral tone *@
                                             <p x-show="rowConvFilled(row)" x-cloak

@@ -72,12 +72,16 @@ public sealed class RecipeEditorFragmentFactory : WebApplicationFactory<Program>
                 new FakeTagRepository(RecipeEditorFixture.TagNames(), RecipeEditorFixture.AllTagsIncludingArchived()));
 
             // Catalog product reader: returns the fixture product summaries + unit codes + unit options.
+            // ProductDefaultUnits() is supplied (plantry-obg3) so the edit GET seeds each landed row with
+            // its product's REAL default unit (g for Rigatoni/Tomatoes, ea for Garlic/Chili) rather than
+            // the FirstOrDefault fallback that made every row "g".
             services.RemoveAll<ICatalogProductReader>();
             services.AddSingleton<ICatalogProductReader>(
                 new FakeEditorProductReader(
                     RecipeEditorFixture.ProductSummaries(),
                     RecipeEditorFixture.UnitCodes(),
-                    RecipeEditorFixture.UnitOptions()));
+                    RecipeEditorFixture.UnitOptions(),
+                    RecipeEditorFixture.ProductDefaultUnits()));
 
             // Catalog writer + unit converter: replaced with no-op fakes so AuthorRecipe (which the
             // editor page model injects) resolves. The GET path never calls these — they are present

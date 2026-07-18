@@ -222,6 +222,33 @@ public sealed class RecipeEditorSnapshotTests(RecipeEditorFragmentFactory factor
     }
 
     /// <summary>
+    /// plantry-obg3 (AC5): the server-seeded ingredient rows must carry each product's REAL default
+    /// (stock) unit id + code, not the pre-obg3 <c>ConversionToUnitId</c>-derived blank. Before the fix
+    /// every landed row serialised <c>"defaultUnitId":"00000000-…","defaultUnitCode":""</c>, so the
+    /// landed-row conversion ask heading rendered blank before hydration. After the fix a tracked row
+    /// (Rigatoni / Canned Tomatoes, default unit "g") serialises the real unit code. Asserted on the
+    /// decoded <c>x-data</c> attribute so it is robust to snapshot regeneration.
+    /// </summary>
+    [Fact]
+    public async Task Editor_edit_seeds_real_product_default_unit_into_rows()
+    {
+        var html = await GetEditPageAsync(factory.RichRecipe.Id.Value);
+        var doc = Parser.ParseDocument(html);
+        var editor = doc.QuerySelector("#recipe-editor")
+            ?? throw new InvalidOperationException("#recipe-editor not found.");
+        // AngleSharp decodes the &quot; entities, so the x-data value contains real JSON quotes.
+        var xData = editor.GetAttribute("x-data")
+            ?? throw new InvalidOperationException("x-data attribute not found.");
+
+        // Rows carry their product's real, per-product default unit code — "g" for Rigatoni/Tomatoes
+        // (mass) and "ea" for Garlic/Chili (count) — not a single fallback unit for every row.
+        Assert.Contains("\"defaultUnitCode\":\"g\"", xData);
+        Assert.Contains("\"defaultUnitCode\":\"ea\"", xData);
+        // And no landed row is seeded with the old blank-default shape (empty guid + empty code).
+        Assert.DoesNotContain("\"defaultUnitId\":\"00000000-0000-0000-0000-000000000000\",\"defaultUnitCode\":\"\"", xData);
+    }
+
+    /// <summary>
     /// The servings-scale offer card is present in the DOM in edit mode (Alpine controls visibility
     /// via x-show="showScaleOffer()", which evaluates client-side). The server always emits the card
     /// for non-create mode; the snapshot asserts the card's structure and the two radio inputs.

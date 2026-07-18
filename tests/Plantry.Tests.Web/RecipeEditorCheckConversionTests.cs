@@ -181,6 +181,48 @@ public sealed class RecipeEditorCheckConversionTests : IDisposable
         Assert.DoesNotContain("g", recipeCodes);
     }
 
+    // ── Unresolvable product default unit → explicit missing-default flag (plantry-obg3) ─────
+
+    /// <summary>
+    /// plantry-obg3: when the product's <c>DefaultUnitId</c> cannot be resolved to a household unit
+    /// (unset or dangling — the dogfooded olive-oil condition), the handler must NOT return the pre-obg3
+    /// half-empty <c>needsConversion:true</c> payload (blank <c>defaultUnitCode</c> + empty
+    /// <c>stockUnits</c>), which rendered a blank unit name in the sentence and an option-less dropdown.
+    /// It returns an explicit <c>defaultUnitMissing:true</c> flag (AC3/AC4) so the client shows a
+    /// human-readable message; the equation fields are omitted. It never returns <c>needsConversion:false</c>
+    /// (that would silently defer the failure to the POST-time R7 bounce).
+    /// </summary>
+    [Fact]
+    public async Task CheckConversion_unresolvable_default_unit_returns_missing_flag_not_empty_payload()
+    {
+        var client = AuthenticatedClient(_crossDimensionFactory);
+        var productId  = RecipeEditorFixture.DanglingDefaultId; // default unit id dangles outside the unit list
+        var fromUnitId = RecipeEditorFixture.EachUnitId;        // a resolvable recipe-line unit
+
+        var response = await client.GetAsync(
+            $"/Recipes/New?handler=CheckConversion&productId={productId}&fromUnitId={fromUnitId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        // Still a conversion gap — must NOT silently defer via needsConversion:false.
+        Assert.True(root.GetProperty("needsConversion").GetBoolean(),
+            $"Unresolvable default must still report needsConversion:true. Got: {json}");
+
+        // The explicit missing-default flag is set.
+        Assert.True(root.TryGetProperty("defaultUnitMissing", out var missing) && missing.GetBoolean(),
+            $"Expected defaultUnitMissing:true for an unresolvable product default unit. Got: {json}");
+
+        // AC4: never needsConversion:true with an empty defaultUnitCode / empty stockUnits WITHOUT the flag.
+        // The equation fields are omitted entirely in the missing-default shape.
+        Assert.False(root.TryGetProperty("defaultUnitCode", out _),
+            $"Missing-default payload must not carry a (blank) defaultUnitCode. Got: {json}");
+        Assert.False(root.TryGetProperty("stockUnits", out _),
+            $"Missing-default payload must not carry an (empty) stockUnits list. Got: {json}");
+    }
+
     /// <summary>
     /// Unknown product id returns <c>{"needsConversion":false}</c> — the handler treats a missing
     /// product as a no-op rather than an error, because the client validation and server-side R7
