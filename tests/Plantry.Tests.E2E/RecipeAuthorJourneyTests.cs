@@ -631,6 +631,198 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Journey 7: cross-dimension inline create surfaces the four-field prompt (plantry-22ci) ─────
+
+    [Fact(DisplayName = "plantry-22ci: cross-dimension inline create (stock ea, recipe g) shows the four-field prompt and saves in one pass")]
+    public async Task InlineCreate_CrossDimensionUnits_ShowsPromptAndSavesInOnePass()
+    {
+        var email = $"recipe-22ci-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe 22ci Household");
+
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Granola {Guid.NewGuid():N}".Substring(0, 18);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            // ── Open the sheet and switch to create-view ──────────────────────────
+            await page.ClickAsync("button:has-text('Add ingredient')");
+            var sheet = page.Locator("#recipe-editor .sheet");
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+            // "Chia Seeds" is deliberately g-free so the later "line renders in g" assertion is meaningful.
+            var productName = $"Chia Seeds {Guid.NewGuid():N}".Substring(0, 22);
+            await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 8));
+            var createBtn = sheet.Locator("button:has-text('as a new product')");
+            await Assertions.Expect(createBtn).ToBeVisibleAsync();
+            await createBtn.ClickAsync();
+
+            var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
+            await Assertions.Expect(nameInput).ToBeVisibleAsync();
+            await nameInput.FillAsync(productName);
+
+            await sheet.Locator("#create-product-qty").FillAsync("100");
+
+            // Pick the recipe unit (g, Mass) FIRST — @change pins it so setting the stock unit below
+            // cannot overwrite it via the newStapleUnit→unitId mirror.
+            var recipeUnit = sheet.Locator("#create-product-recipe-unit");
+            await Assertions.Expect(recipeUnit).ToBeVisibleAsync();
+            await recipeUnit.SelectOptionAsync(new SelectOptionValue { Label = "g" });
+
+            // Stock unit ea (Count) — cross-dimension vs g (Mass), so after the 250 ms debounce + fetch
+            // the four-field conversion prompt mounts (x-if) IN the sheet.
+            await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+
+            // ── The prompt appears in the sheet (auto-retrying Expect absorbs the debounce; never sleep) ──
+            await Assertions.Expect(sheet.GetByText("How does 1 g relate?")).ToBeVisibleAsync();
+
+            // Non-blank stock-unit label: the ask sentence names the stock unit ("in ea") and the product.
+            var askSentence = sheet.Locator("p", new() { HasText = "Plantry stocks" });
+            await Assertions.Expect(askSentence).ToContainTextAsync("in ea");
+            await Assertions.Expect(askSentence).ToContainTextAsync(productName);
+
+            // All four equation fields are present and fillable (LEFT = stock axis, RIGHT = recipe axis).
+            var stockAmount = sheet.Locator("input[aria-label='Stock amount']");
+            var stockUnit = sheet.Locator("select[aria-label='Stock unit']");
+            var recipeAmount = sheet.Locator("input[aria-label='Recipe amount']");
+            var recipeUnitField = sheet.Locator("select[aria-label='Recipe unit']");
+            await Assertions.Expect(stockAmount).ToBeVisibleAsync();
+            await Assertions.Expect(stockUnit).ToBeVisibleAsync();
+            await Assertions.Expect(recipeAmount).ToBeVisibleAsync();
+            await Assertions.Expect(recipeUnitField).ToBeVisibleAsync();
+
+            // ── State the fact "1 ea = 400 g" (units prefilled to ea / g; server computes factor = right/left) ──
+            await stockAmount.FillAsync("1");
+            await recipeAmount.FillAsync("400");
+            // The derived echo confirms the equation is complete.
+            await Assertions.Expect(sheet.GetByText("Got it —")).ToBeVisibleAsync();
+
+            // Commit the create view (.Last = create-view "Create"; .First = search-view "Add").
+            await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+
+            // ── Landed row: FILLED confirmation, no warning class, summary shows "100 g" ──
+            var row = page.Locator(".ingredient-row", new() { HasText = productName });
+            await Assertions.Expect(row).ToBeVisibleAsync();
+            await Assertions.Expect(row.Locator(".ingredient-row__summary")).ToContainTextAsync("100 g");
+            await Assertions.Expect(page.GetByText("Saved to your catalog when you save the recipe."))
+                .ToBeVisibleAsync();
+            await Assertions.Expect(row).Not.ToHaveClassAsync(new Regex("ingredient-row--needs-conversion"));
+
+            // ── Save — ConversionGapPlanner writes the ea→g factor (400), the gap resolves, ONE pass ──
+            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.WaitForURLAsync(DetailUrlPattern);
+            Assert.DoesNotMatch(@"/New$", page.Url);
+
+            // Detail renders the ingredient line measured in g (row is g-free, so "g" proves the unit).
+            var detailRow = page.Locator(".rd-ing-row", new() { HasText = productName });
+            await Assertions.Expect(detailRow).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await Assertions.Expect(detailRow).ToContainTextAsync("g");
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-22ci-cross-dim.zip" });
+        }
+    }
+
+    [Fact(DisplayName = "plantry-22ci: cross-dimension inline create with no factor bounces — row highlighted, name preserved")]
+    public async Task InlineCreate_CrossDimensionUnits_NoFactor_BouncesWithRowHighlighted()
+    {
+        var email = $"recipe-22ci-nofactor-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe 22ci NoFactor Household");
+
+            // Force the manual C10 bounce path deterministically. A no-factor cross-dimension save only
+            // bounces when edit-moment AI conversion deferral is OFF (ADR-022 / plantry-qll2.4): deferral is
+            // gated on the household AI toggle (ON by default) AND a real conversion inferrer being configured
+            // (true whenever an AI key is present in the host env). With a key configured the recipe would
+            // instead SAVE with the gap and seed a factor asynchronously — no bounce, no banner. Turning the
+            // household toggle OFF guarantees the manual prompt/bounce regardless of whether the host has a
+            // key, which is exactly the manual-path behaviour criterion 2 describes. Test-only household
+            // setting; no production change.
+            await page.GotoAsync($"{BaseUrl}/Settings/Ai");
+            await page.WaitForURLAsync("**/Settings/Ai");
+            // The seg-ctrl radio is sr-only (not directly clickable), so click its label — as J7 does for Scale mode.
+            await page.Locator(".seg-ctrl__item", new() { HasText = "Off" }).ClickAsync();
+            await page.ClickAsync("button[type=submit]:has-text('Save')");
+            await Assertions.Expect(page.GetByText("Setting saved")).ToBeVisibleAsync();
+
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Muesli {Guid.NewGuid():N}".Substring(0, 18);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            await page.ClickAsync("button:has-text('Add ingredient')");
+            var sheet = page.Locator("#recipe-editor .sheet");
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+            var productName = $"Flax Seeds {Guid.NewGuid():N}".Substring(0, 22);
+            await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 8));
+            var createBtn = sheet.Locator("button:has-text('as a new product')");
+            await Assertions.Expect(createBtn).ToBeVisibleAsync();
+            await createBtn.ClickAsync();
+
+            var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
+            await Assertions.Expect(nameInput).ToBeVisibleAsync();
+            await nameInput.FillAsync(productName);
+
+            await sheet.Locator("#create-product-qty").FillAsync("3");
+
+            // Same cross-dimension setup as Test 1: pin recipe unit g, then set stock unit ea.
+            var recipeUnit = sheet.Locator("#create-product-recipe-unit");
+            await Assertions.Expect(recipeUnit).ToBeVisibleAsync();
+            await recipeUnit.SelectOptionAsync(new SelectOptionValue { Label = "g" });
+            await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+
+            // The prompt appears — but this time leave the equation EMPTY.
+            await Assertions.Expect(sheet.GetByText("How does 1 g relate?")).ToBeVisibleAsync();
+
+            // Commit with the equation unfilled — saveSheet intentionally commits the row with
+            // needsConversion still set (plantry-mfoe); the 5oek qty/unit guard does not block it.
+            await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+
+            // ── The landed row is flagged before any save: warning border + visible MISSING ask ──
+            var row = page.Locator(".ingredient-row", new() { HasText = productName });
+            await Assertions.Expect(row).ToHaveClassAsync(new Regex("ingredient-row--needs-conversion"));
+            await Assertions.Expect(row.GetByText("How does 1 g relate?")).ToBeVisibleAsync();
+
+            // ── Submit — the POST bounces (AuthorRecipe Phase 3 Blocked → NeedsConversion re-render) ──
+            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+
+            // SaveError banner appears and we stay on /Recipes/New (HTTP 200 re-render, no redirect).
+            var banner = page.Locator(".save-error");
+            await Assertions.Expect(banner).ToBeVisibleAsync();
+            await Assertions.Expect(banner).ToContainTextAsync("Some ingredient units need a conversion factor");
+            Assert.EndsWith("/Recipes/New", new Uri(page.Url).AbsolutePath);
+
+            // The re-rendered row keeps its typed name (no ghost — 5oek guard) and stays highlighted.
+            // NOTE (per design edge case): the POST-bounced row has no productId, so its ask sentence
+            // and equation fields are blank/option-less — assert only the class + summary name here.
+            var bouncedRow = page.Locator(".ingredient-row", new() { HasText = productName });
+            await Assertions.Expect(bouncedRow.Locator(".ingredient-row__summary")).ToContainTextAsync(productName);
+            await Assertions.Expect(bouncedRow).ToHaveClassAsync(new Regex("ingredient-row--needs-conversion"));
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-22ci-nofactor.zip" });
+        }
+    }
+
     // ── Shared helpers ────────────────────────────────────────────────────────────
 
     /// <summary>Smallest valid 1×1 PNG for photo upload (same helper as ReceiptIntakeJourneyTests).</summary>
