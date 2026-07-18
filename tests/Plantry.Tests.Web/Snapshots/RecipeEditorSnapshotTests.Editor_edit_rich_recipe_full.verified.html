@@ -770,7 +770,9 @@
 			<div class="card__head">
 				<div>
 					<h3 class="card__head-title">Ingredients</h3>
-					<p class="card__head-sub">Grouped into sections. Drag a row to reorder it, or across a section to move it. Rename a section heading once to rename it for every ingredient in it.</p>
+					<p class="card__head-sub">Group into sections like “For the sauce” — set an ingredient’s
+						<strong>Section</strong>
+						in its add/edit form to start one. Drag a row to reorder it, or across a section to move it. Rename a section heading once to rename it for every ingredient in it.</p>
 				</div>
 			</div>
 			<div class="card__body" style="padding:0">
@@ -1006,17 +1008,17 @@
 							</div>
 						</div>
 						<div class="form-grid__field form-grid__field--full" x-show="draft.productId || draft.newStapleName !== null" x-data="{
-                             secOpen: false,
-                             secQuery: '',
-                             get secOptions() { return typeof existingSectionHeadings === 'function' ? existingSectionHeadings() : []; },
-                             get secFiltered() {
-                                 const q = this.secQuery.trim().toLowerCase();
-                                 return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
-                             },
-                             pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
-                             createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
-                             clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
-                         }" @sheet-product-set.window="secQuery = draft.groupHeading || ''" @click.outside="secOpen = false">
+         secOpen: false,
+         secQuery: '',
+         get secOptions() { return typeof existingSectionHeadings === 'function' ? existingSectionHeadings() : []; },
+         get secFiltered() {
+             const q = this.secQuery.trim().toLowerCase();
+             return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
+         },
+         pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
+         createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
+         clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
+     }" @sheet-product-set.window="secQuery = draft.groupHeading || ''" @click.outside="secOpen = false">
 							<label class="form-grid__field__label" for="ingredient-section">Section (optional)</label>
 							<div class="form-grid__field__control" style="position:relative">
 								<input type="text" id="ingredient-section" class="field__input" placeholder="Ungrouped — pick or type a section…" x-model="secQuery" autocomplete="off" @focus="secOpen = true" @input="secOpen = true; draft.groupHeading = secQuery.trim()" @keydown.escape.stop="secOpen = false">
@@ -1120,6 +1122,30 @@
 									<span>
 										group.</span>
 								</p>
+							</div>
+						</div>
+						<div class="form-grid__field form-grid__field--full" x-show="draft.newStapleName !== null" x-data="{
+         secOpen: false,
+         secQuery: '',
+         get secOptions() { return typeof existingSectionHeadings === 'function' ? existingSectionHeadings() : []; },
+         get secFiltered() {
+             const q = this.secQuery.trim().toLowerCase();
+             return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
+         },
+         pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
+         createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
+         clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
+     }" @sheet-product-set.window="secQuery = draft.groupHeading || ''" @click.outside="secOpen = false">
+							<label class="form-grid__field__label" for="ingredient-section-create">Section (optional)</label>
+							<div class="form-grid__field__control" style="position:relative">
+								<input type="text" id="ingredient-section-create" class="field__input" placeholder="Ungrouped — pick or type a section…" x-model="secQuery" autocomplete="off" @focus="secOpen = true" @input="secOpen = true; draft.groupHeading = secQuery.trim()" @keydown.escape.stop="secOpen = false">
+								<ul class="searchable-select__listbox" role="listbox" x-show="secOpen &amp;&amp; (secFiltered.length > 0 || secQuery.trim().length > 0)" x-cloak="" style="display:none">
+									<template x-for="h in secFiltered" :key="h"><li role="option" class="searchable-select__listbox-item" @click="pickSection(h)" x-text="h"></li></template>
+									<li role="option" class="searchable-select__listbox-item searchable-select__listbox-item--create" x-show="secQuery.trim().length > 0 &amp;&amp; !secOptions.some(h => h.toLowerCase() === secQuery.trim().toLowerCase())" @click="createSection()">
+										<span>+ New section</span>
+										<span x-text="' “' + secQuery.trim() + '”'"></span>
+									</li>
+								</ul>
 							</div>
 						</div>
 					</div>
