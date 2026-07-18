@@ -179,6 +179,13 @@ public sealed class RecipeEditorCheckConversionTests : IDisposable
             .Select(u => u.GetProperty("code").GetString()).ToList();
         Assert.Contains("ea", recipeCodes);
         Assert.DoesNotContain("g", recipeCodes);
+
+        // plantry-hhy2 AC3: the normal cross-dimension payload carries neither missing-axis flag —
+        // both are omitted entirely, keeping this happy-path shape byte-identical to pre-hhy2.
+        Assert.False(root.TryGetProperty("defaultUnitMissing", out _),
+            $"Normal cross-dimension payload must omit defaultUnitMissing. Got: {json}");
+        Assert.False(root.TryGetProperty("recipeUnitMissing", out _),
+            $"Normal cross-dimension payload must omit recipeUnitMissing. Got: {json}");
     }
 
     // ── Unresolvable product default unit → explicit missing-default flag (plantry-obg3) ─────
@@ -215,12 +222,95 @@ public sealed class RecipeEditorCheckConversionTests : IDisposable
         Assert.True(root.TryGetProperty("defaultUnitMissing", out var missing) && missing.GetBoolean(),
             $"Expected defaultUnitMissing:true for an unresolvable product default unit. Got: {json}");
 
+        // plantry-hhy2 AC1: the LEFT/stock axis failed, but the RIGHT/recipe axis is fine (EachUnitId
+        // resolves), so recipeUnitMissing must be present and false — the client then shows the
+        // stock-unit-specific copy, not the recipe-axis copy.
+        Assert.True(root.TryGetProperty("recipeUnitMissing", out var recipeMissing) && !recipeMissing.GetBoolean(),
+            $"Expected recipeUnitMissing:false for a resolvable recipe unit. Got: {json}");
+
         // AC4: never needsConversion:true with an empty defaultUnitCode / empty stockUnits WITHOUT the flag.
         // The equation fields are omitted entirely in the missing-default shape.
         Assert.False(root.TryGetProperty("defaultUnitCode", out _),
             $"Missing-default payload must not carry a (blank) defaultUnitCode. Got: {json}");
         Assert.False(root.TryGetProperty("stockUnits", out _),
             $"Missing-default payload must not carry an (empty) stockUnits list. Got: {json}");
+    }
+
+    // ── Unresolvable recipe (RIGHT-axis) unit → recipe-missing flag, not stock flag (plantry-hhy2) ──
+
+    /// <summary>
+    /// plantry-hhy2 AC2: when the product's default/stock unit resolves fine but the chosen recipe-line
+    /// unit (<c>fromUnitId</c>) cannot be resolved to a household unit (a dangling/deleted unit on a
+    /// persisted line, or a stale client), the handler must flag the RIGHT axis — <c>recipeUnitMissing:true</c>
+    /// with <c>defaultUnitMissing:false</c> — so the client shows recipe-axis copy rather than the
+    /// inaccurate stock-unit-specific "set a default unit" message. The equation fields are omitted and it
+    /// never returns <c>needsConversion:false</c>.
+    /// </summary>
+    [Fact]
+    public async Task CheckConversion_unresolvable_recipe_unit_returns_recipe_missing_flag_not_stock_flag()
+    {
+        var client = AuthenticatedClient(_crossDimensionFactory);
+        var productId  = RecipeEditorFixture.PastaId;              // default unit = g (mass), resolvable
+        var fromUnitId = RecipeEditorFixture.MissingDefaultUnitId; // dangles outside the unit list
+
+        var response = await client.GetAsync(
+            $"/Recipes/New?handler=CheckConversion&productId={productId}&fromUnitId={fromUnitId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        // Still a conversion gap — must NOT silently defer via needsConversion:false.
+        Assert.True(root.GetProperty("needsConversion").GetBoolean(),
+            $"Unresolvable recipe unit must still report needsConversion:true. Got: {json}");
+
+        // RIGHT-axis flag set, LEFT-axis flag explicitly false.
+        Assert.True(root.TryGetProperty("recipeUnitMissing", out var recipeMissing) && recipeMissing.GetBoolean(),
+            $"Expected recipeUnitMissing:true for an unresolvable recipe unit. Got: {json}");
+        Assert.True(root.TryGetProperty("defaultUnitMissing", out var stockMissing) && !stockMissing.GetBoolean(),
+            $"Expected defaultUnitMissing:false when only the recipe axis is unresolvable. Got: {json}");
+
+        // AC6: equation fields omitted in the missing shape.
+        Assert.False(root.TryGetProperty("defaultUnitCode", out _),
+            $"Missing-axis payload must not carry a (blank) defaultUnitCode. Got: {json}");
+        Assert.False(root.TryGetProperty("stockUnits", out _),
+            $"Missing-axis payload must not carry an (empty) stockUnits list. Got: {json}");
+    }
+
+    /// <summary>
+    /// plantry-hhy2 AC4: when BOTH axis units are unresolvable, both flags are true. The client renders
+    /// only the stock copy (precedence, it carries the actionable remedy), but the server reports both so
+    /// the state is unambiguous. Uses a product whose default dangles plus a distinct dangling recipe unit
+    /// (a different absent guid so the same-unit shortcut does not fire).
+    /// </summary>
+    [Fact]
+    public async Task CheckConversion_both_units_unresolvable_sets_both_flags()
+    {
+        var client = AuthenticatedClient(_crossDimensionFactory);
+        var productId  = RecipeEditorFixture.DanglingDefaultId;                      // default dangles (LEFT)
+        var fromUnitId = Guid.Parse("dead0001-0000-0000-0000-0000000000de");         // distinct absent unit (RIGHT)
+
+        var response = await client.GetAsync(
+            $"/Recipes/New?handler=CheckConversion&productId={productId}&fromUnitId={fromUnitId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("needsConversion").GetBoolean(),
+            $"Both-unresolvable must still report needsConversion:true. Got: {json}");
+        Assert.True(root.TryGetProperty("defaultUnitMissing", out var stockMissing) && stockMissing.GetBoolean(),
+            $"Expected defaultUnitMissing:true when the stock axis is unresolvable. Got: {json}");
+        Assert.True(root.TryGetProperty("recipeUnitMissing", out var recipeMissing) && recipeMissing.GetBoolean(),
+            $"Expected recipeUnitMissing:true when the recipe axis is unresolvable. Got: {json}");
+
+        // AC6: equation fields omitted.
+        Assert.False(root.TryGetProperty("defaultUnitCode", out _),
+            $"Missing-axis payload must not carry a (blank) defaultUnitCode. Got: {json}");
+        Assert.False(root.TryGetProperty("stockUnits", out _),
+            $"Missing-axis payload must not carry an (empty) stockUnits list. Got: {json}");
     }
 
     /// <summary>

@@ -407,29 +407,43 @@ public sealed class EditModel(
         var defaultUnit = allUnits.FirstOrDefault(u => u.Id == defaultUnitId);
         var recipeUnit  = allUnits.FirstOrDefault(u => u.Id == fromUnitId);
 
-        // Robustness guard (plantry-obg3): if either axis unit is unresolvable — the product's
-        // DefaultUnitId is Guid.Empty or dangles outside the household unit list, or resolves to a blank
-        // Code, and symmetrically for the chosen recipe unit — we cannot build a labelled equation.
-        // Returning the pre-obg3 half-empty needsConversion:true payload rendered a blank unit name in the
-        // "Plantry stocks X in ___" sentence AND an option-less LEFT dropdown. Return an explicit
-        // missing-default flag instead so the client shows a human-readable message and never mounts the
-        // four-field equation; the authoritative POST-time R7/AuthorRecipe check still backstops a genuine
-        // missing path. This never returns needsConversion:false — that would silently defer the failure.
-        if (defaultUnit is null || string.IsNullOrWhiteSpace(defaultUnit.Code)
-            || recipeUnit is null || string.IsNullOrWhiteSpace(recipeUnit.Code))
+        // Robustness guard (plantry-obg3, split per plantry-hhy2): if either axis unit is unresolvable —
+        // the product's DefaultUnitId is Guid.Empty or dangles outside the household unit list, or resolves
+        // to a blank Code, and symmetrically for the chosen recipe unit — we cannot build a labelled
+        // equation. Returning the pre-obg3 half-empty needsConversion:true payload rendered a blank unit
+        // name in the "Plantry stocks X in ___" sentence AND an option-less LEFT dropdown. Return explicit
+        // per-axis missing flags instead so the client shows the axis-appropriate human-readable message and
+        // never mounts the four-field equation; the authoritative POST-time R7/AuthorRecipe check still
+        // backstops a genuine missing path. This never returns needsConversion:false — that would silently
+        // defer the failure. defaultUnitMissing is strictly the LEFT/stock axis (its original obg3 meaning);
+        // recipeUnitMissing is the RIGHT/recipe axis. When both are missing the client shows only the stock
+        // copy (it carries the actionable "set a default unit" remedy).
+        var stockUnitMissing  = defaultUnit is null || string.IsNullOrWhiteSpace(defaultUnit.Code);
+        var recipeUnitMissing = recipeUnit  is null || string.IsNullOrWhiteSpace(recipeUnit.Code);
+        if (stockUnitMissing || recipeUnitMissing)
         {
-            return new JsonResult(new { needsConversion = true, defaultUnitMissing = true });
+            return new JsonResult(new
+            {
+                needsConversion = true,
+                defaultUnitMissing = stockUnitMissing,
+                recipeUnitMissing,
+            });
         }
 
         // Both axes resolve to a labelled unit, so stockUnits always contains at least the default unit
         // and recipeUnits at least the chosen recipe unit — neither list can come back empty here (AC4).
-        var defaultUnitCode = defaultUnit.Code;
+        // The guard above returned whenever either was null, so both are non-null here; the split into
+        // local bools loses the flow-narrowing the original combined `if (x is null || …)` gave us, so
+        // re-bind through non-null locals to keep the compiler happy without a nullable-dereference warning.
+        var resolvedDefaultUnit = defaultUnit!;
+        var resolvedRecipeUnit  = recipeUnit!;
+        var defaultUnitCode = resolvedDefaultUnit.Code;
         var stockUnits = allUnits
-            .Where(u => u.Dimension == defaultUnit.Dimension)
+            .Where(u => u.Dimension == resolvedDefaultUnit.Dimension)
             .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
             .ToList();
         var recipeUnits = allUnits
-            .Where(u => u.Dimension == recipeUnit.Dimension)
+            .Where(u => u.Dimension == resolvedRecipeUnit.Dimension)
             .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
             .ToList();
 
