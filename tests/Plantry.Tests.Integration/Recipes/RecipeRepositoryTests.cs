@@ -225,6 +225,63 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.DoesNotContain(withoutPhotoId, photoIds);
     }
 
+    // ── ResolveExistingIdsAsync (batched existence check for AuthorRecipe) ───────
+
+    [Fact(DisplayName = "ResolveExistingIdsAsync returns exactly the existing ids from a mixed input")]
+    public async Task ResolveExistingIdsAsync_Returns_Only_Existing_Ids()
+    {
+        var existing1 = await SeedRecipeAsync("Existing One");
+        var existing2 = await SeedRecipeAsync("Existing Two");
+        var unknown = RecipeId.New();
+
+        await using var ctx = NewContext();
+        var resolved = await new RecipeRepository(ctx)
+            .ResolveExistingIdsAsync([existing1, unknown, existing2]);
+
+        // Proves EF translates HashSet.Contains over the value-converted RecipeId column to a SQL IN (...).
+        Assert.Equal(new HashSet<RecipeId> { existing1, existing2 }, resolved);
+        Assert.DoesNotContain(unknown, resolved);
+    }
+
+    [Fact(DisplayName = "ResolveExistingIdsAsync resolves an archived recipe (differs from GetRecipeNamesByIdAsync)")]
+    public async Task ResolveExistingIdsAsync_Resolves_Archived_Recipe()
+    {
+        // GetRecipeNamesByIdAsync filters ArchivedAt == null; this existence check deliberately does not.
+        var archivedId = await SeedRecipeAsync("Archived Recipe", archived: true);
+
+        await using var ctx = NewContext();
+        var resolved = await new RecipeRepository(ctx).ResolveExistingIdsAsync([archivedId]);
+
+        Assert.Contains(archivedId, resolved);
+    }
+
+    [Fact(DisplayName = "ResolveExistingIdsAsync does not resolve another household's recipe")]
+    public async Task ResolveExistingIdsAsync_Does_Not_Leak_Across_Households()
+    {
+        var otherHousehold = HouseholdId.New();
+        RecipeId otherId;
+
+        // Seed the foreign recipe via a superuser context (no household query filter).
+        var opts = new DbContextOptionsBuilder<RecipesDbContext>()
+            .UseNpgsql(db.ConnectionString)
+            .Options;
+        await using (var superCtx = new RecipesDbContext(opts))
+        {
+            var recipe = Recipe.Create(otherHousehold, "Other Household Recipe", 2, _clock).Value;
+            recipe.ReplaceIngredients(
+                [new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            otherId = recipe.Id;
+            await superCtx.Recipes.AddAsync(recipe);
+            await superCtx.SaveChangesAsync();
+        }
+
+        // Query scoped to _household — the foreign id must not resolve.
+        await using var ctx = NewContext();
+        var resolved = await new RecipeRepository(ctx).ResolveExistingIdsAsync([otherId]);
+
+        Assert.Empty(resolved);
+    }
+
     // ── Inclusions (recipe-composition.md) ──────────────────────────────────────
 
     [Fact(DisplayName = "Recipe with an inclusion round-trips through EF (new recipe_inclusion table)")]
@@ -391,6 +448,19 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         var ctx = new RecipesDbContext(opts);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
+    }
+
+    private async Task<RecipeId> SeedRecipeAsync(string name, bool archived = false)
+    {
+        await using var ctx = NewContext();
+        var repo = new RecipeRepository(ctx);
+        var recipe = Recipe.Create(_household, name, 2, _clock).Value;
+        recipe.ReplaceIngredients(
+            [new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+        if (archived) recipe.Archive(_clock);
+        await repo.AddAsync(recipe);
+        await repo.SaveChangesAsync();
+        return recipe.Id;
     }
 
     private async Task SeedTagAsync(TagId tagId, string name)

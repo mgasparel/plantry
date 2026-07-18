@@ -47,10 +47,18 @@ public static class RecipeEditorFixture
     public static readonly Guid PastaId   = Guid.Parse("33333333-3333-3333-3333-333333333333");
     public static readonly Guid SaltId    = Guid.Parse("44444444-4444-4444-4444-444444444444"); // untracked staple
     public static readonly Guid ChiliId   = Guid.Parse("55555555-5555-5555-5555-555555555555");
+    // plantry-obg3: a product whose DefaultUnitId dangles outside the household unit list (see
+    // MissingDefaultUnitId) — the "olive oil with an unresolvable stock unit" dogfood condition. The
+    // CheckConversion handler must return the explicit missing-default flag for it, never a half-empty
+    // needsConversion:true payload.
+    public static readonly Guid DanglingDefaultId = Guid.Parse("aabbccdd-0000-0000-0000-0000000000aa");
 
     // Unit ids.
     public static readonly Guid GramUnitId = Guid.Parse("66666666-6666-6666-6666-666666666666");
     public static readonly Guid EachUnitId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+    // plantry-obg3: a unit id deliberately ABSENT from UnitOptions()/UnitCodes(), so a product pointing
+    // at it as its default unit resolves to no unit — the unresolvable-default scenario.
+    public static readonly Guid MissingDefaultUnitId = Guid.Parse("dead0000-0000-0000-0000-0000000000de");
 
     // Tag ids.
     public static readonly TagId VegetarianTagId = new(Guid.Parse("88888888-8888-8888-8888-888888888888"));
@@ -197,6 +205,7 @@ public static class RecipeEditorFixture
             [GarlicId] = new(GarlicId, "Garlic Cloves",   TrackStock: true),
             [ChiliId]  = new(ChiliId,  "Dried Chili",     TrackStock: true),
             [SaltId]   = new(SaltId,   "Salt",            TrackStock: false),
+            [DanglingDefaultId] = new(DanglingDefaultId, "Olive Oil", TrackStock: true),
         };
 
     /// <summary>Unit codes the page resolves ingredient quantities against.</summary>
@@ -231,6 +240,8 @@ public static class RecipeEditorFixture
             [GarlicId] = EachUnitId,
             [ChiliId]  = EachUnitId,
             [SaltId]   = GramUnitId,
+            // plantry-obg3: points at a unit id not present in UnitOptions() — resolves to no unit.
+            [DanglingDefaultId] = MissingDefaultUnitId,
         };
 
     /// <summary>Tag names for the tag pre-population in edit GET (resolve names for pre-selected chips).

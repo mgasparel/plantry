@@ -194,6 +194,66 @@ public sealed class TagRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal("My Tag", visible[0].Name);
     }
 
+    // ── ResolveExistingIdsAsync (batched existence check for AuthorRecipe) ───────
+
+    [Fact(DisplayName = "ResolveExistingIdsAsync returns existing (incl. archived) ids and omits unknown ids")]
+    public async Task ResolveExistingIdsAsync_Returns_Existing_Including_Archived()
+    {
+        var activeTag   = Tag.Create(_household, "Vegan", null, _clock);
+        var archivedTag = Tag.Create(_household, "Whole30", null, _clock);
+
+        await using (var ctx = NewContext())
+        {
+            await ctx.Tags.AddAsync(activeTag);
+            await ctx.Tags.AddAsync(archivedTag);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new TagRepository(ctx);
+            var loaded = await repo.GetByIdAsync(archivedTag.Id);
+            loaded!.Archive(_clock);
+            await repo.SaveChangesAsync();
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var resolved = await new TagRepository(ctx)
+                .ResolveExistingIdsAsync([activeTag.Id, archivedTag.Id, TagId.New()]);
+
+            // Proves EF translates List.Contains over the value-converted TagId column to a SQL IN (...);
+            // the archived tag still resolves (an applied-then-archived tag must not silently vanish).
+            Assert.Equal(new HashSet<TagId> { activeTag.Id, archivedTag.Id }, resolved);
+        }
+    }
+
+    [Fact(DisplayName = "ResolveExistingIdsAsync does not resolve another household's tag")]
+    public async Task ResolveExistingIdsAsync_Does_Not_Leak_Across_Households()
+    {
+        var otherHousehold = HouseholdId.New();
+        var myTag    = Tag.Create(_household, "Mine", null, _clock);
+        var otherTag = Tag.Create(otherHousehold, "Theirs", null, _clock);
+
+        // Seed both via a superuser context (no household query filter).
+        var opts = new DbContextOptionsBuilder<RecipesDbContext>()
+            .UseNpgsql(db.ConnectionString)
+            .Options;
+        await using (var superCtx = new RecipesDbContext(opts))
+        {
+            await superCtx.Tags.AddAsync(myTag);
+            await superCtx.Tags.AddAsync(otherTag);
+            await superCtx.SaveChangesAsync();
+        }
+
+        // Query scoped to _household — the foreign tag id must not resolve.
+        await using var ctx = NewContext();
+        var resolved = await new TagRepository(ctx).ResolveExistingIdsAsync([myTag.Id, otherTag.Id]);
+
+        Assert.Equal(new HashSet<TagId> { myTag.Id }, resolved);
+        Assert.DoesNotContain(otherTag.Id, resolved);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private RecipesDbContext NewContext()

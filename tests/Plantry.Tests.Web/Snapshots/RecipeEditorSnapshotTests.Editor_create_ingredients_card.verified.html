@@ -109,7 +109,16 @@
 								<div x-show="rowShowConversion(row)" x-init="maybeHydrateRowConversion(row)" class="ingredient-row__conversion" :style="rowConvFilled(row)
                                                 ? 'background:var(--color-surface-2);border-top:1px solid var(--color-border);padding:var(--space-3) var(--space-4)'
                                                 : 'background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)'">
-									<p x-show="!rowConvFilled(row)" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+									<p x-show="row.defaultUnitMissing" x-cloak="" style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+										<svg class="icon" aria-hidden="true" style="flex:none">
+											<use href="#i-alert"></use>
+										</svg>
+										<span>
+											<strong x-text="row.productName"></strong>
+											has no stock unit set, so Plantry can't                                                     work out the conversion. Set a default unit for this product in your catalog first.
+										</span>
+									</p>
+									<p x-show="!rowConvFilled(row) &amp;&amp; !row.defaultUnitMissing" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
 										Plantry stocks
 										<strong x-text="row.productName"></strong>
 										in
@@ -117,20 +126,22 @@
 										<span x-text="unitLabel(row.unitId)"></span>
 										relate?
 									</p>
-									<div class="conv-eq">
-										<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
-										<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">
-											<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-										</select>
-										<span class="conv-eq__op">=</span>
-										<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="row.convRightAmount" aria-label="Recipe amount">
-										<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit">
-											<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-										</select>
-									</div>
-									<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
-										<span x-text="rowConversionEcho(row)"></span>
-									</p>
+									<template x-if="!row.defaultUnitMissing"><div>
+											<div class="conv-eq">
+												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
+												<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">
+													<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+												</select>
+												<span class="conv-eq__op">=</span>
+												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="row.convRightAmount" aria-label="Recipe amount">
+												<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit">
+													<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+												</select>
+											</div>
+											<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+												<span x-text="rowConversionEcho(row)"></span>
+											</p>
+										</div></template>
 									<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-1) 0 0;font-size:var(--font-size-sm);color:var(--color-text-muted)">
 										Saved to your catalog when you save the recipe.
 									</p>

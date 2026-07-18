@@ -1153,7 +1153,7 @@
         <template x-for="(tag, ti) in tags" :key="tag.id">
             <input type="hidden" name="Input.TagIds" :value="tag.id" />
         </template>
-        <div style="position:relative">
+        <div style="position:relative" @@click.outside="tagDropOpen = false">
             <div class="recipe-tag-editor"
                  style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text"
                  @@click="$refs.tagInputDemo.focus()">
@@ -1175,7 +1175,6 @@
             </div>
             <div x-show="tagDropOpen && filteredTagOptions().length > 0"
                  x-cloak
-                 @@click.outside="tagDropOpen = false"
                  style="position:absolute;z-index:50;left:0;right:0;margin-top:2px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:12rem;overflow-y:auto;box-shadow:var(--shadow-md)">
                 <template x-for="opt in filteredTagOptions()" :key="opt.id">
                     <button type="button"
@@ -1194,7 +1193,7 @@
         .recipe-tag-editor:focus-within { border-color: var(--color-accent); }
         .tag-picker-option:hover { background: var(--color-surface-2) !important; }
     </style>
-    <pre class="code-sample"><code>@("// Page model: TagOptions populated via tags.ListAllAsync(activeOnly: true)\n// Server-side JSON (without Html.Raw):\n// var tagsInitJson = JsonSerializer.Serialize(Input.TagIds.Zip(Input.TagNames, (id, name) => new { id, name }).ToList());\n// var tagOptionsJson = JsonSerializer.Serialize(TagOptions.Select(o => new { id = o.Value, name = o.Text }).ToList());\n\n// Alpine x-data (substitute serialised JSON for the two variables):\n// tags: <tagsInitJson>,           // [{id, name}, ...] — pre-selected chips (incl. archived)\n// tagOptions: <tagOptionsJson>,    // [{id, name}, ...] — active defined tags only\n// filteredTagOptions() — excludes already-selected and non-matching\n// addTagFromOption(opt) — pushes chip, clears query, closes dropdown\n// removeTag(i) — splices from tags[]\n\n// Hidden inputs post the TagId array (one per chip):\n<template x-for=\"(tag, ti) in tags\" :key=\"tag.id\">\n  <input type=\"hidden\" name=\"Input.TagIds\" :value=\"tag.id\" />\n</template>\n\n// Chip + filter input container:\n<div class=\"recipe-tag-editor\" @click=\"$refs.tagInput.focus()\">\n  <template x-for=\"(tag, ti) in tags\" :key=\"tag.id\">\n    <span class=\"badge badge--neutral\">\n      <span x-text=\"tag.name\"></span>\n      <button type=\"button\" @click.stop=\"removeTag(ti)\">x</button>\n    </span>\n  </template>\n  <input type=\"text\" x-ref=\"tagInput\" x-model=\"tagQuery\" placeholder=\"Filter tags…\"\n         @focus=\"tagDropOpen = true\" @input=\"tagDropOpen = true\"\n         @keydown.escape=\"tagDropOpen = false; tagQuery = ''\"\n         @keydown.backspace=\"if (!tagQuery && tags.length) removeTag(tags.length - 1)\"\n         autocomplete=\"off\" />\n</div>\n\n// Dropdown:\n<div x-show=\"tagDropOpen && filteredTagOptions().length > 0\" x-cloak @click.outside=\"tagDropOpen = false\"\n     style=\"position:absolute;...\">\n  <template x-for=\"opt in filteredTagOptions()\" :key=\"opt.id\">\n    <button type=\"button\" class=\"tag-picker-option\" @mousedown.prevent=\"addTagFromOption(opt)\" x-text=\"opt.name\"></button>\n  </template>\n</div>\n\n// Empty-household server-side guidance (when Model.TagOptions is empty):\n<p>No tags defined yet. <a href=\"/Settings/Tags\">Manage tags in Settings</a>.</p>")</code></pre>
+    <pre class="code-sample"><code>@("// Page model: TagOptions populated via tags.ListAllAsync(activeOnly: true)\n// Server-side JSON (without Html.Raw):\n// var tagsInitJson = JsonSerializer.Serialize(Input.TagIds.Zip(Input.TagNames, (id, name) => new { id, name }).ToList());\n// var tagOptionsJson = JsonSerializer.Serialize(TagOptions.Select(o => new { id = o.Value, name = o.Text }).ToList());\n\n// Alpine x-data (substitute serialised JSON for the two variables):\n// tags: <tagsInitJson>,           // [{id, name}, ...] — pre-selected chips (incl. archived)\n// tagOptions: <tagOptionsJson>,    // [{id, name}, ...] — active defined tags only\n// filteredTagOptions() — excludes already-selected and non-matching\n// addTagFromOption(opt) — pushes chip, clears query, closes dropdown\n// removeTag(i) — splices from tags[]\n\n// Hidden inputs post the TagId array (one per chip):\n<template x-for=\"(tag, ti) in tags\" :key=\"tag.id\">\n  <input type=\"hidden\" name=\"Input.TagIds\" :value=\"tag.id\" />\n</template>\n\n// Wrapper spans BOTH the input and the dropdown; click.outside lives here so a mouse\n// focus-click on the input counts as 'inside' and never closes the just-opened list:\n<div style=\"position:relative\" @click.outside=\"tagDropOpen = false\">\n\n// Chip + filter input container:\n<div class=\"recipe-tag-editor\" @click=\"$refs.tagInput.focus()\">\n  <template x-for=\"(tag, ti) in tags\" :key=\"tag.id\">\n    <span class=\"badge badge--neutral\">\n      <span x-text=\"tag.name\"></span>\n      <button type=\"button\" @click.stop=\"removeTag(ti)\">x</button>\n    </span>\n  </template>\n  <input type=\"text\" x-ref=\"tagInput\" x-model=\"tagQuery\" placeholder=\"Filter tags…\"\n         @focus=\"tagDropOpen = true\" @input=\"tagDropOpen = true\"\n         @keydown.escape=\"tagDropOpen = false; tagQuery = ''\"\n         @keydown.backspace=\"if (!tagQuery && tags.length) removeTag(tags.length - 1)\"\n         autocomplete=\"off\" />\n</div>\n\n// Dropdown (inside the position:relative wrapper above — no click.outside of its own):\n<div x-show=\"tagDropOpen && filteredTagOptions().length > 0\" x-cloak\n     style=\"position:absolute;...\">\n  <template x-for=\"opt in filteredTagOptions()\" :key=\"opt.id\">\n    <button type=\"button\" class=\"tag-picker-option\" @mousedown.prevent=\"addTagFromOption(opt)\" x-text=\"opt.name\"></button>\n  </template>\n</div>\n</div> // end position:relative wrapper\n\n// Empty-household server-side guidance (when Model.TagOptions is empty):\n<p>No tags defined yet. <a href=\"/Settings/Tags\">Manage tags in Settings</a>.</p>")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -1355,6 +1354,10 @@
          x-data="{
              sheetOpen: false,
              editingIdx: null,
+             // plantry-5oek: the shared sheet references sheetError in Model.TrackStock-gated markup
+             // (this showcase is TrackStock=true); define it so the binding resolves. The demo saveSheet
+             // never sets it — the tracked-quantity guard lives in the Recipes host.
+             sheetError: '',
              draft: {},
              blankDraft() {
                  return { productId: '', productName: '', isUntracked: false,

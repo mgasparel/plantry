@@ -48,33 +48,53 @@
 
 <template x-if="draft.needsConversion">
     <div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)">
-        <p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
-            Plantry stocks <strong x-text="draft.productName"></strong> in <strong x-text="draft.defaultUnitCode"></strong>.
-            How does 1 <span x-text="unitLabel(draft.unitId)"></span> relate?
-        </p>
+        @* plantry-obg3: the product has no resolvable stock/default unit (unset or dangling
+           DefaultUnitId). Rendering the equation here would produce a blank unit name in the sentence
+           and an option-less LEFT dropdown, so show an explicit, actionable message instead — never the
+           four-field editor. The authoritative R7 check still backstops the save. *@
+        <template x-if="draft.defaultUnitMissing">
+            <p style="margin:0;font-size:var(--font-size-sm);display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+                <svg class="icon" aria-hidden="true" style="flex:none"><use href="#i-alert" /></svg>
+                <span>
+                    <strong x-text="draft.productName"></strong> has no stock unit set, so Plantry can't
+                    work out the conversion. Set a default unit for this product in your catalog first.
+                </span>
+            </p>
+        </template>
 
-        @* Two-sided equation (LEFT stock dimension = RIGHT recipe-line dimension) + derived echo —
-           shared partial (plantry-pqlo). Each select is axis-locked, so no cross-dimension pair is
-           possible. The escape button + saved-to-catalog note below stay here (sheet-specific).
-           Model built in a code block because EchoShowExpression contains single quotes that would
-           clash with a single-quoted model='...' attribute. *@
-        @{
-            var conversionEquation = new Plantry.Web.Pages.Shared.ConversionEquationViewModel
-            {
-                Root = "draft",
-                EchoExpression = "conversionEcho()",
-                EchoShowExpression = "conversionEcho() !== ''",
-            };
-        }
-        <partial name="Shared/_ConversionEquation" model="conversionEquation" />
+        @* Normal path — the equation editor. Guarded off the missing-default branch so the blank-unit
+           sentence + option-less select combination is unreachable. *@
+        <template x-if="!draft.defaultUnitMissing">
+            <div>
+                <p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
+                    Plantry stocks <strong x-text="draft.productName"></strong> in <strong x-text="draft.defaultUnitCode"></strong>.
+                    How does 1 <span x-text="unitLabel(draft.unitId)"></span> relate?
+                </p>
 
-        <p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-            Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
-        </p>
-        <button type="button"
-                class="btn btn--ghost btn--sm"
-                @@click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''; draft.convFor = ''">
-            Measure in <span x-text="draft.defaultUnitCode"></span> instead
-        </button>
+                @* Two-sided equation (LEFT stock dimension = RIGHT recipe-line dimension) + derived echo —
+                   shared partial (plantry-pqlo). Each select is axis-locked, so no cross-dimension pair is
+                   possible. The escape button + saved-to-catalog note below stay here (sheet-specific).
+                   Model built in a code block because EchoShowExpression contains single quotes that would
+                   clash with a single-quoted model='...' attribute. *@
+                @{
+                    var conversionEquation = new Plantry.Web.Pages.Shared.ConversionEquationViewModel
+                    {
+                        Root = "draft",
+                        EchoExpression = "conversionEcho()",
+                        EchoShowExpression = "conversionEcho() !== ''",
+                    };
+                }
+                <partial name="Shared/_ConversionEquation" model="conversionEquation" />
+
+                <p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+                    Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
+                </p>
+                <button type="button"
+                        class="btn btn--ghost btn--sm"
+                        @@click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''; draft.convFor = ''">
+                    Measure in <span x-text="draft.defaultUnitCode"></span> instead
+                </button>
+            </div>
+        </template>
     </div>
 </template>

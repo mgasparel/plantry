@@ -229,6 +229,64 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(await reader.ResolveUnitCodesAsync([]));
     }
 
+    [Fact(DisplayName = "FindManyAsync batch-resolves lookups (name/track_stock/default unit), dedups input, omits unknown ids")]
+    public async Task Reader_FindMany_Resolves_Lookups()
+    {
+        ProductId trackedId;
+        ProductId stapleId;
+        await using (var setup = NewCatalogDb())
+        {
+            var flour = Product.Create(_household, "Flour", _gramsId, Clock);
+            var salt = Product.Create(_household, "Salt", _gramsId, Clock);
+            salt.SetTrackStock(false, Clock); // untracked staple (C12)
+            await setup.Products.AddRangeAsync(flour, salt);
+            await setup.SaveChangesAsync();
+            trackedId = flour.Id;
+            stapleId = salt.Id;
+        }
+
+        await using var read = NewCatalogDb();
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read), new CategoryRepository(read));
+
+        // Duplicate input id + one unknown id; the lookup carries DefaultUnitId — the field
+        // ResolveSummariesAsync omits and the reason FindManyAsync exists.
+        var lookups = await reader.FindManyAsync([trackedId.Value, stapleId.Value, trackedId.Value, Guid.NewGuid()]);
+
+        Assert.Equal(2, lookups.Count); // duplicate deduped, unknown id omitted
+
+        var flourLookup = lookups[trackedId.Value];
+        Assert.Equal("Flour", flourLookup.Name);
+        Assert.True(flourLookup.TrackStock);
+        Assert.Equal(_gramsId.Value, flourLookup.DefaultUnitId);
+
+        Assert.False(lookups[stapleId.Value].TrackStock);
+
+        Assert.Empty(await reader.FindManyAsync([]));
+    }
+
+    [Fact(DisplayName = "FindManyAsync resolves an archived product (ListWithConversionsAsync has no archived filter)")]
+    public async Task Reader_FindMany_Resolves_Archived_Product()
+    {
+        // Holds only by omission today — pins the semantic against a future "filter archived" change.
+        ProductId archivedId;
+        await using (var setup = NewCatalogDb())
+        {
+            var product = Product.Create(_household, "Discontinued Sprinkles", _gramsId, Clock);
+            product.Archive(Clock);
+            await setup.Products.AddAsync(product);
+            await setup.SaveChangesAsync();
+            archivedId = product.Id;
+        }
+
+        await using var read = NewCatalogDb();
+        var reader = new CatalogProductReaderAdapter(new ProductRepository(read), new UnitRepository(read), new CategoryRepository(read));
+
+        var lookups = await reader.FindManyAsync([archivedId.Value]);
+
+        Assert.True(lookups.ContainsKey(archivedId.Value));
+        Assert.Equal("Discontinued Sprinkles", lookups[archivedId.Value].Name);
+    }
+
     [Fact(DisplayName = "Writer inline-creates an untracked staple (track_stock = false)")]
     public async Task Writer_Creates_Untracked_Staple()
     {

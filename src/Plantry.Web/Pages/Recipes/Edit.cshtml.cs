@@ -166,6 +166,16 @@ public sealed class EditModel(
                 .ToList();
             var unitCodeLookup = await products.ResolveUnitCodesAsync(unitIds, ct);
 
+            // plantry-obg3: batch-resolve every ingredient product's REAL default (stock) unit in one
+            // round-trip. FindManyAsync carries DefaultUnitId (unlike ResolveSummariesAsync). Seeding each
+            // landed row's defaultUnitId/defaultUnitCode from the PRODUCT's default unit — not the
+            // conversion-line ConversionToUnitId (Guid.Empty for any line without a stored conversion) —
+            // populates the landed-row conversion ask heading before client hydration and makes the
+            // client's `draft.unitId === draft.defaultUnitId` short-circuit correct for edited rows. This
+            // same batch also supplies the plantry-429l unit prefill below, replacing a per-flagged-row
+            // FindAsync N+1.
+            var productDefaults = await products.FindManyAsync(productIds, ct);
+
             // Canonicalise ingredient order to match the sectioned editor + Details render
             // (plantry-vff8): ungrouped ingredients first, then each GroupHeading in first-appearance
             // order (preserving ordinal order within a section), then reassign contiguous ordinals.
@@ -173,40 +183,24 @@ public sealed class EditModel(
             // with the editor's Ungrouped-first layout — closing the editor-vs-detail snap-back.
             var canonicalIngredients = CanonicaliseSectionOrder(recipe.Ingredients);
 
-            // plantry-429l: a line authored while its product was untracked (null qty/unit legal) whose
-            // product was LATER flipped tracked (Product.SetTrackStock) is retroactively condemned by R5
-            // on the next save. Detect such "needs qty/unit" rows at load so the editor can flag them and
-            // prefill the missing unit, rather than dead-ending on an opaque global save error. A row is
-            // flagged when the product is live-tracked AND the stored qty or unit is null. The product's
-            // default unit (for the prefill) is not carried on the summary, so resolve it via FindAsync for
-            // the flagged products only (rare — requires a deliberate untracked→tracked flip).
-            var flaggedDefaultUnits = new Dictionary<Guid, Guid>();
-            foreach (var ing in canonicalIngredients)
-            {
-                if (flaggedDefaultUnits.ContainsKey(ing.ProductId)) continue;
-                var isTracked = productLookup.TryGetValue(ing.ProductId, out var s) && s.TrackStock;
-                if (isTracked && (ing.Quantity is null || ing.UnitId is null))
-                {
-                    var full = await products.FindAsync(ing.ProductId, ct);
-                    if (full is not null)
-                        flaggedDefaultUnits[ing.ProductId] = full.DefaultUnitId;
-                }
-            }
-
             Input.Lines = canonicalIngredients
                 .Select((ing, idx) =>
                 {
                     productLookup.TryGetValue(ing.ProductId, out var p);
+                    productDefaults.TryGetValue(ing.ProductId, out var pd);
                     var isTracked = p?.TrackStock ?? false;
                     var needsQtyUnit = isTracked && (ing.Quantity is null || ing.UnitId is null);
+                    var defaultUnitId = pd?.DefaultUnitId ?? Guid.Empty;
 
-                    // Part A (plantry-429l): prefill the unit for a flagged row that has no unit, using the
-                    // product's default unit. The user then only supplies a quantity. Quantity is never
-                    // prefilled (no sane default) — the null qty keeps the row flagged until the user acts.
+                    // Part A (plantry-429l): a line authored while its product was untracked (null qty/unit
+                    // legal) whose product was LATER flipped tracked is retroactively condemned by R5 on the
+                    // next save. Prefill the unit for such a flagged row that has no unit, using the
+                    // product's default unit (resolved in the batch above), so the user only supplies a
+                    // quantity. Quantity is never prefilled (no sane default) — the null qty keeps the row
+                    // flagged until the user acts.
                     var unitId = ing.UnitId;
-                    if (needsQtyUnit && unitId is null
-                        && flaggedDefaultUnits.TryGetValue(ing.ProductId, out var defUnit) && defUnit != Guid.Empty)
-                        unitId = defUnit;
+                    if (needsQtyUnit && unitId is null && defaultUnitId != Guid.Empty)
+                        unitId = defaultUnitId;
 
                     var unitCode = unitId.HasValue ? unitCodeLookup.GetValueOrDefault(unitId.Value) : null;
                     return new IngredientRowInput
@@ -217,6 +211,9 @@ public sealed class EditModel(
                         Quantity = ing.Quantity,
                         UnitId = unitId,
                         UnitCode = unitCode,
+                        // plantry-obg3: seed the row's REAL default (stock) unit so the landed-row conversion
+                        // ask heading and the client same-unit short-circuit are correct before hydration.
+                        DefaultUnitId = defaultUnitId,
                         GroupHeading = ing.GroupHeading,
                         IsUntracked = !isTracked,
                     };
@@ -409,14 +406,30 @@ public sealed class EditModel(
         var allUnits = await products.ListUnitsAsync(ct);
         var defaultUnit = allUnits.FirstOrDefault(u => u.Id == defaultUnitId);
         var recipeUnit  = allUnits.FirstOrDefault(u => u.Id == fromUnitId);
-        var defaultUnitCode = defaultUnit?.Code ?? "";
 
+        // Robustness guard (plantry-obg3): if either axis unit is unresolvable — the product's
+        // DefaultUnitId is Guid.Empty or dangles outside the household unit list, or resolves to a blank
+        // Code, and symmetrically for the chosen recipe unit — we cannot build a labelled equation.
+        // Returning the pre-obg3 half-empty needsConversion:true payload rendered a blank unit name in the
+        // "Plantry stocks X in ___" sentence AND an option-less LEFT dropdown. Return an explicit
+        // missing-default flag instead so the client shows a human-readable message and never mounts the
+        // four-field equation; the authoritative POST-time R7/AuthorRecipe check still backstops a genuine
+        // missing path. This never returns needsConversion:false — that would silently defer the failure.
+        if (defaultUnit is null || string.IsNullOrWhiteSpace(defaultUnit.Code)
+            || recipeUnit is null || string.IsNullOrWhiteSpace(recipeUnit.Code))
+        {
+            return new JsonResult(new { needsConversion = true, defaultUnitMissing = true });
+        }
+
+        // Both axes resolve to a labelled unit, so stockUnits always contains at least the default unit
+        // and recipeUnits at least the chosen recipe unit — neither list can come back empty here (AC4).
+        var defaultUnitCode = defaultUnit.Code;
         var stockUnits = allUnits
-            .Where(u => defaultUnit is not null && u.Dimension == defaultUnit.Dimension)
+            .Where(u => u.Dimension == defaultUnit.Dimension)
             .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
             .ToList();
         var recipeUnits = allUnits
-            .Where(u => recipeUnit is not null && u.Dimension == recipeUnit.Dimension)
+            .Where(u => u.Dimension == recipeUnit.Dimension)
             .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
             .ToList();
 
@@ -425,6 +438,55 @@ public sealed class EditModel(
             needsConversion = true,
             defaultUnitId = defaultUnitId.ToString(),
             defaultUnitCode,
+            stockUnits,
+            recipeUnits,
+        });
+    }
+
+    /// <summary>
+    /// Product-less variant of <see cref="OnGetCheckConversionAsync"/> for the inline-create flow
+    /// (plantry-dtr9). The create view mints a brand-new product that does not exist yet, so there is no
+    /// <c>productId</c> to scope a conversion lookup — and a brand-new product carries zero
+    /// <c>ProductConversion</c>s. The only thing that decides whether the author must supply a factor is
+    /// therefore whether the chosen recipe-line unit shares the product's chosen default/stock unit
+    /// dimension: same-dimension pairs (e.g. ml → tbsp, both Volume) bridge universally via
+    /// <c>factor_to_base</c> and return <c>needsConversion:false</c>; cross-dimension pairs (e.g. ea → g)
+    /// return <c>needsConversion:true</c> with the same axis-locked unit lists the existing-product handler
+    /// builds, so the client renders the identical in-sheet four-field prompt BEFORE the product is minted
+    /// (avoiding a save bounce that would orphan the just-created product). The authoritative R7 re-check at
+    /// POST time is unchanged.
+    /// </summary>
+    public async Task<IActionResult> OnGetCheckConversionUnitsAsync(Guid defaultUnitId, Guid fromUnitId, CancellationToken ct)
+    {
+        // Same unit — no conversion needed.
+        if (fromUnitId == defaultUnitId)
+            return new JsonResult(new { needsConversion = false });
+
+        var allUnits = await products.ListUnitsAsync(ct);
+        var defaultUnit = allUnits.FirstOrDefault(u => u.Id == defaultUnitId);
+        var recipeUnit = allUnits.FirstOrDefault(u => u.Id == fromUnitId);
+
+        // Unresolvable unit id, or a same-dimension pair → no author factor required (same-dimension pairs
+        // convert universally). Returning false on an unresolvable unit also keeps the prompt from rendering
+        // blank; the authoritative R7 re-check at POST time still backstops a genuinely missing path.
+        if (defaultUnit is null || recipeUnit is null || defaultUnit.Dimension == recipeUnit.Dimension)
+            return new JsonResult(new { needsConversion = false });
+
+        // Cross-dimension — build the two axis-locked lists the four-field equation editor needs (plantry-qno9).
+        var stockUnits = allUnits
+            .Where(u => u.Dimension == defaultUnit.Dimension)
+            .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
+            .ToList();
+        var recipeUnits = allUnits
+            .Where(u => u.Dimension == recipeUnit.Dimension)
+            .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
+            .ToList();
+
+        return new JsonResult(new
+        {
+            needsConversion = true,
+            defaultUnitId = defaultUnitId.ToString(),
+            defaultUnitCode = defaultUnit.Code,
             stockUnits,
             recipeUnits,
         });
@@ -1041,6 +1103,15 @@ public sealed class IngredientRowInput
     public Guid? UnitId { get; set; }
     /// <summary>Display-only — the unit code string (e.g. "g") for pre-populating the select label on edit.</summary>
     public string? UnitCode { get; set; }
+
+    /// <summary>
+    /// The product's real default (stock) unit id, hydrated on GET from the Catalog batch lookup
+    /// (plantry-obg3). Seeds the landed-row conversion ask heading and the client's same-unit
+    /// short-circuit BEFORE the lazy hydration fetch runs. Not posted (no hidden input) — it is
+    /// recomputed on the next GET; a NeedsConversion POST bounce re-derives the row default from
+    /// <see cref="ConversionToUnitId"/> instead (set to the needed target unit in OnPostAsync).
+    /// </summary>
+    public Guid DefaultUnitId { get; set; }
 
     /// <summary>
     /// The product's live <c>track_stock = false</c> state, hydrated on GET from the resolved Catalog

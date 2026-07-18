@@ -204,7 +204,11 @@
                         <label class="form-grid__field__label">Quantity</label>
                         <div class="form-grid__field__control">
                             <input type="number" class="field__input" step="any" min="0"
-                                   placeholder="e.g. 50" x-model="draft.qty" />
+                                   placeholder="e.g. 50" x-model="draft.qty" @@input="sheetError = ''" />
+                            @* plantry-5oek: inline guard message when the host's saveSheet() blocks a tracked
+                               draft that has no usable quantity/unit. sheetError lives in the host x-data;
+                               this markup is Model.TrackStock-gated so Take Stock / Deals stay byte-identical. *@
+                            <span class="field__error" x-show="sheetError" x-cloak x-text="sheetError"></span>
                         </div>
                     </div>
 
@@ -332,7 +336,38 @@
                         <label class="form-grid__field__label" for="create-product-qty">Quantity</label>
                         <div class="form-grid__field__control">
                             <input type="number" id="create-product-qty" class="field__input" step="any" min="0"
-                                   placeholder="e.g. 50" x-model="draft.qty" />
+                                   placeholder="e.g. 50" x-model="draft.qty" @@input="sheetError = ''" />
+                            @* plantry-5oek: inline guard message (see the search-view Quantity field above). *@
+                            <span class="field__error" x-show="sheetError" x-cloak x-text="sheetError"></span>
+                        </div>
+                    </div>
+
+                    @*
+                        Recipe-line unit (plantry-dtr9) — the unit THIS recipe measures the ingredient in,
+                        held on draft.unitId. Distinct from the product's default/stock unit
+                        (draft.newStapleUnit, in the Defaults collapsible below): e.g. buy olive oil by the
+                        ml, use it in the recipe by the tbsp. Sits beside the create-view Quantity so
+                        "2" + "tbsp" read as one row. Before this field the create view had no way to set
+                        draft.unitId, so saveSheet() always copied the product default into it — the recipe
+                        unit silently inherited the stock unit. The host (Recipes) mirrors newStapleUnit into
+                        this field until the author picks a unit here (@@change pins it via
+                        draft.recipeUnitPinned), so the common same-unit path stays one-tap and the inherited
+                        value is VISIBLE in the select, never silently applied.
+
+                        TrackStock-gated: only Recipes/Edit and Dev/Index pass TrackStock=true, so the
+                        TakeStock/Deals create views never render this field and stay byte-identical.
+                    *@
+                    <div class="form-grid__field">
+                        <label class="form-grid__field__label" for="create-product-recipe-unit">Unit (in this recipe)</label>
+                        <div class="form-grid__field__control">
+                            <select id="create-product-recipe-unit" class="field__input"
+                                    x-model="draft.unitId" @@change="draft.recipeUnitPinned = true; sheetError = ''">
+                                <option value="">— Unit —</option>
+                                @foreach (var u in Model.UnitOptions)
+                                {
+                                    <option value="@u.Value">@u.Text</option>
+                                }
+                            </select>
                         </div>
                     </div>
                 }
@@ -489,7 +524,11 @@
                 </summary>
                 <div class="sheet-defaults__body">
                     <div class="form-grid__field form-grid__field--full">
-                        <label class="form-grid__field__label" for="create-product-unit">Unit</label>
+                        @* plantry-dtr9: on TrackStock hosts (Recipes/Dev) this is the product's DEFAULT/STOCK
+                           unit, contrasted against the "Unit (in this recipe)" field above — so label it
+                           "Stock unit". Non-TrackStock hosts (Take Stock / Deals) render "Unit" unchanged,
+                           keeping their create views byte-identical. *@
+                        <label class="form-grid__field__label" for="create-product-unit">@(Model.TrackStock ? "Stock unit" : "Unit")</label>
                         <div class="form-grid__field__control">
                             <select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
                                 <option value="">— Unit —</option>

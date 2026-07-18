@@ -140,31 +140,56 @@
          // (plantry-nb4x).  Recipes currently only uses the search view; plantry-orix wires the
          // create-view path for the tracked-product create on this surface.
          sheetView: 'search',
+         // plantry-5oek: inline guard message for the add/edit sheet. Non-empty blocks the commit and
+         // renders next to the Quantity field (Model.TrackStock-gated in _ProductSearchCreateSheet).
+         // Cleared on qty input, on view swap ($watch below), and on every open/close.
+         sheetError: '',
          editingIdx: null,
          draft: {},
          blankDraft() {
              return { _id: null, ordinal: 0, productId: '', productName: '', qty: '', unitId: '',
                  defaultUnitId: '', defaultUnitCode: '',
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
+                 // recipeUnitPinned (plantry-dtr9): set once the author picks a recipe-line unit in the
+                 // create view, so the newStapleUnit→unitId mirror stands down and never overwrites it.
+                 recipeUnitPinned: false,
                  newIsTracked: false,
                  newStapleCategoryId: '', newGroupId: '', newGroupName: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '',
                  convLeftAmount: '', convLeftUnitId: '', convRightAmount: '', convRightUnitId: '',
-                 convFor: '', stockUnits: [], recipeUnits: [] };
+                 convFor: '', stockUnits: [], recipeUnits: [],
+                 // plantry-obg3: true when the product's default (stock) unit is unresolvable — the prompt
+                 // then shows an explicit human-readable message instead of a blank-unit sentence + an
+                 // option-less dropdown.
+                 defaultUnitMissing: false };
          },
-         openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
+         openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.sheetError = ''; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
          // editingIdx carries the row's stable _id while editing (null while adding). The shared
          // sheet only tests `editingIdx === null` (add vs edit), so an _id value satisfies it.
-         openEdit(row) { this.editingIdx = row._id; this.sheetView = 'search'; this.draft = JSON.parse(JSON.stringify(row)); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
+         openEdit(row) {
+             this.editingIdx = row._id;
+             this.sheetError = '';
+             // A tracked inline-create row (no productId yet, minted from a typed name) reopens in the
+             // CREATE view so its name/unit/category/parent are visible and editable again (plantry-5oek).
+             // Product-pick rows and legacy untracked staples keep opening in the search view.
+             this.sheetView = (!row.productId &amp;&amp; row.newIsTracked === true) ? 'create' : 'search';
+             this.draft = JSON.parse(JSON.stringify(row));
+             // A reopened row already has a decided recipe-line unit — pin it so the create-view mirror
+             // ($watch on draft.newStapleUnit) cannot overwrite it when the draft is (re)assigned (plantry-dtr9).
+             this.draft.recipeUnitPinned = true;
+             this.sheetOpen = true;
+             this._syncSearch(this.draft.productName);
+         },
          // The sheet stays mounted (x-show), so the nested searchableSelect inits once. Push the
          // current product label into its search box each time the sheet opens.
          _syncSearch(label) { this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: label || '' }))); },
-         closeSheet() { this.sheetView = 'search'; this.sheetOpen = false; },
+         closeSheet() { this.sheetView = 'search'; this.sheetError = ''; this.sheetOpen = false; },
          draftIsEmpty() {
              return !this.draft.productId &amp;&amp; !(this.draft.newStapleName &amp;&amp; this.draft.newStapleName.trim());
          },
          saveSheet() {
-             if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetOpen = false; return; }
+             if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetError = ''; this.sheetOpen = false; return; }
+             this.sheetError = '';
              // The in-sheet four-field equation (plantry-qno9) is the author's entry point. Clear
              // needsConversion on commit ONLY when the author actually filled a valid equation
              // (rowConvFilled) — then the landed row shows the neutral FILLED confirmation, and the raw
@@ -180,13 +205,32 @@
              // (plantry-orix). The untracked-staple path (C12) is now only used when newIsTracked
              // is false — which is the legacy path kept for backward compatibility in the data model;
              // the create view always mints tracked products (the whole point of plantry-orix).
-             // Also pre-populate draft.unitId from draft.newStapleUnit so R5 (tracked needs unit)
-             // is satisfied without requiring a separate edit after sheet close.
+             // Recipe-line unit (draft.unitId) and product default/stock unit (draft.newStapleUnit) are
+             // independent (plantry-dtr9). Fall each back to the other ONLY when one is blank — a value the
+             // author chose on either side is never overwritten (criterion 3):
+             //   • recipe unit blank    → inherit the product default (matches today's behaviour, now visible)
+             //   • product default blank → stock it in the recipe unit (so the mint always has a default unit)
              if (this.sheetView === 'create' &amp;&amp; this.draft.newStapleName !== null) {
                  this.draft.newIsTracked = true;
                  if (this.draft.newStapleUnit &amp;&amp; !this.draft.unitId) {
                      this.draft.unitId = this.draft.newStapleUnit;
+                 } else if (this.draft.unitId &amp;&amp; !this.draft.newStapleUnit) {
+                     this.draft.newStapleUnit = this.draft.unitId;
                  }
+             }
+             // plantry-5oek Defect 1 — block a tracked draft that lacks a usable quantity or unit before it
+             // commits. A tracked line with no quantity is R5-rejected server-side (Recipes.TrackedRequires-
+             // Quantity), which previously bounced to a blank ghost row (Defect 2). Guarding here keeps the
+             // sheet open with an inline message so the author fixes it in place. Quantity must be > 0
+             // (a 0-qty tracked ingredient is meaningless; this is stricter than the server's non-null R5 —
+             // the server is intentionally unchanged). The legacy untracked-staple path (newIsTracked false,
+             // blank qty legal per C12/R5) is exempt. Unit is checked too — the create-view block just above
+             // falls draft.unitId back to draft.newStapleUnit, so draft.unitId is authoritative here.
+             const isTrackedDraft = (!!this.draft.productId &amp;&amp; !this.draft.isUntracked) || this.draft.newIsTracked === true;
+             if (isTrackedDraft) {
+                 const qtyOk = this.draft.qty != null &amp;&amp; String(this.draft.qty).trim() !== '' &amp;&amp; Number(this.draft.qty) > 0;
+                 if (!qtyOk) { this.sheetError = 'Enter a quantity greater than 0 for this tracked product.'; return; }
+                 if (!this.draft.unitId) { this.sheetError = 'Choose a unit for this tracked product.'; return; }
              }
              if (this.editingIdx === null) {
                  this.draft._id = this._nextId++;
@@ -272,6 +316,15 @@
                  if (!res.ok) return;
                  const data = await res.json();
                  if (!data.needsConversion) { row.needsConversion = false; return; }
+                 // plantry-obg3: product default unit unresolvable — show the explicit message instead of
+                 // the option-less equation (mirrors the in-sheet prompt). Clear the axis lists.
+                 if (data.defaultUnitMissing) {
+                     row.defaultUnitMissing = true;
+                     row.stockUnits = [];
+                     row.recipeUnits = [];
+                     return;
+                 }
+                 row.defaultUnitMissing = false;
                  row.defaultUnitId = data.defaultUnitId || row.defaultUnitId;
                  row.defaultUnitCode = data.defaultUnitCode || row.defaultUnitCode;
                  row.stockUnits = data.stockUnits || [];
@@ -288,10 +341,14 @@
          // plantry-429l: a tracked (stock-tracked) ingredient row that is missing a quantity or a unit
          // will be rejected by R5 on save. Flag it in-place so the author sees WHICH row is broken
          // instead of dead-ending on the opaque global save error. Computed reactively so it clears the
-         // instant the author supplies the missing value. Inline-create rows (no productId yet) are the
-         // create-view's own concern and are excluded here.
+         // instant the author supplies the missing value. This flags both a tracked product-pick row
+         // (productId set) AND a tracked inline-create row (no productId yet, minted from a typed name —
+         // plantry-5oek): if a blank-qty create line ever lands on a bounce re-render (JS off, stale
+         // client), the row surfaces this row-scoped warning instead of a blank ghost. Inclusions and
+         // untracked staples are excluded.
          rowNeedsQtyUnit(row) {
-             return !row.isUntracked &amp;&amp; !!row.productId &amp;&amp; (!row.qty || !row.unitId);
+             const isTracked = (!row.isUntracked &amp;&amp; !!row.productId) || (row.newIsTracked === true &amp;&amp; !!row.newStapleName);
+             return isTracked &amp;&amp; (!row.qty || !row.unitId);
          },
          // Canonical amount rendering (plantry-jun6) — mirrors C# IngredientAmount.Format via the
          // ingredient-amount.js twin bridged onto window.IngredientAmount below. Cleans a raw qty the
@@ -393,7 +450,55 @@
          _triggerConversionCheck() {
              clearTimeout(this._convCheckTimer);
              const draft = this.draft;
-             if (!draft.productId || !draft.unitId || draft.isUntracked || draft.newStapleName !== null) {
+             if (draft.isUntracked) { draft.needsConversion = false; return; }
+
+             // ── Inline-create path (plantry-dtr9) ────────────────────────────────────────
+             // A create-view draft has no productId yet, so the product-scoped CheckConversion cannot run.
+             // Compare the chosen recipe-line unit (draft.unitId) against the product default/stock unit
+             // (draft.newStapleUnit) via the product-less CheckConversionUnits handler: a brand-new product
+             // has zero ProductConversions, so same-dimension pairs bridge universally (no prompt) and only
+             // a cross-dimension pair needs the four-field equation. Surfacing the prompt BEFORE save lets the
+             // author supply the factor in-sheet, so the save carries it and Phase 3 resolves in one pass —
+             // instead of bouncing and leaving an orphaned just-minted product. The prompt's stock-unit label
+             // and product name are populated client-side (from newStapleUnit / newStapleName) since the
+             // product does not exist yet; sibling plantry-obg3 owns the existing-product robustness.
+             if (draft.newStapleName !== null &amp;&amp; !draft.productId) {
+                 if (!draft.unitId || !draft.newStapleUnit || draft.unitId === draft.newStapleUnit) {
+                     draft.needsConversion = false;
+                     return;
+                 }
+                 const stockUnitId = draft.newStapleUnit;
+                 this._convCheckTimer = setTimeout(async () => {
+                     const url = `/Recipes/New?handler=CheckConversionUnits&amp;defaultUnitId=${encodeURIComponent(stockUnitId)}&amp;fromUnitId=${encodeURIComponent(draft.unitId)}`;
+                     try {
+                         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                         if (!res.ok) return;
+                         const data = await res.json();
+                         if (data.needsConversion) {
+                             draft.needsConversion = true;
+                             // Product does not exist yet — label the ask from the in-progress draft.
+                             if (!draft.productName) draft.productName = draft.newStapleName || '';
+                             draft.defaultUnitId = data.defaultUnitId || stockUnitId;
+                             draft.defaultUnitCode = data.defaultUnitCode || this.unitLabel(stockUnitId);
+                             draft.stockUnits = data.stockUnits || [];
+                             draft.recipeUnits = data.recipeUnits || [];
+                             if (draft.convFor !== draft.unitId) {
+                                 draft.convFor = draft.unitId;
+                                 draft.convLeftUnitId = draft.defaultUnitId;
+                                 draft.convLeftAmount = '';
+                                 draft.convRightUnitId = draft.unitId;
+                                 draft.convRightAmount = '1';
+                             }
+                         } else {
+                             draft.needsConversion = false;
+                         }
+                     } catch (_) { /* network error — server R7 backstop handles it */ }
+                 }, 250);
+                 return;
+             }
+
+             // ── Existing-product path (unchanged) ────────────────────────────────────────
+             if (!draft.productId || !draft.unitId || draft.newStapleName !== null) {
                  draft.needsConversion = false;
                  return;
              }
@@ -409,6 +514,16 @@
                      const data = await res.json();
                      if (data.needsConversion) {
                          draft.needsConversion = true;
+                         // plantry-obg3: product default unit unresolvable server-side — show an explicit
+                         // message instead of mounting the equation with a blank unit label and an
+                         // option-less LEFT dropdown. Clear the axis lists so no stray options render.
+                         if (data.defaultUnitMissing) {
+                             draft.defaultUnitMissing = true;
+                             draft.stockUnits = [];
+                             draft.recipeUnits = [];
+                             return;
+                         }
+                         draft.defaultUnitMissing = false;
                          draft.defaultUnitId = data.defaultUnitId || draft.defaultUnitId;
                          draft.defaultUnitCode = data.defaultUnitCode || draft.defaultUnitCode;
                          // Axis-locked unit lists for the four-field equation (plantry-qno9): LEFT lists
@@ -437,6 +552,28 @@
          init() {
              this.$watch('draft.unitId', () => this._triggerConversionCheck());
              this.$watch('draft.productId', () => { this.draft.needsConversion = false; this._triggerConversionCheck(); });
+             // plantry-dtr9: mirror the product default/stock unit into the recipe-line unit while the author
+             // has not explicitly chosen a recipe unit (recipeUnitPinned) in the create view. Keeps the common
+             // stock-it-in-the-unit-you-measure-in path one-tap AND makes the inherited value visible in the
+             // create-view Unit select instead of silently applied at save (criterion 4). A user-chosen recipe
+             // unit is pinned on select-change so it is never overwritten (criterion 3). Setting draft.unitId re-runs
+             // the conversion check via its own watch; the else-branch covers the stock unit changing UNDER a
+             // pinned recipe unit (the cross-dimension status may flip, so re-check).
+             // NB: never use a double-quote character in an x-data comment — the whole initialiser lives inside
+             // the x-data attribute, so a stray quote would close it. Every comment here uses plain words.
+             this.$watch('draft.newStapleUnit', (val) => {
+                 if (this.sheetView === 'create' &amp;&amp; !this.draft.recipeUnitPinned) {
+                     this.draft.unitId = val || '';
+                 } else {
+                     this._triggerConversionCheck();
+                 }
+             });
+             // plantry-5oek: clear the sheet's tracked-quantity guard message whenever the view swaps
+             // (search to/from create, incl. the partial's back-to-search / create-cancel backlinks).
+             // NB: never use a double-quote character in an x-data comment — the whole initialiser lives
+             // inside the x-data attribute, so a stray quote would close it. Every comment here uses plain
+             // words for that reason.
+             this.$watch('sheetView', () => { this.sheetError = ''; });
          },
      }">
 	<form method="post" enctype="multipart/form-data" class="form-stack">
@@ -538,7 +675,7 @@
 						<input type="hidden" :name="'Input.NewTags[' + ni + '].Name'" :value="nt.name">
 						<input type="hidden" :name="'Input.NewTags[' + ni + '].Category'" :value="nt.category">
 					</span></template>
-				<div style="position:relative">
+				<div style="position:relative" @click.outside="tagDropOpen = false">
 					<div class="recipe-tag-editor" style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text" @click="$refs.tagInput.focus()">
 						<template x-for="(tag, ti) in tags" :key="tag.id"><span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
 								<span x-text="tag.name"></span>
@@ -551,7 +688,7 @@
 							</span></template>
 						<input type="text" x-ref="tagInput" x-model="tagQuery" placeholder="Filter tags…" class="field__input" style="border:none;outline:none;box-shadow:none;padding:0;min-width:8rem;flex:1" @focus="tagDropOpen = true" @input="tagDropOpen = true" @keydown.escape="tagDropOpen = false; tagQuery = ''" @keydown.backspace="if (!tagQuery &amp;&amp; tags.length) removeTag(tags.length - 1)" autocomplete="off">
 					</div>
-					<div x-show="tagDropOpen &amp;&amp; filteredTagOptions().length > 0" x-cloak="" @click.outside="tagDropOpen = false" style="position:absolute;z-index:50;left:0;right:0;margin-top:2px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:12rem;overflow-y:auto;box-shadow:var(--shadow-md)">
+					<div x-show="tagDropOpen &amp;&amp; filteredTagOptions().length > 0" x-cloak="" style="position:absolute;z-index:50;left:0;right:0;margin-top:2px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:12rem;overflow-y:auto;box-shadow:var(--shadow-md)">
 						<template x-for="opt in filteredTagOptions()" :key="opt.id"><button type="button" class="tag-picker-option" style="display:block;width:100%;text-align:left;padding:var(--space-2) var(--space-3);background:none;border:none;cursor:pointer;font:inherit;color:var(--color-text)" @mousedown.prevent="addTagFromOption(opt)" x-text="opt.name"></button></template>
 					</div>
 				</div>
@@ -682,7 +819,16 @@
 										<div x-show="rowShowConversion(row)" x-init="maybeHydrateRowConversion(row)" class="ingredient-row__conversion" :style="rowConvFilled(row)
                                                 ? 'background:var(--color-surface-2);border-top:1px solid var(--color-border);padding:var(--space-3) var(--space-4)'
                                                 : 'background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)'">
-											<p x-show="!rowConvFilled(row)" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+											<p x-show="row.defaultUnitMissing" x-cloak="" style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+												<svg class="icon" aria-hidden="true" style="flex:none">
+													<use href="#i-alert"></use>
+												</svg>
+												<span>
+													<strong x-text="row.productName"></strong>
+													has no stock unit set, so Plantry can't                                                     work out the conversion. Set a default unit for this product in your catalog first.
+												</span>
+											</p>
+											<p x-show="!rowConvFilled(row) &amp;&amp; !row.defaultUnitMissing" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
 												Plantry stocks
 												<strong x-text="row.productName"></strong>
 												in
@@ -690,20 +836,22 @@
 												<span x-text="unitLabel(row.unitId)"></span>
 												relate?
 											</p>
-											<div class="conv-eq">
-												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
-												<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">
-													<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-												</select>
-												<span class="conv-eq__op">=</span>
-												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="row.convRightAmount" aria-label="Recipe amount">
-												<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit">
-													<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-												</select>
-											</div>
-											<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
-												<span x-text="rowConversionEcho(row)"></span>
-											</p>
+											<template x-if="!row.defaultUnitMissing"><div>
+													<div class="conv-eq">
+														<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
+														<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">
+															<template x-for="u in (row.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+														</select>
+														<span class="conv-eq__op">=</span>
+														<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="row.convRightAmount" aria-label="Recipe amount">
+														<select class="field__input conv-eq__unit" x-model="row.convRightUnitId" aria-label="Recipe unit">
+															<template x-for="u in (row.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+														</select>
+													</div>
+													<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+														<span x-text="rowConversionEcho(row)"></span>
+													</p>
+												</div></template>
 											<p x-show="rowConvFilled(row)" x-cloak="" style="margin:var(--space-1) 0 0;font-size:var(--font-size-sm);color:var(--color-text-muted)">
 												Saved to your catalog when you save the recipe.
 											</p>
@@ -775,7 +923,8 @@
 						<div class="form-grid__field" x-show="!draft.isUntracked &amp;&amp; (draft.productId || draft.newIsTracked)">
 							<label class="form-grid__field__label">Quantity</label>
 							<div class="form-grid__field__control">
-								<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 50" x-model="draft.qty">
+								<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 50" x-model="draft.qty" @input="sheetError = ''">
+								<span class="field__error" x-show="sheetError" x-cloak="" x-text="sheetError"></span>
 							</div>
 						</div>
 						<div class="form-grid__field" x-show="!draft.isUntracked &amp;&amp; (draft.productId || draft.newIsTracked)">
@@ -825,7 +974,18 @@
 						<div class="form-grid__field">
 							<label class="form-grid__field__label" for="create-product-qty">Quantity</label>
 							<div class="form-grid__field__control">
-								<input type="number" id="create-product-qty" class="field__input" step="any" min="0" placeholder="e.g. 50" x-model="draft.qty">
+								<input type="number" id="create-product-qty" class="field__input" step="any" min="0" placeholder="e.g. 50" x-model="draft.qty" @input="sheetError = ''">
+								<span class="field__error" x-show="sheetError" x-cloak="" x-text="sheetError"></span>
+							</div>
+						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label" for="create-product-recipe-unit">Unit (in this recipe)</label>
+							<div class="form-grid__field__control">
+								<select id="create-product-recipe-unit" class="field__input" x-model="draft.unitId" @change="draft.recipeUnitPinned = true; sheetError = ''">
+									<option value="">— Unit —</option>
+									<option value="Guid_3">g</option>
+									<option value="Guid_4">ea</option>
+								</select>
 							</div>
 						</div>
 						<div class="form-grid__field form-grid__field--full" x-data="{
@@ -904,7 +1064,7 @@
 						</summary>
 						<div class="sheet-defaults__body">
 							<div class="form-grid__field form-grid__field--full">
-								<label class="form-grid__field__label" for="create-product-unit">Unit</label>
+								<label class="form-grid__field__label" for="create-product-unit">Stock unit</label>
 								<div class="form-grid__field__control">
 									<select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
 										<option value="">— Unit —</option>
@@ -925,36 +1085,47 @@
 					</details>
 				</div>
 				<template x-if="draft.needsConversion"><div style="margin-top:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)">
-						<p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
-							Plantry stocks
-							<strong x-text="draft.productName"></strong>
-							in
-							<strong x-text="draft.defaultUnitCode"></strong>.             How does 1
-							<span x-text="unitLabel(draft.unitId)"></span>
-							relate?
-						</p>
-						<div class="conv-eq">
-							<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="draft.convLeftAmount" aria-label="Stock amount">
-							<select class="field__input conv-eq__unit" x-model="draft.convLeftUnitId" aria-label="Stock unit">
-								<template x-for="u in (draft.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-							</select>
-							<span class="conv-eq__op">=</span>
-							<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="draft.convRightAmount" aria-label="Recipe amount">
-							<select class="field__input conv-eq__unit" x-model="draft.convRightUnitId" aria-label="Recipe unit">
-								<template x-for="u in (draft.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
-							</select>
-						</div>
-						<p x-show="conversionEcho() !== ''" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
-							<span x-text="conversionEcho()"></span>
-						</p>
-						<p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-							Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
-						</p>
-						<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''; draft.convFor = ''">
-							Measure in
-							<span x-text="draft.defaultUnitCode"></span>
-							instead
-						</button>
+						<template x-if="draft.defaultUnitMissing"><p style="margin:0;font-size:var(--font-size-sm);display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+								<svg class="icon" aria-hidden="true" style="flex:none">
+									<use href="#i-alert"></use>
+								</svg>
+								<span>
+									<strong x-text="draft.productName"></strong>
+									has no stock unit set, so Plantry can't                     work out the conversion. Set a default unit for this product in your catalog first.
+								</span>
+							</p></template>
+						<template x-if="!draft.defaultUnitMissing"><div>
+								<p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
+									Plantry stocks
+									<strong x-text="draft.productName"></strong>
+									in
+									<strong x-text="draft.defaultUnitCode"></strong>.                     How does 1
+									<span x-text="unitLabel(draft.unitId)"></span>
+									relate?
+								</p>
+								<div class="conv-eq">
+									<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="draft.convLeftAmount" aria-label="Stock amount">
+									<select class="field__input conv-eq__unit" x-model="draft.convLeftUnitId" aria-label="Stock unit">
+										<template x-for="u in (draft.stockUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+									</select>
+									<span class="conv-eq__op">=</span>
+									<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="1" x-model="draft.convRightAmount" aria-label="Recipe amount">
+									<select class="field__input conv-eq__unit" x-model="draft.convRightUnitId" aria-label="Recipe unit">
+										<template x-for="u in (draft.recipeUnits || [])" :key="u.id"><option :value="u.id" x-text="u.code"></option></template>
+									</select>
+								</div>
+								<p x-show="conversionEcho() !== ''" x-cloak="" style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);color:var(--color-success)">
+									<span x-text="conversionEcho()"></span>
+								</p>
+								<p style="margin:var(--space-2) 0 var(--space-2);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+									Use any amounts and units you know — saved to your catalog, so every future recipe reuses it.
+								</p>
+								<button type="button" class="btn btn--ghost btn--sm" @click="draft.unitId = draft.defaultUnitId; draft.needsConversion = false; draft.convLeftAmount = ''; draft.convRightAmount = ''; draft.convFor = ''">
+									Measure in
+									<span x-text="draft.defaultUnitCode"></span>
+									instead
+								</button>
+							</div></template>
 					</div></template>
 				<div class="sheet__actions" x-show="sheetView !== 'create'">
 					<button type="button" class="btn btn--primary" @click="saveSheet()" x-text="editingIdx === null ? 'Add' : 'Save'"></button>
