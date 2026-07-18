@@ -675,7 +675,7 @@
 						<input type="hidden" :name="'Input.NewTags[' + ni + '].Name'" :value="nt.name">
 						<input type="hidden" :name="'Input.NewTags[' + ni + '].Category'" :value="nt.category">
 					</span></template>
-				<div style="position:relative">
+				<div style="position:relative" @click.outside="tagDropOpen = false">
 					<div class="recipe-tag-editor" style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:2.5rem;cursor:text" @click="$refs.tagInput.focus()">
 						<template x-for="(tag, ti) in tags" :key="tag.id"><span class="badge badge--neutral" style="display:inline-flex;align-items:center;gap:var(--space-1)">
 								<span x-text="tag.name"></span>
@@ -688,7 +688,7 @@
 							</span></template>
 						<input type="text" x-ref="tagInput" x-model="tagQuery" placeholder="Filter tags…" class="field__input" style="border:none;outline:none;box-shadow:none;padding:0;min-width:8rem;flex:1" @focus="tagDropOpen = true" @input="tagDropOpen = true" @keydown.escape="tagDropOpen = false; tagQuery = ''" @keydown.backspace="if (!tagQuery &amp;&amp; tags.length) removeTag(tags.length - 1)" autocomplete="off">
 					</div>
-					<div x-show="tagDropOpen &amp;&amp; filteredTagOptions().length > 0" x-cloak="" @click.outside="tagDropOpen = false" style="position:absolute;z-index:50;left:0;right:0;margin-top:2px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:12rem;overflow-y:auto;box-shadow:var(--shadow-md)">
+					<div x-show="tagDropOpen &amp;&amp; filteredTagOptions().length > 0" x-cloak="" style="position:absolute;z-index:50;left:0;right:0;margin-top:2px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:12rem;overflow-y:auto;box-shadow:var(--shadow-md)">
 						<template x-for="opt in filteredTagOptions()" :key="opt.id"><button type="button" class="tag-picker-option" style="display:block;width:100%;text-align:left;padding:var(--space-2) var(--space-3);background:none;border:none;cursor:pointer;font:inherit;color:var(--color-text)" @mousedown.prevent="addTagFromOption(opt)" x-text="opt.name"></button></template>
 					</div>
 				</div>
