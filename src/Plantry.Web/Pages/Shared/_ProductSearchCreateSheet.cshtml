@@ -233,60 +233,19 @@
                 @*
                     Section picker — Recipes-only concept (ingredient sections). Hidden for Take Stock.
                     Gate: show for tracked rows (productId set) OR for staple/untracked rows
-                    (newStapleName !== null).
-
-                    plantry-vff8: replaces the old free-text "Group (optional)" input with a picker over
-                    the recipe's EXISTING sections (+ "New section…"). Picking an existing section reuses
-                    its exact heading, so a Sauce/sauce typo can no longer split one section into two on
-                    the add path. The picker writes draft.groupHeading (unchanged post contract). It reads
-                    the host's existingSectionHeadings() (Recipes/Edit x-data); guarded so any other
-                    ShowGroupHeading host degrades to "type a new section" rather than erroring.
+                    (newStapleName !== null). Extracted to a shared partial (plantry-7im4) so the SAME
+                    picker also renders in the create view below — an inline-created ingredient can now be
+                    given a section in the same sheet pass. Byte-identical for Take Stock / Deals: the
+                    whole block stays behind @Model.ShowGroupHeading, which they set false.
                 *@
                 @if (Model.ShowGroupHeading)
                 {
-                    <div class="form-grid__field form-grid__field--full"
-                         x-show="draft.productId || draft.newStapleName !== null"
-                         x-data="{
-                             secOpen: false,
-                             secQuery: '',
-                             get secOptions() { return typeof existingSectionHeadings === 'function' ? existingSectionHeadings() : []; },
-                             get secFiltered() {
-                                 const q = this.secQuery.trim().toLowerCase();
-                                 return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
-                             },
-                             pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
-                             createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
-                             clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
-                         }"
-                         @@sheet-product-set.window="secQuery = draft.groupHeading || ''"
-                         @@click.outside="secOpen = false">
-                        <label class="form-grid__field__label" for="ingredient-section">Section (optional)</label>
-                        <div class="form-grid__field__control" style="position:relative">
-                            <input type="text" id="ingredient-section" class="field__input"
-                                   placeholder="Ungrouped — pick or type a section…"
-                                   x-model="secQuery"
-                                   autocomplete="off"
-                                   @@focus="secOpen = true"
-                                   @@input="secOpen = true; draft.groupHeading = secQuery.trim()"
-                                   @@keydown.escape.stop="secOpen = false" />
-                            <ul class="searchable-select__listbox" role="listbox"
-                                x-show="secOpen && (secFiltered.length > 0 || secQuery.trim().length > 0)"
-                                x-cloak style="display:none">
-                                @* Existing sections on this recipe *@
-                                <template x-for="h in secFiltered" :key="h">
-                                    <li role="option" class="searchable-select__listbox-item"
-                                        @@click="pickSection(h)" x-text="h"></li>
-                                </template>
-                                @* "+ New section '{name}'" — only when the typed name is not already an existing section *@
-                                <li role="option" class="searchable-select__listbox-item searchable-select__listbox-item--create"
-                                    x-show="secQuery.trim().length > 0 && !secOptions.some(h => h.toLowerCase() === secQuery.trim().toLowerCase())"
-                                    @@click="createSection()">
-                                    <span>+ New section</span>
-                                    <span x-text="' “' + secQuery.trim() + '”'"></span>
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
+                    <partial name="Shared/_IngredientSectionPicker"
+                             model='new Plantry.Web.Pages.Shared.IngredientSectionPickerViewModel
+                             {
+                                 FieldId = "ingredient-section",
+                                 ShowExpression = "draft.productId || draft.newStapleName !== null",
+                             }' />
                 }
             </div>
 
@@ -496,6 +455,26 @@
                             </p>
                         </div>
                     </div>
+                }
+
+                @*
+                    Section picker in the CREATE view (plantry-7im4) — the fix's crux. The search-view
+                    picker above never reached an inline-created ingredient (authored entirely here in the
+                    create view), so such a row could never be given a section. Rendering the SAME shared
+                    partial here lets the author assign a heading in the same sheet pass; saveSheet()
+                    already round-trips draft.groupHeading into the row and the hidden GroupHeading input
+                    posts it, so no extra wiring is needed. ShowExpression is always-true in the create
+                    view (newStapleName is non-null throughout create-view time). Still ShowGroupHeading-
+                    gated so Take Stock / Deals never render it.
+                *@
+                @if (Model.ShowGroupHeading)
+                {
+                    <partial name="Shared/_IngredientSectionPicker"
+                             model='new Plantry.Web.Pages.Shared.IngredientSectionPickerViewModel
+                             {
+                                 FieldId = "ingredient-section-create",
+                                 ShowExpression = "draft.newStapleName !== null",
+                             }' />
                 }
 
             </div>

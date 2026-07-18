@@ -907,6 +907,126 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Journey 8: inline-created ingredients grouped under a section heading (plantry-7im4) ─────
+
+    [Fact(DisplayName = "plantry-7im4: inline-created ingredients get a section in the create view, cluster under one header, and land under it on Detail")]
+    public async Task InlineCreate_AssignSection_ClustersInEditorAndDetail()
+    {
+        var email = $"recipe-7im4-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe 7im4 Household");
+
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Lasagne {Guid.NewGuid():N}".Substring(0, 18);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            const string sectionName = "For the sauce";
+
+            // ── Ingredient 1: inline create + type a NEW section in the create view ──────
+            // The create view previously carried NO section field (plantry-7im4 root cause): an
+            // inline-created ingredient could never be grouped. It now renders the shared picker.
+            var passata = $"Passata {Guid.NewGuid():N}".Substring(0, 18);
+            await OpenCreateViewAsync(page, passata);
+            var sheet = page.Locator("#recipe-editor .sheet");
+            await sheet.Locator("#create-product-qty").FillAsync("500");
+            await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+            // The create-view Section field exists and is visible (the fix), and accepts a typed heading.
+            var sectionInput = sheet.Locator("#ingredient-section-create");
+            await Assertions.Expect(sectionInput).ToBeVisibleAsync();
+            await sectionInput.FillAsync(sectionName);
+            await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+
+            // ── Ingredient 2: inline create + REUSE the existing section via the picker listbox ──
+            // Picking the existing option reuses its exact heading (AC3) — no Sauce/sauce split.
+            var garlic = $"Garlic {Guid.NewGuid():N}".Substring(0, 18);
+            await OpenCreateViewAsync(page, garlic);
+            await sheet.Locator("#create-product-qty").FillAsync("2");
+            await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+            // Focus the section field to open the listbox, then click the existing-section option.
+            await sheet.Locator("#ingredient-section-create").ClickAsync();
+            var existingOption = sheet.Locator("#ingredient-section-create")
+                .Locator("xpath=following-sibling::ul")
+                .Locator("li[role='option']", new() { HasText = sectionName });
+            await Assertions.Expect(existingOption).ToBeVisibleAsync();
+            await existingOption.ClickAsync();
+            await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+
+            // ── Editor: exactly ONE named-section header carries the heading, and both rows sit under it ──
+            // The header is an <input> whose value is Alpine-bound (:value) — assert via the value property
+            // (ToHaveValue), not a [value=…] attribute selector, which Alpine's property binding never sets.
+            var sectionHeader = page.Locator("input.ing-section__name");
+            await Assertions.Expect(sectionHeader).ToHaveCountAsync(1);
+            await Assertions.Expect(sectionHeader).ToHaveValueAsync(sectionName);
+            var sectionCard = sectionHeader.Locator("xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' ing-section ')]");
+            await Assertions.Expect(sectionCard.Locator(".ingredient-row__summary", new() { HasText = passata })).ToBeVisibleAsync();
+            await Assertions.Expect(sectionCard.Locator(".ingredient-row__summary", new() { HasText = garlic })).ToBeVisibleAsync();
+
+            // ── AC1 (second half): reopening an inline-created row keeps the section shown AND editable ──
+            // A tracked inline-create row (no productId) reopens in the CREATE view (Edit.cshtml openEdit),
+            // and @sheet-product-set.window seeds the picker's secQuery from draft.groupHeading — so the
+            // saved heading must be visible in #ingredient-section-create and mutable in place.
+            await sectionCard.Locator(".ingredient-row__summary", new() { HasText = passata }).ClickAsync();
+            var reopenSheet = page.Locator("#recipe-editor .sheet");
+            await Assertions.Expect(reopenSheet).ToBeVisibleAsync();
+            var reopenSection = reopenSheet.Locator("#ingredient-section-create");
+            await Assertions.Expect(reopenSection).ToBeVisibleAsync();
+            await Assertions.Expect(reopenSection).ToHaveValueAsync(sectionName);
+            // Editable: retype the SAME heading (keeps the row in the one section) and re-save. Proves the
+            // field accepts edits on reopen without splitting or dropping the row's section.
+            await reopenSection.FillAsync(sectionName);
+            await reopenSheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(reopenSheet).Not.ToBeVisibleAsync();
+            // Still exactly one named section carrying the heading, with both rows under it (no snap-back).
+            await Assertions.Expect(page.Locator("input.ing-section__name")).ToHaveCountAsync(1);
+            await Assertions.Expect(page.Locator("input.ing-section__name")).ToHaveValueAsync(sectionName);
+
+            // ── Save → Detail renders the section heading (matching the editor, no snap-back) ──
+            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.WaitForURLAsync(DetailUrlPattern);
+            Assert.DoesNotMatch(@"/New$", page.Url);
+
+            // The heading text renders verbatim (CSS uppercases it for display only).
+            await Assertions.Expect(page.Locator(".rd-ing-card h4", new() { HasText = sectionName }))
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            await Assertions.Expect(page.Locator(".rd-ing-row", new() { HasText = passata })).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(".rd-ing-row", new() { HasText = garlic })).ToBeVisibleAsync();
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-7im4-section.zip" });
+        }
+    }
+
+    /// <summary>
+    /// Opens the add-ingredient sheet, switches to the create view via the "as a new product" affordance,
+    /// and fills the product name — leaving the caller to set qty/unit/section and commit. Mirrors the
+    /// setup shared by the inline-create journeys (plantry-orix/guab), factored out for plantry-7im4.
+    /// </summary>
+    private async Task OpenCreateViewAsync(IPage page, string productName)
+    {
+        await page.ClickAsync("button:has-text('Add ingredient')");
+        var sheet = page.Locator("#recipe-editor .sheet");
+        await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+        await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 6));
+        var createBtn = sheet.Locator("button:has-text('as a new product')");
+        await Assertions.Expect(createBtn).ToBeVisibleAsync();
+        await createBtn.ClickAsync();
+        var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
+        await Assertions.Expect(nameInput).ToBeVisibleAsync();
+        await nameInput.FillAsync(productName);
+    }
+
     // ── Shared helpers ────────────────────────────────────────────────────────────
 
     /// <summary>Smallest valid 1×1 PNG for photo upload (same helper as ReceiptIntakeJourneyTests).</summary>

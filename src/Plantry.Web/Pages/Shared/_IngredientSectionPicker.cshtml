@@ -1,0 +1,63 @@
+@model Plantry.Web.Pages.Shared.IngredientSectionPickerViewModel
+@*
+    Ingredient "Section (optional)" picker — the single entry point for assigning an ingredient to a
+    named section ("For the sauce"). Extracted from _ProductSearchCreateSheet (plantry-vff8) so it can
+    render in BOTH the sheet's search view AND its create view (plantry-7im4). An inline-created
+    ingredient is authored entirely in the create view, which previously carried NO section field, so it
+    could never be given a heading; rendering this picker there closes that gap.
+
+    View-agnostic: the inner Alpine scope writes only draft.groupHeading and reads the host's
+    existingSectionHeadings() (Recipes/Edit x-data); guarded so any other ShowGroupHeading host degrades
+    to "type a new section" rather than erroring. Rendered only by ShowGroupHeading hosts (Recipes);
+    Take Stock / Deals gate it out so their sheets stay byte-identical.
+
+    plantry-vff8: replaces the old free-text "Group (optional)" input with a picker over the recipe's
+    EXISTING sections (+ "New section…"). Picking an existing section reuses its exact heading, so a
+    Sauce/sauce typo can no longer split one section into two on the add path.
+
+    Model.FieldId        — id/for of the input; unique per instance (both views render one, both in DOM).
+    Model.ShowExpression — Alpine x-show guard (search view vs create view differ; see the view-model).
+*@
+<div class="form-grid__field form-grid__field--full"
+     x-show="@Model.ShowExpression"
+     x-data="{
+         secOpen: false,
+         secQuery: '',
+         get secOptions() { return typeof existingSectionHeadings === 'function' ? existingSectionHeadings() : []; },
+         get secFiltered() {
+             const q = this.secQuery.trim().toLowerCase();
+             return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
+         },
+         pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
+         createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
+         clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
+     }"
+     @@sheet-product-set.window="secQuery = draft.groupHeading || ''"
+     @@click.outside="secOpen = false">
+    <label class="form-grid__field__label" for="@Model.FieldId">Section (optional)</label>
+    <div class="form-grid__field__control" style="position:relative">
+        <input type="text" id="@Model.FieldId" class="field__input"
+               placeholder="Ungrouped — pick or type a section…"
+               x-model="secQuery"
+               autocomplete="off"
+               @@focus="secOpen = true"
+               @@input="secOpen = true; draft.groupHeading = secQuery.trim()"
+               @@keydown.escape.stop="secOpen = false" />
+        <ul class="searchable-select__listbox" role="listbox"
+            x-show="secOpen && (secFiltered.length > 0 || secQuery.trim().length > 0)"
+            x-cloak style="display:none">
+            @* Existing sections on this recipe *@
+            <template x-for="h in secFiltered" :key="h">
+                <li role="option" class="searchable-select__listbox-item"
+                    @@click="pickSection(h)" x-text="h"></li>
+            </template>
+            @* "+ New section '{name}'" — only when the typed name is not already an existing section *@
+            <li role="option" class="searchable-select__listbox-item searchable-select__listbox-item--create"
+                x-show="secQuery.trim().length > 0 && !secOptions.some(h => h.toLowerCase() === secQuery.trim().toLowerCase())"
+                @@click="createSection()">
+                <span>+ New section</span>
+                <span x-text="' “' + secQuery.trim() + '”'"></span>
+            </li>
+        </ul>
+    </div>
+</div>
