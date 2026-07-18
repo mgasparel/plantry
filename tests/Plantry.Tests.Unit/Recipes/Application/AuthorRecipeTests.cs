@@ -164,6 +164,51 @@ public sealed class AuthorRecipeTests
     }
 
     [Fact]
+    public async Task Create_Inline_Tracked_Stores_Independent_Recipe_Unit_Distinct_From_Product_Default()
+    {
+        // plantry-dtr9: the inline-create flow must let the recipe line carry its OWN unit, independent of
+        // the minted product's default/stock unit — e.g. stock olive oil in ml, use it by the tbsp. Before
+        // the fix the create view had no recipe-unit field, so the line silently inherited the product
+        // default. This pins the contract that AuthorRecipe stores the LINE's UnitId (not the default) and
+        // routes an author-supplied cross-dimension factor to the freshly minted product.
+        var h = BuildHarness();
+        var recipeUnit = Guid.CreateVersion7(); // what THIS recipe measures in (e.g. tbsp / g)
+        var stockUnit = Guid.CreateVersion7();  // the product default/stock unit (e.g. ml / ea)
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Salad Dressing",
+            DefaultServings: 2,
+            Lines: [new AuthorIngredientLine(
+                ProductId: null, Quantity: 2m, UnitId: recipeUnit, GroupHeading: null, Ordinal: 0,
+                NewStapleName: "Olive Oil", NewStapleDefaultUnitId: stockUnit,
+                // Author supplies the four-field factor so the cross-dimension pair resolves on this pass
+                // (a same-dimension pair would resolve universally with no factor; the fake converter is
+                // path-based, so the factor stands in for that universal bridge here).
+                ConversionFactor: 15m, NewIsTracked: true,
+                ConversionFromUnitId: recipeUnit, ConversionToUnitId: stockUnit)],
+            TagIds: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        // The product is minted with the STOCK unit as its default.
+        var created = Assert.Single(h.Writer.TrackedProductsCreated);
+        Assert.Equal(stockUnit, created.DefaultUnitId);
+        // The ingredient line stores the RECIPE unit — NOT coerced to the product default.
+        var recipe = Assert.Single(h.Recipes.Items);
+        var ing = Assert.Single(recipe.Ingredients);
+        Assert.Equal(recipeUnit, ing.UnitId);
+        Assert.NotEqual(stockUnit, ing.UnitId);
+        Assert.Equal(2m, ing.Quantity);
+        // The author-supplied factor is written against the freshly minted product (recipeUnit → stockUnit).
+        var conv = Assert.Single(h.Writer.ConversionsAdded);
+        Assert.Equal(ing.ProductId, conv.ProductId);
+        Assert.Equal(recipeUnit, conv.FromUnitId);
+        Assert.Equal(stockUnit, conv.ToUnitId);
+    }
+
+    [Fact]
     public async Task Create_Inline_Tracked_Variant_Creates_Variant_And_Ingredient()
     {
         var h = BuildHarness();

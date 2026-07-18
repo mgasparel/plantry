@@ -559,6 +559,78 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Journey 6: inline create with a distinct recipe unit (plantry-dtr9) ─────────
+
+    [Fact(DisplayName = "plantry-dtr9: inline create with recipe unit tbsp + stock unit ml saves the line as tbsp")]
+    public async Task InlineCreate_DistinctRecipeUnit_SavesLineInRecipeUnit()
+    {
+        var email = $"recipe-dtr9-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe DTR9 Household");
+
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Dressing {Guid.NewGuid():N}".Substring(0, 18);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            // ── Open the sheet and switch to create-view ──────────────────────────
+            await page.ClickAsync("button:has-text('Add ingredient')");
+            var sheet = page.Locator("#recipe-editor .sheet");
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+            var productName = $"Olive Oil {Guid.NewGuid():N}".Substring(0, 22);
+            await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 8));
+            var createBtn = sheet.Locator("button:has-text('as a new product')");
+            await Assertions.Expect(createBtn).ToBeVisibleAsync();
+            await createBtn.ClickAsync();
+
+            var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
+            await Assertions.Expect(nameInput).ToBeVisibleAsync();
+            await nameInput.FillAsync(productName);
+
+            // ── The crux of plantry-dtr9: qty 2, recipe unit tbsp, product STOCK unit ml ──
+            await sheet.Locator("#create-product-qty").FillAsync("2");
+
+            // The recipe-line unit select is a distinct, TrackStock-gated field in the create view.
+            var recipeUnit = sheet.Locator("#create-product-recipe-unit");
+            await Assertions.Expect(recipeUnit).ToBeVisibleAsync();
+            // Pick the recipe unit FIRST — this pins it, so setting the stock unit below must NOT overwrite it.
+            await recipeUnit.SelectOptionAsync(new SelectOptionValue { Label = "tbsp" });
+
+            // The Defaults "Stock unit" select is the PRODUCT default — set it to a DIFFERENT unit (ml).
+            await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ml" });
+
+            // Commit — ml/tbsp are both Volume (same dimension), so no conversion prompt appears.
+            await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+
+            // ── The landed row shows the RECIPE unit (tbsp), NOT the stock unit (ml) ──
+            var summary = page.Locator(".ingredient-row__summary", new() { HasText = productName });
+            await Assertions.Expect(summary).ToBeVisibleAsync();
+            await Assertions.Expect(summary).ToContainTextAsync("tbsp");
+
+            // ── Save — same-dimension pair needs no factor, so it saves cleanly in one pass ──
+            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.WaitForURLAsync(DetailUrlPattern);
+            Assert.DoesNotMatch(@"/New$", page.Url);
+
+            // Detail renders the ingredient measured in tbsp (criterion 2).
+            await Assertions.Expect(page.GetByText("tbsp").First)
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-dtr9-recipe-unit.zip" });
+        }
+    }
+
     // ── Shared helpers ────────────────────────────────────────────────────────────
 
     /// <summary>Smallest valid 1×1 PNG for photo upload (same helper as ReceiptIntakeJourneyTests).</summary>

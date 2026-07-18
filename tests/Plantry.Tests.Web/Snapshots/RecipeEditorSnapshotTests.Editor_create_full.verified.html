@@ -150,6 +150,9 @@
              return { _id: null, ordinal: 0, productId: '', productName: '', qty: '', unitId: '',
                  defaultUnitId: '', defaultUnitCode: '',
                  groupHeading: '', isUntracked: false, newStapleName: null, newStapleUnit: '',
+                 // recipeUnitPinned (plantry-dtr9): set once the author picks a recipe-line unit in the
+                 // create view, so the newStapleUnit→unitId mirror stands down and never overwrites it.
+                 recipeUnitPinned: false,
                  newIsTracked: false,
                  newStapleCategoryId: '', newGroupId: '', newGroupName: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '',
@@ -167,6 +170,9 @@
              // Product-pick rows and legacy untracked staples keep opening in the search view.
              this.sheetView = (!row.productId &amp;&amp; row.newIsTracked === true) ? 'create' : 'search';
              this.draft = JSON.parse(JSON.stringify(row));
+             // A reopened row already has a decided recipe-line unit — pin it so the create-view mirror
+             // ($watch on draft.newStapleUnit) cannot overwrite it when the draft is (re)assigned (plantry-dtr9).
+             this.draft.recipeUnitPinned = true;
              this.sheetOpen = true;
              this._syncSearch(this.draft.productName);
          },
@@ -195,12 +201,17 @@
              // (plantry-orix). The untracked-staple path (C12) is now only used when newIsTracked
              // is false — which is the legacy path kept for backward compatibility in the data model;
              // the create view always mints tracked products (the whole point of plantry-orix).
-             // Also pre-populate draft.unitId from draft.newStapleUnit so R5 (tracked needs unit)
-             // is satisfied without requiring a separate edit after sheet close.
+             // Recipe-line unit (draft.unitId) and product default/stock unit (draft.newStapleUnit) are
+             // independent (plantry-dtr9). Fall each back to the other ONLY when one is blank — a value the
+             // author chose on either side is never overwritten (criterion 3):
+             //   • recipe unit blank    → inherit the product default (matches today's behaviour, now visible)
+             //   • product default blank → stock it in the recipe unit (so the mint always has a default unit)
              if (this.sheetView === 'create' &amp;&amp; this.draft.newStapleName !== null) {
                  this.draft.newIsTracked = true;
                  if (this.draft.newStapleUnit &amp;&amp; !this.draft.unitId) {
                      this.draft.unitId = this.draft.newStapleUnit;
+                 } else if (this.draft.unitId &amp;&amp; !this.draft.newStapleUnit) {
+                     this.draft.newStapleUnit = this.draft.unitId;
                  }
              }
              // plantry-5oek Defect 1 — block a tracked draft that lacks a usable quantity or unit before it
@@ -426,7 +437,55 @@
          _triggerConversionCheck() {
              clearTimeout(this._convCheckTimer);
              const draft = this.draft;
-             if (!draft.productId || !draft.unitId || draft.isUntracked || draft.newStapleName !== null) {
+             if (draft.isUntracked) { draft.needsConversion = false; return; }
+
+             // ── Inline-create path (plantry-dtr9) ────────────────────────────────────────
+             // A create-view draft has no productId yet, so the product-scoped CheckConversion cannot run.
+             // Compare the chosen recipe-line unit (draft.unitId) against the product default/stock unit
+             // (draft.newStapleUnit) via the product-less CheckConversionUnits handler: a brand-new product
+             // has zero ProductConversions, so same-dimension pairs bridge universally (no prompt) and only
+             // a cross-dimension pair needs the four-field equation. Surfacing the prompt BEFORE save lets the
+             // author supply the factor in-sheet, so the save carries it and Phase 3 resolves in one pass —
+             // instead of bouncing and leaving an orphaned just-minted product. The prompt's stock-unit label
+             // and product name are populated client-side (from newStapleUnit / newStapleName) since the
+             // product does not exist yet; sibling plantry-obg3 owns the existing-product robustness.
+             if (draft.newStapleName !== null &amp;&amp; !draft.productId) {
+                 if (!draft.unitId || !draft.newStapleUnit || draft.unitId === draft.newStapleUnit) {
+                     draft.needsConversion = false;
+                     return;
+                 }
+                 const stockUnitId = draft.newStapleUnit;
+                 this._convCheckTimer = setTimeout(async () => {
+                     const url = `/Recipes/New?handler=CheckConversionUnits&amp;defaultUnitId=${encodeURIComponent(stockUnitId)}&amp;fromUnitId=${encodeURIComponent(draft.unitId)}`;
+                     try {
+                         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                         if (!res.ok) return;
+                         const data = await res.json();
+                         if (data.needsConversion) {
+                             draft.needsConversion = true;
+                             // Product does not exist yet — label the ask from the in-progress draft.
+                             if (!draft.productName) draft.productName = draft.newStapleName || '';
+                             draft.defaultUnitId = data.defaultUnitId || stockUnitId;
+                             draft.defaultUnitCode = data.defaultUnitCode || this.unitLabel(stockUnitId);
+                             draft.stockUnits = data.stockUnits || [];
+                             draft.recipeUnits = data.recipeUnits || [];
+                             if (draft.convFor !== draft.unitId) {
+                                 draft.convFor = draft.unitId;
+                                 draft.convLeftUnitId = draft.defaultUnitId;
+                                 draft.convLeftAmount = '';
+                                 draft.convRightUnitId = draft.unitId;
+                                 draft.convRightAmount = '1';
+                             }
+                         } else {
+                             draft.needsConversion = false;
+                         }
+                     } catch (_) { /* network error — server R7 backstop handles it */ }
+                 }, 250);
+                 return;
+             }
+
+             // ── Existing-product path (unchanged) ────────────────────────────────────────
+             if (!draft.productId || !draft.unitId || draft.newStapleName !== null) {
                  draft.needsConversion = false;
                  return;
              }
@@ -470,6 +529,22 @@
          init() {
              this.$watch('draft.unitId', () => this._triggerConversionCheck());
              this.$watch('draft.productId', () => { this.draft.needsConversion = false; this._triggerConversionCheck(); });
+             // plantry-dtr9: mirror the product default/stock unit into the recipe-line unit while the author
+             // has not explicitly chosen a recipe unit (recipeUnitPinned) in the create view. Keeps the common
+             // stock-it-in-the-unit-you-measure-in path one-tap AND makes the inherited value visible in the
+             // create-view Unit select instead of silently applied at save (criterion 4). A user-chosen recipe
+             // unit is pinned on select-change so it is never overwritten (criterion 3). Setting draft.unitId re-runs
+             // the conversion check via its own watch; the else-branch covers the stock unit changing UNDER a
+             // pinned recipe unit (the cross-dimension status may flip, so re-check).
+             // NB: never use a double-quote character in an x-data comment — the whole initialiser lives inside
+             // the x-data attribute, so a stray quote would close it. Every comment here uses plain words.
+             this.$watch('draft.newStapleUnit', (val) => {
+                 if (this.sheetView === 'create' &amp;&amp; !this.draft.recipeUnitPinned) {
+                     this.draft.unitId = val || '';
+                 } else {
+                     this._triggerConversionCheck();
+                 }
+             });
              // plantry-5oek: clear the sheet's tracked-quantity guard message whenever the view swaps
              // (search to/from create, incl. the partial's back-to-search / create-cancel backlinks).
              // NB: never use a double-quote character in an x-data comment — the whole initialiser lives
@@ -869,6 +944,16 @@
 								<span class="field__error" x-show="sheetError" x-cloak="" x-text="sheetError"></span>
 							</div>
 						</div>
+						<div class="form-grid__field">
+							<label class="form-grid__field__label" for="create-product-recipe-unit">Unit (in this recipe)</label>
+							<div class="form-grid__field__control">
+								<select id="create-product-recipe-unit" class="field__input" x-model="draft.unitId" @change="draft.recipeUnitPinned = true; sheetError = ''">
+									<option value="">— Unit —</option>
+									<option value="Guid_3">g</option>
+									<option value="Guid_4">ea</option>
+								</select>
+							</div>
+						</div>
 						<div class="form-grid__field form-grid__field--full" x-data="{
                              groupOptions: [],
                              groupQuery: '',
@@ -945,7 +1030,7 @@
 						</summary>
 						<div class="sheet-defaults__body">
 							<div class="form-grid__field form-grid__field--full">
-								<label class="form-grid__field__label" for="create-product-unit">Unit</label>
+								<label class="form-grid__field__label" for="create-product-unit">Stock unit</label>
 								<div class="form-grid__field__control">
 									<select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
 										<option value="">— Unit —</option>

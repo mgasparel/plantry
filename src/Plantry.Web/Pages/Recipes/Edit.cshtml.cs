@@ -430,6 +430,55 @@ public sealed class EditModel(
         });
     }
 
+    /// <summary>
+    /// Product-less variant of <see cref="OnGetCheckConversionAsync"/> for the inline-create flow
+    /// (plantry-dtr9). The create view mints a brand-new product that does not exist yet, so there is no
+    /// <c>productId</c> to scope a conversion lookup — and a brand-new product carries zero
+    /// <c>ProductConversion</c>s. The only thing that decides whether the author must supply a factor is
+    /// therefore whether the chosen recipe-line unit shares the product's chosen default/stock unit
+    /// dimension: same-dimension pairs (e.g. ml → tbsp, both Volume) bridge universally via
+    /// <c>factor_to_base</c> and return <c>needsConversion:false</c>; cross-dimension pairs (e.g. ea → g)
+    /// return <c>needsConversion:true</c> with the same axis-locked unit lists the existing-product handler
+    /// builds, so the client renders the identical in-sheet four-field prompt BEFORE the product is minted
+    /// (avoiding a save bounce that would orphan the just-created product). The authoritative R7 re-check at
+    /// POST time is unchanged.
+    /// </summary>
+    public async Task<IActionResult> OnGetCheckConversionUnitsAsync(Guid defaultUnitId, Guid fromUnitId, CancellationToken ct)
+    {
+        // Same unit — no conversion needed.
+        if (fromUnitId == defaultUnitId)
+            return new JsonResult(new { needsConversion = false });
+
+        var allUnits = await products.ListUnitsAsync(ct);
+        var defaultUnit = allUnits.FirstOrDefault(u => u.Id == defaultUnitId);
+        var recipeUnit = allUnits.FirstOrDefault(u => u.Id == fromUnitId);
+
+        // Unresolvable unit id, or a same-dimension pair → no author factor required (same-dimension pairs
+        // convert universally). Returning false on an unresolvable unit also keeps the prompt from rendering
+        // blank; the authoritative R7 re-check at POST time still backstops a genuinely missing path.
+        if (defaultUnit is null || recipeUnit is null || defaultUnit.Dimension == recipeUnit.Dimension)
+            return new JsonResult(new { needsConversion = false });
+
+        // Cross-dimension — build the two axis-locked lists the four-field equation editor needs (plantry-qno9).
+        var stockUnits = allUnits
+            .Where(u => u.Dimension == defaultUnit.Dimension)
+            .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
+            .ToList();
+        var recipeUnits = allUnits
+            .Where(u => u.Dimension == recipeUnit.Dimension)
+            .Select(u => new { id = u.Id.ToString(), code = u.Code, factorToBase = u.FactorToBase })
+            .ToList();
+
+        return new JsonResult(new
+        {
+            needsConversion = true,
+            defaultUnitId = defaultUnitId.ToString(),
+            defaultUnitCode = defaultUnit.Code,
+            stockUnits,
+            recipeUnits,
+        });
+    }
+
     // ── POST — main save ─────────────────────────────────────────────────────────
 
     public async Task<IActionResult> OnPostAsync(IFormFile? photo, CancellationToken ct)
