@@ -51,7 +51,9 @@
         @* plantry-obg3: the product has no resolvable stock/default unit (unset or dangling
            DefaultUnitId). Rendering the equation here would produce a blank unit name in the sentence
            and an option-less LEFT dropdown, so show an explicit, actionable message instead — never the
-           four-field editor. The authoritative R7 check still backstops the save. *@
+           four-field editor. The authoritative R7 check still backstops the save. When BOTH axes are
+           missing this stock copy wins (it carries the actionable remedy) — see the !defaultUnitMissing
+           prefix on the recipe branch below. *@
         <template x-if="draft.defaultUnitMissing">
             <p style="margin:0;font-size:var(--font-size-sm);display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
                 <svg class="icon" aria-hidden="true" style="flex:none"><use href="#i-alert" /></svg>
@@ -62,9 +64,23 @@
             </p>
         </template>
 
-        @* Normal path — the equation editor. Guarded off the missing-default branch so the blank-unit
+        @* plantry-hhy2: the RIGHT/recipe-axis unit chosen for this line is unresolvable (dangling/deleted
+           unit) while the stock axis is fine. Recipe-axis copy — no catalog-default remedy, and no
+           unitLabel() (the unresolvable unit has no code to show). Suppressed when defaultUnitMissing so
+           the stock copy takes precedence. *@
+        <template x-if="!draft.defaultUnitMissing && draft.recipeUnitMissing">
+            <p style="margin:0;font-size:var(--font-size-sm);display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+                <svg class="icon" aria-hidden="true" style="flex:none"><use href="#i-alert" /></svg>
+                <span>
+                    The unit chosen for <strong x-text="draft.productName"></strong> on this recipe line can't
+                    be resolved, so Plantry can't work out the conversion. Pick a different unit for this ingredient.
+                </span>
+            </p>
+        </template>
+
+        @* Normal path — the equation editor. Guarded off both missing-axis branches so the blank-unit
            sentence + option-less select combination is unreachable. *@
-        <template x-if="!draft.defaultUnitMissing">
+        <template x-if="!draft.defaultUnitMissing && !draft.recipeUnitMissing">
             <div>
                 <p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
                     Plantry stocks <strong x-text="draft.productName"></strong> in <strong x-text="draft.defaultUnitCode"></strong>.

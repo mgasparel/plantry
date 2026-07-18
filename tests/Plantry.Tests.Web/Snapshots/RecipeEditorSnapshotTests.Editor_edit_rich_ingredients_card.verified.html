@@ -118,7 +118,17 @@
 											has no stock unit set, so Plantry can't                                                     work out the conversion. Set a default unit for this product in your catalog first.
 										</span>
 									</p>
-									<p x-show="!rowConvFilled(row) &amp;&amp; !row.defaultUnitMissing" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+									<p x-show="!row.defaultUnitMissing &amp;&amp; row.recipeUnitMissing" x-cloak="" style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+										<svg class="icon" aria-hidden="true" style="flex:none">
+											<use href="#i-alert"></use>
+										</svg>
+										<span>
+											The unit chosen for
+											<strong x-text="row.productName"></strong>
+											on this recipe line can't                                                     be resolved, so Plantry can't work out the conversion. Pick a different unit for this ingredient.
+										</span>
+									</p>
+									<p x-show="!rowConvFilled(row) &amp;&amp; !row.defaultUnitMissing &amp;&amp; !row.recipeUnitMissing" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
 										Plantry stocks
 										<strong x-text="row.productName"></strong>
 										in
@@ -126,7 +136,7 @@
 										<span x-text="unitLabel(row.unitId)"></span>
 										relate?
 									</p>
-									<template x-if="!row.defaultUnitMissing"><div>
+									<template x-if="!row.defaultUnitMissing &amp;&amp; !row.recipeUnitMissing"><div>
 											<div class="conv-eq">
 												<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
 												<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">

@@ -136,9 +136,12 @@
             convFor = "",
             stockUnits = new object[0],
             recipeUnits = new object[0],
-            // plantry-obg3: set true by the CheckConversion fetch when the product's default unit cannot be
-            // resolved — the row then shows an explicit message instead of the option-less equation.
+            // plantry-obg3: set true by the CheckConversion fetch when the product's default/stock unit cannot
+            // be resolved — the row then shows an explicit message instead of the option-less equation.
             defaultUnitMissing = false,
+            // plantry-hhy2: RIGHT/recipe-axis counterpart — set true when the chosen recipe-line unit cannot
+            // be resolved. Shows recipe-axis copy instead of the stock-unit-specific message.
+            recipeUnitMissing = false,
         }));
     }
     foreach (var inc in Model.Input.Inclusions)
@@ -327,7 +330,10 @@
                  // plantry-obg3: true when the product's default (stock) unit is unresolvable — the prompt
                  // then shows an explicit human-readable message instead of a blank-unit sentence + an
                  // option-less dropdown.
-                 defaultUnitMissing: false };
+                 defaultUnitMissing: false,
+                 // plantry-hhy2: RIGHT/recipe-axis counterpart — true when the chosen recipe-line unit is
+                 // unresolvable. Shows recipe-axis copy instead of the stock-unit-specific message.
+                 recipeUnitMissing: false };
          },
          openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.sheetError = ''; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
          // editingIdx carries the row's stable _id while editing (null while adding). The shared
@@ -482,15 +488,18 @@
                  if (!res.ok) return;
                  const data = await res.json();
                  if (!data.needsConversion) { row.needsConversion = false; return; }
-                 // plantry-obg3: product default unit unresolvable — show the explicit message instead of
-                 // the option-less equation (mirrors the in-sheet prompt). Clear the axis lists.
-                 if (data.defaultUnitMissing) {
-                     row.defaultUnitMissing = true;
+                 // plantry-obg3/hhy2: either axis unit unresolvable — show the axis-appropriate explicit
+                 // message instead of the option-less equation (mirrors the in-sheet prompt). Clear the axis
+                 // lists. (!! guards older cached responses lacking the recipeUnitMissing field.)
+                 if (data.defaultUnitMissing || data.recipeUnitMissing) {
+                     row.defaultUnitMissing = !!data.defaultUnitMissing;
+                     row.recipeUnitMissing = !!data.recipeUnitMissing;
                      row.stockUnits = [];
                      row.recipeUnits = [];
                      return;
                  }
                  row.defaultUnitMissing = false;
+                 row.recipeUnitMissing = false;
                  row.defaultUnitId = data.defaultUnitId || row.defaultUnitId;
                  row.defaultUnitCode = data.defaultUnitCode || row.defaultUnitCode;
                  row.stockUnits = data.stockUnits || [];
@@ -680,16 +689,19 @@
                      const data = await res.json();
                      if (data.needsConversion) {
                          draft.needsConversion = true;
-                         // plantry-obg3: product default unit unresolvable server-side — show an explicit
-                         // message instead of mounting the equation with a blank unit label and an
-                         // option-less LEFT dropdown. Clear the axis lists so no stray options render.
-                         if (data.defaultUnitMissing) {
-                             draft.defaultUnitMissing = true;
+                         // plantry-obg3/hhy2: an axis unit is unresolvable server-side — show the
+                         // axis-appropriate explicit message instead of mounting the equation with a blank
+                         // unit label and an option-less dropdown. Clear the axis lists so no stray options
+                         // render. (!! guards older cached responses lacking the recipeUnitMissing field.)
+                         if (data.defaultUnitMissing || data.recipeUnitMissing) {
+                             draft.defaultUnitMissing = !!data.defaultUnitMissing;
+                             draft.recipeUnitMissing = !!data.recipeUnitMissing;
                              draft.stockUnits = [];
                              draft.recipeUnits = [];
                              return;
                          }
                          draft.defaultUnitMissing = false;
+                         draft.recipeUnitMissing = false;
                          draft.defaultUnitId = data.defaultUnitId || draft.defaultUnitId;
                          draft.defaultUnitCode = data.defaultUnitCode || draft.defaultUnitCode;
                          // Axis-locked unit lists for the four-field equation (plantry-qno9): LEFT lists
@@ -1196,7 +1208,9 @@
                                             @* plantry-obg3: product has no resolvable stock/default unit
                                                (unset or dangling DefaultUnitId). Show an explicit, actionable
                                                message instead of the blank-unit sentence + option-less
-                                               equation — mirrors _IngredientConversionPrompt.cshtml. *@
+                                               equation — mirrors _IngredientConversionPrompt.cshtml. When BOTH
+                                               axes are missing this stock copy wins (it carries the actionable
+                                               remedy) — see the !defaultUnitMissing prefix on the recipe branch. *@
                                             <p x-show="row.defaultUnitMissing" x-cloak
                                                style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
                                                 <svg class="icon" aria-hidden="true" style="flex:none"><use href="#i-alert" /></svg>
@@ -1206,8 +1220,22 @@
                                                 </span>
                                             </p>
 
+                                            @* plantry-hhy2: the RIGHT/recipe-axis unit chosen for this line is
+                                               unresolvable (dangling/deleted unit) while the stock axis is fine.
+                                               Recipe-axis copy — no remedy about the catalog default unit, and no
+                                               unitLabel() (the unresolvable unit has no code to show). Suppressed
+                                               when defaultUnitMissing so the stock copy takes precedence. *@
+                                            <p x-show="!row.defaultUnitMissing && row.recipeUnitMissing" x-cloak
+                                               style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+                                                <svg class="icon" aria-hidden="true" style="flex:none"><use href="#i-alert" /></svg>
+                                                <span>
+                                                    The unit chosen for <strong x-text="row.productName"></strong> on this recipe line can't
+                                                    be resolved, so Plantry can't work out the conversion. Pick a different unit for this ingredient.
+                                                </span>
+                                            </p>
+
                                             @* MISSING — informational ask (same wording family as the in-sheet prompt) *@
-                                            <p x-show="!rowConvFilled(row) && !row.defaultUnitMissing"
+                                            <p x-show="!rowConvFilled(row) && !row.defaultUnitMissing && !row.recipeUnitMissing"
                                                style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
                                                 Plantry stocks <strong x-text="row.productName"></strong> in <strong x-text="row.defaultUnitCode"></strong>.
                                                 How does 1 <span x-text="unitLabel(row.unitId)"></span> relate?
@@ -1216,9 +1244,9 @@
                                             @* Two-sided equation (LEFT stock dimension = RIGHT recipe-line dimension),
                                                each select axis-locked, + the FILLED derived-echo line — shared partial
                                                (plantry-pqlo). The saved-on-save note below stays here (row-specific).
-                                               Suppressed entirely when the default unit is unresolvable (plantry-obg3)
-                                               so the option-less LEFT dropdown is unreachable. *@
-                                            <template x-if="!row.defaultUnitMissing">
+                                               Suppressed entirely when either axis unit is unresolvable
+                                               (plantry-obg3/hhy2) so the option-less dropdown is unreachable. *@
+                                            <template x-if="!row.defaultUnitMissing && !row.recipeUnitMissing">
                                                 @* Single wrapper root: the equation partial renders two
                                                    sibling elements (.conv-eq + echo <p>), but Alpine x-if
                                                    needs one root — so wrap them. *@

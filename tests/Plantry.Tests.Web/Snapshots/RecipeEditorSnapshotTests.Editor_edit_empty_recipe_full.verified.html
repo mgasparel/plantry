@@ -161,7 +161,10 @@
                  // plantry-obg3: true when the product's default (stock) unit is unresolvable — the prompt
                  // then shows an explicit human-readable message instead of a blank-unit sentence + an
                  // option-less dropdown.
-                 defaultUnitMissing: false };
+                 defaultUnitMissing: false,
+                 // plantry-hhy2: RIGHT/recipe-axis counterpart — true when the chosen recipe-line unit is
+                 // unresolvable. Shows recipe-axis copy instead of the stock-unit-specific message.
+                 recipeUnitMissing: false };
          },
          openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.sheetError = ''; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
          // editingIdx carries the row's stable _id while editing (null while adding). The shared
@@ -316,15 +319,18 @@
                  if (!res.ok) return;
                  const data = await res.json();
                  if (!data.needsConversion) { row.needsConversion = false; return; }
-                 // plantry-obg3: product default unit unresolvable — show the explicit message instead of
-                 // the option-less equation (mirrors the in-sheet prompt). Clear the axis lists.
-                 if (data.defaultUnitMissing) {
-                     row.defaultUnitMissing = true;
+                 // plantry-obg3/hhy2: either axis unit unresolvable — show the axis-appropriate explicit
+                 // message instead of the option-less equation (mirrors the in-sheet prompt). Clear the axis
+                 // lists. (!! guards older cached responses lacking the recipeUnitMissing field.)
+                 if (data.defaultUnitMissing || data.recipeUnitMissing) {
+                     row.defaultUnitMissing = !!data.defaultUnitMissing;
+                     row.recipeUnitMissing = !!data.recipeUnitMissing;
                      row.stockUnits = [];
                      row.recipeUnits = [];
                      return;
                  }
                  row.defaultUnitMissing = false;
+                 row.recipeUnitMissing = false;
                  row.defaultUnitId = data.defaultUnitId || row.defaultUnitId;
                  row.defaultUnitCode = data.defaultUnitCode || row.defaultUnitCode;
                  row.stockUnits = data.stockUnits || [];
@@ -514,16 +520,19 @@
                      const data = await res.json();
                      if (data.needsConversion) {
                          draft.needsConversion = true;
-                         // plantry-obg3: product default unit unresolvable server-side — show an explicit
-                         // message instead of mounting the equation with a blank unit label and an
-                         // option-less LEFT dropdown. Clear the axis lists so no stray options render.
-                         if (data.defaultUnitMissing) {
-                             draft.defaultUnitMissing = true;
+                         // plantry-obg3/hhy2: an axis unit is unresolvable server-side — show the
+                         // axis-appropriate explicit message instead of mounting the equation with a blank
+                         // unit label and an option-less dropdown. Clear the axis lists so no stray options
+                         // render. (!! guards older cached responses lacking the recipeUnitMissing field.)
+                         if (data.defaultUnitMissing || data.recipeUnitMissing) {
+                             draft.defaultUnitMissing = !!data.defaultUnitMissing;
+                             draft.recipeUnitMissing = !!data.recipeUnitMissing;
                              draft.stockUnits = [];
                              draft.recipeUnits = [];
                              return;
                          }
                          draft.defaultUnitMissing = false;
+                         draft.recipeUnitMissing = false;
                          draft.defaultUnitId = data.defaultUnitId || draft.defaultUnitId;
                          draft.defaultUnitCode = data.defaultUnitCode || draft.defaultUnitCode;
                          // Axis-locked unit lists for the four-field equation (plantry-qno9): LEFT lists
@@ -865,7 +874,17 @@
 													has no stock unit set, so Plantry can't                                                     work out the conversion. Set a default unit for this product in your catalog first.
 												</span>
 											</p>
-											<p x-show="!rowConvFilled(row) &amp;&amp; !row.defaultUnitMissing" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
+											<p x-show="!row.defaultUnitMissing &amp;&amp; row.recipeUnitMissing" x-cloak="" style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+												<svg class="icon" aria-hidden="true" style="flex:none">
+													<use href="#i-alert"></use>
+												</svg>
+												<span>
+													The unit chosen for
+													<strong x-text="row.productName"></strong>
+													on this recipe line can't                                                     be resolved, so Plantry can't work out the conversion. Pick a different unit for this ingredient.
+												</span>
+											</p>
+											<p x-show="!rowConvFilled(row) &amp;&amp; !row.defaultUnitMissing &amp;&amp; !row.recipeUnitMissing" style="font-size:var(--font-size-sm);margin:0 0 var(--space-2)">
 												Plantry stocks
 												<strong x-text="row.productName"></strong>
 												in
@@ -873,7 +892,7 @@
 												<span x-text="unitLabel(row.unitId)"></span>
 												relate?
 											</p>
-											<template x-if="!row.defaultUnitMissing"><div>
+											<template x-if="!row.defaultUnitMissing &amp;&amp; !row.recipeUnitMissing"><div>
 													<div class="conv-eq">
 														<input type="number" class="field__input conv-eq__amount" step="any" min="0" placeholder="120" x-model="row.convLeftAmount" aria-label="Stock amount">
 														<select class="field__input conv-eq__unit" x-model="row.convLeftUnitId" aria-label="Stock unit">
@@ -1131,7 +1150,17 @@
 									has no stock unit set, so Plantry can't                     work out the conversion. Set a default unit for this product in your catalog first.
 								</span>
 							</p></template>
-						<template x-if="!draft.defaultUnitMissing"><div>
+						<template x-if="!draft.defaultUnitMissing &amp;&amp; draft.recipeUnitMissing"><p style="margin:0;font-size:var(--font-size-sm);display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
+								<svg class="icon" aria-hidden="true" style="flex:none">
+									<use href="#i-alert"></use>
+								</svg>
+								<span>
+									The unit chosen for
+									<strong x-text="draft.productName"></strong>
+									on this recipe line can't                     be resolved, so Plantry can't work out the conversion. Pick a different unit for this ingredient.
+								</span>
+							</p></template>
+						<template x-if="!draft.defaultUnitMissing &amp;&amp; !draft.recipeUnitMissing"><div>
 								<p style="margin:0 0 var(--space-2);font-size:var(--font-size-sm)">
 									Plantry stocks
 									<strong x-text="draft.productName"></strong>
