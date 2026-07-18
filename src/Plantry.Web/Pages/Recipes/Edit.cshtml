@@ -751,7 +751,19 @@
              // NB: never use a double-quote character in an x-data comment — the whole initialiser lives
              // inside the x-data attribute, so a stray quote would close it. Every comment here uses plain
              // words for that reason.
-             this.$watch('sheetView', () => { this.sheetError = ''; });
+             this.$watch('sheetView', (val, old) => {
+                 this.sheetError = '';
+                 // plantry-ts0a: leaving the create view abandons that product-create. The shared
+                 // partial back-to-search / create-cancel handlers already null newStapleName and wipe
+                 // newStapleUnit, but they cannot touch the Recipes-only recipeUnitPinned / unitId. Reset
+                 // them here at the host level so the next fresh create mirrors the stock unit again
+                 // (plantry-dtr9) instead of pre-filling the abandoned product unit. Guarded on
+                 // old === create so ENTERING create (search to create, incl. openEdit reopen) never fires.
+                 if (old === 'create' && val !== 'create') {
+                     this.draft.recipeUnitPinned = false;
+                     this.draft.unitId = '';
+                 }
+             });
          },
      }">
 

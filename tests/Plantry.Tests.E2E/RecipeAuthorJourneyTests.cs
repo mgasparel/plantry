@@ -631,6 +631,90 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Journey 6b: abandoning an inline create resets the recipe-unit draft state (plantry-ts0a) ──
+
+    [Fact(DisplayName = "plantry-ts0a: abandoning inline create (back-to-search AND cancel) resets the recipe-unit pin so the next create mirrors the stock unit again")]
+    public async Task InlineCreate_AbandonResetsRecipeUnitDraftState()
+    {
+        var email = $"recipe-ts0a-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe TS0A Household");
+
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Marinade {Guid.NewGuid():N}".Substring(0, 18);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            await page.ClickAsync("button:has-text('Add ingredient')");
+            var sheet = page.Locator("#recipe-editor .sheet");
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+            var combobox = sheet.Locator("input[role='combobox']");
+            var recipeUnit = sheet.Locator("#create-product-recipe-unit");
+            var stockUnit = sheet.Locator("#create-product-unit");
+
+            // Local helper — type a fresh product name and enter the create view.
+            async Task EnterCreateAsync(string productName)
+            {
+                await combobox.FillAsync("");
+                await combobox.PressSequentiallyAsync(productName.Substring(0, 8));
+                var createBtn = sheet.Locator("button:has-text('as a new product')");
+                await Assertions.Expect(createBtn).ToBeVisibleAsync();
+                await createBtn.ClickAsync();
+                var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
+                await Assertions.Expect(nameInput).ToBeVisibleAsync();
+                await nameInput.FillAsync(productName);
+                await Assertions.Expect(recipeUnit).ToBeVisibleAsync();
+            }
+
+            // ── Abandon path 1: pick a recipe unit (pins it), then click "← Back to search" ──
+            await EnterCreateAsync($"Fish Sauce {Guid.NewGuid():N}".Substring(0, 22));
+            await recipeUnit.SelectOptionAsync(new SelectOptionValue { Label = "tbsp" });
+            await Assertions.Expect(recipeUnit).Not.ToHaveValueAsync("");
+            await sheet.Locator(".sheet__back").ClickAsync();
+
+            // Re-enter create for a DIFFERENT product → the pin/unit must be reset (the crux of plantry-ts0a).
+            await EnterCreateAsync($"Soy Sauce {Guid.NewGuid():N}".Substring(0, 22));
+            // 1) The recipe-unit select is empty again (draft.unitId cleared, recipeUnitPinned = false).
+            await Assertions.Expect(recipeUnit).ToHaveValueAsync("");
+            // 2) The dtr9 stock→recipe mirror is re-engaged: setting the stock unit mirrors into the recipe unit.
+            await stockUnit.SelectOptionAsync(new SelectOptionValue { Label = "ml" });
+            var mirroredVal = await stockUnit.InputValueAsync();
+            await Assertions.Expect(recipeUnit).ToHaveValueAsync(mirroredVal);
+
+            // ── Abandon path 2: same reset, this time via the create-view "Cancel" button ──
+            // Re-pin by picking a recipe unit, then Cancel (returns to search WITHOUT closing the sheet).
+            await recipeUnit.SelectOptionAsync(new SelectOptionValue { Label = "tsp" });
+            await Assertions.Expect(recipeUnit).ToHaveValueAsync(await recipeUnitValueForLabelAsync(recipeUnit, "tsp"));
+            // The create-view actions bar's Cancel is the LAST "Cancel" button in the DOM (the search-view
+            // Cancel precedes it and is hidden via x-show while in the create view).
+            await sheet.Locator("button.btn--ghost:has-text('Cancel')").Last.ClickAsync();
+
+            await EnterCreateAsync($"Rice Wine {Guid.NewGuid():N}".Substring(0, 22));
+            await Assertions.Expect(recipeUnit).ToHaveValueAsync("");
+            await stockUnit.SelectOptionAsync(new SelectOptionValue { Label = "ml" });
+            await Assertions.Expect(recipeUnit).ToHaveValueAsync(await stockUnit.InputValueAsync());
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-ts0a-abandon-reset.zip" });
+        }
+    }
+
+    /// <summary>Reads the &lt;option&gt; value carried by a given label in a select, so assertions can
+    /// compare by the underlying unit id rather than the display label.</summary>
+    private static async Task<string> recipeUnitValueForLabelAsync(ILocator select, string label) =>
+        await select.EvaluateAsync<string>(
+            "(el, lbl) => Array.from(el.options).find(o => o.label === lbl || o.text === lbl)?.value ?? ''",
+            label);
+
     // ── Journey 7: cross-dimension inline create surfaces the four-field prompt (plantry-22ci) ─────
 
     [Fact(DisplayName = "plantry-22ci: cross-dimension inline create (stock ea, recipe g) shows the four-field prompt and saves in one pass")]
