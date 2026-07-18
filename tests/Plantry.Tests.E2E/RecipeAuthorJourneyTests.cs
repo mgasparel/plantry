@@ -500,6 +500,65 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Journey 5: blank-quantity inline create is blocked client-side (plantry-5oek) ─────
+
+    [Fact(DisplayName = "plantry-5oek: create-view with a blank quantity does not commit — inline error, no ghost row")]
+    public async Task InlineTrackedCreate_BlankQuantity_IsBlockedWithInlineError()
+    {
+        var email = $"recipe-blankqty-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Blank Qty Household");
+
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            await page.FillAsync("[name='Input.Name']", $"Blank Qty {Guid.NewGuid():N}".Substring(0, 18));
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            // Open the sheet and switch to the create-view; fill name + unit but LEAVE QUANTITY BLANK.
+            await page.ClickAsync("button:has-text('Add ingredient')");
+            var sheet = page.Locator("#recipe-editor .sheet");
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+            var productName = $"Nutmeg {Guid.NewGuid():N}".Substring(0, 18);
+            await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 6));
+            await sheet.Locator("button:has-text('as a new product')").ClickAsync();
+            var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
+            await Assertions.Expect(nameInput).ToBeVisibleAsync();
+            await nameInput.FillAsync(productName);
+            // Unit supplied; quantity deliberately left blank.
+            await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ea" });
+
+            // Click Create — the guard must block the commit: sheet stays open, inline error shows,
+            // and no ingredient row is added (the reported ghost-row bug is prevented at the source).
+            await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+            // The inline guard message appears against the (visible, create-view) Quantity field. Two
+            // .field__error spans bind sheetError (search + create views); :visible selects the shown one.
+            await Assertions.Expect(sheet.Locator(".field__error:visible", new() { HasText = "quantity" }))
+                .ToBeVisibleAsync();
+            // No ingredient row was committed.
+            await Assertions.Expect(page.Locator(".ingredient-row__summary")).ToHaveCountAsync(0);
+
+            // Supplying a quantity clears the error and commits the row (happy path unchanged).
+            await sheet.Locator("#create-product-qty").FillAsync("2");
+            await sheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(".ingredient-row__summary", new() { HasText = productName }))
+                .ToBeVisibleAsync();
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-blankqty.zip" });
+        }
+    }
+
     // ── Shared helpers ────────────────────────────────────────────────────────────
 
     /// <summary>Smallest valid 1×1 PNG for photo upload (same helper as ReceiptIntakeJourneyTests).</summary>

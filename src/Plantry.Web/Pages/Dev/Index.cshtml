@@ -1355,6 +1355,10 @@
          x-data="{
              sheetOpen: false,
              editingIdx: null,
+             // plantry-5oek: the shared sheet references sheetError in Model.TrackStock-gated markup
+             // (this showcase is TrackStock=true); define it so the binding resolves. The demo saveSheet
+             // never sets it — the tracked-quantity guard lives in the Recipes host.
+             sheetError: '',
              draft: {},
              blankDraft() {
                  return { productId: '', productName: '', isUntracked: false,

@@ -83,8 +83,9 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             await page.FillAsync("[name='Input.Name']", recipeName);
             await page.FillAsync("[name='Input.DefaultServings']", "2");
 
-            // Open the add-ingredient sheet, switch to tracked-product create mode (plantry-orix),
-            // fill name + default unit, commit, then re-open to satisfy R5 (tracked needs qty).
+            // Open the add-ingredient sheet, switch to tracked-product create mode (plantry-orix), and
+            // fill name + quantity + default unit in a single pass (plantry-guab). A blank quantity is now
+            // blocked client-side (plantry-5oek), so qty must be supplied in the create view before commit.
             await page.ClickAsync("button:has-text('Add ingredient')");
             var ingSheet = page.Locator("#recipe-editor .sheet");
             await Assertions.Expect(ingSheet).ToBeVisibleAsync();
@@ -95,6 +96,8 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             var nameInput = ingSheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
             await Assertions.Expect(nameInput).ToBeVisibleAsync();
             await nameInput.FillAsync("Salt");
+            // Quantity directly in the create view (plantry-guab) — satisfies R5 in one pass, no re-open.
+            await ingSheet.Locator("#create-product-qty").FillAsync("1");
             // The Defaults collapsible (plantry-y53t) is OPEN by default (plantry-grvy) — the Unit
             // select is directly accessible without clicking the summary.
             var ingDefaultsSummary = ingSheet.Locator(".sheet-defaults__summary");
@@ -104,15 +107,8 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             // Use .Last to target the create-view "Create" button (plantry-nb4x two-view scaffold).
             await ingSheet.Locator(".sheet__actions button.btn--primary").Last.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
-            // R5: tracked ingredients require a Quantity. Re-open the row to fill qty.
             var saltRow = page.Locator(".ingredient-row", new() { HasText = "Salt" });
             await Assertions.Expect(saltRow).ToBeVisibleAsync();
-            await saltRow.Locator("button[aria-label='Edit ingredient']").ClickAsync();
-            await Assertions.Expect(ingSheet).ToBeVisibleAsync();
-            // `:visible` targets the search-view Quantity; the create-view Quantity (plantry-guab) is x-show hidden.
-            await ingSheet.Locator("input[type='number']:visible").FillAsync("1");
-            await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
-            await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 
             await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
 

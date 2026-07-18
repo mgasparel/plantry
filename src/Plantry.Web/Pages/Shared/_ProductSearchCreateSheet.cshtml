@@ -204,7 +204,11 @@
                         <label class="form-grid__field__label">Quantity</label>
                         <div class="form-grid__field__control">
                             <input type="number" class="field__input" step="any" min="0"
-                                   placeholder="e.g. 50" x-model="draft.qty" />
+                                   placeholder="e.g. 50" x-model="draft.qty" @@input="sheetError = ''" />
+                            @* plantry-5oek: inline guard message when the host's saveSheet() blocks a tracked
+                               draft that has no usable quantity/unit. sheetError lives in the host x-data;
+                               this markup is Model.TrackStock-gated so Take Stock / Deals stay byte-identical. *@
+                            <span class="field__error" x-show="sheetError" x-cloak x-text="sheetError"></span>
                         </div>
                     </div>
 
@@ -332,7 +336,9 @@
                         <label class="form-grid__field__label" for="create-product-qty">Quantity</label>
                         <div class="form-grid__field__control">
                             <input type="number" id="create-product-qty" class="field__input" step="any" min="0"
-                                   placeholder="e.g. 50" x-model="draft.qty" />
+                                   placeholder="e.g. 50" x-model="draft.qty" @@input="sheetError = ''" />
+                            @* plantry-5oek: inline guard message (see the search-view Quantity field above). *@
+                            <span class="field__error" x-show="sheetError" x-cloak x-text="sheetError"></span>
                         </div>
                     </div>
                 }

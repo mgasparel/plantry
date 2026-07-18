@@ -105,12 +105,20 @@
                 : "",
             groupHeading = l.GroupHeading ?? "",
             isUntracked = l.IsUntracked,
-            newStapleName = (string?)null,
-            newStapleUnit = "",
-            newIsTracked = false,
-            newGroupId = "",
-            newGroupName = "",
-            newStapleCategoryId = "",
+            // Round-trip the inline-create fields from the posted line (plantry-5oek Defect 2). On a
+            // failed-save bounce (AuthorRecipeResult.Invalid / NeedsConversion) an inline-create row must
+            // re-seed with its typed name/unit/category/parent intact — hard-coding these to null/false/""
+            // produced a blank "ghost" row (rowSummary read an empty productName, rowNeedsQtyUnit skipped
+            // it). An empty NewStapleName maps back to null, NOT "", because Alpine detects a create row via
+            // `newStapleName !== null`. On the GET path (existing recipe) every field below is default, so
+            // the serialised JSON is byte-identical to the previous hard-coded values — only a POST bounce
+            // re-render now carries the real inline-create state.
+            newStapleName = string.IsNullOrEmpty(l.NewStapleName) ? (string?)null : l.NewStapleName,
+            newStapleUnit = l.NewStapleDefaultUnitId?.ToString() ?? "",
+            newIsTracked = l.NewIsTracked,
+            newGroupId = l.NewGroupId ?? "",
+            newGroupName = l.NewGroupName ?? "",
+            newStapleCategoryId = l.NewStapleCategoryId?.ToString() ?? "",
             needsConversion = l.NeedsConversion,
             conversionFactor = l.ConversionFactor?.ToString() ?? "",
             conversionFromUnitId = l.ConversionFromUnitId.ToString(),
@@ -289,6 +297,10 @@
          // (plantry-nb4x).  Recipes currently only uses the search view; plantry-orix wires the
          // create-view path for the tracked-product create on this surface.
          sheetView: 'search',
+         // plantry-5oek: inline guard message for the add/edit sheet. Non-empty blocks the commit and
+         // renders next to the Quantity field (Model.TrackStock-gated in _ProductSearchCreateSheet).
+         // Cleared on qty input, on view swap ($watch below), and on every open/close.
+         sheetError: '',
          editingIdx: null,
          draft: {},
          blankDraft() {
@@ -301,19 +313,30 @@
                  convLeftAmount: '', convLeftUnitId: '', convRightAmount: '', convRightUnitId: '',
                  convFor: '', stockUnits: [], recipeUnits: [] };
          },
-         openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
+         openAdd() { this.editingIdx = null; this.sheetView = 'search'; this.sheetError = ''; this.draft = this.blankDraft(); this.sheetOpen = true; this._syncSearch(''); },
          // editingIdx carries the row's stable _id while editing (null while adding). The shared
          // sheet only tests `editingIdx === null` (add vs edit), so an _id value satisfies it.
-         openEdit(row) { this.editingIdx = row._id; this.sheetView = 'search'; this.draft = JSON.parse(JSON.stringify(row)); this.sheetOpen = true; this._syncSearch(this.draft.productName); },
+         openEdit(row) {
+             this.editingIdx = row._id;
+             this.sheetError = '';
+             // A tracked inline-create row (no productId yet, minted from a typed name) reopens in the
+             // CREATE view so its name/unit/category/parent are visible and editable again (plantry-5oek).
+             // Product-pick rows and legacy untracked staples keep opening in the search view.
+             this.sheetView = (!row.productId && row.newIsTracked === true) ? 'create' : 'search';
+             this.draft = JSON.parse(JSON.stringify(row));
+             this.sheetOpen = true;
+             this._syncSearch(this.draft.productName);
+         },
          // The sheet stays mounted (x-show), so the nested searchableSelect inits once. Push the
          // current product label into its search box each time the sheet opens.
          _syncSearch(label) { this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: label || '' }))); },
-         closeSheet() { this.sheetView = 'search'; this.sheetOpen = false; },
+         closeSheet() { this.sheetView = 'search'; this.sheetError = ''; this.sheetOpen = false; },
          draftIsEmpty() {
              return !this.draft.productId && !(this.draft.newStapleName && this.draft.newStapleName.trim());
          },
          saveSheet() {
-             if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetOpen = false; return; }
+             if (this.draftIsEmpty()) { this.sheetView = 'search'; this.sheetError = ''; this.sheetOpen = false; return; }
+             this.sheetError = '';
              // The in-sheet four-field equation (plantry-qno9) is the author's entry point. Clear
              // needsConversion on commit ONLY when the author actually filled a valid equation
              // (rowConvFilled) — then the landed row shows the neutral FILLED confirmation, and the raw
@@ -336,6 +359,20 @@
                  if (this.draft.newStapleUnit && !this.draft.unitId) {
                      this.draft.unitId = this.draft.newStapleUnit;
                  }
+             }
+             // plantry-5oek Defect 1 — block a tracked draft that lacks a usable quantity or unit before it
+             // commits. A tracked line with no quantity is R5-rejected server-side (Recipes.TrackedRequires-
+             // Quantity), which previously bounced to a blank ghost row (Defect 2). Guarding here keeps the
+             // sheet open with an inline message so the author fixes it in place. Quantity must be > 0
+             // (a 0-qty tracked ingredient is meaningless; this is stricter than the server's non-null R5 —
+             // the server is intentionally unchanged). The legacy untracked-staple path (newIsTracked false,
+             // blank qty legal per C12/R5) is exempt. Unit is checked too — the create-view block just above
+             // falls draft.unitId back to draft.newStapleUnit, so draft.unitId is authoritative here.
+             const isTrackedDraft = (!!this.draft.productId && !this.draft.isUntracked) || this.draft.newIsTracked === true;
+             if (isTrackedDraft) {
+                 const qtyOk = this.draft.qty != null && String(this.draft.qty).trim() !== '' && Number(this.draft.qty) > 0;
+                 if (!qtyOk) { this.sheetError = 'Enter a quantity greater than 0 for this tracked product.'; return; }
+                 if (!this.draft.unitId) { this.sheetError = 'Choose a unit for this tracked product.'; return; }
              }
              if (this.editingIdx === null) {
                  this.draft._id = this._nextId++;
@@ -437,10 +474,14 @@
          // plantry-429l: a tracked (stock-tracked) ingredient row that is missing a quantity or a unit
          // will be rejected by R5 on save. Flag it in-place so the author sees WHICH row is broken
          // instead of dead-ending on the opaque global save error. Computed reactively so it clears the
-         // instant the author supplies the missing value. Inline-create rows (no productId yet) are the
-         // create-view's own concern and are excluded here.
+         // instant the author supplies the missing value. This flags both a tracked product-pick row
+         // (productId set) AND a tracked inline-create row (no productId yet, minted from a typed name —
+         // plantry-5oek): if a blank-qty create line ever lands on a bounce re-render (JS off, stale
+         // client), the row surfaces this row-scoped warning instead of a blank ghost. Inclusions and
+         // untracked staples are excluded.
          rowNeedsQtyUnit(row) {
-             return !row.isUntracked && !!row.productId && (!row.qty || !row.unitId);
+             const isTracked = (!row.isUntracked && !!row.productId) || (row.newIsTracked === true && !!row.newStapleName);
+             return isTracked && (!row.qty || !row.unitId);
          },
          // Canonical amount rendering (plantry-jun6) — mirrors C# IngredientAmount.Format via the
          // ingredient-amount.js twin bridged onto window.IngredientAmount below. Cleans a raw qty the
@@ -586,6 +627,12 @@
          init() {
              this.$watch('draft.unitId', () => this._triggerConversionCheck());
              this.$watch('draft.productId', () => { this.draft.needsConversion = false; this._triggerConversionCheck(); });
+             // plantry-5oek: clear the sheet's tracked-quantity guard message whenever the view swaps
+             // (search to/from create, incl. the partial's back-to-search / create-cancel backlinks).
+             // NB: never use a double-quote character in an x-data comment — the whole initialiser lives
+             // inside the x-data attribute, so a stray quote would close it. Every comment here uses plain
+             // words for that reason.
+             this.$watch('sheetView', () => { this.sheetError = ''; });
          },
      }">
 
