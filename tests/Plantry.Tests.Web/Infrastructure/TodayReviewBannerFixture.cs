@@ -72,4 +72,6 @@ public sealed class FakeBannerSessionRepository(IReadOnlyList<ImportSession> pen
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default) =>
         Task.FromResult(new List<ImportSession>());
+    public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId householdId, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) =>
+        Task.FromResult(new List<ImportSession>());
 }

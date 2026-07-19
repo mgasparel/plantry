@@ -44,4 +44,19 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
             .OrderByDescending(s => s.CreatedAt)
             .Take(take)
             .ToListAsync(ct);
+
+    // No .Include(Lines): the monthly stats read only session-level columns (Status, CreatedAt,
+    // CommittedAt, ParsedAt, Total), so keep the lines off the query. The CreatedAt-OR-CommittedAt
+    // union window is applied in SQL; status/null semantics are applied by the query.
+    public Task<List<ImportSession>> ListInMonthWindowAsync(
+        HouseholdId householdId,
+        DateTimeOffset windowStart,
+        DateTimeOffset windowEnd,
+        CancellationToken ct = default) =>
+        db.ImportSessions
+            .Where(s => s.HouseholdId == householdId &&
+                        ((s.CreatedAt >= windowStart && s.CreatedAt <= windowEnd) ||
+                         (s.CommittedAt != null &&
+                          s.CommittedAt >= windowStart && s.CommittedAt <= windowEnd)))
+            .ToListAsync(ct);
 }

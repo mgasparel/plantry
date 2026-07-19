@@ -23,4 +23,19 @@ public interface IImportSessionRepository
     /// Excludes Parsing and Discarded sessions.
     /// </summary>
     Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns every session for the household whose <see cref="ImportSession.CreatedAt"/> OR
+    /// <see cref="ImportSession.CommittedAt"/> falls within the inclusive window
+    /// [<paramref name="windowStart"/>, <paramref name="windowEnd"/>]. The union of the two date
+    /// columns is deliberate: a session created before the window but committed inside it still
+    /// contributes to committed-based aggregates, while a session created inside the window counts
+    /// as a scan even if never committed. No status filtering is applied here — callers decide which
+    /// statuses to include so the semantics stay testable outside the database.
+    /// </summary>
+    Task<List<ImportSession>> ListInMonthWindowAsync(
+        HouseholdId householdId,
+        DateTimeOffset windowStart,
+        DateTimeOffset windowEnd,
+        CancellationToken ct = default);
 }
