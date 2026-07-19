@@ -1215,12 +1215,18 @@
                                            voice so a bounced/skipped save is findable and fixable inline. The four
                                            inputs bind the same row.conv* fields that post via the hidden inputs
                                            below, and match _IngredientConversionPrompt.cshtml's framing. *@
+                                        @* GUARD-RAIL (plantry-kw1t): the FILLED/MISSING tone is a :class toggle, NOT a
+                                           string :style. This element also carries x-show; Alpine applies a string :style by
+                                           rewriting the whole style attribute, wiping x-show's display:none — and x-show's
+                                           cached _x_isShown then skips re-hiding, leaving a phantom conversion prompt shown.
+                                           :class never touches the style attribute, so x-show's hidden state survives.
+                                           Never bind a string :style on an element that also has x-show. *@
                                         <div x-show="rowShowConversion(row)"
                                              x-init="maybeHydrateRowConversion(row)"
                                              class="ingredient-row__conversion"
-                                             :style="rowConvFilled(row)
-                                                ? 'background:var(--color-surface-2);border-top:1px solid var(--color-border);padding:var(--space-3) var(--space-4)'
-                                                : 'background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)'">
+                                             :class="rowConvFilled(row)
+                                                ? 'ingredient-row__conversion--filled'
+                                                : 'ingredient-row__conversion--missing'">
                                             @* plantry-obg3: product has no resolvable stock/default unit
                                                (unset or dangling DefaultUnitId). Show an explicit, actionable
                                                message instead of the blank-unit sentence + option-less
@@ -1452,6 +1458,17 @@
     /* plantry-429l: tracked row missing qty/unit — same warning accent as the conversion path. */
     .ingredient-row--needs-attention { border-left: 3px solid var(--color-warning); }
     .ingredient-row--dragging { opacity: .4; }
+
+    /* Landed-row conversion block tones (plantry-kw1t). The FILLED/MISSING tone MUST be
+       carried by :class modifiers, NOT a string :style ternary. This element also has x-show,
+       and Alpine applies a string :style by rewriting the element's entire style attribute —
+       which erases the display:none that x-show set. Because x-show caches _x_isShown, it then
+       skips re-hiding and the block stays visibly shown (the phantom conversion prompt). :class
+       toggles never touch the style attribute, so x-show's hidden state survives.
+       GUARD-RAIL: never bind a string :style on an element that also carries x-show. */
+    .ingredient-row__conversion { padding: var(--space-3) var(--space-4); }
+    .ingredient-row__conversion--filled  { background: var(--color-surface-2);   border-top: 1px solid var(--color-border); }
+    .ingredient-row__conversion--missing { background: var(--color-warning-bg);  border-top: 1px solid var(--color-warning); }
 
     /* Read-only landed row: drag · summary (grows) · edit · delete */
     .ingredient-row__body {
