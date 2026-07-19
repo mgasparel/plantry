@@ -108,9 +108,9 @@
 										<button type="button" class="btn btn--ghost btn--sm" @click="openEdit(row)">Add quantity</button>
 									</p>
 								</div>
-								<div x-show="rowShowConversion(row)" x-init="maybeHydrateRowConversion(row)" class="ingredient-row__conversion" :style="rowConvFilled(row)
-                                                ? 'background:var(--color-surface-2);border-top:1px solid var(--color-border);padding:var(--space-3) var(--space-4)'
-                                                : 'background:var(--color-warning-bg);border-top:1px solid var(--color-warning);padding:var(--space-3) var(--space-4)'">
+								<div x-show="rowShowConversion(row)" x-init="maybeHydrateRowConversion(row)" class="ingredient-row__conversion" :class="rowConvFilled(row)
+                                                ? 'ingredient-row__conversion--filled'
+                                                : 'ingredient-row__conversion--missing'">
 									<p x-show="row.defaultUnitMissing" x-cloak="" style="font-size:var(--font-size-sm);margin:0;display:flex;align-items:flex-start;gap:var(--space-2);color:var(--color-text)">
 										<svg class="icon" aria-hidden="true" style="flex:none">
 											<use href="#i-alert"></use>
