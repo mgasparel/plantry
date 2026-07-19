@@ -138,10 +138,14 @@
             recipeUnits = new object[0],
             // plantry-obg3: set true by the CheckConversion fetch when the product's default/stock unit cannot
             // be resolved — the row then shows an explicit message instead of the option-less equation.
-            defaultUnitMissing = false,
+            // plantry-dnbe: also seeded true here on a NeedsConversion POST bounce, where OnPostAsync resolves
+            // the needed conversion axes against the household unit list — so the FIRST render after a save
+            // bounce is already correct, without relying on the client's maybeHydrateRowConversion fetch. On
+            // the GET path l.DefaultUnitMissing is default false, keeping the serialised row JSON identical.
+            defaultUnitMissing = l.DefaultUnitMissing,
             // plantry-hhy2: RIGHT/recipe-axis counterpart — set true when the chosen recipe-line unit cannot
             // be resolved. Shows recipe-axis copy instead of the stock-unit-specific message.
-            recipeUnitMissing = false,
+            recipeUnitMissing = l.RecipeUnitMissing,
         }));
     }
     foreach (var inc in Model.Input.Inclusions)

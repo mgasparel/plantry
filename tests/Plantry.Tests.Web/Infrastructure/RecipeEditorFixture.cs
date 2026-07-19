@@ -196,6 +196,34 @@ public static class RecipeEditorFixture
         return recipe;
     }
 
+    /// <summary>
+    /// plantry-dnbe: an EXISTING recipe with a single tracked ingredient line for <see cref="DanglingDefaultId"/>
+    /// (the "Olive Oil" product whose <c>DefaultUnitId</c> = <see cref="MissingDefaultUnitId"/> dangles outside
+    /// the household unit list), authored against a resolvable recipe-line unit (<see cref="EachUnitId"/>). Editing
+    /// this line's quantity and saving re-checks the conversion (recipe unit ≠ dangling default) and, with no
+    /// path, bounces to <see cref="AuthorRecipeResult.NeedsConversion"/> — the exact POST-render path that
+    /// reproduced the blank conversion prompt before the guard was extended to it. Mirrors the dogfooded
+    /// "Pasta Dry" repro (edit an existing line's qty, save, blank prompt).
+    /// </summary>
+    public static readonly RecipeId DanglingDefaultRecipeId = RecipesDomain.RecipeId.From(
+        Guid.Parse("0b000000-0000-0000-0000-000000000009"));
+
+    public static Recipe BuildDanglingDefaultLine()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Pantry Oil Dish", defaultServings: 2, clock).Value;
+        SetId(recipe, DanglingDefaultRecipeId);
+        recipe.ReplaceIngredients(
+        [
+            // Tracked product with a dangling default unit, used with a resolvable recipe-line unit (ea).
+            // ea != MissingDefaultUnitId → the save re-checks the conversion and bounces on the missing path.
+            new IngredientLine(DanglingDefaultId, 4m, EachUnitId, GroupHeading: null, Ordinal: 0),
+        ], clock);
+        return recipe;
+    }
+
     /// <summary>Products the editor resolves ingredient names + unit codes from (used in edit GET).</summary>
     public static IReadOnlyDictionary<Guid, CatalogProductSummary> ProductSummaries() =>
         new Dictionary<Guid, CatalogProductSummary>

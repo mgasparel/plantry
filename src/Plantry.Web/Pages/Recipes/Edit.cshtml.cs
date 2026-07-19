@@ -681,6 +681,18 @@ public sealed class EditModel(
                         row.NeedsConversion = true;
                         row.ConversionFromUnitId = needed.FromUnitId;
                         row.ConversionToUnitId = needed.ToUnitId;
+                        // plantry-dnbe: extend obg3's axis-resolvability guard (OnGetCheckConversionAsync,
+                        // above) to this authoritative POST-bounce path. ConversionNeeded.ToUnitId is the
+                        // product's DefaultUnitId (a DM-3 soft reference with no FK) and FromUnitId is the
+                        // chosen recipe-line unit; either can dangle outside the household unit list or carry
+                        // a blank Code. Without this, the row re-renders with defaultUnitMissing=false and a
+                        // blank defaultUnitCode, reproducing obg3's blank-sentence/option-less-dropdown defect
+                        // via the POST render instead of the AJAX path. Set the same per-axis flags obg3 sets
+                        // so the FIRST render carries the friendly missing-unit message, not the client's
+                        // after-the-fact maybeHydrateRowConversion fetch. defaultUnitMissing is the LEFT/stock
+                        // axis (the ToUnitId = product default), recipeUnitMissing the RIGHT/recipe axis.
+                        row.DefaultUnitMissing = IsUnitUnresolvable(needed.ToUnitId);
+                        row.RecipeUnitMissing = IsUnitUnresolvable(needed.FromUnitId);
                     }
                 }
                 RestoreLines();
@@ -699,6 +711,21 @@ public sealed class EditModel(
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// plantry-dnbe: is <paramref name="unitId"/> unresolvable against the household unit list — the same
+    /// axis-resolvability predicate obg3 applies in <see cref="OnGetCheckConversionAsync"/>
+    /// (<c>unit is null || string.IsNullOrWhiteSpace(unit.Code)</c>), evaluated here against
+    /// <see cref="UnitOptions"/> (loaded from <see cref="ICatalogProductReader.ListUnitsAsync"/> in
+    /// <see cref="LoadReferenceDataAsync"/>, its <c>Text</c> being the unit Code). Returns true when the id
+    /// dangles outside the list (unit deleted, or an unset <c>Guid.Empty</c> default) or resolves to a
+    /// blank Code — the DM-3 soft-reference conditions that render a blank conversion prompt if unguarded.
+    /// </summary>
+    private bool IsUnitUnresolvable(Guid unitId)
+    {
+        var option = UnitOptions.FirstOrDefault(u => u.Value == unitId.ToString());
+        return option is null || string.IsNullOrWhiteSpace(option.Text);
+    }
 
     /// <summary>
     /// Server-authoritative resolution of a row's conversion (plantry-qno9). Prefers the four-field
@@ -1145,6 +1172,25 @@ public sealed class IngredientRowInput
     public Guid ConversionFromUnitId { get; set; }
     public Guid ConversionToUnitId { get; set; }
     public decimal? ConversionFactor { get; set; }
+
+    /// <summary>
+    /// plantry-dnbe: the POST-bounce counterpart of the AJAX handler's <c>defaultUnitMissing</c> /
+    /// <c>recipeUnitMissing</c> flags (plantry-obg3 / plantry-hhy2). Set true by the page model's
+    /// <see cref="AuthorRecipeResult.NeedsConversion"/> case when the row's conversion target axis is
+    /// unresolvable — the product's stock/default unit (<see cref="DefaultUnitMissing"/>, the
+    /// <c>ConversionToUnitId</c> = <c>Product.DefaultUnitId</c> soft reference, DM-3) or the chosen
+    /// recipe-line unit (<see cref="RecipeUnitMissing"/>, the <c>ConversionFromUnitId</c>) dangles outside
+    /// the household unit list or resolves to a blank Code. Seeds the landed-row conversion block's
+    /// <c>defaultUnitMissing</c>/<c>recipeUnitMissing</c> Alpine flags on the very first render after a
+    /// save bounce, so it shows the friendly "has no stock unit set" message instead of a blank unit
+    /// sentence + option-less dropdown — WITHOUT waiting for the client's <c>maybeHydrateRowConversion</c>
+    /// AJAX rehydration to correct it after the fact. Not posted (no hidden input) — recomputed on the
+    /// next bounce; default false on the GET path so the serialised row JSON is byte-identical there.
+    /// </summary>
+    public bool DefaultUnitMissing { get; set; }
+
+    /// <summary>plantry-dnbe: RIGHT/recipe-axis counterpart of <see cref="DefaultUnitMissing"/> — see its docs.</summary>
+    public bool RecipeUnitMissing { get; set; }
 
     // ── Four-field equation editor (plantry-qno9) ─────────────────────────────────
     // The in-sheet prompt lets the author state the cross-measure fact against ANY unit pair
