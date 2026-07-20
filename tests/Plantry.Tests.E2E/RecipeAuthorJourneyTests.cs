@@ -816,6 +816,91 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Regression: the LEFT conversion select shows the stock default on first render (plantry-dhqm) ─────
+
+    [Fact(DisplayName = "plantry-dhqm: inline-create cross-dimension prompt renders the LEFT (stock) select on the stock default (ml), not the alphabetically-first volume unit")]
+    public async Task InlineCreate_CrossDimensionPrompt_LeftSelectShowsStockDefault_NotFirstOption()
+    {
+        // Repro of the dogfood bug: with a VOLUME stock default (ml) the LEFT conversion select's
+        // options are the volume units, which ListUnitsAsync returns ordered by code — so "cup" is first
+        // and "ml" is fourth. The prompt prefills convLeftUnitId = the stock default (ml), but the fix
+        // under test defers that assignment until AFTER the async <option>s render. Before the fix,
+        // x-model pushed "ml" into the <select> before any <option> existed, so the browser fell back to
+        // the first option ("cup") on screen while the model still held "ml" — the derived echo (which
+        // reads the model) said "1 ml" while the dropdown showed "cup", and only re-picking the unit
+        // reconciled them. This asserts the ON-SCREEN selected option is the stock default with NO user
+        // interaction. (Journey 7 above uses a Count stock default whose axis has a single option, so it
+        // cannot surface this ordering desync — hence a dedicated volume-default case here.)
+        var email = $"recipe-dhqm-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe dhqm Household");
+
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Broth {Guid.NewGuid():N}".Substring(0, 16);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "2");
+
+            // ── Open the sheet and switch to create-view ──────────────────────────
+            await page.ClickAsync("button:has-text('Add ingredient')");
+            var sheet = page.Locator("#recipe-editor .sheet");
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+
+            var productName = $"Stock Base {Guid.NewGuid():N}".Substring(0, 22);
+            await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName.Substring(0, 8));
+            var createBtn = sheet.Locator("button:has-text('as a new product')");
+            await Assertions.Expect(createBtn).ToBeVisibleAsync();
+            await createBtn.ClickAsync();
+
+            var nameInput = sheet.Locator("input[placeholder='Product name (e.g. Olive Oil)']");
+            await Assertions.Expect(nameInput).ToBeVisibleAsync();
+            await nameInput.FillAsync(productName);
+
+            await sheet.Locator("#create-product-qty").FillAsync("1");
+
+            // Pick the recipe unit (g, Mass) FIRST — @change pins it so setting the stock unit below
+            // cannot overwrite it via the newStapleUnit→unitId mirror.
+            var recipeUnit = sheet.Locator("#create-product-recipe-unit");
+            await Assertions.Expect(recipeUnit).ToBeVisibleAsync();
+            await recipeUnit.SelectOptionAsync(new SelectOptionValue { Label = "g" });
+
+            // Stock unit ml (Volume) — cross-dimension vs g (Mass), so after the debounce + fetch the
+            // four-field prompt mounts. ml is NOT the first volume option (cup is), which is what makes
+            // the ordering desync observable.
+            await sheet.Locator("#create-product-unit").SelectOptionAsync(new SelectOptionValue { Label = "ml" });
+
+            // The prompt appears (auto-retrying Expect absorbs the debounce + fetch + $nextTick; never sleep).
+            await Assertions.Expect(sheet.GetByText("How does 1 g relate?")).ToBeVisibleAsync();
+
+            var stockUnit = sheet.Locator("select[aria-label='Stock unit']");
+            var recipeUnitField = sheet.Locator("select[aria-label='Recipe unit']");
+            await Assertions.Expect(stockUnit).ToBeVisibleAsync();
+            await Assertions.Expect(recipeUnitField).ToBeVisibleAsync();
+
+            // ── The bug + the fix, asserted with NO interaction with the equation selects ──
+            // option:checked is the option the browser is actually showing as selected. Pre-fix this was
+            // "cup"; post-fix it must be the stock default "ml".
+            await Assertions.Expect(stockUnit.Locator("option:checked")).ToHaveTextAsync("ml");
+            // RIGHT axis (Mass, first option "g") must likewise show the recipe unit — belt-and-braces.
+            await Assertions.Expect(recipeUnitField.Locator("option:checked")).ToHaveTextAsync("g");
+
+            // The on-screen selection and the derived echo now agree: filling the LEFT amount (recipe
+            // amount is prefilled to 1) echoes in ml — the same unit the dropdown shows.
+            await sheet.Locator("input[aria-label='Stock amount']").FillAsync("1");
+            await Assertions.Expect(sheet.GetByText(new Regex($@"Got it — so 1 g of .* ≈ 1 ml\."))).ToBeVisibleAsync();
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-dhqm-left-select.zip" });
+        }
+    }
+
     [Fact(DisplayName = "plantry-22ci: cross-dimension inline create with no factor bounces — row highlighted, name preserved")]
     public async Task InlineCreate_CrossDimensionUnits_NoFactor_BouncesWithRowHighlighted()
     {

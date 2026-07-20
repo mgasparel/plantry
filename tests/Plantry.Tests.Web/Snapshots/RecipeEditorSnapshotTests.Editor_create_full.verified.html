@@ -338,9 +338,15 @@
                  // Only prefill when the author has not already entered amounts (a round-tripped entry
                  // must survive): blank stock amount + 1 recipe unit, same as the sheet.
                  if (row.convLeftAmount === '' &amp;&amp; row.convRightAmount === '') {
-                     row.convLeftUnitId = row.defaultUnitId;
-                     row.convRightUnitId = row.unitId;
                      row.convRightAmount = '1';
+                     // plantry-dhqm: assign the axis unit ids AFTER the option template x-for has
+                     // rendered (see _triggerConversionCheck for the full rationale) so the select
+                     // x-model binds to a real option element instead of the first one while the model
+                     // holds the stock default.
+                     const leftUnitId = row.defaultUnitId, rightUnitId = row.unitId;
+                     await this.$nextTick();
+                     row.convLeftUnitId = leftUnitId;
+                     row.convRightUnitId = rightUnitId;
                  }
              } catch (_) { /* network error — silently ignore, server backstop still highlights the row */ }
          },
@@ -490,10 +496,24 @@
                              draft.recipeUnits = data.recipeUnits || [];
                              if (draft.convFor !== draft.unitId) {
                                  draft.convFor = draft.unitId;
-                                 draft.convLeftUnitId = draft.defaultUnitId;
                                  draft.convLeftAmount = '';
-                                 draft.convRightUnitId = draft.unitId;
                                  draft.convRightAmount = '1';
+                                 // plantry-dhqm: assign the axis unit ids AFTER the x-if prompt + x-for
+                                 // options have rendered. Setting them in the same synchronous tick as
+                                 // draft.stockUnits/recipeUnits let the select x-model push its value
+                                 // before the matching option element existed, so the browser fell back to
+                                 // the first option (e.g. cup, the alphabetically-first volume unit) while
+                                 // the model still held the stock default (e.g. ml). The echo reads the
+                                 // model, so the shown unit and the echoed unit disagreed until the author
+                                 // re-picked. Awaiting $nextTick flushes the option render first so x-model
+                                 // binds to a real option element. Capture the ids before the await so a
+                                 // unit change landing mid-flush cannot skew the assignment. NB: no
+                                 // double-quote character in this comment — it lives inside the x-data
+                                 // attribute, so a stray quote would close it.
+                                 const leftUnitId = draft.defaultUnitId, rightUnitId = draft.unitId;
+                                 await this.$nextTick();
+                                 draft.convLeftUnitId = leftUnitId;
+                                 draft.convRightUnitId = rightUnitId;
                              }
                          } else {
                              draft.needsConversion = false;
@@ -545,10 +565,16 @@
                          // re-opening a row (or a debounced re-check) preserves the author's in-progress entry.
                          if (draft.convFor !== draft.unitId) {
                              draft.convFor = draft.unitId;
-                             draft.convLeftUnitId = draft.defaultUnitId;
                              draft.convLeftAmount = '';
-                             draft.convRightUnitId = draft.unitId;
                              draft.convRightAmount = '1';
+                             // plantry-dhqm: assign the axis unit ids AFTER the x-if/x-for options render
+                             // (see the inline-create path above for the full rationale) so the select
+                             // x-model binds to a real option element instead of falling back to the first
+                             // one while the model holds the stock default.
+                             const leftUnitId = draft.defaultUnitId, rightUnitId = draft.unitId;
+                             await this.$nextTick();
+                             draft.convLeftUnitId = leftUnitId;
+                             draft.convRightUnitId = rightUnitId;
                          }
                      } else {
                          draft.needsConversion = false;
