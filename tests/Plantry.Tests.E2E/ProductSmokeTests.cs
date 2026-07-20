@@ -65,6 +65,10 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             var page = await context.NewPageAsync();
             page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
 
+            // Archive now guards with a native confirm() (plantry-jby4) — auto-accept so the
+            // archive proceeds; Playwright otherwise dismisses dialogs (cancel), blocking the post.
+            page.Dialog += async (_, dialog) => await dialog.AcceptAsync();
+
             // ── Step 1: Register a household (lands on Today home, logged in) ──────
             await page.GotoAsync($"{BaseUrl}/Account/Register");
             await page.WaitForURLAsync("**/Account/Register");
