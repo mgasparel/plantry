@@ -69,7 +69,7 @@
                     @* Estimated cost (P3-4) *@
                     @if (enr.TotalCost.HasValue)
                     {
-                        <span class="mc-cost">@(enr.CostIsPartial ? "~" : "")$@enr.TotalCost.Value.ToString("F2")</span>
+                        <span class="mc-cost">@(enr.CostIsPartial ? "~" : "")@MoneyDisplay.Format(enr.TotalCost.Value, Model.DisplayCurrency)</span>
                     }
                     else
                     {

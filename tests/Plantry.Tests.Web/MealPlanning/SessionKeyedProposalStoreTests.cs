@@ -406,6 +406,7 @@ public sealed class SessionKeyedStoreFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
@@ -514,6 +515,7 @@ public sealed class SessionKeyedTwoProposalFactory : WebApplicationFactory<Progr
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {

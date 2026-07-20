@@ -53,7 +53,11 @@ public sealed record SessionHydration(
     decimal? Tax,
     decimal? Total,
     string? Payment,
-    string? ReceiptNo);
+    string? ReceiptNo,
+    // Household display-currency symbol (plantry-2x6e.3), sourced once from MoneyDisplay.Symbol so the island's
+    // client-side money formatters (fmtMoney/fmtRcpt) prefix the same glyph the server renders with — no currency
+    // map in JS. Does NOT relabel the bare receipt-facsimile column numbers (SUBTOTAL/TAX/TOTAL), which stay bare.
+    string CurrencySymbol);
 
 /// <summary>A catalog product the drawer can resolve a line to, with the defaults the
 /// island applies on (re-)selection (ADR-020 §3 case 2 — single-default fill is UI).</summary>

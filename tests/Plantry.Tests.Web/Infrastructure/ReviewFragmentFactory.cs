@@ -38,6 +38,10 @@ public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+            // The review page resolves the household display-currency symbol on GET (plantry-2x6e.3) via the real
+            // DisplayCurrencyService → IHouseholdRepository (Identity DB). This factory touches no database, so stub
+            // the read source with the USD default — the island's money formatters then prefix "$".
+            services.AddFakeDisplayCurrency();
             // ── Auth: replace the Identity cookie scheme with the header-driven test handler. Setting it as the
             // default authenticate + challenge scheme means [Authorize] uses it; a request with no household
             // header is unauthenticated and gets challenged (401).

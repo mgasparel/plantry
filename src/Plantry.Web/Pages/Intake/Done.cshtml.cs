@@ -19,6 +19,7 @@ namespace Plantry.Web.Pages.Intake;
 [Authorize]
 public sealed class DoneModel(
     IImportSessionRepository sessions,
+    DisplayCurrencyAccessor displayCurrency,
     ITenantContext tenant) : PageModel
 {
     /// <summary>Session id from the route; bound on GET.</summary>
@@ -26,6 +27,9 @@ public sealed class DoneModel(
     public Guid Id { get; set; }
 
     public CommittedSessionSummary Summary { get; private set; } = null!;
+
+    /// <summary>Household display currency (plantry-2x6e.2) — the stocked-value figure renders through MoneyDisplay with it.</summary>
+    public string DisplayCurrency { get; private set; } = "USD";
 
     public async Task<IActionResult> OnGetAsync(CancellationToken ct)
     {
@@ -42,6 +46,7 @@ public sealed class DoneModel(
         }
 
         Summary = result.Value;
+        DisplayCurrency = await displayCurrency.GetAsync(ct);
         return Page();
     }
 }

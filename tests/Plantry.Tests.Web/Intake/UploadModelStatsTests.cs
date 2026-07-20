@@ -1,10 +1,12 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Plantry.Identity.Application;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Web.Infrastructure;
+using Plantry.Web;
 using Plantry.Web.Intake;
 using Plantry.Web.Pages.Intake;
 
@@ -68,7 +70,7 @@ public sealed class UploadModelStatsTests
         Assert.Equal(0, model.ExpiringSoonCount);
 
         // The formatters render the empty state exactly as the acceptance criteria describe.
-        Assert.Equal("$0.00", UploadModel.FormatMoney(model.GroceriesTotal));
+        Assert.Equal("$0.00", UploadModel.FormatMoney(model.GroceriesTotal, model.DisplayCurrency));
         Assert.Equal("—", UploadModel.FormatReviewTime(model.AverageReviewTime));
     }
 
@@ -112,8 +114,8 @@ public sealed class UploadModelStatsTests
         var tenant = new ConstantTenant(householdId);
         var inventory = new StubInventoryQueryService(inStock, expiringSoon);
 
-        // OnGetAsync only touches sessions, clock, tenant and the inventory service; the remaining
-        // dependencies are inert here (exercised only by the POST/parse handlers).
+        // OnGetAsync only touches sessions, clock, tenant, the inventory service and the display currency;
+        // the remaining dependencies are inert here (exercised only by the POST/parse handlers).
         return new UploadModel(
             sessions,
             parser: null!,
@@ -123,8 +125,14 @@ public sealed class UploadModelStatsTests
             inventory,
             uploadRateLimiter: null!,
             imagePreprocessor: null!,
+            displayCurrency: new DisplayCurrencyAccessor(new ConstantDisplayCurrency("USD")),
             logger: NullLogger<UploadModel>.Instance,
             parseLogger: NullLogger<ParseSessionCommand>.Instance);
+    }
+
+    private sealed class ConstantDisplayCurrency(string currency) : IDisplayCurrency
+    {
+        public Task<string> GetAsync(CancellationToken ct = default) => Task.FromResult(currency);
     }
 
     private static ImportSession Committed(

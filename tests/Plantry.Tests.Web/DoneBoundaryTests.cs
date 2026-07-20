@@ -76,6 +76,25 @@ public sealed class DoneBoundaryTests : IDisposable
         Assert.Contains("items added", body);
     }
 
+    [Fact(DisplayName = "Done stocked-value renders the € symbol for a EUR household (plantry-2x6e.2)")]
+    public async Task Done_stocked_value_uses_household_display_currency()
+    {
+        using var eurFactory = new DonePageFactory("EUR");
+        var client = eurFactory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, ReviewSessionFixture.HouseholdAId.ToString());
+
+        var response = await client.GetAsync(DoneUrl(eurFactory.CommittedSession.Id.Value));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        // The stocked-value figure (the committed lines' priced total) renders through MoneyDisplay with the
+        // household's EUR currency. Read the decoded text (the '€' is emitted HTML-encoded as &#x20AC;) and
+        // assert it shows the € symbol and no hardcoded '$' value.
+        var text = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(body).Body!.TextContent;
+        Assert.Contains("€", text);
+        Assert.DoesNotContain("$", text);
+    }
+
     [Fact]
     public async Task Ready_session_redirects_to_pantry()
     {
@@ -114,7 +133,7 @@ public sealed class DoneBoundaryTests : IDisposable
 ///   <item><see cref="ReadySession"/> — status Ready, owned by household A (used to assert the guard).</item>
 /// </list>
 /// </summary>
-internal sealed class DonePageFactory : WebApplicationFactory<Program>
+internal sealed class DonePageFactory(string displayCurrency = "USD") : WebApplicationFactory<Program>
 {
     public ImportSession CommittedSession { get; } = BuildCommittedSession();
     public ImportSession ReadySession { get; } = ReviewSessionFixture.Build(ReviewSessionFixture.HouseholdAId);
@@ -161,6 +180,7 @@ internal sealed class DonePageFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency(displayCurrency);
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(options =>
                 {

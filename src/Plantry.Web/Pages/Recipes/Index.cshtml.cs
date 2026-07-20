@@ -7,8 +7,11 @@ using Plantry.Recipes.Domain;
 namespace Plantry.Web.Pages.Recipes;
 
 [Authorize]
-public sealed class IndexModel(BrowseRecipesQuery query) : PageModel
+public sealed class IndexModel(BrowseRecipesQuery query, DisplayCurrencyAccessor displayCurrency) : PageModel
 {
+    /// <summary>Household display currency (plantry-2x6e.2) — per-recipe cost-per-serving renders through MoneyDisplay with it.</summary>
+    public string DisplayCurrency { get; private set; } = "USD";
+
     // ── Bind parameters ──────────────────────────────────────────────────────
 
     [BindProperty(SupportsGet = true)]
@@ -80,6 +83,10 @@ public sealed class IndexModel(BrowseRecipesQuery query) : PageModel
             SortDescending: descending);
 
         Result = await query.ExecuteAsync(filter, ct);
+
+        // Household display currency for the per-recipe cost cells (plantry-2x6e.2); one resolve for the
+        // full page and the htmx results-fragment swap below.
+        DisplayCurrency = await displayCurrency.GetAsync(ct);
 
         // htmx partial swap: filter/search/sort requests target #recipes-results and expect
         // only the results fragment — not the full page with layout chrome. Returning the full

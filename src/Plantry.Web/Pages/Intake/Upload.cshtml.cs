@@ -37,9 +37,12 @@ public sealed class UploadModel(
     InventoryQueryService inventoryQueries,
     ReceiptUploadRateLimiter uploadRateLimiter,
     IReceiptImagePreprocessor imagePreprocessor,
+    DisplayCurrencyAccessor displayCurrency,
     ILogger<UploadModel> logger,
     ILogger<ParseSessionCommand> parseLogger) : PageModel
 {
+    /// <summary>Household display currency (plantry-2x6e.2) — the "This month" groceries total renders through MoneyDisplay with it.</summary>
+    public string DisplayCurrency { get; private set; } = "USD";
     public IReadOnlyList<RecentIntakeRow> RecentIntakes { get; private set; } = [];
     public bool AiAvailable => parser is not DisabledReceiptParser;
 
@@ -82,6 +85,8 @@ public sealed class UploadModel(
             return; // No household: leave the "This month" stats at their $0.00 / 0 / em-dash defaults.
 
         var householdId = HouseholdId.From(hid);
+
+        DisplayCurrency = await displayCurrency.GetAsync(ct);
 
         RecentIntakes = await new GetRecentSessionsQuery(sessions)
             .ExecuteAsync(householdId, take: 8, ct);
@@ -240,12 +245,12 @@ public sealed class UploadModel(
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     /// <summary>
-    /// Formats a month's grocery total as currency for the "This month" card — always two decimals with a
-    /// leading "$" (e.g. <c>$482.19</c>, <c>$0.00</c> when nothing was committed). Invariant-cultured so the
-    /// rendered value is deterministic regardless of server locale.
+    /// Formats a month's grocery total as currency for the "This month" card via the single culture-free
+    /// <see cref="MoneyDisplay"/> formatter (plantry-2x6e.2): always two decimals, the household display
+    /// currency's symbol, deterministic regardless of server locale (e.g. <c>$482.19</c>, <c>€0.00</c>).
     /// </summary>
-    public static string FormatMoney(decimal amount) =>
-        "$" + amount.ToString("F2", CultureInfo.InvariantCulture);
+    public static string FormatMoney(decimal amount, string currency) =>
+        MoneyDisplay.Format(amount, currency);
 
     /// <summary>
     /// Humanizes the month's average review time for the card footer: <c>"2m 40s"</c> a minute or over,

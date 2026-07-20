@@ -27,8 +27,12 @@ public sealed class DetailsModel(
     ShoppingListQueryService shoppingList,
     RecipeExpansionService expansionService,
     IQuantityFormatter quantityFormatter,
+    DisplayCurrencyAccessor displayCurrency,
     ArchiveRecipe archiveRecipe) : PageModel
 {
+    /// <summary>Household display currency (plantry-2x6e.2) — the recipe cost meta renders through MoneyDisplay with it.</summary>
+    public string DisplayCurrency { get; private set; } = "USD";
+
     [BindProperty(SupportsGet = true)]
     public Guid Id { get; set; }
 
@@ -118,6 +122,9 @@ public sealed class DetailsModel(
         var id = RecipeId.From(Id);
         var recipe = await recipes.GetByIdAsync(id, ct);
         if (recipe is null) return false;
+
+        // Household display currency for the cost meta (plantry-2x6e.2); resolved once per request.
+        DisplayCurrency = await displayCurrency.GetAsync(ct);
 
         // Diet-tag nudge (plantry-qll2.3): render the deferred check only when the editor's post-save redirect set
         // ?dietNudge=true. A plain view of the recipe carries no flag, so no LLM check runs on a browse.

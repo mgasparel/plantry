@@ -45,7 +45,7 @@
         @foreach (var meal in Model.Meals)
         {
             @await Html.PartialAsync("_MealCard", new Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm(
-                meal, dateIso, Model.SlotId, Model.Members))
+                meal, dateIso, Model.SlotId, Model.Members, Model.DisplayCurrency))
         }
         <button class="add-meal"
                 onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@dateIso', '@slotId', null)"
@@ -61,7 +61,7 @@
         @await Html.PartialAsync("_GhostCell", new Plantry.Web.Pages.MealPlan.IndexModel.GhostCellVm(
             Model.Date, Model.SlotId, Model.SlotLabel, Model.PendingProposal!,
             Model.GhostDishNames ?? Model.PendingProposal!.Dishes.Select(_ => "Recipe").ToList(),
-            Model.GhostEnrichment))
+            Model.GhostEnrichment, Model.DisplayCurrency))
     }
     else if (Model.IsHardConflict)
     {

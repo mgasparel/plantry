@@ -90,7 +90,8 @@ else
                         cellDate, slot.Id, slot.Label, meals, Model.WeekStart, Model.Members,
                         null, pending, ghostDishNames, ghostEnr,
                         IsHardConflict: Model.ConflictCells.ContainsKey(key),
-                        UnfulfillableCellInfo: Model.UnfulfillableCells.GetValueOrDefault(key)))
+                        UnfulfillableCellInfo: Model.UnfulfillableCells.GetValueOrDefault(key),
+                        DisplayCurrency: Model.CurrentDisplayCurrency))
                 }
             }
         </div>
@@ -103,7 +104,8 @@ else
         Model.Insights, Model.PendingCount,
         ConfirmedWeekCost: Model.WeekTotalCost, ConfirmedCostIsPartial: Model.WeekCostIsPartial,
         ProjectedWeekCost: Model.ProjectedWeekCost, ProjectedCostIsPartial: Model.ProjectedWeekCostIsPartial,
-        IsHistoricalWeek: Model.IsHistoricalWeek))
+        IsHistoricalWeek: Model.IsHistoricalWeek,
+        DisplayCurrency: Model.CurrentDisplayCurrency))
 
     @* Pending bar — visible when there are staged AI suggestions *@
     @if (Model.PendingCount > 0)

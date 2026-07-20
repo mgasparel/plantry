@@ -99,6 +99,7 @@ import { lvl, money, dishMeta } from "./meal-planner-logic.js?v=1";
  * @property {string} rollupUrl
  * @property {string} editorJsonUrl
  * @property {string} searchJsonUrl
+ * @property {string} currencySymbol
  * @property {MemberInfo[]} members
  */
 
@@ -191,10 +192,11 @@ function applyMutationResult(result) {
  * @param {{
  *   slotIdStr: string,
  *   searchJsonUrl: string,
+ *   currencySymbol: string,
  *   onAdd: (dish: DishDraft) => void,
  * }} props
  */
-function DishSearch({ slotIdStr, searchJsonUrl, onAdd }) {
+function DishSearch({ slotIdStr, searchJsonUrl, currencySymbol, onAdd }) {
   // useSignal ensures signals persist across re-renders (stable across the component's lifetime).
   // signal() recreates on every render and loses state — useSignal() is the hook-based equivalent.
   const query = useSignal("");
@@ -279,7 +281,7 @@ function DishSearch({ slotIdStr, searchJsonUrl, onAdd }) {
                           <span class=${"fdot lvl-" + lvl(r.fulfillmentPercent) + "-bg"}></span>
                           <span>${r.fulfillmentPercent}% in pantry · ${r.defaultServings} srv${
                             r.costPerServing != null
-                              ? " · " + money(r.costPerServing * r.defaultServings)
+                              ? " · " + money(r.costPerServing * r.defaultServings, currencySymbol)
                               : ""
                           }</span>`
                       : html`<span>${r.defaultServings} srv</span>`}
@@ -323,11 +325,12 @@ function DishSearch({ slotIdStr, searchJsonUrl, onAdd }) {
  *   clearUrl: string,
  *   rollupUrl: string,
  *   searchJsonUrl: string,
+ *   currencySymbol: string,
  *   onClose: () => void,
  *   onMutated: (result: CellMutationResult) => void,
  * }} props
  */
-function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, searchJsonUrl, onClose, onMutated }) {
+function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, searchJsonUrl, currencySymbol, onClose, onMutated }) {
   // ── Draft signals ──────────────────────────────────────────────────────────
   // useSignal() ensures signals are created once per component lifetime and persist
   // across re-renders. signal() inside a function body is re-created every render,
@@ -549,7 +552,7 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                         ${d.fulfillment != null && html`
                           <span class=${"fdot lvl-" + lvl(d.fulfillment) + "-bg"}></span>
                         `}
-                        <span>${dishMeta(d)}</span>
+                        <span>${dishMeta(d, currencySymbol)}</span>
                       </div>
                     </div>
                     <div class="serv-step">
@@ -568,6 +571,7 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
             <${DishSearch}
               slotIdStr=${state.slotIdStr}
               searchJsonUrl=${searchJsonUrl}
+              currencySymbol=${currencySymbol}
               onAdd=${addDish} />
           </div>
         `}
@@ -650,6 +654,10 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
 function App({ modalOpen, editorState, members, tokenSig, hydration, onClose, onMutated }) {
   if (!modalOpen.value || !editorState.value) return null;
 
+  // Household currency symbol from the server hydration payload (plantry-2x6e.3); "$" is a defensive
+  // fallback only — the server always sends it. Threaded into the cost formatters below.
+  const currencySymbol = hydration.currencySymbol ?? "$";
+
   return html`
     <div class="modal-veil" id="meal-editor-modal" style="display:grid"
          onClick=${(/** @type {MouseEvent} */ e) => {
@@ -664,6 +672,7 @@ function App({ modalOpen, editorState, members, tokenSig, hydration, onClose, on
           clearUrl=${hydration.clearUrl}
           rollupUrl=${hydration.rollupUrl}
           searchJsonUrl=${hydration.searchJsonUrl}
+          currencySymbol=${currencySymbol}
           onClose=${onClose}
           onMutated=${onMutated} />
       </div>

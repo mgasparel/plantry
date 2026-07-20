@@ -40,11 +40,12 @@ public sealed class IntakeReviewHydrationBuilder
     /// Projects the loaded session + reference data into the island's hydration blob. Pure over
     /// (<paramref name="session"/>, <paramref name="today"/>, <paramref name="now"/>,
     /// <paramref name="urls"/>): <paramref name="today"/> supplies expiry/default dates,
-    /// <paramref name="now"/> drives the "scanned N ago" relative label, and <paramref name="urls"/>
-    /// carries the pre-computed row-action endpoints.
+    /// <paramref name="now"/> drives the "scanned N ago" relative label, <paramref name="urls"/>
+    /// carries the pre-computed row-action endpoints, and <paramref name="currencySymbol"/> is the household
+    /// display-currency glyph (from <c>MoneyDisplay.Symbol</c>) the island prefixes its money formatters with.
     /// </summary>
     public SessionHydration Build(
-        SessionReviewView session, DateOnly today, DateTimeOffset now, ReviewHandlerUrls urls)
+        SessionReviewView session, DateOnly today, DateTimeOffset now, ReviewHandlerUrls urls, string currencySymbol)
     {
         var reference = session.ReferenceData;
 
@@ -166,7 +167,10 @@ public sealed class IntakeReviewHydrationBuilder
             Tax: session.Tax,
             Total: session.Total,
             Payment: NullIfBlank(session.PaymentDescriptor),
-            ReceiptNo: NullIfBlank(session.ReceiptNumber));
+            ReceiptNo: NullIfBlank(session.ReceiptNumber),
+            // Household display-currency symbol resolved by the caller (Review.cshtml.cs) via MoneyDisplay.Symbol —
+            // the island prefixes it in its money formatters (plantry-2x6e.3).
+            CurrencySymbol: currencySymbol);
     }
 
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;

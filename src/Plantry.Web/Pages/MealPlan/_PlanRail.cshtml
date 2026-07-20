@@ -7,15 +7,17 @@
 
     // plantry-5lp: compute display strings for the rail's alternate-figure toggle callout.
     // Each body shows the OPPOSITE figure to whatever the chip displays.
+    // Cost figures render with the household display currency through MoneyDisplay (plantry-2x6e.2); the "~"
+    // partial marker precedes the symbol.
     string confirmedDisplay;
     if (Model.ConfirmedWeekCost.HasValue)
-        confirmedDisplay = (Model.ConfirmedCostIsPartial ? "~$" : "$") + Model.ConfirmedWeekCost.Value.ToString("F2");
+        confirmedDisplay = (Model.ConfirmedCostIsPartial ? "~" : "") + MoneyDisplay.Format(Model.ConfirmedWeekCost.Value, Model.DisplayCurrency);
     else
         confirmedDisplay = "not yet estimated";
 
     string projectedDisplay;
     if (Model.ProjectedWeekCost.HasValue)
-        projectedDisplay = (Model.ProjectedCostIsPartial ? "~$" : "$") + Model.ProjectedWeekCost.Value.ToString("F2");
+        projectedDisplay = (Model.ProjectedCostIsPartial ? "~" : "") + MoneyDisplay.Format(Model.ProjectedWeekCost.Value, Model.DisplayCurrency);
     else
         projectedDisplay = "not yet estimated";
 }

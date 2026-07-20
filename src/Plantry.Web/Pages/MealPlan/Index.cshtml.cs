@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ViewEngines;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Plantry.Identity.Application;
 using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
@@ -42,6 +43,7 @@ public sealed class IndexModel(
     Plantry.Recipes.Domain.FulfillmentService recipesFulfillmentService,
     Plantry.Recipes.Domain.CostingService recipesCostingService,
     Plantry.Recipes.Application.IExpiringSoonHorizonReader expiringSoonHorizon,
+    DisplayCurrencyAccessor displayCurrency,
     ITenantContext tenant,
     UserManager<AppUser> userManager,
     IClock clock,
@@ -121,7 +123,7 @@ public sealed class IndexModel(
 
     /// <summary>
     /// True when the projected cost is an under-estimate (some priced cells, others unpriced
-    /// or some ghost cells unpriced/partially priced). Renders the "~$" partial prefix (plantry-5lp).
+    /// or some ghost cells unpriced/partially priced). Renders a leading "~" partial marker (plantry-5lp).
     /// </summary>
     public bool ProjectedWeekCostIsPartial { get; private set; }
 
@@ -131,6 +133,20 @@ public sealed class IndexModel(
     /// reloads and cell operations. Null = no target = over-budget insight suppressed.
     /// </summary>
     public decimal? WeekBudgetTarget { get; private set; }
+
+    /// <summary>
+    /// Household display currency (plantry-2x6e.2), resolved once per request in LoadPlanningSettingsAsync and
+    /// threaded onto every meal-plan view model so all bare-decimal cost figures (plan bar, rail, grid cells,
+    /// rollup) render through MoneyDisplay with a single symbol. Defaults to "USD".
+    /// </summary>
+    public string CurrentDisplayCurrency { get; private set; } = "USD";
+
+    /// <summary>
+    /// The stored weekly budget's own ISO currency (plantry-2x6e.2). Null when no budget is set. The budget is
+    /// a persisted <see cref="Money"/>, so it renders with ITS OWN currency — never the household display
+    /// currency — so switching the household currency never silently relabels a saved budget.
+    /// </summary>
+    public string? WeekBudgetCurrency { get; private set; }
 
     /// <summary>
     /// Resolved planning weights for the viewed week. Null = use PlanningWeights.Default.
@@ -185,6 +201,9 @@ public sealed class IndexModel(
             RollupUrl: "/MealPlan?handler=RollupJson",
             EditorJsonUrl: "/MealPlan?handler=EditorJson",
             SearchJsonUrl: "/MealPlan?handler=SearchJson",
+            // Resolved once per request in LoadPlanningSettingsAsync (via the GET path) — the island's money()
+            // formatter prefixes this glyph instead of a hardcoded dollar sign (plantry-2x6e.3).
+            CurrencySymbol: MoneyDisplay.Symbol(CurrentDisplayCurrency),
             Members: members);
         return JsonSerializer.Serialize(vm, MealPlanHydrationJson.Options);
     }
@@ -342,9 +361,10 @@ public sealed class IndexModel(
             ? DomainMealPlan.NormalizeToMonday(parsed)
             : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(DateTime.Today));
 
-        // Resolve the submitted budget: positive value → Money; zero or null → clear.
+        // Resolve the submitted budget: positive value → Money stamped with the household's display
+        // currency (plantry-2x6e.1); zero or null → clear.
         Money? budgetMoney = budget is > 0
-            ? Money.FromDecimal(budget.Value, "USD")
+            ? Money.FromDecimal(budget.Value, await displayCurrency.GetAsync(ct))
             : null;
 
         // Resolve the submitted weights; ignore if they don't sum to 100.
@@ -626,12 +646,13 @@ public sealed class IndexModel(
                 IsNote: false, HasDishes: true,
                 FulfillmentPercent: vm.InitialFulfillmentPercent,
                 TotalCost: vm.InitialTotalCost,
-                CostIsPartial: vm.InitialCostIsPartial);
+                CostIsPartial: vm.InitialCostIsPartial,
+                DisplayCurrency: CurrentDisplayCurrency);
             initialRollupHtml = await RenderPartialToStringAsync("_EditorRollup", rollupVm, ct);
         }
         else if (isNote)
         {
-            var rollupVm = new EditorRollupVm(IsNote: true, HasDishes: false);
+            var rollupVm = new EditorRollupVm(IsNote: true, HasDishes: false, DisplayCurrency: CurrentDisplayCurrency);
             initialRollupHtml = await RenderPartialToStringAsync("_EditorRollup", rollupVm, ct);
         }
 
@@ -759,10 +780,14 @@ public sealed class IndexModel(
 
         if (input is null) return new JsonResult(new { error = "Invalid request body." }) { StatusCode = 400 };
 
+        // This JSON endpoint does not run the LoadWeekAsync path, so resolve the household display currency
+        // here (plantry-2x6e.2) — the rollup's est. cost renders through MoneyDisplay with it.
+        CurrentDisplayCurrency = await displayCurrency.GetAsync(ct);
+
         if (input.Mode == "note")
         {
             var html = await RenderPartialToStringAsync("_EditorRollup",
-                new EditorRollupVm(IsNote: true, HasDishes: false), ct);
+                new EditorRollupVm(IsNote: true, HasDishes: false, DisplayCurrency: CurrentDisplayCurrency), ct);
             return new JsonResult(new { html });
         }
 
@@ -770,7 +795,7 @@ public sealed class IndexModel(
         if (specs.Count == 0)
         {
             var html = await RenderPartialToStringAsync("_EditorRollup",
-                new EditorRollupVm(IsNote: false, HasDishes: false), ct);
+                new EditorRollupVm(IsNote: false, HasDishes: false, DisplayCurrency: CurrentDisplayCurrency), ct);
             return new JsonResult(new { html });
         }
 
@@ -788,7 +813,7 @@ public sealed class IndexModel(
         if (meal is null)
         {
             var html = await RenderPartialToStringAsync("_EditorRollup",
-                new EditorRollupVm(IsNote: false, HasDishes: true), ct);
+                new EditorRollupVm(IsNote: false, HasDishes: true, DisplayCurrency: CurrentDisplayCurrency), ct);
             return new JsonResult(new { html });
         }
 
@@ -800,7 +825,8 @@ public sealed class IndexModel(
                 IsNote: false, HasDishes: true,
                 FulfillmentPercent: fulfillment.FulfillmentPercent,
                 TotalCost: mealCost.Amount,
-                CostIsPartial: mealCost.Completeness == CostCompleteness.Partial), ct);
+                CostIsPartial: mealCost.Completeness == CostCompleteness.Partial,
+                DisplayCurrency: CurrentDisplayCurrency), ct);
         return new JsonResult(new { html = resultHtml });
     }
 
@@ -1211,7 +1237,14 @@ public sealed class IndexModel(
         var (budget, weights) = PlanningSettingsResolver.Resolve(settings, weekOverride);
 
         WeekBudgetTarget = budget?.ToDecimal();
+        // The budget is a Money — keep its own currency for display (plantry-2x6e.2), independent of the
+        // household display currency the cost figures use.
+        WeekBudgetCurrency = budget?.Currency;
         WeekPlanningWeights = weights;
+
+        // Household display currency for every bare-decimal cost figure on the page — resolved once here (the
+        // universal load path for GET + all OOB refreshes) and cached for the request by the accessor.
+        CurrentDisplayCurrency = await displayCurrency.GetAsync(ct);
     }
 
     private async Task LoadPendingProposalsAsync(HouseholdId householdId, CancellationToken ct)
@@ -1385,8 +1418,10 @@ public sealed class IndexModel(
         var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning,
             pending, ghostDishNames, ghostEnrichment,
             IsHardConflict: ConflictCells.ContainsKey(key),
-            UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key));
-        var railVm = new PlanRailVm(Insights, PendingCount, Oob: false, IsHistoricalWeek: IsHistoricalWeek);
+            UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key),
+            DisplayCurrency: CurrentDisplayCurrency);
+        var railVm = new PlanRailVm(Insights, PendingCount, Oob: false, IsHistoricalWeek: IsHistoricalWeek,
+            DisplayCurrency: CurrentDisplayCurrency);
         var barNavVm = BuildPlanBarNavVm(Oob: false);
 
         // plan-rail-reopen is rendered inside the _PlanRail partial — no separate render needed.
@@ -1481,11 +1516,13 @@ public sealed class IndexModel(
         // the "recompute on EVERY change" invariant — no per-handler wiring to forget.
         var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment,
             IsHardConflict: ConflictCells.ContainsKey(key),
-            UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key));
+            UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key),
+            DisplayCurrency: CurrentDisplayCurrency);
         var railVm = new PlanRailVm(Insights, PendingCount, Oob: true,
             ConfirmedWeekCost: WeekTotalCost, ConfirmedCostIsPartial: WeekCostIsPartial,
             ProjectedWeekCost: ProjectedWeekCost, ProjectedCostIsPartial: ProjectedWeekCostIsPartial,
-            IsHistoricalWeek: IsHistoricalWeek);
+            IsHistoricalWeek: IsHistoricalWeek,
+            DisplayCurrency: CurrentDisplayCurrency);
         var barNavVm = BuildPlanBarNavVm(Oob: true);
         return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm, barNavVm));
     }
@@ -1502,7 +1539,9 @@ public sealed class IndexModel(
         PendingCount: PendingCount,
         WeekBudgetTarget: WeekBudgetTarget,
         ConfirmedOverBudget: WeekBudgetTarget.HasValue && WeekTotalCost > WeekBudgetTarget,
-        ProjectedOverBudget: WeekBudgetTarget.HasValue && ProjectedWeekCost > WeekBudgetTarget);
+        ProjectedOverBudget: WeekBudgetTarget.HasValue && ProjectedWeekCost > WeekBudgetTarget,
+        DisplayCurrency: CurrentDisplayCurrency,
+        BudgetCurrency: WeekBudgetCurrency);
 
     private async Task<MealSlot?> GetSlotAsync(HouseholdId householdId, MealSlotId slotId, CancellationToken ct)
     {
@@ -1608,7 +1647,9 @@ public sealed class IndexModel(
         /// an attendee's Required tag has ZERO recipes in the full corpus. Carries the tag name for
         /// the actionable "Add a [tag] recipe" CTA. Only populated during a generate response.
         /// </summary>
-        UnfulfillableCell? UnfulfillableCellInfo = null);
+        UnfulfillableCell? UnfulfillableCellInfo = null,
+        /// <summary>Household display currency for the cell's per-meal / ghost cost figures (plantry-2x6e.2).</summary>
+        string DisplayCurrency = "USD");
 
     /// <summary>
     /// View model for the advisory insights rail (P3-5). Rendered inline inside <c>_WeekGrid</c>
@@ -1620,6 +1661,7 @@ public sealed class IndexModel(
     /// <param name="ProjectedWeekCost">Confirmed + pending ghost costs (plantry-5lp — shown in the rail toggle callout).</param>
     /// <param name="ProjectedCostIsPartial">True when the projected figure is a partial estimate.</param>
     /// <param name="IsHistoricalWeek">True when the viewed week is in the past. Insights are suppressed for historical weeks (plantry-lb9t).</param>
+    /// <param name="DisplayCurrency">Household display currency for the rail's cost figures (plantry-2x6e.2).</param>
     public sealed record PlanRailVm(
         IReadOnlyList<InsightCallout> Insights,
         int PendingCount,
@@ -1628,7 +1670,8 @@ public sealed class IndexModel(
         bool ConfirmedCostIsPartial = false,
         decimal? ProjectedWeekCost = null,
         bool ProjectedCostIsPartial = false,
-        bool IsHistoricalWeek = false);
+        bool IsHistoricalWeek = false,
+        string DisplayCurrency = "USD");
 
     /// <summary>
     /// Combines a single cell fragment with an out-of-band rail refresh and an out-of-band
@@ -1660,6 +1703,8 @@ public sealed class IndexModel(
     /// <param name="WeekBudgetTarget">Resolved weekly budget target (plantry-gx34 inline budget).</param>
     /// <param name="ConfirmedOverBudget">True when confirmed cost exceeds the budget target (plantry-gx34).</param>
     /// <param name="ProjectedOverBudget">True when projected cost exceeds the budget target (plantry-gx34).</param>
+    /// <param name="DisplayCurrency">Household display currency for the cost figures (plantry-2x6e.2).</param>
+    /// <param name="BudgetCurrency">The saved budget's own currency (plantry-2x6e.2); null when no budget set.</param>
     public sealed record PlanBarNavVm(
         DateOnly WeekStart,
         DateOnly PrevWeekStart,
@@ -1675,7 +1720,9 @@ public sealed class IndexModel(
         int PendingCount = 0,
         decimal? WeekBudgetTarget = null,
         bool ConfirmedOverBudget = false,
-        bool ProjectedOverBudget = false);
+        bool ProjectedOverBudget = false,
+        string DisplayCurrency = "USD",
+        string? BudgetCurrency = null);
     /// <summary>
     /// View model for the editor rollup footer (_EditorRollup.cshtml) — ADR-013 §4/§5.
     /// Returned by OnPostRollupJsonAsync; the island parses the JSON and injects the HTML.
@@ -1686,8 +1733,13 @@ public sealed class IndexModel(
         bool HasDishes,
         int? FulfillmentPercent = null,
         decimal? TotalCost = null,
-        bool CostIsPartial = false);
-    public sealed record MealCardVm(MealCellVm Meal, string DateIso, MealSlotId SlotId, List<HouseholdMember> Members);
+        bool CostIsPartial = false,
+        /// <summary>Household display currency for the est. cost figure (plantry-2x6e.2).</summary>
+        string DisplayCurrency = "USD");
+    public sealed record MealCardVm(
+        MealCellVm Meal, string DateIso, MealSlotId SlotId, List<HouseholdMember> Members,
+        /// <summary>Household display currency for the per-meal cost figure (plantry-2x6e.2).</summary>
+        string DisplayCurrency = "USD");
     /// <summary>
     /// Ghost cell (pending AI proposal). GhostEnrichment carries the server-computed
     /// rolled-up fulfillment % and estimated cost for display on the ghost cell (P3-6b, ADR-013 §4/§5).
@@ -1699,7 +1751,9 @@ public sealed class IndexModel(
         string SlotLabel,
         ProposedMeal Proposal,
         IReadOnlyList<string> DishNames,
-        MealFulfillmentVm? GhostEnrichment = null);
+        MealFulfillmentVm? GhostEnrichment = null,
+        /// <summary>Household display currency for the ghost cell's estimated cost figure (plantry-2x6e.2).</summary>
+        string DisplayCurrency = "USD");
 
     // ── Island JSON endpoint input models (ADR-015 amendment) ─────────────────
 

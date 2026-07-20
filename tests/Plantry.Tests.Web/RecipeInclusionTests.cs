@@ -355,6 +355,7 @@ public sealed class RecipeInclusionTests
             builder.UseEnvironment("Testing");
             builder.ConfigureTestServices(services =>
             {
+                services.AddFakeDisplayCurrency();
                 services.AddFakeExpiringSoonHorizon();
                 AddTestAuth(services);
 
@@ -399,6 +400,7 @@ public sealed class RecipeInclusionTests
             builder.UseEnvironment("Testing");
             builder.ConfigureTestServices(services =>
             {
+                services.AddFakeDisplayCurrency();
                 services.AddFakeExpiringSoonHorizon();
                 AddTestAuth(services);
 

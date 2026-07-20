@@ -23,6 +23,9 @@ public sealed record IslandHydrationVm(
     string RollupUrl,
     string EditorJsonUrl,
     string SearchJsonUrl,
+    // Household display-currency symbol (plantry-2x6e.3), sourced once from MoneyDisplay.Symbol so the island's
+    // client-side cost formatter (money()) prefixes the same glyph the server renders with — no currency map in JS.
+    string CurrencySymbol,
     IReadOnlyList<IslandMemberVm> Members);
 
 /// <summary>Household member info for the island attendee toggle.</summary>

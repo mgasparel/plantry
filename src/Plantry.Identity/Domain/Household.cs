@@ -21,6 +21,17 @@ public sealed class Household : AggregateRoot<HouseholdId>
     /// </summary>
     public bool AiAssistanceEnabled { get; private set; } = true;
 
+    /// <summary>
+    /// The household's display currency as an ISO 4217 alphabetic code (plantry-2x6e.1). Governs which
+    /// currency freshly-written money adopts — budget writes stamp it, and the presentation edge labels
+    /// bare-decimal money with it. A change never rewrites already-stored <see cref="Money"/> values:
+    /// each keeps its own currency until re-saved. Lives on the aggregate (like <c>Theme</c> and
+    /// <c>AiAssistanceEnabled</c>) — one row per household in the tenant-anchor <c>identity</c> schema, so
+    /// no separate settings table or RLS wiring is needed. The domain accepts any 3-letter code; the
+    /// Settings UI constrains it to a curated 2-minor-unit list. Defaults to USD.
+    /// </summary>
+    public string DisplayCurrency { get; private set; } = "USD";
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     private Household() { } // EF
@@ -59,4 +70,19 @@ public sealed class Household : AggregateRoot<HouseholdId>
 
     /// <summary>Enables or disables the household's assistive-AI features (plantry-qll2.1).</summary>
     public void SetAiAssistanceEnabled(bool enabled) => AiAssistanceEnabled = enabled;
+
+    /// <summary>
+    /// Sets the household's display currency (plantry-2x6e.1). Trims and upper-cases the input, then
+    /// requires exactly three ASCII letters A–Z (the same 3-letter ISO 4217 stance as
+    /// <see cref="Money"/>'s constructor); anything else throws <see cref="ArgumentException"/>. The
+    /// domain does not restrict to a known-currency list — the Settings UI curates that.
+    /// </summary>
+    public void SetDisplayCurrency(string code)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        var normalized = code.Trim().ToUpperInvariant();
+        if (normalized.Length != 3 || !normalized.All(c => c is >= 'A' and <= 'Z'))
+            throw new ArgumentException("Display currency must be a 3-letter ISO 4217 code (A–Z).", nameof(code));
+        DisplayCurrency = normalized;
+    }
 }

@@ -74,7 +74,8 @@ public sealed class ReviewHydrationContractTests
         Tax: 2.00m,
         Total: 42.00m,
         Payment: "VISA ****4471 APPROVED",
-        ReceiptNo: "TXN 0472 118");
+        ReceiptNo: "TXN 0472 118",
+        CurrencySymbol: "$");
 
     [Fact]
     public void Root_has_exact_island_key_set()
@@ -85,7 +86,7 @@ public sealed class ReviewHydrationContractTests
             "products", "units", "locations", "categories", "stores", "lines",
             "scanVia", "scannedLabel", "storeBranch", "purchaseDate", "purchaseTime",
             "merchantTextRaw", "selectedStoreId", "purchaseDateRaw", "purchaseTimeRaw",
-            "subtotal", "tax", "total", "payment", "receiptNo");
+            "subtotal", "tax", "total", "payment", "receiptNo", "currencySymbol");
     }
 
     [Fact]

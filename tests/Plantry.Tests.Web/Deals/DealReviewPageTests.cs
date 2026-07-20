@@ -232,6 +232,24 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("<span class=\"store\">", html);
     }
 
+    [Fact(DisplayName = "Deal card price renders the € symbol for a EUR household (plantry-2x6e.2)")]
+    public async Task DealCard_Price_Uses_Household_Display_Currency()
+    {
+        using var eurFactory = new DealReviewEurFactory();
+        eurFactory.SeedPending("BREYERS CREAMERY STYLE ICE CREAM", MatchConfidence.Low, eurFactory.MilkProduct, price: 4.99m);
+
+        var client = eurFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, HouseholdId.ToString());
+        var html = await (await client.GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+
+        // The deal-card price cell renders through MoneyDisplay with the household's EUR currency. Read the
+        // decoded text (the '€' is emitted HTML-encoded as &#x20AC;) and assert the amount shows the € symbol.
+        var doc = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
+        var amount = doc.QuerySelector(".deal-row__amount")?.TextContent?.Trim()
+            ?? throw new InvalidOperationException("'.deal-row__amount' not found in review queue HTML.");
+        Assert.Equal("€4.99", amount);
+    }
+
     // ── L4 step-2 judgement-call deck island hydration (q9zr.8) ────────────────────
 
     [Fact(DisplayName = "Step 2 renders the deck mount + hydration blob (title-cased name, verb URLs) with no rail-context keys")]
@@ -1067,8 +1085,11 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
 /// registrations with in-memory fakes; the real <c>ReviewDeals</c>/<c>ConfirmDeal</c>/<c>RejectDeal</c>
 /// run over them. Seed helpers stage deals directly into the fake repository.
 /// </summary>
-public sealed class DealReviewFactory : WebApplicationFactory<Program>
+public class DealReviewFactory : WebApplicationFactory<Program>
 {
+    /// <summary>Household display currency the deal-card prices render with (plantry-2x6e.2). Default USD.</summary>
+    protected virtual string DisplayCurrency => "USD";
+
     private static readonly Guid Store = Guid.NewGuid();
     public Guid MilkProduct { get; } = Guid.NewGuid();
     public Guid BreadProduct { get; } = Guid.NewGuid();
@@ -1175,6 +1196,7 @@ public sealed class DealReviewFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency(DisplayCurrency);
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
@@ -1365,4 +1387,13 @@ public sealed class FakeReviewFlyerImportRepo : IFlyerImportRepository
     public Task ExecuteInTransactionAsync(Func<CancellationToken, Task> action, CancellationToken ct = default) =>
         throw new NotSupportedException();
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Variant: the deal review queue rendered for a EUR household (plantry-2x6e.2) — proves the deal-card price
+/// renders MoneyDisplay's '€' symbol (threaded to _DealReviewCard via ViewData) rather than a hardcoded '$'.
+/// </summary>
+public sealed class DealReviewEurFactory : DealReviewFactory
+{
+    protected override string DisplayCurrency => "EUR";
 }

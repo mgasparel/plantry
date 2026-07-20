@@ -173,7 +173,7 @@
         <div class="panel">
             <h4>This month</h4>
             <div class="stat-grid">
-                <div class="stat"><div class="stat-num stat-num--mono">@FormatMoney(Model.GroceriesTotal)</div><div class="stat-lbl">Groceries logged</div></div>
+                <div class="stat"><div class="stat-num stat-num--mono">@FormatMoney(Model.GroceriesTotal, Model.DisplayCurrency)</div><div class="stat-lbl">Groceries logged</div></div>
                 <div class="stat"><div class="stat-num">@Model.ReceiptsScanned</div><div class="stat-lbl">Receipts scanned</div></div>
                 <div class="stat"><div class="stat-num">@Model.ItemsInPantry</div><div class="stat-lbl">Items in pantry</div></div>
                 <div class="stat"><div class="stat-num">@Model.ExpiringSoonCount</div><div class="stat-lbl">Expiring soon</div></div>

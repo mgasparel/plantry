@@ -6,11 +6,13 @@
     // When rendered inline on a full GET (Oob=false) they are plain children of .plan-bar.
     var oob = Model.Oob ? "true" : null;
 
-    // Confirmed cost display (current, unchanged semantics)
+    // Cost figures render with the household display currency; the budget with its OWN saved currency
+    // (plantry-2x6e.2) — all through the single culture-free MoneyDisplay formatter. The "~" partial marker
+    // precedes the symbol.
     string confirmedDisplay;
     if (Model.WeekTotalCost.HasValue)
     {
-        confirmedDisplay = (Model.WeekCostIsPartial ? "~$" : "$") + Model.WeekTotalCost.Value.ToString("F2");
+        confirmedDisplay = (Model.WeekCostIsPartial ? "~" : "") + MoneyDisplay.Format(Model.WeekTotalCost.Value, Model.DisplayCurrency);
     }
     else
     {
@@ -21,18 +23,19 @@
     string projectedDisplay;
     if (Model.ProjectedWeekCost.HasValue)
     {
-        projectedDisplay = (Model.ProjectedWeekCostIsPartial ? "~$" : "$") + Model.ProjectedWeekCost.Value.ToString("F2");
+        projectedDisplay = (Model.ProjectedWeekCostIsPartial ? "~" : "") + MoneyDisplay.Format(Model.ProjectedWeekCost.Value, Model.DisplayCurrency);
     }
     else
     {
         projectedDisplay = confirmedDisplay;
     }
 
-    // Budget display — shown inline after the cost when WeekBudgetTarget is set (plantry-gx34)
+    // Budget display — shown inline after the cost when WeekBudgetTarget is set (plantry-gx34). Formatted with
+    // the budget's own currency (BudgetCurrency), falling back to the display currency if somehow unset.
     string? budgetDisplay = null;
     if (Model.WeekBudgetTarget.HasValue)
     {
-        budgetDisplay = "$" + Model.WeekBudgetTarget.Value.ToString("F2");
+        budgetDisplay = MoneyDisplay.Format(Model.WeekBudgetTarget.Value, Model.BudgetCurrency ?? Model.DisplayCurrency);
     }
 
     // Alpine literals for the :class binding (emitted as boolean literals, not C# booleans)

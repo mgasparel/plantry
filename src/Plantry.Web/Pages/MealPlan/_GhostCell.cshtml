@@ -32,7 +32,7 @@
         @if (enr.TotalCost.HasValue)
         {
             <span class="gh-meta-sep">·</span>
-            <span>@((enr.CostIsPartial ? "~$" : "$") + enr.TotalCost.Value.ToString("F2"))</span>
+            <span>@((enr.CostIsPartial ? "~" : "") + MoneyDisplay.Format(enr.TotalCost.Value, Model.DisplayCurrency))</span>
         }
     </div>
 }

@@ -25,7 +25,9 @@
             PendingCount: Model.PendingCount,
             WeekBudgetTarget: Model.WeekBudgetTarget,
             ConfirmedOverBudget: Model.WeekBudgetTarget.HasValue && Model.WeekTotalCost > Model.WeekBudgetTarget,
-            ProjectedOverBudget: Model.WeekBudgetTarget.HasValue && Model.ProjectedWeekCost > Model.WeekBudgetTarget))
+            ProjectedOverBudget: Model.WeekBudgetTarget.HasValue && Model.ProjectedWeekCost > Model.WeekBudgetTarget,
+            DisplayCurrency: Model.CurrentDisplayCurrency,
+            BudgetCurrency: Model.WeekBudgetCurrency))
         <div class="plan-bar-spacer"></div>
         @* planTune Alpine config: injected before _PlanBarNav uses it (the partial renders af-split
            which calls planTune(window.__planTuneCfg) on Alpine init). *@

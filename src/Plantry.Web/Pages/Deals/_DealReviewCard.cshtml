@@ -1,4 +1,3 @@
-@using System.Globalization
 @using Plantry.Deals.Domain
 @using Plantry.Intake.Domain
 @model Plantry.Deals.Application.DealReviewView
@@ -30,6 +29,9 @@
     // Active step (q9zr.13) — threaded onto each verb so the re-render stays on / advances off this step.
     // Empty on the single-deal correction path (no stepper); the verbs then fall back to the default step.
     var stepQs = ViewData["StepQs"] as string ?? "";
+    // Household display currency (plantry-2x6e.2) — set by the hosting _ReviewQueue; defaults to USD if a
+    // future host renders this card without it, matching MoneyDisplay's own fallback.
+    var displayCurrency = ViewData["DisplayCurrency"] as string ?? "USD";
 }
 
 <li class="catalog-list__item deal-review-row @(isNoise ? "deal-review-row--noise" : null)"
@@ -54,7 +56,7 @@
             }
         </div>
         <div class="deal-review-row__price">
-            <span class="deal-row__amount">@Model.Price.ToString("C2", CultureInfo.CurrentCulture)</span>
+            <span class="deal-row__amount">@MoneyDisplay.Format(Model.Price, displayCurrency)</span>
             <partial name="Shared/_ConfidenceBadge" model="confidence" />
         </div>
     </div>

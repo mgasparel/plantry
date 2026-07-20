@@ -139,6 +139,7 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {

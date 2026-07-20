@@ -75,6 +75,12 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
     /// </summary>
     protected virtual IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.Prices();
 
+    /// <summary>
+    /// Household display currency the Detail page's cost meta renders with (plantry-2x6e.2). Default USD so the
+    /// base snapshots keep their "$" values; a derived factory overrides it to exercise the non-USD symbol path.
+    /// </summary>
+    protected virtual string DisplayCurrency => "USD";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Non-Development: skips startup migrations/seeding and the Dev-pages gate.
@@ -82,6 +88,9 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            // Household display currency (plantry-2x6e.2): a deterministic fake so the cost meta resolves without
+            // a real Identity DB (the page GET now reads IDisplayCurrency).
+            services.AddFakeDisplayCurrency(DisplayCurrency);
             services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme mirrors ReviewFragmentFactory.
             services.AddAuthentication(opts =>
@@ -151,4 +160,14 @@ public sealed class RecipeDetailFullCostFactory : RecipeDetailFragmentFactory
 public sealed class RecipeDetailNoCostFactory : RecipeDetailFragmentFactory
 {
     protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesNone();
+}
+
+/// <summary>
+/// Variant: fully-priced (Full) cost rendered for a EUR household (plantry-2x6e.2) — proves the cost meta
+/// renders the '€' symbol from MoneyDisplay rather than a hardcoded '$'.
+/// </summary>
+public sealed class RecipeDetailEurCostFactory : RecipeDetailFragmentFactory
+{
+    protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesFull();
+    protected override string DisplayCurrency => "EUR";
 }

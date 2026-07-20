@@ -173,6 +173,7 @@ public sealed class GhostCellFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
@@ -386,6 +387,7 @@ public sealed class MixedCostGhostFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {

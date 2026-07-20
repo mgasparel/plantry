@@ -171,6 +171,14 @@ namespace Plantry.Identity.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("DisplayCurrency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasDefaultValue("USD")
+                        .HasColumnName("display_currency");
+
                     b.Property<string>("EmailIntakeAddress")
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)")

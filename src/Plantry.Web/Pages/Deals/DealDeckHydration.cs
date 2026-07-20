@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Plantry.Deals.Application;
 
@@ -53,7 +52,7 @@ public sealed record DealDeckHydration(
     /// so the deck posts through the same Confirm/Reject handlers and the same re-render path.
     /// </summary>
     public static DealDeckHydration Build(
-        IReadOnlyList<DealReviewView> deals, string? flyerKey, CultureInfo culture)
+        IReadOnlyList<DealReviewView> deals, string? flyerKey, string displayCurrency)
     {
         var flyerQs = string.IsNullOrEmpty(flyerKey) ? string.Empty : $"&flyer={flyerKey}";
 
@@ -65,7 +64,7 @@ public sealed record DealDeckHydration(
                 RawName: d.RawName,
                 DisplayName: DealReviewDisplay.TitleCase(d.RawName),
                 Brand: string.IsNullOrWhiteSpace(d.Brand) ? null : d.Brand,
-                Price: d.Price.ToString("C2", culture),
+                Price: MoneyDisplay.Format(d.Price, displayCurrency),
                 HasSuggestion: d.HasSuggestion,
                 SuggestedProductName: d.SuggestedProductName,
                 Reasoning: string.IsNullOrWhiteSpace(d.Reasoning) ? null : d.Reasoning,

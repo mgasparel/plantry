@@ -30,6 +30,7 @@ public sealed class MealPlanHydrationContractTests
         RollupUrl: "/MealPlan?handler=RollupJson",
         EditorJsonUrl: "/MealPlan?handler=EditorJson",
         SearchJsonUrl: "/MealPlan?handler=SearchJson",
+        CurrencySymbol: "$",
         Members:
         [
             new IslandMemberVm(
@@ -43,9 +44,9 @@ public sealed class MealPlanHydrationContractTests
     public void Root_has_exact_island_key_set()
     {
         // Cross-checked against @typedef IslandHydration in meal-planner.js:
-        //   assignUrl, clearUrl, rollupUrl, editorJsonUrl, searchJsonUrl, members
+        //   assignUrl, clearUrl, rollupUrl, editorJsonUrl, searchJsonUrl, currencySymbol, members
         HydrationContract.AssertKeys(Serialize(Sample()),
-            "assignUrl", "clearUrl", "rollupUrl", "editorJsonUrl", "searchJsonUrl", "members");
+            "assignUrl", "clearUrl", "rollupUrl", "editorJsonUrl", "searchJsonUrl", "currencySymbol", "members");
     }
 
     [Fact]

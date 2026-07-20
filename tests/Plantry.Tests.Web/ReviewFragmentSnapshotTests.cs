@@ -46,6 +46,19 @@ public sealed class ReviewFragmentSnapshotTests(ReviewFragmentFactory factory)
         throw new InvalidOperationException($"Line with receiptText '{receiptText}' not found in hydration.");
     }
 
+    // ── Boot payload: currency symbol (plantry-2x6e.3) ──────────────────────────────────────────
+
+    [Fact]
+    public async Task Hydration_carries_household_currency_symbol()
+    {
+        using var doc = await GetHydrationAsync();
+
+        // Resolved end-to-end through the real DisplayCurrencyAccessor → MoneyDisplay.Symbol. The fixture
+        // household has no DisplayCurrency override, so it defaults to USD → "$". The island's money
+        // formatters (fmtMoney/fmtRcpt) prefix this instead of a hardcoded glyph.
+        Assert.Equal("$", doc.RootElement.GetProperty("currencySymbol").GetString());
+    }
+
     // ── Line states in hydration ──────────────────────────────────────────────────────────────
 
     [Fact]

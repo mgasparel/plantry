@@ -7,7 +7,7 @@
     var summary = Model.Summary;
     var store = summary.MerchantText ?? "your receipt";
     var valueDisplay = summary.StockedValue > 0m
-        ? "$" + summary.StockedValue.ToString("0.00", CultureInfo.InvariantCulture)
+        ? MoneyDisplay.Format(summary.StockedValue, Model.DisplayCurrency)
         : "—";
     var categoryDisplay = summary.CategoryCount > 0 ? summary.CategoryCount.ToString() : "—";
     var expiryDisplay = summary.SoonestExpiry.HasValue
