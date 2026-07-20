@@ -112,6 +112,7 @@ export {
  * @property {string} lineId
  * @property {string} receiptText
  * @property {string} confidence
+ * @property {boolean} aiComplete   the ORIGINAL server-hydrated AI prefill was already complete (product + qty>0 + unit + location) — an immutable snapshot taken at hydration, NOT a live read of the (user-editable) draft signals. Gates the "sure" checklist so a user edit that completes a line never promotes it (plantry-wv4h).
  * @property {SignalLike<string>} status
  * @property {boolean} isNewProduct
  * @property {string|null} newProductName
@@ -163,6 +164,9 @@ export function makeLine(seed, signalFn) {
     lineId: line.lineId,
     receiptText: line.receiptText,
     confidence: line.confidence,
+    // Snapshot whether the AI's ORIGINAL suggestion was already complete — the same values ConfirmLines
+    // re-derives server-side. Frozen here so later user edits to the draft signals can't flip it (plantry-wv4h).
+    aiComplete: isPrefillComplete(prefill.productId, prefill.quantity, prefill.unitId, prefill.locationId),
     status: signalFn(line.status),
     isNewProduct: line.isNewProduct,
     newProductName: line.newProductName,
@@ -211,10 +215,9 @@ export function estimateHint(estimate) {
 // ── "sure" predicate (client mirror of the server's ConfirmLines qualification) ──
 
 /**
- * A line's server-side prefill is "complete" — the four fields the bulk confirm requires are all
- * present: an existing product, a quantity > 0, a unit, and a location. The island reads them off the
- * draft signals (seeded from the same server prefill ConfirmLines re-derives), so the displayed
- * "sure" section and the server's bulk-confirm decision agree.
+ * The core "complete prefill" predicate over four raw values — an existing product, a quantity > 0, a
+ * unit, and a location. This is the ONE place the four-field rule lives; both the live-draft check
+ * ({@link hasCompletePrefill}) and the frozen AI snapshot ({@link makeLine}'s `aiComplete`) go through it.
  *
  * SINGLE SOURCE OF TRUTH — this MUST stay identical to the server predicate in
  * {@link "../../../Plantry.Intake/Application/ConfirmLinesCommand.cs"} ConfirmLinesCommand.ExecuteAsync
@@ -225,24 +228,45 @@ export function estimateHint(estimate) {
  * If the two drift, the checklist and the server will disagree about which High-confidence Pending
  * lines can be bulk-confirmed.
  *
+ * @param {string|null|undefined} productId
+ * @param {number|null|undefined} quantity
+ * @param {string|null|undefined} unitId
+ * @param {string|null|undefined} locationId
+ * @returns {boolean}
+ */
+export function isPrefillComplete(productId, quantity, unitId, locationId) {
+  return !!productId && typeof quantity === "number" && quantity > 0 && !!unitId && !!locationId;
+}
+
+/**
+ * Whether the line's CURRENT draft signals form a complete prefill — the live, user-editable view of
+ * {@link isPrefillComplete}. Used where "can this line be saved/confirmed right now" is the question
+ * (e.g. deck-card validation). It is NOT what qualifies a line for the bulk-confirm checklist — that is
+ * {@link isSurePending}, which reads the frozen AI snapshot so a user edit can never promote a line.
+ *
  * @param {LineState} ls
  * @returns {boolean}
  */
 export function hasCompletePrefill(ls) {
-  return (
-    !!ls.draftProductId.value &&
-    parseFloat(ls.draftQty.value) > 0 &&
-    !!ls.draftUnitId.value &&
-    !!ls.draftLocationId.value
+  return isPrefillComplete(
+    ls.draftProductId.value,
+    parseFloat(ls.draftQty.value),
+    ls.draftUnitId.value,
+    ls.draftLocationId.value,
   );
 }
 
 /**
- * A "sure thing": a still-Pending line the AI was High-confident about whose prefill is complete —
- * the checklist's pre-checked, bulk-confirmable rows. Mirrors the server {@link hasCompletePrefill}
- * predicate, plus the client-only `demoted` override: a sure line the user unchecked and pushed into
- * the deck is NOT shown as a sure thing (it is a "needs" deck card) even though the server would still
- * accept it — the user asked to double-check it, so it goes to the deck.
+ * A "sure thing": a still-Pending line the AI was High-confident about whose ORIGINAL prefill was
+ * already complete — the checklist's pre-checked, bulk-confirmable rows. It gates on the immutable
+ * `aiComplete` snapshot ({@link makeLine}), NOT the live draft signals: bulk-confirm re-derives the
+ * prefill server-side from the untouched AI suggestion (Gate 5), so only a line the AI itself completed
+ * can survive it. A High-confidence line the AI left incomplete stays in the editable deck even after
+ * the user manually completes its fields (plantry-wv4h) — the user resolves it via SaveLine there.
+ *
+ * Plus the client-only `demoted` override: a sure line the user unchecked and pushed into the deck is
+ * NOT shown as a sure thing (it is a "needs" deck card) even though the server would still accept it —
+ * the user asked to double-check it, so it goes to the deck.
  *
  * @param {LineState} ls
  * @returns {boolean}
@@ -252,7 +276,7 @@ export function isSurePending(ls) {
     ls.status.value === "Pending" &&
     ls.confidence === "High" &&
     !ls.demoted.value &&
-    hasCompletePrefill(ls)
+    ls.aiComplete
   );
 }
 

@@ -17,6 +17,7 @@ import {
   lineSection,
   isSurePending,
   hasCompletePrefill,
+  isPrefillComplete,
   buildSaveLineBody,
   commitBarCounts,
   estimateHint,
@@ -191,6 +192,15 @@ describe("makeLine", () => {
     assert.equal(ls.demoted.value, false);
   });
 
+  it("aiComplete snapshots the ORIGINAL prefill completeness (frozen from the seed, not the drafts)", () => {
+    assert.equal(makeState().aiComplete, true);
+    assert.equal(makeState({}, { unitId: null }).aiComplete, false);
+    assert.equal(makeState({}, { productId: null }).aiComplete, false);
+    assert.equal(makeState({}, { locationId: null }).aiComplete, false);
+    assert.equal(makeState({}, { quantity: 0 }).aiComplete, false);
+    assert.equal(makeState({}, { quantity: null }).aiComplete, false);
+  });
+
   it("drawerOpen always starts closed (the confirmed-row edit drawer is user-toggled)", () => {
     for (const seed of [
       { status: "Pending", confidence: "High" },
@@ -275,11 +285,33 @@ describe("lineSection", () => {
   });
 });
 
-// ── hasCompletePrefill / isSurePending (mirror of the ConfirmLines predicate) ─────
+// ── isPrefillComplete / hasCompletePrefill / isSurePending (mirror of the ConfirmLines predicate) ─────
+
+describe("isPrefillComplete", () => {
+  it("true when product, qty>0, unit and location are all present", () => {
+    assert.equal(isPrefillComplete("prod-abc", 1, "unit-L", "loc-fridge"), true);
+  });
+
+  it("false when any of product / unit / location is missing or qty is not > 0", () => {
+    assert.equal(isPrefillComplete(null, 1, "unit-L", "loc-fridge"), false);
+    assert.equal(isPrefillComplete("prod-abc", 1, null, "loc-fridge"), false);
+    assert.equal(isPrefillComplete("prod-abc", 1, "unit-L", null), false);
+    assert.equal(isPrefillComplete("prod-abc", 0, "unit-L", "loc-fridge"), false);
+    assert.equal(isPrefillComplete("prod-abc", null, "unit-L", "loc-fridge"), false);
+    assert.equal(isPrefillComplete("prod-abc", NaN, "unit-L", "loc-fridge"), false);
+  });
+});
 
 describe("hasCompletePrefill", () => {
   it("true when product, qty>0, unit and location are all present", () => {
     assert.equal(hasCompletePrefill(makeState()), true);
+  });
+
+  it("reads the LIVE draft signals (a user edit that completes the drafts makes it true)", () => {
+    const ls = makeState({}, { unitId: null });
+    assert.equal(hasCompletePrefill(ls), false);
+    ls.draftUnitId.value = "unit-L";
+    assert.equal(hasCompletePrefill(ls), true);
   });
 
   it("false when any of product / unit / location is missing or qty is not > 0", () => {
@@ -292,7 +324,7 @@ describe("hasCompletePrefill", () => {
 });
 
 describe("isSurePending", () => {
-  it("true only for Pending + High + complete prefill + not demoted", () => {
+  it("true only for Pending + High + AI-complete prefill + not demoted", () => {
     assert.equal(isSurePending(makeState({ status: "Pending", confidence: "High" })), true);
   });
 
@@ -302,12 +334,33 @@ describe("isSurePending", () => {
     assert.equal(isSurePending(ls), false);
   });
 
-  it("false for Low confidence, incomplete prefill, or non-Pending status", () => {
+  it("false for Low confidence, AI-incomplete prefill, or non-Pending status", () => {
     assert.equal(isSurePending(makeState({ status: "Pending", confidence: "Low" })), false);
     assert.equal(isSurePending(makeState({ status: "Pending", confidence: "High" }, { unitId: null })), false);
     for (const status of ["Confirmed", "Dismissed", "Committed"]) {
       assert.equal(isSurePending(makeState({ status, confidence: "High" })), false, status);
     }
+  });
+
+  it("stays false when the AI prefill was incomplete but the user's edits later complete the drafts (plantry-wv4h)", () => {
+    // A High-confidence line the AI left incomplete (no unit) belongs in the editable deck, not the checklist.
+    const ls = makeState({ status: "Pending", confidence: "High" }, { unitId: null });
+    assert.equal(isSurePending(ls), false);
+    // The user manually picks the unit in the deck, completing the LIVE draft prefill …
+    ls.draftUnitId.value = "unit-L";
+    assert.equal(hasCompletePrefill(ls), true);
+    // … but it must NOT be promoted into the (non-editable) sure checklist: bulk-confirm re-derives from
+    // the untouched AI suggestion (still incomplete) and would reject it. It stays editable in the deck.
+    assert.equal(isSurePending(ls), false);
+  });
+
+  it("stays sure regardless of later draft edits when the AI prefill WAS complete (snapshot is immutable)", () => {
+    const ls = makeState({ status: "Pending", confidence: "High" });
+    assert.equal(isSurePending(ls), true);
+    // Even blanking a live draft field does not un-sure it — aiComplete is frozen at hydration.
+    ls.draftUnitId.value = "";
+    assert.equal(hasCompletePrefill(ls), false);
+    assert.equal(isSurePending(ls), true);
   });
 });
 
