@@ -2,78 +2,9 @@
 @{
     var pagePath = ViewContext.RouteData.Values["page"]?.ToString() ?? "";
     var segments = pagePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-    var actionNames = new HashSet<string> { "Index", "Create", "Edit", "Detail" };
-    var crumbLabels = new Dictionary<string, string>
-    {
-        ["Today"] = "Today",
-        ["Pantry"] = "Pantry",
-        ["Intake"] = "Intake",
-        ["Shopping"] = "Shopping",
-        ["Catalog"] = "Catalog",
-        ["Recipes"] = "Recipes",
-        ["Products"] = "Products",
-        ["Categories"] = "Categories",
-        ["Units"] = "Units",
-        ["Locations"] = "Locations",
-        ["Settings"] = "Settings",
-        ["MealPlan"] = "Meal Plan",
-        ["More"] = "More",
-        ["Dev"] = "Components",
-        ["Import"] = "Grocy Import",
-    };
-    var crumbIcons = new Dictionary<string, string>
-    {
-        ["Today"] = "sun",
-        ["Pantry"] = "pantry",
-        ["Intake"] = "receipt",
-        ["Shopping"] = "cart",
-        ["Catalog"] = "tag",
-        ["Recipes"] = "recipe",
-        ["MealPlan"] = "calendar",
-        ["Settings"] = "settings",
-        ["More"] = "grid",
-        ["Dev"] = "components",
-        ["Import"] = "import",
-    };
-    // A route segment maps to a display label via the explicit dictionary, falling back
-    // to splitting PascalCase into words so raw route names (e.g. "TakeStock") never leak.
-    string CrumbLabel(string segment)
-    {
-        if (crumbLabels.TryGetValue(segment, out var mapped))
-        {
-            return mapped;
-        }
-        if (string.IsNullOrEmpty(segment))
-        {
-            return segment;
-        }
-        var sb = new System.Text.StringBuilder(segment.Length + 4);
-        for (var i = 0; i < segment.Length; i++)
-        {
-            if (i > 0 && char.IsUpper(segment[i]) && !char.IsUpper(segment[i - 1]))
-            {
-                sb.Append(' ');
-            }
-            sb.Append(segment[i]);
-        }
-        return sb.ToString();
-    }
-
     var title = ViewData["Title"]?.ToString() ?? "";
-    // The trailing segment always denotes the current page — rendered as the bold title —
-    // so it is never a parent crumb. For action pages (Index/Detail/Edit/Create) the action
-    // word is the trailing segment; for a named leaf page (e.g. Settings/Tags) the page name
-    // is. Dropping it uniformly removes the duplicated leaf crumb in both cases.
-    var parents = segments.Length > 0 ? segments[..^1] : segments;
-    // For folder index pages (…/Products/Index) the remaining leaf is the containing folder,
-    // whose label usually equals the title — drop it too so the crumb isn't repeated.
-    if (segments.Length > 0 && actionNames.Contains(segments[^1])
-        && parents.Length > 0
-        && string.Equals(CrumbLabel(parents[^1]), title, StringComparison.OrdinalIgnoreCase))
-    {
-        parents = parents[..^1];
-    }
-    var crumbIcon = parents.Length > 0 ? crumbIcons.GetValueOrDefault(parents[0]) : crumbIcons.GetValueOrDefault(segments.FirstOrDefault() ?? "");
+    var parents = Breadcrumbs.BuildParents(pagePath, title);
+    var crumbIcon = Breadcrumbs.Icon(parents, segments);
 
     string NavActive(string prefix, string? except = null) =>
         NavHighlight.IsActive(ViewContext.RouteData.Values["page"]?.ToString(), prefix, except)
@@ -300,7 +231,7 @@
                 }
                 @foreach (var parent in parents)
                 {
-                    @CrumbLabel(parent) <span class="crumb-sep">/</span>
+                    @Breadcrumbs.Label(parent) <span class="crumb-sep">/</span>
                 }
                 <b>@title</b>
             </div>
