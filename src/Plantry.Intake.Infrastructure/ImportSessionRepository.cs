@@ -44,4 +44,28 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
             .OrderByDescending(s => s.CreatedAt)
             .Take(take)
             .ToListAsync(ct);
+
+    // No .Include(Lines): the monthly stats read only session-level columns (Status, CreatedAt,
+    // CommittedAt, ParsedAt, Total), so keep the lines off the query. The CreatedAt-OR-CommittedAt
+    // union window is applied in SQL; status/null semantics are applied by the query.
+    public Task<List<ImportSession>> ListInMonthWindowAsync(
+        HouseholdId householdId,
+        DateTimeOffset windowStart,
+        DateTimeOffset windowEnd,
+        CancellationToken ct = default)
+    {
+        // Normalize the window bounds to UTC before they become SQL parameters. Npgsql rejects a
+        // DateTimeOffset with a non-UTC offset when writing to 'timestamp with time zone' (it throws
+        // "only offset 0 (UTC) is supported"). Callers compute the month window in server-local time
+        // (GetMonthlyIntakeStatsQuery uses clock.UtcNow.ToLocalTime()), so the offset is non-zero off
+        // UTC machines. ToUniversalTime() preserves the exact instant, so the comparison is unchanged.
+        var startUtc = windowStart.ToUniversalTime();
+        var endUtc = windowEnd.ToUniversalTime();
+        return db.ImportSessions
+            .Where(s => s.HouseholdId == householdId &&
+                        ((s.CreatedAt >= startUtc && s.CreatedAt <= endUtc) ||
+                         (s.CommittedAt != null &&
+                          s.CommittedAt >= startUtc && s.CommittedAt <= endUtc)))
+            .ToListAsync(ct);
+    }
 }

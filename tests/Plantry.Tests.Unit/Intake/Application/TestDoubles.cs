@@ -55,6 +55,15 @@ internal sealed class FakeImportSessionRepository : IImportSessionRepository
             .OrderByDescending(s => s.CreatedAt)
             .Take(take)
             .ToList());
+
+    public Task<List<ImportSession>> ListInMonthWindowAsync(
+        HouseholdId householdId, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) =>
+        Task.FromResult(Sessions
+            .Where(s => s.HouseholdId == householdId &&
+                        ((s.CreatedAt >= windowStart && s.CreatedAt <= windowEnd) ||
+                         (s.CommittedAt is { } committedAt &&
+                          committedAt >= windowStart && committedAt <= windowEnd)))
+            .ToList());
 }
 
 /// <summary>Returns a canned parse result (or error) and records the hints it was handed.</summary>

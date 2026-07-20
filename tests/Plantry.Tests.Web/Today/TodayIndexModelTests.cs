@@ -284,6 +284,7 @@ public sealed class TodayIndexModelTests
         public Task<ImportReceipt?> FindReceiptAsync(ImportSessionId sessionId, CancellationToken ct = default) => Task.FromResult<ImportReceipt?>(null);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<List<ImportSession>> ListRecentAsync(HouseholdId hid, int take = 10, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
+        public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId hid, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
     }
 
     /// <summary>Empty catalog read facade — returns nothing. Used to back InventoryQueryService in model tests
@@ -590,6 +591,8 @@ public sealed class ExpiringWidgetModelTests
         public Task<ImportReceipt?> FindReceiptAsync(ImportSessionId sessionId, CancellationToken ct = default) => Task.FromResult<ImportReceipt?>(null);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<List<ImportSession>> ListRecentAsync(HouseholdId hid, int take = 10, CancellationToken ct = default) =>
+            Task.FromResult(new List<ImportSession>());
+        public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId hid, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) =>
             Task.FromResult(new List<ImportSession>());
     }
 

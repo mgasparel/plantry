@@ -161,6 +161,23 @@ public class InventoryQueryService(
     }
 
     /// <summary>
+    /// The number of products currently in the pantry — the row count <see cref="ListPantryAsync"/>
+    /// would produce, computed without materializing names, locations, or unit conversions. Applies the
+    /// same inclusion predicate: a stock counts iff it has at least one active lot and its product still
+    /// exists in the catalog. Returns 0 when there is no household in the tenant context.
+    /// </summary>
+    public virtual async Task<int> CountInStockAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return 0;
+        var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdId), ct);
+        var knownProductIds = (await catalog.ListProductsAsync(ct)).Select(p => p.Id).ToHashSet();
+
+        return allStock.Count(stock =>
+            knownProductIds.Contains(stock.ProductId) && stock.ActiveLotsFefo().Any());
+    }
+
+    /// <summary>
     /// Returns up to <see cref="ExpiringSoonMaxItems"/> products with active lots whose soonest expiry
     /// is within the household's configured "expiring soon" horizon (or already past), ordered soonest-first
     /// (expired first, then by date ascending). Only products with at least one dated lot are included.
@@ -188,10 +205,10 @@ public class InventoryQueryService(
             if (!productsById.TryGetValue(stock.ProductId, out var product))
                 continue;
 
-            // Only include products with at least one dated lot in/past the expiry window
-            var soonest = activeLots.Where(l => l.ExpiryDate is not null).Min(l => l.ExpiryDate);
-            if (soonest is null) continue;
-            if (soonest > windowEnd) continue; // beyond the window — skip
+            // Only include products with at least one dated lot in/past the expiry window.
+            // Predicate shared with CountExpiringSoonAsync so the two paths can't drift.
+            var soonest = SoonestDatedExpiry(activeLots);
+            if (!IsWithinExpiryWindow(soonest, windowEnd)) continue;
 
             var converter = convertersByProduct[stock.ProductId];
             var (total, displayUnitCode) = DisplayQuantity(activeLots, product.DefaultUnitId, product.DefaultUnitCode, converter, unitCodes);
@@ -222,6 +239,30 @@ public class InventoryQueryService(
             .OrderBy(i => i.SoonestExpiry)
             .Take(ExpiringSoonMaxItems)
             .ToList();
+    }
+
+    /// <summary>
+    /// The number of products whose soonest dated active-lot expiry falls within the household's
+    /// configured "expiring soon" horizon (already-past dates included) — the same inclusion predicate
+    /// as <see cref="ExpiringSoonAsync"/> but WITHOUT the <see cref="ExpiringSoonMaxItems"/> cap and
+    /// without building the display projection. Equals <see cref="ExpiringSoonAsync"/>'s count whenever
+    /// that count is under the cap, and exceeds it when more qualify. Undated lots never qualify.
+    /// Returns 0 when there is no household in the tenant context.
+    /// </summary>
+    public virtual async Task<int> CountExpiringSoonAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return 0;
+        var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdId), ct);
+        var knownProductIds = (await catalog.ListProductsAsync(ct)).Select(p => p.Id).ToHashSet();
+        var windowEnd = Today().AddDays(await horizon.GetDaysAsync(ct));
+
+        return allStock.Count(stock =>
+        {
+            if (!knownProductIds.Contains(stock.ProductId)) return false;
+            var activeLots = stock.ActiveLotsFefo().ToList();
+            return activeLots.Count > 0 && IsWithinExpiryWindow(SoonestDatedExpiry(activeLots), windowEnd);
+        });
     }
 
     public async Task<ProductStockDetail?> FindDetailAsync(Guid productId, CancellationToken ct = default)
@@ -313,6 +354,17 @@ public class InventoryQueryService(
         }
         return total;
     }
+
+    /// <summary>The soonest dated-lot expiry among a set of active lots, or null when none carry a date.
+    /// Shared by <see cref="ExpiringSoonAsync"/> and <see cref="CountExpiringSoonAsync"/> so the two paths
+    /// compute "which lots count and how the soonest date is chosen" identically and can't drift.</summary>
+    private static DateOnly? SoonestDatedExpiry(IReadOnlyList<StockEntry> activeLots) =>
+        activeLots.Where(l => l.ExpiryDate is not null).Min(l => l.ExpiryDate);
+
+    /// <summary>A product is "expiring soon" when its soonest dated lot falls on or before the window end
+    /// (already-past dates included). An undated product (null soonest) never qualifies.</summary>
+    private static bool IsWithinExpiryWindow(DateOnly? soonest, DateOnly windowEnd) =>
+        soonest is { } date && date <= windowEnd;
 
     private static ExpiryTone ToneFor(DateOnly? soonest, DateOnly today, int expiringSoonDays)
     {

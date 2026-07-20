@@ -278,6 +278,113 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(recent);
     }
 
+    [Fact(DisplayName = "ListInMonthWindowAsync returns sessions created OR committed inside the window")]
+    public async Task ListInMonthWindowAsync_Unions_CreatedAt_And_CommittedAt()
+    {
+        var windowStart = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero);
+        var windowEnd = new DateTimeOffset(2026, 5, 31, 23, 59, 59, TimeSpan.Zero);
+
+        ImportSessionId createdInWindow, straddling, createdBefore, createdAfter;
+
+        await using (var ctx = NewIntakeDb())
+        {
+            // A: created inside the window, never committed → returned via CreatedAt.
+            var a = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, new FixedClock(new DateTimeOffset(2026, 5, 10, 9, 0, 0, TimeSpan.Zero)));
+            createdInWindow = a.Id;
+
+            // B: created BEFORE the window but committed INSIDE it → returned via CommittedAt.
+            var b = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, new FixedClock(new DateTimeOffset(2026, 4, 25, 9, 0, 0, TimeSpan.Zero)));
+            b.MarkReady("Store", new DateTimeOffset(2026, 4, 26, 9, 0, 0, TimeSpan.Zero));
+            b.MarkCommitted(new DateTimeOffset(2026, 5, 5, 9, 0, 0, TimeSpan.Zero));
+            straddling = b.Id;
+
+            // C: created before, never committed → excluded.
+            var c = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, new FixedClock(new DateTimeOffset(2026, 4, 1, 9, 0, 0, TimeSpan.Zero)));
+            createdBefore = c.Id;
+
+            // D: created after the window → excluded.
+            var d = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, new FixedClock(new DateTimeOffset(2026, 6, 10, 9, 0, 0, TimeSpan.Zero)));
+            createdAfter = d.Id;
+
+            await ctx.ImportSessions.AddRangeAsync(a, b, c, d);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var repo = new ImportSessionRepository(ctx2);
+        var window = await repo.ListInMonthWindowAsync(_household, windowStart, windowEnd);
+        var ids = window.Select(s => s.Id).ToHashSet();
+
+        Assert.Equal(2, window.Count);
+        Assert.Contains(createdInWindow, ids);
+        Assert.Contains(straddling, ids);
+        Assert.DoesNotContain(createdBefore, ids);
+        Assert.DoesNotContain(createdAfter, ids);
+    }
+
+    [Fact(DisplayName = "ListInMonthWindowAsync is tenant-scoped")]
+    public async Task ListInMonthWindowAsync_TenantScoped()
+    {
+        var householdA = HouseholdId.New();
+        var householdB = HouseholdId.New();
+        var windowStart = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero);
+        var windowEnd = new DateTimeOffset(2026, 5, 31, 23, 59, 59, TimeSpan.Zero);
+
+        await using (var ctxA = NewIntakeDbFor(householdA))
+        {
+            var s = ImportSession.Start(householdA, ImportSourceType.Receipt, _userId, new FixedClock(new DateTimeOffset(2026, 5, 10, 9, 0, 0, TimeSpan.Zero)));
+            await ctxA.ImportSessions.AddAsync(s);
+            await ctxA.SaveChangesAsync();
+        }
+
+        await using var ctxB = NewIntakeDbFor(householdB);
+        var repo = new ImportSessionRepository(ctxB);
+        var window = await repo.ListInMonthWindowAsync(householdB, windowStart, windowEnd);
+
+        Assert.Empty(window);
+    }
+
+    [Fact(DisplayName = "ListInMonthWindowAsync accepts a non-UTC-offset window (Npgsql timestamptz safety)")]
+    public async Task ListInMonthWindowAsync_NonUtcOffset_Window_DoesNotThrow_And_Filters_Correctly()
+    {
+        // Regression (plantry-bzyr): the real caller GetMonthlyIntakeStatsQuery builds the window from
+        // clock.UtcNow.ToLocalTime(), producing a NON-UTC offset off UTC machines. Npgsql throws
+        // "Cannot write DateTimeOffset with Offset=… only offset 0 (UTC) is supported" when such a value
+        // is written to a 'timestamp with time zone' parameter, which 500'd the Add-groceries page. The
+        // repo must normalize to UTC. The pre-existing window tests only passed UTC (TimeSpan.Zero) bounds,
+        // so they never exercised this path.
+        var offset = TimeSpan.FromHours(-4);
+        var windowStart = new DateTimeOffset(2026, 5, 1, 0, 0, 0, offset);
+        var windowEnd = new DateTimeOffset(2026, 5, 31, 23, 59, 59, offset);
+
+        ImportSessionId inWindow;
+        await using (var ctx = NewIntakeDb())
+        {
+            // Created 2026-05-15 12:00 UTC — squarely inside the May window in either frame.
+            var s = ImportSession.Start(_household, ImportSourceType.Receipt, _userId,
+                new FixedClock(new DateTimeOffset(2026, 5, 15, 12, 0, 0, TimeSpan.Zero)));
+            inWindow = s.Id;
+            // Created 2026-04-01 — before the window.
+            var before = ImportSession.Start(_household, ImportSourceType.Receipt, _userId,
+                new FixedClock(new DateTimeOffset(2026, 4, 1, 12, 0, 0, TimeSpan.Zero)));
+            await ctx.ImportSessions.AddRangeAsync(s, before);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var repo = new ImportSessionRepository(ctx2);
+        // Must not throw despite the non-UTC offset on the window bounds.
+        var window = await repo.ListInMonthWindowAsync(_household, windowStart, windowEnd);
+
+        var single = Assert.Single(window);
+        Assert.Equal(inWindow, single.Id);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = now;
+    }
+
     private DbContextOptions<IntakeDbContext> IntakeOptions() =>
         new DbContextOptionsBuilder<IntakeDbContext>().UseNpgsql(db.ConnectionString).Options;
 

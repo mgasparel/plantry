@@ -1,6 +1,7 @@
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Tests.Unit.Inventory.Application;
@@ -80,6 +81,12 @@ internal sealed class FakeCatalogReadFacade : ICatalogReadFacade
 
     public Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) =>
         Task.FromResult((IReadOnlyDictionary<Guid, string>)LocationNames);
+}
+
+/// <summary>A clock pinned to a fixed instant so date-window tests can't straddle a day boundary.</summary>
+internal sealed class FixedClock(DateTimeOffset now) : IClock
+{
+    public DateTimeOffset UtcNow { get; } = now;
 }
 
 /// <summary>Returns a fixed "expiring soon" horizon (defaults to the Inventory default of 7).</summary>

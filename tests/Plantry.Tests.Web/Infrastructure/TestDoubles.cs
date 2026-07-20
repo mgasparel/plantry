@@ -1,5 +1,6 @@
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
+using Plantry.Inventory.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -38,10 +39,26 @@ public sealed class FakeImportSessionRepository(ITenantContext tenant, ImportSes
         Task.FromResult(false);
     public Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default) =>
         Task.FromResult(new List<ImportSession>());
+    public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId householdId, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) =>
+        Task.FromResult(new List<ImportSession>());
 }
 
 /// <summary>Returns the fixed review reference data (dropdown options) the fragments render against.</summary>
 public sealed class FakeReviewReferenceDataProvider(ReviewReferenceData data) : IReviewReferenceDataProvider
 {
     public Task<ReviewReferenceData> GetAsync(CancellationToken ct = default) => Task.FromResult(data);
+}
+
+/// <summary>
+/// A DB-free <see cref="InventoryQueryService"/> for the WAF harness: overrides only the two count
+/// methods the Upload "This month" card consumes (<see cref="InventoryQueryService.CountInStockAsync"/>
+/// and <see cref="InventoryQueryService.CountExpiringSoonAsync"/>) to return fixed values, so a page GET
+/// renders the pantry stats without touching Postgres. The base dependencies are null because no other
+/// method is exercised on this page. Register it in place of the concrete service in ConfigureTestServices.
+/// </summary>
+public sealed class StubInventoryQueryService(int inStock, int expiringSoon)
+    : InventoryQueryService(null!, null!, null!, null!, null!, null!)
+{
+    public override Task<int> CountInStockAsync(CancellationToken ct = default) => Task.FromResult(inStock);
+    public override Task<int> CountExpiringSoonAsync(CancellationToken ct = default) => Task.FromResult(expiringSoon);
 }

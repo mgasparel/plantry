@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
+using Plantry.Inventory.Application;
 using Plantry.Web.Intake;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -33,6 +34,7 @@ public sealed class UploadModel(
     ICatalogHintProvider hints,
     IClock clock,
     ITenantContext tenant,
+    InventoryQueryService inventoryQueries,
     ReceiptUploadRateLimiter uploadRateLimiter,
     IReceiptImagePreprocessor imagePreprocessor,
     ILogger<UploadModel> logger,
@@ -40,6 +42,27 @@ public sealed class UploadModel(
 {
     public IReadOnlyList<RecentIntakeRow> RecentIntakes { get; private set; } = [];
     public bool AiAvailable => parser is not DisabledReceiptParser;
+
+    // ── "This month" card stats (plantry-bzyr) ────────────────────────────────────────────────
+    // Composed in OnGetAsync from the Intake month-stats query and the Inventory count queries.
+    // The intake stats are month-scoped (current calendar month, server-local); the pantry counts
+    // are point-in-time and deliberately unaffected by the month window. Defaults (no household, or
+    // OnGet not yet run) render as $0.00 / 0 / em-dash.
+
+    /// <summary>Total value of receipts committed this month; renders as currency (<c>$0.00</c> when none).</summary>
+    public decimal GroceriesTotal { get; private set; }
+
+    /// <summary>Receipts scanned this month (any status but Discarded — a failed parse still counts).</summary>
+    public int ReceiptsScanned { get; private set; }
+
+    /// <summary>Products currently in the pantry — point-in-time, not month-scoped.</summary>
+    public int ItemsInPantry { get; private set; }
+
+    /// <summary>Products whose soonest dated lot is within the household's expiring-soon horizon (or past).</summary>
+    public int ExpiringSoonCount { get; private set; }
+
+    /// <summary>Mean review time (commit − parse) across sessions committed this month; null when none.</summary>
+    public TimeSpan? AverageReviewTime { get; private set; }
     /// <summary>Accepted image content types — keeps obviously-wrong uploads off the AI pipeline.</summary>
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -55,9 +78,24 @@ public sealed class UploadModel(
 
     public async Task OnGetAsync(CancellationToken ct)
     {
-        if (tenant.HouseholdId is { } hid)
-            RecentIntakes = await new GetRecentSessionsQuery(sessions)
-                .ExecuteAsync(HouseholdId.From(hid), take: 8, ct);
+        if (tenant.HouseholdId is not { } hid)
+            return; // No household: leave the "This month" stats at their $0.00 / 0 / em-dash defaults.
+
+        var householdId = HouseholdId.From(hid);
+
+        RecentIntakes = await new GetRecentSessionsQuery(sessions)
+            .ExecuteAsync(householdId, take: 8, ct);
+
+        // Month-scoped intake stats (receipts scanned, groceries total, average review time).
+        var monthly = await new GetMonthlyIntakeStatsQuery(sessions, clock).ExecuteAsync(householdId, ct);
+        ReceiptsScanned = monthly.ReceiptsScanned;
+        GroceriesTotal = monthly.GroceriesTotal;
+        AverageReviewTime = monthly.AverageReviewTime;
+
+        // Point-in-time pantry counts (unaffected by the month window). Web is the composition layer,
+        // so taking the Inventory query service alongside the Intake repository is expected here.
+        ItemsInPantry = await inventoryQueries.CountInStockAsync(ct);
+        ExpiringSoonCount = await inventoryQueries.CountExpiringSoonAsync(ct);
     }
 
     /// <summary>Re-upload affordance from the failure fragment: swaps a fresh, empty form back in.</summary>
@@ -200,6 +238,31 @@ public sealed class UploadModel(
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    /// <summary>
+    /// Formats a month's grocery total as currency for the "This month" card — always two decimals with a
+    /// leading "$" (e.g. <c>$482.19</c>, <c>$0.00</c> when nothing was committed). Invariant-cultured so the
+    /// rendered value is deterministic regardless of server locale.
+    /// </summary>
+    public static string FormatMoney(decimal amount) =>
+        "$" + amount.ToString("F2", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Humanizes the month's average review time for the card footer: <c>"2m 40s"</c> a minute or over,
+    /// <c>"48s"</c> under a minute, and an em-dash (<c>"—"</c>) when null (no committed sessions this month).
+    /// Rounded to whole seconds.
+    /// </summary>
+    public static string FormatReviewTime(TimeSpan? average)
+    {
+        if (average is not { } t)
+            return "—";
+
+        var totalSeconds = (int)Math.Round(t.TotalSeconds, MidpointRounding.AwayFromZero);
+        if (totalSeconds < 60)
+            return $"{totalSeconds}s";
+
+        return $"{totalSeconds / 60}m {totalSeconds % 60}s";
+    }
 
     /// <summary>
     /// Re-renders the upload form fragment with the given HTTP status. Validation and abuse rejections
