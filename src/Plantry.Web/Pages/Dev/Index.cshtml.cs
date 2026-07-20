@@ -25,12 +25,12 @@ public sealed class IndexModel : PageModel
         "Potatoes", "Rice — basmati", "Spinach", "Tomatoes", "Tuna — tinned", "Yeast",
     ];
 
-    private static readonly SortableListItem[] SortableListDemoItems =
+    private static readonly RowListItem[] SortableListDemoItems =
     [
-        new("c95d882a-a2c0-4622-8134-462abc6e9044", "Whole milk", "Dairy", SortOrder: 0),
-        new("7456222a-1d39-4942-9499-d6e5e7ccd58a", "Wholemeal bread", "Bakery", SortOrder: 10),
-        new("3df8d7a5-ab95-414e-9672-66f63bb93804", "Free-range eggs", "Dairy", SortOrder: 20),
-        new("7d38f169-a6fb-46b7-9b07-3f33d318224e", "Bananas", "Produce", SortOrder: 30),
+        new("Whole milk", Secondary: "Dairy", Id: "c95d882a-a2c0-4622-8134-462abc6e9044", SortOrder: 0),
+        new("Wholemeal bread", Secondary: "Bakery", Id: "7456222a-1d39-4942-9499-d6e5e7ccd58a", SortOrder: 10),
+        new("Free-range eggs", Secondary: "Dairy", Id: "3df8d7a5-ab95-414e-9672-66f63bb93804", SortOrder: 20),
+        new("Bananas", Secondary: "Produce", Id: "7d38f169-a6fb-46b7-9b07-3f33d318224e", SortOrder: 30),
     ];
 
     private enum DemoKind { Standalone, Parent, Variant }
@@ -63,18 +63,18 @@ public sealed class IndexModel : PageModel
     public IReadOnlyList<SelectListItem> GroceryOptions { get; } =
         GroceryItems.Select(g => new SelectListItem(g, g)).ToList();
 
-    public IndexListViewModel PopulatedList { get; } = new(
+    public RowListViewModel PopulatedList { get; } = new(
         [
-            new IndexListItem("Whole milk", Href: "#", Secondary: "Dairy · default unit L"),
-            new IndexListItem("Wholemeal bread", Href: "#", Secondary: "Bakery · default unit each", Meta: "parent (groups variants)"),
-            new IndexListItem("Cheddar cheese", Href: "#", Secondary: "Dairy · default unit g", Meta: "variant"),
+            new RowListItem("Whole milk", Href: "#", Secondary: "Dairy · default unit L"),
+            new RowListItem("Wholemeal bread", Href: "#", Secondary: "Bakery · default unit each", Meta: "parent (groups variants)"),
+            new RowListItem("Cheddar cheese", Href: "#", Secondary: "Dairy · default unit g", Meta: "variant"),
         ],
         EmptyMessage: "No products yet — add your first one above.");
 
-    public IndexListViewModel EmptyList { get; } = new([], EmptyMessage: "Nothing here yet — this is the empty state.");
+    public RowListViewModel EmptyList { get; } = new([], EmptyMessage: "Nothing here yet — this is the empty state.");
 
     /// <summary>Built in OnGet rather than as a property initializer — Url.Page needs the page context, which isn't available yet during construction.</summary>
-    public SortableListViewModel SortableListDemo { get; private set; } = null!;
+    public RowListViewModel SortableListDemo { get; private set; } = null!;
 
     /// <summary>Built in OnGet (Url.Page needs page context). Re-built by OnGetSortProducts for the htmx sort swap.</summary>
     public DataGridViewModel ProductGrid { get; private set; } = null!;
@@ -123,10 +123,11 @@ public sealed class IndexModel : PageModel
 
     public void OnGet()
     {
-        SortableListDemo = new SortableListViewModel(
+        SortableListDemo = new RowListViewModel(
             SortableListDemoItems,
-            ReorderUrl: Url.Page("./Index", "ReorderDemo")!,
-            EmptyMessage: "Nothing to reorder yet — drag items here.");
+            EmptyMessage: "Nothing to reorder yet — drag items here.",
+            Reorderable: true,
+            ReorderUrl: Url.Page("./Index", "ReorderDemo")!);
 
         ProductGrid = BuildProductGrid(sort: null);
     }

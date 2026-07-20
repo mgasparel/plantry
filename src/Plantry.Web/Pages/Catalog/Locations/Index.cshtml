@@ -1,32 +1,22 @@
 @page
 @model Plantry.Web.Pages.Catalog.Locations.IndexModel
+@using Plantry.Web.Pages.Shared
 @{
     ViewData["Title"] = "Locations";
+
+    var locationRows = new RowListViewModel(
+        Model.Locations.OrderBy(l => l.Name)
+            .Select(l => new RowListItem(l.Name, Secondary: l.Type.ToString(), Id: l.Id.Value.ToString()))
+            .ToList(),
+        EmptyMessage: "No locations yet — add your first one below.",
+        Deletable: true);
 }
 
 <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
 <section class="catalog-section">
     <h2 class="catalog-section__heading">Locations</h2>
-    @if (Model.Locations.Count == 0)
-    {
-        <p class="empty-state">No locations yet — add your first one below.</p>
-    }
-    else
-    {
-        <ul class="catalog-list" role="list">
-            @foreach (var location in Model.Locations.OrderBy(l => l.Name))
-            {
-                <li class="catalog-list__item">
-                    <span class="catalog-list__primary">@location.Name</span>
-                    <span class="catalog-list__secondary">@location.Type</span>
-                    <form method="post" asp-page-handler="Delete" asp-route-id="@location.Id.Value" class="catalog-list__action">
-                        <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
-                    </form>
-                </li>
-            }
-        </ul>
-    }
+    <partial name="Shared/_RowList" model="locationRows" />
 </section>
 
 <section class="catalog-section">

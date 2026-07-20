@@ -469,40 +469,142 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Index list</h2>
+        <h2 class="catalog-section__heading">List primitives — the family &amp; which to use</h2>
     </div>
     <p>
-        <code>_IndexList</code> extracts the primary/secondary/meta row pattern repeated across
-        <code>Catalog/Index</code>, <code>Products/Index</code>, and Product Detail — including
-        the empty state.
+        Plantry deliberately has a <strong>small family</strong> of ways to render "a list of
+        manageable things", not one universal widget and not a bespoke design per page. There are
+        four members. Two are shared primitives you compose directly (the <strong>data grid</strong>
+        and the <strong>row-list</strong>); two are <strong>variants of the shared row visual
+        language</strong> — same row height, padding, border, hover, and primary/secondary/meta
+        typography (the <code>--row-*</code> tokens in <code>plenish.css</code> <code>:root</code>) —
+        kept special-purpose because their rows carry something a plain row-list can't: inline form
+        controls, or a person's avatar. Because every member consumes the same <code>--row-*</code>
+        rhythm, a table row, a reference-list row, an editable tag row, and a member row all read as
+        one system.
     </p>
 
-    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Populated</h3>
-    <partial name="Shared/_IndexList" model="Model.PopulatedList" />
+    <div style="overflow-x: auto; margin-bottom: var(--space-4)">
+        <table class="doc-table">
+            <thead>
+                <tr>
+                    <th scope="col">Member</th>
+                    <th scope="col">Use it when the row is…</th>
+                    <th scope="col">Structure</th>
+                    <th scope="col">Live example</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Data grid</strong><br><code>_DataGrid</code></td>
+                    <td>Tabular data best <em>scanned and compared across multiple columns</em> — with
+                        sortable headers, badges, and per-row actions.</td>
+                    <td>Typed <code>GridCell</code> vocabulary (Text / Muted / Link / Badge /
+                        ExpiryBadge / Actions); column headers + <code>aria-sort</code>.</td>
+                    <td><a href="/Pantry">Pantry</a>, <a href="/Catalog/Products">Catalog&nbsp;Products</a></td>
+                </tr>
+                <tr>
+                    <td><strong>Row-list</strong><br><code>_RowList</code></td>
+                    <td>A <em>single-primary reference list</em> — one named thing per row (with optional
+                        secondary/meta), optionally drag-<strong>Reorderable</strong> when the order is
+                        user-controlled and meaningful.</td>
+                    <td><code>.catalog-list</code> of primary/secondary/meta rows; empty state;
+                        <code>Reorderable</code> + <code>ReorderUrl</code> for drag, <code>Deletable</code>
+                        for a per-row Remove form.</td>
+                    <td><a href="/Catalog/Locations">Locations</a>,
+                        <a href="/Catalog/Categories">Categories</a> (reorderable)</td>
+                </tr>
+                <tr>
+                    <td><strong>Editable-row variant</strong><br><code>.tag-admin-list</code> /
+                        <code>.tag-admin-row</code></td>
+                    <td>An <em>inline-editable</em> row — the row's primary content is itself a form
+                        control (name <code>&lt;input&gt;</code> + category <code>&lt;select&gt;</code>)
+                        edited in place, not a static label.</td>
+                    <td>Shared <code>--row-*</code> chrome; row is a <code>&lt;li&gt;</code> of borderless
+                        inline inputs/selects that post on <code>change</code>.</td>
+                    <td><a href="/Settings/Tags">Settings&nbsp;›&nbsp;Tags</a></td>
+                </tr>
+                <tr>
+                    <td><strong>Entity-row variant</strong><br><code>.member-list</code> /
+                        <code>.member-row</code></td>
+                    <td>A row that <em>identifies a person</em> (or entity) — a leading identity avatar
+                        is load-bearing, not decoration.</td>
+                    <td>Shared <code>--row-*</code> chrome; leading <code>.pl-av</code> avatar tile
+                        (<code>.member-row__av</code>) + <code>.member-row__name</code>.</td>
+                    <td><a href="/Settings/Members">Settings&nbsp;›&nbsp;Members</a></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 
-    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Empty state</h3>
-    <partial name="Shared/_IndexList" model="Model.EmptyList" />
+    <p class="alert alert--info">
+        <strong>The one rule — choose by what the row fundamentally IS, then pick the simplest member
+        that fits:</strong> tabular data to compare across columns → <strong>data grid</strong>; a
+        single-primary "name a thing" reference list → <strong>row-list</strong>; a row you edit in
+        place → <strong>editable-row</strong>; a row that is a person → <strong>entity-row</strong>.
+        Only escalate from the row-list to a variant when the row <em>genuinely</em> needs inline form
+        controls or an identity avatar — never for looks. When a plain list would do, use the row-list.
+    </p>
 
-    <pre class="code-sample"><code>@("<partial name=\"Shared/_IndexList\" model=\"Model.MyListViewModel\" />")</code></pre>
+    <p>
+        <strong>Boundaries.</strong> The seam <em>inside</em> the family is row-list ⟷ data grid: a
+        row-list is single-primary, so the moment you need several aligned columns, column sort, or
+        badges/actions laid out <em>per column</em>, it's a data grid — don't grow the row-list sideways
+        into a table. The seam <em>out</em> of the family is <code>.hub-list</code> (see the Hub&nbsp;list
+        section below, plantry-j6ek): a hub-list is a <strong>section landing page</strong> whose rows are
+        navigation destinations (icon + label + subtitle + chevron, the whole row is a link), <em>not</em>
+        a CRUD/data list — if you're routing the user into sub-pages rather than listing manageable
+        records, that's a hub-list, not this family.
+    </p>
 </section>
 
 <section class="catalog-section">
     <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Sortable list</h2>
+        <h2 class="catalog-section__heading">Row list</h2>
     </div>
     <p>
-        <code>_SortableList</code> renders a <code>.catalog-list</code> whose items can be
-        dragged into a new order. Alpine (<code>wwwroot/js/sortable-list.js</code>) owns the
-        drag interaction — tracking the dragged item and reordering the DOM as the pointer moves
-        over siblings — and on drop, htmx posts the new order as a repeated <code>ids</code>
-        field to the handler named by <code>ReorderUrl</code>, which reassigns sort orders as
-        multiples of ten. This demo's handler accepts the post but doesn't persist anything, so
-        reloading the page always returns to the seeded order.
+        <code>_RowList</code> is the one list primitive (it merges the former <code>_IndexList</code>
+        and <code>_SortableList</code>): a <code>.catalog-list</code> of primary/secondary/meta rows,
+        with an empty state. Set <code>Reorderable</code> for drag-reorder (below) and
+        <code>Deletable</code> for a per-row Remove form. Used across <code>Catalog/Index</code>,
+        <code>Products/Index</code>, Product Detail, Locations, and Categories.
+    </p>
+    <p>
+        <strong>Shared row rhythm.</strong> The row-list and the data grid
+        below read as one family: both consume the same <code>--row-*</code> tokens defined in
+        <code>plenish.css</code> <code>:root</code> — <code>--row-padding-y</code>,
+        <code>--row-padding-x</code>, <code>--row-font-size</code>, <code>--row-primary-weight</code>,
+        <code>--row-hover-bg</code>, and <code>--row-border-color</code> — so a list row and a table
+        row match on height, padding, border, hover, and primary/secondary/meta type. Change the row
+        rhythm once at those tokens; both primitives follow. The table adds column headers + sort on
+        top of that shared rhythm; the row-list keeps its single-primary layout.
     </p>
 
-    <partial name="Shared/_SortableList" model="Model.SortableListDemo" />
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Populated</h3>
+    <partial name="Shared/_RowList" model="Model.PopulatedList" />
 
-    <pre class="code-sample"><code>@("<partial name=\"Shared/_SortableList\"\n         model=\"new SortableListViewModel(Model.MyItems, Url.Page(\"./Index\", \"Reorder\"), \"Nothing to reorder yet.\")\" />")</code></pre>
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Empty state</h3>
+    <partial name="Shared/_RowList" model="Model.EmptyList" />
+
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_RowList\" model=\"Model.MyListViewModel\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Row list — reorderable</h2>
+    </div>
+    <p>
+        The same <code>_RowList</code> with <code>Reorderable = true</code> and a <code>ReorderUrl</code>:
+        rows gain a drag handle and can be dragged into a new order. The drag interaction and the
+        POST-on-drop of the new id order are owned by <code>wwwroot/js/site.js</code> (via the
+        <code>[data-sortable-list]</code> hook), which reassigns sort orders as multiples of ten. This
+        demo's handler accepts the post but doesn't persist anything, so reloading the page always
+        returns to the seeded order.
+    </p>
+
+    <partial name="Shared/_RowList" model="Model.SortableListDemo" />
+
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_RowList\"\n         model=\"new RowListViewModel(Model.MyItems, \"Nothing to reorder yet.\", Reorderable: true, ReorderUrl: Url.Page(\"./Index\", \"Reorder\"))\" />")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -528,6 +630,100 @@
     <partial name="Shared/_DataGrid" model="Model.ProductGrid" />
 
     <pre class="code-sample"><code>@("Rows: products.Select(p => new GridRow(\n[\n    GridCell.Link(p.Name, $\"/Catalog/Products/Detail/{p.Id}\"),\n    GridCell.Text(p.Category),\n    p.IsParent ? GridCell.Badge(\"Parent\", BadgeTone.Info) : GridCell.Muted(\"—\"),\n    GridCell.Actions(\n        GridAction.Link(\"Edit\", $\"/Catalog/Products/Edit/{p.Id}\"),\n        GridAction.Post(\"Delete\", Url.Page(\"./Index\", \"Delete\", new { id = p.Id }),\n            confirm: $\"Delete {p.Name}?\", removesRow: true)),\n])).ToList()")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Row list — editable-row variant (Tags)</h2>
+    </div>
+    <p>
+        The <strong>editable-row</strong> member of the list family (<code>.tag-admin-list</code> /
+        <code>.tag-admin-row</code>): a row whose primary content is <em>edited in place</em> rather
+        than displayed — a borderless name <code>&lt;input&gt;</code> plus a category
+        <code>&lt;select&gt;</code> that post on <code>change</code>. It is a documented variant, not a
+        <code>_RowList</code> flag, because <code>_RowList</code> rows are display cells (primary/
+        secondary/meta), not form controls. Only the <strong>row chrome</strong> is shared: it consumes
+        the same <code>--row-*</code> tokens (height, padding, border, hover) as the row-list and data
+        grid, so an editable tag row lines up with them as one family. Live example:
+        <a href="/Settings/Tags">Settings&nbsp;›&nbsp;Tags</a>. (This is a static visual demo — the
+        real page wires each control to htmx <code>Rename</code>/<code>Category</code> handlers.)
+    </p>
+
+    <ul class="tag-admin-list" role="list" style="max-width: 32rem">
+        <li class="tag-admin-row">
+            <input class="tag-name-input" value="Weeknight" aria-label="Tag name" />
+            <select class="tag-cat-select" aria-label="Category">
+                <option selected>Occasion</option>
+                <option>Cuisine</option>
+                <option>Dietary</option>
+            </select>
+            <div class="tag-admin-acts">
+                <button type="button" class="btn btn--ghost btn--sm" onclick="return false">
+                    <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                    Archive
+                </button>
+            </div>
+        </li>
+        <li class="tag-admin-row">
+            <input class="tag-name-input" value="Vegetarian" aria-label="Tag name" />
+            <select class="tag-cat-select" aria-label="Category">
+                <option>Occasion</option>
+                <option>Cuisine</option>
+                <option selected>Dietary</option>
+            </select>
+            <div class="tag-admin-acts">
+                <button type="button" class="btn btn--ghost btn--sm" onclick="return false">
+                    <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                    Archive
+                </button>
+            </div>
+        </li>
+        <li class="tag-admin-row tag-admin-row--archived">
+            <span class="tag-name-static">Retired label</span>
+            <span class="tag-cat-badge">Cuisine</span>
+            <div class="tag-admin-acts">
+                <button type="button" class="btn btn--ghost btn--sm" onclick="return false">
+                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                    Restore
+                </button>
+            </div>
+        </li>
+    </ul>
+
+    <pre class="code-sample"><code>@("<ul class=\"tag-admin-list\" role=\"list\">\n  <li class=\"tag-admin-row\" data-tag-id=\"@tag.Id.Value\">\n    <input class=\"tag-name-input\" name=\"name\" value=\"@tag.Name\" aria-label=\"Tag name\"\n           hx-trigger=\"change\" hx-post=\"/Settings/Tags?handler=Rename&id=@tag.Id.Value\"\n           hx-include=\"this\" hx-target=\"#tags-region\" hx-swap=\"innerHTML\" />\n    <select class=\"tag-cat-select\" name=\"category\" aria-label=\"Category\"\n            hx-trigger=\"change\" hx-post=\"/Settings/Tags?handler=Category&id=@tag.Id.Value\"\n            hx-include=\"this\" hx-target=\"#tags-region\" hx-swap=\"innerHTML\"> ... </select>\n    <div class=\"tag-admin-acts\"> <!-- Archive/Restore btn --> </div>\n  </li>\n</ul>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Row list — entity-row variant (Members)</h2>
+    </div>
+    <p>
+        The <strong>entity-row</strong> member of the list family (<code>.member-list</code> /
+        <code>.member-row</code>): a row that <em>identifies a person</em>, led by an identity avatar
+        that is load-bearing rather than decorative. It reuses the shared <code>.pl-av</code> avatar
+        tile (<code>.member-row__av</code> sizes it to 32&nbsp;px) — see the Avatar stack section — and
+        the shared <code>--row-*</code> chrome, so a member row reads as one family with the row-list,
+        data grid, and editable tag rows. It stays a variant because the leading avatar cell is not
+        something a single-primary <code>_RowList</code> row models. Live example:
+        <a href="/Settings/Members">Settings&nbsp;›&nbsp;Members</a>.
+    </p>
+
+    <ul class="member-list" role="list" style="max-width: 28rem">
+        <li class="member-row">
+            <span class="pl-av member-row__av" data-av-color="0">A</span>
+            <span class="member-row__name">Alice</span>
+        </li>
+        <li class="member-row">
+            <span class="pl-av member-row__av" data-av-color="3">B</span>
+            <span class="member-row__name">Bob</span>
+        </li>
+        <li class="member-row">
+            <span class="pl-av member-row__av" data-av-color="5">C</span>
+            <span class="member-row__name">Carol</span>
+        </li>
+    </ul>
+
+    <pre class="code-sample"><code>@("<ul class=\"member-list\" role=\"list\">\n  @foreach (var m in Model.Members)\n  {\n    <li class=\"member-row\">\n      <span class=\"pl-av member-row__av\" data-av-color=\"@(idx % 8)\">@m.Initial</span>\n      <span class=\"member-row__name\">@m.DisplayName</span>\n    </li>\n  }\n</ul>")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -1084,7 +1280,7 @@
         Drag-reorder is native HTML5 drag: <code>draggable="true"</code> + Alpine event handlers
         <code>dragStart(idx)</code> / <code>dragOver(idx)</code> / <code>drop()</code> that splice
         the <code>rows[]</code> array and call <code>reassignOrdinals()</code> so hidden ordinal inputs
-        stay contiguous. This mirrors the <code>_SortableList</code> pattern (htmx POST on drop) but
+        stay contiguous. This mirrors the reorderable <code>_RowList</code> pattern (POST on drop) but
         is entirely Alpine-owned because the ingredient list is not persisted until submit.
     </p>
     <div class="card" style="max-width: 48rem">

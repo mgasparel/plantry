@@ -1,35 +1,28 @@
 @page
 @model Plantry.Web.Pages.Catalog.Categories.IndexModel
+@using Plantry.Web.Pages.Shared
 @{
     ViewData["Title"] = "Categories";
+
+    var categoryRows = new RowListViewModel(
+        Model.Categories.OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+            .Select(c => new RowListItem(
+                c.Name,
+                Secondary: c.DefaultDueDays is { } days ? $"Default expiry: {days} days" : "No default expiry",
+                Id: c.Id.Value.ToString(),
+                SortOrder: c.SortOrder))
+            .ToList(),
+        EmptyMessage: "No categories yet — add your first one below.",
+        Reorderable: true,
+        ReorderUrl: Url.Page("./Index", "Reorder"),
+        Deletable: true);
 }
 
 <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
 <section class="catalog-section">
     <h2 class="catalog-section__heading">Categories</h2>
-    @if (Model.Categories.Count == 0)
-    {
-        <p class="empty-state">No categories yet — add your first one below.</p>
-    }
-    else
-    {
-        <ul class="catalog-list" role="list" data-sortable-list="@Url.Page("./Index", "Reorder")">
-            @foreach (var category in Model.Categories.OrderBy(c => c.SortOrder).ThenBy(c => c.Name))
-            {
-                <li class="catalog-list__item" draggable="true" data-id="@category.Id.Value" data-sort-order="@category.SortOrder">
-                    <span class="catalog-list__drag-handle" aria-hidden="true" title="Drag to reorder">&#x2630;</span>
-                    <span class="catalog-list__primary">@category.Name</span>
-                    <span class="catalog-list__secondary">
-                        @(category.DefaultDueDays is { } days ? $"Default expiry: {days} days" : "No default expiry")
-                    </span>
-                    <form method="post" asp-page-handler="Delete" asp-route-id="@category.Id.Value" class="catalog-list__action">
-                        <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
-                    </form>
-                </li>
-            }
-        </ul>
-    }
+    <partial name="Shared/_RowList" model="categoryRows" />
 </section>
 
 <section class="catalog-section">

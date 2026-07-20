@@ -106,6 +106,19 @@
   /* Transitions */
   --transition-fast: 120ms ease;
   --transition-base: 200ms ease;
+
+  /* Row rhythm — the ONE row visual language shared by the data table (.data-grid)
+     and the row-list primitive (.catalog-list). Both consume these tokens so a table
+     row and a list row read as one family: matching row height (padding + font-size),
+     border treatment, hover, and primary/secondary/meta typography. The table keeps
+     its column headers/sort affordance and the row-list keeps its single-primary
+     layout — only the shared rhythm is unified here. See rdim/b. */
+  --row-padding-y:      var(--space-3);
+  --row-padding-x:      var(--space-4);
+  --row-font-size:      var(--font-size-sm);
+  --row-primary-weight: 600;
+  --row-hover-bg:       var(--color-bg-subtle);
+  --row-border-color:   var(--color-border);
 }
 
 /* ── Market theme ──────────────────────────────────────────────────────────── */
@@ -749,6 +762,33 @@ button { font-family: inherit; cursor: pointer; }
   white-space: pre;
 }
 
+/* Documentation comparison table — used on the Dev component gallery to lay out
+   "which primitive do I use?" decision guides. Not a data primitive (that is
+   .data-grid); a lightweight, token-driven, theme-adaptive doc aid. */
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.doc-table th,
+.doc-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.doc-table thead th {
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  white-space: nowrap;
+}
+.doc-table tbody tr:last-child td { border-bottom: none; }
+.doc-table tbody tr:hover td { background: var(--color-bg-subtle); }
+
 /* ── Buttons ───────────────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
@@ -943,6 +983,8 @@ button { font-family: inherit; cursor: pointer; }
   margin-bottom: var(--space-4);
 }
 
+/* Row-list primitive. Shares the --row-* rhythm tokens with .data-grid (see :root)
+   so a list row and a table row read as one family. */
 .catalog-list {
   display: flex;
   flex-direction: column;
@@ -955,12 +997,14 @@ button { font-family: inherit; cursor: pointer; }
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--row-padding-y) var(--row-padding-x);
+  border-bottom: 1px solid var(--row-border-color);
+  font-size: var(--row-font-size);
 }
 .catalog-list__item:last-child { border-bottom: none; }
+.catalog-list__item:hover { background: var(--row-hover-bg); }
 
-.catalog-list__primary { font-weight: 600; color: var(--color-text); }
+.catalog-list__primary { font-weight: var(--row-primary-weight); color: var(--color-text); }
 .catalog-list__secondary { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .catalog-list__meta { color: var(--color-text-muted); font-size: var(--font-size-xs); margin-left: auto; }
 .catalog-list__action { margin-left: auto; }
@@ -976,6 +1020,9 @@ button { font-family: inherit; cursor: pointer; }
 .catalog-list__item--dragging { opacity: 0.5; }
 
 /* ── Data grid ─────────────────────────────────────────────────────────────── */
+/* Tabular primitive. Shares the --row-* rhythm tokens with .catalog-list (see :root)
+   for matching row height/padding/border/hover/type; keeps its own column headers +
+   sort affordance on top of that shared rhythm. */
 .data-grid {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -985,7 +1032,7 @@ button { font-family: inherit; cursor: pointer; }
 .data-grid__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-sm);
+  font-size: var(--row-font-size);
 }
 
 .data-grid__caption {
@@ -1002,19 +1049,19 @@ button { font-family: inherit; cursor: pointer; }
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
   text-align: left;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--row-padding-y) var(--row-padding-x);
   background: var(--color-bg-subtle);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--row-border-color);
   white-space: nowrap;
 }
 
 .data-grid__cell {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--row-padding-y) var(--row-padding-x);
+  border-bottom: 1px solid var(--row-border-color);
   vertical-align: middle;
 }
 .data-grid__table tbody tr:last-child .data-grid__cell { border-bottom: none; }
-.data-grid__table tbody tr:hover .data-grid__cell { background: var(--color-bg-subtle); }
+.data-grid__table tbody tr:hover .data-grid__cell { background: var(--row-hover-bg); }
 
 .data-grid__cell--center { text-align: center; }
 .data-grid__cell--end    { text-align: right; }
@@ -1039,7 +1086,7 @@ button { font-family: inherit; cursor: pointer; }
 .data-grid__caret { font-size: 0.7em; line-height: 1; }
 
 .data-grid__muted { color: var(--color-text-muted); }
-.data-grid__link { color: var(--color-accent); font-weight: 600; }
+.data-grid__link { color: var(--color-accent); font-weight: var(--row-primary-weight); }
 .data-grid__actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
 
 /* Pantry list + detail */
@@ -4515,21 +4562,32 @@ button.sadd svg { width: 13px; height: 13px; }
 .cfg-foot-note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
 
 /* ── tag admin list (Settings/Tags) ──────────────────────────────────────── */
-.tag-admin-list { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
-.tag-admin-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px; border-radius: var(--radius-sm);
-  background: var(--color-surface-1); border: 1px solid var(--color-border);
+/* EDITABLE-ROW variant of the shared row rhythm (see --row-* tokens in :root and
+   .catalog-list): the inline form controls sit in the row but inherit the row-list
+   height/padding/border/hover so tag rows read as one family with the row-list and
+   data grid. The special structure — name <input> + category <select> — is kept
+   inline-editable; only the surrounding row chrome unifies. Documented in rdim.4. */
+.tag-admin-list {
+  list-style: none; padding: 0; margin: 0 0 var(--space-4);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden;
 }
+.tag-admin-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--row-padding-y) var(--row-padding-x);
+  border-bottom: 1px solid var(--row-border-color);
+  font-size: var(--row-font-size);
+}
+.tag-admin-row:last-child { border-bottom: none; }
+.tag-admin-row:hover { background: var(--row-hover-bg); }
 .tag-admin-row--archived { opacity: 0.65; }
 .tag-name-input {
   flex: 1 1 auto; min-width: 0;
-  border: none; background: transparent; font-size: 14px; font-weight: 500; color: var(--color-text);
+  border: none; background: transparent; font-size: var(--row-font-size); font-weight: 500; color: var(--color-text);
   padding: 4px 6px; border-radius: var(--radius-xs);
 }
 .tag-name-input:hover { background: var(--color-surface-2); }
 .tag-name-input:focus { outline: 2px solid var(--color-accent); outline-offset: 0; background: var(--color-surface-2); }
-.tag-name-static { flex: 1 1 auto; font-size: 14px; font-weight: 500; padding: 4px 6px; color: var(--color-text-muted); }
+.tag-name-static { flex: 1 1 auto; font-size: var(--row-font-size); font-weight: 500; padding: 4px 6px; color: var(--color-text-muted); }
 .tag-cat-badge { font-size: 11px; color: var(--color-text-faint); padding: 2px 7px; background: var(--color-surface-2); border-radius: 99px; white-space: nowrap; }
 .tag-cat-select {
   flex: 0 0 auto; min-width: 120px;
@@ -4558,14 +4616,25 @@ button.sadd svg { width: 13px; height: 13px; }
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── member roster ──────────────────────────────────────────────────────────── */
-.member-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.member-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px; border-radius: var(--radius-sm);
-  background: var(--color-surface-1); border: 1px solid var(--color-border);
+/* ENTITY-ROW variant of the shared row rhythm (see --row-* tokens in :root and
+   .catalog-list): a leading avatar slot + name that inherits the row-list
+   height/padding/border/hover so member rows read as one family with the row-list and
+   data grid. The special structure — the avatar — is kept; only the surrounding row
+   chrome unifies. Documented in rdim.4. */
+.member-list {
+  list-style: none; padding: 0; margin: 0;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden;
 }
+.member-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--row-padding-y) var(--row-padding-x);
+  border-bottom: 1px solid var(--row-border-color);
+  font-size: var(--row-font-size);
+}
+.member-row:last-child { border-bottom: none; }
+.member-row:hover { background: var(--row-hover-bg); }
 .member-row__av { width: 32px; height: 32px; font-size: 13px; }
-.member-row__name { font-size: 14px; font-weight: 600; color: var(--color-text); }
+.member-row__name { font-size: var(--row-font-size); font-weight: var(--row-primary-weight); color: var(--color-text); }
 
 /* ── invite add bar ─────────────────────────────────────────────────────────── */
 .invite-add {
