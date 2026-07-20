@@ -35,11 +35,41 @@
         ["Dev"] = "components",
         ["Import"] = "import",
     };
-    var parents = segments.Length > 0 && actionNames.Contains(segments[^1])
-        ? segments[..^1]
-        : segments;
+    // A route segment maps to a display label via the explicit dictionary, falling back
+    // to splitting PascalCase into words so raw route names (e.g. "TakeStock") never leak.
+    string CrumbLabel(string segment)
+    {
+        if (crumbLabels.TryGetValue(segment, out var mapped))
+        {
+            return mapped;
+        }
+        if (string.IsNullOrEmpty(segment))
+        {
+            return segment;
+        }
+        var sb = new System.Text.StringBuilder(segment.Length + 4);
+        for (var i = 0; i < segment.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(segment[i]) && !char.IsUpper(segment[i - 1]))
+            {
+                sb.Append(' ');
+            }
+            sb.Append(segment[i]);
+        }
+        return sb.ToString();
+    }
+
     var title = ViewData["Title"]?.ToString() ?? "";
-    if (parents.Length > 0 && crumbLabels.TryGetValue(parents[^1], out var lastLabel) && lastLabel == title)
+    // The trailing segment always denotes the current page — rendered as the bold title —
+    // so it is never a parent crumb. For action pages (Index/Detail/Edit/Create) the action
+    // word is the trailing segment; for a named leaf page (e.g. Settings/Tags) the page name
+    // is. Dropping it uniformly removes the duplicated leaf crumb in both cases.
+    var parents = segments.Length > 0 ? segments[..^1] : segments;
+    // For folder index pages (…/Products/Index) the remaining leaf is the containing folder,
+    // whose label usually equals the title — drop it too so the crumb isn't repeated.
+    if (segments.Length > 0 && actionNames.Contains(segments[^1])
+        && parents.Length > 0
+        && string.Equals(CrumbLabel(parents[^1]), title, StringComparison.OrdinalIgnoreCase))
     {
         parents = parents[..^1];
     }
@@ -270,7 +300,7 @@
                 }
                 @foreach (var parent in parents)
                 {
-                    @(crumbLabels.GetValueOrDefault(parent, parent)) <span class="crumb-sep">/</span>
+                    @CrumbLabel(parent) <span class="crumb-sep">/</span>
                 }
                 <b>@title</b>
             </div>
