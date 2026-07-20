@@ -1408,7 +1408,10 @@
         </div>
 
         @* ── Submit bar ───────────────────────────────────────────────────────── *@
-        <div class="commit-bar">
+        @* commit-bar--flow: render in normal flow at the form foot, not sticky (plantry-f7uk).
+           The sticky variant pinned to the viewport bottom and floated over the Ingredients card
+           on a form taller than the viewport, partially hiding it. *@
+        <div class="commit-bar commit-bar--flow">
             <a href="@(Model.IsCreate ? "/Recipes" : $"/Recipes/{Model.Id}")" class="btn btn--ghost commit-bar__cancel">Cancel</a>
             <span class="commit-bar__spacer"></span>
             <button type="submit" class="btn btn--primary">

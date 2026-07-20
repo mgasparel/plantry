@@ -1803,6 +1803,12 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   box-shadow: none;
   padding: var(--space-3) var(--space-6);
 }
+
+/* --flow: opt the commit bar out of sticky positioning so it sits in normal flow at the
+   foot of a card-stack form (as the plain create/edit forms do), keeping its footer-card
+   chrome. On a form taller than the viewport the sticky variant pins to the viewport bottom
+   and floats over whichever card is on screen — partially hiding it (plantry-f7uk). */
+.commit-bar--flow { position: static; }
 .commit-bar__cancel { color: var(--color-text-muted); flex-shrink: 0; }
 .commit-bar__spacer { flex: 1 1 auto; }
 .commit-bar__warn {
