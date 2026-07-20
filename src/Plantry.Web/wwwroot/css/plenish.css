@@ -4643,8 +4643,17 @@ button.sadd svg { width: 13px; height: 13px; }
 /* ── week grid ──────────────────────────────────────────────────────────── */
 .wkgrid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(150px, 1fr));
-  gap: 8px; min-width: 1060px;
+  /* Columns flex down to share whatever width is left beside the 322px insights
+     rail so all 7 days stay visible at common desktop widths. A fixed min-width
+     (was 1060px) forced the grid wider than the space beside the rail, and the
+     grid-scroll clip fell exactly at the rail's left edge — clipping Sat/Sun
+     under the "Plan insights" panel at 1440px (plantry-to8u). minmax(0, 1fr)
+     lets the tracks shrink below their content so the week always fits the grid
+     area and never overflows into the rail. (Sub-desktop widths just squish the
+     columns; a dedicated narrow/mobile responsive treatment for this page —
+     collapsing the rail / horizontal scroll — is tracked separately.) */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
 }
 
 /* day headers */
