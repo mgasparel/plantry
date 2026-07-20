@@ -127,6 +127,13 @@ builder.Services.AddRazorPages(options =>
     // Adding "/Recipes/New" as an alias routes the new-recipe form without an id binding, which causes
     // EditModel.Id to be null → create branch (J6).
     options.Conventions.AddPageRoute("/Recipes/Edit", "Recipes/New");
+
+    // Take Stock's index carries a deliberate kebab-case route override (@page "/pantry/take-stock"),
+    // which REPLACES the folder-convention route. That leaves the PascalCase folder URL /Pantry/TakeStock
+    // — the path a visitor (or an audit tool) naturally guesses from the folder structure — returning a
+    // hard 404 (plantry-w427). Alias the conventional path onto the same page so it resolves instead of
+    // dead-ending; the canonical kebab URL the nav links to (/pantry/take-stock) is unchanged.
+    options.Conventions.AddPageRoute("/Pantry/TakeStock/Index", "Pantry/TakeStock");
 });
 
 // The injected connection string is the database owner. At runtime the app connects as the
