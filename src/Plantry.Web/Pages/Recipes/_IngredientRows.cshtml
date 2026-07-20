@@ -75,20 +75,15 @@
                     @item.ProductName
                     @if (item.ExpiresWithinDays is { } d)
                     {
-                        @if (d < 0)
-                        {
-                            <span class="rd-ing-soon rd-ing-soon--expired">
-                                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
-                                Expired @(-d)d ago
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="rd-ing-soon">
-                                <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
-                                @d d
-                            </span>
-                        }
+                        @* Wording + colour tier from the shared ExpiryDisplay so the pill reads identically to
+                           the Today rail and Pantry grid (plantry-fdoq). ExpiresWithinDays is already the signed,
+                           horizon-clamped days-until-expiry, so drive the days-based entry directly. Keep the
+                           recipe's timer icon. *@
+                        var (expLabel, expTier) = Plantry.Web.Pages.Shared.ExpiryDisplay.FromDaysUntilExpiry(d);
+                        <span class="badge-expiry badge-expiry--@expTier">
+                            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                            @expLabel
+                        </span>
                     }
                 </div>
                 @* @subLabel and @if are kept adjacent (no leading whitespace) so a normal row renders

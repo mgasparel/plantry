@@ -532,6 +532,31 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Expiry badge</h2>
+    </div>
+    <p>
+        <code>.badge-expiry</code> is the single expiry/expired pill — one shape, one 3-tier colour scale, and
+        one relative wording — reused by the Today expiring-soon rail, Recipe ingredient rows, and the Pantry
+        grid (plantry-fdoq). Wording + tier come from the pure <code>ExpiryDisplay</code> helper
+        (<code>ExpiryDisplay.Format(soonestExpiry, today)</code>, or <code>FromDaysUntilExpiry(signedDays)</code>
+        when a surface already holds the day count): <strong>urgent</strong> = expired or ≤1 day out,
+        <strong>soon</strong> = ≤3 days, <strong>ok</strong> = ≥4 days. In the data grid, use
+        <code>GridCell.ExpiryBadge(label, tier)</code> — <em>not</em> <code>GridCell.Badge</code>, which renders
+        the generic <code>.badge--{tone}</code> look rather than the unified expiry pill.
+    </p>
+
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center">
+        <span class="badge-expiry badge-expiry--urgent"><svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg> Expired 25d ago</span>
+        <span class="badge-expiry badge-expiry--urgent">Tomorrow</span>
+        <span class="badge-expiry badge-expiry--soon">in 3d</span>
+        <span class="badge-expiry badge-expiry--ok">in 6d</span>
+    </div>
+
+    <pre class="code-sample"><code>@("var (label, tier) = ExpiryDisplay.Format(soonestExpiry, today);\n<span class=\"badge-expiry badge-expiry--@tier\">@label</span>\n\n// In a data grid cell:\nGridCell.ExpiryBadge(label, tier)")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Confidence badge</h2>
     </div>
     <p>

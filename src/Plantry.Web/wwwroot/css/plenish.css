@@ -850,7 +850,8 @@ button { font-family: inherit; cursor: pointer; }
   font-size: var(--font-size-xs);
   font-weight: 500;
 }
-.badge-expiry--ok      { background: var(--color-success-bg); color: var(--color-success); }
+.badge-expiry .icon    { width: 11px; height: 11px; }
+.badge-expiry--ok      { background: var(--color-success-bg); color: var(--color-expiry-ok); }
 .badge-expiry--soon    { background: var(--color-warning-bg); color: var(--color-expiry-soon); }
 .badge-expiry--urgent  { background: var(--color-danger-bg);  color: var(--color-expiry-urgent); }
 
@@ -3347,28 +3348,6 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   gap: 6px;
 }
 
-/* expiring-soon inline badge */
-.rd-ing-soon {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--color-warning);
-  background: var(--color-warning-bg);
-  padding: 1px 5px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-
-.rd-ing-soon .icon { width: 10px; height: 10px; }
-
-/* expired variant — same pill shape, danger/red color token */
-.rd-ing-soon--expired {
-  color: var(--color-danger);
-  background: var(--color-danger-bg);
-}
-
 .rd-ing-sub {
   font-size: 11.5px;
   margin-top: 1px;
@@ -5432,14 +5411,6 @@ button.sadd svg { width: 13px; height: 13px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .today-exp-sub { font-size: 11.5px; color: var(--color-text-faint); margin-top: 1px; }
-
-.today-exp-when {
-  flex: none; font-size: 12px; font-weight: 700; white-space: nowrap;
-  padding: 4px 10px; border-radius: var(--radius-full); font-variant-numeric: tabular-nums;
-}
-.today-exp-when--urgent { background: var(--color-danger-bg); color: var(--color-danger); }
-.today-exp-when--soon   { background: var(--color-warning-bg); color: var(--color-warning); }
-.today-exp-when--ok     { background: var(--color-surface-2); color: var(--color-text-muted); }
 
 /* Take Stock CTA widget — shown when the pantry is empty (J6/P4-9) */
 .today-widget__body { padding: 16px 17px 20px; }

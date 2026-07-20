@@ -1,4 +1,5 @@
 @using Plantry.Web.Pages.Today
+@using Plantry.Web.Pages.Shared
 @model IndexModel
 
 @* Expiring-soon widget for the Today right rail (SPEC Page 0 §0d, plantry-81x).
@@ -72,16 +73,11 @@ else
         <div class="today-exp-list">
             @foreach (var item in Model.ExpiringSoon)
             {
-                var whenClass = item.IsExpired || item.DaysLeft <= 1 ? "today-exp-when--urgent"
-                              : item.DaysLeft <= 3 ? "today-exp-when--soon"
-                              : "today-exp-when--ok";
-                var whenLabel = item.IsExpired ? "Expired"
-                              : item.DaysLeft == 0 ? "Today"
-                              : item.DaysLeft == 1 ? "Tomorrow"
-                              : $"{item.DaysLeft} days";
-                var dotClass = item.IsExpired || item.DaysLeft <= 1 ? "today-exp-dot--urgent"
-                             : item.DaysLeft <= 3 ? "today-exp-dot--soon"
-                             : "today-exp-dot--ok";
+                @* Wording + colour tier come from the shared ExpiryDisplay so this rail, the Recipe rows and
+                   the Pantry grid read identically (plantry-fdoq). The row keeps its own urgency dot; the pill
+                   carries no icon here (the dot is the surface's urgency mark). *@
+                var (whenLabel, tier) = ExpiryDisplay.Format(item.SoonestExpiry, Model.Today);
+                var dotClass = $"today-exp-dot--{tier}";
                 <div class="today-exp-row">
                     <span class="today-exp-dot @dotClass"></span>
                     <div class="today-exp-main">
@@ -95,7 +91,7 @@ else
                             <div class="today-exp-sub">@($"{item.TotalQuantity:0.###} {item.DisplayUnitCode}")</div>
                         }
                     </div>
-                    <span class="today-exp-when @whenClass">@whenLabel</span>
+                    <span class="badge-expiry badge-expiry--@tier">@whenLabel</span>
                 </div>
             }
         </div>
