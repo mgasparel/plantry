@@ -29,8 +29,7 @@
              return this.secOptions.filter(h => !q || h.toLowerCase().includes(q));
          },
          pickSection(h) { this.secQuery = h; draft.groupHeading = h; this.secOpen = false; },
-         createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; },
-         clearSection() { this.secQuery = ''; draft.groupHeading = ''; this.secOpen = false; }
+         createSection() { const n = this.secQuery.trim(); this.secQuery = n; draft.groupHeading = n; this.secOpen = false; }
      }"
      @@sheet-product-set.window="secQuery = draft.groupHeading || ''"
      @@click.outside="secOpen = false">
