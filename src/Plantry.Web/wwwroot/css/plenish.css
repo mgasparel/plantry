@@ -4303,6 +4303,19 @@ button.sadd svg { width: 13px; height: 13px; }
 .tag-name .tag-saved.show { opacity: 1; transform: none; }
 .tag-name .tag-saved svg { width: 13px; height: 13px; }
 
+/* ── Settings "saved" confirmation badge — shared across settings pages ────── */
+/* Consumed by Pages/Settings/_SettingSaved.cshtml (AI, Pantry, Currency,
+   meal-planning defaults). Distinct from the .tag-name .tag-saved row indicator. */
+.setting-saved {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-success);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 /* ── StanceScale segmented control — canonical component ─────────────────── */
 /* 5 mutually-exclusive stance segments. Documented in Dev component library.  */
 /* Proto shape: one pill container with surface-2 bg + border; segments are seamless pills. */
