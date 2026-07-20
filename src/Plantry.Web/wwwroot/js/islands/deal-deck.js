@@ -298,7 +298,7 @@ export function mountDealDeck(mount, config) {
               ${card.brand ? `<span class="deal-review-row__brand">${escapeHtml(card.brand)}</span>` : ""}
               <span class="deal-row__amount">${escapeHtml(card.price)}</span>
             </div>
-            ${card.isNoise ? `<div class="focus-card__noise"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> Flyer noise &mdash; no usable price</div>` : ""}
+            ${card.isNoise ? `<div class="focus-card__noise"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> Flyer noise — no usable price</div>` : ""}
           </div>
 
           ${confirmable ? `
@@ -310,7 +310,7 @@ export function mountDealDeck(mount, config) {
           </div>` : `
           <div class="focus-card__link">No catalog match</div>
           <div class="focus-card__match focus-card__match--none">
-            <div class="focus-card__reasoning">Plantry didn&rsquo;t find a product for this line. Match it yourself, or reject it.</div>
+            <div class="focus-card__reasoning">Plantry didn’t find a product for this line. Match it yourself, or reject it.</div>
           </div>`}
 
           <div class="focus-verbs">
@@ -325,11 +325,11 @@ export function mountDealDeck(mount, config) {
           </div>
 
           <div class="focus-under">
-            <button type="button" data-verb="back"${skipStack.length ? "" : " disabled"}>&larr; Undo skip</button>
-            <button type="button" data-verb="skip">Skip for now &rarr;</button>
+            <button type="button" data-verb="back"${skipStack.length ? "" : " disabled"}>← Undo skip</button>
+            <button type="button" data-verb="skip">Skip for now →</button>
           </div>
         </section>
-        <div class="swipe-tip">Swipe right to confirm &middot; left to reject</div>
+        <div class="swipe-tip">Swipe right to confirm · left to reject</div>
       </div>`;
 
     mount.querySelectorAll("[data-verb]").forEach((b) => {
@@ -410,9 +410,9 @@ function ensureKbdBar() {
   bar.id = "deal-deck-kbd-bar";
   bar.className = "kbd-bar";
   bar.innerHTML =
-    "<span><kbd>Enter</kbd>/<kbd>&rarr;</kbd> confirm</span>" +
+    "<span><kbd>Enter</kbd>/<kbd>→</kbd> confirm</span>" +
     "<span><kbd>M</kbd> change match</span>" +
-    "<span><kbd>X</kbd>/<kbd>&larr;</kbd> reject</span>" +
+    "<span><kbd>X</kbd>/<kbd>←</kbd> reject</span>" +
     "<span><kbd>S</kbd> skip</span>" +
     "<span><kbd>Z</kbd> undo skip</span>";
   document.body.appendChild(bar);
