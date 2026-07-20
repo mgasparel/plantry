@@ -4535,21 +4535,32 @@ button.sadd svg { width: 13px; height: 13px; }
 .cfg-foot-note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
 
 /* ── tag admin list (Settings/Tags) ──────────────────────────────────────── */
-.tag-admin-list { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
-.tag-admin-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px; border-radius: var(--radius-sm);
-  background: var(--color-surface-1); border: 1px solid var(--color-border);
+/* EDITABLE-ROW variant of the shared row rhythm (see --row-* tokens in :root and
+   .catalog-list): the inline form controls sit in the row but inherit the row-list
+   height/padding/border/hover so tag rows read as one family with the row-list and
+   data grid. The special structure — name <input> + category <select> — is kept
+   inline-editable; only the surrounding row chrome unifies. Documented in rdim.4. */
+.tag-admin-list {
+  list-style: none; padding: 0; margin: 0 0 var(--space-4);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden;
 }
+.tag-admin-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--row-padding-y) var(--row-padding-x);
+  border-bottom: 1px solid var(--row-border-color);
+  font-size: var(--row-font-size);
+}
+.tag-admin-row:last-child { border-bottom: none; }
+.tag-admin-row:hover { background: var(--row-hover-bg); }
 .tag-admin-row--archived { opacity: 0.65; }
 .tag-name-input {
   flex: 1 1 auto; min-width: 0;
-  border: none; background: transparent; font-size: 14px; font-weight: 500; color: var(--color-text);
+  border: none; background: transparent; font-size: var(--row-font-size); font-weight: 500; color: var(--color-text);
   padding: 4px 6px; border-radius: var(--radius-xs);
 }
 .tag-name-input:hover { background: var(--color-surface-2); }
 .tag-name-input:focus { outline: 2px solid var(--color-accent); outline-offset: 0; background: var(--color-surface-2); }
-.tag-name-static { flex: 1 1 auto; font-size: 14px; font-weight: 500; padding: 4px 6px; color: var(--color-text-muted); }
+.tag-name-static { flex: 1 1 auto; font-size: var(--row-font-size); font-weight: 500; padding: 4px 6px; color: var(--color-text-muted); }
 .tag-cat-badge { font-size: 11px; color: var(--color-text-faint); padding: 2px 7px; background: var(--color-surface-2); border-radius: 99px; white-space: nowrap; }
 .tag-cat-select {
   flex: 0 0 auto; min-width: 120px;
@@ -4578,14 +4589,25 @@ button.sadd svg { width: 13px; height: 13px; }
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── member roster ──────────────────────────────────────────────────────────── */
-.member-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.member-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px; border-radius: var(--radius-sm);
-  background: var(--color-surface-1); border: 1px solid var(--color-border);
+/* ENTITY-ROW variant of the shared row rhythm (see --row-* tokens in :root and
+   .catalog-list): a leading avatar slot + name that inherits the row-list
+   height/padding/border/hover so member rows read as one family with the row-list and
+   data grid. The special structure — the avatar — is kept; only the surrounding row
+   chrome unifies. Documented in rdim.4. */
+.member-list {
+  list-style: none; padding: 0; margin: 0;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden;
 }
+.member-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--row-padding-y) var(--row-padding-x);
+  border-bottom: 1px solid var(--row-border-color);
+  font-size: var(--row-font-size);
+}
+.member-row:last-child { border-bottom: none; }
+.member-row:hover { background: var(--row-hover-bg); }
 .member-row__av { width: 32px; height: 32px; font-size: 13px; }
-.member-row__name { font-size: 14px; font-weight: 600; color: var(--color-text); }
+.member-row__name { font-size: var(--row-font-size); font-weight: var(--row-primary-weight); color: var(--color-text); }
 
 /* ── invite add bar ─────────────────────────────────────────────────────────── */
 .invite-add {
