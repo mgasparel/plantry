@@ -344,6 +344,42 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(window);
     }
 
+    [Fact(DisplayName = "ListInMonthWindowAsync accepts a non-UTC-offset window (Npgsql timestamptz safety)")]
+    public async Task ListInMonthWindowAsync_NonUtcOffset_Window_DoesNotThrow_And_Filters_Correctly()
+    {
+        // Regression (plantry-bzyr): the real caller GetMonthlyIntakeStatsQuery builds the window from
+        // clock.UtcNow.ToLocalTime(), producing a NON-UTC offset off UTC machines. Npgsql throws
+        // "Cannot write DateTimeOffset with Offset=… only offset 0 (UTC) is supported" when such a value
+        // is written to a 'timestamp with time zone' parameter, which 500'd the Add-groceries page. The
+        // repo must normalize to UTC. The pre-existing window tests only passed UTC (TimeSpan.Zero) bounds,
+        // so they never exercised this path.
+        var offset = TimeSpan.FromHours(-4);
+        var windowStart = new DateTimeOffset(2026, 5, 1, 0, 0, 0, offset);
+        var windowEnd = new DateTimeOffset(2026, 5, 31, 23, 59, 59, offset);
+
+        ImportSessionId inWindow;
+        await using (var ctx = NewIntakeDb())
+        {
+            // Created 2026-05-15 12:00 UTC — squarely inside the May window in either frame.
+            var s = ImportSession.Start(_household, ImportSourceType.Receipt, _userId,
+                new FixedClock(new DateTimeOffset(2026, 5, 15, 12, 0, 0, TimeSpan.Zero)));
+            inWindow = s.Id;
+            // Created 2026-04-01 — before the window.
+            var before = ImportSession.Start(_household, ImportSourceType.Receipt, _userId,
+                new FixedClock(new DateTimeOffset(2026, 4, 1, 12, 0, 0, TimeSpan.Zero)));
+            await ctx.ImportSessions.AddRangeAsync(s, before);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var repo = new ImportSessionRepository(ctx2);
+        // Must not throw despite the non-UTC offset on the window bounds.
+        var window = await repo.ListInMonthWindowAsync(_household, windowStart, windowEnd);
+
+        var single = Assert.Single(window);
+        Assert.Equal(inWindow, single.Id);
+    }
+
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {
         public DateTimeOffset UtcNow { get; } = now;

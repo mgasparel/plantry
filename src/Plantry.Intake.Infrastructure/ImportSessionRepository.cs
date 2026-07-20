@@ -52,11 +52,20 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
         HouseholdId householdId,
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
-        CancellationToken ct = default) =>
-        db.ImportSessions
+        CancellationToken ct = default)
+    {
+        // Normalize the window bounds to UTC before they become SQL parameters. Npgsql rejects a
+        // DateTimeOffset with a non-UTC offset when writing to 'timestamp with time zone' (it throws
+        // "only offset 0 (UTC) is supported"). Callers compute the month window in server-local time
+        // (GetMonthlyIntakeStatsQuery uses clock.UtcNow.ToLocalTime()), so the offset is non-zero off
+        // UTC machines. ToUniversalTime() preserves the exact instant, so the comparison is unchanged.
+        var startUtc = windowStart.ToUniversalTime();
+        var endUtc = windowEnd.ToUniversalTime();
+        return db.ImportSessions
             .Where(s => s.HouseholdId == householdId &&
-                        ((s.CreatedAt >= windowStart && s.CreatedAt <= windowEnd) ||
+                        ((s.CreatedAt >= startUtc && s.CreatedAt <= endUtc) ||
                          (s.CommittedAt != null &&
-                          s.CommittedAt >= windowStart && s.CommittedAt <= windowEnd)))
+                          s.CommittedAt >= startUtc && s.CommittedAt <= endUtc)))
             .ToListAsync(ct);
+    }
 }

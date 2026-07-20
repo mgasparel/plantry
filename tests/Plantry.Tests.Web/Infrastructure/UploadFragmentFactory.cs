@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
+using Plantry.Inventory.Application;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Intake;
@@ -70,6 +71,13 @@ public sealed class UploadFragmentFactory : WebApplicationFactory<Program>
             // parser) stays DB-free and an accepted upload can render its fragment.
             services.RemoveAll<ICatalogHintProvider>();
             services.AddScoped<ICatalogHintProvider, FakeCatalogHintProvider>();
+
+            // The Upload GET now composes the "This month" card, which calls the Inventory count queries.
+            // Those hit InventoryDbContext/Catalog (Postgres) — absent in this DB-free harness — so swap in a
+            // stub that returns fixed counts. Zero here so the page renders the empty-month/no-stock state;
+            // the counts themselves are asserted at the model layer (UploadModelStatsTests).
+            services.RemoveAll<InventoryQueryService>();
+            services.AddScoped<InventoryQueryService>(_ => new StubInventoryQueryService(inStock: 0, expiringSoon: 0));
 
             // Tunable limits: keep the burst tight enough for the rate-limit test, daily effectively unbounded.
             services.Configure<ReceiptUploadRateLimitOptions>(o =>
