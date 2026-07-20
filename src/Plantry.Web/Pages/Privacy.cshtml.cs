@@ -1,19 +1,10 @@
-﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Plantry.Web.Pages;
 
-public class PrivacyModel : PageModel
+public sealed class PrivacyModel : PageModel
 {
-    private readonly ILogger<PrivacyModel> _logger;
-
-    public PrivacyModel(ILogger<PrivacyModel> logger)
-    {
-        _logger = logger;
-    }
-
     public void OnGet()
     {
     }
 }
-
