@@ -101,7 +101,7 @@
   --sidebar-width: 220px;
   --topbar-height: 56px;
   --bottom-nav-height: 64px;
-  --content-max-width: 900px;
+  --content-max-width: 1200px;
 
   /* Transitions */
   --transition-fast: 120ms ease;
@@ -327,12 +327,6 @@ button { font-family: inherit; cursor: pointer; }
   max-width: none;
 }
 
-/* Roomy pages keep standard centered/padded chrome but raise the cap to 1200px —
-   wide enough to display dense staging tables (up to ~70rem) without horizontal scroll. */
-.page-content--roomy {
-  max-width: 1200px;
-}
-
 .app-content:has(.page-content--fluid) {
   height: 100dvh;
   min-height: unset;
@@ -422,8 +416,12 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--color-text-muted);
 }
 
-/* ── More hub (mobile overflow page) ────────────────────────────────────────── */
-.more-hub {
+/* ── Hub list (section landing pages: More, Catalog) ───────────────────────────
+   A bordered, rounded list of full-row navigation tiles — each tile is an accent
+   icon + label + subtitle + chevron, and the whole row is the link. Used by hub
+   pages (More, Catalog) that orient the user and route them into sub-pages. NOT a
+   CRUD/data list (that is .catalog-list) and NOT a functional wizard. */
+.hub-list {
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -432,7 +430,7 @@ button { font-family: inherit; cursor: pointer; }
   overflow: hidden;
 }
 
-.more-hub__item {
+.hub-list__item {
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -443,38 +441,38 @@ button { font-family: inherit; cursor: pointer; }
   transition: background var(--transition-fast);
 }
 
-.more-hub__item:last-child { border-bottom: none; }
+.hub-list__item:last-child { border-bottom: none; }
 
-.more-hub__item:hover {
+.hub-list__item:hover {
   background: var(--color-bg-subtle);
   text-decoration: none;
 }
 
-.more-hub__icon {
+.hub-list__icon {
   width: 1.5rem;
   height: 1.5rem;
   flex-shrink: 0;
   color: var(--color-accent);
 }
 
-.more-hub__text {
+.hub-list__text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   flex: 1;
 }
 
-.more-hub__label {
+.hub-list__label {
   font-size: var(--font-size-base);
   font-weight: 600;
 }
 
-.more-hub__sub {
+.hub-list__sub {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
 
-.more-hub__chevron {
+.hub-list__chevron {
   width: 1.25rem;
   height: 1.25rem;
   color: var(--color-text-muted);
@@ -856,7 +854,8 @@ button { font-family: inherit; cursor: pointer; }
   font-size: var(--font-size-xs);
   font-weight: 500;
 }
-.badge-expiry--ok      { background: var(--color-success-bg); color: var(--color-success); }
+.badge-expiry .icon    { width: 11px; height: 11px; }
+.badge-expiry--ok      { background: var(--color-success-bg); color: var(--color-expiry-ok); }
 .badge-expiry--soon    { background: var(--color-warning-bg); color: var(--color-expiry-soon); }
 .badge-expiry--urgent  { background: var(--color-danger-bg);  color: var(--color-expiry-urgent); }
 
@@ -1158,6 +1157,7 @@ button { font-family: inherit; cursor: pointer; }
 .pantry-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
 .pantry-detail__title { margin: 0; }
 .pantry-detail__total { margin: var(--space-1) 0 0; color: var(--color-text-muted); }
+.pantry-detail__category { margin: var(--space-1) 0 0; font-size: var(--font-size-sm); color: var(--color-text-faint); }
 
 /* Sheet (htmx-loaded overlay panel) */
 .sheet { position: fixed; inset: 0; z-index: 110; }
@@ -1478,21 +1478,6 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 }
 .sec-label__count { color: var(--color-text-faint); font-weight: 600; }
 .sec-label::after { content: ""; flex: 1; height: 1px; background: var(--color-border); }
-
-/* ── Category chip (color placeholder — hue wired by Category-color-chips bead) */
-.cat-chip {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-md);
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: var(--font-size-sm);
-  background: var(--cc-bg, var(--color-bg-subtle));
-  color: var(--cc-fg, var(--color-text-muted));
-}
-.cat-chip--neutral { background: var(--color-bg-subtle); color: var(--color-text-faint); }
 
 /* ── Nonstock-style dismissed row ─────────────────────────────────────────── */
 .import-row__nonstock-main {
@@ -2032,7 +2017,7 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 }
 
 /* ── Intake landing page ─────────────────────────────────────────────────────── */
-.intake-wrap { max-width: 940px; margin: 0 auto; padding: 46px 32px 60px; }
+.intake-wrap { max-width: var(--content-max-width); margin: 0 auto; padding: 46px 32px 60px; }
 .intake-head h1 { font-size: 33px; letter-spacing: -0.025em; margin: 0 0 8px; font-weight: 700; }
 .intake-head p { font-size: 16px; color: var(--color-text-muted); margin: 0 0 30px; max-width: 56ch; }
 
@@ -2367,7 +2352,7 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 
 /* ── Page wrapper ──────────────────────────────────────────────────────────── */
 .recipes-browse-wrap {
-  max-width: 1260px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
   padding: 34px 30px 64px;
 }
@@ -2918,7 +2903,7 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 
 /* ── Two-column detail grid ──────────────────────────────────────────────── */
 .rd-wrap {
-  max-width: 1180px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
   padding: 24px 28px 64px;
 }
@@ -3353,28 +3338,6 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   gap: 6px;
 }
 
-/* expiring-soon inline badge */
-.rd-ing-soon {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--color-warning);
-  background: var(--color-warning-bg);
-  padding: 1px 5px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-
-.rd-ing-soon .icon { width: 10px; height: 10px; }
-
-/* expired variant — same pill shape, danger/red color token */
-.rd-ing-soon--expired {
-  color: var(--color-danger);
-  background: var(--color-danger-bg);
-}
-
 .rd-ing-sub {
   font-size: 11.5px;
   margin-top: 1px;
@@ -3786,7 +3749,7 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
    --radius-sm→--radius-md, --radius-xs→--radius-sm, --shadow-card→--shadow-md,
    --shadow-pop→--shadow-lg, --font-mono→--font-mono */
 
-.sl-wrap { max-width: 900px; margin: 0 auto; padding: 34px 30px 90px; }
+.sl-wrap { max-width: var(--content-max-width); margin: 0 auto; padding: 34px 30px 90px; }
 
 /* ---- header ------------------------------------------------------------- */
 .sl-head { display: flex; align-items: flex-end; gap: 18px; margin-bottom: 20px; }
@@ -4028,7 +3991,6 @@ button.sl-qty:hover { background: var(--color-surface-3, var(--color-surface-2))
   background: var(--color-surface-2); border: 1px solid var(--color-border);
   border-radius: var(--radius-md); padding: 5px 8px 5px 7px; font-size: 13px;
 }
-.sl-sug .cat-chip { font-size: 10px; padding: 1px 5px; }
 .sl-sug-name { font-weight: 600; color: var(--color-text); white-space: nowrap; }
 .sl-sug-stock { color: var(--color-warning); font-size: 12px; white-space: nowrap; }
 .sl-sug-stock.out { color: var(--color-danger); }
@@ -4215,7 +4177,7 @@ button.sadd svg { width: 13px; height: 13px; }
 /* ── P3-2 Dietary Preferences / P3-1 Meal Slots — cfg-wrap, cfg-head ─────── */
 /* Config-page chrome (matches ClaudeDesignProto/prefs.jsx + slots.jsx .cfg-wrap + .cfg-head). */
 .cfg-wrap {
-  max-width: 880px;
+  max-width: var(--content-max-width);
   padding: 38px 32px 80px;
   margin: 0 auto;
 }
@@ -5273,13 +5235,39 @@ button.sadd svg { width: 13px; height: 13px; }
 .rail-reopen svg, .rail-reopen .icon { width: 16px; height: 16px; color: var(--color-accent); }
 .rail-reopen .rr-badge { background: var(--color-accent); color: #fff; border-radius: 999px; min-width: 18px; height: 18px; font-size: 11px; font-weight: 700; display: grid; place-items: center; padding: 0 5px; }
 
+/* ── MealPlan narrow/mobile responsive treatment (plantry-3j7h) ──────────────
+   Desktop (>1000px) is untouched: .wkgrid stays repeat(7, minmax(0,1fr)) with no
+   min-width so all 7 days fit beside the 322px insights rail (the plantry-to8u
+   Sat/Sun-clip fix). Below 1000px the 7 tracks would otherwise squish toward 0 beside
+   the still-322px rail (~53px/day on a 375px screen). Instead: collapse the rail out of
+   the flow (it becomes an overlay the #plan-rail-reopen tab can pull back in — railOpen
+   defaults false at this width, see _WeekGrid.cshtml) so the grid gets full width, and
+   restore a per-column floor on .wkgrid so the week HORIZONTALLY SCROLLS rather than
+   squishing. Scroll-and-ship: no phone-native single-day reflow. */
+@media (max-width: 1000px) {
+  /* Let the flex grid-scroll shrink below its content so overflow:auto engages
+     horizontal scroll instead of pushing the layout wider. */
+  .grid-scroll { min-width: 0; }
+  /* Per-column floor: each day >= 140px; the week scrolls beyond the viewport.
+     Day headers and day cells share this one grid, so the floor keeps them aligned. */
+  .wkgrid { grid-template-columns: repeat(7, minmax(140px, 1fr)); min-width: 980px; }
+  /* Rail out of flow so it never steals grid width by default. .plan-body is
+     position:relative/overflow:hidden, so right:0 + the existing
+     .plan-rail.collapsed { margin-right: -322px } slides it off-screen; opening it
+     (railOpen=true) overlays it on top of the grid with a shadow. */
+  .plan-rail {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 20;
+    box-shadow: var(--shadow-lg);
+  }
+}
+
 /* ===========================================================================
    Today (home dashboard) — greeting header, two-column board, cold-start hero.
    Extends plenish.css tokens. Ported from ClaudeDesignProto/today.css.
    =========================================================================== */
 
 /* ---- page wrapper -------------------------------------------------------- */
-.today-wrap { max-width: 1140px; margin: 0 auto; padding: 32px 30px 70px; }
+.today-wrap { max-width: var(--content-max-width); margin: 0 auto; padding: 32px 30px 70px; }
 
 /* ---- greeting header ----------------------------------------------------- */
 .today-head {
@@ -5412,14 +5400,6 @@ button.sadd svg { width: 13px; height: 13px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .today-exp-sub { font-size: 11.5px; color: var(--color-text-faint); margin-top: 1px; }
-
-.today-exp-when {
-  flex: none; font-size: 12px; font-weight: 700; white-space: nowrap;
-  padding: 4px 10px; border-radius: var(--radius-full); font-variant-numeric: tabular-nums;
-}
-.today-exp-when--urgent { background: var(--color-danger-bg); color: var(--color-danger); }
-.today-exp-when--soon   { background: var(--color-warning-bg); color: var(--color-warning); }
-.today-exp-when--ok     { background: var(--color-surface-2); color: var(--color-text-muted); }
 
 /* Take Stock CTA widget — shown when the pantry is empty (J6/P4-9) */
 .today-widget__body { padding: 16px 17px 20px; }
@@ -5794,12 +5774,12 @@ button.sadd svg { width: 13px; height: 13px; }
    Take Stock — location picker (J1), walk (J2), lot hatch (J3), save bar (J4),
    add-item trigger (J5), no-location (J7). Ported from the design prototype
    (take-stock.css), translated onto the app's --color-* / --space-* tokens.
-   Reuses the shared .stepper, .cat-chip, .btn and _ProductSearchCreateSheet
+   Reuses the shared .stepper, .btn and _ProductSearchCreateSheet
    primitives — only Take-Stock-specific structure lives here.
    =========================================================================== */
 
 /* ---- shared page frame -------------------------------------------------- */
-.ts-wrap { max-width: 1080px; margin: 0 auto; padding-bottom: 120px; }
+.ts-wrap { max-width: var(--content-max-width); margin: 0 auto; padding-bottom: 120px; }
 .ts-head { margin-bottom: var(--space-6); }
 .ts-eyebrow {
   display: inline-flex; align-items: center; gap: 7px; margin-bottom: var(--space-3);
@@ -5883,7 +5863,7 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-walk-title .sub { font-size: 0.78125rem; color: var(--color-text-faint); }
 .ts-walk-head .spacer { flex: 1; }
 
-.ts-walk-inner { max-width: 880px; margin: 0 auto; padding-bottom: 120px; }
+.ts-walk-inner { max-width: var(--content-max-width); margin: 0 auto; padding-bottom: 120px; }
 .ts-walk-intro { display: flex; align-items: flex-start; gap: var(--space-3); margin-bottom: 18px; font-size: 0.84375rem; color: var(--color-text-muted); }
 .ts-walk-intro .icon { color: var(--color-accent); flex: none; margin-top: 1px; width: 17px; height: 17px; }
 

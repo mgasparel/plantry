@@ -112,8 +112,9 @@ public sealed class TodayExpiringSoonSmokeTests(AppHostFixture appHost) : IAsync
             await Assertions.Expect(expRow).ToBeVisibleAsync(
                 new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
 
-            // A day-pill badge is present (could be "Today", "Tomorrow", or "N days")
-            var dayPill = expRow.Locator(".today-exp-when");
+            // A day-pill badge is present — the unified expiry pill (plantry-fdoq); its relative
+            // wording could be "Today", "Tomorrow", "in Nd", or "Expired Nd ago".
+            var dayPill = expRow.Locator(".badge-expiry");
             await Assertions.Expect(dayPill).ToBeVisibleAsync();
 
             // The widget's count badge is > 0 (not calm/greyed-out for zero items)

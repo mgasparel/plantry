@@ -4,7 +4,7 @@ namespace Plantry.Web.Pages.Shared;
 public enum GridAlign { Start, Center, End }
 
 /// <summary>The closed vocabulary of cell presentations the `_DataGrid` partial knows how to render.</summary>
-public enum GridCellKind { Text, Muted, Link, Badge, Actions, CategoryChip }
+public enum GridCellKind { Text, Muted, Link, Badge, Actions, ExpiryBadge }
 
 /// <summary>Tonal badge palette, mapped to the generic `.badge--*` modifiers (design tokens) in plenish.css.</summary>
 public enum BadgeTone { Neutral, Info, Success, Warning, Danger }
@@ -70,8 +70,8 @@ public sealed record GridCell
     /// <summary>The actions for an Actions cell.</summary>
     public IReadOnlyList<GridAction> Items { get; init; } = [];
 
-    /// <summary>oklch hue (0–359) for a CategoryChip cell. Null renders the neutral "?" chip.</summary>
-    public int? Hue { get; init; }
+    /// <summary>The <c>.badge-expiry--{tier}</c> modifier ("urgent"/"soon"/"ok") for an ExpiryBadge cell.</summary>
+    public string? ExpiryTier { get; init; }
 
     public static GridCell Text(string value) => new() { Kind = GridCellKind.Text, Value = value };
     public static GridCell Muted(string value) => new() { Kind = GridCellKind.Muted, Value = value };
@@ -80,12 +80,13 @@ public sealed record GridCell
     public static GridCell Actions(params GridAction[] actions) => new() { Kind = GridCellKind.Actions, Items = actions };
 
     /// <summary>
-    /// A category colour chip: a small two-letter pill derived from <paramref name="categoryName"/>'s first two
-    /// characters, coloured via oklch CSS variables at <paramref name="hue"/> degrees. When <paramref name="hue"/>
-    /// is null or <paramref name="categoryName"/> is null a neutral "?" chip is rendered.
+    /// The unified expiry pill — the canonical <c>.badge-expiry</c> component driven by
+    /// <see cref="ExpiryDisplay"/> (plantry-fdoq). Distinct from <see cref="Badge"/> (which renders a generic
+    /// <c>.badge--{tone}</c>): only this kind produces the shared expiry look, so the Pantry grid reads the same
+    /// as the Today rail and Recipe rows. <paramref name="tierModifier"/> is one of "urgent"/"soon"/"ok".
     /// </summary>
-    public static GridCell CategoryChip(string? categoryName, int? hue) =>
-        new() { Kind = GridCellKind.CategoryChip, Value = categoryName, Hue = hue };
+    public static GridCell ExpiryBadge(string label, string tierModifier) =>
+        new() { Kind = GridCellKind.ExpiryBadge, Value = label, ExpiryTier = tierModifier };
 }
 
 /// <summary>One row — a list of cells the page has already mapped, positionally aligned with <see cref="DataGridViewModel.Columns"/>.</summary>

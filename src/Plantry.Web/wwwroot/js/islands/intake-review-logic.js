@@ -216,8 +216,8 @@ export function estimateHint(estimate) {
 
 /**
  * The core "complete prefill" predicate over four raw values — an existing product, a quantity > 0, a
- * unit, and a location. This is the ONE place the four-field rule lives; both the live-draft check
- * ({@link hasCompletePrefill}) and the frozen AI snapshot ({@link makeLine}'s `aiComplete`) go through it.
+ * unit, and a location. This is the ONE place the four-field rule lives; the frozen AI snapshot
+ * ({@link makeLine}'s `aiComplete`) goes through it.
  *
  * SINGLE SOURCE OF TRUTH — this MUST stay identical to the server predicate in
  * {@link "../../../Plantry.Intake/Application/ConfirmLinesCommand.cs"} ConfirmLinesCommand.ExecuteAsync
@@ -236,24 +236,6 @@ export function estimateHint(estimate) {
  */
 export function isPrefillComplete(productId, quantity, unitId, locationId) {
   return !!productId && typeof quantity === "number" && quantity > 0 && !!unitId && !!locationId;
-}
-
-/**
- * Whether the line's CURRENT draft signals form a complete prefill — the live, user-editable view of
- * {@link isPrefillComplete}. Used where "can this line be saved/confirmed right now" is the question
- * (e.g. deck-card validation). It is NOT what qualifies a line for the bulk-confirm checklist — that is
- * {@link isSurePending}, which reads the frozen AI snapshot so a user edit can never promote a line.
- *
- * @param {LineState} ls
- * @returns {boolean}
- */
-export function hasCompletePrefill(ls) {
-  return isPrefillComplete(
-    ls.draftProductId.value,
-    parseFloat(ls.draftQty.value),
-    ls.draftUnitId.value,
-    ls.draftLocationId.value,
-  );
 }
 
 /**

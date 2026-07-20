@@ -16,7 +16,6 @@ import {
   makeLine,
   lineSection,
   isSurePending,
-  hasCompletePrefill,
   isPrefillComplete,
   buildSaveLineBody,
   commitBarCounts,
@@ -287,7 +286,7 @@ describe("lineSection", () => {
   });
 });
 
-// ── isPrefillComplete / hasCompletePrefill / isSurePending (mirror of the ConfirmLines predicate) ─────
+// ── isPrefillComplete / isSurePending (mirror of the ConfirmLines predicate) ─────
 
 describe("isPrefillComplete", () => {
   it("true when product, qty>0, unit and location are all present", () => {
@@ -301,27 +300,6 @@ describe("isPrefillComplete", () => {
     assert.equal(isPrefillComplete("prod-abc", 0, "unit-L", "loc-fridge"), false);
     assert.equal(isPrefillComplete("prod-abc", null, "unit-L", "loc-fridge"), false);
     assert.equal(isPrefillComplete("prod-abc", NaN, "unit-L", "loc-fridge"), false);
-  });
-});
-
-describe("hasCompletePrefill", () => {
-  it("true when product, qty>0, unit and location are all present", () => {
-    assert.equal(hasCompletePrefill(makeState()), true);
-  });
-
-  it("reads the LIVE draft signals (a user edit that completes the drafts makes it true)", () => {
-    const ls = makeState({}, { unitId: null });
-    assert.equal(hasCompletePrefill(ls), false);
-    ls.draftUnitId.value = "unit-L";
-    assert.equal(hasCompletePrefill(ls), true);
-  });
-
-  it("false when any of product / unit / location is missing or qty is not > 0", () => {
-    assert.equal(hasCompletePrefill(makeState({}, { productId: null })), false);
-    assert.equal(hasCompletePrefill(makeState({}, { unitId: null })), false);
-    assert.equal(hasCompletePrefill(makeState({}, { locationId: null })), false);
-    assert.equal(hasCompletePrefill(makeState({}, { quantity: 0 })), false);
-    assert.equal(hasCompletePrefill(makeState({}, { quantity: null })), false);
   });
 });
 
@@ -350,7 +328,15 @@ describe("isSurePending", () => {
     assert.equal(isSurePending(ls), false);
     // The user manually picks the unit in the deck, completing the LIVE draft prefill …
     ls.draftUnitId.value = "unit-L";
-    assert.equal(hasCompletePrefill(ls), true);
+    assert.equal(
+      isPrefillComplete(
+        ls.draftProductId.value,
+        parseFloat(ls.draftQty.value),
+        ls.draftUnitId.value,
+        ls.draftLocationId.value,
+      ),
+      true,
+    );
     // … but it must NOT be promoted into the (non-editable) sure checklist: bulk-confirm re-derives from
     // the untouched AI suggestion (still incomplete) and would reject it. It stays editable in the deck.
     assert.equal(isSurePending(ls), false);
@@ -361,7 +347,15 @@ describe("isSurePending", () => {
     assert.equal(isSurePending(ls), true);
     // Even blanking a live draft field does not un-sure it — aiComplete is frozen at hydration.
     ls.draftUnitId.value = "";
-    assert.equal(hasCompletePrefill(ls), false);
+    assert.equal(
+      isPrefillComplete(
+        ls.draftProductId.value,
+        parseFloat(ls.draftQty.value),
+        ls.draftUnitId.value,
+        ls.draftLocationId.value,
+      ),
+      false,
+    );
     assert.equal(isSurePending(ls), true);
   });
 });

@@ -151,20 +151,44 @@ public sealed class IndexModel(
             ? (s.Descending ? rows.OrderByDescending(key) : rows.OrderBy(key))
             : rows;
 
-    private static GridRow BuildPantryRow(PantryListItem item) => new(
+    private static GridRow BuildPantryRow(PantryListItem item, DateOnly today) => new(
     [
         GridCell.Link(item.Name, $"/Pantry/Products/Detail/{item.ProductId}"),
-        GridCell.CategoryChip(item.CategoryName, item.CategoryHue),
+        GridCell.Text(item.CategoryName ?? "—"),
         item.LocationDisplay is { } loc ? GridCell.Text(loc) : GridCell.Muted("—"),
         item.IsVariant ? GridCell.Badge("Variant", BadgeTone.Neutral) : GridCell.Muted("—"),
         GridCell.Text($"{item.TotalQuantity:0.###} {item.DisplayUnitCode}"),
-        item.SoonestExpiry is { } expiry
-            ? GridCell.Badge(expiry.ToString("d MMM"), ExpiryToneToBadge(item.ExpiryTone))
-            : GridCell.Muted("—"),
+        ExpiryCell(item, today),
     ]);
 
-    private DataGridViewModel BuildPantryGrid(IReadOnlyList<PantryListItem> items, GridSort? sort = null) =>
-        new(
+    /// <summary>
+    /// The pantry Expiry cell — the hybrid decided in plantry-fdoq. <see cref="ExpiryTone"/> (which already bakes
+    /// in the per-household "expiring soon" horizon) decides whether the row is <i>actionable</i>: Expired/Soon
+    /// render the unified <c>.badge-expiry</c> pill with relative wording + colour tier from
+    /// <see cref="ExpiryDisplay"/> (shared with the Today rail and Recipe rows); a calm Ok row shows just the
+    /// muted absolute date; None (no dated lots) shows "—". So pill-presence = within the attention horizon and
+    /// pill-colour = urgency — an in-horizon item still several days out shows a calm 'ok'-toned pill by design.
+    /// <c>internal</c> so the tone→cell-kind mapping can be unit-tested directly (mirrors <see cref="ApplyPantrySort"/>;
+    /// no page-handler test harness exists for this page).
+    /// </summary>
+    internal static GridCell ExpiryCell(PantryListItem item, DateOnly today)
+    {
+        if (item.SoonestExpiry is not { } expiry)
+            return GridCell.Muted("—"); // ExpiryTone.None — no dated lots
+
+        if (item.ExpiryTone is ExpiryTone.Expired or ExpiryTone.Soon)
+        {
+            var (label, tier) = ExpiryDisplay.Format(expiry, today);
+            return GridCell.ExpiryBadge(label, tier);
+        }
+
+        return GridCell.Muted(expiry.ToString("d MMM")); // Ok — beyond the horizon: muted absolute date
+    }
+
+    private DataGridViewModel BuildPantryGrid(IReadOnlyList<PantryListItem> items, GridSort? sort = null)
+    {
+        var today = Today();
+        return new(
             Id: "pantry-grid",
             SortUrl: Url.Page("./Index", "SortPantry"),
             CurrentSort: sort,
@@ -177,15 +201,9 @@ public sealed class IndexModel(
                 new("Quantity", GridAlign.End, SortKey: "qty"),
                 new("Expiry",   SortKey: "expiry"),
             ],
-            Rows: [.. ApplyPantrySort(items, sort).Select(BuildPantryRow)],
+            Rows: [.. ApplyPantrySort(items, sort).Select(i => BuildPantryRow(i, today))],
             EmptyMessage: "Nothing here yet — add your first item with the Add stock button above.");
-
-    private static BadgeTone ExpiryToneToBadge(ExpiryTone tone) => tone switch
-    {
-        ExpiryTone.Expired => BadgeTone.Danger,
-        ExpiryTone.Soon => BadgeTone.Warning,
-        _ => BadgeTone.Success,
-    };
+    }
 
     private async Task<IActionResult> ReloadSheetAsync()
     {

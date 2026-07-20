@@ -155,7 +155,7 @@ to fray — police it as a bright, boring rule.
 - **The component library is the source of truth for *shared, reusable* UI — not an
   inventory of every element.** `src/Plantry.Web/Pages/Dev/Index.cshtml` catalogues the
   cross-cutting building blocks feature pages compose with: reusable Razor tag
-  helpers/partials (`<field>`, `_DataGrid`, `_CatChip`) and canonical CSS patterns reused
+  helpers/partials (`<field>`, `_DataGrid`, `_FilterChip`) and canonical CSS patterns reused
   across pages (`.card`, `.seg-ctrl`, badges, pills, steppers, `searchable-select`). Its
   purpose is to prevent **divergent re-implementations of the same primitive** — not to
   register every screen.

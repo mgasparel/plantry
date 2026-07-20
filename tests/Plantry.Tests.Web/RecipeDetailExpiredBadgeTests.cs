@@ -15,12 +15,13 @@ using Plantry.Tests.Web.Infrastructure;
 namespace Plantry.Tests.Web;
 
 /// <summary>
-/// L4 render assertions for the expired-badge feature (plantry-17n).
-/// Verifies that the shared <c>_IngredientRows.cshtml</c> partial renders:
+/// L4 render assertions for the expired-badge feature (plantry-17n), updated for the unified expiry pill
+/// (plantry-fdoq) — the shared <c>_IngredientRows.cshtml</c> partial now renders the canonical
+/// <c>.badge-expiry</c> component driven by <c>ExpiryDisplay</c>:
 /// <list type="bullet">
-///   <item>The red <c>rd-ing-soon--expired</c> pill with "Expired Nd ago" text when
+///   <item>The urgent-tier <c>badge-expiry--urgent</c> pill with "Expired Nd ago" text when
 ///   <c>ExpiresWithinDays</c> is negative (lot has passed its use-by date).</item>
-///   <item>The amber <c>rd-ing-soon</c> pill with "N d" text when positive (expiring soon).</item>
+///   <item>The <c>badge-expiry--soon</c> pill with "in Nd" text when positive and ≤3 days out.</item>
 /// </list>
 /// Both the initial full-page render and the servings-stepper OOB swap (via
 /// <c>OnGetFulfilmentAsync</c>) use the same shared partial, so the assertions cover both paths.
@@ -34,18 +35,18 @@ public sealed class RecipeDetailExpiredBadgeTests(
     // ── Initial full-page render: expired pill ────────────────────────────────
 
     /// <summary>
-    /// Full-page GET: garlic lot expired 3 days ago → rendered as red
-    /// <c>rd-ing-soon--expired</c> pill with text "Expired 3d ago".
+    /// Full-page GET: garlic lot expired 3 days ago → rendered as the urgent-tier
+    /// <c>badge-expiry--urgent</c> pill with text "Expired 3d ago".
     /// </summary>
     [Fact]
     public async Task Initial_Render_Shows_Expired_Pill_For_Expired_Lot()
     {
         var html = await GetPageHtmlAsync(expiredFactory);
 
-        Assert.Contains("rd-ing-soon--expired", html, StringComparison.Ordinal);
-        Assert.Contains("Expired 3d ago",        html, StringComparison.Ordinal);
-        // The amber (not-yet-expired) pill must NOT appear for this scenario.
-        Assert.DoesNotContain("rd-ing-soon--expired rd-ing-soon", html, StringComparison.Ordinal);
+        Assert.Contains("badge-expiry--urgent", html, StringComparison.Ordinal);
+        Assert.Contains("Expired 3d ago",       html, StringComparison.Ordinal);
+        // The calmer soon/ok tiers must NOT appear for this (expired) scenario.
+        Assert.DoesNotContain("badge-expiry--soon", html, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -65,18 +66,18 @@ public sealed class RecipeDetailExpiredBadgeTests(
     // ── Initial full-page render: soon (amber) pill ───────────────────────────
 
     /// <summary>
-    /// Full-page GET: garlic lot expires in 2 days → rendered as amber <c>rd-ing-soon</c>
-    /// pill (not the <c>--expired</c> variant).
+    /// Full-page GET: garlic lot expires in 2 days → rendered as the <c>badge-expiry--soon</c>
+    /// pill with "in 2d" text (not the urgent/expired variant).
     /// </summary>
     [Fact]
     public async Task Initial_Render_Shows_Soon_Pill_For_Non_Expired_Lot()
     {
         var html = await GetPageHtmlAsync(soonFactory);
 
-        Assert.Contains("rd-ing-soon", html, StringComparison.Ordinal);
-        Assert.Contains("2 d",          html, StringComparison.Ordinal);
-        // Must NOT render the red expired pill.
-        Assert.DoesNotContain("rd-ing-soon--expired", html, StringComparison.Ordinal);
+        Assert.Contains("badge-expiry--soon", html, StringComparison.Ordinal);
+        Assert.Contains("in 2d",              html, StringComparison.Ordinal);
+        // Must NOT render the urgent/expired pill.
+        Assert.DoesNotContain("badge-expiry--urgent", html, StringComparison.Ordinal);
         Assert.DoesNotContain("Expired",              html, StringComparison.Ordinal);
     }
 
@@ -85,7 +86,7 @@ public sealed class RecipeDetailExpiredBadgeTests(
     /// <summary>
     /// OOB swap via <c>OnGetFulfilmentAsync</c>: the fulfillment partial (which emits
     /// <c>#rd-ing-rows</c> via <c>_DetailsFulfilmentCard.cshtml</c>) must also render
-    /// the red expired pill, proving the shared partial covers both paths.
+    /// the urgent expired pill, proving the shared partial covers both paths.
     /// </summary>
     [Fact]
     public async Task OOB_Swap_Shows_Expired_Pill_For_Expired_Lot()
@@ -106,12 +107,12 @@ public sealed class RecipeDetailExpiredBadgeTests(
         Assert.Contains("id=\"rd-ing-rows\"",   html, StringComparison.Ordinal);
 
         // The expired pill must appear in the OOB ingredient rows block.
-        Assert.Contains("rd-ing-soon--expired", html, StringComparison.Ordinal);
-        Assert.Contains("Expired 3d ago",        html, StringComparison.Ordinal);
+        Assert.Contains("badge-expiry--urgent", html, StringComparison.Ordinal);
+        Assert.Contains("Expired 3d ago",       html, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// OOB swap: expiring-soon (amber) pill appears and expired pill does not,
+    /// OOB swap: the <c>badge-expiry--soon</c> pill appears and the urgent/expired pill does not,
     /// symmetric with the initial-render soon test.
     /// </summary>
     [Fact]
@@ -128,8 +129,8 @@ public sealed class RecipeDetailExpiredBadgeTests(
 
         var html = await response.Content.ReadAsStringAsync();
 
-        Assert.Contains("rd-ing-soon",            html, StringComparison.Ordinal);
-        Assert.DoesNotContain("rd-ing-soon--expired", html, StringComparison.Ordinal);
+        Assert.Contains("badge-expiry--soon",         html, StringComparison.Ordinal);
+        Assert.DoesNotContain("badge-expiry--urgent", html, StringComparison.Ordinal);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

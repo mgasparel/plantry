@@ -120,6 +120,14 @@ public sealed class IndexModel(
     public IReadOnlyList<ExpiringSoonItem> ExpiringSoon { get; private set; } = [];
 
     /// <summary>
+    /// Today's date on the same UTC basis the inventory read model uses to compute
+    /// <see cref="ExpiringSoonItem.SoonestExpiry"/> — so <c>_ExpiringWidget</c> can drive the shared
+    /// <see cref="Plantry.Web.Pages.Shared.ExpiryDisplay"/> wording (e.g. "Expired 3d ago") from each item's
+    /// date without re-deriving "today" and risking a one-day drift against the read model (plantry-fdoq).
+    /// </summary>
+    public DateOnly Today { get; private set; }
+
+    /// <summary>
     /// Today's planned meal slots (one per active slot, in ordinal order) for the
     /// Phase-3 meals band (SPEC Page 0 §0c, plantry-zp7). Each slot is either planned
     /// (with recipe/dish/note info + fulfillment hint) or empty (showing a "Plan a meal" affordance).
@@ -161,6 +169,7 @@ public sealed class IndexModel(
     {
         var now = clock.UtcNow;
         DateDisplay = now.LocalDateTime.ToString("dddd, MMMM d");
+        Today = DateOnly.FromDateTime(now.UtcDateTime);
 
         HouseholdId? householdId = tenant.HouseholdId is { } hid
             ? HouseholdId.From(hid)

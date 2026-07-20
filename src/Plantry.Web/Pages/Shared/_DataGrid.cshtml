@@ -86,8 +86,8 @@ else
                                 case GridCellKind.Badge:
                                     <span class="badge @ToneClass(cell.Tone)">@cell.Value</span>
                                     break;
-                                case GridCellKind.CategoryChip:
-                                    <partial name="Shared/_CatChip" model="new Plantry.Web.Pages.Shared.CatChipViewModel(cell.Value, cell.Hue)" />
+                                case GridCellKind.ExpiryBadge:
+                                    <span class="badge-expiry badge-expiry--@cell.ExpiryTier">@cell.Value</span>
                                     break;
                                 case GridCellKind.Actions:
                                     foreach (var action in cell.Items)

@@ -10,9 +10,7 @@ namespace Plantry.Tests.Unit.Shopping.Application;
 /// Verifies that Note and CategoryHue round-trip through the view model
 /// (plantry-77f acceptance criteria), and that pantry stock levels (on-hand / IsLow)
 /// are enriched via the Shopping→Inventory ACL port (plantry-juh).
-/// CategoryCode derivation is intentionally not in the read model — downstream markup
-/// feeds <c>CatChipViewModel(CategoryName, CategoryHue)</c> to the shared <c>_CatChip</c>
-/// partial, which owns the code derivation.
+/// CategoryHue drives the shopping list's <c>.sl-cat-pill</c> dot colour in the markup.
 /// </summary>
 public sealed class ShoppingListQueryServiceTests
 {
