@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Plantry.Identity.Infrastructure;
@@ -11,9 +12,11 @@ using Plantry.Identity.Infrastructure;
 namespace Plantry.Identity.Infrastructure.Migrations
 {
     [DbContext(typeof(PlantryIdentityDbContext))]
-    partial class PlantryIdentityDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260720041057_AddHouseholdDisplayCurrency")]
+    partial class AddHouseholdDisplayCurrency
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

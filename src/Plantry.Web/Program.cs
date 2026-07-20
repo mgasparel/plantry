@@ -206,6 +206,11 @@ builder.Services.AddScoped<IHouseholdRepository, HouseholdRepository>();
 // /Settings/Ai write path. The setting lives on the Household aggregate (identity schema).
 builder.Services.AddScoped<AiAssistanceSettingsService>();
 builder.Services.AddScoped<IAiAssistanceGate>(sp => sp.GetRequiredService<AiAssistanceSettingsService>());
+// Per-household display currency (plantry-2x6e.1): one settings service backs both the read source
+// (IDisplayCurrency — budget writers stamp it instead of hardcoded "USD") and the /Settings/Currency
+// write path. Lives on the Household aggregate (identity schema).
+builder.Services.AddScoped<DisplayCurrencyService>();
+builder.Services.AddScoped<IDisplayCurrency>(sp => sp.GetRequiredService<DisplayCurrencyService>());
 // Household membership invites (plantry-00v1): issue/revoke run under the authenticated household;
 // accept runs pre-auth and resolves the invite by its unique token (identity schema).
 builder.Services.AddScoped<IHouseholdInviteRepository, HouseholdInviteRepository>();

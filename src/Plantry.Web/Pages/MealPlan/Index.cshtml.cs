@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ViewEngines;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Plantry.Identity.Application;
 using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
@@ -42,6 +43,7 @@ public sealed class IndexModel(
     Plantry.Recipes.Domain.FulfillmentService recipesFulfillmentService,
     Plantry.Recipes.Domain.CostingService recipesCostingService,
     Plantry.Recipes.Application.IExpiringSoonHorizonReader expiringSoonHorizon,
+    IDisplayCurrency displayCurrency,
     ITenantContext tenant,
     UserManager<AppUser> userManager,
     IClock clock,
@@ -342,9 +344,10 @@ public sealed class IndexModel(
             ? DomainMealPlan.NormalizeToMonday(parsed)
             : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(DateTime.Today));
 
-        // Resolve the submitted budget: positive value → Money; zero or null → clear.
+        // Resolve the submitted budget: positive value → Money stamped with the household's display
+        // currency (plantry-2x6e.1); zero or null → clear.
         Money? budgetMoney = budget is > 0
-            ? Money.FromDecimal(budget.Value, "USD")
+            ? Money.FromDecimal(budget.Value, await displayCurrency.GetAsync(ct))
             : null;
 
         // Resolve the submitted weights; ignore if they don't sum to 100.

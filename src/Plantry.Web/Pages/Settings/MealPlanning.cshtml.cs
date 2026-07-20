@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Plantry.Identity.Application;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
@@ -19,6 +20,7 @@ namespace Plantry.Web.Pages.Settings;
 public sealed class MealPlanningModel(
     IHouseholdPlanningSettingsRepository settingsRepo,
     SetPlanningSettingsService setPlanningSettingsService,
+    IDisplayCurrency displayCurrency,
     ITenantContext tenant) : PageModel
 {
     /// <summary>Current household default budget in decimal dollars, or null when not set.</summary>
@@ -47,9 +49,10 @@ public sealed class MealPlanningModel(
     {
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
 
-        // Resolve submitted budget: positive value → Money; zero or null → clear.
+        // Resolve submitted budget: positive value → Money stamped with the household's display
+        // currency (plantry-2x6e.1); zero or null → clear.
         Money? budgetMoney = budget is > 0
-            ? Money.FromDecimal(budget.Value, "USD")
+            ? Money.FromDecimal(budget.Value, await displayCurrency.GetAsync(ct))
             : null;
 
         // Resolve submitted weights; ignore if they don't sum to 100.

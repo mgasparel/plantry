@@ -40,6 +40,12 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
             b.Property(h => h.AiAssistanceEnabled)
                 .HasColumnName("ai_assistance_enabled")
                 .HasDefaultValue(true);
+            // Household display currency (plantry-2x6e.1). Store default 'USD' backfills pre-existing
+            // households; new households insert with the aggregate default ("USD"). 3-char ISO 4217 code.
+            b.Property(h => h.DisplayCurrency)
+                .HasColumnName("display_currency")
+                .HasMaxLength(3)
+                .HasDefaultValue("USD");
             b.Property(h => h.CreatedAt).HasColumnName("created_at");
 
             // App-layer half of the defense-in-depth pair (the Postgres RLS policy is the other).

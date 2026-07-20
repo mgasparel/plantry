@@ -431,6 +431,9 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+            // Household display currency (plantry-2x6e.1): the SetPlanningSettings POST path resolves it
+            // to stamp the budget Money; stub to USD so the DB-backed real service isn't hit.
+            services.AddFakeDisplayCurrency();
             // Auth: header-driven test scheme
             services.AddAuthentication(opts =>
                 {
