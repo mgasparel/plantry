@@ -478,6 +478,16 @@
         <code>Deletable</code> for a per-row Remove form. Used across <code>Catalog/Index</code>,
         <code>Products/Index</code>, Product Detail, Locations, and Categories.
     </p>
+    <p>
+        <strong>Shared row rhythm.</strong> The row-list and the data grid
+        below read as one family: both consume the same <code>--row-*</code> tokens defined in
+        <code>plenish.css</code> <code>:root</code> — <code>--row-padding-y</code>,
+        <code>--row-padding-x</code>, <code>--row-font-size</code>, <code>--row-primary-weight</code>,
+        <code>--row-hover-bg</code>, and <code>--row-border-color</code> — so a list row and a table
+        row match on height, padding, border, hover, and primary/secondary/meta type. Change the row
+        rhythm once at those tokens; both primitives follow. The table adds column headers + sort on
+        top of that shared rhythm; the row-list keeps its single-primary layout.
+    </p>
 
     <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Populated</h3>
     <partial name="Shared/_RowList" model="Model.PopulatedList" />
