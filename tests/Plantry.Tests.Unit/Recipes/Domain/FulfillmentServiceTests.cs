@@ -231,6 +231,31 @@ public sealed class FulfillmentServiceTests
         Assert.Equal(IngredientStatus.Missing, line.Status);
     }
 
+    // ── Unit-gap distinction (plantry-z2sr) ──────────────────────────────────
+
+    [Fact]
+    public async Task Missing_Due_To_Unconvertible_On_Hand_Stock_Sets_UnitMismatch()
+    {
+        // 1 lb of onions on hand, recipe calls for "1 ea" — no weight↔count conversion. The row reads
+        // Missing (can't convert to compare), but there IS stock, so the display-only UnitMismatch flag
+        // is set so the UI shows "can't compare units", not "Not in your pantry" (the dogfood repro).
+        var h = new Harness();
+        var recipeUnit = Guid.CreateVersion7(); // "ea"
+        var stockUnit = Guid.CreateVersion7();  // "lb" — IdentityUnitConverter fails across the two
+        var onions = h.Catalog.AddTrackedLeaf(stockUnit, "Onions");
+        h.Stock.Add(onions.Id, available: 1m, stockUnit);
+
+        var recipe = BuildRecipe(onions.Id, 1m, recipeUnit);
+
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Missing, line.Status);
+        Assert.True(line.UnitMismatch);
+        // Cookability rollup is unaffected — this stays a Missing so shortfall/shopping are unchanged.
+        Assert.Equal(1, result.Overall.MissingCount);
+    }
+
     // ── Parent/variant rollup (DM-19) ─────────────────────────────────────────
 
     [Fact]
@@ -801,7 +826,69 @@ public sealed class FulfillmentServicePureOverloadTests
         var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
 
         // Converter fails → available = 0 → Missing (not an exception)
-        Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Missing, line.Status);
+        // …but there IS real stock we simply can't convert, so the display-only UnitMismatch flag is set
+        // (plantry-z2sr): the row is "can't compare units", not an empty pantry.
+        Assert.True(line.UnitMismatch);
+    }
+
+    // ── Unit-gap distinction (plantry-z2sr): Missing-due-to-no-conversion vs genuine empty ────
+
+    [Fact]
+    public void Pure_Genuine_Empty_Pantry_Does_Not_Set_UnitMismatch()
+    {
+        // No stock record at all → Missing, but this is a genuine empty pantry, NOT a unit gap.
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, unit) };
+        var stock = new Dictionary<Guid, ProductStock>();
+
+        var recipe = BuildRecipe(productId, 100m, unit);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Missing, line.Status);
+        Assert.False(line.UnitMismatch);
+    }
+
+    [Fact]
+    public void Pure_Zero_On_Hand_Unconvertible_Does_Not_Set_UnitMismatch()
+    {
+        // Stock exists but is empty (0 on hand) AND its unit can't convert → still a genuine Missing, not
+        // a unit gap: there is nothing to compare, so we must not claim "you have some we can't compare".
+        var ingredientUnit = Guid.CreateVersion7();
+        var stockUnit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, stockUnit) };
+        var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 0m, stockUnit) };
+
+        var recipe = BuildRecipe(productId, 100m, ingredientUnit);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Missing, line.Status);
+        Assert.False(line.UnitMismatch);
+    }
+
+    [Fact]
+    public void Pure_InStock_Never_Sets_UnitMismatch()
+    {
+        // Convertible stock that satisfies the requirement → InStock and UnitMismatch stays false.
+        var unit = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+        var catalog = new Dictionary<Guid, CatalogProduct> { [productId] = TrackedLeaf(productId, unit) };
+        var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 500m, unit) };
+
+        var recipe = BuildRecipe(productId, 100m, unit);
+        var svc = new FulfillmentService(null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStock, line.Status);
+        Assert.False(line.UnitMismatch);
     }
 
     // ── Missing catalog entry → Missing ──────────────────────────────────────
