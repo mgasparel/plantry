@@ -419,7 +419,7 @@ public sealed class DetailModel(
 
         var candidates = await products.ListActiveAsync();
         ParentOptions = candidates
-            .Where(p => p.Id != Id && !p.IsVariant && !p.IsParent)
+            .Where(p => p.Id != Id && !p.IsVariant)
             .Select(p => new SelectListItem(p.Name, p.Id.Value.ToString()))
             .ToList();
     }
