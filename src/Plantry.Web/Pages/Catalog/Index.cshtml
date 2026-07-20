@@ -7,22 +7,38 @@
 <section class="catalog-section">
     <h2 class="catalog-section__heading">Catalog</h2>
     <p>Manage the products, units, categories, and locations your household uses to track stock.</p>
-    <ul class="catalog-list" role="list">
-        <li class="catalog-list__item">
-            <a class="catalog-list__primary" href="/Catalog/Products">Products</a>
-            <span class="catalog-list__secondary">SKUs, conversions, expiry defaults, parent/variant groups</span>
-        </li>
-        <li class="catalog-list__item">
-            <a class="catalog-list__primary" href="/Catalog/Units">Units</a>
-            <span class="catalog-list__secondary">Mass, volume, and count units used for sizing and conversions</span>
-        </li>
-        <li class="catalog-list__item">
-            <a class="catalog-list__primary" href="/Catalog/Categories">Categories</a>
-            <span class="catalog-list__secondary">Group products and set default expiry windows</span>
-        </li>
-        <li class="catalog-list__item">
-            <a class="catalog-list__primary" href="/Catalog/Locations">Locations</a>
-            <span class="catalog-list__secondary">Where stock lives — pantry shelves, fridges, freezers</span>
-        </li>
-    </ul>
+    <nav class="hub-list" aria-label="Catalog sections">
+        <a href="/Catalog/Products" class="hub-list__item">
+            <svg class="icon hub-list__icon" aria-hidden="true"><use href="#i-box" /></svg>
+            <div class="hub-list__text">
+                <span class="hub-list__label">Products</span>
+                <span class="hub-list__sub">SKUs, conversions, expiry defaults, parent/variant groups</span>
+            </div>
+            <svg class="icon hub-list__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+        </a>
+        <a href="/Catalog/Units" class="hub-list__item">
+            <svg class="icon hub-list__icon" aria-hidden="true"><use href="#i-scale" /></svg>
+            <div class="hub-list__text">
+                <span class="hub-list__label">Units</span>
+                <span class="hub-list__sub">Mass, volume, and count units used for sizing and conversions</span>
+            </div>
+            <svg class="icon hub-list__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+        </a>
+        <a href="/Catalog/Categories" class="hub-list__item">
+            <svg class="icon hub-list__icon" aria-hidden="true"><use href="#i-grid" /></svg>
+            <div class="hub-list__text">
+                <span class="hub-list__label">Categories</span>
+                <span class="hub-list__sub">Group products and set default expiry windows</span>
+            </div>
+            <svg class="icon hub-list__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+        </a>
+        <a href="/Catalog/Locations" class="hub-list__item">
+            <svg class="icon hub-list__icon" aria-hidden="true"><use href="#i-location" /></svg>
+            <div class="hub-list__text">
+                <span class="hub-list__label">Locations</span>
+                <span class="hub-list__sub">Where stock lives — pantry shelves, fridges, freezers</span>
+            </div>
+            <svg class="icon hub-list__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+        </a>
+    </nav>
 </section>
