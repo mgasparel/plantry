@@ -387,4 +387,24 @@ public sealed class GeminiReceiptParserTests
         Assert.False(result.HasError);
         Assert.All(result.Lines, l => Assert.Null(l.Alternatives));
     }
+
+    // ── purchase_date plausibility window (plantry-ag05) ────────────────────────────────────────────
+
+    private static readonly DateOnly Upload = new(2026, 7, 19);
+
+    [Theory]
+    [InlineData("2026-07-19")] // the upload date itself
+    [InlineData("2026-07-20")] // upload + 1 day — inclusive timezone-skew allowance
+    [InlineData("2025-07-19")] // exactly one year before upload — inclusive past floor
+    [InlineData("2026-03-01")] // an ordinary recent date
+    public void Plausible_Dates_Are_Inside_The_Window(string date) =>
+        Assert.True(GeminiReceiptParser.IsPlausiblePurchaseDate(DateOnly.Parse(date), Upload));
+
+    [Theory]
+    [InlineData("2026-07-21")] // two days after upload — past the +1-day allowance
+    [InlineData("2027-07-19")] // a year in the future
+    [InlineData("2025-07-18")] // one day past the one-year floor
+    [InlineData("2019-07-26")] // the reported bug: a year-digit swap, ~7 years stale
+    public void Implausible_Dates_Are_Outside_The_Window(string date) =>
+        Assert.False(GeminiReceiptParser.IsPlausiblePurchaseDate(DateOnly.Parse(date), Upload));
 }
