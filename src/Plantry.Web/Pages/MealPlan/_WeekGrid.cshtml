@@ -11,7 +11,13 @@
 }
 else
 {
-    <div class="plan-body-inner" x-data="{ railOpen: true }" style="display:contents">
+    @* railOpen defaults open on desktop, but auto-collapsed at the narrow/mobile breakpoint
+       (<=1000px) so the insights rail never steals width from the 7-day grid there — the grid
+       gets full width and horizontally scrolls (plantry-3j7h). Below the breakpoint the rail
+       becomes an overlay; the #plan-rail-reopen affordance (x-show="!railOpen") lets the user
+       pull it in on top of the grid. Mirrors the CSS breakpoint in plenish.css (.plan-rail
+       overlay + .wkgrid min-width). *@
+    <div class="plan-body-inner" x-data="{ railOpen: !window.matchMedia('(max-width: 1000px)').matches }" style="display:contents">
     <div class="grid-scroll">
         <div class="wkgrid">
             @* Day-column headers *@

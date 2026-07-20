@@ -5267,6 +5267,32 @@ button.sadd svg { width: 13px; height: 13px; }
 .rail-reopen svg, .rail-reopen .icon { width: 16px; height: 16px; color: var(--color-accent); }
 .rail-reopen .rr-badge { background: var(--color-accent); color: #fff; border-radius: 999px; min-width: 18px; height: 18px; font-size: 11px; font-weight: 700; display: grid; place-items: center; padding: 0 5px; }
 
+/* ── MealPlan narrow/mobile responsive treatment (plantry-3j7h) ──────────────
+   Desktop (>1000px) is untouched: .wkgrid stays repeat(7, minmax(0,1fr)) with no
+   min-width so all 7 days fit beside the 322px insights rail (the plantry-to8u
+   Sat/Sun-clip fix). Below 1000px the 7 tracks would otherwise squish toward 0 beside
+   the still-322px rail (~53px/day on a 375px screen). Instead: collapse the rail out of
+   the flow (it becomes an overlay the #plan-rail-reopen tab can pull back in — railOpen
+   defaults false at this width, see _WeekGrid.cshtml) so the grid gets full width, and
+   restore a per-column floor on .wkgrid so the week HORIZONTALLY SCROLLS rather than
+   squishing. Scroll-and-ship: no phone-native single-day reflow. */
+@media (max-width: 1000px) {
+  /* Let the flex grid-scroll shrink below its content so overflow:auto engages
+     horizontal scroll instead of pushing the layout wider. */
+  .grid-scroll { min-width: 0; }
+  /* Per-column floor: each day >= 140px; the week scrolls beyond the viewport.
+     Day headers and day cells share this one grid, so the floor keeps them aligned. */
+  .wkgrid { grid-template-columns: repeat(7, minmax(140px, 1fr)); min-width: 980px; }
+  /* Rail out of flow so it never steals grid width by default. .plan-body is
+     position:relative/overflow:hidden, so right:0 + the existing
+     .plan-rail.collapsed { margin-right: -322px } slides it off-screen; opening it
+     (railOpen=true) overlays it on top of the grid with a shadow. */
+  .plan-rail {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 20;
+    box-shadow: var(--shadow-lg);
+  }
+}
+
 /* ===========================================================================
    Today (home dashboard) — greeting header, two-column board, cold-start hero.
    Extends plenish.css tokens. Ported from ClaudeDesignProto/today.css.
