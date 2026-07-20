@@ -95,11 +95,11 @@ public sealed class FulfillmentService(
         var resultLines = new List<ExpandedIngredientFulfillment>(lines.Count);
         foreach (var line in lines)
         {
-            var (status, expires, available) = ComputeLineCore(
+            var (status, expires, available, unitMismatch) = ComputeLineCore(
                 line.ProductId, line.Quantity, line.UnitId,
                 scale, catalogById, stockById, today, converter, expiringSoonDays);
             resultLines.Add(new ExpandedIngredientFulfillment(
-                line.ProductId, line.UnitId, status, expires, available));
+                line.ProductId, line.UnitId, status, expires, available, unitMismatch));
         }
 
         var overall = BuildOverall(resultLines.Select(l => l.Status));
@@ -237,10 +237,10 @@ public sealed class FulfillmentService(
         var lines = new List<IngredientFulfillment>(ingredients.Count);
         foreach (var ingredient in ingredients)
         {
-            var (status, expires, available) = ComputeLineCore(
+            var (status, expires, available, unitMismatch) = ComputeLineCore(
                 ingredient.ProductId, ingredient.Quantity, ingredient.UnitId,
                 scale, catalogById, stockById, today, converter, expiringSoonDays);
-            lines.Add(new IngredientFulfillment(ingredient.Id, status, expires, available));
+            lines.Add(new IngredientFulfillment(ingredient.Id, status, expires, available, unitMismatch));
         }
 
         return new FulfillmentResult(BuildOverall(lines.Select(l => l.Status)), lines);
@@ -252,10 +252,15 @@ public sealed class FulfillmentService(
     /// J1/J3 expiry-soon horizon). Keyed only on product/quantity/unit so it is agnostic to whether the
     /// line came from a direct ingredient (flat) or an aggregated expanded line, and to whether the
     /// converter is live (async path, pre-resolved) or caller-supplied (pure overload). Returns the
-    /// availability status, the signed expiry-soon days (or null), and the available quantity in the
-    /// line's unit (or null when nothing is available / the line is untracked). Does no IO.
+    /// availability status, the signed expiry-soon days (or null), the available quantity in the
+    /// line's unit (or null when nothing is available / the line is untracked), and a display-only
+    /// <c>UnitMismatch</c> flag — true when the line reads as Missing <b>only</b> because real on-hand
+    /// stock (quantity &gt; 0) could not be converted to the recipe unit, so the pantry cannot be
+    /// compared rather than being genuinely empty (plantry-z2sr). The flag never alters the status or
+    /// the cookability rollup — it exists purely so the UI can distinguish "can't compare units" from
+    /// "not in pantry". Does no IO.
     /// </summary>
-    private static (IngredientStatus Status, int? ExpiresWithinDays, decimal? AvailableQuantity) ComputeLineCore(
+    private static (IngredientStatus Status, int? ExpiresWithinDays, decimal? AvailableQuantity, bool UnitMismatch) ComputeLineCore(
         Guid productId,
         decimal? quantity,
         Guid? unitId,
@@ -268,12 +273,12 @@ public sealed class FulfillmentService(
     {
         // Unresolvable product → Missing.
         if (!catalogById.TryGetValue(productId, out var catalogProduct))
-            return (IngredientStatus.Missing, null, null);
+            return (IngredientStatus.Missing, null, null, false);
 
         // Untracked staple (track_stock = false) is always satisfied (C12) — and, defensively, a null
         // quantity/unit ("to taste") is treated the same even on a tracked product (R5).
         if (!catalogProduct.TrackStock || quantity is null || unitId is null)
-            return (IngredientStatus.Untracked, null, null);
+            return (IngredientStatus.Untracked, null, null, false);
 
         var scaledRequired = quantity.Value * scale;
 
@@ -281,6 +286,9 @@ public sealed class FulfillmentService(
         // a leaf draws from itself; a parent (DM-19) sums across its live variant children.
         decimal totalAvailableInLineUnit = 0m;
         DateOnly? soonestExpiry = null;
+        // True when some ref holds real stock (qty > 0) that could not be converted to the line unit —
+        // the "can't compare" signal behind the display-only UnitMismatch flag (plantry-z2sr).
+        var hadUnconvertibleStock = false;
         foreach (var stockRef in StockRefsFor(catalogProduct, productId))
         {
             if (!stockById.TryGetValue(stockRef, out var stock))
@@ -289,6 +297,8 @@ public sealed class FulfillmentService(
             var converted = converter(stockRef, stock.AvailableQuantity, stock.DefaultUnitId, unitId.Value);
             if (converted.IsSuccess)
                 totalAvailableInLineUnit += converted.Value;
+            else if (stock.AvailableQuantity > 0m)
+                hadUnconvertibleStock = true;
             // On conversion failure the ref contributes 0 — partial visibility is better than a crash.
 
             if (stock.SoonestExpiry is { } expiry &&
@@ -300,6 +310,12 @@ public sealed class FulfillmentService(
             : totalAvailableInLineUnit < scaledRequired ? IngredientStatus.Low
             : IngredientStatus.InStock;
 
+        // Display-only: a Missing that is really "we hold stock we can't convert to compare", not an
+        // empty pantry (plantry-z2sr). Status stays Missing so cookability / shortfall / shopping are
+        // unchanged — only the UI reads this flag to swap the "Not in your pantry" copy for an honest
+        // "can't compare units" explanation. Mirrors the Cook page's IsUnitGap treatment (plantry-qll2.5).
+        var unitMismatch = totalAvailableInLineUnit <= 0m && hadUnconvertibleStock;
+
         // Expiry-soon flag (J1/J3): signed days when soonest expiry is within the household's horizon.
         int? expiresWithinDays = null;
         if (soonestExpiry is { } soonest)
@@ -309,7 +325,7 @@ public sealed class FulfillmentService(
                 expiresWithinDays = daysUntilExpiry;
         }
 
-        return (status, expiresWithinDays, totalAvailableInLineUnit > 0m ? totalAvailableInLineUnit : null);
+        return (status, expiresWithinDays, totalAvailableInLineUnit > 0m ? totalAvailableInLineUnit : null, unitMismatch);
     }
 
     private static FulfillmentOverall BuildOverall(IEnumerable<IngredientStatus> statuses)
@@ -372,11 +388,18 @@ public enum IngredientStatus
 /// Available quantity in the ingredient's unit; null when nothing is available or the ingredient is
 /// untracked.
 /// </param>
+/// <param name="UnitMismatch">
+/// Display-only (plantry-z2sr): true when <paramref name="Status"/> is Missing <b>only</b> because
+/// real on-hand stock could not be converted to the recipe unit — the pantry can't be compared, it is
+/// not empty. Lets the UI show an honest "can't compare units" explanation instead of "Not in your
+/// pantry". Never affects the status or the cookability rollup.
+/// </param>
 public sealed record IngredientFulfillment(
     IngredientId IngredientId,
     IngredientStatus Status,
     int? ExpiresWithinDays,
-    decimal? AvailableQuantity);
+    decimal? AvailableQuantity,
+    bool UnitMismatch = false);
 
 /// <summary>
 /// Top-level summary of whether a recipe is fully cookable.
@@ -407,12 +430,17 @@ public sealed record FulfillmentResult(
 /// <param name="Status">Availability classification for this product at the requested servings.</param>
 /// <param name="ExpiresWithinDays">Signed expiry-soon days (see <see cref="IngredientFulfillment.ExpiresWithinDays"/>).</param>
 /// <param name="AvailableQuantity">Available quantity in the line's unit; null when nothing is available or untracked.</param>
+/// <param name="UnitMismatch">
+/// Display-only (plantry-z2sr): true when <paramref name="Status"/> is Missing <b>only</b> because real
+/// on-hand stock could not be converted to the recipe unit (see <see cref="IngredientFulfillment.UnitMismatch"/>).
+/// </param>
 public sealed record ExpandedIngredientFulfillment(
     Guid ProductId,
     Guid? UnitId,
     IngredientStatus Status,
     int? ExpiresWithinDays,
-    decimal? AvailableQuantity);
+    decimal? AvailableQuantity,
+    bool UnitMismatch = false);
 
 /// <summary>
 /// The complete cookability computation over a recipe's <b>expanded</b> view at a given serving count

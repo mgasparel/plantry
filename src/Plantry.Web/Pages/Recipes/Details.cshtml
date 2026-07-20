@@ -60,10 +60,27 @@
      }">
 
     <div class="rd-wrap">
-        <a href="/Recipes" class="rd-back">
-            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-            All recipes
-        </a>
+        @* ── Back link + entity-level action on one row (plantry-jby4). Edit lives exactly
+              once, in the rail (_DetailsFulfilmentCard); Archive reuses the documented
+              .card__head-actions slot here, mirroring Catalog/Products/Detail. ── *@
+        <div class="rd-topbar">
+            <a href="/Recipes" class="rd-back">
+                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                All recipes
+            </a>
+            <div class="card__head-actions">
+                @* Native form POST (OnPostArchiveAsync redirects on success / re-renders the N5
+                   banner when blocked) — keep the native confirm; do NOT switch to hx-confirm. *@
+                <form method="post" action="/Recipes/@recipe.Id?handler=Archive" style="display:inline"
+                      onsubmit="return confirm('Archive this recipe? It will no longer appear in your recipe list.');">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn--ghost btn--sm" style="color:var(--color-danger)">
+                        <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
+                        Archive
+                    </button>
+                </form>
+            </div>
+        </div>
 
         @* ── Archive-blocked (N5) error banner (plantry-fqb0.3, D12) ── *@
         @if (Model.SaveError is { } archiveErr)
@@ -73,22 +90,6 @@
                 @archiveErr
             </div>
         }
-
-        @* ── Recipe actions (edit / archive) ── *@
-        <div class="rd-actions" style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-bottom:var(--space-3)">
-            <a href="/Recipes/@recipe.Id/Edit" class="btn btn--ghost btn--sm">
-                <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
-                Edit
-            </a>
-            <form method="post" action="/Recipes/@recipe.Id?handler=Archive" style="display:inline"
-                  onsubmit="return confirm('Archive this recipe? It will no longer appear in your recipe list.');">
-                @Html.AntiForgeryToken()
-                <button type="submit" class="btn btn--ghost btn--sm" style="color:var(--color-danger)">
-                    <svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg>
-                    Archive
-                </button>
-            </form>
-        </div>
 
         <div class="rd-grid">
 
@@ -335,6 +336,16 @@
 
 @* ── Included-recipes card styling (plantry-fqb0.3) — page-specific; composes plenish.css tokens ── *@
 <style>
+    /* Back-link row hosting the entity-level .card__head-actions slot (plantry-jby4). Flex so the
+       slot's margin-left:auto right-aligns Archive; owns the row's bottom gap (.rd-back's own is
+       zeroed here) so the pill and button stay vertically centred. */
+    .rd-topbar {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        margin-bottom: var(--space-4);
+    }
+    .rd-topbar .rd-back { margin-bottom: 0; }
     .rd-incl-card {
         margin-top: var(--space-4);
         border: 1px solid var(--color-border);

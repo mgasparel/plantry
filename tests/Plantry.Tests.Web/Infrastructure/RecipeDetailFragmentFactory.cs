@@ -81,6 +81,13 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
     /// </summary>
     protected virtual string DisplayCurrency => "USD";
 
+    /// <summary>
+    /// Stock snapshots the Detail page's fulfillment reads. Default is the mixed-status scenario
+    /// (Pasta InStock, Tomatoes Low, Garlic Missing). A derived factory overrides this to exercise the
+    /// unit-gap render path (plantry-z2sr) where on-hand stock can't be converted to the recipe unit.
+    /// </summary>
+    protected virtual IReadOnlyDictionary<Guid, ProductStock> Stock => RecipeDetailFixture.Stock(Today);
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Non-Development: skips startup migrations/seeding and the Dev-pages gate.
@@ -119,7 +126,7 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             // Inventory stock reader: mixed statuses (Pasta=InStock, Tomatoes=Low, Garlic=Missing).
             services.RemoveAll<IInventoryStockReader>();
             services.AddSingleton<IInventoryStockReader>(
-                new FakeDetailStockReader(RecipeDetailFixture.Stock(Today)));
+                new FakeDetailStockReader(Stock));
 
             // Price reader: scenario-dependent (see Prices). Default = Partial (Garlic un-priced).
             services.RemoveAll<IPriceReader>();
@@ -170,4 +177,15 @@ public sealed class RecipeDetailEurCostFactory : RecipeDetailFragmentFactory
 {
     protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesFull();
     protected override string DisplayCurrency => "EUR";
+}
+
+/// <summary>
+/// Variant: Garlic on hand as a weight (grams) while the recipe line is a count ("ea") with no conversion
+/// path — the unit-gap render path (plantry-z2sr). The Garlic row must read "Can't compare units" with the
+/// info-tone status and the explanatory popover, not the flat danger "Not in your pantry".
+/// </summary>
+public sealed class RecipeDetailUnitGapFactory : RecipeDetailFragmentFactory
+{
+    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
+    protected override IReadOnlyDictionary<Guid, ProductStock> Stock => RecipeDetailFixture.StockWithUnitGap(Today);
 }

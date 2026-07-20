@@ -507,8 +507,8 @@ function DeckCard({ ls, products, units, locations, categories, today, canSkip, 
     <section class="card focus-card" ref=${cardRef} data-line-id=${ls.lineId}
              onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
              onPointerUp=${onPointerEnd} onPointerCancel=${onPointerEnd}>
-      <span class="swipe-hint swipe-hint--confirm" data-hint="confirm">&#10003; Confirm</span>
-      <span class="swipe-hint swipe-hint--reject" data-hint="reject">&#10005; Not stock</span>
+      <span class="swipe-hint swipe-hint--confirm" data-hint="confirm">✓ Confirm</span>
+      <span class="swipe-hint swipe-hint--reject" data-hint="reject">✕ Not stock</span>
 
       <div class="focus-card__flyer">
         <div class="focus-card__src">From the receipt</div>
@@ -526,7 +526,7 @@ function DeckCard({ ls, products, units, locations, categories, today, canSkip, 
 
       <div class="focus-verbs">
         ${inSearch
-          ? html`<button type="button" class="btn btn--ghost btn--sm" onClick=${() => onSearchOff(ls)}>&larr; Back to the suggestion</button>`
+          ? html`<button type="button" class="btn btn--ghost btn--sm" onClick=${() => onSearchOff(ls)}>← Back to the suggestion</button>`
           : html`
             <button type="button" class="btn btn--ghost btn--sm" disabled=${ls.saving.value} onClick=${onReject}>Not pantry stock</button>
             <button type="button" class="btn btn--secondary btn--sm" onClick=${() => onSearchOn(ls)}>
@@ -538,8 +538,8 @@ function DeckCard({ ls, products, units, locations, categories, today, canSkip, 
       </div>
 
       <div class="focus-under">
-        <button type="button" disabled=${!canBack} onClick=${onBack}>&larr; Undo skip</button>
-        <button type="button" disabled=${!canSkip} onClick=${onSkip}>Skip for now &rarr;</button>
+        <button type="button" disabled=${!canBack} onClick=${onBack}>← Undo skip</button>
+        <button type="button" disabled=${!canSkip} onClick=${onSkip}>Skip for now →</button>
       </div>
     </section>
   `;
@@ -562,7 +562,7 @@ function Checklist({ sureLines, products, onToggle, onBulkConfirm }) {
             <input type="checkbox" checked=${ls.checked.value}
                    onChange=${() => onToggle(ls)} />
             <span class="raw"><b title=${ls.receiptText}>${prettyRaw(ls.receiptText)}</b></span>
-            <span class="to">&rarr; <span class="product">${displayNameFor(ls, products)}</span></span>
+            <span class="to">→ <span class="product">${displayNameFor(ls, products)}</span></span>
           </li>`)}
       </ul>
       <div class="step-foot">
@@ -885,11 +885,11 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
                         <div class="swipe-tip">Swipe right to confirm · left to reject</div>
                       </div>
                       <div class="kbd-bar kbd-bar--inline">
-                        <span><kbd>Enter</kbd>/<kbd>&rarr;</kbd> confirm</span>
-                        <span><kbd>1</kbd>&ndash;<kbd>9</kbd> pick</span>
+                        <span><kbd>Enter</kbd>/<kbd>→</kbd> confirm</span>
+                        <span><kbd>1</kbd>–<kbd>9</kbd> pick</span>
                         <span><kbd>M</kbd> change match</span>
                         <span><kbd>N</kbd> new product</span>
-                        <span><kbd>X</kbd>/<kbd>&larr;</kbd> not stock</span>
+                        <span><kbd>X</kbd>/<kbd>←</kbd> not stock</span>
                         <span><kbd>S</kbd> skip</span>
                         <span><kbd>Z</kbd> undo skip</span>
                         <span><kbd>U</kbd> undo</span>

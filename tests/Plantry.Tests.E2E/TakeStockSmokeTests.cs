@@ -757,4 +757,49 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await context.Tracing.StopAsync(new() { Path = "trace-takestock-no-location.zip" });
         }
     }
+
+    [Fact(DisplayName = "Take Stock: conventional /Pantry/TakeStock path resolves to the index, no 404 (plantry-w427)")]
+    public async Task TakeStock_ConventionalPascalCasePath_ResolvesToIndex()
+    {
+        // Regression for plantry-w427: the index's kebab-case route override (@page "/pantry/take-stock")
+        // replaces the folder-convention route, so the PascalCase folder URL /Pantry/TakeStock — the path a
+        // visitor or an audit tool guesses from the folder structure — used to hard-404. Program.cs now
+        // aliases the conventional path onto the same page; this proves it lands on Take Stock, not a 404.
+        var uniqueEmail = $"ts-alias-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household (the page is [Authorize]-gated) ─────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS Alias E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS Alias E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Navigate to the conventional folder-derived URL ───────────────────
+            var response = await page.GotoAsync($"{BaseUrl}/Pantry/TakeStock");
+            Assert.NotNull(response);
+            Assert.Equal(200, response!.Status);
+
+            // ── The Take Stock index rendered (not the 404 page) ──────────────────
+            await Assertions.Expect(page).ToHaveTitleAsync(new Regex("Take Stock"), new PageAssertionsToHaveTitleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".ts-loc-grid"))
+                .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-alias.zip" });
+        }
+    }
 }

@@ -1803,6 +1803,12 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   box-shadow: none;
   padding: var(--space-3) var(--space-6);
 }
+
+/* --flow: opt the commit bar out of sticky positioning so it sits in normal flow at the
+   foot of a card-stack form (as the plain create/edit forms do), keeping its footer-card
+   chrome. On a form taller than the viewport the sticky variant pins to the viewport bottom
+   and floats over whichever card is on screen — partially hiding it (plantry-f7uk). */
+.commit-bar--flow { position: static; }
 .commit-bar__cancel { color: var(--color-text-muted); flex-shrink: 0; }
 .commit-bar__spacer { flex: 1 1 auto; }
 .commit-bar__warn {
@@ -3327,6 +3333,9 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .rd-ing-status--have { background: var(--color-success-bg); color: var(--color-success); }
 .rd-ing-status--low  { background: var(--color-warning-bg); color: var(--color-warning); }
 .rd-ing-status--miss { background: var(--color-danger-bg);  color: var(--color-danger); }
+/* unit gap (plantry-z2sr): stock on hand can't be converted to the recipe unit — info tone, not danger,
+   matching the Cook page's cook-ing-status--unitgap treatment (plantry-qll2.5) */
+.rd-ing-status--unitgap { background: var(--color-info-bg); color: var(--color-info); }
 /* untracked: no colored box — just a small neutral dot for visual rhythm */
 .rd-ing-status--untracked {
   background: var(--color-surface-2);
@@ -3374,6 +3383,8 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .rd-ing-sub--have { color: var(--color-text-faint); }
 .rd-ing-sub--low  { color: var(--color-warning); font-weight: 600; }
 .rd-ing-sub--miss { color: var(--color-danger); font-weight: 600; }
+/* unit gap (plantry-z2sr): honest "can't compare units" tone — info, with the explanatory popover inline */
+.rd-ing-sub--unitgap { color: var(--color-info); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
 .rd-ing-sub--untracked { color: var(--color-text-faint); font-style: italic; }
 
 .rd-ing-amt {
@@ -4297,6 +4308,19 @@ button.sadd svg { width: 13px; height: 13px; }
 .tag-name .tag-saved.show { opacity: 1; transform: none; }
 .tag-name .tag-saved svg { width: 13px; height: 13px; }
 
+/* ── Settings "saved" confirmation badge — shared across settings pages ────── */
+/* Consumed by Pages/Settings/_SettingSaved.cshtml (AI, Pantry, Currency,
+   meal-planning defaults). Distinct from the .tag-name .tag-saved row indicator. */
+.setting-saved {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-success);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 /* ── StanceScale segmented control — canonical component ─────────────────── */
 /* 5 mutually-exclusive stance segments. Documented in Dev component library.  */
 /* Proto shape: one pill container with surface-2 bg + border; segments are seamless pills. */
@@ -4624,8 +4648,17 @@ button.sadd svg { width: 13px; height: 13px; }
 /* ── week grid ──────────────────────────────────────────────────────────── */
 .wkgrid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(150px, 1fr));
-  gap: 8px; min-width: 1060px;
+  /* Columns flex down to share whatever width is left beside the 322px insights
+     rail so all 7 days stay visible at common desktop widths. A fixed min-width
+     (was 1060px) forced the grid wider than the space beside the rail, and the
+     grid-scroll clip fell exactly at the rail's left edge — clipping Sat/Sun
+     under the "Plan insights" panel at 1440px (plantry-to8u). minmax(0, 1fr)
+     lets the tracks shrink below their content so the week always fits the grid
+     area and never overflows into the rail. (Sub-desktop widths just squish the
+     columns; a dedicated narrow/mobile responsive treatment for this page —
+     collapsing the rail / horizontal scroll — is tracked separately.) */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
 }
 
 /* day headers */
