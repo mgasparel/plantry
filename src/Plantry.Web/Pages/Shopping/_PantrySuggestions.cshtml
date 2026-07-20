@@ -1,5 +1,4 @@
 @using Plantry.Shopping.Application
-@using Plantry.Web.Pages.Shared
 @model Plantry.Web.Pages.Shopping.PantrySuggestionsPartialModel
 
 @{
@@ -16,7 +15,6 @@
                 @foreach (var sug in suggestions)
                 {
                     <div class="sl-sug">
-                        <partial name="Shared/_CatChip" model="new CatChipViewModel(sug.CategoryName, sug.CategoryHue)" />
                         <span class="sl-sug-name">@sug.Name</span>
                         <span class="sl-sug-stock @(sug.OnHand <= 0 ? "out" : "")">@sug.StockLabel</span>
                         <form method="post" action="@Url.Page("./Index", "AddItem")"

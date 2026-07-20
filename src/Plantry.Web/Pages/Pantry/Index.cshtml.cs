@@ -154,7 +154,7 @@ public sealed class IndexModel(
     private static GridRow BuildPantryRow(PantryListItem item, DateOnly today) => new(
     [
         GridCell.Link(item.Name, $"/Pantry/Products/Detail/{item.ProductId}"),
-        GridCell.CategoryChip(item.CategoryName, item.CategoryHue),
+        GridCell.Text(item.CategoryName ?? "—"),
         item.LocationDisplay is { } loc ? GridCell.Text(loc) : GridCell.Muted("—"),
         item.IsVariant ? GridCell.Badge("Variant", BadgeTone.Neutral) : GridCell.Muted("—"),
         GridCell.Text($"{item.TotalQuantity:0.###} {item.DisplayUnitCode}"),

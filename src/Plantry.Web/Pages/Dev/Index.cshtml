@@ -655,46 +655,12 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Category chip</h2>
-    </div>
-    <p>
-        <code>_CatChip</code> renders a coloured category badge — a small pill showing the first
-        two letters of the category name, uppercased, tinted with the category's oklch hue.
-        Takes a <code>CatChipViewModel(string? Name, int? Hue)</code>. When <code>Hue</code> is
-        null it renders with <code>.cat-chip--neutral</code> (no colour). The palette constants
-        (<code>--cc-bg: oklch(0.92 0.045 H)</code> / <code>--cc-fg: oklch(0.42 0.105 H)</code>)
-        live in the partial — edit there, not in the call sites.
-    </p>
-
-    @{
-        var catChipExamples = new[]
-        {
-            new Plantry.Web.Pages.Shared.CatChipViewModel("Dairy & Eggs", 60),
-            new Plantry.Web.Pages.Shared.CatChipViewModel("Frozen", 200),
-            new Plantry.Web.Pages.Shared.CatChipViewModel("Produce", 130),
-            new Plantry.Web.Pages.Shared.CatChipViewModel("Z", 320),
-            new Plantry.Web.Pages.Shared.CatChipViewModel(null, null),
-        };
-    }
-    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center">
-        @foreach (var chip in catChipExamples)
-        {
-            <partial name="Shared/_CatChip" model="chip" />
-        }
-    </div>
-
-    <pre class="code-sample"><code>@("<partial name=\"Shared/_CatChip\" model=\"new CatChipViewModel(category.Name, category.Hue)\" />")</code></pre>
-</section>
-
-<section class="catalog-section">
-    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Category dot pill</h2>
     </div>
     <p>
-        <code>.sl-cat-pill</code> — a compact inline pill for roomy contexts (e.g. the recat dropdown).
-        Renders a small colored dot (hue-driven via <code>--cdp-color: oklch(0.55 0.14 H)</code>) plus
-        the category name. Prefer this over <code>_CatChip</code> wherever there is enough horizontal
-        space for the label. In space-constrained spots (suggestion strip, etc.) keep <code>_CatChip</code>.
+        <code>.sl-cat-pill</code> — a compact inline pill for the shopping list (a nice touch scoped to
+        that surface). Renders a small colored dot (hue-driven via <code>--cdp-color: oklch(0.55 0.14 H)</code>)
+        plus the category name. Everywhere else category renders as plain text.
     </p>
 
     <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; margin-bottom: var(--space-4)">

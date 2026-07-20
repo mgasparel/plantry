@@ -4,7 +4,7 @@ namespace Plantry.Web.Pages.Shared;
 public enum GridAlign { Start, Center, End }
 
 /// <summary>The closed vocabulary of cell presentations the `_DataGrid` partial knows how to render.</summary>
-public enum GridCellKind { Text, Muted, Link, Badge, Actions, CategoryChip, ExpiryBadge }
+public enum GridCellKind { Text, Muted, Link, Badge, Actions, ExpiryBadge }
 
 /// <summary>Tonal badge palette, mapped to the generic `.badge--*` modifiers (design tokens) in plenish.css.</summary>
 public enum BadgeTone { Neutral, Info, Success, Warning, Danger }
@@ -70,9 +70,6 @@ public sealed record GridCell
     /// <summary>The actions for an Actions cell.</summary>
     public IReadOnlyList<GridAction> Items { get; init; } = [];
 
-    /// <summary>oklch hue (0–359) for a CategoryChip cell. Null renders the neutral "?" chip.</summary>
-    public int? Hue { get; init; }
-
     /// <summary>The <c>.badge-expiry--{tier}</c> modifier ("urgent"/"soon"/"ok") for an ExpiryBadge cell.</summary>
     public string? ExpiryTier { get; init; }
 
@@ -90,14 +87,6 @@ public sealed record GridCell
     /// </summary>
     public static GridCell ExpiryBadge(string label, string tierModifier) =>
         new() { Kind = GridCellKind.ExpiryBadge, Value = label, ExpiryTier = tierModifier };
-
-    /// <summary>
-    /// A category colour chip: a small two-letter pill derived from <paramref name="categoryName"/>'s first two
-    /// characters, coloured via oklch CSS variables at <paramref name="hue"/> degrees. When <paramref name="hue"/>
-    /// is null or <paramref name="categoryName"/> is null a neutral "?" chip is rendered.
-    /// </summary>
-    public static GridCell CategoryChip(string? categoryName, int? hue) =>
-        new() { Kind = GridCellKind.CategoryChip, Value = categoryName, Hue = hue };
 }
 
 /// <summary>One row — a list of cells the page has already mapped, positionally aligned with <see cref="DataGridViewModel.Columns"/>.</summary>
