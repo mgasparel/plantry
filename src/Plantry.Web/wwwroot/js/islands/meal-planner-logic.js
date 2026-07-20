@@ -66,16 +66,20 @@ export function lvl(p) {
 // ── money ─────────────────────────────────────────────────────────────────────
 
 /**
- * Format a number as a dollar amount with exactly two decimal places.
+ * Format a number as a money amount with exactly two decimal places, prefixed by the
+ * household display-currency symbol.
  *
- * Uses Number.prototype.toFixed(2) — standard JS rounding applies (rounds to
- * nearest, ties round up). The "$" prefix is always included.
+ * Uses Number.prototype.toFixed(2) — standard JS rounding applies (rounds to nearest,
+ * ties round up). The symbol comes from the server hydration payload (MoneyDisplay.Symbol,
+ * plantry-2x6e.3); there is no currency map in JS. Defaults to "$" when absent — a defensive
+ * fallback only; the server always sends the symbol.
  *
  * @param {number} n
+ * @param {string} [symbol] household currency symbol (defaults to "$")
  * @returns {string}
  */
-export function money(n) {
-  return "$" + n.toFixed(2);
+export function money(n, symbol = "$") {
+  return symbol + n.toFixed(2);
 }
 
 // ── dishMeta ─────────────────────────────────────────────────────────────────
@@ -95,11 +99,12 @@ export function money(n) {
  * See module header for the full adjudication.
  *
  * @param {DishDraft} d
+ * @param {string} [symbol] household currency symbol threaded to money() (defaults to "$")
  * @returns {string}
  */
-export function dishMeta(d) {
+export function dishMeta(d, symbol = "$") {
   if (d.fulfillment === null) return "pantry item";
   let s = d.fulfillment + "% in pantry";
-  if (d.costPerServing !== null) s += " · " + money(d.costPerServing * (d.servings || 1));
+  if (d.costPerServing !== null) s += " · " + money(d.costPerServing * (d.servings || 1), symbol);
   return s;
 }

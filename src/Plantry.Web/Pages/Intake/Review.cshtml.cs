@@ -50,6 +50,7 @@ public sealed class ReviewModel(
     ISeedConversionPort seedConversion,
     IClock clock,
     ITenantContext tenant,
+    DisplayCurrencyAccessor displayCurrency,
     ILogger<CommitSessionCommand> commitLogger,
     ILogger<DiscardSessionCommand> discardLogger,
     ILogger<DismissLineCommand> dismissLogger,
@@ -102,7 +103,10 @@ public sealed class ReviewModel(
         if (Session.Status != ImportStatus.Ready)
             return RedirectToPage("/Pantry/Index");
 
-        var hydration = hydrationBuilder.Build(Session, Today, clock.UtcNow, BuildHandlerUrls());
+        // Resolve the household display-currency symbol once (plantry-2x6e.3) so the island's money formatters
+        // prefix the same glyph the server renders with — sourced from MoneyDisplay.Symbol, no currency map in JS.
+        var currencySymbol = MoneyDisplay.Symbol(await displayCurrency.GetAsync(ct));
+        var hydration = hydrationBuilder.Build(Session, Today, clock.UtcNow, BuildHandlerUrls(), currencySymbol);
         IslandHydrationJson = JsonSerializer.Serialize(hydration, IntakeHydrationJson.Options);
         return Page();
     }

@@ -201,6 +201,9 @@ public sealed class IndexModel(
             RollupUrl: "/MealPlan?handler=RollupJson",
             EditorJsonUrl: "/MealPlan?handler=EditorJson",
             SearchJsonUrl: "/MealPlan?handler=SearchJson",
+            // Resolved once per request in LoadPlanningSettingsAsync (via the GET path) — the island's money()
+            // formatter prefixes this glyph instead of a hardcoded dollar sign (plantry-2x6e.3).
+            CurrencySymbol: MoneyDisplay.Symbol(CurrentDisplayCurrency),
             Members: members);
         return JsonSerializer.Serialize(vm, MealPlanHydrationJson.Options);
     }

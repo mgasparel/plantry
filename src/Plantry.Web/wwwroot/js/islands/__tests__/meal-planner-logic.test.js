@@ -108,9 +108,20 @@ describe("money", () => {
     assert.equal(money(1234.56), "$1234.56");
   });
 
-  it("prefixes with '$' always", () => {
+  it("prefixes with '$' by default (no symbol argument)", () => {
     assert.ok(money(0).startsWith("$"));
     assert.ok(money(99.99).startsWith("$"));
+  });
+
+  // plantry-2x6e.3 — the "$" prefix is now data-driven from the server hydration symbol.
+  it("prefixes with the injected currency symbol", () => {
+    assert.equal(money(3.5, "€"), "€3.50");
+    assert.equal(money(0, "£"), "£0.00");
+    assert.equal(money(1234.56, "$"), "$1234.56");
+  });
+
+  it("falls back to '$' when the symbol argument is undefined", () => {
+    assert.equal(money(3.5, undefined), "$3.50");
   });
 });
 
@@ -159,5 +170,16 @@ describe("dishMeta", () => {
     const d = dish({ fulfillment: 50, costPerServing: 1.99, servings: 3 });
     // 1.99 * 3 = 5.97
     assert.equal(dishMeta(d), "50% in pantry · $5.97");
+  });
+
+  // plantry-2x6e.3 — the cost portion's symbol is threaded from the server hydration payload.
+  it("formats the cost portion with the injected currency symbol", () => {
+    const d = dish({ fulfillment: 75, costPerServing: 3.50, servings: 2 });
+    assert.equal(dishMeta(d, "€"), "75% in pantry · €7.00");
+  });
+
+  it("falls back to '$' for the cost portion when no symbol is passed", () => {
+    const d = dish({ fulfillment: 75, costPerServing: 3.50, servings: 2 });
+    assert.equal(dishMeta(d), "75% in pantry · $7.00");
   });
 });

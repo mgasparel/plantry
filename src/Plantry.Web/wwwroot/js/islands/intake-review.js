@@ -190,6 +190,7 @@ import {
  * @property {number|null} total
  * @property {string|null} payment
  * @property {string|null} receiptNo
+ * @property {string} currencySymbol
  */
 
 /**
@@ -208,11 +209,17 @@ function makeLine(seed) {
 
 // ── small display helpers ──────────────────────────────────────────────────────
 
-/** @param {number} n */
-const fmtCad = (n) =>
-  n.toLocaleString(undefined, { style: "currency", currency: "CAD", minimumFractionDigits: 2 });
-/** Receipt-facsimile money ("$3.99") — bare prefix matching the rail's monospaced prices. @param {number} n */
-const fmtRcpt = (n) => "$" + n.toFixed(2);
+// Household display-currency symbol, injected once at mount from the server hydration payload
+// (plantry-2x6e.3). Module-scoped because the two money formatters below are module-level and there is
+// exactly one intake-review island per page; keeping it here avoids threading a prop through every deck /
+// commit-bar component (this island's mount is a known complexity hotspot — the change stays surgical).
+// Defaults to "$" defensively; the server always sends the symbol via MoneyDisplay.Symbol (no currency map in JS).
+let moneySymbol = "$";
+
+/** Confirmed-total / line money ("$3.99"), prefixed with the household currency symbol. @param {number} n */
+const fmtMoney = (n) => moneySymbol + n.toFixed(2);
+/** Receipt-facsimile money ("$3.99") — symbol prefix matching the rail's monospaced prices. @param {number} n */
+const fmtRcpt = (n) => moneySymbol + n.toFixed(2);
 /** @param {string} raw */
 const prettyRaw = (raw) => raw.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -582,7 +589,7 @@ function ConfirmedRow({ ls, products, units, locations, today, onSaveEdit, onRem
   const name = displayNameFor(ls, products);
   const qty = (() => { const n = parseFloat(ls.draftQty.value); return isNaN(n) ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 3 }); })();
   const unit = units.find((u) => u.id === ls.draftUnitId.value)?.code ?? "";
-  const price = ls.price.value != null ? fmtCad(ls.price.value) : "—";
+  const price = ls.price.value != null ? fmtMoney(ls.price.value) : "—";
   const expiry = ls.draftExpiryMode.value === "has" && ls.draftExpiry.value
     ? new Date(ls.draftExpiry.value + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "—";
 
@@ -895,7 +902,7 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
               onToggle=${handlers.toggleCheck} onBulkConfirm=${handlers.bulkConfirm} onFlashJump=${handlers.railJump} />`}
 
           ${confirmedLines.value.length > 0 && html`
-            <div class="sec-label">Confirmed <span class="sec-label__count">· ${confirmedLines.value.length} · ${fmtCad(confirmedLines.value.reduce((s, l) => s + (l.price.value ?? 0), 0))}</span></div>
+            <div class="sec-label">Confirmed <span class="sec-label__count">· ${confirmedLines.value.length} · ${fmtMoney(confirmedLines.value.reduce((s, l) => s + (l.price.value ?? 0), 0))}</span></div>
             ${confirmedLines.value.map((ls) => html`
               <${ConfirmedRow} key=${ls.lineId} ls=${ls} products=${products} units=${units} locations=${locations} today=${session.today}
                 onSaveEdit=${handlers.saveEdit} onRematch=${handlers.rematch} onReject=${handlers.rowReject} />`)}`}
@@ -920,7 +927,7 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
             <span class="commit-bar__spacer"></span>
             ${bar.value.remaining > 0 && html`
               <span class="commit-bar__warn"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> ${bar.value.remaining} to resolve</span>`}
-            <div class="commit-bar__summary">Adding <b>${bar.value.confirmedCount}</b> items · <b class="mono">${fmtCad(confirmedLines.value.reduce((s, l) => s + (l.price.value ?? 0), 0))}</b></div>
+            <div class="commit-bar__summary">Adding <b>${bar.value.confirmedCount}</b> items · <b class="mono">${fmtMoney(confirmedLines.value.reduce((s, l) => s + (l.price.value ?? 0), 0))}</b></div>
             <button type="button" class="btn btn--primary" disabled=${!bar.value.canCommit} onClick=${handlers.commit}>
               <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Add to pantry
             </button>
@@ -946,6 +953,10 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
  * @param {SessionHydration} hydration
  */
 export function mountIntakeReview(root, hydration) {
+  // Seed the module-scoped currency symbol from the server payload before any render (plantry-2x6e.3);
+  // "$" is a defensive fallback only — the server always sends it.
+  moneySymbol = hydration.currencySymbol ?? "$";
+
   const token = readAntiforgeryToken();
   const linesSignal = signal(hydration.lines.map(makeLine));
 

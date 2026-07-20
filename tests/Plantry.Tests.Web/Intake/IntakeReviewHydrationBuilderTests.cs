@@ -106,8 +106,11 @@ public sealed class IntakeReviewHydrationBuilderTests
             ReferenceData: Reference(),
             SourceType: sourceType);
 
+    /// <summary>The household display-currency symbol the page resolves (via MoneyDisplay.Symbol) and hands in.</summary>
+    private const string Symbol = "$";
+
     private static SessionHydration Build(SessionReviewView session) =>
-        Builder.Build(session, Today, Now, Urls);
+        Builder.Build(session, Today, Now, Urls, Symbol);
 
     // ── Alternatives gate ────────────────────────────────────────────────────────────
 
@@ -281,7 +284,7 @@ public sealed class IntakeReviewHydrationBuilderTests
 
         var prefill = Builder.Build(
             new SessionReviewView(Guid.NewGuid(), ImportStatus.Ready, "M", null, Now, [line], reference),
-            Today, Now, Urls).Lines[0].Prefill;
+            Today, Now, Urls, Symbol).Lines[0].Prefill;
 
         Assert.Equal(expected.ProductId?.ToString(), prefill.ProductId);
         Assert.Equal(expected.ProductName, prefill.ProductName);
@@ -307,6 +310,14 @@ public sealed class IntakeReviewHydrationBuilderTests
         Assert.Equal("/ro", h.ReopenLineUrl);
         Assert.Equal("/cl", h.ConfirmLinesUrl);
         Assert.Equal("/ch", h.CorrectHeaderUrl);
+    }
+
+    [Fact(DisplayName = "The caller-supplied currency symbol is threaded verbatim into the payload (plantry-2x6e.3)")]
+    public void Currency_Symbol_Is_Passed_Through()
+    {
+        var h = Builder.Build(Session([Line()]), Today, Now, Urls, "€");
+
+        Assert.Equal("€", h.CurrencySymbol);
     }
 
     // ── Editable header (plantry-yobz) ──────────────────────────────────────────────────
@@ -347,7 +358,7 @@ public sealed class IntakeReviewHydrationBuilderTests
         var storeId = Guid.NewGuid();
         var h = Builder.Build(
             HeaderSession("Food Basics", storeId, new DateOnly(2026, 7, 19), new TimeOnly(17, 5)),
-            Today, Now, Urls);
+            Today, Now, Urls, Symbol);
 
         Assert.Equal("Food Basics", h.MerchantTextRaw);
         Assert.Equal(storeId.ToString(), h.SelectedStoreId);
@@ -359,7 +370,7 @@ public sealed class IntakeReviewHydrationBuilderTests
     [Fact(DisplayName = "A guard-nulled / absent date yields null raw + display so the control prompts entry")]
     public void Null_Date_Yields_Null_Raw_And_Display()
     {
-        var h = Builder.Build(HeaderSession(purchaseDate: null), Today, Now, Urls);
+        var h = Builder.Build(HeaderSession(purchaseDate: null), Today, Now, Urls, Symbol);
 
         Assert.Null(h.PurchaseDateRaw);
         Assert.Null(h.PurchaseDate);
@@ -372,7 +383,7 @@ public sealed class IntakeReviewHydrationBuilderTests
     [InlineData("   ")]
     public void MerchantTextRaw_Is_Null_For_Blank_Merchant(string? merchant)
     {
-        var h = Builder.Build(HeaderSession(merchantText: merchant), Today, Now, Urls);
+        var h = Builder.Build(HeaderSession(merchantText: merchant), Today, Now, Urls, Symbol);
 
         Assert.Null(h.MerchantTextRaw);       // the picker sees "unresolved" → prompts entry
         Assert.Equal("Receipt", h.MerchantText); // the facsimile title still falls back
