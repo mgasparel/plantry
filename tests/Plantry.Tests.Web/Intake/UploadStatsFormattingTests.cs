@@ -12,19 +12,21 @@ public sealed class UploadStatsFormattingTests
 {
     // ── FormatMoney ───────────────────────────────────────────────────────────
 
-    [Fact(DisplayName = "FormatMoney — zero renders $0.00")]
+    [Fact(DisplayName = "FormatMoney — zero renders $0.00 for a USD household")]
     public void FormatMoney_Zero_RendersDollarZero()
     {
-        Assert.Equal("$0.00", UploadModel.FormatMoney(0m));
+        Assert.Equal("$0.00", UploadModel.FormatMoney(0m, "USD"));
     }
 
-    [Theory(DisplayName = "FormatMoney — two decimals with a leading $")]
-    [InlineData(482.19, "$482.19")]
-    [InlineData(7, "$7.00")]
-    [InlineData(1000.5, "$1000.50")]
-    public void FormatMoney_NonZero_TwoDecimals(decimal amount, string expected)
+    [Theory(DisplayName = "FormatMoney — two decimals with the household currency symbol")]
+    [InlineData(482.19, "USD", "$482.19")]
+    [InlineData(7, "USD", "$7.00")]
+    [InlineData(1000.5, "USD", "$1000.50")]
+    [InlineData(9.5, "EUR", "€9.50")]
+    [InlineData(3, "GBP", "£3.00")]
+    public void FormatMoney_NonZero_TwoDecimals(decimal amount, string currency, string expected)
     {
-        Assert.Equal(expected, UploadModel.FormatMoney(amount));
+        Assert.Equal(expected, UploadModel.FormatMoney(amount, currency));
     }
 
     // ── FormatReviewTime ──────────────────────────────────────────────────────

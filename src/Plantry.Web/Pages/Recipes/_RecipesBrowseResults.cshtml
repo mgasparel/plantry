@@ -101,7 +101,7 @@ else
                             {
                                 <span class="recipe-card__signal-dot" aria-hidden="true"></span>
                                 <span class="recipe-card__signal-meta" style="font-family:var(--font-mono)">
-                                    @row.CostPerServing.Value.ToString("C2")/serving
+                                    @MoneyDisplay.Format(row.CostPerServing.Value, Model.DisplayCurrency)/serving
                                     @if (row.CostCompleteness == CostCompleteness.Partial)
                                     {
                                         <span title="Partial cost estimate">~</span>
@@ -233,7 +233,7 @@ else
                     <div class="recipes-grid__cell recipes-grid__cell--cost num" role="cell">
                         @if (row.CostPerServing.HasValue)
                         {
-                            @row.CostPerServing.Value.ToString("C2")
+                            @MoneyDisplay.Format(row.CostPerServing.Value, Model.DisplayCurrency)
                             <span class="recipes-grid__cell-sub"> /serv</span>
                             @if (row.CostCompleteness == CostCompleteness.Partial)
                             {

@@ -55,6 +55,27 @@ public sealed class PlanningSettingsFragmentTests
         Assert.NotNull(chip);
     }
 
+    // ── Budget renders with its OWN currency, not the household display currency ───────────────
+
+    [Fact(DisplayName = "L4: budget chip shows the stored budget's OWN currency, not the household display currency (plantry-2x6e.2)")]
+    public async Task Get_BudgetSet_BudgetUsesOwnCurrency_NotDisplayCurrency()
+    {
+        // The stored budget is Money in USD; the household displays EUR. The binding decision (plantry-2x6e.2):
+        // a Money-typed budget renders with its OWN currency so switching the household currency never silently
+        // relabels a saved budget. So the budget chip must show '$100.00' (budget's USD), NOT '€100.00'.
+        await using var factory = new BudgetSetPlanningSettingsFactory(budgetDecimal: 100m, displayCurrency: "EUR");
+        var client = MakeClient(factory);
+
+        var resp = await client.GetAsync("/MealPlan");
+        resp.EnsureSuccessStatusCode();
+
+        var html = await resp.Content.ReadAsStringAsync();
+        var text = (await _parser.ParseDocumentAsync(html)).Body!.TextContent;
+
+        Assert.Contains("$100.00", text);        // budget's own currency (USD)
+        Assert.DoesNotContain("€100.00", text);  // must NOT be relabelled to the household display currency
+    }
+
     // ── No budget → budget chip still renders, no over-budget callout ─────────
 
     [Fact(DisplayName = "L4: GET /MealPlan — no budget set → page renders without over-budget callout")]
@@ -126,9 +147,13 @@ public sealed class PlanningSettingsFragmentTests
 public sealed class BudgetSetPlanningSettingsFactory : WeekGridFragmentFactory
 {
     private readonly decimal _budgetDecimal;
+    private readonly string _displayCurrency;
 
-    public BudgetSetPlanningSettingsFactory(decimal budgetDecimal)
-        => _budgetDecimal = budgetDecimal;
+    public BudgetSetPlanningSettingsFactory(decimal budgetDecimal, string displayCurrency = "USD")
+    {
+        _budgetDecimal = budgetDecimal;
+        _displayCurrency = displayCurrency;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -136,6 +161,9 @@ public sealed class BudgetSetPlanningSettingsFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            // The household display currency can differ from the stored budget's own currency (plantry-2x6e.2):
+            // the budget is always stamped USD here, while the household displays _displayCurrency.
+            services.AddFakeDisplayCurrency(_displayCurrency);
             services.AddFakeExpiringSoonHorizon();
             var householdId = HouseholdId.From(WeekGridFixture.HouseholdId);
             var settings = HouseholdPlanningSettings.Create(householdId);
@@ -160,6 +188,7 @@ public sealed class SetPlanningSettingsFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             // Replace null stubs with mutable in-memory stubs so ExecuteAsync can upsert
             services.RemoveAll<IHouseholdPlanningSettingsRepository>();

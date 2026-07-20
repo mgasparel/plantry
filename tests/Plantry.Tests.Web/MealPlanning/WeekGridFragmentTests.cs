@@ -284,6 +284,7 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {
@@ -430,10 +431,10 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
-            services.AddFakeExpiringSoonHorizon();
-            // Household display currency (plantry-2x6e.1): the SetPlanningSettings POST path resolves it
-            // to stamp the budget Money; stub to USD so the DB-backed real service isn't hit.
+            // Household display currency: the SetPlanningSettings POST stamps the budget Money with it and the
+            // page's cost figures render through MoneyDisplay with it; stub so the DB-backed service isn't hit.
             services.AddFakeDisplayCurrency();
+            services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme
             services.AddAuthentication(opts =>
                 {
@@ -543,6 +544,7 @@ public sealed class MultiMealCellFragmentFactory : WeekGridFragmentFactory
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             // Swap out the empty FakeMealPlanRepo with a pre-seeded two-meal variant
             services.RemoveAll<IMealPlanRepository>();
@@ -742,6 +744,7 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {

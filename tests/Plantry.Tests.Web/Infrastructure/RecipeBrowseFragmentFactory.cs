@@ -24,14 +24,23 @@ namespace Plantry.Tests.Web.Infrastructure;
 /// </list>
 /// No database is touched; rendered HTML is deterministic.
 /// </summary>
-public sealed class RecipeBrowseFragmentFactory : WebApplicationFactory<Program>
+public class RecipeBrowseFragmentFactory : WebApplicationFactory<Program>
 {
+    /// <summary>
+    /// Household display currency the per-recipe cost cells render with (plantry-2x6e.2). Default USD; a derived
+    /// factory overrides it to exercise the non-USD symbol path.
+    /// </summary>
+    protected virtual string DisplayCurrency => "USD";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
 
         builder.ConfigureTestServices(services =>
         {
+            // Household display currency (plantry-2x6e.2): deterministic fake so the browse cost cells resolve
+            // without a real Identity DB.
+            services.AddFakeDisplayCurrency(DisplayCurrency);
             services.AddFakeExpiringSoonHorizon();
             // Auth: header-driven test scheme, same pattern as other L4 factories.
             services.AddAuthentication(opts =>
@@ -78,6 +87,15 @@ public sealed class RecipeBrowseFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
         });
     }
+}
+
+/// <summary>
+/// Variant: the browse cost cells rendered for a EUR household (plantry-2x6e.2) — proves the per-recipe cost
+/// renders MoneyDisplay's '€' symbol.
+/// </summary>
+public sealed class RecipeBrowseEurFactory : RecipeBrowseFragmentFactory
+{
+    protected override string DisplayCurrency => "EUR";
 }
 
 /// <summary>

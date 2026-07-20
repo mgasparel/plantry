@@ -1,5 +1,4 @@
 @page
-@using System.Globalization
 @using Plantry.Deals.Application
 @model Plantry.Web.Pages.Deals.IndexModel
 @inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
@@ -36,7 +35,7 @@
             </span>
         </div>
         <div class="deal-row__price">
-            <span class="deal-row__amount">@item.Price.ToString("C2", CultureInfo.CurrentCulture)</span>
+            <span class="deal-row__amount">@MoneyDisplay.Format(item.Price, Model.DisplayCurrency)</span>
             <span class="deal-row__until">Valid until @item.ValidTo.ToString("d MMM")</span>
             @if (item.AutoMatched)
             {
@@ -111,7 +110,7 @@
                                     </span>
                                     <span class="catalog-list__secondary">
                                         @alert.StoreName
-                                        &middot; @alert.Price.ToString("C2", CultureInfo.CurrentCulture)
+                                        &middot; @MoneyDisplay.Format(alert.Price, Model.DisplayCurrency)
                                         &middot; valid until @alert.ValidTo.ToString("d MMM")
                                     </span>
                                 </div>

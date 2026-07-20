@@ -19,10 +19,14 @@ namespace Plantry.Web.Pages.Deals;
 public sealed class IndexModel(
     BrowseDeals browseDeals,
     StockUpAlerts stockUpAlerts,
+    DisplayCurrencyAccessor displayCurrency,
     IDealShoppingListWriter shoppingWriter) : PageModel
 {
     /// <summary>The route the pending-review "Review" entry deep-links into (the P5-8 queue).</summary>
     public const string ReviewQueueUrl = "/Deals/Review";
+
+    /// <summary>Household display currency (plantry-2x6e.2) — deal prices + stock-up alerts render through MoneyDisplay with it.</summary>
+    public string DisplayCurrency { get; private set; } = "USD";
 
     public DealsBoard Board { get; private set; } = new([], []);
 
@@ -38,6 +42,7 @@ public sealed class IndexModel(
     public async Task OnGetAsync(CancellationToken ct = default)
     {
         Board = await browseDeals.BrowseAsync(ct);
+        DisplayCurrency = await displayCurrency.GetAsync(ct);
         // Reuse the single Board read above — StockUpAlerts computes over the already-materialised active
         // partition rather than re-running the whole BrowseDeals pipeline a second time (plantry-k7tc).
         Alerts = await stockUpAlerts.ComputeAsync(Board.Active, ct);

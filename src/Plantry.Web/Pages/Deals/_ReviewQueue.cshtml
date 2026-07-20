@@ -16,6 +16,11 @@
 *@
 
 @{
+    // Household display currency (plantry-2x6e.2) — threaded to every _DealReviewCard rendered under this
+    // region (single-correction card + all three step lists) via ViewData, matching the card's existing
+    // ViewData["FlyerKey"]/["StepQs"] convention. Set once here so it flows to child partials on every path.
+    ViewData["DisplayCurrency"] = Model.DisplayCurrency;
+
     (string Title, string Done) StepMeta(ReviewStep s) => s switch
     {
         ReviewStep.Confirm => ("Confirm the sure things", "All sure things handled"),
@@ -167,7 +172,7 @@ else
                    with or without JS. The deck's presentation state (order/skip/baseline) is client-only; the
                    deals themselves come from the hydration blob (server truth). *@
                 var deckHydration = DealDeckHydration.Build(
-                    Model.Step2Deals, flyerKey, System.Globalization.CultureInfo.CurrentCulture);
+                    Model.Step2Deals, flyerKey, Model.DisplayCurrency);
                 <div class="card">
                     <div class="card__body">
                         <div id="judgement-deck" class="deal-review-section" data-deck-mount>

@@ -156,6 +156,24 @@ public sealed class RecipeDetailSnapshotTests(
         Assert.DoesNotContain("Partial cost estimate", html, StringComparison.Ordinal);
     }
 
+    // ── Cost currency: a non-USD (EUR) household renders the € symbol via MoneyDisplay ──────────
+
+    [Fact(DisplayName = "Detail cost meta renders the € symbol for a EUR household (plantry-2x6e.2)")]
+    public async Task Detail_cost_uses_household_display_currency()
+    {
+        using var eurFactory = new RecipeDetailEurCostFactory();
+        var html = await GetDetailPageAsync(eurFactory);
+
+        var doc = Parser.ParseDocument(html);
+        // The whole meta strip: both the per-serving cost cell and the "· €x.xx total" label render through
+        // MoneyDisplay with the household's EUR currency, so the strip carries '€' and never a hardcoded '$'.
+        var metaStrip = doc.QuerySelector(".rd-meta")?.TextContent
+            ?? throw new InvalidOperationException("'.rd-meta' not found in page HTML.");
+
+        Assert.Contains("€", metaStrip, StringComparison.Ordinal);
+        Assert.DoesNotContain("$", metaStrip, StringComparison.Ordinal);
+    }
+
     // ── Cost None: dash cell, no mono cost value (J3 — never shown as zero) ───
 
     [Fact]

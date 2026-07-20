@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -50,15 +49,10 @@ using Plantry.Web.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Pin an explicit display culture at startup so money renders with a real currency symbol ($) regardless
-// of the host/container locale (plantry-xtmt). The aspnet runtime image inherits a C/POSIX locale, which
-// .NET maps to the invariant culture — whose currency symbol is the generic placeholder '¤', so recipe
-// cost-per-serving and Deals prices rendered via ToString("C2") showed '¤0.00'. Setting the process-wide
-// thread default makes every request thread's CurrentCulture resolve to it, fixing both call sites at once.
-// Sourced from config (DisplayCulture.ConfigKey) with an en-US default; Plantry is single-currency today.
-var displayCulture = DisplayCulture.Resolve(builder.Configuration);
-CultureInfo.DefaultThreadCurrentCulture = displayCulture;
-CultureInfo.DefaultThreadCurrentUICulture = displayCulture;
+// Money is rendered culture-free through MoneyDisplay (plantry-2x6e.2): a deterministic ISO→symbol map and
+// integer-minor-unit formatting, so the host/container locale can never turn a currency symbol into the '¤'
+// placeholder (the plantry-xtmt bug). No process-wide display-culture pin is needed — and none is set here, so
+// the fix cannot silently regress if a call site is ever added that forgets to route through MoneyDisplay.
 
 builder.AddServiceDefaults();
 
@@ -211,6 +205,9 @@ builder.Services.AddScoped<IAiAssistanceGate>(sp => sp.GetRequiredService<AiAssi
 // write path. Lives on the Household aggregate (identity schema).
 builder.Services.AddScoped<DisplayCurrencyService>();
 builder.Services.AddScoped<IDisplayCurrency>(sp => sp.GetRequiredService<DisplayCurrencyService>());
+// Per-request cache over IDisplayCurrency (plantry-2x6e.2): the presentation edge resolves the household
+// display currency once per request (one DB read) and threads it onto view models via MoneyDisplay.
+builder.Services.AddScoped<DisplayCurrencyAccessor>();
 // Household membership invites (plantry-00v1): issue/revoke run under the authenticated household;
 // accept runs pre-auth and resolves the invite by its unique token (identity schema).
 builder.Services.AddScoped<IHouseholdInviteRepository, HouseholdInviteRepository>();

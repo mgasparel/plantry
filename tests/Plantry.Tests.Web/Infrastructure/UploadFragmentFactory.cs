@@ -43,6 +43,8 @@ public sealed class UploadFragmentFactory : WebApplicationFactory<Program>
 
         builder.ConfigureTestServices(services =>
         {
+            // Household display currency (plantry-2x6e.2): the "This month" total reads IDisplayCurrency now.
+            services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
 
             services.AddAuthentication(options =>

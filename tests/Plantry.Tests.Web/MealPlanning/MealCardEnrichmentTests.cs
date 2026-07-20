@@ -97,6 +97,29 @@ public sealed class MealCardEnrichmentTests(MealCardEnrichmentFactory factory)
         Assert.Contains("$12.50", html); // the total
         Assert.Contains("/ wk", html);
     }
+
+    /// <summary>
+    /// A EUR household's meal-plan costs (per-meal card + week-total budget chip) render through MoneyDisplay
+    /// with the '€' symbol rather than a hardcoded '$' (plantry-2x6e.2).
+    /// </summary>
+    [Fact(DisplayName = "GET /MealPlan renders € meal + week costs for a EUR household (plantry-2x6e.2)")]
+    public async Task Get_MealPlan_Grid_Uses_Household_Display_Currency()
+    {
+        await using var eurFactory = new MealCardEnrichmentFactory(
+            useExpiring: false, fulfillmentPct: 80, totalCost: 12.50m, displayCurrency: "EUR");
+        var client = eurFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EnrichmentFixture.HouseholdId.ToString());
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        // Both the per-meal card cost and the week-total budget chip render the EUR symbol. Read the decoded
+        // text (the '€' is emitted HTML-encoded as &#x20AC;); the old '$12.50' must not appear.
+        var text = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html).Body!.TextContent;
+        Assert.Contains("€12.50", text);
+        Assert.DoesNotContain("$12.50", text);
+    }
 }
 
 [CollectionDefinition(nameof(MealCardEnrichmentCollection))]
@@ -111,20 +134,23 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
     private readonly bool _useExpiring;
     private readonly int _fulfillmentPct;
     private readonly decimal _totalCost;
+    private readonly string _displayCurrency;
 
     /// <summary>
     /// Parameterless constructor required by xUnit collection fixtures (only a single
     /// public constructor allowed, and it must be resolvable by xUnit's fixture runner).
-    /// Configures the standard enrichment test case: 80%, $12.50 cost, hasExpiring=true.
+    /// Configures the standard enrichment test case: 80%, $12.50 cost, hasExpiring=true, USD.
     /// </summary>
     public MealCardEnrichmentFactory()
         : this(useExpiring: true, fulfillmentPct: 80, totalCost: 12.50m) { }
 
-    internal MealCardEnrichmentFactory(bool useExpiring, int fulfillmentPct, decimal totalCost)
+    internal MealCardEnrichmentFactory(
+        bool useExpiring, int fulfillmentPct, decimal totalCost, string displayCurrency = "USD")
     {
         _useExpiring = useExpiring;
         _fulfillmentPct = fulfillmentPct;
         _totalCost = totalCost;
+        _displayCurrency = displayCurrency;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -132,6 +158,7 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.AddFakeDisplayCurrency(_displayCurrency);
             services.AddFakeExpiringSoonHorizon();
             services.AddAuthentication(opts =>
                 {

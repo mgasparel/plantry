@@ -216,6 +216,7 @@ public sealed class InclusionPreviewQuantityDisplayTests
             builder.UseEnvironment("Testing");
             builder.ConfigureTestServices(services =>
             {
+                services.AddFakeDisplayCurrency();
                 services.AddFakeExpiringSoonHorizon();
                 services.AddAuthentication(opts =>
                     {

@@ -99,6 +99,29 @@ public sealed class RecipeBrowseSnapshotTests(RecipeBrowseFragmentFactory factor
         })), "html");
     }
 
+    // ── Cost currency: a non-USD (EUR) household renders '€' cost cells via MoneyDisplay ──────────
+
+    [Fact(DisplayName = "Browse cost cells render the € symbol for a EUR household (plantry-2x6e.2)")]
+    public async Task Browse_cost_uses_household_display_currency()
+    {
+        using var eurFactory = new RecipeBrowseEurFactory();
+        var client = eurFactory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(
+            TestAuthHandler.HouseholdHeader,
+            RecipeBrowseFixture.HouseholdAId.ToString());
+        var response = await client.GetAsync("/Recipes?sort=name&desc=false");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        var doc = Parser.ParseDocument(html);
+        // The priced grid rows (Pancakes, Omelette) render their cost-per-serving through MoneyDisplay with the
+        // household's EUR currency; concatenate the cost cells and assert the '€' symbol, never a hardcoded '$'.
+        var costText = string.Concat(
+            doc.QuerySelectorAll(".recipes-grid__row .recipes-grid__cell--cost").Select(c => c.TextContent));
+        Assert.Contains("€", costText, StringComparison.Ordinal);
+        Assert.DoesNotContain("$", costText, StringComparison.Ordinal);
+    }
+
     // ── Toolbar: tag filter chips ─────────────────────────────────────────────
 
     [Fact]

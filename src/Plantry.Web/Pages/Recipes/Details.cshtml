@@ -173,14 +173,14 @@
                             @if (cost.Completeness != CostCompleteness.None && cost.Amount.HasValue)
                             {
                                 <div class="rd-meta__val rd-meta__val--mono">
-                                    @cost.Amount.Value.ToString("C2", CultureInfo.CurrentCulture)
+                                    @MoneyDisplay.Format(cost.Amount.Value, Model.DisplayCurrency)
                                     @if (cost.Completeness == CostCompleteness.Partial)
                                     {
                                         <span title="Partial cost estimate — @(cost.CostableCount - cost.PricedCount) ingredient(s) have no price">~</span>
                                     }
                                 </div>
                                 <div class="rd-meta__lbl">
-                                    Per serving&nbsp;·&nbsp;@costTotal!.Value.ToString("C2", CultureInfo.CurrentCulture) total
+                                    Per serving&nbsp;·&nbsp;@MoneyDisplay.Format(costTotal!.Value, Model.DisplayCurrency) total
                                 </div>
                             }
                             else

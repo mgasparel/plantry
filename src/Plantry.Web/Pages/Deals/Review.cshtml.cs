@@ -52,8 +52,15 @@ public sealed class ReviewModel(
     ILocationRepository locations,
     IClock clock,
     ITenantContext tenant,
+    DisplayCurrencyAccessor displayCurrency,
     ILogger<ReviewModel> logger) : PageModel
 {
+    /// <summary>
+    /// Household display currency (plantry-2x6e.2). Set on every path that renders <c>_ReviewQueue</c> (the
+    /// single-correction card and the flyer/step queue), which threads it to <c>_DealReviewCard</c> via ViewData
+    /// and into the deck-island hydration blob so both server render and island render the same symbol.
+    /// </summary>
+    public string DisplayCurrency { get; private set; } = "USD";
     /// <summary>
     /// The deal cards to render — the <b>active flyer's</b> pending deals (queue path), or a single deal
     /// for a focused correction (<c>?dealId=</c> path). The rail chapters the whole pending queue; the card
@@ -152,6 +159,7 @@ public sealed class ReviewModel(
         if (dealId is { } id)
         {
             await LoadSheetOptionsAsync(ct);
+            DisplayCurrency = await displayCurrency.GetAsync(ct);
             var one = await reviewDeals.FindAsync(DealId.From(id), ct);
             if (one is not null)
             {
@@ -563,6 +571,7 @@ public sealed class ReviewModel(
     private async Task PopulateQueueAsync(string? flyer, int? step, bool autoAdvance, CancellationToken ct)
     {
         await LoadSheetOptionsAsync(ct);
+        DisplayCurrency = await displayCurrency.GetAsync(ct);
         ApplyQueue(await queueBuilder.BuildAsync(flyer, step, autoAdvance, ct));
 
         // Keep the address bar (and therefore a refresh) on the effective step. The step buttons and rail chips
