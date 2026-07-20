@@ -142,6 +142,21 @@ public static class RecipeDetailFixture
         };
 
     /// <summary>
+    /// Stock snapshots for the "unit gap" scenario (plantry-z2sr): Garlic has 800g on hand (a WEIGHT),
+    /// but the recipe calls for 3 "ea" (a COUNT) and no weight↔count conversion exists — the identity
+    /// <see cref="FakeDetailUnitConverter"/> fails across the two units. The row must read as a unit gap
+    /// ("Can't compare units" + popover), not the flat "Not in your pantry". Pasta/Tomatoes InStock.
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, ProductStock> StockWithUnitGap(DateOnly today) =>
+        new Dictionary<Guid, ProductStock>
+        {
+            [PastaId]  = new(PastaId,  600m, GramUnitId, SoonestExpiry: null),
+            [TomatoId] = new(TomatoId, 600m, GramUnitId, SoonestExpiry: null),
+            // Garlic on hand in grams while the recipe line is in "ea" → no conversion path → unit gap.
+            [GarlicId] = new(GarlicId, 800m, GramUnitId, SoonestExpiry: null),
+        };
+
+    /// <summary>
     /// Price points for the fixture. Pasta priced; Tomatoes priced; Garlic not priced → Partial.
     /// Pasta: $2/kg = $0.002/g → 400g → $0.80 total.
     /// Tomatoes: $1.50/kg = $0.0015/g → 500g → $0.75 total.

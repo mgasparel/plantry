@@ -17,21 +17,26 @@
     {
         // Fulfillment status for this ingredient — carried by IngredientItemView from RecipeDetailView.From.
         var status = item.Status;
-        var statusClass = status switch
+        // Unit gap (plantry-z2sr): the row reads Missing only because on-hand stock can't be converted to
+        // the recipe unit. It is an honest "can't compare" state, not an empty pantry, so it renders in the
+        // info tone with a popover rather than the danger "Not in your pantry" — mirroring the Cook page's
+        // IsUnitGap treatment (plantry-qll2.5). Only meaningful when the status is Missing.
+        var unitGap = item.UnitMismatch;
+        var statusClass = unitGap ? "rd-ing-status--unitgap" : status switch
         {
             IngredientStatus.InStock   => "rd-ing-status--have",
             IngredientStatus.Low       => "rd-ing-status--low",
             IngredientStatus.Missing   => "rd-ing-status--miss",
             _                          => "rd-ing-status--untracked",
         };
-        var iconRef = status switch
+        var iconRef = unitGap ? "#i-info" : status switch
         {
             IngredientStatus.InStock   => "#i-check",
             IngredientStatus.Low       => "#i-alert",
             IngredientStatus.Missing   => "#i-alert",
             _                          => "#i-recipe",
         };
-        var subClass = status switch
+        var subClass = unitGap ? "rd-ing-sub--unitgap" : status switch
         {
             IngredientStatus.InStock   => "rd-ing-sub--have",
             IngredientStatus.Low       => "rd-ing-sub--low",
@@ -43,6 +48,10 @@
         if (item.IsUntracked)
         {
             subLabel = "untracked";
+        }
+        else if (unitGap)
+        {
+            subLabel = "Can't compare units";
         }
         else if (status == IngredientStatus.InStock)
         {
@@ -82,7 +91,20 @@
                         }
                     }
                 </div>
-                <div class="rd-ing-sub @(subClass)">@subLabel</div>
+                @* @subLabel and @if are kept adjacent (no leading whitespace) so a normal row renders
+                   byte-identically to before — only a unit-gap row emits the extra popover markup. *@
+                <div class="rd-ing-sub @(subClass)">@subLabel@if (unitGap)
+                    {
+                        @* Honest "can't compare" explanation (plantry-z2sr): on-hand stock is measured in
+                           a unit with no conversion path to the recipe's unit. The popover links out to the
+                           product page where the Add-conversion affordance lives (same destination as the
+                           Cook page's unit-gap link, plantry-qll2.5). Start-aligned so it never clips the
+                           left rail margin. *@
+                        <popover position="start" label="i" title="Can't compare units">
+                            You have some on hand, but it's measured in a unit we can't convert to this recipe's unit — so we can't tell whether it's enough.
+                            <a href="/Catalog/Products/@item.ProductId">Add a conversion</a>
+                        </popover>
+                    }</div>
             </div>
             <div class="rd-ing-amt">
                 @if (!item.IsUntracked && item.Quantity.HasValue)

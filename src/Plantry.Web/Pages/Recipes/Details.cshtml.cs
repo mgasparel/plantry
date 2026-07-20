@@ -438,11 +438,13 @@ public sealed class DetailsModel(
                         : null;
                     return new IngredientItemView(
                         ProductName: product?.Name ?? "(unknown product)",
+                        ProductId: i.ProductId,
                         Quantity: isUntracked ? null : i.Quantity,
                         UnitCode: unitCode,
                         IsUntracked: isUntracked,
                         Status: ingFulfillment?.Status ?? IngredientStatus.Untracked,
                         ExpiresWithinDays: ingFulfillment?.ExpiresWithinDays,
+                        UnitMismatch: ingFulfillment?.UnitMismatch ?? false,
                         DisplayQuantity: displayQuantity);
                 }).ToList()))
             .ToList();
@@ -722,6 +724,12 @@ public sealed record IngredientGroupView(
     IReadOnlyList<IngredientItemView> Items);
 
 /// <summary>A single ingredient row with resolved product name, quantity, unit code, tracked state, and live fulfillment status.</summary>
+/// <param name="ProductId">Catalog product id (DM-3) — links the unit-mismatch popover to the product's "Add conversion" page.</param>
+/// <param name="UnitMismatch">
+/// Display-only (plantry-z2sr): true when the row reads Missing only because on-hand stock can't be
+/// converted to the recipe unit. Swaps the "Not in your pantry" copy for an honest "can't compare units"
+/// explanation + popover. Never affects <paramref name="Status"/>.
+/// </param>
 /// <param name="DisplayQuantity">
 /// The pretty (vulgar-fraction) rendering of <paramref name="Quantity"/> at 1× in the authored unit's
 /// DisplayStyle (quantity-display.md Q1/§7) — "½", "1¾", or the plain <c>0.###</c> decimal when it snaps to
@@ -730,11 +738,13 @@ public sealed record IngredientGroupView(
 /// </param>
 public sealed record IngredientItemView(
     string ProductName,
+    Guid ProductId,
     decimal? Quantity,
     string? UnitCode,
     bool IsUntracked,
     IngredientStatus Status,
     int? ExpiresWithinDays,
+    bool UnitMismatch = false,
     string? DisplayQuantity = null);
 
 /// <summary>A derived direction block produced by <see cref="DetailsModel.ParseDirections"/> (C13).</summary>

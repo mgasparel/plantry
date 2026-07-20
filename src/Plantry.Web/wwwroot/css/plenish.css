@@ -3333,6 +3333,9 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .rd-ing-status--have { background: var(--color-success-bg); color: var(--color-success); }
 .rd-ing-status--low  { background: var(--color-warning-bg); color: var(--color-warning); }
 .rd-ing-status--miss { background: var(--color-danger-bg);  color: var(--color-danger); }
+/* unit gap (plantry-z2sr): stock on hand can't be converted to the recipe unit — info tone, not danger,
+   matching the Cook page's cook-ing-status--unitgap treatment (plantry-qll2.5) */
+.rd-ing-status--unitgap { background: var(--color-info-bg); color: var(--color-info); }
 /* untracked: no colored box — just a small neutral dot for visual rhythm */
 .rd-ing-status--untracked {
   background: var(--color-surface-2);
@@ -3380,6 +3383,8 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .rd-ing-sub--have { color: var(--color-text-faint); }
 .rd-ing-sub--low  { color: var(--color-warning); font-weight: 600; }
 .rd-ing-sub--miss { color: var(--color-danger); font-weight: 600; }
+/* unit gap (plantry-z2sr): honest "can't compare units" tone — info, with the explanatory popover inline */
+.rd-ing-sub--unitgap { color: var(--color-info); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
 .rd-ing-sub--untracked { color: var(--color-text-faint); font-style: italic; }
 
 .rd-ing-amt {
