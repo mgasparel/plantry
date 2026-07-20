@@ -1,7 +1,9 @@
+using System.Globalization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Plantry.Web;
 using Plantry.Ai.Infrastructure;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
@@ -47,6 +49,16 @@ using Plantry.Web.Shopping;
 using Plantry.Web.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Pin an explicit display culture at startup so money renders with a real currency symbol ($) regardless
+// of the host/container locale (plantry-xtmt). The aspnet runtime image inherits a C/POSIX locale, which
+// .NET maps to the invariant culture — whose currency symbol is the generic placeholder '¤', so recipe
+// cost-per-serving and Deals prices rendered via ToString("C2") showed '¤0.00'. Setting the process-wide
+// thread default makes every request thread's CurrentCulture resolve to it, fixing both call sites at once.
+// Sourced from config (DisplayCulture.ConfigKey) with an en-US default; Plantry is single-currency today.
+var displayCulture = DisplayCulture.Resolve(builder.Configuration);
+CultureInfo.DefaultThreadCurrentCulture = displayCulture;
+CultureInfo.DefaultThreadCurrentUICulture = displayCulture;
 
 builder.AddServiceDefaults();
 
