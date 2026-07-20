@@ -34,7 +34,8 @@ public sealed class LineCommitDecisionTests
                 new ReviewUnitOption(_eachUnitId, "each", "Each", ReviewUnitDimension.Count),
             ],
             Locations: [],
-            Categories: []));
+            Categories: [],
+            Stores: []));
 
     private ImportSession NewSession() =>
         ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);

@@ -5,6 +5,8 @@ using OpenAI.Chat;
 using Plantry.Ai.Infrastructure;
 using Plantry.Intake.Application;
 using Plantry.Intake.Infrastructure;
+using Plantry.SharedKernel.Domain;
+using Plantry.Tests.Unit.Intake.Application;
 using Plantry.Tests.Unit.TestSupport;
 
 namespace Plantry.Tests.Unit.Intake.Infrastructure;
@@ -39,6 +41,11 @@ public sealed class GeminiReceiptParserCompletionTests
     // The scripted seam never actually transmits the image, so any bytes / content type suffice.
     private static readonly byte[] Image = [1, 2, 3, 4];
 
+    // A pinned "upload date" (server UTC) so the prompt-injection and plausibility-window assertions are
+    // deterministic (plantry-ag05). The 15:00Z wall-clock time is deliberate: DateOnly.FromDateTime on the
+    // UTC instant must yield 2026-07-19 regardless of the machine's local timezone.
+    private static readonly IClock FixedClock = new MutableClock(new DateTimeOffset(2026, 7, 19, 15, 0, 0, TimeSpan.Zero));
+
     private const string ValidResponse = """
         {
           "merchant": "Whole Foods Market",
@@ -57,8 +64,8 @@ public sealed class GeminiReceiptParserCompletionTests
         }
         """;
 
-    private static GeminiReceiptParser Parser(ChatClient chat) =>
-        new(chat, Options.Create(new AiOptions { Model = "test-model" }), NullLogger<GeminiReceiptParser>.Instance);
+    private static GeminiReceiptParser Parser(ChatClient chat, IClock? clock = null) =>
+        new(chat, Options.Create(new AiOptions { Model = "test-model" }), clock ?? FixedClock, NullLogger<GeminiReceiptParser>.Instance);
 
     private static Task<ReceiptParseResult> Parse(GeminiReceiptParser parser, CancellationToken ct = default) =>
         parser.ParseAsync(Image, "image/png", Hints, ct);
@@ -89,6 +96,88 @@ public sealed class GeminiReceiptParserCompletionTests
         Assert.Contains(BananaId.ToString(), call.UserText);          // catalog id, verbatim
         Assert.Contains("Bananas", call.UserText);                    // catalog name
         Assert.Contains("tracked by: each", call.UserText);           // each-tracking flag for the estimate rule
+    }
+
+    [Fact]
+    public async Task The_System_Prompt_Carries_The_Upload_Date_To_Anchor_Ambiguous_Dates()
+    {
+        var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse));
+
+        await Parse(Parser(chat));
+
+        var call = Assert.Single(chat.Calls);
+        var systemText = Assert.IsType<SystemChatMessage>(call.Messages[0]).Content[0].Text;
+        Assert.Contains("uploaded on 2026-07-19", systemText); // server upload date injected verbatim
+        Assert.Contains("not after", systemText);              // recency steer for ambiguous dates
+        // Deliberately NO locale/format hint — the prompt must not bias toward any specific date format.
+        Assert.DoesNotContain("YY/MM/DD", systemText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("MM/DD", systemText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── purchase_date plausibility guard (plantry-ag05) ─────────────────────────────────────────────
+
+    private static string ResponseWithDate(string purchaseDate) => $$"""
+        { "merchant": "Food Basics", "purchase_date": "{{purchaseDate}}", "lines": [] }
+        """;
+
+    [Theory]
+    [InlineData("2019-07-26")] // the reported bug: a year-digit swap of 2026-07-19, ~7 years in the past
+    [InlineData("2025-07-18")] // one day past the one-year floor
+    [InlineData("2026-07-21")] // two days after upload — past the +1-day skew allowance
+    [InlineData("2027-01-01")] // clearly future
+    public async Task An_Implausible_Purchase_Date_Is_Dropped_Without_Failing_The_Parse(string date)
+    {
+        var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ResponseWithDate(date)));
+
+        var result = await Parse(Parser(chat));
+
+        Assert.False(result.HasError);                 // soft: the parse still succeeds
+        Assert.NotNull(result.Metadata);
+        Assert.Null(result.Metadata!.PurchaseDate);    // the implausible date is nulled
+    }
+
+    [Theory]
+    [InlineData("2026-07-19")] // the upload date itself
+    [InlineData("2026-07-20")] // upload + 1 day — the timezone-skew allowance
+    [InlineData("2025-07-19")] // exactly one year before upload — the past floor
+    [InlineData("2026-01-02")] // an ordinary recent date
+    public async Task A_Plausible_Purchase_Date_Survives_The_Guard(string date)
+    {
+        var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ResponseWithDate(date)));
+
+        var result = await Parse(Parser(chat));
+
+        Assert.False(result.HasError);
+        Assert.Equal(DateOnly.Parse(date), result.Metadata!.PurchaseDate);
+    }
+
+    [Fact]
+    public async Task Dropping_An_Implausible_Date_Records_A_Span_Event_So_Misreads_Stay_Visible()
+    {
+        var spans = CaptureReceiptParseSpans(out var listener);
+        using (listener)
+        {
+            var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ResponseWithDate("2019-07-26")));
+            await Parse(Parser(chat));
+        }
+
+        var span = Assert.Single(spans);
+        Assert.Contains(span.Events, e => e.Name == "receipt_parse.implausible_purchase_date");
+        Assert.Equal(ActivityStatusCode.Unset, span.Status); // dropping a date is not a parse failure
+    }
+
+    [Fact]
+    public async Task A_Plausible_Date_Records_No_Implausible_Date_Span_Event()
+    {
+        var spans = CaptureReceiptParseSpans(out var listener);
+        using (listener)
+        {
+            var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ResponseWithDate("2026-07-19")));
+            await Parse(Parser(chat));
+        }
+
+        var span = Assert.Single(spans);
+        Assert.DoesNotContain(span.Events, e => e.Name == "receipt_parse.implausible_purchase_date");
     }
 
     [Fact]

@@ -13,7 +13,15 @@ namespace Plantry.Tests.Unit.Intake.Application;
 /// </summary>
 public sealed class CommitSessionCommandTests
 {
-    private static readonly IClock Clock = SystemClock.Instance;
+    // A fixed-instant clock (not the ambient SystemClock): the commit-date fallback test reads the clock in
+    // the SUT and again in its assertion, so both must resolve to the same DateOnly — an ambient clock would
+    // flake across a UTC-midnight boundary (Gate 10).
+    private sealed class FixedClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = now;
+    }
+
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 7, 19, 12, 0, 0, TimeSpan.Zero));
     private readonly Guid _household = Guid.NewGuid();
     private readonly Guid _userId = Guid.CreateVersion7();
     private readonly Guid _unitId = Guid.CreateVersion7();
@@ -211,6 +219,70 @@ public sealed class CommitSessionCommandTests
     }
 
     [Fact]
+    public async Task Uses_The_User_Picked_Store_Id_Directly_Without_A_Name_Round_Trip()
+    {
+        // plantry-yobz: the user picked an existing store in review (SelectedStoreId set). Commit stamps that
+        // id onto the observation directly and never calls the name find-or-create path.
+        var session = ReadySession();
+        var line = session.AddLine(1, "Flour 1kg", SuggestedConfidence.High, null);
+        session.MarkReady("Food Basics", Clock.UtcNow);
+        var pickedStoreId = Guid.CreateVersion7();
+        session.CorrectHeader("Food Basics", pickedStoreId, null, null, Clock);
+        line.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, price: 4.99m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var price = new FakeRecordPricePort();
+        var store = new FakeEnsurePurchaseStorePort();
+
+        var result = await Commit(session, repo, new(), new(), price, store).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(store.Calls);                                 // no name find-or-create for a picked store
+        Assert.Equal(pickedStoreId, Assert.Single(price.StoreIds)); // the picked id, stamped directly
+        Assert.Equal("Food Basics", Assert.Single(price.MerchantTexts));
+    }
+
+    [Fact]
+    public async Task Backdates_The_Stock_Lot_To_The_Corrected_Purchase_Date()
+    {
+        // plantry-yobz: the committed lot's dated-as value is the (user-corrected) receipt purchase date,
+        // not commit-time UtcNow.
+        var session = ReadySession();
+        var line = session.AddLine(1, "Flour 1kg", SuggestedConfidence.High, null);
+        session.MarkReady("Metro", Clock.UtcNow, new ReceiptMetadata(PurchaseDate: new DateOnly(2026, 3, 14)));
+        line.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, price: 4.99m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var add = new FakeAddStockPort();
+
+        var result = await Commit(session, repo, new(), add, new()).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new DateOnly(2026, 3, 14), Assert.Single(add.PurchasedAts));
+    }
+
+    [Fact]
+    public async Task Falls_Back_To_Commit_Time_When_No_Purchase_Date_Is_Present()
+    {
+        // A receipt with no date (or a guard-nulled one the user never filled) stamps commit-time UtcNow.
+        var session = ReadySession();
+        var line = session.AddLine(1, "Flour 1kg", SuggestedConfidence.High, null);
+        session.MarkReady("Metro", Clock.UtcNow); // no metadata → PurchaseDate null
+        line.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, price: 4.99m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var add = new FakeAddStockPort();
+
+        var result = await Commit(session, repo, new(), add, new()).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(DateOnly.FromDateTime(Clock.UtcNow.UtcDateTime), Assert.Single(add.PurchasedAts));
+    }
+
+    [Fact]
     public async Task Blank_Merchant_Leaves_StoreId_Null_Without_Resolving_A_Store()
     {
         var session = ReadySession();
@@ -323,7 +395,8 @@ public sealed class CommitSessionCommandTests
                 new ReviewUnitOption(_eachUnitId, "each", "Each", ReviewUnitDimension.Count),
             ],
             Locations: [],
-            Categories: []));
+            Categories: [],
+            Stores: []));
 
     /// <summary>Adds a weight-priced, each-tracked line the user accepted as an each-count.</summary>
     private ImportLine EstimatedEachLine(ImportSession session, Guid productId) =>

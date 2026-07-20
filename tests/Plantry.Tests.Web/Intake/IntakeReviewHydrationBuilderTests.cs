@@ -28,10 +28,11 @@ public sealed class IntakeReviewHydrationBuilderTests
     private static readonly Guid LitreUnitId = Guid.Parse("55555555-5555-5555-5555-555555555555");
     private static readonly Guid EachUnitId = Guid.Parse("44444444-4444-4444-4444-444444444444");
     private static readonly Guid FridgeLocationId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+    private static readonly Guid GrocerStoreId = Guid.Parse("88888888-8888-8888-8888-888888888888");
 
     private static readonly ReviewHandlerUrls Urls = new(
         Commit: "/c", Discard: "/d", SaveLine: "/s", DismissLine: "/di",
-        RestoreLine: "/r", Reopen: "/ro", ConfirmLines: "/cl");
+        RestoreLine: "/r", Reopen: "/ro", ConfirmLines: "/cl", CorrectHeader: "/ch");
 
     private static ReviewReferenceData Reference() => new(
         Products:
@@ -49,7 +50,8 @@ public sealed class IntakeReviewHydrationBuilderTests
             new ReviewUnitOption(LitreUnitId, "L", "Litre", ReviewUnitDimension.Volume),
         ],
         Locations: [new ReviewLocationOption(FridgeLocationId, "Fridge")],
-        Categories: [new ReviewCategoryOption(Guid.NewGuid(), "Dairy", 200)]);
+        Categories: [new ReviewCategoryOption(Guid.NewGuid(), "Dairy", 200)],
+        Stores: [new ReviewStoreOption(GrocerStoreId, "Test Grocer")]);
 
     private static ReviewLineView Line(
         LineStatus status = LineStatus.Pending,
@@ -304,6 +306,76 @@ public sealed class IntakeReviewHydrationBuilderTests
         Assert.Equal("/r", h.RestoreLineUrl);
         Assert.Equal("/ro", h.ReopenLineUrl);
         Assert.Equal("/cl", h.ConfirmLinesUrl);
+        Assert.Equal("/ch", h.CorrectHeaderUrl);
+    }
+
+    // ── Editable header (plantry-yobz) ──────────────────────────────────────────────────
+
+    /// <summary>A Ready session carrying corrected/parsed header values — for the editable-header tests.</summary>
+    private static SessionReviewView HeaderSession(
+        string? merchantText = "Food Basics",
+        Guid? selectedStoreId = null,
+        DateOnly? purchaseDate = null,
+        TimeOnly? purchaseTime = null) =>
+        new(
+            SessionId: Guid.NewGuid(),
+            Status: ImportStatus.Ready,
+            MerchantText: merchantText,
+            ParseError: null,
+            CreatedAt: Now,
+            Lines: [Line()],
+            ReferenceData: Reference(),
+            SourceType: ImportSourceType.Receipt,
+            StoreBranch: null,
+            PurchaseDate: purchaseDate,
+            PurchaseTime: purchaseTime,
+            SelectedStoreId: selectedStoreId);
+
+    [Fact(DisplayName = "The household's active stores are projected for the header picker")]
+    public void Stores_Are_Projected()
+    {
+        var h = Build(Session([Line()]));
+
+        var store = Assert.Single(h.Stores);
+        Assert.Equal(GrocerStoreId.ToString(), store.Id);
+        Assert.Equal("Test Grocer", store.Name);
+    }
+
+    [Fact(DisplayName = "Raw header seeds (merchant / store id / date / time) are emitted for the edit controls")]
+    public void Raw_Header_Seeds_Are_Emitted()
+    {
+        var storeId = Guid.NewGuid();
+        var h = Builder.Build(
+            HeaderSession("Food Basics", storeId, new DateOnly(2026, 7, 19), new TimeOnly(17, 5)),
+            Today, Now, Urls);
+
+        Assert.Equal("Food Basics", h.MerchantTextRaw);
+        Assert.Equal(storeId.ToString(), h.SelectedStoreId);
+        Assert.Equal("2026-07-19", h.PurchaseDateRaw);       // ISO, seeds the <input type=date>
+        Assert.Equal("17:05", h.PurchaseTimeRaw);            // 24h, seeds the <input type=time>
+        Assert.Equal("Sun Jul 19, 2026", h.PurchaseDate);    // locale display for the locked view
+    }
+
+    [Fact(DisplayName = "A guard-nulled / absent date yields null raw + display so the control prompts entry")]
+    public void Null_Date_Yields_Null_Raw_And_Display()
+    {
+        var h = Builder.Build(HeaderSession(purchaseDate: null), Today, Now, Urls);
+
+        Assert.Null(h.PurchaseDateRaw);
+        Assert.Null(h.PurchaseDate);
+        Assert.Null(h.PurchaseTimeRaw);
+    }
+
+    [Theory(DisplayName = "MerchantTextRaw is null for a blank merchant (while MerchantText falls back to \"Receipt\")")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void MerchantTextRaw_Is_Null_For_Blank_Merchant(string? merchant)
+    {
+        var h = Builder.Build(HeaderSession(merchantText: merchant), Today, Now, Urls);
+
+        Assert.Null(h.MerchantTextRaw);       // the picker sees "unresolved" → prompts entry
+        Assert.Equal("Receipt", h.MerchantText); // the facsimile title still falls back
     }
 
     [Fact(DisplayName = "ScanVia maps a Receipt source to \"photo\"")]

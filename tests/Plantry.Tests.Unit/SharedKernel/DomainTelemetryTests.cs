@@ -507,7 +507,7 @@ internal sealed class MetricsTestEnsurePurchaseStorePort : IEnsurePurchaseStoreP
 internal sealed class MetricsTestReviewReferenceDataProvider : IReviewReferenceDataProvider
 {
     public Task<ReviewReferenceData> GetAsync(CancellationToken ct = default) =>
-        Task.FromResult(new ReviewReferenceData([], [], [], []));
+        Task.FromResult(new ReviewReferenceData([], [], [], [], []));
 }
 
 internal sealed class MetricsTestSeedConversionPort : ISeedConversionPort

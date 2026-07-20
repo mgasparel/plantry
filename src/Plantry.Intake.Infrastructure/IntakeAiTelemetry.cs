@@ -21,4 +21,17 @@ public static class IntakeAiTelemetry
             "ai.parse.confidence",
             unit: "1",
             description: "AI-assigned match-confidence for each receipt line (high=1.0, low=0.5, none=0.0).");
+
+    /// <summary>
+    /// Count of receipt parses whose AI-parsed <c>purchase_date</c> fell outside the plausibility window
+    /// (later than upload + 1 day, or older than one year) and was dropped by
+    /// <see cref="GeminiReceiptParser"/> (plantry-ag05). Keeps gross date misreads — e.g. year-digit
+    /// swaps — visible in aggregate without writing the receipt-derived value to any log or span attribute.
+    /// Query as <c>ai.parse.implausible_purchase_date</c> in your metrics backend.
+    /// </summary>
+    public static readonly Counter<long> ImplausiblePurchaseDate =
+        AiTelemetry.Meter.CreateCounter<long>(
+            "ai.parse.implausible_purchase_date",
+            unit: "1",
+            description: "Receipt parses whose purchase_date fell outside the plausibility window and was dropped.");
 }

@@ -28,17 +28,27 @@ public sealed record SessionHydration(
     string RestoreLineUrl,
     string ReopenLineUrl,
     string ConfirmLinesUrl,
+    string CorrectHeaderUrl,
     IReadOnlyList<ProductHydration> Products,
     IReadOnlyList<UnitHydration> Units,
     IReadOnlyList<LocationHydration> Locations,
     IReadOnlyList<CategoryHydration> Categories,
+    IReadOnlyList<StoreHydration> Stores,
     IReadOnlyList<LineHydration> Lines,
-    // ── Receipt-panel metadata (display-only; each null/absent field is omitted from the panel) ──
+    // ── Receipt-panel metadata (display-only, EXCEPT the editable header fields below) ──
     string ScanVia,
     string ScannedLabel,
     string? StoreBranch,
     string? PurchaseDate,
     string? PurchaseTime,
+    // ── Editable header (plantry-yobz): the user-correctable store + date/time. The *Raw fields seed the
+    //    edit controls (unformatted) while the display strings above render the locked view. MerchantTextRaw
+    //    is the un-"Receipt"-defaulted merchant (null when the AI read no store — the picker prompts entry);
+    //    SelectedStoreId is the currently-picked store (null = AI value / typed name). ──
+    string? MerchantTextRaw,
+    string? SelectedStoreId,
+    string? PurchaseDateRaw,
+    string? PurchaseTimeRaw,
     decimal? Subtotal,
     decimal? Tax,
     decimal? Total,
@@ -77,6 +87,12 @@ public sealed record CategoryHydration(
     string Id,
     string Name,
     int? Hue);
+
+/// <summary>An active household merchant the review header's store picker filters over (plantry-yobz).
+/// Picking one resolves the session's purchase store to this id directly at commit.</summary>
+public sealed record StoreHydration(
+    string Id,
+    string Name);
 
 /// <summary>One review row: the saved/edited line state, the server-computed prefill
 /// (ADR-020 §3 case 1 — the priority chain stays server-side), and resolved alternatives.</summary>

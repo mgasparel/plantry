@@ -1,11 +1,12 @@
 namespace Plantry.Intake.Application;
 
 /// <summary>
-/// Port: loads the household's Catalog reference data — products, units, locations, categories — for the
-/// review-form dropdowns. Implemented in Plantry.Web (adapter over Catalog's read services) so
+/// Port: loads the household's Catalog reference data — products, units, locations, categories, stores — for
+/// the review-form dropdowns. Implemented in Plantry.Web (adapter over Catalog's read services) so
 /// Plantry.Intake stays free of any Catalog dependency, mirroring <see cref="ICatalogHintProvider"/> and
 /// <see cref="ICreateProductPort"/>. Only stock-eligible products are returned: a receipt line can only
-/// ever resolve to a product that can hold stock.
+/// ever resolve to a product that can hold stock. Stores are the household's active (non-archived) merchants,
+/// the pick-list for the review header's store picker (plantry-yobz).
 /// </summary>
 public interface IReviewReferenceDataProvider
 {
@@ -54,8 +55,13 @@ public sealed record ReviewCategoryOption(
     /// <summary>Hue in degrees (0–359) on the oklch colour wheel. Null means no hue assigned (renders neutral chip).</summary>
     int? Hue = null);
 
+/// <summary>An active household merchant the review header's store picker can resolve the receipt to
+/// directly by id (plantry-yobz), instead of round-tripping the merchant name through find-or-create.</summary>
+public sealed record ReviewStoreOption(Guid Id, string Name);
+
 public sealed record ReviewReferenceData(
     IReadOnlyList<ReviewProductOption> Products,
     IReadOnlyList<ReviewUnitOption> Units,
     IReadOnlyList<ReviewLocationOption> Locations,
-    IReadOnlyList<ReviewCategoryOption> Categories);
+    IReadOnlyList<ReviewCategoryOption> Categories,
+    IReadOnlyList<ReviewStoreOption> Stores);

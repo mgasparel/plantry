@@ -11,6 +11,7 @@ using System.Globalization;
 using Plantry.Ai.Infrastructure;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
+using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Intake.Infrastructure;
 
@@ -31,17 +32,27 @@ namespace Plantry.Intake.Infrastructure;
 /// <see cref="IntakeAiTelemetry.ParseConfidence"/>. Failures set the span to
 /// <see cref="ActivityStatusCode.Error"/> and emit a <c>LogError</c>. No receipt content, prompt
 /// text, or API key is written to any log or span attribute.
+///
+/// Purchase-date anchoring (plantry-ag05): the model dates a receipt with zero context, so an
+/// ambiguous short-form date (e.g. "26/07/19") is a coin flip. Two defences: the parser prompt is
+/// told the upload date and to prefer the recent, not-after-upload reading of an ambiguous date; and a
+/// post-parse plausibility guard nulls any <c>purchase_date</c> outside a sane window (later than
+/// upload + 1 day, or older than one year) — consistent with the "never guess" posture (unparseable
+/// dates already null), emitting a <see cref="IntakeAiTelemetry.ImplausiblePurchaseDate"/> count and a
+/// span event so misreads stay visible without writing the receipt-derived value to a log.
 /// </summary>
 public sealed class GeminiReceiptParser : IReceiptParser
 {
     private readonly ChatClient _chat;
     private readonly string _modelId;
+    private readonly IClock _clock;
     private readonly ILogger<GeminiReceiptParser> _logger;
 
     public GeminiReceiptParser(
         IOptions<AiOptions> options,
+        IClock clock,
         ILogger<GeminiReceiptParser> logger)
-        : this(CreateClient(options.Value), options, logger)
+        : this(CreateClient(options.Value), options, clock, logger)
     {
     }
 
@@ -53,11 +64,13 @@ public sealed class GeminiReceiptParser : IReceiptParser
     internal GeminiReceiptParser(
         ChatClient chat,
         IOptions<AiOptions> options,
+        IClock clock,
         ILogger<GeminiReceiptParser> logger)
     {
         _logger = logger;
         _chat = chat;
         _modelId = options.Value.Model;
+        _clock = clock;
     }
 
     private static ChatClient CreateClient(AiOptions ai) =>
@@ -141,6 +154,10 @@ public sealed class GeminiReceiptParser : IReceiptParser
             "AI receipt parse starting. Model: {Model}, CatalogHints: {HintCount}.",
             _modelId, catalogHints.Count);
 
+        // Upload date (server UTC) anchors both the prompt's ambiguous-date guidance and the post-parse
+        // plausibility window (plantry-ag05). Computed once so the prompt and the guard agree.
+        var uploadDate = DateOnly.FromDateTime(_clock.UtcNow.UtcDateTime);
+
         try
         {
             var userMessage = new UserChatMessage(
@@ -148,7 +165,7 @@ public sealed class GeminiReceiptParser : IReceiptParser
                 ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageBytes), contentType));
 
             var response = await _chat.CompleteChatAsync(
-                [new SystemChatMessage(SystemPrompt), userMessage],
+                [new SystemChatMessage(BuildDatedSystemPrompt(uploadDate)), userMessage],
                 cancellationToken: ct);
 
             var completion = response.Value;
@@ -178,6 +195,9 @@ public sealed class GeminiReceiptParser : IReceiptParser
                 return result;
             }
 
+            // Drop an implausible purchase_date (plantry-ag05) — never fail the parse for it.
+            result = GuardPurchaseDate(result, uploadDate, activity);
+
             // Record per-line confidence histogram (Gate 9 metric requirement).
             foreach (var line in result.Lines)
                 IntakeAiTelemetry.ParseConfidence.Record(ConfidenceScore(line.Confidence));
@@ -198,6 +218,52 @@ public sealed class GeminiReceiptParser : IReceiptParser
             return new ReceiptParseResult(null, [], $"Receipt parsing failed: {ex.Message}");
         }
     }
+
+    // Appends the upload date to the static system prompt so the model can disambiguate short-form dates
+    // (plantry-ag05). Deliberately carries NO locale/format hint (e.g. no "registers print YY/MM/DD"):
+    // the only steer is recency — an ambiguous date should read as the most recent value that is not
+    // after the upload date — so we bias toward "recent", never toward a specific date format.
+    private static string BuildDatedSystemPrompt(DateOnly uploadDate) =>
+        $$"""
+        {{SystemPrompt}}
+
+        Dating this receipt:
+        - This receipt was uploaded on {{uploadDate:yyyy-MM-dd}}. Receipts are usually recent, so when the
+          printed date is ambiguous, choose the interpretation closest to — and not after — the upload date.
+        """;
+
+    /// <summary>
+    /// Nulls a parsed <c>purchase_date</c> that falls outside the plausibility window relative to the
+    /// upload date (plantry-ag05) — the parse itself is never failed (mirrors the existing "unparseable
+    /// date drops to null, never guess" posture). A dropped date bumps
+    /// <see cref="IntakeAiTelemetry.ImplausiblePurchaseDate"/> and records a span event so gross misreads
+    /// (e.g. year-digit swaps) stay visible in telemetry; the receipt-derived value is never logged (Gate 9).
+    /// Only <c>purchase_date</c> is guarded — time-of-day and other metadata have no useful window.
+    /// </summary>
+    private ReceiptParseResult GuardPurchaseDate(ReceiptParseResult result, DateOnly uploadDate, Activity? activity)
+    {
+        if (result.Metadata?.PurchaseDate is not { } date || IsPlausiblePurchaseDate(date, uploadDate))
+            return result;
+
+        IntakeAiTelemetry.ImplausiblePurchaseDate.Add(1);
+        activity?.AddEvent(new ActivityEvent("receipt_parse.implausible_purchase_date"));
+        _logger.LogWarning(
+            "AI receipt parse produced a purchase_date outside the plausibility window relative to upload date "
+            + "{UploadDate}; dropping the field. Model: {Model}.",
+            uploadDate, _modelId);
+
+        return result with { Metadata = result.Metadata with { PurchaseDate = null } };
+    }
+
+    /// <summary>
+    /// A parsed <c>purchase_date</c> is plausible when it is no later than one day after the upload date
+    /// (the +1 day absorbs all timezone skew) and no older than one year before it (targets gross misreads
+    /// like year-digit swaps; a tighter past window would fight legitimate scanning of older receipts).
+    /// Day/month swaps within the same year are indistinguishable from valid dates and are out of scope —
+    /// the editable review field (plantry-yobz) is the backstop for those.
+    /// </summary>
+    internal static bool IsPlausiblePurchaseDate(DateOnly purchaseDate, DateOnly uploadDate) =>
+        purchaseDate <= uploadDate.AddDays(1) && purchaseDate >= uploadDate.AddYears(-1);
 
     private static string BuildCatalogBlock(IReadOnlyList<ProductHint> hints)
     {

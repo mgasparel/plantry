@@ -17,6 +17,7 @@ import {
   lineSection,
   isSurePending,
   hasCompletePrefill,
+  isPrefillComplete,
   buildSaveLineBody,
   commitBarCounts,
   estimateHint,
@@ -26,6 +27,8 @@ import {
   demotedDecision,
   railLineView,
   reconciliation,
+  filterStores,
+  buildCorrectHeaderBody,
   // reused deck primitives (deal-deck-logic.js) — covered here for intake's use of them
   buildDeckOrder,
   applySkip,
@@ -191,6 +194,15 @@ describe("makeLine", () => {
     assert.equal(ls.demoted.value, false);
   });
 
+  it("aiComplete snapshots the ORIGINAL prefill completeness (frozen from the seed, not the drafts)", () => {
+    assert.equal(makeState().aiComplete, true);
+    assert.equal(makeState({}, { unitId: null }).aiComplete, false);
+    assert.equal(makeState({}, { productId: null }).aiComplete, false);
+    assert.equal(makeState({}, { locationId: null }).aiComplete, false);
+    assert.equal(makeState({}, { quantity: 0 }).aiComplete, false);
+    assert.equal(makeState({}, { quantity: null }).aiComplete, false);
+  });
+
   it("drawerOpen always starts closed (the confirmed-row edit drawer is user-toggled)", () => {
     for (const seed of [
       { status: "Pending", confidence: "High" },
@@ -275,11 +287,33 @@ describe("lineSection", () => {
   });
 });
 
-// ── hasCompletePrefill / isSurePending (mirror of the ConfirmLines predicate) ─────
+// ── isPrefillComplete / hasCompletePrefill / isSurePending (mirror of the ConfirmLines predicate) ─────
+
+describe("isPrefillComplete", () => {
+  it("true when product, qty>0, unit and location are all present", () => {
+    assert.equal(isPrefillComplete("prod-abc", 1, "unit-L", "loc-fridge"), true);
+  });
+
+  it("false when any of product / unit / location is missing or qty is not > 0", () => {
+    assert.equal(isPrefillComplete(null, 1, "unit-L", "loc-fridge"), false);
+    assert.equal(isPrefillComplete("prod-abc", 1, null, "loc-fridge"), false);
+    assert.equal(isPrefillComplete("prod-abc", 1, "unit-L", null), false);
+    assert.equal(isPrefillComplete("prod-abc", 0, "unit-L", "loc-fridge"), false);
+    assert.equal(isPrefillComplete("prod-abc", null, "unit-L", "loc-fridge"), false);
+    assert.equal(isPrefillComplete("prod-abc", NaN, "unit-L", "loc-fridge"), false);
+  });
+});
 
 describe("hasCompletePrefill", () => {
   it("true when product, qty>0, unit and location are all present", () => {
     assert.equal(hasCompletePrefill(makeState()), true);
+  });
+
+  it("reads the LIVE draft signals (a user edit that completes the drafts makes it true)", () => {
+    const ls = makeState({}, { unitId: null });
+    assert.equal(hasCompletePrefill(ls), false);
+    ls.draftUnitId.value = "unit-L";
+    assert.equal(hasCompletePrefill(ls), true);
   });
 
   it("false when any of product / unit / location is missing or qty is not > 0", () => {
@@ -292,7 +326,7 @@ describe("hasCompletePrefill", () => {
 });
 
 describe("isSurePending", () => {
-  it("true only for Pending + High + complete prefill + not demoted", () => {
+  it("true only for Pending + High + AI-complete prefill + not demoted", () => {
     assert.equal(isSurePending(makeState({ status: "Pending", confidence: "High" })), true);
   });
 
@@ -302,12 +336,33 @@ describe("isSurePending", () => {
     assert.equal(isSurePending(ls), false);
   });
 
-  it("false for Low confidence, incomplete prefill, or non-Pending status", () => {
+  it("false for Low confidence, AI-incomplete prefill, or non-Pending status", () => {
     assert.equal(isSurePending(makeState({ status: "Pending", confidence: "Low" })), false);
     assert.equal(isSurePending(makeState({ status: "Pending", confidence: "High" }, { unitId: null })), false);
     for (const status of ["Confirmed", "Dismissed", "Committed"]) {
       assert.equal(isSurePending(makeState({ status, confidence: "High" })), false, status);
     }
+  });
+
+  it("stays false when the AI prefill was incomplete but the user's edits later complete the drafts (plantry-wv4h)", () => {
+    // A High-confidence line the AI left incomplete (no unit) belongs in the editable deck, not the checklist.
+    const ls = makeState({ status: "Pending", confidence: "High" }, { unitId: null });
+    assert.equal(isSurePending(ls), false);
+    // The user manually picks the unit in the deck, completing the LIVE draft prefill …
+    ls.draftUnitId.value = "unit-L";
+    assert.equal(hasCompletePrefill(ls), true);
+    // … but it must NOT be promoted into the (non-editable) sure checklist: bulk-confirm re-derives from
+    // the untouched AI suggestion (still incomplete) and would reject it. It stays editable in the deck.
+    assert.equal(isSurePending(ls), false);
+  });
+
+  it("stays sure regardless of later draft edits when the AI prefill WAS complete (snapshot is immutable)", () => {
+    const ls = makeState({ status: "Pending", confidence: "High" });
+    assert.equal(isSurePending(ls), true);
+    // Even blanking a live draft field does not un-sure it — aiComplete is frozen at hydration.
+    ls.draftUnitId.value = "";
+    assert.equal(hasCompletePrefill(ls), false);
+    assert.equal(isSurePending(ls), true);
   });
 });
 
@@ -568,5 +623,60 @@ describe("deck order + skip-stack rotation (reused deal-deck-logic primitives)",
 
   it("reconcileSkipStack drops ids no longer in the deck (skipped then resolved elsewhere)", () => {
     assert.deepEqual(reconcileSkipStack(["a", "gone"], ["a", "b"]), ["a"]);
+  });
+});
+
+// ── review header correction (plantry-yobz) ──────────────────────────────────────
+
+describe("filterStores", () => {
+  const stores = [
+    { id: "1", name: "Food Basics" },
+    { id: "2", name: "Metro" },
+    { id: "3", name: "FreshCo" },
+    { id: "4", name: "No Frills" },
+  ];
+
+  it("returns all stores (capped) for a blank query", () => {
+    assert.deepEqual(filterStores(stores, "").map((s) => s.id), ["1", "2", "3", "4"]);
+    assert.deepEqual(filterStores(stores, "   ").map((s) => s.id), ["1", "2", "3", "4"]);
+  });
+
+  it("filters case-insensitively by substring", () => {
+    assert.deepEqual(filterStores(stores, "fre").map((s) => s.name), ["FreshCo"]);
+    assert.deepEqual(filterStores(stores, "o").map((s) => s.name), ["Food Basics", "Metro", "FreshCo", "No Frills"]);
+  });
+
+  it("caps results at the limit", () => {
+    assert.equal(filterStores(stores, "", 2).length, 2);
+  });
+
+  it("returns [] when nothing matches", () => {
+    assert.deepEqual(filterStores(stores, "zzz"), []);
+  });
+});
+
+describe("buildCorrectHeaderBody", () => {
+  it("passes through a full header, trimming the merchant", () => {
+    assert.deepEqual(
+      buildCorrectHeaderBody({ merchantText: "  Food Basics  ", selectedStoreId: "s1", purchaseDate: "2026-07-19", purchaseTime: "17:05" }),
+      { merchantText: "Food Basics", selectedStoreId: "s1", purchaseDate: "2026-07-19", purchaseTime: "17:05" });
+  });
+
+  it("maps every blank field to null so the server clears it", () => {
+    assert.deepEqual(
+      buildCorrectHeaderBody({ merchantText: "   ", selectedStoreId: "", purchaseDate: "", purchaseTime: "" }),
+      { merchantText: null, selectedStoreId: null, purchaseDate: null, purchaseTime: null });
+  });
+
+  it("a typed merchant with no store id is the create-new path (id null, name kept)", () => {
+    assert.deepEqual(
+      buildCorrectHeaderBody({ merchantText: "Corner Store", selectedStoreId: "", purchaseDate: "", purchaseTime: "" }),
+      { merchantText: "Corner Store", selectedStoreId: null, purchaseDate: null, purchaseTime: null });
+  });
+
+  it("tolerates undefined fields", () => {
+    assert.deepEqual(
+      buildCorrectHeaderBody({}),
+      { merchantText: null, selectedStoreId: null, purchaseDate: null, purchaseTime: null });
   });
 });

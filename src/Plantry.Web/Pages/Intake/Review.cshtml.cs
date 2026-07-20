@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
@@ -27,6 +28,7 @@ namespace Plantry.Web.Pages.Intake;
 ///   DismissLine → { status } | { error }
 ///   RestoreLine → { status } | { error }
 ///   ReopenLine  → { status } | { error }
+///   CorrectHeader → { merchantText, selectedStoreId, purchaseDate, purchaseTime } | { error }
 ///   Commit      → { redirectUrl } | { error }
 ///   Discard     → { redirectUrl } | { error }
 /// </para>
@@ -55,7 +57,8 @@ public sealed class ReviewModel(
     ILogger<ConfirmLineAsNewCommand> confirmAsNewLogger,
     ILogger<RestoreLineCommand> restoreLogger,
     ILogger<ReopenLineCommand> reopenLogger,
-    ILogger<ConfirmLinesCommand> confirmLinesLogger) : PageModel
+    ILogger<ConfirmLinesCommand> confirmLinesLogger,
+    ILogger<CorrectSessionHeaderCommand> correctHeaderLogger) : PageModel
 {
     /// <summary>Pure hydration-JSON projector (plantry-uk4u). Stateless and dependency-free, so it is
     /// held as a shared instance rather than threaded through the (already 18-dep) primary constructor.</summary>
@@ -276,6 +279,74 @@ public sealed class ReviewModel(
         });
     }
 
+    /// <summary>Request body for <see cref="OnPostCorrectHeaderAsync"/> — the review header correction
+    /// (plantry-yobz). Date/time arrive as raw strings (ISO <c>yyyy-MM-dd</c> / 24h <c>HH:mm</c>) and are
+    /// parsed here; a blank string clears the field. <c>SelectedStoreId</c> is the picked catalog store
+    /// (null = the merchant-text find-or-create path).</summary>
+    public sealed class CorrectHeaderInput
+    {
+        public string? MerchantText { get; set; }
+        public Guid? SelectedStoreId { get; set; }
+        public string? PurchaseDate { get; set; }
+        public string? PurchaseTime { get; set; }
+    }
+
+    /// <summary>Applies a user correction to the parsed receipt header — store pick / merchant name, purchase
+    /// date, purchase time (plantry-yobz). The (possibly corrected) purchase date threads through commit to
+    /// back-date the stock lot; a picked store id resolves the purchase store directly. Returns the resolved
+    /// header echo as JSON so the island re-locks its display from server truth. Id is route-bound.</summary>
+    public async Task<IActionResult> OnPostCorrectHeaderAsync(CancellationToken ct)
+    {
+        if (tenant.HouseholdId is null)
+            return JsonError("Unauthorized.");
+
+        CorrectHeaderInput input;
+        try
+        {
+            input = await ReadJsonBodyAsync<CorrectHeaderInput>(ct) ?? new CorrectHeaderInput();
+        }
+        catch
+        {
+            return JsonError("Invalid request body.");
+        }
+
+        DateOnly? purchaseDate = null;
+        if (!string.IsNullOrWhiteSpace(input.PurchaseDate))
+        {
+            if (!DateOnly.TryParse(input.PurchaseDate, CultureInfo.InvariantCulture, out var parsedDate))
+                return JsonError("Enter a valid purchase date.");
+            purchaseDate = parsedDate;
+        }
+
+        TimeOnly? purchaseTime = null;
+        if (!string.IsNullOrWhiteSpace(input.PurchaseTime))
+        {
+            if (!TimeOnly.TryParse(input.PurchaseTime, CultureInfo.InvariantCulture, out var parsedTime))
+                return JsonError("Enter a valid purchase time.");
+            purchaseTime = parsedTime;
+        }
+
+        var result = await new CorrectSessionHeaderCommand(
+            ImportSessionId.From(Id), input.MerchantText, input.SelectedStoreId, purchaseDate, purchaseTime,
+            sessions, referenceData, clock, tenant, correctHeaderLogger).ExecuteAsync(ct);
+
+        if (result.IsFailure)
+            return JsonError(result.Error.Description);
+
+        // Reload and echo the resolved header so the island re-locks from server truth (not its own draft).
+        await LoadAsync(ct);
+        return new JsonResult(new
+        {
+            merchantText = Session.MerchantText,
+            selectedStoreId = Session.SelectedStoreId?.ToString(),
+            purchaseDate = Session.PurchaseDate?.ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture),
+            purchaseTime = Session.PurchaseTime?.ToString("h:mm tt", CultureInfo.CurrentCulture),
+            purchaseDateRaw = Session.PurchaseDate?.ToString("yyyy-MM-dd"),
+            purchaseTimeRaw = Session.PurchaseTime?.ToString("HH:mm", CultureInfo.InvariantCulture),
+            error = (string?)null,
+        });
+    }
+
     // ── Commit / discard — return redirect target so the island can navigate ────────
 
     public async Task<IActionResult> OnPostCommitAsync(CancellationToken ct)
@@ -342,7 +413,8 @@ public sealed class ReviewModel(
         DismissLine: Url.Page("./Review", "DismissLine", new { Id })!,
         RestoreLine: Url.Page("./Review", "RestoreLine", new { Id })!,
         Reopen: Url.Page("./Review", "ReopenLine", new { Id })!,
-        ConfirmLines: Url.Page("./Review", "ConfirmLines", new { Id })!);
+        ConfirmLines: Url.Page("./Review", "ConfirmLines", new { Id })!,
+        CorrectHeader: Url.Page("./Review", "CorrectHeader", new { Id })!);
 
     private IActionResult JsonError(string message) =>
         new JsonResult(new { error = message }) { StatusCode = 200 };

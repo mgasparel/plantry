@@ -14,7 +14,8 @@ public sealed class ReviewReferenceDataProvider(
     IProductRepository products,
     IUnitRepository units,
     ILocationRepository locations,
-    ICategoryRepository categories) : IReviewReferenceDataProvider
+    ICategoryRepository categories,
+    IStoreRepository stores) : IReviewReferenceDataProvider
 {
     public async Task<ReviewReferenceData> GetAsync(CancellationToken ct = default)
     {
@@ -22,6 +23,7 @@ public sealed class ReviewReferenceDataProvider(
         var activeUnits = await units.ListAsync(ct);
         var activeLocations = await locations.ListActiveAsync(ct);
         var activeCategories = await categories.ListActiveAsync(ct);
+        var activeStores = await stores.ListActiveAsync(ct);
 
         var unitCodesById = activeUnits.ToDictionary(u => u.Id, u => u.Code);
 
@@ -59,7 +61,11 @@ public sealed class ReviewReferenceDataProvider(
             .Select(c => new ReviewCategoryOption(c.Id.Value, c.Name, c.Hue))
             .ToList();
 
-        return new ReviewReferenceData(productOptions, unitOptions, locationOptions, categoryOptions);
+        var storeOptions = activeStores
+            .Select(s => new ReviewStoreOption(s.Id.Value, s.Name))
+            .ToList();
+
+        return new ReviewReferenceData(productOptions, unitOptions, locationOptions, categoryOptions, storeOptions);
     }
 
     /// <summary>Maps Catalog's <see cref="Dimension"/> onto Intake's local <see cref="ReviewUnitDimension"/>

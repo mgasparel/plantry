@@ -35,6 +35,7 @@ public static class ReviewSessionFixture
     public static readonly Guid LitreUnitId = Guid.Parse("55555555-5555-5555-5555-555555555555");
     public static readonly Guid FridgeLocationId = Guid.Parse("66666666-6666-6666-6666-666666666666");
     public static readonly Guid DairyCategoryId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+    public static readonly Guid FreshMartStoreId = Guid.Parse("88888888-8888-8888-8888-888888888888");
 
     // Additional product ids for the "Did you mean" alternatives test line
     public static readonly Guid CheddarMildId = Guid.Parse("aaaaaaaa-1111-1111-1111-111111111111");
@@ -76,6 +77,10 @@ public static class ReviewSessionFixture
         Categories:
         [
             new ReviewCategoryOption(DairyCategoryId, "Dairy"),
+        ],
+        Stores:
+        [
+            new ReviewStoreOption(FreshMartStoreId, "Fresh Mart"),
         ]);
 
     /// <summary>Builds the fixed Ready session for the given household. Each line is driven to its target
