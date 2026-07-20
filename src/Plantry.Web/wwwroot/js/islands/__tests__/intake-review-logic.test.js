@@ -27,6 +27,8 @@ import {
   demotedDecision,
   railLineView,
   reconciliation,
+  filterStores,
+  buildCorrectHeaderBody,
   // reused deck primitives (deal-deck-logic.js) — covered here for intake's use of them
   buildDeckOrder,
   applySkip,
@@ -621,5 +623,60 @@ describe("deck order + skip-stack rotation (reused deal-deck-logic primitives)",
 
   it("reconcileSkipStack drops ids no longer in the deck (skipped then resolved elsewhere)", () => {
     assert.deepEqual(reconcileSkipStack(["a", "gone"], ["a", "b"]), ["a"]);
+  });
+});
+
+// ── review header correction (plantry-yobz) ──────────────────────────────────────
+
+describe("filterStores", () => {
+  const stores = [
+    { id: "1", name: "Food Basics" },
+    { id: "2", name: "Metro" },
+    { id: "3", name: "FreshCo" },
+    { id: "4", name: "No Frills" },
+  ];
+
+  it("returns all stores (capped) for a blank query", () => {
+    assert.deepEqual(filterStores(stores, "").map((s) => s.id), ["1", "2", "3", "4"]);
+    assert.deepEqual(filterStores(stores, "   ").map((s) => s.id), ["1", "2", "3", "4"]);
+  });
+
+  it("filters case-insensitively by substring", () => {
+    assert.deepEqual(filterStores(stores, "fre").map((s) => s.name), ["FreshCo"]);
+    assert.deepEqual(filterStores(stores, "o").map((s) => s.name), ["Food Basics", "Metro", "FreshCo", "No Frills"]);
+  });
+
+  it("caps results at the limit", () => {
+    assert.equal(filterStores(stores, "", 2).length, 2);
+  });
+
+  it("returns [] when nothing matches", () => {
+    assert.deepEqual(filterStores(stores, "zzz"), []);
+  });
+});
+
+describe("buildCorrectHeaderBody", () => {
+  it("passes through a full header, trimming the merchant", () => {
+    assert.deepEqual(
+      buildCorrectHeaderBody({ merchantText: "  Food Basics  ", selectedStoreId: "s1", purchaseDate: "2026-07-19", purchaseTime: "17:05" }),
+      { merchantText: "Food Basics", selectedStoreId: "s1", purchaseDate: "2026-07-19", purchaseTime: "17:05" });
+  });
+
+  it("maps every blank field to null so the server clears it", () => {
+    assert.deepEqual(
+      buildCorrectHeaderBody({ merchantText: "   ", selectedStoreId: "", purchaseDate: "", purchaseTime: "" }),
+      { merchantText: null, selectedStoreId: null, purchaseDate: null, purchaseTime: null });
+  });
+
+  it("a typed merchant with no store id is the create-new path (id null, name kept)", () => {
+    assert.deepEqual(
+      buildCorrectHeaderBody({ merchantText: "Corner Store", selectedStoreId: "", purchaseDate: "", purchaseTime: "" }),
+      { merchantText: "Corner Store", selectedStoreId: null, purchaseDate: null, purchaseTime: null });
+  });
+
+  it("tolerates undefined fields", () => {
+    assert.deepEqual(
+      buildCorrectHeaderBody({}),
+      { merchantText: null, selectedStoreId: null, purchaseDate: null, purchaseTime: null });
   });
 });

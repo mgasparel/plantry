@@ -17,7 +17,8 @@ public sealed record ReviewHandlerUrls(
     string DismissLine,
     string RestoreLine,
     string Reopen,
-    string ConfirmLines);
+    string ConfirmLines,
+    string CorrectHeader);
 
 /// <summary>
 /// Builds the Intake review island's hydration payload (<see cref="SessionHydration"/>) from a loaded
@@ -66,6 +67,9 @@ public sealed class IntakeReviewHydrationBuilder
 
         var categories = reference.Categories
             .Select(c => new CategoryHydration(c.Id.ToString(), c.Name, c.Hue)).ToList();
+
+        var stores = reference.Stores
+            .Select(s => new StoreHydration(s.Id.ToString(), s.Name)).ToList();
 
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
         var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
@@ -138,10 +142,12 @@ public sealed class IntakeReviewHydrationBuilder
             RestoreLineUrl: urls.RestoreLine,
             ReopenLineUrl: urls.Reopen,
             ConfirmLinesUrl: urls.ConfirmLines,
+            CorrectHeaderUrl: urls.CorrectHeader,
             Products: products,
             Units: units,
             Locations: locations,
             Categories: categories,
+            Stores: stores,
             Lines: lines,
             // Receipt-panel metadata — via tag reflects the source; the rest is present-only display data.
             ScanVia: session.SourceType == ImportSourceType.Receipt ? "photo" : "email",
@@ -151,6 +157,11 @@ public sealed class IntakeReviewHydrationBuilder
                 ? pd.ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture) : null,
             PurchaseTime: session.PurchaseTime is { } pt
                 ? pt.ToString("h:mm tt", CultureInfo.CurrentCulture) : null,
+            // Editable-header seeds (plantry-yobz): raw machine values the island's edit controls round-trip.
+            MerchantTextRaw: NullIfBlank(session.MerchantText),
+            SelectedStoreId: session.SelectedStoreId?.ToString(),
+            PurchaseDateRaw: session.PurchaseDate?.ToString("yyyy-MM-dd"),
+            PurchaseTimeRaw: session.PurchaseTime?.ToString("HH:mm", CultureInfo.InvariantCulture),
             Subtotal: session.Subtotal,
             Tax: session.Tax,
             Total: session.Total,

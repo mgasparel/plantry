@@ -104,6 +104,9 @@ public sealed record SessionReviewView(
     string? StoreBranch = null,
     DateOnly? PurchaseDate = null,
     TimeOnly? PurchaseTime = null,
+    /// <summary>The user-picked catalog store id (plantry-yobz), null when the merchant is still an
+    /// AI value or a typed "create new" name resolved from <see cref="MerchantText"/> at commit.</summary>
+    Guid? SelectedStoreId = null,
     decimal? Subtotal = null,
     decimal? Tax = null,
     decimal? Total = null,
@@ -150,6 +153,7 @@ public sealed class GetSessionForReviewQuery(
             session.StoreBranch,
             session.PurchaseDate,
             session.PurchaseTime,
+            session.SelectedStoreId,
             session.Subtotal,
             session.Tax,
             session.Total,

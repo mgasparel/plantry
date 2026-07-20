@@ -123,6 +123,86 @@ public sealed class ImportSessionTests
         Assert.Equal("Intake.InvalidTransition", result.Error.Code);
     }
 
+    // ── CorrectHeader (plantry-yobz) — user intervention on the parsed receipt header ────────────────
+
+    [Fact]
+    public void CorrectHeader_Overwrites_Store_And_Date_When_Ready()
+    {
+        var session = Started();
+        session.MarkReady("Store #100616", DateTimeOffset.UtcNow,
+            new ReceiptMetadata(PurchaseDate: new DateOnly(2019, 7, 26)));
+        var storeId = Guid.CreateVersion7();
+
+        var result = session.CorrectHeader(
+            "Food Basics", storeId, new DateOnly(2026, 7, 19), new TimeOnly(17, 5), Clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Food Basics", session.MerchantText);
+        Assert.Equal(storeId, session.SelectedStoreId);
+        Assert.Equal(new DateOnly(2026, 7, 19), session.PurchaseDate);
+        Assert.Equal(new TimeOnly(17, 5), session.PurchaseTime);
+    }
+
+    [Fact]
+    public void CorrectHeader_Normalizes_Blank_Merchant_To_Null()
+    {
+        var session = Started();
+        session.MarkReady("Store #100616", DateTimeOffset.UtcNow);
+
+        session.CorrectHeader("   ", null, null, null, Clock);
+
+        Assert.Null(session.MerchantText);
+        Assert.Null(session.SelectedStoreId);
+    }
+
+    [Fact]
+    public void CorrectHeader_Clears_A_Selected_Store_When_A_Name_Is_Typed()
+    {
+        var session = Started();
+        session.MarkReady("Metro", DateTimeOffset.UtcNow);
+        session.CorrectHeader("Metro", Guid.CreateVersion7(), null, null, Clock); // picked a store
+
+        session.CorrectHeader("Corner Store", null, null, null, Clock); // then typed a new name
+
+        Assert.Equal("Corner Store", session.MerchantText);
+        Assert.Null(session.SelectedStoreId); // the prior pick is dropped
+    }
+
+    [Fact]
+    public void CorrectHeader_Can_Clear_A_Guard_Nulled_Date_Back_To_A_Value_And_Vice_Versa()
+    {
+        var session = Started();
+        session.MarkReady("Metro", DateTimeOffset.UtcNow, new ReceiptMetadata(PurchaseDate: new DateOnly(2026, 1, 1)));
+
+        session.CorrectHeader("Metro", null, null, null, Clock); // user clears the date
+
+        Assert.Null(session.PurchaseDate);
+    }
+
+    [Fact]
+    public void CorrectHeader_Fails_When_Not_Ready()
+    {
+        var session = Started(); // still Parsing
+
+        var result = session.CorrectHeader("Metro", null, null, null, Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.InvalidTransition", result.Error.Code);
+    }
+
+    [Fact]
+    public void CorrectHeader_Fails_After_Commit()
+    {
+        var session = Started();
+        session.MarkReady("Metro", DateTimeOffset.UtcNow);
+        session.MarkCommitted(DateTimeOffset.UtcNow);
+
+        var result = session.CorrectHeader("Metro", null, null, null, Clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.InvalidTransition", result.Error.Code);
+    }
+
     [Fact]
     public void MarkParsingFailed_Transitions_From_Parsing()
     {

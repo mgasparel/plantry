@@ -432,6 +432,48 @@ export function buildSaveLineBody(ls) {
   };
 }
 
+// ── review header correction (plantry-yobz) ──────────────────────────────────────
+
+/**
+ * Filter the household's active stores by a free-text query (case-insensitive substring), capped at
+ * `limit` hits — the review header's store picker, mirroring MatchBlock's product filter. Pure display
+ * transform: an empty/blank query returns the first `limit` stores. No domain rule (the server validates
+ * the eventual pick).
+ *
+ * @param {{id: string, name: string}[]} stores
+ * @param {string} query
+ * @param {number} [limit]
+ * @returns {{id: string, name: string}[]}
+ */
+export function filterStores(stores, query, limit = 6) {
+  const q = (query ?? "").trim().toLowerCase();
+  const hits = q ? stores.filter((s) => s.name.toLowerCase().includes(q)) : stores;
+  return hits.slice(0, limit);
+}
+
+/**
+ * Build the POST body for the CorrectHeader endpoint from the current header draft (plantry-yobz).
+ *
+ * Rules (all blank→null so the server clears the field rather than storing ""):
+ * - `merchantText` is trimmed; empty becomes null.
+ * - `selectedStoreId` passes through when non-empty, else null (the merchant-text find-or-create path).
+ * - `purchaseDate` / `purchaseTime` are the raw control values (ISO `yyyy-MM-dd` / 24h `HH:mm`); empty → null.
+ *
+ * Takes plain values (not signals) so it is unit-testable without a signal rig; the island reads the
+ * signal `.value`s and passes them in.
+ *
+ * @param {{ merchantText: string, selectedStoreId: string, purchaseDate: string, purchaseTime: string }} draft
+ * @returns {{ merchantText: string|null, selectedStoreId: string|null, purchaseDate: string|null, purchaseTime: string|null }}
+ */
+export function buildCorrectHeaderBody(draft) {
+  return {
+    merchantText: (draft.merchantText ?? "").trim() || null,
+    selectedStoreId: draft.selectedStoreId || null,
+    purchaseDate: draft.purchaseDate || null,
+    purchaseTime: draft.purchaseTime || null,
+  };
+}
+
 // ── commit-bar arithmetic ───────────────────────────────────────────────────────
 
 /**

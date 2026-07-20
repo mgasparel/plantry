@@ -432,7 +432,8 @@ public sealed class ReviewCommandsTests
             Products: [new ReviewProductOption(_productId, "Flour", "kg", DefaultUnitId: _unitId, DefaultLocationId: defaultLocationId, Skus: [])],
             Units: [new ReviewUnitOption(_unitId, "kg", "Kilogram", ReviewUnitDimension.Mass)],
             Locations: [new ReviewLocationOption(_locationId, "Pantry")],
-            Categories: []));
+            Categories: [],
+            Stores: []));
 
     /// <summary>Adds a Pending line whose AI proposal is High-confidence with a full prefill chain
     /// (resolvable product, receipt unit, quantity) — the qualifying input a bulk confirm accepts.</summary>
@@ -692,7 +693,8 @@ public sealed class ReviewCommandsTests
             [new ReviewProductOption(_productId, "Flour", "kg", DefaultUnitId: _unitId, DefaultLocationId: null, Skus: [])],
             [new ReviewUnitOption(_unitId, "kg", "Kilogram", ReviewUnitDimension.Mass)],
             [new ReviewLocationOption(_locationId, "Pantry")],
-            [new ReviewCategoryOption(_categoryId, "Baking")]);
+            [new ReviewCategoryOption(_categoryId, "Baking")],
+            []);
         var refProvider = new FakeReviewReferenceDataProvider(reference);
 
         var query = new GetSessionForReviewQuery(

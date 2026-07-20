@@ -35,6 +35,7 @@ public sealed class ReviewHydrationContractTests
         RestoreLineUrl: "/Intake/Review/1?handler=RestoreLine",
         ReopenLineUrl: "/Intake/Review/1?handler=ReopenLine",
         ConfirmLinesUrl: "/Intake/Review/1?handler=ConfirmLines",
+        CorrectHeaderUrl: "/Intake/Review/1?handler=CorrectHeader",
         Products:
         [
             new ProductHydration(
@@ -45,6 +46,7 @@ public sealed class ReviewHydrationContractTests
         Units: [new UnitHydration("u1", "L", "Litre")],
         Locations: [new LocationHydration("loc1", "Fridge")],
         Categories: [new CategoryHydration("cat1", "Dairy", 200)],
+        Stores: [new StoreHydration("store1", "Test Grocer")],
         Lines:
         [
             new LineHydration(
@@ -64,6 +66,10 @@ public sealed class ReviewHydrationContractTests
         StoreBranch: "42 Market St",
         PurchaseDate: "Sun Jun 15, 2026",
         PurchaseTime: "2:30 PM",
+        MerchantTextRaw: "Test Grocer",
+        SelectedStoreId: "store1",
+        PurchaseDateRaw: "2026-06-15",
+        PurchaseTimeRaw: "14:30",
         Subtotal: 40.00m,
         Tax: 2.00m,
         Total: 42.00m,
@@ -75,9 +81,10 @@ public sealed class ReviewHydrationContractTests
     {
         HydrationContract.AssertKeys(Serialize(Sample()),
             "merchantText", "sessionDate", "today",
-            "commitUrl", "discardUrl", "saveLineUrl", "dismissLineUrl", "restoreLineUrl", "reopenLineUrl", "confirmLinesUrl",
-            "products", "units", "locations", "categories", "lines",
+            "commitUrl", "discardUrl", "saveLineUrl", "dismissLineUrl", "restoreLineUrl", "reopenLineUrl", "confirmLinesUrl", "correctHeaderUrl",
+            "products", "units", "locations", "categories", "stores", "lines",
             "scanVia", "scannedLabel", "storeBranch", "purchaseDate", "purchaseTime",
+            "merchantTextRaw", "selectedStoreId", "purchaseDateRaw", "purchaseTimeRaw",
             "subtotal", "tax", "total", "payment", "receiptNo");
     }
 
@@ -97,6 +104,7 @@ public sealed class ReviewHydrationContractTests
         HydrationContract.AssertKeys(root.GetProperty("units")[0], "id", "code", "name");
         HydrationContract.AssertKeys(root.GetProperty("locations")[0], "id", "name");
         HydrationContract.AssertKeys(root.GetProperty("categories")[0], "id", "name", "hue");
+        HydrationContract.AssertKeys(root.GetProperty("stores")[0], "id", "name");
     }
 
     [Fact]

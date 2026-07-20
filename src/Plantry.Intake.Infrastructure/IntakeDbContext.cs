@@ -45,7 +45,9 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
                 .HasMaxLength(20)
                 .IsRequired();
             b.Property(s => s.MerchantText).HasColumnName("merchant_text").HasMaxLength(200);
-            // Receipt-header metadata (AI-parsed display data; never read on commit).
+            // User-picked catalog store id (plantry-yobz) — a bare cross-context ref (no FK, Gate 7).
+            b.Property(s => s.SelectedStoreId).HasColumnName("selected_store_id");
+            // Receipt-header metadata (AI-parsed display data; PurchaseDate is read on commit since plantry-yobz).
             b.Property(s => s.StoreBranch).HasColumnName("store_branch").HasMaxLength(200);
             b.Property(s => s.PurchaseDate).HasColumnName("purchase_date");
             b.Property(s => s.PurchaseTime).HasColumnName("purchase_time");

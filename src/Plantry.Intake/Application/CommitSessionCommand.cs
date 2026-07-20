@@ -59,7 +59,10 @@ public sealed class CommitSessionCommand(
         if (session.Status != ImportStatus.Ready)
             return Error.Custom("Intake.SessionNotReady", $"Cannot commit a session in status '{session.Status}'.");
 
-        var purchasedOn = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        // The stock lot's dated-as value is the (possibly user-corrected) receipt purchase date — genuine
+        // backdating (plantry-yobz). Falls back to commit-time only when no date is available (a receipt with
+        // no date, or one the plantry-ag05 plausibility guard nulled that the user never filled in).
+        var purchasedOn = session.PurchaseDate ?? DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
 
         // ── Strict commit gate phase (ADR-010 amendment 2026-07-11, plantry-gpdb) ──────────────────────
         if (CheckStrictCommitGate(session) is { } gateError)
@@ -235,17 +238,25 @@ public sealed class CommitSessionCommand(
     }
 
     /// <summary>
-    /// Resolves the merchant → catalog.store identity (DM-16), find-or-create at most once per commit and
-    /// reused across the session's priced lines (cached on <paramref name="context"/>). Called only from the
-    /// price-Record path, so a session with no priced lines mints no store. A blank/whitespace merchant maps
-    /// to a null store id with NO port call (MerchantText is still retained on the observation for provenance).
+    /// Resolves the purchase → catalog.store identity (DM-16), at most once per commit and reused across the
+    /// session's priced lines (cached on <paramref name="context"/>). Called only from the price-Record path,
+    /// so a session with no priced lines mints no store. Two paths (plantry-yobz):
+    /// <list type="number">
+    /// <item>the user explicitly picked a store in review (<see cref="ImportSession.SelectedStoreId"/> set) —
+    /// use that id directly, no name round-trip;</item>
+    /// <item>otherwise find-or-create from <see cref="ImportSession.MerchantText"/> (covers both the
+    /// untouched-AI value and a typed "create new" name). A blank/whitespace merchant maps to a null store id
+    /// with NO port call (MerchantText is still retained on the observation for provenance).</item>
+    /// </list>
     /// </summary>
     private async Task<Guid?> ResolvePurchaseStoreAsync(ImportSession session, CommitContext context, CancellationToken ct)
     {
         if (context.StoreResolved)
             return context.PurchaseStoreId;
 
-        if (!string.IsNullOrWhiteSpace(session.MerchantText))
+        if (session.SelectedStoreId is { } pickedStoreId)
+            context.PurchaseStoreId = pickedStoreId;
+        else if (!string.IsNullOrWhiteSpace(session.MerchantText))
             context.PurchaseStoreId = await ensureStore.EnsureAsync(session.MerchantText, ct);
         context.StoreResolved = true;
         return context.PurchaseStoreId;

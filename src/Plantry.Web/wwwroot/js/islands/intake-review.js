@@ -58,7 +58,9 @@ import {
   swipeVerb,
   stampOpacity,
   cardTransform,
-} from "./intake-review-logic.js?v=4";
+  filterStores,
+  buildCorrectHeaderBody,
+} from "./intake-review-logic.js?v=5";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -135,6 +137,12 @@ import {
  */
 
 /**
+ * @typedef {Object} StoreHydration
+ * @property {string} id
+ * @property {string} name
+ */
+
+/**
  * @typedef {Object} AlternativeHydration
  * @property {string} productId
  * @property {string} productName
@@ -161,16 +169,22 @@ import {
  * @property {string} restoreLineUrl
  * @property {string} reopenLineUrl
  * @property {string} confirmLinesUrl
+ * @property {string} correctHeaderUrl
  * @property {ProductHydration[]} products
  * @property {UnitHydration[]} units
  * @property {LocationHydration[]} locations
  * @property {CategoryHydration[]} categories
+ * @property {StoreHydration[]} stores
  * @property {Array<{line: LineSeed, prefill: PrefillData, alternatives: AlternativeHydration[]|null, estimate: EstimateHydration|null}>} lines
  * @property {string} scanVia
  * @property {string} scannedLabel
  * @property {string|null} storeBranch
  * @property {string|null} purchaseDate
  * @property {string|null} purchaseTime
+ * @property {string|null} merchantTextRaw
+ * @property {string|null} selectedStoreId
+ * @property {string|null} purchaseDateRaw
+ * @property {string|null} purchaseTimeRaw
  * @property {number|null} subtotal
  * @property {number|null} tax
  * @property {number|null} total
@@ -634,6 +648,99 @@ function ConfirmedRow({ ls, products, units, locations, today, onSaveEdit, onRem
   `;
 }
 
+// ── HeaderPanel — the receipt-header store / date-time correction (plantry-yobz) ──
+//
+// The parsed merchant + purchase date/time render as LOCKED values with a "Change" affordance, mirroring
+// the deck's MatchBlock pattern (searchable-select over the household's active stores + a demoted "+ Create"
+// escape). All edits round-trip through the CorrectHeader JSON endpoint; the island owns only the open/closed
+// editor state and the draft field values (ADR-020 §2/§7 — the server re-validates and echoes back the
+// locked truth). An unresolved store or a guard-nulled date arrives empty and prompts entry, never a stale
+// locked AI guess.
+
+/** @param {{ header: any, stores: StoreHydration[], handlers: any }} props */
+function StoreEditor({ header, stores, handlers }) {
+  const hits = filterStores(stores, header.draftMerchant.value);
+  const typed = header.draftMerchant.value.trim();
+  return html`
+    <div class="searchable-select rcpt-header-edit">
+      <div class="searchable-select__control">
+        <input type="text" class="field__input" role="combobox" autocomplete="off" aria-expanded="true"
+               id="rcpt-store-search" placeholder="Find a store…" value=${header.draftMerchant}
+               onInput=${(/** @type {InputEvent} */ e) => { header.draftMerchant.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
+      </div>
+      ${hits.length > 0 && html`
+        <ul class="searchable-select__listbox searchable-select__listbox--inline" role="listbox">
+          ${hits.map((s) => html`
+            <li key=${s.id} role="option"
+                onMouseDown=${(/** @type {MouseEvent} */ e) => { e.preventDefault(); handlers.headerPickStore(s); }}>${s.name}</li>`)}
+        </ul>`}
+      <div class="rcpt-header-edit__acts">
+        <button type="button" class=${"btn btn--secondary btn--sm searchable-select__create-btn" + (hits.length ? " btn--demoted" : "")}
+                disabled=${header.saving.value}
+                onMouseDown=${(/** @type {MouseEvent} */ e) => { e.preventDefault(); handlers.headerCreateStore(); }}>
+          + Create “${typed || "new store"}”
+        </button>
+        <button type="button" class="btn btn--ghost btn--sm" onClick=${() => handlers.headerCancelStore()}>Cancel</button>
+      </div>
+    </div>`;
+}
+
+/** @param {{ header: any, handlers: any }} props */
+function DateEditor({ header, handlers }) {
+  return html`
+    <div class="rcpt-header-edit rcpt-header-edit--date">
+      <div class="rcpt-header-edit__fields">
+        <input type="date" class="field__input" aria-label="Purchase date" value=${header.draftDate}
+               onInput=${(/** @type {InputEvent} */ e) => { header.draftDate.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
+        <input type="time" class="field__input" aria-label="Purchase time" value=${header.draftTime}
+               onInput=${(/** @type {InputEvent} */ e) => { header.draftTime.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
+      </div>
+      <div class="rcpt-header-edit__acts">
+        <button type="button" class="btn btn--ghost btn--sm" onClick=${() => handlers.headerCancelDate()}>Cancel</button>
+        <button type="button" class="btn btn--primary btn--sm" disabled=${header.saving.value} onClick=${() => handlers.headerSaveDate()}>Save</button>
+      </div>
+    </div>`;
+}
+
+/** @param {{ header: any, stores: StoreHydration[], storeBranch: string|null, handlers: any }} props */
+function HeaderPanel({ header, stores, storeBranch, handlers }) {
+  const merchant = header.merchantText.value;
+  const dateDisp = header.purchaseDateDisplay.value;
+  const timeDisp = header.purchaseTimeDisplay.value;
+  const dtDisp = [dateDisp, timeDisp].filter(Boolean).join(" · ");
+
+  return html`
+    <div class="rcpt-store">
+      ${header.storeEditing.value
+        ? html`<${StoreEditor} header=${header} stores=${stores} handlers=${handlers} />`
+        : html`
+          <div class="rcpt-store-name">
+            <span>${merchant || "Receipt"}</span>
+            <button type="button" class="rcpt-edit-btn" onClick=${() => handlers.headerEditStore()}>
+              ${merchant ? "Change" : "Add store"}
+            </button>
+          </div>`}
+
+      <div class="rcpt-store-sub">
+        ${storeBranch && html`<div>${storeBranch}</div>`}
+        ${header.dateEditing.value
+          ? html`<${DateEditor} header=${header} handlers=${handlers} />`
+          : html`
+            <div class="rcpt-store-datetime">
+              <span>${dtDisp || "No purchase date"}</span>
+              <button type="button" class="rcpt-edit-btn" onClick=${() => handlers.headerEditDate()}>
+                ${dateDisp ? "Change" : "Add date"}
+              </button>
+            </div>`}
+      </div>
+
+      ${header.error.value && html`
+        <div class="rcpt-header-error" role="alert">
+          <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> ${header.error.value}
+        </div>`}
+    </div>`;
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -644,13 +751,14 @@ function ConfirmedRow({ ls, products, units, locations, today, onSaveEdit, onRem
  *   baseline: import("@preact/signals").Signal<number>,
  *   products: ProductHydration[], units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
  *   session: SessionHydration,
+ *   header: any,
  *   alert: import("@preact/signals").Signal<string>,
  *   toastMsg: import("@preact/signals").Signal<string>,
  *   toastUndo: import("@preact/signals").Signal<boolean>,
  *   handlers: any,
  * }} props
  */
-function App({ lines, order, skipStack, baseline, products, units, locations, categories, session, alert, toastMsg, toastUndo, handlers }) {
+function App({ lines, order, skipStack, baseline, products, units, locations, categories, session, header, alert, toastMsg, toastUndo, handlers }) {
   const allLines = lines.value;
   const byId = (/** @type {string} */ id) => lines.value.find((l) => l.lineId === id) ?? null;
 
@@ -684,14 +792,7 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
           <span style="margin-left:auto">${session.scannedLabel}</span>
         </div>
         <div class="receipt">
-          <div class="rcpt-store">
-            <div class="rcpt-store-name">${session.merchantText || "Receipt"}</div>
-            ${(session.storeBranch || session.purchaseDate || session.purchaseTime) && html`
-              <div class="rcpt-store-sub">
-                ${session.storeBranch && html`<div>${session.storeBranch}</div>`}
-                ${(session.purchaseDate || session.purchaseTime) && html`<div>${[session.purchaseDate, session.purchaseTime].filter(Boolean).join(" · ")}</div>`}
-              </div>`}
-          </div>
+          <${HeaderPanel} header=${header} stores=${session.stores} storeBranch=${session.storeBranch} handlers=${handlers} />
           <hr class="rcpt-rule" />
           ${allLines.map((ls) => {
             const view = railLineView(lineSection(ls), topCard.value?.lineId === ls.lineId);
@@ -736,7 +837,7 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
           <div class="rev-title-row">
             <div class="rev-title">
               <h2>Review import</h2>
-              <p>${session.merchantText || "Receipt"} · ${session.sessionDate} · ${allLines.length} lines scanned</p>
+              <p>${header.merchantText.value || "Receipt"} · ${session.sessionDate} · ${allLines.length} lines scanned</p>
             </div>
           </div>
           <div class="meter meter--intake-progress meter--meta-line">
@@ -863,6 +964,29 @@ export function mountIntakeReview(root, hydration) {
   const alertMsg = signal("");
   const toastMsg = signal("");
   const toastUndo = signal(false);
+
+  // ── Receipt-header correction state (plantry-yobz) ───────────────────────────
+  // Locked display signals seed from the server hydration (merchantTextRaw is the un-"Receipt"-defaulted
+  // value; empty means the AI read no store, so the picker prompts entry). Draft signals hold the in-flight
+  // edit; both editors post the FULL header through CorrectHeader, so a store edit preserves the date and
+  // vice versa. On success the server echo re-locks these from truth.
+  const header = {
+    storeEditing: signal(false),
+    dateEditing: signal(false),
+    saving: signal(false),
+    error: signal(""),
+    // Locked / committed display
+    merchantText: signal(hydration.merchantTextRaw ?? ""),
+    selectedStoreId: signal(hydration.selectedStoreId ?? ""),
+    purchaseDateDisplay: signal(hydration.purchaseDate ?? ""),
+    purchaseTimeDisplay: signal(hydration.purchaseTime ?? ""),
+    purchaseDateRaw: signal(hydration.purchaseDateRaw ?? ""),
+    purchaseTimeRaw: signal(hydration.purchaseTimeRaw ?? ""),
+    // Draft (edit-mode) fields
+    draftMerchant: signal(""),
+    draftDate: signal(hydration.purchaseDateRaw ?? ""),
+    draftTime: signal(hydration.purchaseTimeRaw ?? ""),
+  };
 
   // Deck presentation state (order + skip stack + high-water baseline) — mirrors the Deals deck.
   const order = signal(/** @type {string[]} */ ([]));
@@ -1195,10 +1319,67 @@ export function mountIntakeReview(root, hydration) {
     }
   });
 
+  // ── receipt-header correction verbs (plantry-yobz) ───────────────────────────
+  /**
+   * Persist the whole header (store + date + time) via CorrectHeader, then re-lock from the server echo.
+   * @param {{ merchantText: string, selectedStoreId: string, purchaseDate: string, purchaseTime: string }} next
+   */
+  async function saveHeader(next) {
+    if (header.saving.value) return false;
+    header.saving.value = true;
+    header.error.value = "";
+    try {
+      const resp = await postJson(hydration.correctHeaderUrl, buildCorrectHeaderBody(next), token);
+      const data = await resp.json();
+      if (!resp.ok || data.error) { header.error.value = data.error ?? `Save failed (${resp.status})`; return false; }
+      batch(() => {
+        header.merchantText.value = data.merchantText ?? "";
+        header.selectedStoreId.value = data.selectedStoreId ?? "";
+        header.purchaseDateDisplay.value = data.purchaseDate ?? "";
+        header.purchaseTimeDisplay.value = data.purchaseTime ?? "";
+        header.purchaseDateRaw.value = data.purchaseDateRaw ?? "";
+        header.purchaseTimeRaw.value = data.purchaseTimeRaw ?? "";
+        header.storeEditing.value = false;
+        header.dateEditing.value = false;
+        header.error.value = "";
+      });
+      return true;
+    } catch {
+      header.error.value = "Network error — please try again.";
+      return false;
+    } finally {
+      header.saving.value = false;
+    }
+  }
+  function headerEditStore() {
+    batch(() => { header.draftMerchant.value = header.merchantText.value; header.error.value = ""; header.storeEditing.value = true; header.dateEditing.value = false; });
+    setTimeout(() => { const el = /** @type {HTMLInputElement|null} */ (document.getElementById("rcpt-store-search")); if (el) el.focus(); }, 0);
+  }
+  function headerCancelStore() { batch(() => { header.storeEditing.value = false; header.error.value = ""; }); }
+  /** @param {StoreHydration} store */
+  function headerPickStore(store) {
+    saveHeader({ merchantText: store.name, selectedStoreId: store.id, purchaseDate: header.purchaseDateRaw.value, purchaseTime: header.purchaseTimeRaw.value });
+  }
+  function headerCreateStore() {
+    const name = header.draftMerchant.value.trim();
+    if (!name) { header.error.value = "Enter a store name."; return; }
+    // A typed name drops any prior store pick — commit resolves it via find-or-create (create-new path).
+    saveHeader({ merchantText: name, selectedStoreId: "", purchaseDate: header.purchaseDateRaw.value, purchaseTime: header.purchaseTimeRaw.value });
+  }
+  function headerEditDate() {
+    batch(() => { header.draftDate.value = header.purchaseDateRaw.value; header.draftTime.value = header.purchaseTimeRaw.value; header.error.value = ""; header.dateEditing.value = true; header.storeEditing.value = false; });
+  }
+  function headerCancelDate() { batch(() => { header.dateEditing.value = false; header.error.value = ""; }); }
+  function headerSaveDate() {
+    saveHeader({ merchantText: header.merchantText.value, selectedStoreId: header.selectedStoreId.value, purchaseDate: header.draftDate.value, purchaseTime: header.draftTime.value });
+  }
+
   const handlers = {
     deckConfirm, deckReject, deckSkip, deckBack, searchOn, searchOff,
     toggleCheck, bulkConfirm, saveEdit, rematch, rowReject, restore,
     railJump, undo: doUndo, dismissToast: hideToast, commit, discard,
+    headerEditStore, headerCancelStore, headerPickStore, headerCreateStore,
+    headerEditDate, headerCancelDate, headerSaveDate,
   };
 
   // E2E / test seam
@@ -1213,7 +1394,7 @@ export function mountIntakeReview(root, hydration) {
     html`<${App}
       lines=${linesSignal} order=${order} skipStack=${skipStack} baseline=${baseline}
       products=${hydration.products} units=${hydration.units} locations=${hydration.locations} categories=${hydration.categories}
-      session=${hydration} alert=${alertMsg} toastMsg=${toastMsg} toastUndo=${toastUndo}
+      session=${hydration} header=${header} alert=${alertMsg} toastMsg=${toastMsg} toastUndo=${toastUndo}
       handlers=${handlers} />`,
     root,
   );

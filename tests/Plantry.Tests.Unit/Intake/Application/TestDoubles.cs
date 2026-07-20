@@ -104,6 +104,8 @@ internal sealed class FakeCreateProductPort : ICreateProductPort
 internal sealed class FakeAddStockPort : IAddStockPort
 {
     public List<Guid> ProductIds { get; } = [];
+    // The dated-as value each lot was stamped with — lets tests assert commit backdating (plantry-yobz).
+    public List<DateOnly?> PurchasedAts { get; } = [];
     public int? FailOnCall { get; set; }
 
     public Task<Guid> AddStockAsync(
@@ -114,6 +116,7 @@ internal sealed class FakeAddStockPort : IAddStockPort
             throw new InvalidOperationException("simulated mid-batch stock failure");
 
         ProductIds.Add(productId);
+        PurchasedAts.Add(purchasedAt);
         return Task.FromResult(Guid.CreateVersion7());
     }
 }
@@ -173,7 +176,7 @@ internal sealed class FakeReviewReferenceDataProvider(ReviewReferenceData? data 
     public Task<ReviewReferenceData> GetAsync(CancellationToken ct = default)
     {
         Calls++;
-        return Task.FromResult(data ?? new ReviewReferenceData([], [], [], []));
+        return Task.FromResult(data ?? new ReviewReferenceData([], [], [], [], []));
     }
 }
 
