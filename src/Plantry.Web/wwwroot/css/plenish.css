@@ -762,6 +762,33 @@ button { font-family: inherit; cursor: pointer; }
   white-space: pre;
 }
 
+/* Documentation comparison table — used on the Dev component gallery to lay out
+   "which primitive do I use?" decision guides. Not a data primitive (that is
+   .data-grid); a lightweight, token-driven, theme-adaptive doc aid. */
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.doc-table th,
+.doc-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.doc-table thead th {
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  white-space: nowrap;
+}
+.doc-table tbody tr:last-child td { border-bottom: none; }
+.doc-table tbody tr:hover td { background: var(--color-bg-subtle); }
+
 /* ── Buttons ───────────────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
