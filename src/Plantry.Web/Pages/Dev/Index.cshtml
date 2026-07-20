@@ -469,40 +469,41 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Index list</h2>
+        <h2 class="catalog-section__heading">Row list</h2>
     </div>
     <p>
-        <code>_IndexList</code> extracts the primary/secondary/meta row pattern repeated across
-        <code>Catalog/Index</code>, <code>Products/Index</code>, and Product Detail — including
-        the empty state.
+        <code>_RowList</code> is the one list primitive (it merges the former <code>_IndexList</code>
+        and <code>_SortableList</code>): a <code>.catalog-list</code> of primary/secondary/meta rows,
+        with an empty state. Set <code>Reorderable</code> for drag-reorder (below) and
+        <code>Deletable</code> for a per-row Remove form. Used across <code>Catalog/Index</code>,
+        <code>Products/Index</code>, Product Detail, Locations, and Categories.
     </p>
 
     <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Populated</h3>
-    <partial name="Shared/_IndexList" model="Model.PopulatedList" />
+    <partial name="Shared/_RowList" model="Model.PopulatedList" />
 
     <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Empty state</h3>
-    <partial name="Shared/_IndexList" model="Model.EmptyList" />
+    <partial name="Shared/_RowList" model="Model.EmptyList" />
 
-    <pre class="code-sample"><code>@("<partial name=\"Shared/_IndexList\" model=\"Model.MyListViewModel\" />")</code></pre>
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_RowList\" model=\"Model.MyListViewModel\" />")</code></pre>
 </section>
 
 <section class="catalog-section">
     <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Sortable list</h2>
+        <h2 class="catalog-section__heading">Row list — reorderable</h2>
     </div>
     <p>
-        <code>_SortableList</code> renders a <code>.catalog-list</code> whose items can be
-        dragged into a new order. Alpine (<code>wwwroot/js/sortable-list.js</code>) owns the
-        drag interaction — tracking the dragged item and reordering the DOM as the pointer moves
-        over siblings — and on drop, htmx posts the new order as a repeated <code>ids</code>
-        field to the handler named by <code>ReorderUrl</code>, which reassigns sort orders as
-        multiples of ten. This demo's handler accepts the post but doesn't persist anything, so
-        reloading the page always returns to the seeded order.
+        The same <code>_RowList</code> with <code>Reorderable = true</code> and a <code>ReorderUrl</code>:
+        rows gain a drag handle and can be dragged into a new order. The drag interaction and the
+        POST-on-drop of the new id order are owned by <code>wwwroot/js/site.js</code> (via the
+        <code>[data-sortable-list]</code> hook), which reassigns sort orders as multiples of ten. This
+        demo's handler accepts the post but doesn't persist anything, so reloading the page always
+        returns to the seeded order.
     </p>
 
-    <partial name="Shared/_SortableList" model="Model.SortableListDemo" />
+    <partial name="Shared/_RowList" model="Model.SortableListDemo" />
 
-    <pre class="code-sample"><code>@("<partial name=\"Shared/_SortableList\"\n         model=\"new SortableListViewModel(Model.MyItems, Url.Page(\"./Index\", \"Reorder\"), \"Nothing to reorder yet.\")\" />")</code></pre>
+    <pre class="code-sample"><code>@("<partial name=\"Shared/_RowList\"\n         model=\"new RowListViewModel(Model.MyItems, \"Nothing to reorder yet.\", Reorderable: true, ReorderUrl: Url.Page(\"./Index\", \"Reorder\"))\" />")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -1084,7 +1085,7 @@
         Drag-reorder is native HTML5 drag: <code>draggable="true"</code> + Alpine event handlers
         <code>dragStart(idx)</code> / <code>dragOver(idx)</code> / <code>drop()</code> that splice
         the <code>rows[]</code> array and call <code>reassignOrdinals()</code> so hidden ordinal inputs
-        stay contiguous. This mirrors the <code>_SortableList</code> pattern (htmx POST on drop) but
+        stay contiguous. This mirrors the reorderable <code>_RowList</code> pattern (POST on drop) but
         is entirely Alpine-owned because the ingredient list is not persisted until submit.
     </p>
     <div class="card" style="max-width: 48rem">

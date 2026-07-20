@@ -1,0 +1,45 @@
+@model Plantry.Web.Pages.Shared.RowListViewModel
+
+@if (Model.Items.Count == 0)
+{
+    <p class="empty-state">@Model.EmptyMessage</p>
+}
+else
+{
+    <ul class="catalog-list" role="list" data-sortable-list="@(Model.Reorderable ? Model.ReorderUrl : null)">
+        @foreach (var item in Model.Items)
+        {
+            <li class="catalog-list__item"
+                draggable="@(Model.Reorderable ? "true" : null)"
+                data-id="@(Model.Reorderable ? item.Id : null)"
+                data-sort-order="@(Model.Reorderable ? item.SortOrder.ToString() : null)">
+                @if (Model.Reorderable)
+                {
+                    <span class="catalog-list__drag-handle" aria-hidden="true" title="Drag to reorder">&#x2630;</span>
+                }
+                @if (item.Href is { } href)
+                {
+                    <a class="catalog-list__primary" href="@href">@item.Primary</a>
+                }
+                else
+                {
+                    <span class="catalog-list__primary">@item.Primary</span>
+                }
+                @if (item.Secondary is { } secondary)
+                {
+                    <span class="catalog-list__secondary">@secondary</span>
+                }
+                @if (item.Meta is { } meta)
+                {
+                    <span class="catalog-list__meta">@meta</span>
+                }
+                @if (Model.Deletable && item.Id is { } id)
+                {
+                    <form method="post" asp-page-handler="Delete" asp-route-id="@id" class="catalog-list__action">
+                        <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
+                    </form>
+                }
+            </li>
+        }
+    </ul>
+}
