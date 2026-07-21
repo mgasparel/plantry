@@ -284,10 +284,10 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
 
         ${rowCount === 0
           ? html`
-            <div class="ts-empty">
-              <div class="em-mark"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></div>
-              <h3>Nothing here yet</h3>
-              <p>Add the items on this shelf to start tracking them.</p>
+            <div class="empty-state">
+              <div class="empty-state__icon"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></div>
+              <div class="empty-state__title">Nothing here yet</div>
+              <div class="empty-state__body">Add the items on this shelf to start tracking them.</div>
             </div>`
           : html`
             <ul class="ts-rows" role="list">

@@ -4255,12 +4255,6 @@ button.sadd svg { width: 13px; height: 13px; }
 .plan-grid__add-btn:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-subtle); }
 .plan-grid__add-btn .icon { width: 16px; height: 16px; }
 
-/* Empty state */
-.planner-empty {
-  text-align: center; padding: 64px 24px;
-}
-.planner-empty__message { color: var(--color-text-faint); margin-bottom: 20px; font-size: 15px; }
-
 /* Ensure plan-main fills the page content area */
 .page-content--full { padding: 0 !important; overflow: hidden; }
 
@@ -4580,16 +4574,6 @@ button.sadd svg { width: 13px; height: 13px; }
   color: var(--color-text); background: transparent; border: none; outline: none; padding: 8px 4px;
 }
 .slot-add input::placeholder { color: var(--color-text-faint); font-weight: 500; }
-
-/* ── empty state (no active slots) ──────────────────────────────────────────── */
-.slots-empty { text-align: center; padding: 40px 20px 36px; }
-.slots-empty .se-mark {
-  width: 50px; height: 50px; border-radius: 50%; margin: 0 auto 13px; display: grid; place-items: center;
-  background: var(--color-accent-subtle); color: var(--color-accent);
-}
-.slots-empty .se-mark svg { width: 25px; height: 25px; }
-.slots-empty .se-t { font-size: 15px; font-weight: 700; }
-.slots-empty .se-s { font-size: 13px; color: var(--color-text-faint); margin-top: 4px; }
 
 /* ── foot caption ──────────────────────────────────────────────────────────── */
 .cfg-foot-note {
@@ -6032,19 +6016,7 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-loc-card.unplaced { border-style: dashed; background: var(--color-surface-2); box-shadow: none; grid-column: 1 / -1; }
 .ts-loc-card.unplaced .ts-loc-ico { background: var(--color-warning-bg); color: var(--color-warning); }
 
-/* empty / onboarding states */
-.ts-empty {
-  text-align: center; max-width: 460px; margin: var(--space-8) auto; padding: 46px 30px;
-  border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); background: var(--color-surface);
-}
-.ts-empty .em-mark {
-  width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 18px;
-  display: grid; place-items: center; background: var(--color-accent-subtle); color: var(--color-accent);
-}
-.ts-empty .em-mark .icon { width: 26px; height: 26px; }
-.ts-empty h3 { margin: 0 0 8px; font-size: 1.25rem; letter-spacing: -0.01em; color: var(--color-text); }
-.ts-empty p { margin: 0 0 20px; color: var(--color-text-muted); font-size: 0.90625rem; }
-
+/* onboarding states */
 .ts-onboard {
   display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-5);
   padding: 18px 20px; border-radius: var(--radius-lg);

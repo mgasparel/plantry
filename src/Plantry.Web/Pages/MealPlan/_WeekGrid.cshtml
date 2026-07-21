@@ -3,8 +3,8 @@
 @if (!Model.HasSlots)
 {
     <div class="grid-scroll">
-        <div class="planner-empty">
-            <p class="planner-empty__message">No meal slots are configured yet.</p>
+        <div class="empty-state">
+            <div class="empty-state__title">No meal slots are configured yet.</div>
             <a href="/Settings/MealSlots" class="btn btn--primary">Configure meal slots</a>
         </div>
     </div>

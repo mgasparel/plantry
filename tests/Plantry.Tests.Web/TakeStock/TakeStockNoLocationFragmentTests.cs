@@ -70,7 +70,7 @@ public sealed class TakeStockNoLocationFragmentTests : IClassFixture<TakeStockNo
         var resp = await client.GetAsync("/pantry/take-stock/no-location");
         resp.EnsureSuccessStatusCode();
         var html = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("ts-empty", html);
+        Assert.Contains("empty-state", html);
     }
 
     // ── Index shows "No location" entry ──────────────────────────────────────

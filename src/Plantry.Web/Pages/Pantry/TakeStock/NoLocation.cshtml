@@ -43,10 +43,10 @@
 
         @if (Model.Rows.Count == 0)
         {
-            <div class="ts-empty">
-                <div class="em-mark"><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg></div>
-                <h3>Everything's filed</h3>
-                <p>All products have a location — nothing to file here.</p>
+            <div class="empty-state">
+                <div class="empty-state__icon"><svg class="icon" aria-hidden="true"><use href="#i-check" /></svg></div>
+                <div class="empty-state__title">Everything's filed</div>
+                <div class="empty-state__body">All products have a location — nothing to file here.</div>
             </div>
         }
         else
