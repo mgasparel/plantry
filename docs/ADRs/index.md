@@ -26,3 +26,4 @@ Architecture Decision Records for Plantry.
 | [ADR-020](ADR-020.md) | Reactive islands for stateful surfaces (Intake, Meal Planner, Take Stock) — amends ADR-005/013/015 | Accepted · amended 2026-06-24 (test-time Node permitted for island tests), 2026-07-07 (fourth island: Deals judgement-call deck, imperative-DOM concession) |
 | [ADR-021](ADR-021.md) | Read paths may cross bounded-context boundaries via read-only cross-schema read models (read-side dual of ADR-014) | Accepted |
 | [ADR-022](ADR-022.md) | AI-suggested conversions are provisional deterministic values, tagged in-place, not a quarantined subsystem | Accepted |
+| [ADR-023](ADR-023.md) | Amendment vs Correction: the ledger distinguishes "the record was wrong" from "reality drifted" | Accepted |

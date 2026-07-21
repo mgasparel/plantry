@@ -13,7 +13,7 @@ description: >-
 license: MIT
 metadata:
   author: plantry
-  version: "5.0.0"
+  version: "5.1.0"
 ---
 
 # pipeline-orchestrator
@@ -155,6 +155,38 @@ first.
 /loop /pipeline-orchestrator      # self-paced loop
 /pipeline-orchestrator            # single pass (testing)
 ```
+
+---
+
+## Run setup — ask the merge-authorization question ONCE, up front
+
+**Before Step 0 of the first iteration — and before claiming, building, or staging
+anything — ask the human whether this run may merge its epic PR to `main` without
+review.** This is a per-run decision recorded as `merge_authorized` (true/false) and
+reused unchanged by every flush for the rest of the run; never re-ask mid-run.
+
+Ask with `AskUserQuestion` (single question, single-select):
+
+> **"How should this run land its epic PR to `main`?"**
+> - **Auto-merge (no review)** — arm `gh pr merge --auto --merge` at flush; the epic
+>   lands the moment the `fast` check goes green. *(Recommended for a hands-free run.)*
+> - **Open PR and stop for my review** — open the epic PR, hand back the URL, and leave
+>   it un-armed for the human to merge.
+
+Record the answer:
+- **Auto-merge** → `merge_authorized = true`.
+- **Open PR and stop** → `merge_authorized = false`.
+
+**Why up front:** arming auto-merge on an agent-authored PR to public `main` requires
+the human's explicit consent, and the permission classifier blocks it otherwise. Asking
+at flush means the run has already spent the full build/test/stage cost before it
+discovers it cannot land — the whole point of asking now is that a hands-free run never
+stalls at the last step. Get the answer before any tokens are spent on the work.
+
+> If the human's invoking message already states the intent unambiguously ("run the
+> pipeline and merge it", "build these but let me review the PR"), take that as the
+> answer and skip the prompt — but still record `merge_authorized` and state which way
+> you read it. When in any doubt, ask; the default is **not** to merge without consent.
 
 ---
 
@@ -352,17 +384,29 @@ Operate in the epic worktree `../worktrees/<epic-id>`.
    ```
    Extract the PR number. Initialise `ci_fix_attempts = 0`, `flake_rerun_done = false`.
 
-3. **Guard mergeability, then arm auto-merge** (the epic PR is gated by the `fast` check):
+3. **Guard mergeability, then arm auto-merge — only if `merge_authorized`** (the epic PR
+   is gated by the `fast` check):
    ```bash
    gh pr view <pr-number> --json mergeStateStatus --jq '.mergeStateStatus'
    ```
    - `DIRTY` → park the epic `merge-conflict` (as in step 1's conflict block) and return to Step 1.
    - `BEHIND` → park the epic `merge-conflict:behind`; return to Step 1.
-   - `CLEAN` / `UNSTABLE` / `HAS_HOOKS` / `BLOCKED` / `UNKNOWN` → arm:
-     ```bash
-     gh pr merge <pr-number> --auto --merge
-     ```
-   If `gh pr merge` fails: already-merged → continue to step 4; else park `merge-failed:<err>`.
+   - `CLEAN` / `UNSTABLE` / `HAS_HOOKS` / `BLOCKED` / `UNKNOWN`:
+     - **`merge_authorized == true`** → arm auto-merge:
+       ```bash
+       gh pr merge <pr-number> --auto --merge
+       ```
+       If `gh pr merge` fails: already-merged → continue to step 4; else park `merge-failed:<err>`.
+     - **`merge_authorized == false`** → do **not** arm. The epic is built, rebased, and
+       its PR is open — hand back to the human here:
+       ```bash
+       bd update <epic-id> --notes "Flush ready <ts>: epic PR #<pr-number> open, un-armed (run not authorized to merge without review). Children staged; nothing closed."
+       ```
+       Log `HANDOFF: epic <epic-id> — PR #<pr-number> open for human review (not auto-merged)`,
+       relay the PR URL to the human, and return to Step 1. **Do not `bd close` anything**
+       — the batch-close (Step 5-5) fires only after a human merges and a later iteration
+       (or the human) confirms `state == MERGED`. The staged children and open PR are the
+       durable handoff; nothing is lost.
 
 4. **Poll for merge or red CI** (every 30 s, overall timeout 30 min):
 
@@ -469,6 +513,12 @@ Log `PARKED: epic <epic-id> — ci-failed (exhausted)`; return to Step 1.
 
 ## Safety invariants
 
+- **Merge authorization is settled up front, once.** The run asks — before any work —
+  whether it may merge its epic PR to `main` without review, and records `merge_authorized`.
+  A run that was not authorized opens the epic PR and hands it back for human review rather
+  than arming auto-merge; it never asks again mid-run, and never merges without the recorded
+  consent. This keeps a hands-free run from spending the full build cost only to stall at
+  the flush when the merge permission is refused.
 - **Workers never touch `main`.** They commit on `issue/<id>` off the epic branch; the
   orchestrator integrates into `epic/<id>` and opens the single epic PR.
 - **One PR per epic.** Children merge into the epic branch with no per-child PR or CI;

@@ -138,6 +138,21 @@ numbers consistent with the release gate, coverage here is aggregated with the
         never lower a floor. Once a floor reaches its tier target it is just the
         target and drops off the exceptions table. Note any raises you made in the
         report's coverage section so the SKILL.md edit is visible in the diff.
+     5. **Repowise coverage sync (advisory; never fails the gate).** On a green
+        coverage run, feed the fresh reports into the Repowise health index so
+        `get_health` stops firing false `untested_hotspot` criticals
+        (plantry-5l7o):
+        ```
+        repowise coverage add .preflight/coverage/*/coverage.cobertura.xml
+        python tools/sync-repowise-coverage.py
+        ```
+        The `add` resolves coverlet's src-relative paths and persists per-file
+        rows; the script re-runs `repowise health` with those rows exported to
+        the repowise-json format, because `repowise health` cannot read the
+        ingested rows itself (upstream gap) and cannot resolve raw cobertura
+        paths. Order matters: `add` first, then the script. If either command
+        errors, note it in the report and continue — this sync is
+        signal-hygiene for the index, not part of the pass/fail gate.
    - If everything passes (every suite executed, zero failures, every gated
      assembly at/above its floor), record the summaries and continue.
 
