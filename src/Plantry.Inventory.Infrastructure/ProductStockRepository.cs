@@ -44,6 +44,17 @@ public sealed class ProductStockRepository(InventoryDbContext db) : IProductStoc
             .Where(p => p.HouseholdId == householdId)
             .ToListAsync(ct);
 
+    public async Task<IReadOnlySet<Guid>> ListProductIdsWithStockAsync(
+        HouseholdId householdId, IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idList = productIds.ToList();
+        var found = await db.ProductStocks
+            .Where(p => p.HouseholdId == householdId && idList.Contains(p.ProductId))
+            .Select(p => p.ProductId)
+            .ToListAsync(ct);
+        return found.ToHashSet();
+    }
+
     public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         db.ProductStocks
             .AnyAsync(p => p.HouseholdId == householdId, ct);

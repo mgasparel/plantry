@@ -270,6 +270,43 @@ public sealed class ProductRoundTripTests(PostgresFixture db) : IAsyncLifetime
         Assert.True(reloadedParent.HasVariants);
     }
 
+    // ── ListByIdsAsync (plantry-ubqb: batch product resolution for the Intake Session detail line
+    // grid, no eager-loading) ───────────────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "ListByIdsAsync: empty input returns an empty result")]
+    public async Task ListByIdsAsync_EmptyInput_ReturnsEmpty()
+    {
+        await using var db2 = NewCatalogDb();
+        var repo = new ProductRepository(db2);
+
+        var result = await repo.ListByIdsAsync([]);
+
+        Assert.Empty(result);
+    }
+
+    [Fact(DisplayName = "ListByIdsAsync: returns only the ids that exist, mixed with unknown ids")]
+    public async Task ListByIdsAsync_MixedFoundAndMissingIds_ReturnsOnlyFound()
+    {
+        ProductId flourId;
+        await using (var db1 = NewCatalogDb())
+        {
+            var flour = Product.Create(_household, "Flour", _gramsId, SystemClock.Instance);
+            await db1.Products.AddAsync(flour);
+            await db1.SaveChangesAsync();
+            flourId = flour.Id;
+        }
+
+        var unknownId = ProductId.From(Guid.CreateVersion7());
+
+        await using var db2 = NewCatalogDb();
+        var repo = new ProductRepository(db2);
+        var result = await repo.ListByIdsAsync([flourId, unknownId]);
+
+        var found = Assert.Single(result);
+        Assert.Equal(flourId, found.Id);
+        Assert.Equal("Flour", found.Name);
+    }
+
     private DbContextOptions<CatalogDbContext> CatalogOptions() =>
         new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
 

@@ -16,6 +16,26 @@ public interface IProductRepository
     Task<List<Product>> ListWithConversionsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default);
 
     /// <summary>
+    /// Loads the specified products in a single query — no eager-loading — for batch display resolution
+    /// that needs only base product fields (a leaner sibling of <see cref="ListWithConversionsAsync"/>,
+    /// e.g. the Intake Session detail line grid, plantry-ubqb). Ids not found are simply absent from the
+    /// result.
+    ///
+    /// <para>The default implementation falls back to a per-id <see cref="FindAsync"/> loop so test
+    /// doubles need not reimplement it; the EF repository overrides it with one query.</para>
+    /// </summary>
+    async Task<List<Product>> ListByIdsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default)
+    {
+        var result = new List<Product>();
+        foreach (var id in ids)
+        {
+            var product = await FindAsync(id, ct);
+            if (product is not null) result.Add(product);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Every variant of <paramref name="parentId"/> — <b>including archived ones</b>, with their
     /// conversions loaded. Cross-aggregate parent/variant consistency (the denormalized
     /// <see cref="Product.HasVariants"/> flag and one-time inheritance) must see archived variants

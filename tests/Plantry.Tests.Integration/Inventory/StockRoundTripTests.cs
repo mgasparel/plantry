@@ -190,6 +190,67 @@ public sealed class StockRoundTripTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(PostgresErrorCodes.CheckViolation, ex.SqlState);
     }
 
+    // ── ListProductIdsWithStockAsync (plantry-ubqb: batch stock-existence for the Intake Session
+    // detail line grid, no aggregate/lot materialization) ──────────────────────────────────────
+
+    [Fact(DisplayName = "ListProductIdsWithStockAsync: empty input returns an empty result")]
+    public async Task ListProductIdsWithStockAsync_EmptyInput_ReturnsEmpty()
+    {
+        await using var db1 = NewInventoryDb();
+        var repo = new ProductStockRepository(db1);
+
+        var result = await repo.ListProductIdsWithStockAsync(_household, []);
+
+        Assert.Empty(result);
+    }
+
+    [Fact(DisplayName = "ListProductIdsWithStockAsync: returns only the ids that hold a stock record, mixed with unknown ids")]
+    public async Task ListProductIdsWithStockAsync_MixedFoundAndMissingIds_ReturnsOnlyFound()
+    {
+        var stockedProductId = Guid.CreateVersion7();
+        var unstockedProductId = Guid.CreateVersion7(); // never given a stock record
+        var unknownProductId = Guid.CreateVersion7();   // doesn't exist at all
+
+        await using (var db1 = NewInventoryDb())
+        {
+            var stock = ProductStock.Start(_household, stockedProductId, SystemClock.Instance);
+            stock.AddStock(5m, _unitId, _locationId, _userId, SystemClock.Instance);
+            await db1.ProductStocks.AddAsync(stock);
+            await db1.SaveChangesAsync();
+        }
+
+        await using var db2 = NewInventoryDb();
+        var repo = new ProductStockRepository(db2);
+
+        var result = await repo.ListProductIdsWithStockAsync(
+            _household, [stockedProductId, unstockedProductId, unknownProductId]);
+
+        Assert.Equal([stockedProductId], result);
+    }
+
+    [Fact(DisplayName = "ListProductIdsWithStockAsync: household isolation — another household's stock for the same product id is invisible")]
+    public async Task ListProductIdsWithStockAsync_HouseholdIsolation_DoesNotSeeOtherHouseholdsStock()
+    {
+        var otherHousehold = HouseholdId.New();
+        var sharedProductId = Guid.CreateVersion7(); // same product id "coincidentally" stocked by another household
+
+        await using (var seedDb = new InventoryDbContext(InventoryOptions()))
+        {
+            seedDb.SetHouseholdId(otherHousehold.Value);
+            var stock = ProductStock.Start(otherHousehold, sharedProductId, SystemClock.Instance);
+            stock.AddStock(5m, _unitId, _locationId, _userId, SystemClock.Instance);
+            await seedDb.ProductStocks.AddAsync(stock);
+            await seedDb.SaveChangesAsync();
+        }
+
+        await using var db2 = NewInventoryDb(); // scoped to _household, not otherHousehold
+        var repo = new ProductStockRepository(db2);
+
+        var result = await repo.ListProductIdsWithStockAsync(_household, [sharedProductId]);
+
+        Assert.Empty(result);
+    }
+
     private DbContextOptions<InventoryDbContext> InventoryOptions() =>
         new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
 

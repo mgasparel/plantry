@@ -25,6 +25,25 @@ public interface IProductStockRepository
     Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default);
 
     /// <summary>
+    /// The subset of <paramref name="productIds"/> that hold a stock record for
+    /// <paramref name="householdId"/> — a lean existence projection (no aggregate/lot materialization)
+    /// for batch pantry-vs-catalog product-link resolution (e.g. the Intake Session detail line grid,
+    /// plantry-ubqb). Ids without a stock record are simply absent from the result.
+    ///
+    /// <para>The default implementation falls back to a per-id <see cref="FindAsync"/> loop so test
+    /// doubles need not reimplement it; the EF repository overrides it with one projected query.</para>
+    /// </summary>
+    async Task<IReadOnlySet<Guid>> ListProductIdsWithStockAsync(
+        HouseholdId householdId, IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new HashSet<Guid>();
+        foreach (var productId in productIds)
+            if (await FindAsync(householdId, productId, ct) is not null)
+                result.Add(productId);
+        return result;
+    }
+
+    /// <summary>
     /// Returns true if the household has at least one product-stock record — used for the
     /// Today-page cold-start check to avoid materializing the full list.
     /// </summary>
