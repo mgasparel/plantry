@@ -148,10 +148,10 @@ public sealed class ProductSearchCreateSheetViewModel
 
     /// <summary>
     /// Sheet header title displayed while the create view is active (<c>sheetView === 'create'</c>).
-    /// Defaults to "New product". Pass a different string to context-label the create view
+    /// Defaults to "New Product". Pass a different string to context-label the create view
     /// (e.g. a future Recipes variant once plantry-orix wires the tracked-product create path).
     /// </summary>
-    public string CreateViewTitle { get; init; } = "New product";
+    public string CreateViewTitle { get; init; } = "New Product";
 
     /// <summary>
     /// Optional override for the <b>search-view</b> header title (plantry-q9zr.6). When null (default) the

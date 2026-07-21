@@ -541,6 +541,14 @@ button { font-family: inherit; cursor: pointer; }
 .form-stack { display: flex; flex-direction: column; gap: var(--space-4); }
 .form-stack--row { flex-direction: row; align-items: center; }
 
+/* Primary button width rule (plantry-5e8j): save/add actions are AUTO-WIDTH.
+   A .btn is inline-flex, but a vertical .form-stack is a flex column whose default
+   align-items:stretch would otherwise stretch the button across the full cross-axis —
+   pin it to the start so it sizes to its content. .btn--full stays the explicit,
+   deliberate opt-in for single-column form footers (e.g. the narrow auth forms in
+   Account/Login|Register|Join). Row form-stacks keep their centered inline layout. */
+.form-stack:not(.form-stack--row) > .btn:not(.btn--full) { align-self: flex-start; }
+
 .field { display: flex; flex-direction: column; gap: var(--space-1); }
 .field--inline { flex-direction: row; align-items: center; gap: var(--space-2); }
 
@@ -1201,10 +1209,9 @@ button { font-family: inherit; cursor: pointer; }
 .pantry-row__qty { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .pantry-row__noexpiry { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 
-.pantry-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
-.pantry-detail__title { margin: 0; }
-.pantry-detail__total { margin: var(--space-1) 0 0; color: var(--color-text-muted); }
-.pantry-detail__category { margin: var(--space-1) 0 0; font-size: var(--font-size-sm); color: var(--color-text-faint); }
+/* Pantry product-detail header now uses the shared .page-header primitive (plantry-7yf1):
+   category -> eyebrow, name -> title, stock total -> subtitle (id="product-total", kept live
+   by _StockDetail's OOB swap), Set alert / Consume -> actions. */
 
 /* Sheet (htmx-loaded overlay panel) */
 .sheet { position: fixed; inset: 0; z-index: 110; }
@@ -2404,27 +2411,8 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   padding: 34px 30px 64px;
 }
 
-/* ── Header row ─────────────────────────────────────────────────────────────── */
-.recipes-browse-head {
-  display: flex;
-  align-items: flex-end;
-  gap: 18px;
-  margin-bottom: 20px;
-}
-.recipes-browse-head__titles { flex: 1; min-width: 0; }
-.recipes-browse-head__title {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  margin: 0 0 5px;
-  color: var(--color-text);
-}
-.recipes-browse-head__sub {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: 14.5px;
-  max-width: 52ch;
-}
+/* Recipes browse header now uses the shared .page-header primitive (plantry-7yf1);
+   the "New recipe" button renders as its .page-header__actions. */
 
 /* ── Toolbar ────────────────────────────────────────────────────────────────── */
 .recipes-browse-toolbar {
@@ -3798,11 +3786,8 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 
 .sl-wrap { max-width: var(--content-max-width); margin: 0 auto; padding: 34px 30px 90px; }
 
-/* ---- header ------------------------------------------------------------- */
-.sl-head { display: flex; align-items: flex-end; gap: 18px; margin-bottom: 20px; }
-.sl-head h1 { font-size: 30px; letter-spacing: -0.025em; margin: 0 0 5px; font-weight: 700; }
-.sl-head p { margin: 0; color: var(--color-text-muted); font-size: 14.5px; }
-.sl-head .spacer { flex: 1; }
+/* ---- header (now the shared .page-header primitive — plantry-7yf1; the summary
+   stat box renders as its .page-header__actions) -------------------------- */
 .sl-summary { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); white-space: nowrap; }
 .sl-summary .ss { padding: 9px 16px; }
 .sl-summary .ss + .ss { border-left: 1px solid var(--color-border); }
@@ -4061,6 +4046,12 @@ button.sadd svg { width: 13px; height: 13px; }
    =========================================================================== */
 
 .plan-main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; flex: 1; min-height: 0; }
+
+/* Meal-plan page-header band (plantry-7yf1): the shared .page-header sits above the command
+   bar. The fluid full-viewport shell carries no padding of its own, so this band supplies the
+   horizontal inset and trims the primitive's default bottom margin to keep the tool compact. */
+.plan-head { padding: 22px 24px 0; flex-shrink: 0; }
+.plan-head .page-header { margin-bottom: 16px; }
 
 /* Scope the prototype's "hearth" radius scale to the planner + meal editor so cards,
    cells, popovers and the modal round exactly like ClaudeDesignProto (the app's global
@@ -5338,24 +5329,8 @@ button.sadd svg { width: 13px; height: 13px; }
 /* ---- page wrapper -------------------------------------------------------- */
 .today-wrap { max-width: var(--content-max-width); margin: 0 auto; padding: 32px 30px 70px; }
 
-/* ---- greeting header ----------------------------------------------------- */
-.today-head {
-  display: flex; align-items: flex-end; gap: 20px; margin-bottom: 22px;
-}
-.today-head__greet { min-width: 0; }
-.today-head__greeting {
-  font-size: 31px; letter-spacing: -0.03em; margin: 0 0 5px; font-weight: 700;
-  line-height: 1.1; text-wrap: balance;
-}
-.today-head__date {
-  font-size: 14.5px; color: var(--color-text-muted); font-weight: 500;
-  display: flex; align-items: center; gap: 9px;
-}
-.today-head__ddot {
-  width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-faint); flex: none;
-}
-.today-head__spacer { flex: 1; }
-.today-head__actions { display: flex; align-items: center; gap: 10px; }
+/* Today's greeting header now uses the shared .page-header primitive (plantry-7yf1);
+   the two link buttons below still render as its .page-header__actions. */
 
 /* ---- link buttons (header actions + section heads) ----------------------- */
 .today-linkbtn {
@@ -5824,20 +5799,79 @@ button.sadd svg { width: 13px; height: 13px; }
   .today-meal-slot__cook { display: none; } /* surfaced via the fulfillment hint on small screens */
 }
 
-/* ── Page header (reusable back-link + title strip, e.g. walk pages) ───────── */
+/* ── Page header (the one shared prominent title strip — plantry-7yf1) ──────────
+   Rendered by the <page-header> tag helper on every top-level page and both
+   product-detail pages. Optional accent-pill eyebrow + required title + optional
+   subtitle in the left column (__main); optional right-aligned actions (__actions).
+   Weight B (prominent, 1.875rem) per .preview/7yf1-page-header.html. */
 .page-header {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-6);
+}
+.page-header__main { min-width: 0; }
+.page-header__eyebrow {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-5);
+  gap: 7px;
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-radius: 999px;
+  padding: 5px 11px;
 }
 .page-header__title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.875rem;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   color: var(--color-text);
 }
+.page-header__title-meta {
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--color-text-muted);
+}
+.page-header__subtitle {
+  margin: 7px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+  max-width: 62ch;
+}
+.page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+/* Cross-link affordance under the title (plantry-kkeg): the catalog↔pantry jump between the
+   two views of one product. Rendered by <page-header cross-link-text ...>. */
+.page-header__cross-link { margin-top: 7px; }
+
+/* ── Cross-link (.xlink) — a small inline "jump to the related view" affordance ────────
+   A plain styled anchor used to cross-navigate between two views of the same entity
+   (catalog ⇄ pantry product detail — plantry-kkeg). The muted variant is non-interactive
+   text for the "relationship exists but is empty" case (never-stocked → "Not in pantry yet"):
+   it acknowledges the link without a dead anchor or a 404. */
+.xlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-accent);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.xlink:hover { text-decoration: underline; }
+.xlink--muted { color: var(--color-text-faint); font-weight: 500; cursor: default; }
 
 /* ===========================================================================
    Take Stock — location picker (J1), walk (J2), lot hatch (J3), save bar (J4),

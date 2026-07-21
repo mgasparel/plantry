@@ -74,7 +74,7 @@ public sealed class PlanInsightsJourneyTests(AppHostFixture appHost) : IAsyncLif
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "ml — millilitre" });
-            await page.ClickAsync("button:has-text('Add product')");
+            await page.ClickAsync("button:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
             // ── Add stock with expiry date within the expiring-soon horizon ───────
@@ -181,7 +181,7 @@ public sealed class PlanInsightsJourneyTests(AppHostFixture appHost) : IAsyncLif
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "ml — millilitre" });
-            await page.ClickAsync("button:has-text('Add product')");
+            await page.ClickAsync("button:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
             var expiryDate = DateOnly.FromDateTime(DateTime.Today.AddDays(2));

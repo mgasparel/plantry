@@ -72,7 +72,7 @@ public sealed class RecipeCookJourneyTests(AppHostFixture appHost) : IAsyncLifet
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.ClickAsync("button:has-text('Add product')");
+            await page.ClickAsync("button:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
             // ── Add 500g of stock ─────────────────────────────────────────────────
@@ -129,7 +129,7 @@ public sealed class RecipeCookJourneyTests(AppHostFixture appHost) : IAsyncLifet
             await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
 
             var detailUrl = page.Url;

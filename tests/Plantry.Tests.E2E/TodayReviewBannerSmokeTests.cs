@@ -73,7 +73,7 @@ public sealed class TodayReviewBannerSmokeTests(AppHostFixture appHost) : IAsync
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "ea — each" });
-            await page.ClickAsync("button:has-text('Add product')");
+            await page.ClickAsync("button:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
             // ── 3. Upload a receipt — fake parser transitions session to Ready ──────

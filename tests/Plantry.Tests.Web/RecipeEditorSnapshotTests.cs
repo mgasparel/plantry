@@ -267,7 +267,7 @@ public sealed class RecipeEditorSnapshotTests(RecipeEditorFragmentFactory factor
     }
 
     /// <summary>
-    /// The submit bar in edit mode — should read "Save changes" (not "Create recipe").
+    /// The submit bar in edit mode — should read "Save changes" (not "Create Recipe").
     /// </summary>
     [Fact]
     public async Task Editor_edit_submit_bar()
@@ -277,7 +277,7 @@ public sealed class RecipeEditorSnapshotTests(RecipeEditorFragmentFactory factor
     }
 
     /// <summary>
-    /// The submit bar in create mode — should read "Create recipe".
+    /// The submit bar in create mode — should read "Create Recipe".
     /// </summary>
     [Fact]
     public async Task Editor_create_submit_bar()

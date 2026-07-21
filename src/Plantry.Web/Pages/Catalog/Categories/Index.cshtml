@@ -18,10 +18,11 @@
         Deletable: true);
 }
 
+<page-header title="Categories" subtitle="Group products into categories and set a default expiry window for each." />
+
 <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
 <section class="catalog-section">
-    <h2 class="catalog-section__heading">Categories</h2>
     <partial name="Shared/_RowList" model="categoryRows" />
 </section>
 

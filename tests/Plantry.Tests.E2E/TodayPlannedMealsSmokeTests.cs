@@ -110,7 +110,7 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             var saltRow = page.Locator(".ingredient-row", new() { HasText = "Salt" });
             await Assertions.Expect(saltRow).ToBeVisibleAsync();
 
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
 
             // Wait specifically for the Detail URL (/Recipes/{guid}) — the loose "**/Recipes/**"
             // also matches /Recipes/New and would return before the post-save redirect completes.

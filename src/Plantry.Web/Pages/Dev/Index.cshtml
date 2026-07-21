@@ -21,6 +21,78 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Action-verb convention</h2>
+    </div>
+    @*
+        plantry-bvb6 — the one documented rule for create/add action wording. Semantic split:
+        New/Create bring a NEW object into existence; Add attaches an EXISTING thing to a collection.
+        Keep list CTAs and their form's submit verb consistent (a "New X" list button leads to a
+        "Create X" submit). All action verbs are Title Case (plantry-j6e8).
+    *@
+    <p>
+        One rule for the verbs on create/add controls, so the same object never reads
+        "New" in one place and "Add" in another. The split is semantic:
+    </p>
+    <ul style="font-size:var(--font-size-sm)">
+        <li><strong>List / hub CTA → <code>New {X}</code></strong> — the button that opens a
+            blank create form (e.g. <code>New Recipe</code>, <code>New Product</code>).</li>
+        <li><strong>Form submit → <code>Create {X}</code></strong> — the button that commits the
+            new object (e.g. <code>Create Recipe</code>, <code>Create Product</code>). Every list
+            CTA matches its form's submit verb.</li>
+        <li><strong><code>Add {X}</code> is reserved for attaching an <em>existing</em> entity to a
+            collection</strong> — e.g. <code>Add SKU</code>, <code>Add conversion</code>,
+            <code>Add variant</code> (attaching to a product), or adding an existing product to a
+            list. It never means "create a brand-new object."</li>
+        <li>Distinct actions that are neither create nor attach keep their own verb
+            (<code>Invite member</code>, <code>Consume</code>).</li>
+        <li>All action verbs are <strong>Title Case</strong> (see plantry-j6e8).</li>
+    </ul>
+    <p style="font-size:var(--font-size-sm);color:var(--color-text-muted)">
+        Mnemonic: <em>New/Create = bring a new object into existence; Add = attach an existing thing.</em>
+    </p>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Page header</h2>
+    </div>
+    <p>
+        <code>&lt;page-header&gt;</code> is the one shared page-title strip (prominent weight,
+        1.875rem) at the top of every top-level page and both product-detail pages. A required
+        <code>title</code>, an optional accent-pill <code>eyebrow</code> (context/section label),
+        an optional <code>subtitle</code>, and an optional muted <code>title-meta</code> suffix
+        (e.g. <code>(archived)</code>). Any child content renders as right-aligned header actions
+        — the reason this is a tag helper, not a partial: a partial can't slot arbitrary action
+        markup. Pass <code>subtitle-id</code> when an htmx out-of-band swap must keep the subtitle
+        live (Pantry detail's <code>product-total</code>). An optional
+        <code>cross-link-text</code> (with an optional <code>cross-link-href</code>) renders a
+        small <code>.xlink</code> under the title — the catalog ⇄ pantry jump between the two
+        views of one product; with an href it is a live link, without one it is muted,
+        non-interactive text.
+    </p>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Title + subtitle</h3>
+    <page-header title="Pantry" subtitle="Everything your household has on hand, grouped by location." />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Optional eyebrow</h3>
+    <page-header eyebrow="Flyer deals" title="Deals" subtitle="Active flyer deals from the stores you follow, matched to your catalog." />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Eyebrow + title-meta + actions (product detail)</h3>
+    <page-header eyebrow="Dairy" title="Whole milk" title-meta="(archived)">
+        <button type="button" class="btn btn--ghost btn--sm">Unarchive</button>
+    </page-header>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Cross-link (catalog ⇄ pantry) — live and muted</h3>
+    <page-header eyebrow="Dairy" title="Whole milk" subtitle="3.5 L in stock"
+                 cross-link-text="View in catalog →" cross-link-href="#" />
+    <page-header eyebrow="Spices" title="Saffron threads"
+                 cross-link-text="Not in pantry yet" />
+
+    <pre class="code-sample"><code>@("<page-header title=\"Pantry\"\n             subtitle=\"Everything your household has on hand, grouped by location.\" />\n\n<!-- Optional accent-pill eyebrow (context/section label) -->\n<page-header eyebrow=\"Flyer deals\" title=\"Deals\" subtitle=\"...\" />\n\n<!-- Muted title-meta + right-aligned actions (child content) -->\n<page-header eyebrow=\"Dairy\" title=\"Whole milk\" title-meta=\"(archived)\">\n    <button type=\"submit\" class=\"btn btn--ghost btn--sm\">Unarchive</button>\n</page-header>\n\n<!-- subtitle-id keeps the subtitle live for an htmx OOB swap -->\n<page-header title=\"Whole milk\" subtitle=\"3.5 L in stock\" subtitle-id=\"product-total\" />\n\n<!-- Cross-link under the title: live link with href, muted text without (plantry-kkeg) -->\n<page-header title=\"Whole milk\" subtitle=\"3.5 L in stock\"\n             cross-link-text=\"View in catalog →\" cross-link-href=\"/Catalog/Products/...\" />\n<page-header title=\"Saffron threads\" cross-link-text=\"Not in pantry yet\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Field row</h2>
     </div>
     <p>
@@ -691,6 +763,57 @@
     </ul>
 
     <pre class="code-sample"><code>@("<ul class=\"tag-admin-list\" role=\"list\">\n  <li class=\"tag-admin-row\" data-tag-id=\"@tag.Id.Value\">\n    <input class=\"tag-name-input\" name=\"name\" value=\"@tag.Name\" aria-label=\"Tag name\"\n           hx-trigger=\"change\" hx-post=\"/Settings/Tags?handler=Rename&id=@tag.Id.Value\"\n           hx-include=\"this\" hx-target=\"#tags-region\" hx-swap=\"innerHTML\" />\n    <select class=\"tag-cat-select\" name=\"category\" aria-label=\"Category\"\n            hx-trigger=\"change\" hx-post=\"/Settings/Tags?handler=Category&id=@tag.Id.Value\"\n            hx-include=\"this\" hx-target=\"#tags-region\" hx-swap=\"innerHTML\"> ... </select>\n    <div class=\"tag-admin-acts\"> <!-- Archive/Restore btn --> </div>\n  </li>\n</ul>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Empty state</h2>
+    </div>
+    <p>
+        <code>.empty-state</code> is the one <strong>whole-region "no records" placeholder</strong>: a
+        centered, padded block with an optional <code>.empty-state__icon</code>, a
+        <code>.empty-state__title</code> headline, an optional muted <code>.empty-state__body</code>
+        sentence, and an optional call-to-action button. Reach for it whenever an entire list, section,
+        or panel has nothing to show — it replaces the ad-hoc muted paragraph that used to vary per
+        page (plantry-j6e8). Live example: the Deals board when no stores are followed
+        (<a href="/Deals">Deals</a>), and the Settings members / tags / invites lists when empty.
+    </p>
+    <p>
+        <strong>Two variants, same primitive.</strong> The <em>full</em> form (icon + title + body + CTA)
+        headlines a top-level page or board empty; the <em>compact</em> form (title, optional body) fits a
+        section or card that is empty inside an otherwise-chrome'd page. <strong>Not for</strong> inline
+        per-cell or per-row placeholders (a table cell's <code>—</code> dash, a single empty planner
+        slot) — those stay as local muted text; the centered block is for the whole region.
+    </p>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Full — icon, title, body, CTA</h3>
+    <div class="card" style="max-width: 32rem">
+        <div class="card__body">
+            <div class="empty-state">
+                <div class="empty-state__icon">
+                    <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
+                </div>
+                <div class="empty-state__title">No deals yet</div>
+                <div class="empty-state__body">
+                    Subscribe to the stores you shop and Plantry will pull their weekly flyers and
+                    surface matching deals here.
+                </div>
+                <a class="btn btn--primary" href="/Settings/StoresAndDeals">Subscribe to a store</a>
+            </div>
+        </div>
+    </div>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Compact — title (+ optional body)</h3>
+    <div class="card" style="max-width: 32rem">
+        <div class="card__body">
+            <div class="empty-state">
+                <div class="empty-state__title">No tags yet</div>
+                <div class="empty-state__body">Add one below.</div>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"empty-state\">\n  <div class=\"empty-state__icon\">                 @* optional *@\n    <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-tag\" /></svg>\n  </div>\n  <div class=\"empty-state__title\">No deals yet</div>\n  <div class=\"empty-state__body\">Supporting sentence.</div>  @* optional *@\n  <a class=\"btn btn--primary\" href=\"...\">Call to action</a>   @* optional *@\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">

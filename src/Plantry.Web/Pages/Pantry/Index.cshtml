@@ -4,6 +4,8 @@
     ViewData["Title"] = "Pantry";
 }
 
+<page-header title="Pantry" subtitle="Everything your household has on hand, grouped by location." />
+
 <div class="pantry-toolbar">
     <input type="search" name="q" placeholder="Search your pantry…" class="field__input pantry-toolbar__search pantry-filter"
            hx-get="@Url.Page("./Index", "Filter")"

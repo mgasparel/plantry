@@ -86,11 +86,11 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.ClickAsync("button:has-text('Add product')");
+            await page.ClickAsync("button:has-text('Create Product')");
 
             // ── Step 3: Redirected to Detail; product name shown ──────────────────
             await page.WaitForURLAsync("**/Catalog/Products/**");
-            var heading = await page.Locator(".card__head-title").First.TextContentAsync();
+            var heading = await page.Locator(".page-header__title").First.TextContentAsync();
             Assert.Contains(productName, heading);
 
             // ── Step 4: Add a SKU ──────────────────────────────────────────────────
@@ -116,13 +116,13 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.ClickAsync("button:has-text('Save changes')");
 
             await page.WaitForURLAsync("**/Catalog/Products/**");
-            var renamedHeading = await page.Locator(".card__head-title").First.TextContentAsync();
+            var renamedHeading = await page.Locator(".page-header__title").First.TextContentAsync();
             Assert.Contains(renamedProductName, renamedHeading);
 
             // ── Step 7: Archive it ─────────────────────────────────────────────────
             await page.ClickAsync("button:has-text('Archive')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
-            await Assertions.Expect(page.Locator(".catalog-list__meta", new() { HasText = "archived" })).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator(".page-header__title-meta", new() { HasText = "archived" })).ToBeVisibleAsync();
 
             // ── Step 8: Archived product disappears from the active list ──────────
             await page.GotoAsync($"{BaseUrl}/Catalog/Products");

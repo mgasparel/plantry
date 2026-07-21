@@ -16,8 +16,32 @@ else
        gets full width and horizontally scrolls (plantry-3j7h). Below the breakpoint the rail
        becomes an overlay; the #plan-rail-reopen affordance (x-show="!railOpen") lets the user
        pull it in on top of the grid. Mirrors the CSS breakpoint in plenish.css (.plan-rail
-       overlay + .wkgrid min-width). *@
-    <div class="plan-body-inner" x-data="{ railOpen: !window.matchMedia('(max-width: 1000px)').matches }" style="display:contents">
+       overlay + .wkgrid min-width).
+       plantry-fxxh: the initial railOpen above is evaluated once at Alpine init, so a viewport
+       that later CROSSES 1000px (notably iPad portrait<->landscape rotation) would leave railOpen
+       stale — the rail hidden at desktop width, or overlaying the grid at mobile width, until the
+       next manual tap. The matchMedia 'change' listener wired in init() re-syncs railOpen to the
+       breakpoint default whenever the viewport crosses it (change fires only on a crossing, so a
+       user's manual toggle within one breakpoint is preserved). The listener is bound to the
+       persistent global MediaQueryList, so it is registered in init() and torn down in destroy():
+       _WeekGrid lives inside #plan-main-content and every grid handler re-renders it via a
+       hx-swap="innerHTML" replacement, which would otherwise leak a fresh listener (closing over a
+       destroyed scope) on each swap. Mirrors the init()/destroy() convention in NoLocation.cshtml. *@
+    <div class="plan-body-inner"
+         x-data="{
+            railOpen: !window.matchMedia('(max-width: 1000px)').matches,
+            _mql: null,
+            _onBreakpoint: null,
+            init() {
+                this._mql = window.matchMedia('(max-width: 1000px)');
+                this._onBreakpoint = e => { this.railOpen = !e.matches; };
+                this._mql.addEventListener('change', this._onBreakpoint);
+            },
+            destroy() {
+                if (this._mql) { this._mql.removeEventListener('change', this._onBreakpoint); }
+            }
+         }"
+         style="display:contents">
     <div class="grid-scroll">
         <div class="wkgrid">
             @* Day-column headers *@

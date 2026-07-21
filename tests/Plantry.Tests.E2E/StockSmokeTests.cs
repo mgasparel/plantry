@@ -64,7 +64,7 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.ClickAsync("button:has-text('Add product')");
+            await page.ClickAsync("button:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
             // ── Add stock via the htmx sheet on the Pantry ───────────────────────
@@ -93,7 +93,7 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // ── Open the product detail and consume part of it ──────────────────
             await page.ClickAsync($"a.data-grid__link:has-text('{productName}')");
             await page.WaitForURLAsync("**/Pantry/Products/Detail/**");
-            await Assertions.Expect(page.Locator(".pantry-detail__total")).ToContainTextAsync("500 g");
+            await Assertions.Expect(page.Locator("#product-total")).ToContainTextAsync("500 g");
 
             await page.ClickAsync("button:has-text('Consume')");
             await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
@@ -104,6 +104,18 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // ── Remaining quantity reflects the consume, and a journal row appears ──
             await Assertions.Expect(page.Locator("#stock-detail")).ToContainTextAsync("300 g");
             await Assertions.Expect(page.Locator("#stock-detail").GetByText("Consumed")).ToBeVisibleAsync();
+
+            // ── Cross-link round-trip: pantry → catalog → pantry lands on the same product (plantry-kkeg) ──
+            var pantryUrl = page.Url;
+            await page.ClickAsync("a.xlink:has-text('View in catalog')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+            await Assertions.Expect(page.Locator(".page-header__title")).ToContainTextAsync(productName);
+
+            // The product holds stock, so the catalog view offers a live "View in pantry" link back.
+            await page.ClickAsync("a.xlink:has-text('View in pantry')");
+            await page.WaitForURLAsync("**/Pantry/Products/Detail/**");
+            // Round-trip landed on the same product's pantry detail.
+            Assert.Equal(pantryUrl, page.Url);
         }
         finally
         {

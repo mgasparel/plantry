@@ -4,6 +4,8 @@
     ViewData["Title"] = "Units";
 }
 
+<page-header title="Units" subtitle="Manage the units of measure used across your catalog and recipes." />
+
 <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
 @foreach (var group in Model.Units.GroupBy(u => u.Dimension))

@@ -165,9 +165,9 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/Today**");
 
             // ── Step 3: Today home is shown ───────────────────────────────────────
-            // The new Today page renders a greeting header (.today-head__greeting) rather than
-            // a catalog-section__heading stub. Verify the page loaded by checking the topbar
-            // crumb title and the today-wrap container.
+            // The Today page renders a greeting header via the shared .page-header primitive
+            // rather than a catalog-section__heading stub. Verify the page loaded by checking
+            // the topbar crumb title and the today-wrap container.
             await page.Locator(".today-wrap").WaitForAsync();
             var crumbTitle = await page.Locator(".crumb b").TextContentAsync();
             Assert.Contains("Today", crumbTitle, StringComparison.OrdinalIgnoreCase);
@@ -175,7 +175,7 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // ── Step 4: Sign out, then sign back in ───────────────────────────────
 
             // 1. Click the button using a resilient locator
-            await page.GetByRole(AriaRole.Button, new() { Name = "Sign out" }).ClickAsync();
+            await page.GetByRole(AriaRole.Button, new() { Name = "Sign Out" }).ClickAsync();
 
             // 2. Wait for the URL to contain Login AND allow for the ?ReturnUrl querystring
             await page.WaitForURLAsync("**/Account/Login**");

@@ -10,6 +10,9 @@
 }
 
 <div class="plan-main" x-data="{ costMode: 'projected' }">
+    <div class="plan-head">
+        <page-header title="Meal Plan" subtitle="Plan the week's meals and turn them into a shopping list." />
+    </div>
     @* Command bar: week nav, This week, budget chip, auto-fill *@
     @* All dynamic pieces are in _PlanBarNav so they can be re-emitted OOB after htmx grid
        swaps and cell mutations. On first load (Oob=false) the partial renders inline here.

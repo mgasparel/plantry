@@ -4,11 +4,8 @@
     ViewData["Title"] = "Products";
 }
 
-<section class="catalog-section">
-    <div class="catalog-section__header">
-        <h2 class="catalog-section__heading">Products</h2>
-        <a href="/Catalog/Products/Create" class="btn btn--primary">Add a product</a>
-    </div>
+<page-header title="Products" subtitle="Every product your household tracks — its category, default unit, and expiry rules.">
+    <a href="/Catalog/Products/Create" class="btn btn--primary">New Product</a>
+</page-header>
 
-    <partial name="Shared/_DataGrid" model="Model.ProductGrid" />
-</section>
+<partial name="Shared/_DataGrid" model="Model.ProductGrid" />

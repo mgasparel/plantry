@@ -83,7 +83,7 @@ public sealed class RecipeConversionMissingDefaultJourneyTests(AppHostFixture ap
         await page.WaitForURLAsync("**/Catalog/Products/Create");
         await page.FillAsync("[name='Input.Name']", productName);
         await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = unitLabel });
-        await page.ClickAsync("button:has-text('Add product')");
+        await page.ClickAsync("button:has-text('Create Product')");
         await page.WaitForURLAsync("**/Catalog/Products/**");
     }
 

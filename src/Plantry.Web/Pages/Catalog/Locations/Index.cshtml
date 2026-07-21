@@ -12,10 +12,11 @@
         Deletable: true);
 }
 
+<page-header title="Locations" subtitle="Where stock lives — fridges, freezers, and pantry shelves your household uses." />
+
 <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
 <section class="catalog-section">
-    <h2 class="catalog-section__heading">Locations</h2>
     <partial name="Shared/_RowList" model="locationRows" />
 </section>
 

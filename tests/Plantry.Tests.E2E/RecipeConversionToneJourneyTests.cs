@@ -100,7 +100,7 @@ public sealed class RecipeConversionToneJourneyTests(AppHostFixture appHost) : I
         await page.WaitForURLAsync("**/Catalog/Products/Create");
         await page.FillAsync("[name='Input.Name']", productName);
         await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = unitLabel });
-        await page.ClickAsync("button:has-text('Add product')");
+        await page.ClickAsync("button:has-text('Create Product')");
         await page.WaitForURLAsync("**/Catalog/Products/**");
     }
 
@@ -247,7 +247,7 @@ public sealed class RecipeConversionToneJourneyTests(AppHostFixture appHost) : I
             await CommitSheetAsync(sheet);
 
             // ── First save bounces (AuthorRecipeResult.NeedsConversion re-renders the form) ──
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             // The bounce sets the SaveError banner — wait for it so every assertion below runs against
             // the server-rendered DOM, not the pre-save client DOM (which also showed the MISSING tone).
             await Assertions.Expect(page.Locator(".save-error"))
@@ -278,7 +278,7 @@ public sealed class RecipeConversionToneJourneyTests(AppHostFixture appHost) : I
             await Assertions.Expect(conv.GetByText(new Regex("How does 1"))).ToBeHiddenAsync();
 
             // ── Re-save now that the equation is complete → lands on Details ──────
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
             Assert.DoesNotMatch(@"/(New|Edit)$", page.Url);
             await Assertions.Expect(page.Locator(".rd-ing-row", new() { HasText = productName })).ToBeVisibleAsync();

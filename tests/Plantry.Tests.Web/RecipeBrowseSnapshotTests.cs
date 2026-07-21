@@ -152,7 +152,7 @@ public sealed class RecipeBrowseSnapshotTests(RecipeBrowseFragmentFactory factor
         // The partial must NOT contain full-page layout elements.
         Assert.DoesNotContain("<html", html, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("<body", html, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("recipes-browse-head", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("page-header__title", html, StringComparison.OrdinalIgnoreCase);
 
         // The partial MUST contain the results region content.
         Assert.True(
