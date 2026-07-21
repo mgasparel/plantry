@@ -221,6 +221,104 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(4m, latest.Price);
     }
 
+    [Fact(DisplayName = "LatestForProduct includes a Manual observation, and the newest of Purchase/Manual wins")]
+    public async Task LatestForProduct_Includes_Manual_Rows()
+    {
+        await using (var ctx = NewPricingDb())
+        {
+            // Older purchase.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-2), _userId));
+            // Newer MANUAL row — a household estimate, no source_ref — must win (plantry-3fqm).
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Manual, null, null, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var latest = await repo.LatestForProductAsync(_productId);
+
+        Assert.NotNull(latest);
+        Assert.Equal(PriceSource.Manual, latest.Source);
+        Assert.Equal(3m, latest.Price);
+        Assert.Null(latest.SourceRef);
+    }
+
+    [Fact(DisplayName = "LatestForSku includes a Manual observation, and the newest of Purchase/Manual wins")]
+    public async Task LatestForSku_Includes_Manual_Rows()
+    {
+        var skuId = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, skuId, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-2), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, skuId, 3m, 1m, _unitId, 3m,
+                PriceSource.Manual, null, null, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var latest = await repo.LatestForSkuAsync(skuId);
+
+        Assert.NotNull(latest);
+        Assert.Equal(PriceSource.Manual, latest.Source);
+        Assert.Equal(3m, latest.Price);
+    }
+
+    [Fact(DisplayName = "ListPurchasesAwaitingStore stays Purchase-only — a Manual row is never eligible for the DM-16 sweep")]
+    public async Task ListPurchasesAwaitingStore_Excludes_Manual_Rows()
+    {
+        await using (var ctx = NewPricingDb())
+        {
+            // A purchase with a merchant and no store — eligible for backfill.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow, _userId));
+            // A Manual row has no merchant and no store — must never surface in the sweep even though
+            // store_id is also null here.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Manual, null, null, DateTimeOffset.UtcNow, _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var awaiting = await repo.ListPurchasesAwaitingStoreAsync();
+
+        var row = Assert.Single(awaiting);
+        Assert.Equal(PriceSource.Purchase, row.Source);
+        Assert.Equal(4m, row.Price);
+    }
+
+    [Fact(DisplayName = "A Manual observation round-trips a null source_ref through EF")]
+    public async Task Manual_Observation_RoundTrips_Null_SourceRef()
+    {
+        await using (var ctx = NewPricingDb())
+        {
+            var obs = PriceObservation.Record(
+                _household, _productId, null, 2.99m, 1m, _unitId, 2.99m,
+                PriceSource.Manual, merchantText: null, sourceRef: null, DateTimeOffset.UtcNow, _userId);
+            await ctx.PriceObservations.AddAsync(obs);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var loaded = await ctx2.PriceObservations.SingleAsync(p => p.ProductId == _productId);
+
+        Assert.Equal(PriceSource.Manual, loaded.Source);
+        Assert.Null(loaded.SourceRef);
+        Assert.Null(loaded.MerchantText);
+        Assert.Null(loaded.StoreId);
+    }
+
     [Fact(DisplayName = "LatestForSku is source-filtered — a deal row never contaminates a purchase-cost query")]
     public async Task LatestForSku_Excludes_Deal_Rows()
     {

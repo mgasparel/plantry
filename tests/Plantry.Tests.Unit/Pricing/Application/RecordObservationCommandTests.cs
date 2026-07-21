@@ -105,6 +105,25 @@ public sealed class RecordObservationCommandTests
     }
 
     [Fact]
+    public async Task Manual_Source_Records_With_Null_SourceRef_And_No_Merchant()
+    {
+        var repo = new FakePriceObservationRepository();
+        var calculator = new FakeUnitPriceCalculator(0.5m);
+
+        var result = await new RecordObservationCommand(
+            ProductId, null, 5m, 2m, UnitId, merchantText: null, sourceRef: null, Now, UserId,
+            PriceSource.Manual, repo, calculator, new FakeTenantContext(Household))
+            .ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(repo.Items);
+        Assert.Equal(PriceSource.Manual, saved.Source);
+        Assert.Null(saved.SourceRef);
+        Assert.Null(saved.MerchantText);
+        Assert.Null(saved.StoreId);
+    }
+
+    [Fact]
     public async Task Purchase_Source_Leaves_Window_And_StoreId_Null()
     {
         var repo = new FakePriceObservationRepository();
@@ -152,12 +171,14 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
 
     public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(Items
-            .Where(p => p.ProductId == productId && p.Source == PriceSource.Purchase)
+            .Where(p => p.ProductId == productId
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual))
             .MaxBy(p => p.ObservedAt));
 
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
         Task.FromResult(Items
-            .Where(p => p.SkuId == skuId && p.Source == PriceSource.Purchase)
+            .Where(p => p.SkuId == skuId
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual))
             .MaxBy(p => p.ObservedAt));
 
     public Task<PriceObservation?> CheapestActiveDealForProductAsync(Guid productId, DateOnly today, CancellationToken ct = default) =>

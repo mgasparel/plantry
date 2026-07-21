@@ -71,6 +71,47 @@ public sealed class DealAwareCostingAdapterTests
         Assert.Equal(PurchaseUnitPrice, cost.Amount);
     }
 
+    [Fact(DisplayName = "L4: recipe cost is Full when one ingredient is priced only via a Manual observation and the other is priced normally (plantry-3fqm)")]
+    public async Task Recipe_Cost_Is_Full_When_An_Ingredient_Is_Priced_Only_Manually()
+    {
+        var manualProductId = Guid.CreateVersion7();
+        var purchaseProductId = Guid.CreateVersion7();
+        const decimal manualUnitPrice = 2.50m;
+
+        var repo = new WindowAwarePriceRepo();
+        // Seeded pantry stock (plantry-3fqm's motivating scenario) — no receipt behind it, only a
+        // household-entered Manual observation.
+        repo.Add(PriceObservation.Record(
+            Household, manualProductId, null, price: manualUnitPrice, quantity: 1m, unitId: UnitId,
+            unitPrice: manualUnitPrice, source: PriceSource.Manual, merchantText: null,
+            sourceRef: null, observedAt: new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero),
+            userId: Guid.CreateVersion7()));
+        repo.Add(PriceObservation.Record(
+            Household, purchaseProductId, null, price: PurchaseUnitPrice, quantity: 1m, unitId: UnitId,
+            unitPrice: PurchaseUnitPrice, source: PriceSource.Purchase, merchantText: "Superstore",
+            sourceRef: Guid.CreateVersion7(), observedAt: new DateTimeOffset(2026, 6, 20, 0, 0, 0, TimeSpan.Zero),
+            userId: Guid.CreateVersion7()));
+
+        var clock = new MutableClock(InWindow);
+        var costing = new CostingService(
+            new PriceReaderAdapter(new PricingQueries(repo), clock),
+            new IdentityUnitConverter());
+
+        var recipe = Recipe.Create(Household, "Manual Price Test Recipe", defaultServings: 1, SystemClock.Instance).Value;
+        recipe.ReplaceIngredients(
+            [
+                new IngredientLine(manualProductId, 1m, UnitId, null, 0),
+                new IngredientLine(purchaseProductId, 1m, UnitId, null, 1),
+            ],
+            SystemClock.Instance);
+
+        var cost = await costing.ComputeAsync(recipe, desiredServings: 1);
+
+        Assert.Equal(CostCompleteness.Full, cost.Completeness);
+        Assert.Empty(cost.MissingPriceProductIds);
+        Assert.Equal(manualUnitPrice + PurchaseUnitPrice, cost.Amount);
+    }
+
     // ── L5: meal-plan cost reflects the same active deal and reverts on lapse ───────────────────────
 
     [Fact(DisplayName = "L5: meal-plan cost uses the active deal price while the deal window contains today")]
@@ -169,7 +210,8 @@ public sealed class DealAwareCostingAdapterTests
 
         public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
             Task.FromResult(_items
-                .Where(o => o.ProductId == productId && o.Source == PriceSource.Purchase)
+                .Where(o => o.ProductId == productId
+                    && (o.Source == PriceSource.Purchase || o.Source == PriceSource.Manual))
                 .OrderByDescending(o => o.ObservedAt)
                 .FirstOrDefault());
 

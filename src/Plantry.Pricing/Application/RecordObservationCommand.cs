@@ -15,7 +15,7 @@ public sealed class RecordObservationCommand(
     decimal quantity,
     Guid unitId,
     string? merchantText,
-    Guid sourceRef,
+    Guid? sourceRef,
     DateTimeOffset observedAt,
     Guid userId,
     PriceSource source,

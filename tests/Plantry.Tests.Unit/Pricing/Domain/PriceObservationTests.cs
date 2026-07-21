@@ -165,6 +165,21 @@ public sealed class PriceObservationTests
     }
 
     [Fact]
+    public void Record_Manual_Source_Allows_Null_SourceRef()
+    {
+        var obs = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 3.99m, quantity: 500m, unitId: UnitId,
+            unitPrice: 0.00798m, source: PriceSource.Manual,
+            merchantText: null, sourceRef: null, observedAt: Now, userId: UserId);
+
+        Assert.Equal(PriceSource.Manual, obs.Source);
+        Assert.Null(obs.SourceRef);
+        Assert.Null(obs.MerchantText);
+        Assert.Null(obs.StoreId);
+    }
+
+    [Fact]
     public void ResolveStore_Leaves_The_Immutable_Price_Event_Untouched()
     {
         var obs = PriceObservation.Record(

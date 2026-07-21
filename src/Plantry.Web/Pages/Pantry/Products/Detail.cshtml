@@ -19,12 +19,21 @@
             hx-target="#sheet-host" hx-swap="innerHTML">
         Set alert
     </button>
+    <button type="button" class="btn btn--ghost"
+            hx-get="@Url.Page("./Detail", "SetPriceSheet", new { id = Model.ProductId })"
+            hx-target="#sheet-host" hx-swap="innerHTML">
+        Set price
+    </button>
     <button type="button" class="btn btn--primary"
             hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id = Model.ProductId })"
             hx-target="#sheet-host" hx-swap="innerHTML">
         Consume
     </button>
 </page-header>
+
+@* Current effective price (plantry-3fqm) — the same read model CostingService uses, so what's shown here
+   is exactly what recipe costing will pick up. OOB-refreshed by _PriceDisplay after a "Set price" submit. *@
+<partial name="_PriceDisplay" model="new Plantry.Web.Pages.Pantry.Products.PriceDisplayPartialModel(Model.PriceDisplayText, false)" />
 
 <partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null, Model.Chips)" />
 

@@ -35,7 +35,10 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
     /// Set only for <see cref="PriceSource.Deal"/>; null for a purchase.</summary>
     public DateOnly? ValidTo { get; private set; }
 
-    public Guid SourceRef { get; private set; }
+    /// <summary>Provenance soft ref to the writer's record (pricing.md): <c>intake.import_line</c>
+    /// (purchase) or <c>deals.deal</c> (deal). Null for <see cref="PriceSource.Manual"/> — a
+    /// household-entered estimate has no source document to point at (plantry-3fqm).</summary>
+    public Guid? SourceRef { get; private set; }
     public DateTimeOffset ObservedAt { get; private set; }
     public Guid UserId { get; private set; }
 
@@ -51,7 +54,7 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
         decimal? unitPrice,
         PriceSource source,
         string? merchantText,
-        Guid sourceRef,
+        Guid? sourceRef,
         DateTimeOffset observedAt,
         Guid userId,
         DateOnly? validFrom = null,

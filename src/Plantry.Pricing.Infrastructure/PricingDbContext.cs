@@ -44,7 +44,8 @@ public sealed class PricingDbContext(DbContextOptions<PricingDbContext> options)
             b.Property(p => p.StoreId).HasColumnName("store_id");
             b.Property(p => p.ValidFrom).HasColumnName("valid_from");
             b.Property(p => p.ValidTo).HasColumnName("valid_to");
-            b.Property(p => p.SourceRef).HasColumnName("source_ref").IsRequired();
+            // Nullable — a Manual observation (plantry-3fqm) has no source document to point at.
+            b.Property(p => p.SourceRef).HasColumnName("source_ref");
             b.Property(p => p.ObservedAt).HasColumnName("observed_at").IsRequired();
             b.Property(p => p.UserId).HasColumnName("user_id").IsRequired();
 

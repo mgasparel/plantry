@@ -1,6 +1,6 @@
 # Context 5 — Pricing (`pricing` schema) ✅
 
-A **supporting read-side context**: an append-only time-series of observed prices, written by two upstream suppliers and read for cost. Intake writes `purchase` prices on commit; Deals (Phase 5) writes `deal` prices on confirm. Recipes and Meal Planning read it for cost-per-serving (ADR-010). Keeping it out of Catalog stops a growing price series from polluting Catalog's role as stable reference data.
+A **supporting read-side context**: an append-only time-series of observed prices, written by three upstream suppliers and read for cost. Intake writes `purchase` prices on commit; Deals (Phase 5) writes `deal` prices on confirm; the household writes `manual` prices from the Pantry product Detail page (plantry-3fqm) for stock that arrived outside a receipt (e.g. pre-existing pantry stock seeded on onboarding). Recipes and Meal Planning read it for cost-per-serving (ADR-010). Keeping it out of Catalog stops a growing price series from polluting Catalog's role as stable reference data.
 
 `PriceObservation` is the whole context — a single flat aggregate with no children. "Latest price" and "cheapest active deal" are **read models** over it, not tables.
 
@@ -14,7 +14,7 @@ A **supporting read-side context**: an append-only time-series of observed price
 | `household_id` | `uuid` | tenancy (RLS) |
 | `product_id` | `uuid` | soft ref → `catalog.product`; **always set** — the rollup key for "latest price" and recipe costing, so every observation lands in product history even when no SKU is resolved |
 | `sku_id` | `uuid` null | soft ref → `catalog.product_sku`; the specific size/variant the price was for (SPEC §2e — "price captured per SKU"). Null when the observation isn't SKU-specific |
-| `source` | `text` | `purchase` / `deal` (CHECK) — ADR-010 taxonomy. `purchase` written by Intake, `deal` by Deals (Phase 5) |
+| `source` | `text` | `purchase` / `deal` / `manual` — ADR-010 taxonomy. `purchase` written by Intake, `deal` by Deals (Phase 5), `manual` by the household from the Pantry Detail page (plantry-3fqm). No DB-level CHECK — the guard is the C# `PriceSourceExtensions.Parse`/`ToDbValue` switch |
 | `price` | `numeric(12,2)` | the money observed — total paid for `quantity` (purchase) or the advertised sale price for the deal pack |
 | `quantity` | `numeric(12,3)` | the amount `price` was for (line qty / pack size) — needed to normalize |
 | `unit_id` | `uuid` | soft ref → `catalog.unit`; the unit of `quantity` |
@@ -23,7 +23,7 @@ A **supporting read-side context**: an append-only time-series of observed price
 | `store_id` | `uuid` null | soft ref → `catalog.store` (resolved merchant identity). **Null in Phase 1** (no `store` table yet); populated by Deals (Phase 5) and optionally back-filled. DM-16 |
 | `valid_from` | `date` null | deal validity window start; **null for `purchase`** (a purchase is a point observation at `observed_at`) |
 | `valid_to` | `date` null | deal validity window end — drives the "cheapest *active* deal" read model (`source='deal' AND valid_to >= today`). Null for purchase |
-| `source_ref` | `uuid` null | provenance soft ref to the writer's record: `intake.import_line` (purchase) or `deals.deal` (deal). Supports audit + de-dup |
+| `source_ref` | `uuid` null | provenance soft ref to the writer's record: `intake.import_line` (purchase) or `deals.deal` (deal). Null for `manual` — a household estimate has no source document to point at. Supports audit + de-dup. (Nullability landed at the domain/EF/DB level with plantry-3fqm; the column had drifted `NOT NULL` since the initial migration despite this doc always saying `null`) |
 | `observed_at` | `timestamptz` | when the price was true — receipt purchase time, or deal capture time |
 | `user_id` | `uuid` null | attribution for user-initiated observations (soft ref → identity); null for system/async writes |
 | `created_at` | `timestamptz` | insert time (provenance, distinct from `observed_at`) |
@@ -54,6 +54,6 @@ No `updated_at` — the table is **append-only** (DM-4). A wrong observation is 
 
 ---
 
-> **Writers.** Intake commit (intake.md §commit orchestration) calls Pricing **record-observation** with `source = purchase`, `merchant_text` from `import_session.merchant_text`, `source_ref = import_line_id`, returning the id stored as `import_line.committed_price_observation_id`. Deals (Phase 5) calls it on deal confirm with `source = deal` and the validity window.
+> **Writers.** Intake commit (intake.md §commit orchestration) calls Pricing **record-observation** with `source = purchase`, `merchant_text` from `import_session.merchant_text`, `source_ref = import_line_id`, returning the id stored as `import_line.committed_price_observation_id`. Deals (Phase 5) calls it on deal confirm with `source = deal` and the validity window. The Pantry product Detail page (plantry-3fqm) calls it with `source = manual`, no `merchant_text`, no `store_id`, and `source_ref = null` — a household-entered estimate for stock that never passed through a receipt (e.g. pre-existing pantry stock seeded on onboarding). A `manual` observation is treated exactly like a `purchase` by the "latest price" read model (so it feeds recipe costing immediately) but is excluded from the DM-16 store-backfill sweep, which stays `purchase`-only.
 
 > **ADR note (reconciled).** ADR-010's amendment left DM-16 "to be finalized when the Pricing context is modeled." **Finalized here:** `store` is a **Catalog** reference aggregate (table deferred to Phase 5 with Deals); `price_observation` carries `merchant_text` (populated Phase 1) plus a nullable `store_id` soft-ref (populated Phase 5+). This supersedes the unamended fallback line in ADR-010 §Aggregates, "Deals — `Store` (configured merchants)."

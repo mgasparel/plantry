@@ -28,6 +28,10 @@ public sealed class PricingQueriesTests
         PriceObservation.Record(Household, ProductId, null, unitPrice, 1m, UnitId, unitPrice,
             PriceSource.Purchase, "Superstore", SourceRef, observedAt, UserId);
 
+    private static PriceObservation Manual(decimal unitPrice, DateTimeOffset observedAt) =>
+        PriceObservation.Record(Household, ProductId, null, unitPrice, 1m, UnitId, unitPrice,
+            PriceSource.Manual, null, null, observedAt, UserId);
+
     [Fact]
     public async Task CheapestActiveDeal_Returns_Min_UnitPrice_In_Window()
     {
@@ -83,6 +87,37 @@ public sealed class PricingQueriesTests
 
         Assert.NotNull(result);
         Assert.Equal(PriceSource.Purchase, result.Source);
+        Assert.Equal(3.50m, result.UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectivePrice_Falls_Back_To_Latest_Manual_When_No_Purchase_Or_Active_Deal()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Manual(2.99m, DateTimeOffset.UtcNow));
+        repo.Items.Add(Deal(2.00m, new(2026, 6, 1), new(2026, 6, 7))); // expired deal ignored
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePriceAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        Assert.Equal(PriceSource.Manual, result.Source);
+        Assert.Equal(2.99m, result.UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectivePrice_Prefers_Newer_Manual_Over_Older_Purchase()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(4.00m, DateTimeOffset.UtcNow.AddDays(-2)));
+        repo.Items.Add(Manual(3.50m, DateTimeOffset.UtcNow.AddDays(-1))); // newer — a manual estimate is
+        // superseded (and supersedes) purely on observed_at, matching pricing.md's "emergent, free" note.
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePriceAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        Assert.Equal(PriceSource.Manual, result.Source);
         Assert.Equal(3.50m, result.UnitPrice);
     }
 
