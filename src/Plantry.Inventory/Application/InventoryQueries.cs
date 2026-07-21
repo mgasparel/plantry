@@ -324,8 +324,14 @@ public class InventoryQueryService(
     /// When all lots convert to <paramref name="defaultUnitId"/> that result is used.
     /// When conversion fails entirely (e.g. "ea" lots on a "g" product), falls back to the
     /// lots' own unit so the user sees "1 ea" rather than a misleading "0 g".
+    ///
+    /// <para>Public so <c>ShoppingPantryReaderAdapter</c> (the Shopping→Inventory ACL adapter,
+    /// ADR-002) can share this exact fallback semantics rather than re-deriving its own
+    /// aggregation — a product whose only active lots fail unit conversion must never be
+    /// reported as zero/"out" by one context while the other shows its real quantity
+    /// (plantry-2hfi). <see cref="SumInDisplayUnit"/> is similarly shared with the consume path.</para>
     /// </summary>
-    private static (decimal Total, string UnitCode) DisplayQuantity(
+    public static (decimal Total, string UnitCode) DisplayQuantity(
         IReadOnlyList<StockEntry> activeLots, Guid defaultUnitId, string defaultUnitCode,
         IQuantityConverter converter, IReadOnlyDictionary<Guid, string> unitCodes)
     {

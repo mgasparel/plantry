@@ -28,6 +28,8 @@ public sealed class ShoppingPantryReaderAdapterTests
     private static readonly Guid FlourId = Guid.Parse("11111111-1111-1111-1111-000000000002");
     private static readonly Guid LitreId = Guid.Parse("22222222-2222-2222-2222-000000000001");
     private static readonly Guid GramId  = Guid.Parse("22222222-2222-2222-2222-000000000002");
+    private static readonly Guid PoundId = Guid.Parse("22222222-2222-2222-2222-000000000003");
+    private static readonly Guid EachId  = Guid.Parse("22222222-2222-2222-2222-000000000004");
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -301,6 +303,52 @@ public sealed class ShoppingPantryReaderAdapterTests
 
         Assert.Empty(result);
     }
+
+    // ── Unconvertible-unit fallback (plantry-2hfi) ───────────────────────────────
+    // Regression coverage for "3 lbs of Onion Yellow reads as out": a lot whose unit cannot
+    // convert to the product's default unit (e.g. lb lot on an "ea" product, no product-specific
+    // factor) must never silently contribute 0 to OnHand. The adapter shares
+    // InventoryQueryService.DisplayQuantity's fallback-to-lot-unit semantics with the pantry list
+    // so the two contexts can't disagree about the same on-hand data.
+
+    [Fact(DisplayName = "GetStockLevels — lot unit fails to convert to default unit: falls back to the lot's own quantity/unit rather than reporting zero")]
+    public async Task GetStockLevels_UnconvertibleUnit_FallsBackToLotUnit_NotZero()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLot(MilkId, 3m, PoundId)); // "Onion Yellow" analogue: 3 lb lot
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: EachId, defaultUnitCode: "ea");
+        catalog.AddUnitCode(PoundId, "lb");
+
+        var adapter = new ShoppingPantryReaderAdapter(
+            stocks, catalog, new FakeMismatchConversionProvider(), new FakePantryTenantContext(HouseholdGuid));
+        var result = await adapter.GetStockLevelsAsync([MilkId]);
+
+        var level = Assert.Single(result).Value;
+        Assert.Equal(3m, level.OnHand);
+        Assert.Equal("lb", level.UnitCode);
+        Assert.False(level.IsLow); // no threshold set — merely unconvertible, not low
+    }
+
+    [Fact(DisplayName = "GetLowStockProducts — lot unit fails to convert to default unit: NOT classified as 'out'")]
+    public async Task GetLowStockProducts_UnconvertibleUnit_NotClassifiedOut()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLot(MilkId, 3m, PoundId));
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: EachId, defaultUnitCode: "ea");
+        catalog.AddUnitCode(PoundId, "lb");
+
+        var adapter = new ShoppingPantryReaderAdapter(
+            stocks, catalog, new FakeMismatchConversionProvider(), new FakePantryTenantContext(HouseholdGuid));
+        var result = await adapter.GetLowStockProductsAsync();
+
+        // No threshold set, and the fallback quantity (3 lb) is positive — this product is neither
+        // running low nor out, so it must not surface as a restock candidate at all.
+        Assert.DoesNotContain(result, l => l.ProductId == MilkId);
+    }
 }
 
 // ── Test doubles ─────────────────────────────────────────────────────────────────────────────────
@@ -341,9 +389,15 @@ file sealed class FakePantryStockRepository : IProductStockRepository
 file sealed class FakePantryCatalogFacade : ICatalogReadFacade
 {
     private readonly List<CatalogProductInfo> _products = [];
+    private readonly Dictionary<Guid, string> _unitCodes = [];
 
     public void AddProduct(Guid id, Guid defaultUnitId, string defaultUnitCode) =>
         _products.Add(new CatalogProductInfo(id, "Product", null, defaultUnitId, defaultUnitCode, CanHoldStock: true));
+
+    /// <summary>Registers a unit id → code mapping for <see cref="GetUnitCodesAsync"/>. Needed when a
+    /// test exercises the DisplayQuantity fallback-to-lot-unit path (plantry-2hfi), which reports the
+    /// lot's own unit code rather than the product's default unit code.</summary>
+    public void AddUnitCode(Guid unitId, string code) => _unitCodes[unitId] = code;
 
     public Task<CatalogProductInfo?> FindProductAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(_products.SingleOrDefault(p => p.Id == productId));
@@ -352,7 +406,7 @@ file sealed class FakePantryCatalogFacade : ICatalogReadFacade
         Task.FromResult<IReadOnlyList<CatalogProductInfo>>(_products);
 
     public Task<IReadOnlyDictionary<Guid, string>> GetUnitCodesAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+        Task.FromResult<IReadOnlyDictionary<Guid, string>>(_unitCodes);
 
     public Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
@@ -367,5 +421,23 @@ file sealed class FakePantryConversionProvider : IProductConversionProvider
     private sealed class IdentityConverter : IQuantityConverter
     {
         public Result<decimal> Convert(decimal amount, Guid fromUnitId, Guid toUnitId) => amount;
+    }
+}
+
+/// <summary>Converter that only succeeds when the from/to unit ids are identical and fails otherwise —
+/// simulates a real <see cref="IQuantityConverter"/> when no product-specific factor bridges two
+/// incompatible dimensions (e.g. lb -&gt; ea). Exercises the DisplayQuantity fallback-to-lot-unit path
+/// (plantry-2hfi: a lot that merely fails unit conversion must never read as "out").</summary>
+file sealed class FakeMismatchConversionProvider : IProductConversionProvider
+{
+    public Task<IQuantityConverter> ForProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IQuantityConverter>(new MismatchConverter());
+
+    private sealed class MismatchConverter : IQuantityConverter
+    {
+        public Result<decimal> Convert(decimal amount, Guid fromUnitId, Guid toUnitId) =>
+            fromUnitId == toUnitId
+                ? amount
+                : Result<decimal>.Failure(Error.Custom("Test.NoConversion", "No conversion factor between these units."));
     }
 }

@@ -86,6 +86,7 @@ public sealed class ShoppingPantryReaderAdapter(
         // Load catalog info for default unit id and unit code for relevant products.
         var allCatalogProducts = await catalog.ListProductsAsync(ct);
         var catalogByProduct = allCatalogProducts.ToDictionary(p => p.Id);
+        var unitCodes = await catalog.GetUnitCodesAsync(ct);
 
         // Load converters for all relevant products in one batch call.
         var stockProductIds = stockRecords.Select(s => s.ProductId).ToList();
@@ -101,20 +102,18 @@ public sealed class ShoppingPantryReaderAdapter(
             var activeLots = productStock.ActiveLotsFefo().ToList();
 
             var defaultUnitId = catalogInfo.DefaultUnitId;
-            var unitCode = catalogInfo.DefaultUnitCode;
             var converter = convertersByProduct.TryGetValue(productStock.ProductId, out var c)
                 ? c
                 : await conversions.ForProductAsync(productStock.ProductId, ct);
 
-            // Aggregate quantity into the product's default unit (mirrors InventoryQueryService logic).
-            var total = 0m;
-            foreach (var lot in activeLots)
-            {
-                var converted = converter.Convert(lot.Quantity, lot.UnitId, defaultUnitId);
-                if (converted.IsSuccess)
-                    total += converted.Value;
-                // On conversion failure the lot contributes 0; honest degradation preferred over crash.
-            }
+            // Aggregate quantity into the product's default unit, falling back to the lots' own
+            // unit when conversion fails entirely (e.g. "lb" lots on an "ea" product) — shares
+            // InventoryQueryService.DisplayQuantity so the pantry list and this Shopping ACL
+            // adapter can never disagree about the same on-hand data (plantry-2hfi). A lot that
+            // merely fails unit conversion must never read as "out" here while the pantry page
+            // shows its real quantity.
+            var (total, unitCode) = InventoryQueryService.DisplayQuantity(
+                activeLots, defaultUnitId, catalogInfo.DefaultUnitCode, converter, unitCodes);
 
             // IsLow means "running low" only: a positive but low quantity, 0 < onHand ≤ threshold
             // (per ProductStock.IsRunningLow). It is deliberately false when out (onHand ≤ 0) so the
