@@ -129,6 +129,25 @@ public sealed class RecipeConversionGapDetectorTests
         Assert.Equal(findings[0].FactsFingerprint, findings[1].FactsFingerprint);
     }
 
+    [Fact(DisplayName = "Batches the conversion check: one FindUnconvertiblePathsAsync call with deduped triples, never a per-line ConvertAsync round trip (plantry-4t0g)")]
+    public async Task BatchesConversionCheck_DedupedSingleCall()
+    {
+        var recipeA = MakeRecipe("Sunday Pancakes", FlourId, 2m, CupId);
+        var recipeB = MakeRecipe("Banana Bread", FlourId, 5m, CupId); // same product+unit pair as recipeA
+        var recipes = new FakeD2RecipeRepository([recipeA, recipeB]);
+        var products = new FakeD2CatalogProductReader();
+        products.Add(FlourId, "All-Purpose Flour", trackStock: true, GramId);
+
+        var converter = new SpyD2UnitConverter([(FlourId, CupId, GramId)]);
+        var findings = await BuildDetector(recipes, products, converter).DetectAsync();
+
+        Assert.Equal(2, findings.Count); // both lines still get their own finding
+        Assert.Equal(1, converter.BatchCallCount); // one batched call for the whole detector run
+        Assert.Equal(0, converter.ConvertAsyncCallCount); // never falls back to the per-line path
+        var requestedTriples = Assert.Single(converter.RequestedTripleBatches);
+        Assert.Single(requestedTriples); // two identical lines collapse to one triple before hitting the converter
+    }
+
     [Fact(DisplayName = "No tenant — returns no findings")]
     public async Task NoTenant_ReturnsEmpty()
     {
@@ -204,4 +223,35 @@ file sealed class FakeD2UnitConverter(bool succeeds) : IUnitConverter
         Task.FromResult(succeeds
             ? Result<decimal>.Success(amount)
             : Result<decimal>.Failure(Error.Custom("Test.NoConversion", "No conversion factor.")));
+}
+
+/// <summary>
+/// Spies on which path the detector calls: overrides <see cref="IUnitConverter.FindUnconvertiblePathsAsync"/>
+/// (the batched path) and counts calls to both it and the per-line <see cref="ConvertAsync"/> the default
+/// interface implementation would otherwise fall back to — proving the detector never issues a
+/// per-line round trip (plantry-4t0g).
+/// </summary>
+file sealed class SpyD2UnitConverter(
+    IReadOnlyCollection<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)> unconvertibleTriples) : IUnitConverter
+{
+    public int ConvertAsyncCallCount { get; private set; }
+    public int BatchCallCount { get; private set; }
+    public List<IReadOnlyCollection<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>> RequestedTripleBatches { get; } = [];
+
+    public Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default)
+    {
+        ConvertAsyncCallCount++;
+        return Task.FromResult(Result<decimal>.Failure(Error.Custom("Test.NoConversion", "No conversion factor.")));
+    }
+
+    public Task<IReadOnlySet<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>> FindUnconvertiblePathsAsync(
+        IEnumerable<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)> triples, CancellationToken ct = default)
+    {
+        BatchCallCount++;
+        var requested = triples.ToList();
+        RequestedTripleBatches.Add(requested);
+        var unconvertible = new HashSet<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>(
+            requested.Where(t => unconvertibleTriples.Contains(t)));
+        return Task.FromResult<IReadOnlySet<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>>(unconvertible);
+    }
 }
