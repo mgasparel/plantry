@@ -20,7 +20,10 @@
 
         @if (activeTags.Count == 0)
         {
-            <p class="catalog-section__empty">No tags yet. Add one below.</p>
+            <div class="empty-state">
+                <div class="empty-state__title">No tags yet</div>
+                <div class="empty-state__body">Add one below.</div>
+            </div>
         }
         else
         {

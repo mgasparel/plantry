@@ -6,7 +6,7 @@
 
 <div class="cfg-wrap" data-screen-label="Members">
     <div class="cfg-head">
-        <div class="eyebrow">Household</div>
+        <div class="eyebrow">Household members</div>
         <h1>Members</h1>
         <p>
             See who&rsquo;s in your household and invite someone new. There&rsquo;s no email in the
@@ -24,7 +24,9 @@
         <div class="card__body">
             @if (Model.Members.Count == 0)
             {
-                <p class="catalog-section__empty">No members yet.</p>
+                <div class="empty-state">
+                    <div class="empty-state__title">No members yet</div>
+                </div>
             }
             else
             {

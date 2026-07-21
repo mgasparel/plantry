@@ -175,7 +175,7 @@ public sealed class PantrySmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // ── Step 4: Sign out, then sign back in ───────────────────────────────
 
             // 1. Click the button using a resilient locator
-            await page.GetByRole(AriaRole.Button, new() { Name = "Sign out" }).ClickAsync();
+            await page.GetByRole(AriaRole.Button, new() { Name = "Sign Out" }).ClickAsync();
 
             // 2. Wait for the URL to contain Login AND allow for the ?ReturnUrl querystring
             await page.WaitForURLAsync("**/Account/Login**");

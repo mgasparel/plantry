@@ -18,8 +18,13 @@
 
     @if (Model.ViewModel is null || Model.ViewModel.Groups.Count == 0)
     {
-        <div class="catalog-section">
-            <p class="catalog-section__empty">No food tags are defined yet. Add tags when authoring recipes.</p>
+        <div class="card">
+            <div class="card__body">
+                <div class="empty-state">
+                    <div class="empty-state__title">No food tags are defined yet</div>
+                    <div class="empty-state__body">Add tags when authoring recipes.</div>
+                </div>
+            </div>
         </div>
     }
     else

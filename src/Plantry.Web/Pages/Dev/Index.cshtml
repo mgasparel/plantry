@@ -767,6 +767,57 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Empty state</h2>
+    </div>
+    <p>
+        <code>.empty-state</code> is the one <strong>whole-region "no records" placeholder</strong>: a
+        centered, padded block with an optional <code>.empty-state__icon</code>, a
+        <code>.empty-state__title</code> headline, an optional muted <code>.empty-state__body</code>
+        sentence, and an optional call-to-action button. Reach for it whenever an entire list, section,
+        or panel has nothing to show — it replaces the ad-hoc muted paragraph that used to vary per
+        page (plantry-j6e8). Live example: the Deals board when no stores are followed
+        (<a href="/Deals">Deals</a>), and the Settings members / tags / invites lists when empty.
+    </p>
+    <p>
+        <strong>Two variants, same primitive.</strong> The <em>full</em> form (icon + title + body + CTA)
+        headlines a top-level page or board empty; the <em>compact</em> form (title, optional body) fits a
+        section or card that is empty inside an otherwise-chrome'd page. <strong>Not for</strong> inline
+        per-cell or per-row placeholders (a table cell's <code>—</code> dash, a single empty planner
+        slot) — those stay as local muted text; the centered block is for the whole region.
+    </p>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Full — icon, title, body, CTA</h3>
+    <div class="card" style="max-width: 32rem">
+        <div class="card__body">
+            <div class="empty-state">
+                <div class="empty-state__icon">
+                    <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg>
+                </div>
+                <div class="empty-state__title">No deals yet</div>
+                <div class="empty-state__body">
+                    Subscribe to the stores you shop and Plantry will pull their weekly flyers and
+                    surface matching deals here.
+                </div>
+                <a class="btn btn--primary" href="/Settings/StoresAndDeals">Subscribe to a store</a>
+            </div>
+        </div>
+    </div>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base)">Compact — title (+ optional body)</h3>
+    <div class="card" style="max-width: 32rem">
+        <div class="card__body">
+            <div class="empty-state">
+                <div class="empty-state__title">No tags yet</div>
+                <div class="empty-state__body">Add one below.</div>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<div class=\"empty-state\">\n  <div class=\"empty-state__icon\">                 @* optional *@\n    <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-tag\" /></svg>\n  </div>\n  <div class=\"empty-state__title\">No deals yet</div>\n  <div class=\"empty-state__body\">Supporting sentence.</div>  @* optional *@\n  <a class=\"btn btn--primary\" href=\"...\">Call to action</a>   @* optional *@\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Row list — entity-row variant (Members)</h2>
     </div>
     <p>

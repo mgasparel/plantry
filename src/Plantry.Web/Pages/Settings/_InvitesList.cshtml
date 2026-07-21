@@ -40,7 +40,9 @@
 
         @if (Model.Invites.Count == 0)
         {
-            <p class="catalog-section__empty">No pending invites.</p>
+            <div class="empty-state">
+                <div class="empty-state__title">No pending invites</div>
+            </div>
         }
         else
         {

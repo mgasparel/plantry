@@ -142,7 +142,10 @@
             <h4>Recent intakes</h4>
             @if (!Model.RecentIntakes.Any())
             {
-                <p style="font-size: 13.5px; color: var(--color-text-faint); margin: 0">No receipts yet — upload your first one above.</p>
+                <div class="empty-state">
+                    <div class="empty-state__title">No receipts yet</div>
+                    <div class="empty-state__body">Upload your first one above.</div>
+                </div>
             }
             else
             {
