@@ -541,6 +541,14 @@ button { font-family: inherit; cursor: pointer; }
 .form-stack { display: flex; flex-direction: column; gap: var(--space-4); }
 .form-stack--row { flex-direction: row; align-items: center; }
 
+/* Primary button width rule (plantry-5e8j): save/add actions are AUTO-WIDTH.
+   A .btn is inline-flex, but a vertical .form-stack is a flex column whose default
+   align-items:stretch would otherwise stretch the button across the full cross-axis —
+   pin it to the start so it sizes to its content. .btn--full stays the explicit,
+   deliberate opt-in for single-column form footers (e.g. the narrow auth forms in
+   Account/Login|Register|Join). Row form-stacks keep their centered inline layout. */
+.form-stack:not(.form-stack--row) > .btn:not(.btn--full) { align-self: flex-start; }
+
 .field { display: flex; flex-direction: column; gap: var(--space-1); }
 .field--inline { flex-direction: row; align-items: center; gap: var(--space-2); }
 
