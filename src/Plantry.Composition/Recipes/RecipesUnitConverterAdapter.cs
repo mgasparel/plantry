@@ -22,4 +22,35 @@ public sealed class RecipesUnitConverterAdapter(IProductRepository products, IUn
 
         return UnitConverter.Convert(amount, fromUnitId, toUnitId, allUnits, conversions);
     }
+
+    /// <summary>
+    /// Batched override (plantry-4t0g): pre-loads the household's units and every distinct product's
+    /// conversion overrides once, then evaluates every triple in-memory against the same pure
+    /// <see cref="UnitConverter.Convert"/> path <see cref="ConvertAsync"/> uses — unlike the per-line
+    /// default, this issues at most two queries total regardless of how many triples are checked.
+    /// </summary>
+    public async Task<IReadOnlySet<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>> FindUnconvertiblePathsAsync(
+        IEnumerable<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)> triples, CancellationToken ct = default)
+    {
+        var distinctTriples = triples.Distinct().ToList();
+        if (distinctTriples.Count == 0)
+            return new HashSet<(Guid, Guid, Guid)>();
+
+        var allUnits = await units.ListAsync(ct);
+        var productIds = distinctTriples.Select(t => ProductId.From(t.ProductId)).Distinct();
+        var loadedProducts = await products.ListWithConversionsAsync(productIds, ct);
+        var conversionsByProductId = loadedProducts.ToDictionary(p => p.Id.Value, p => p.Conversions);
+
+        var unconvertible = new HashSet<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>();
+        foreach (var triple in distinctTriples)
+        {
+            IReadOnlyCollection<ProductConversion> conversions =
+                conversionsByProductId.TryGetValue(triple.ProductId, out var c) ? c : [];
+            var result = UnitConverter.Convert(1m, triple.FromUnitId, triple.ToUnitId, allUnits, conversions);
+            if (result.IsFailure)
+                unconvertible.Add(triple);
+        }
+
+        return unconvertible;
+    }
 }

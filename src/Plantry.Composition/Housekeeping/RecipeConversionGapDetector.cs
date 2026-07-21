@@ -50,7 +50,12 @@ public sealed class RecipeConversionGapDetector(
 
         var productsById = await products.FindManyAsync(productIds, ct);
 
-        var findings = new List<Finding>();
+        // First pass: gather every line that needs a conversion-path check, plus the distinct
+        // (product, from-unit, to-unit) triples it implies — no converter calls yet. This lets the
+        // second pass resolve all of them in one batched round trip instead of one per line
+        // (plantry-4t0g — D1's ForProductsAsync pattern, mirrored here for IUnitConverter).
+        var candidates = new List<(Ingredient Ingredient, Recipe Recipe, CatalogProductLookup Product)>();
+        var triples = new HashSet<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>();
         foreach (var recipe in allRecipes)
         {
             foreach (var ingredient in recipe.Ingredients)
@@ -64,20 +69,32 @@ public sealed class RecipeConversionGapDetector(
                 if (unitId == product.DefaultUnitId)
                     continue; // already the product's own unit — nothing to convert
 
-                var path = await unitConverter.ConvertAsync(product.Id, 1m, unitId, product.DefaultUnitId, ct);
-                if (path.IsSuccess)
-                    continue;
-
-                findings.Add(new Finding(
-                    Id,
-                    SubjectId: ingredient.Id.Value,
-                    SubjectName: product.Name,
-                    Specifics: $"{recipe.Name} has no conversion for this line's unit",
-                    Consequence: "Cooking can't deduct it from stock · recipe cost is incomplete",
-                    FixUrl: $"/Recipes/{recipe.Id.Value}/Edit",
-                    FixLabel: "Fix in recipe",
-                    FactsFingerprint: Fingerprint(unitId, product.DefaultUnitId)));
+                candidates.Add((ingredient, recipe, product));
+                triples.Add((product.Id, unitId, product.DefaultUnitId));
             }
+        }
+
+        if (candidates.Count == 0)
+            return [];
+
+        var unconvertible = await unitConverter.FindUnconvertiblePathsAsync(triples, ct);
+
+        var findings = new List<Finding>();
+        foreach (var (ingredient, recipe, product) in candidates)
+        {
+            var unitId = ingredient.UnitId!.Value;
+            if (!unconvertible.Contains((product.Id, unitId, product.DefaultUnitId)))
+                continue;
+
+            findings.Add(new Finding(
+                Id,
+                SubjectId: ingredient.Id.Value,
+                SubjectName: product.Name,
+                Specifics: $"{recipe.Name} has no conversion for this line's unit",
+                Consequence: "Cooking can't deduct it from stock · recipe cost is incomplete",
+                FixUrl: $"/Recipes/{recipe.Id.Value}/Edit",
+                FixLabel: "Fix in recipe",
+                FactsFingerprint: Fingerprint(unitId, product.DefaultUnitId)));
         }
 
         return findings;
