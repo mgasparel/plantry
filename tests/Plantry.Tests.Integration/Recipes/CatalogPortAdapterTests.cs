@@ -375,6 +375,41 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
     }
 
+    [Fact(DisplayName = "FindUnconvertiblePathsAsync batch-resolves many triples in one pass, dedups duplicates, returns only the unconvertible ones (plantry-4t0g)")]
+    public async Task Converter_BatchFindsUnconvertiblePaths()
+    {
+        ProductId flourId;
+        ProductId sugarId;
+        await using (var setup = NewCatalogDb())
+        {
+            var flour = Product.Create(_household, "Flour", _gramsId, Clock);
+            flour.AddConversion(_cupsId, _gramsId, 120m, Clock); // 1 cup flour = 120 g
+            var sugar = Product.Create(_household, "Sugar", _gramsId, Clock); // no cross-dimension conversion
+            await setup.Products.AddRangeAsync(flour, sugar);
+            await setup.SaveChangesAsync();
+            flourId = flour.Id;
+            sugarId = sugar.Id;
+        }
+
+        await using var read = NewCatalogDb();
+        var converter = NewConverter(read);
+
+        var triples = new (Guid, Guid, Guid)[]
+        {
+            (flourId.Value, _cupsId.Value, _gramsId.Value),      // has a path (product conversion)
+            (flourId.Value, _kilogramsId.Value, _gramsId.Value), // has a path (same-dimension scaling)
+            (sugarId.Value, _cupsId.Value, _gramsId.Value),      // no path
+            (sugarId.Value, _cupsId.Value, _gramsId.Value),      // duplicate — must be deduped, not double-counted
+        };
+
+        var unconvertible = await converter.FindUnconvertiblePathsAsync(triples);
+
+        Assert.Single(unconvertible);
+        Assert.Contains((sugarId.Value, _cupsId.Value, _gramsId.Value), unconvertible);
+
+        Assert.Empty(await converter.FindUnconvertiblePathsAsync([]));
+    }
+
     private CatalogWriterAdapter NewWriter(CatalogDbContext ctx) =>
         new(
             new ProductRepository(ctx),

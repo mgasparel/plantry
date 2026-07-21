@@ -16,43 +16,51 @@ public sealed class StockDetailSourceCellTests
     private static StockJournalRow Row(Guid journalId, StockSourceType? sourceType, Guid? sourceRef) =>
         new(journalId, 1m, "ea", StockReason.Purchase, sourceType, sourceRef, DateTimeOffset.UtcNow);
 
+    // A stub hrefFor stands in for the Razor call site's Url.Page-backed builder (plantry-72c6):
+    // SourceCell itself stays pure and doesn't know how a chip's ids turn into a URL.
+    private static string StubHrefFor(ProvenanceChip chip) => $"stub://{chip.Kind}/{chip.TargetId}/{chip.LineAnchorId}";
+
     [Fact(DisplayName = "Resolved Intake row → a SourceChip cell with the receipt icon")]
     public void ResolvedIntake_RendersReceiptChip()
     {
         var journalId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var lineAnchorId = Guid.NewGuid();
         var chips = new Dictionary<Guid, ProvenanceChip>
         {
-            [journalId] = new(ProvenanceChipKind.Intake, "Costco · 18 Jul", "/Intake/Session/abc#line-def"),
+            [journalId] = new(ProvenanceChipKind.Intake, "Costco · 18 Jul", targetId, lineAnchorId),
         };
 
-        var cell = PantryProductPage.SourceCell(Row(journalId, StockSourceType.Intake, Guid.NewGuid()), chips);
+        var cell = PantryProductPage.SourceCell(Row(journalId, StockSourceType.Intake, Guid.NewGuid()), chips, StubHrefFor);
 
         Assert.Equal(GridCellKind.SourceChip, cell.Kind);
         Assert.Equal(SourceChipIcon.Receipt, cell.ChipIcon);
         Assert.Equal("Costco · 18 Jul", cell.Value);
-        Assert.Equal("/Intake/Session/abc#line-def", cell.Url);
+        Assert.Equal($"stub://Intake/{targetId}/{lineAnchorId}", cell.Url);
     }
 
     [Fact(DisplayName = "Resolved Cook row → a SourceChip cell with the chef-hat icon")]
     public void ResolvedCook_RendersChefHatChip()
     {
         var journalId = Guid.NewGuid();
+        var recipeId = Guid.NewGuid();
         var chips = new Dictionary<Guid, ProvenanceChip>
         {
-            [journalId] = new(ProvenanceChipKind.Cook, "Shakshuka", "/Recipes/xyz"),
+            [journalId] = new(ProvenanceChipKind.Cook, "Shakshuka", recipeId),
         };
 
-        var cell = PantryProductPage.SourceCell(Row(journalId, StockSourceType.Cook, Guid.NewGuid()), chips);
+        var cell = PantryProductPage.SourceCell(Row(journalId, StockSourceType.Cook, Guid.NewGuid()), chips, StubHrefFor);
 
         Assert.Equal(GridCellKind.SourceChip, cell.Kind);
         Assert.Equal(SourceChipIcon.Cook, cell.ChipIcon);
         Assert.Equal("Shakshuka", cell.Value);
+        Assert.Equal($"stub://Cook/{recipeId}/", cell.Url);
     }
 
     [Fact(DisplayName = "Manual row → plain text, never a chip")]
     public void Manual_RendersPlainText()
     {
-        var cell = PantryProductPage.SourceCell(Row(Guid.NewGuid(), StockSourceType.Manual, null), new Dictionary<Guid, ProvenanceChip>());
+        var cell = PantryProductPage.SourceCell(Row(Guid.NewGuid(), StockSourceType.Manual, null), new Dictionary<Guid, ProvenanceChip>(), StubHrefFor);
 
         Assert.Equal(GridCellKind.Text, cell.Kind);
         Assert.Equal("Manual", cell.Value);
@@ -62,7 +70,7 @@ public sealed class StockDetailSourceCellTests
     public void UnresolvedIntake_FallsBackToPlainText()
     {
         var cell = PantryProductPage.SourceCell(
-            Row(Guid.NewGuid(), StockSourceType.Intake, Guid.NewGuid()), new Dictionary<Guid, ProvenanceChip>());
+            Row(Guid.NewGuid(), StockSourceType.Intake, Guid.NewGuid()), new Dictionary<Guid, ProvenanceChip>(), StubHrefFor);
 
         Assert.Equal(GridCellKind.Text, cell.Kind);
         Assert.Equal("Intake", cell.Value);
@@ -71,9 +79,13 @@ public sealed class StockDetailSourceCellTests
     [Fact(DisplayName = "No SourceType at all (pre-DM14 legacy row) → muted em dash")]
     public void NoSourceType_RendersMutedDash()
     {
-        var cell = PantryProductPage.SourceCell(Row(Guid.NewGuid(), null, null), new Dictionary<Guid, ProvenanceChip>());
+        var cell = PantryProductPage.SourceCell(Row(Guid.NewGuid(), null, null), new Dictionary<Guid, ProvenanceChip>(), StubHrefFor);
 
         Assert.Equal(GridCellKind.Muted, cell.Kind);
         Assert.Equal("—", cell.Value);
     }
+
+    // <see cref="PantryProductPage.HrefFor"/> — the Url.Page-backed builder consumed at the Razor call
+    // site — is exercised end-to-end (real routing, not a hand-rolled IUrlHelper) by the rendered-HTML
+    // assertions in Plantry.Tests.Web.Pantry.ProvenanceChipHrefTests (plantry-72c6).
 }

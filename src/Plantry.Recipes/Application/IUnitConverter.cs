@@ -15,4 +15,26 @@ public interface IUnitConverter
 {
     Task<Result<decimal>> ConvertAsync(
         Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batch form of the "does a path exist" check behind <see cref="ConvertAsync"/> — for a caller
+    /// (e.g. a Housekeeping detector, plantry-4t0g) that needs to check many (product, from-unit,
+    /// to-unit) triples in one pass instead of one <see cref="ConvertAsync"/> round trip per line.
+    /// Returns the subset of <paramref name="triples"/> that have <b>no</b> conversion path. The default
+    /// implementation dedupes and falls back to one <see cref="ConvertAsync"/> call per distinct triple;
+    /// implementations should override to pre-load their backing state once per batch (mirrors
+    /// <c>IProductConversionProvider.ForProductsAsync</c>).
+    /// </summary>
+    async Task<IReadOnlySet<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>> FindUnconvertiblePathsAsync(
+        IEnumerable<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)> triples, CancellationToken ct = default)
+    {
+        var unconvertible = new HashSet<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)>();
+        foreach (var triple in triples.Distinct())
+        {
+            var result = await ConvertAsync(triple.ProductId, 1m, triple.FromUnitId, triple.ToUnitId, ct);
+            if (result.IsFailure)
+                unconvertible.Add(triple);
+        }
+        return unconvertible;
+    }
 }

@@ -50,7 +50,8 @@ public sealed class StockProvenanceReaderAdapterTests
         Assert.Equal(ProvenanceChipKind.Intake, chip.Kind);
         Assert.Contains("Costco", chip.Label);
         Assert.Contains("18 Jul", chip.Label);
-        Assert.Equal($"/Intake/Session/{session.Id.Value}#line-{line.Id.Value}", chip.Href);
+        Assert.Equal(session.Id.Value, chip.TargetId);
+        Assert.Equal(line.Id.Value, chip.LineAnchorId);
     }
 
     [Fact]
@@ -116,7 +117,8 @@ public sealed class StockProvenanceReaderAdapterTests
         var chip = Assert.Single(chips).Value;
         Assert.Equal(ProvenanceChipKind.Cook, chip.Kind);
         Assert.Equal("Shakshuka", chip.Label);
-        Assert.Equal($"/Recipes/{recipeId.Value}", chip.Href);
+        Assert.Equal(recipeId.Value, chip.TargetId);
+        Assert.Null(chip.LineAnchorId);
     }
 
     [Fact]

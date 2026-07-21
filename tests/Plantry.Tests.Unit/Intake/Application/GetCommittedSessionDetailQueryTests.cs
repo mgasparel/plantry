@@ -8,7 +8,9 @@ namespace Plantry.Tests.Unit.Intake.Application;
 /// <summary>
 /// L2 tests for <see cref="GetCommittedSessionDetailQuery"/> — receipt-intake-history.md H7/H8: the
 /// Committed-only state guard, receipt-order line projection, dismissed-line handling, and the
-/// new-product/each-estimate badge inputs.
+/// new-product/each-estimate badge inputs. The query takes an already-loaded <see cref="ImportSession"/>
+/// (plantry-ubqb — the caller fetches it once for its own state guard rather than the query re-fetching
+/// by id), so "unknown session" is the caller's <c>NotFound</c> concern, not this query's.
 /// </summary>
 public sealed class GetCommittedSessionDetailQueryTests
 {
@@ -22,13 +24,6 @@ public sealed class GetCommittedSessionDetailQueryTests
 
     private ImportSession NewSession() =>
         ImportSession.Start(HouseholdId.From(_householdId), ImportSourceType.Receipt, _userId, Clock);
-
-    private static FakeImportSessionRepository RepoWith(ImportSession session)
-    {
-        var repo = new FakeImportSessionRepository();
-        repo.Sessions.Add(session);
-        return repo;
-    }
 
     [Fact]
     public async Task Returns_lines_in_receipt_order()
@@ -45,7 +40,7 @@ public sealed class GetCommittedSessionDetailQueryTests
         }
         session.MarkCommitted(Clock.UtcNow);
 
-        var result = await new GetCommittedSessionDetailQuery(session.Id, RepoWith(session), new FakeTenantContext(_householdId))
+        var result = await new GetCommittedSessionDetailQuery(session, new FakeTenantContext(_householdId))
             .ExecuteAsync();
 
         Assert.True(result.IsSuccess);
@@ -64,7 +59,7 @@ public sealed class GetCommittedSessionDetailQueryTests
         newProduct.MarkCommitted(Guid.NewGuid(), null, createdProductId: Guid.NewGuid());
         session.MarkCommitted(Clock.UtcNow);
 
-        var result = await new GetCommittedSessionDetailQuery(session.Id, RepoWith(session), new FakeTenantContext(_householdId))
+        var result = await new GetCommittedSessionDetailQuery(session, new FakeTenantContext(_householdId))
             .ExecuteAsync();
 
         Assert.True(result.IsSuccess);
@@ -92,7 +87,7 @@ public sealed class GetCommittedSessionDetailQueryTests
         line.MarkCommitted(Guid.NewGuid(), null);
         session.MarkCommitted(Clock.UtcNow);
 
-        var result = await new GetCommittedSessionDetailQuery(session.Id, RepoWith(session), new FakeTenantContext(_householdId))
+        var result = await new GetCommittedSessionDetailQuery(session, new FakeTenantContext(_householdId))
             .ExecuteAsync();
 
         Assert.True(result.IsSuccess);
@@ -108,7 +103,7 @@ public sealed class GetCommittedSessionDetailQueryTests
         session.AddLine(1, "Item", SuggestedConfidence.High, null);
         session.MarkReady("Store", Clock.UtcNow);
 
-        var result = await new GetCommittedSessionDetailQuery(session.Id, RepoWith(session), new FakeTenantContext(_householdId))
+        var result = await new GetCommittedSessionDetailQuery(session, new FakeTenantContext(_householdId))
             .ExecuteAsync();
 
         Assert.True(result.IsFailure);
@@ -122,22 +117,11 @@ public sealed class GetCommittedSessionDetailQueryTests
         session.MarkReady("Store", Clock.UtcNow);
         session.Discard();
 
-        var result = await new GetCommittedSessionDetailQuery(session.Id, RepoWith(session), new FakeTenantContext(_householdId))
+        var result = await new GetCommittedSessionDetailQuery(session, new FakeTenantContext(_householdId))
             .ExecuteAsync();
 
         Assert.True(result.IsFailure);
         Assert.Equal("Intake.SessionNotCommitted", result.Error.Code);
-    }
-
-    [Fact]
-    public async Task Returns_not_found_for_unknown_session()
-    {
-        var result = await new GetCommittedSessionDetailQuery(
-            ImportSessionId.New(), new FakeImportSessionRepository(), new FakeTenantContext(_householdId))
-            .ExecuteAsync();
-
-        Assert.True(result.IsFailure);
-        Assert.Equal(Error.NotFound.Code, result.Error.Code);
     }
 
     [Fact]
@@ -147,7 +131,7 @@ public sealed class GetCommittedSessionDetailQueryTests
         session.MarkReady("Store", Clock.UtcNow);
         session.MarkCommitted(Clock.UtcNow);
 
-        var result = await new GetCommittedSessionDetailQuery(session.Id, RepoWith(session), new FakeTenantContext(null))
+        var result = await new GetCommittedSessionDetailQuery(session, new FakeTenantContext(null))
             .ExecuteAsync();
 
         Assert.True(result.IsFailure);

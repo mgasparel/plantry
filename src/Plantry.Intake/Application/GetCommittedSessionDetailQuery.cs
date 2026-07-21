@@ -45,28 +45,27 @@ public sealed record CommittedSessionDetail(
     IReadOnlyList<CommittedLineRow> Lines);
 
 /// <summary>
-/// Read query for <c>/Intake/Session</c> (receipt-intake-history.md H7): loads a session by id, guards it
-/// to <see cref="ImportStatus.Committed"/> only (a Ready session has no finished detail to show — the page
-/// model redirects it to Review; other statuses redirect to History), and projects its lines in receipt
-/// order (<see cref="ImportLine.LineNo"/>) for the line grid. Tenant-scoped via <see cref="ITenantContext"/>;
-/// <see cref="IImportSessionRepository.FindAsync"/> applies the household filter (mirrors RLS).
+/// Read query for <c>/Intake/Session</c> (receipt-intake-history.md H7): guards the already-loaded
+/// <paramref name="session"/> to <see cref="ImportStatus.Committed"/> only (a Ready session has no
+/// finished detail to show — the page model redirects it to Review; other statuses redirect to History),
+/// and projects its lines in receipt order (<see cref="ImportLine.LineNo"/>) for the line grid.
+/// Tenant-scoped via <see cref="ITenantContext"/>. The caller (<c>SessionModel.OnGetAsync</c>) has already
+/// fetched <paramref name="session"/> for its own state guard and household match (mirrors RLS) — this
+/// query takes that same instance rather than re-fetching by id, so the page resolves in one session
+/// round-trip instead of two (plantry-ubqb).
 /// </summary>
 public sealed class GetCommittedSessionDetailQuery(
-    ImportSessionId sessionId,
-    IImportSessionRepository sessions,
+    ImportSession session,
     ITenantContext tenant)
 {
-    public async Task<Result<CommittedSessionDetail>> ExecuteAsync(CancellationToken ct = default)
+    public Task<Result<CommittedSessionDetail>> ExecuteAsync(CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
-            return Error.Unauthorized;
-
-        var session = await sessions.FindAsync(sessionId, ct);
-        if (session is null)
-            return Error.NotFound;
+            return Task.FromResult<Result<CommittedSessionDetail>>(Error.Unauthorized);
 
         if (session.Status != ImportStatus.Committed)
-            return Error.Custom("Intake.SessionNotCommitted", $"Session is not committed (status: {session.Status}).");
+            return Task.FromResult<Result<CommittedSessionDetail>>(
+                Error.Custom("Intake.SessionNotCommitted", $"Session is not committed (status: {session.Status})."));
 
         // By the time a session is Committed every line is either Committed or Dismissed (the strict
         // commit gate blocks the whole commit on any still-Pending line) — the status filter here is
@@ -87,7 +86,7 @@ public sealed class GetCommittedSessionDetailQuery(
                 l.Status == LineStatus.Dismissed))
             .ToList();
 
-        return new CommittedSessionDetail(
+        return Task.FromResult<Result<CommittedSessionDetail>>(new CommittedSessionDetail(
             session.Id,
             session.MerchantText,
             session.PurchaseDate,
@@ -100,6 +99,6 @@ public sealed class GetCommittedSessionDetailQuery(
             session.ReceiptNumber,
             session.PaymentDescriptor,
             session.UserId,
-            lines);
+            lines));
     }
 }

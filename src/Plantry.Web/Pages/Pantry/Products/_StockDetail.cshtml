@@ -46,7 +46,7 @@
             GridCell.Text(row.OccurredAt.ToLocalTime().ToString("d MMM yyyy HH:mm")),
             GridCell.Text(DeltaText(row)),
             GridCell.Text(row.Reason.ToString()),
-            DetailModel.SourceCell(row, Model.Chips),
+            DetailModel.SourceCell(row, Model.Chips, chip => DetailModel.HrefFor(chip, Url)),
         ]))],
         EmptyMessage: "No movements recorded yet.");
 }
