@@ -7,9 +7,13 @@
 }
 
 @* Shared .page-header primitive (plantry-7yf1): category -> eyebrow, name -> title,
-   stock total -> subtitle (id="product-total", kept live by the OOB swap). *@
+   stock total -> subtitle (id="product-total", kept live by the OOB swap).
+   Cross-link to the catalog view (plantry-kkeg): always live — a pantry product always has a
+   catalog record. *@
 <page-header eyebrow="@Model.Detail.CategoryName" title="@Model.Detail.Name"
-             subtitle="@stockTotal" subtitle-id="product-total">
+             subtitle="@stockTotal" subtitle-id="product-total"
+             cross-link-text="View in catalog →"
+             cross-link-href="@Url.Page("/Catalog/Products/Detail", new { id = Model.ProductId })">
     <button type="button" class="btn btn--ghost"
             hx-get="@Url.Page("./Detail", "ThresholdSheet", new { id = Model.ProductId })"
             hx-target="#sheet-host" hx-swap="innerHTML">

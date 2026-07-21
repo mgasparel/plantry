@@ -5852,6 +5852,26 @@ button.sadd svg { width: 13px; height: 13px; }
   gap: var(--space-2);
   flex: none;
 }
+/* Cross-link affordance under the title (plantry-kkeg): the catalog↔pantry jump between the
+   two views of one product. Rendered by <page-header cross-link-text ...>. */
+.page-header__cross-link { margin-top: 7px; }
+
+/* ── Cross-link (.xlink) — a small inline "jump to the related view" affordance ────────
+   A plain styled anchor used to cross-navigate between two views of the same entity
+   (catalog ⇄ pantry product detail — plantry-kkeg). The muted variant is non-interactive
+   text for the "relationship exists but is empty" case (never-stocked → "Not in pantry yet"):
+   it acknowledges the link without a dead anchor or a 404. */
+.xlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-accent);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.xlink:hover { text-decoration: underline; }
+.xlink--muted { color: var(--color-text-faint); font-weight: 500; cursor: default; }
 
 /* ===========================================================================
    Take Stock — location picker (J1), walk (J2), lot hatch (J3), save bar (J4),

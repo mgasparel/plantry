@@ -104,6 +104,18 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // ── Remaining quantity reflects the consume, and a journal row appears ──
             await Assertions.Expect(page.Locator("#stock-detail")).ToContainTextAsync("300 g");
             await Assertions.Expect(page.Locator("#stock-detail").GetByText("Consumed")).ToBeVisibleAsync();
+
+            // ── Cross-link round-trip: pantry → catalog → pantry lands on the same product (plantry-kkeg) ──
+            var pantryUrl = page.Url;
+            await page.ClickAsync("a.xlink:has-text('View in catalog')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+            await Assertions.Expect(page.Locator(".page-header__title")).ToContainTextAsync(productName);
+
+            // The product holds stock, so the catalog view offers a live "View in pantry" link back.
+            await page.ClickAsync("a.xlink:has-text('View in pantry')");
+            await page.WaitForURLAsync("**/Pantry/Products/Detail/**");
+            // Round-trip landed on the same product's pantry detail.
+            Assert.Equal(pantryUrl, page.Url);
         }
         finally
         {

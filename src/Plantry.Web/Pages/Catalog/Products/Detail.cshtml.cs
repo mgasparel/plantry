@@ -35,6 +35,16 @@ public sealed class DetailModel(
     public ProductId Id { get; private set; }
     public ProductDetail? Product { get; private set; }
 
+    /// <summary>
+    /// True when a <see cref="Plantry.Inventory.Domain.ProductStock"/> record exists for this
+    /// product in the current household — i.e. it has been stocked at least once and the Pantry
+    /// detail page would render rather than 404. Drives the "View in pantry" cross-link: live when
+    /// true, muted "Not in pantry yet" hint when false (plantry-kkeg). Mirrors the exact existence
+    /// condition in <c>InventoryQueryService.FindDetailAsync</c> (a record, not active lots — a
+    /// product consumed to zero still has a stock record and a live pantry view).
+    /// </summary>
+    public bool HasPantryStock { get; private set; }
+
     public InputModel Input { get; set; } = new();
 
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
@@ -142,6 +152,7 @@ public sealed class DetailModel(
         Product = await queries.FindDetailAsync(Id);
         if (Product is null) return NotFound();
 
+        await LoadPantryStockStateAsync();
         var entity = await products.FindAsync(Id);
         PopulateInputFromEntity(entity!);
         SeedAddVariantInput(entity!);
@@ -323,6 +334,17 @@ public sealed class DetailModel(
     }
 
     /// <summary>
+    /// Sets <see cref="HasPantryStock"/> by checking whether a stock record exists for this product
+    /// in the current household (plantry-kkeg). This is the same existence gate the Pantry detail
+    /// page uses, so the "View in pantry" cross-link is live exactly when that page would render.
+    /// </summary>
+    private async Task LoadPantryStockStateAsync()
+    {
+        HasPantryStock = tenant.HouseholdId is { } householdId
+            && await stocks.FindAsync(HouseholdId.From(householdId), Id.Value, HttpContext.RequestAborted) is not null;
+    }
+
+    /// <summary>
     /// Best-effort retro-apply of deferred unit-gap consume lines after a conversion lands (plantry-qll2.6).
     /// A convergence follow-up, not part of the conversion write: the conversion is already durably saved,
     /// so a failure here must never fail the request — the opportunistic self-heal at cook entry recovers
@@ -349,6 +371,7 @@ public sealed class DetailModel(
         Product = await queries.FindDetailAsync(Id);
         if (Product is null) return NotFound();
 
+        await LoadPantryStockStateAsync();
         var entity = await products.FindAsync(Id);
         if (!keepInput)
             PopulateInputFromEntity(entity!);

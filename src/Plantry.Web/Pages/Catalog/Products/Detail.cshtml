@@ -9,9 +9,13 @@
 
 @* Product identity now uses the shared .page-header primitive (plantry-7yf1): category ->
    eyebrow, name -> title, "(archived)" -> muted title-meta, Archive/Unarchive -> actions. No
-   subtitle (Catalog has no natural stat line). Lifted out of the first card's head. *@
+   subtitle (Catalog has no natural stat line). Lifted out of the first card's head.
+   Cross-link to the pantry view (plantry-kkeg): a live "View in pantry" link when the product
+   has a stock record, else muted "Not in pantry yet" text (no dead link, no 404). *@
 <page-header eyebrow="@product.CategoryName" title="@product.Name"
-             title-meta="@(product.IsArchived ? "(archived)" : null)">
+             title-meta="@(product.IsArchived ? "(archived)" : null)"
+             cross-link-text="@(Model.HasPantryStock ? "View in pantry →" : "Not in pantry yet")"
+             cross-link-href="@(Model.HasPantryStock ? Url.Page("/Pantry/Products/Detail", new { id = Model.Id.Value }) : null)">
     @if (product.IsArchived)
     {
         <form method="post" asp-page-handler="Unarchive" asp-route-id="@product.Id.Value">

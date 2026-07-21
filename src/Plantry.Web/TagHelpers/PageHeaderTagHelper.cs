@@ -17,6 +17,11 @@ namespace Plantry.Web.TagHelpers;
 /// Pantry product detail passes <c>subtitle-id="product-total"</c> and its <c>_StockDetail</c>
 /// OOB partial re-emits a matching <c>&lt;p id="product-total" class="page-header__subtitle"&gt;</c>.
 ///
+/// An optional <c>cross-link-text</c> (with an optional <c>cross-link-href</c>) renders a small
+/// <c>.xlink</c> affordance under the title inside <c>__main</c> (plantry-kkeg): the catalog↔pantry
+/// cross-navigation between the two views of one product. With an href it is a live link; without
+/// one it renders as muted, non-interactive text (the "never stocked → Not in pantry yet" case).
+///
 /// All text attributes are HTML-encoded, so dynamic values (product names, category names) are
 /// safe to pass straight through.
 /// </summary>
@@ -40,6 +45,16 @@ public sealed class PageHeaderTagHelper : TagHelper
 
     /// <summary>Optional id on the subtitle element so an htmx OOB swap can target it.</summary>
     public string? SubtitleId { get; set; }
+
+    /// <summary>
+    /// Optional cross-link label rendered as a small <c>.xlink</c> under the title (plantry-kkeg).
+    /// When <see cref="CrossLinkHref"/> is also set it is a live link; when the href is absent it
+    /// renders as muted, non-interactive text (the "Not in pantry yet" hint).
+    /// </summary>
+    public string? CrossLinkText { get; set; }
+
+    /// <summary>Optional destination for the <see cref="CrossLinkText"/> cross-link.</summary>
+    public string? CrossLinkHref { get; set; }
 
     public override async Task ProcessAsync(TagHelperContext context, TagHelperOutput output)
     {
@@ -74,6 +89,20 @@ public sealed class PageHeaderTagHelper : TagHelper
                 ? string.Empty
                 : $" id=\"{e.Encode(SubtitleId)}\"";
             sb.Append($"""<p{idAttr} class="page-header__subtitle">{e.Encode(Subtitle)}</p>""");
+        }
+
+        if (!string.IsNullOrWhiteSpace(CrossLinkText))
+        {
+            sb.Append("""<div class="page-header__cross-link">""");
+            if (!string.IsNullOrWhiteSpace(CrossLinkHref))
+            {
+                sb.Append($"""<a class="xlink" href="{e.Encode(CrossLinkHref)}">{e.Encode(CrossLinkText)}</a>""");
+            }
+            else
+            {
+                sb.Append($"""<span class="xlink xlink--muted">{e.Encode(CrossLinkText)}</span>""");
+            }
+            sb.Append("</div>");
         }
 
         sb.Append("</div>");
