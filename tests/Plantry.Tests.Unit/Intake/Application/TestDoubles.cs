@@ -64,6 +64,36 @@ internal sealed class FakeImportSessionRepository : IImportSessionRepository
                          (s.CommittedAt is { } committedAt &&
                           committedAt >= windowStart && committedAt <= windowEnd)))
             .ToList());
+
+    public Task<List<ImportSession>> ListHistoryPageAsync(
+        HouseholdId householdId, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) =>
+        Task.FromResult(Sessions
+            .Where(s => s.HouseholdId == householdId &&
+                        s.Status != ImportStatus.Parsing &&
+                        (beforeCreatedAt == null || s.CreatedAt < beforeCreatedAt))
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(take)
+            .ToList());
+
+    public Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(
+        HouseholdId householdId, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds,
+        CancellationToken ct = default)
+    {
+        var lineIdSet = lineIds.ToHashSet();
+        var journalIdSet = legacyJournalIds.ToHashSet();
+
+        var rows = Sessions
+            .Where(s => s.HouseholdId == householdId)
+            .SelectMany(s => s.Lines.Select(l => (Session: s, Line: l)))
+            .Where(x => lineIdSet.Contains(x.Line.Id.Value) ||
+                        (x.Line.JournalId is { } jid && journalIdSet.Contains(jid)))
+            .Select(x => new ImportLineProvenanceRow(
+                x.Line.Id.Value, x.Session.Id.Value, x.Line.JournalId!.Value,
+                x.Session.MerchantText, x.Session.PurchaseDate, x.Session.CreatedAt))
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>(rows);
+    }
 }
 
 /// <summary>Returns a canned parse result (or error) and records the hints it was handed.</summary>
@@ -106,17 +136,21 @@ internal sealed class FakeAddStockPort : IAddStockPort
     public List<Guid> ProductIds { get; } = [];
     // The dated-as value each lot was stamped with — lets tests assert commit backdating (plantry-yobz).
     public List<DateOnly?> PurchasedAts { get; } = [];
+    // The source ref each add was stamped with — lets tests assert the committing line's id flows through
+    // to the journal row (receipt-intake-history.md H1).
+    public List<Guid?> SourceRefs { get; } = [];
     public int? FailOnCall { get; set; }
 
     public Task<Guid> AddStockAsync(
         Guid productId, Guid? skuId, decimal quantity, Guid unitId, Guid locationId,
-        DateOnly? expiryDate, DateOnly? purchasedAt, Guid userId, CancellationToken ct = default)
+        DateOnly? expiryDate, DateOnly? purchasedAt, Guid userId, Guid? sourceRef = null, CancellationToken ct = default)
     {
         if (FailOnCall == ProductIds.Count + 1)
             throw new InvalidOperationException("simulated mid-batch stock failure");
 
         ProductIds.Add(productId);
         PurchasedAts.Add(purchasedAt);
+        SourceRefs.Add(sourceRef);
         return Task.FromResult(Guid.CreateVersion7());
     }
 }

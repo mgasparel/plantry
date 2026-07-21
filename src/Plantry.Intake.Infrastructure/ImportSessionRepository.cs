@@ -68,4 +68,63 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
                           s.CommittedAt >= startUtc && s.CommittedAt <= endUtc)))
             .ToListAsync(ct);
     }
+
+    // Every status but Parsing (a live upload, never a completed history entry) — includes Discarded,
+    // which ListRecentAsync deliberately excludes (receipt-intake-history.md H5: the history is a truthful
+    // log of every scan, so a discarded session stays visible, just muted/unlinked at render time).
+    public Task<List<ImportSession>> ListHistoryPageAsync(
+        HouseholdId householdId, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) =>
+        db.ImportSessions
+            .Include(s => s.Lines)
+            .Where(s => s.HouseholdId == householdId &&
+                        s.Status != ImportStatus.Parsing &&
+                        (beforeCreatedAt == null || s.CreatedAt < beforeCreatedAt))
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(take)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(
+        HouseholdId householdId,
+        IReadOnlyCollection<Guid> lineIds,
+        IReadOnlyCollection<Guid> legacyJournalIds,
+        CancellationToken ct = default)
+    {
+        if (lineIds.Count == 0 && legacyJournalIds.Count == 0)
+            return [];
+
+        // EF translates Contains against a value-converted id column as a SQL IN (...) clause (mirrors
+        // RecipeRepository.GetRecipeNamesByIdAsync).
+        var wantedLineIds = lineIds.Select(ImportLineId.From).ToHashSet();
+        var wantedJournalIds = legacyJournalIds.ToHashSet();
+
+        var lines = await db.ImportLines
+            .Where(l => l.HouseholdId == householdId &&
+                        (wantedLineIds.Contains(l.Id) ||
+                         (l.JournalId != null && wantedJournalIds.Contains(l.JournalId.Value))))
+            .Select(l => new { l.Id, l.SessionId, l.JournalId })
+            .ToListAsync(ct);
+
+        if (lines.Count == 0)
+            return [];
+
+        var sessionIds = lines.Select(l => l.SessionId).Distinct().ToList();
+        var sessionsById = await db.ImportSessions
+            .Where(s => sessionIds.Contains(s.Id))
+            .Select(s => new { s.Id, s.MerchantText, s.PurchaseDate, s.CreatedAt })
+            .ToDictionaryAsync(s => s.Id, ct);
+
+        return lines
+            // Defensive: a line matched via the new-style lineIds branch is expected to already carry its
+            // own committed JournalId, but a session removed underneath us or a not-actually-committed line
+            // must not NRE — both are simply unresolvable (fall back to plain source text at the page).
+            .Where(l => l.JournalId is not null && sessionsById.ContainsKey(l.SessionId))
+            .Select(l =>
+            {
+                var session = sessionsById[l.SessionId];
+                return new ImportLineProvenanceRow(
+                    l.Id.Value, l.SessionId.Value, l.JournalId!.Value,
+                    session.MerchantText, session.PurchaseDate, session.CreatedAt);
+            })
+            .ToList();
+    }
 }

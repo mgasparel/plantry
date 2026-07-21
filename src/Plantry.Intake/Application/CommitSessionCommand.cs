@@ -149,9 +149,12 @@ public sealed class CommitSessionCommand(
         var (productId, createdProductId) = await ResolveProductAsync(line, ct);
 
         // Stock is added in the unit the user actually committed (each-count or weight — their choice).
+        // sourceRef = the committing line's own id (receipt-intake-history.md H1) — stamped onto the
+        // resulting journal row so the pantry history provenance reader can resolve straight back to the
+        // receipt line, mirroring Cook's event-level SourceRef and Amendment's ImportLine.Id choice.
         var journalId = await addStock.AddStockAsync(
             productId, line.SkuId, line.Quantity!.Value, line.UnitId!.Value, line.LocationId!.Value,
-            line.ExpiryDate, context.PurchasedOn, session.UserId, ct);
+            line.ExpiryDate, context.PurchasedOn, session.UserId, sourceRef: line.Id.Value, ct: ct);
 
         // Resolve the receipt's true weight unit for a weight-priced line (plantry-1mu). Used for both the
         // price observation (never a $/each estimate) and the learned conversion anchor.

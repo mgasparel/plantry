@@ -583,6 +583,27 @@ public sealed class CommitSessionCommandTests
     }
 
     [Fact]
+    public async Task Stamps_The_Committing_Lines_Own_Id_As_The_Stock_Add_Source_Ref()
+    {
+        // receipt-intake-history.md H1: the forward fix — AddStockAdapter now passes sourceRef = the
+        // committing ImportLine's own id, so a pantry history row can resolve straight back to the
+        // receipt line without a reverse lookup.
+        var session = ReadySession();
+        var line = session.AddLine(1, "Flour 1kg", SuggestedConfidence.High, null);
+        session.MarkReady("Superstore", Clock.UtcNow);
+        line.Confirm(Guid.CreateVersion7(), null, 1m, _unitId, _locationId, null, price: 4.99m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var add = new FakeAddStockPort();
+
+        var result = await Commit(session, repo, new(), add, new()).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(line.Id.Value, Assert.Single(add.SourceRefs));
+    }
+
+    [Fact]
     public async Task Fails_When_No_Household_In_Context()
     {
         var session = ReadySession();

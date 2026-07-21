@@ -34,5 +34,15 @@ public interface ICookEventRepository
     Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
         IReadOnlyCollection<Guid> productIds, CancellationToken ct = default);
 
+    /// <summary>
+    /// Lightweight name-free projection — the recipe id each of the given cook events belongs to (receipt-
+    /// intake-history.md H4, the Cook side of the pantry-history provenance chip). Ids not found (deleted
+    /// or foreign-household, filtered by the RLS query filter) are silently omitted, mirroring
+    /// <see cref="IRecipeRepository.GetRecipeNamesByIdAsync"/>'s existence semantics. Empty input
+    /// returns an empty result.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
+        IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }

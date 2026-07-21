@@ -7,6 +7,11 @@ namespace Plantry.Intake.Application;
 /// </summary>
 public interface IAddStockPort
 {
+    /// <param name="sourceRef">
+    /// The committing <see cref="Plantry.Intake.Domain.ImportLine"/>'s id (receipt-intake-history.md H1) —
+    /// stamped as the resulting journal row's <c>SourceRef</c> so a pantry history row can resolve straight
+    /// back to the receipt line that produced it. Null for the rare commit path with no line to attribute.
+    /// </param>
     Task<Guid> AddStockAsync(
         Guid productId,
         Guid? skuId,
@@ -16,5 +21,6 @@ public interface IAddStockPort
         DateOnly? expiryDate,
         DateOnly? purchasedAt,
         Guid userId,
+        Guid? sourceRef = null,
         CancellationToken ct = default);
 }

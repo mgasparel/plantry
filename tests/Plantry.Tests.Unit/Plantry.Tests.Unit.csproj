@@ -43,6 +43,7 @@
     <ProjectReference Include="..\..\src\Plantry.Deals.Infrastructure\Plantry.Deals.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Housekeeping\Plantry.Housekeeping.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Migration.Grocy\Plantry.Migration.Grocy.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Composition\Plantry.Composition.csproj" />
   </ItemGroup>
 
 </Project>

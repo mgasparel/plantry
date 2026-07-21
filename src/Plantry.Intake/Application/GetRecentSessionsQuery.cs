@@ -12,9 +12,11 @@ public sealed record RecentIntakeRow(
     decimal? Amount);
 
 /// <summary>
-/// Returns the most recent intake sessions for a household, projected into view models.
-/// Amount is derived by summing SuggestedPrice across all lines (falls back to null when none
-/// of the lines carry a price).
+/// Returns the most recent intake sessions for a household, projected into view models. Amount follows
+/// the shared H6 rule (<see cref="IntakeSessionProjection.Amount"/>): a committed session prefers the
+/// receipt's parsed total, falling back to the sum of committed line prices; a Ready session sums the
+/// AI-suggested prices instead — it no longer reports a suggested-price sum for an already-committed
+/// session, which would ignore any price the user corrected during review.
 /// </summary>
 public sealed class GetRecentSessionsQuery(IImportSessionRepository sessions)
 {
@@ -25,16 +27,8 @@ public sealed class GetRecentSessionsQuery(IImportSessionRepository sessions)
     {
         var list = await sessions.ListRecentAsync(householdId, take, ct);
 
-        return list.Select(s =>
-        {
-            var prices = s.Lines
-                .Where(l => l.SuggestedPrice.HasValue)
-                .Select(l => l.SuggestedPrice!.Value)
-                .ToList();
-
-            decimal? amount = prices.Count > 0 ? prices.Sum() : null;
-
-            return new RecentIntakeRow(s.Id, s.MerchantText, s.CreatedAt, s.Status, amount);
-        }).ToList();
+        return list
+            .Select(s => new RecentIntakeRow(s.Id, s.MerchantText, s.CreatedAt, s.Status, IntakeSessionProjection.Amount(s)))
+            .ToList();
     }
 }

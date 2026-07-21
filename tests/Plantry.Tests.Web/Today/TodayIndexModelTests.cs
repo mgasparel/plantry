@@ -285,6 +285,8 @@ public sealed class TodayIndexModelTests
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<List<ImportSession>> ListRecentAsync(HouseholdId hid, int take = 10, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
         public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId hid, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
+        public Task<List<ImportSession>> ListHistoryPageAsync(HouseholdId hid, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
+        public Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(HouseholdId hid, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>([]);
     }
 
     /// <summary>Empty catalog read facade — returns nothing. Used to back InventoryQueryService in model tests
@@ -594,6 +596,10 @@ public sealed class ExpiringWidgetModelTests
             Task.FromResult(new List<ImportSession>());
         public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId hid, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) =>
             Task.FromResult(new List<ImportSession>());
+        public Task<List<ImportSession>> ListHistoryPageAsync(HouseholdId hid, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) =>
+            Task.FromResult(new List<ImportSession>());
+        public Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(HouseholdId hid, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>([]);
     }
 
     private sealed class FakeEmptyCatalog : ICatalogReadFacade

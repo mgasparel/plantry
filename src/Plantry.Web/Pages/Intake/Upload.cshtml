@@ -137,9 +137,13 @@
     @* ── Two panels ───────────────────────────────────────────────────────── *@
     <div class="intake-cols">
 
-        @* Recent intakes — functional, tenant-scoped *@
+        @* Recent intakes — functional, tenant-scoped. "View all" (H12) links to the full history page;
+           committed rows' titles become links to their session detail. *@
         <div class="panel">
-            <h4>Recent intakes</h4>
+            <div class="panel-head">
+                <h4>Recent intakes</h4>
+                <a class="xlink" href="@Url.Page("/Intake/History")" style="font-size: var(--font-size-xs)">View all →</a>
+            </div>
             @if (!Model.RecentIntakes.Any())
             {
                 <div class="empty-state">
@@ -156,7 +160,14 @@
                             <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg>
                         </div>
                         <div class="recent-main">
-                            <div class="recent-title">@(row.Store ?? "Unknown store")</div>
+                            @if (row.Status == ImportStatus.Committed)
+                            {
+                                <a class="recent-title" href="@Url.Page("/Intake/Session", new { id = row.Id.Value })">@(row.Store ?? "Unknown store")</a>
+                            }
+                            else
+                            {
+                                <div class="recent-title">@(row.Store ?? "Unknown store")</div>
+                            }
                             <div class="recent-sub">@FormatWhen(row.CreatedAt, row.Status)</div>
                         </div>
                         @if (row.Status == ImportStatus.Ready)

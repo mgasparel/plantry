@@ -41,6 +41,10 @@ public sealed class FakeImportSessionRepository(ITenantContext tenant, ImportSes
         Task.FromResult(new List<ImportSession>());
     public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId householdId, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) =>
         Task.FromResult(new List<ImportSession>());
+    public Task<List<ImportSession>> ListHistoryPageAsync(HouseholdId householdId, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) =>
+        Task.FromResult(new List<ImportSession>());
+    public Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(HouseholdId householdId, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>([]);
 }
 
 /// <summary>Returns the fixed review reference data (dropdown options) the fragments render against.</summary>

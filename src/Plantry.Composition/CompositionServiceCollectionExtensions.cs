@@ -114,6 +114,11 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<IEnsurePurchaseStorePort, EnsurePurchaseStoreAdapter>();
         services.AddScoped<ISeedConversionPort, SeedConversionAdapter>();
 
+        // Inventory → Intake/Recipes ACL (receipt-intake-history.md H4): the pantry History grid's
+        // provenance chip. Inventory itself takes no dependency on either context — this adapter is the
+        // composition-root join, same seam ShoppingRecipeReaderAdapter plays for Shopping.
+        services.AddScoped<IStockProvenanceReader, StockProvenanceReaderAdapter>();
+
         // Housekeeping (tidy-up.md T4/T8) — v1 ships D1 + D2, the conversion-gap detector family.
         // Registered as IProblemDetector so GetTidyUpPageQuery discovers every implementation via
         // IEnumerable<IProblemDetector> — adding a detector is one class + one line here, no other edits.

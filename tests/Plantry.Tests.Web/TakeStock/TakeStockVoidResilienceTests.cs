@@ -190,5 +190,9 @@ public sealed class PoisonCookEventRepository(Guid poisonProductId) : ICookEvent
     public Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CookEvent>>([]);
 
+    public Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
+        IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(new Dictionary<Guid, RecipeId>());
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

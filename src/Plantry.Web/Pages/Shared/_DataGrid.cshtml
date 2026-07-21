@@ -89,6 +89,13 @@ else
                                 case GridCellKind.ExpiryBadge:
                                     <span class="badge-expiry badge-expiry--@cell.ExpiryTier">@cell.Value</span>
                                     break;
+                                case GridCellKind.SourceChip:
+                                    var iconId = cell.ChipIcon == SourceChipIcon.Cook ? "i-chef-hat" : "i-receipt";
+                                    <a class="src-chip" href="@cell.Url">
+                                        <svg aria-hidden="true"><use href="#@iconId" /></svg>
+                                        @cell.Value <span aria-hidden="true">→</span>
+                                    </a>
+                                    break;
                                 case GridCellKind.Actions:
                                     foreach (var action in cell.Items)
                                     {

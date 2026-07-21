@@ -924,6 +924,27 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Source chip</h2>
+    </div>
+    <p>
+        <code>.src-chip</code> is the pantry History grid's provenance link (receipt-intake-history.md
+        H11) — a resolvable cross-context source pointing at the receipt line or recipe that produced a
+        stock movement. Only a row whose source actually resolves earns a chip; an unresolvable one (a
+        deleted recipe, a foreign ref, a Manual movement) stays plain muted text instead — the chip is
+        progressive enhancement, never a dead link. In a data grid cell, use
+        <code>GridCell.SourceChip(icon, label, url)</code>.
+    </p>
+
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center">
+        <a class="src-chip" href="#"><svg aria-hidden="true"><use href="#i-receipt" /></svg> Costco · 18 Jul <span aria-hidden="true">→</span></a>
+        <a class="src-chip" href="#"><svg aria-hidden="true"><use href="#i-chef-hat" /></svg> Shakshuka <span aria-hidden="true">→</span></a>
+    </div>
+
+    <pre class="code-sample"><code>@("// In a data grid cell:\nGridCell.SourceChip(SourceChipIcon.Receipt, \"Costco · 18 Jul\", \"/Intake/Session/{id}#line-{lineId}\")\nGridCell.SourceChip(SourceChipIcon.Cook, \"Shakshuka\", \"/Recipes/{recipeId}\")")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Confidence badge</h2>
     </div>
     <p>
