@@ -155,11 +155,23 @@
         Razor partials can't slot arbitrary children, card is a pure CSS pattern — write the
         wrapper markup directly wherever a section needs it.
     </p>
+    <p>
+        When a card head shows an "N of something" affordance next to the title (a roster size,
+        an active count, a pending count), wrap the title and the <code>.count</code> pill
+        together in a <code>.card__head-titlerow</code> — a flex row so the pill always hugs the
+        heading. If the head also has a <code>.card__head-sub</code>, put the sub-line
+        <strong>below</strong> the title row (not beside it), so a long sub-line never pushes the
+        pill out to the right. Use this for every card-head count — do not fall back to bare
+        muted text.
+    </p>
 
     <div class="card" style="max-width: 28rem">
         <div class="card__head">
             <div>
-                <h3 class="card__head-title">Section title</h3>
+                <div class="card__head-titlerow">
+                    <h3 class="card__head-title">Section title</h3>
+                    <span class="count">4</span>
+                </div>
                 <p class="card__head-sub">An optional one-line description below the title.</p>
             </div>
             <div class="card__head-actions">
@@ -171,7 +183,7 @@
         </div>
     </div>
 
-    <pre class="code-sample"><code>@("<div class=\"card\">\n  <div class=\"card__head\">\n    <div>\n      <h3 class=\"card__head-title\">Section title</h3>\n      <p class=\"card__head-sub\">Optional subtitle</p>   <!-- omit if none -->\n    </div>\n    <div class=\"card__head-actions\">                    <!-- omit if no actions -->\n      <button class=\"btn btn--sm btn--secondary\">Action</button>\n    </div>\n  </div>\n  <div class=\"card__body\">\n    <!-- content -->\n  </div>\n</div>")</code></pre>
+    <pre class="code-sample"><code>@("<div class=\"card\">\n  <div class=\"card__head\">\n    <div>\n      <div class=\"card__head-titlerow\">        <!-- wraps title + count pill -->\n        <h3 class=\"card__head-title\">Section title</h3>\n        <span class=\"count\">4</span>          <!-- omit if no count -->\n      </div>\n      <p class=\"card__head-sub\">Optional subtitle</p>   <!-- flows BELOW the title row -->\n    </div>\n    <div class=\"card__head-actions\">                    <!-- omit if no actions -->\n      <button class=\"btn btn--sm btn--secondary\">Action</button>\n    </div>\n  </div>\n  <div class=\"card__body\">\n    <!-- content -->\n  </div>\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">

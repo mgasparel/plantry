@@ -13,8 +13,10 @@
 
 <div class="card card--overflow-visible">
     <div class="card__head">
-        <h3 class="card__head-title">Tags</h3>
-        <span class="ch-sub">&middot; @activeTags.Count active</span>
+        <div class="card__head-titlerow">
+            <h3 class="card__head-title">Tags</h3>
+            <span class="count">@activeTags.Count active</span>
+        </div>
     </div>
     <div class="card__body">
 
@@ -117,8 +119,10 @@
 {
     <div class="card" style="margin-top: var(--spacing-4)">
         <div class="card__head">
-            <h3 class="card__head-title">Archived</h3>
-            <span class="ch-sub">&middot; @archivedTags.Count</span>
+            <div class="card__head-titlerow">
+                <h3 class="card__head-title">Archived</h3>
+                <span class="count">@archivedTags.Count</span>
+            </div>
         </div>
         <div class="card__body">
             <ul class="tag-admin-list" role="list">

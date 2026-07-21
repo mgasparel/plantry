@@ -7,8 +7,10 @@
 
 <div class="card" id="stores-list-card" hx-swap-oob="@(listOob ? "true" : null)">
     <div class="card__head">
-        <h3 class="card__head-title">Your stores</h3>
-        <span class="ch-sub">&middot; @Model.ActiveSubscriptions.Count active</span>
+        <div class="card__head-titlerow">
+            <h3 class="card__head-title">Your stores</h3>
+            <span class="count">@Model.ActiveSubscriptions.Count active</span>
+        </div>
     </div>
     <div class="card__body">
         @if (Model.Subscriptions.Count == 0)

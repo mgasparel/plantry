@@ -27,8 +27,10 @@
 
 <div class="card card--overflow-visible deals-rest" x-data="dealsRestFilter(@Model.Step3Deals.Count)">
     <div class="card__head">
-        <h3 class="card__head-title">Everything else</h3>
-        <span class="ch-sub">&middot; @Model.Step3Deals.Count</span>
+        <div class="card__head-titlerow">
+            <h3 class="card__head-title">Everything else</h3>
+            <span class="count">@Model.Step3Deals.Count</span>
+        </div>
     </div>
 
     @* Sticky toolbar (the long-list idiom, q9zr.1) — a client-side filter + the scope-aware bulk dismiss.

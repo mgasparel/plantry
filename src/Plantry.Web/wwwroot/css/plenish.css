@@ -1313,6 +1313,15 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   margin: 0;
 }
 
+/* Groups the title with its .count pill on one line, so any .card__head-sub below flows
+   on its own line instead of pushing the pill out past a wide sub-line. */
+.card__head-titlerow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .card__head-sub {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
@@ -3866,9 +3875,12 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .sl-group-head h3 {
   margin: 0; font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--color-text-muted);
 }
-.sl-group-head .count {
+/* Count pill — shared primitive (component library: Dev/Index.cshtml). Originated on
+   .sl-group-head; generalized so any card head / list-group head can render an "N of
+   something" affordance as a proper pill instead of bare muted text. */
+.count {
   font-size: 11.5px; font-weight: 700; color: var(--color-text-faint); font-variant-numeric: tabular-nums;
-  background: var(--color-surface-2); border-radius: 9999px; padding: 1px 8px;
+  background: var(--color-surface-2); border-radius: 9999px; padding: 1px 8px; line-height: 1.55;
 }
 .sl-group-head .spacer { flex: 1; }
 
@@ -4375,12 +4387,6 @@ button.sadd svg { width: 13px; height: 13px; }
 /* ═══════════════════════════════════════════════════════════════════════════
    P3-1 — Settings / Meal Slots config screen
    ═══════════════════════════════════════════════════════════════════════════ */
-
-/* ── card header sub-title chip ─────────────────────────────────────────────── */
-.ch-sub {
-  font-size: var(--font-size-sm); color: var(--color-text-muted); margin-left: var(--space-2);
-  font-weight: 500;
-}
 
 /* ── avatar ──────────────────────────────────────────────────────────────────── */
 .pl-av {
