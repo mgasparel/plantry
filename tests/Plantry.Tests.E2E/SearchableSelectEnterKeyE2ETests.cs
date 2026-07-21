@@ -79,7 +79,7 @@ public sealed class SearchableSelectEnterKeyE2ETests(AppHostFixture appHost) : I
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Index = 1 });
-            await page.ClickAsync("button[type=submit]:has-text('Add product')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/**");
 
             // ── Open the Pantry Add-stock sheet (bound searchable-select host) ───

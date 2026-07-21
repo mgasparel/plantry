@@ -73,7 +73,7 @@ public sealed class ShopForWeekSmokeTests(AppHostFixture appHost) : IAsyncLifeti
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.ClickAsync("button[type=submit]:has-text('Add product')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/**");
 
             // ── Step 3: Create a recipe using this product (100g required) ────────
@@ -99,7 +99,7 @@ public sealed class ShopForWeekSmokeTests(AppHostFixture appHost) : IAsyncLifeti
             await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
 
             // Extract the recipe ID from the URL (e.g. /Recipes/xxxxxxxx-xxxx-...).

@@ -21,6 +21,39 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Action-verb convention</h2>
+    </div>
+    @*
+        plantry-bvb6 — the one documented rule for create/add action wording. Semantic split:
+        New/Create bring a NEW object into existence; Add attaches an EXISTING thing to a collection.
+        Keep list CTAs and their form's submit verb consistent (a "New X" list button leads to a
+        "Create X" submit). All action verbs are Title Case (plantry-j6e8).
+    *@
+    <p>
+        One rule for the verbs on create/add controls, so the same object never reads
+        "New" in one place and "Add" in another. The split is semantic:
+    </p>
+    <ul style="font-size:var(--font-size-sm)">
+        <li><strong>List / hub CTA → <code>New {X}</code></strong> — the button that opens a
+            blank create form (e.g. <code>New Recipe</code>, <code>New Product</code>).</li>
+        <li><strong>Form submit → <code>Create {X}</code></strong> — the button that commits the
+            new object (e.g. <code>Create Recipe</code>, <code>Create Product</code>). Every list
+            CTA matches its form's submit verb.</li>
+        <li><strong><code>Add {X}</code> is reserved for attaching an <em>existing</em> entity to a
+            collection</strong> — e.g. <code>Add SKU</code>, <code>Add conversion</code>,
+            <code>Add variant</code> (attaching to a product), or adding an existing product to a
+            list. It never means "create a brand-new object."</li>
+        <li>Distinct actions that are neither create nor attach keep their own verb
+            (<code>Invite member</code>, <code>Consume</code>).</li>
+        <li>All action verbs are <strong>Title Case</strong> (see plantry-j6e8).</li>
+    </ul>
+    <p style="font-size:var(--font-size-sm);color:var(--color-text-muted)">
+        Mnemonic: <em>New/Create = bring a new object into existence; Add = attach an existing thing.</em>
+    </p>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Page header</h2>
     </div>
     <p>

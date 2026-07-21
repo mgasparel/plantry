@@ -82,7 +82,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await page.FillAsync("[name='Input.Name']", matchedProductName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "ea — each" });
             await page.SelectOptionAsync("[name='Input.DefaultLocationId']", new SelectOptionValue { Label = "Pantry" });
-            await page.ClickAsync("button:has-text('Add product')");
+            await page.ClickAsync("button:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
             // ── Upload a receipt (bytes are ignored by the fake parser) ──────────

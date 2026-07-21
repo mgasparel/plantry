@@ -86,7 +86,7 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
 
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.ClickAsync("button:has-text('Add product')");
+            await page.ClickAsync("button:has-text('Create Product')");
 
             // ── Step 3: Redirected to Detail; product name shown ──────────────────
             await page.WaitForURLAsync("**/Catalog/Products/**");

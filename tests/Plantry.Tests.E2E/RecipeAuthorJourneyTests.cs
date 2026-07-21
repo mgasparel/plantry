@@ -77,7 +77,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         await page.WaitForURLAsync("**/Catalog/Products/Create");
         await page.FillAsync("[name='Input.Name']", productName);
         await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "ea — each" });
-        await page.ClickAsync("button:has-text('Add product')");
+        await page.ClickAsync("button:has-text('Create Product')");
         await page.WaitForURLAsync("**/Catalog/Products/**");
         return productName;
     }
@@ -227,7 +227,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             });
 
             // ── Submit the form ───────────────────────────────────────────────────
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
 
             // ── Assert: lands on the Detail page ─────────────────────────────────
             // Wait specifically for the recipe Detail URL (/Recipes/{guid}); the loose "**/Recipes/**"
@@ -290,7 +290,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             // Pick the seeded flour product via the add-ingredient sheet
             await AddProductIngredientAsync(page, flourName, qty: "200", unitLabel: "ea");
 
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
 
             // Capture the detail URL so we can construct the edit URL
@@ -380,7 +380,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             await AddProductIngredientAsync(page, flourName, qty: "200", unitLabel: "ea");
 
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
 
             // ── Verify the default quantity is shown ──────────────────────────────
@@ -484,7 +484,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             // ── Submit the recipe form — saves cleanly in a single pass ───────────
             // R5 is satisfied (qty=1, unitId pre-populated from default unit). The recipe saves and
             // redirects to the Detail page. The newly-created tracked product appears in Catalog.
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
             Assert.DoesNotMatch(@"/New$", page.Url);
 
@@ -617,7 +617,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await Assertions.Expect(summary).ToContainTextAsync("tbsp");
 
             // ── Save — same-dimension pair needs no factor, so it saves cleanly in one pass ──
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
             Assert.DoesNotMatch(@"/New$", page.Url);
 
@@ -801,7 +801,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await Assertions.Expect(row).Not.ToHaveClassAsync(new Regex("ingredient-row--needs-conversion"));
 
             // ── Save — ConversionGapPlanner writes the ea→g factor (400), the gap resolves, ONE pass ──
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
             Assert.DoesNotMatch(@"/New$", page.Url);
 
@@ -971,7 +971,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await Assertions.Expect(row.GetByText("How does 1 g relate?")).ToBeVisibleAsync();
 
             // ── Submit — the POST bounces (AuthorRecipe Phase 3 Blocked → NeedsConversion re-render) ──
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
 
             // SaveError banner appears and we stay on /Recipes/New (HTTP 200 re-render, no redirect).
             var banner = page.Locator(".save-error");
@@ -1076,7 +1076,7 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             await Assertions.Expect(page.Locator("input.ing-section__name")).ToHaveValueAsync(sectionName);
 
             // ── Save → Detail renders the section heading (matching the editor, no snap-back) ──
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
             Assert.DoesNotMatch(@"/New$", page.Url);
 

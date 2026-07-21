@@ -74,7 +74,7 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
             await page.WaitForURLAsync("**/Catalog/Products/Create");
             await page.FillAsync("[name='Input.Name']", productName);
             await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.ClickAsync("button[type=submit]:has-text('Add product')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/**");
 
             // ── Step 3: Create a recipe using this (missing) product ─────────────
@@ -102,7 +102,7 @@ public sealed class RecipeAddMissingJourneyTests(AppHostFixture appHost) : IAsyn
             await ingSheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
             await Assertions.Expect(ingSheet).Not.ToBeVisibleAsync();
 
-            await page.ClickAsync("button[type=submit]:has-text('Create recipe')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
             await page.WaitForURLAsync(DetailUrlPattern);
 
             var detailUrl = page.Url;

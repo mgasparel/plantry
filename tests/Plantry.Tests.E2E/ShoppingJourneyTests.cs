@@ -75,7 +75,7 @@ public sealed class ShoppingJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             // Scope to the create button by text — a bare button[type=submit] selector
             // also matches the sidebar "Sign out" button (rendered before the form in the
             // banded-IA layout), and page.ClickAsync picks the first DOM match.
-            await page.ClickAsync("button[type=submit]:has-text('Add product')");
+            await page.ClickAsync("button[type=submit]:has-text('Create Product')");
             // After create, expect redirect to products list or detail.
             await page.WaitForURLAsync("**/Catalog/**");
 
