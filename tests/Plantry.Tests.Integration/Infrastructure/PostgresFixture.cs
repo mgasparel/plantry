@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Migrator;
 using Respawn;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -45,7 +45,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(conn, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = ["identity", "catalog", "inventory", "pricing", "intake", "recipes", "shopping", "meal_planning", "deals", "housekeeping"],
+            SchemasToInclude = MigrationTargets.All.Select(t => t.Schema).ToArray(),
         });
     }
 
@@ -59,67 +59,18 @@ public sealed class PostgresFixture : IAsyncLifetime
         await _respawner!.ResetAsync(conn);
     }
 
+    /// <summary>
+    /// Applies every migration-owning DbContext's migrations, in <see cref="MigrationTargets"/>
+    /// registry order — the same registry Plantry.Migrator/Program.cs iterates in production, so
+    /// this fixture can never drift from what a real deploy creates (plantry-eimm).
+    /// </summary>
     private async Task ApplyMigrationsAsync()
     {
-        var identityOpts = new DbContextOptionsBuilder<Plantry.Identity.Infrastructure.PlantryIdentityDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var identityDb = new Plantry.Identity.Infrastructure.PlantryIdentityDbContext(identityOpts);
-        await identityDb.Database.MigrateAsync();
-
-        var catalogOpts = new DbContextOptionsBuilder<Plantry.Catalog.Infrastructure.CatalogDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var catalogDb = new Plantry.Catalog.Infrastructure.CatalogDbContext(catalogOpts);
-        await catalogDb.Database.MigrateAsync();
-
-        var inventoryOpts = new DbContextOptionsBuilder<Plantry.Inventory.Infrastructure.InventoryDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var inventoryDb = new Plantry.Inventory.Infrastructure.InventoryDbContext(inventoryOpts);
-        await inventoryDb.Database.MigrateAsync();
-
-        var pricingOpts = new DbContextOptionsBuilder<Plantry.Pricing.Infrastructure.PricingDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var pricingDb = new Plantry.Pricing.Infrastructure.PricingDbContext(pricingOpts);
-        await pricingDb.Database.MigrateAsync();
-
-        var intakeOpts = new DbContextOptionsBuilder<Plantry.Intake.Infrastructure.IntakeDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var intakeDb = new Plantry.Intake.Infrastructure.IntakeDbContext(intakeOpts);
-        await intakeDb.Database.MigrateAsync();
-
-        var recipesOpts = new DbContextOptionsBuilder<Plantry.Recipes.Infrastructure.RecipesDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var recipesDb = new Plantry.Recipes.Infrastructure.RecipesDbContext(recipesOpts);
-        await recipesDb.Database.MigrateAsync();
-
-        var shoppingOpts = new DbContextOptionsBuilder<Plantry.Shopping.Infrastructure.ShoppingDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var shoppingDb = new Plantry.Shopping.Infrastructure.ShoppingDbContext(shoppingOpts);
-        await shoppingDb.Database.MigrateAsync();
-
-        var mealPlanningOpts = new DbContextOptionsBuilder<Plantry.MealPlanning.Infrastructure.MealPlanningDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var mealPlanningDb = new Plantry.MealPlanning.Infrastructure.MealPlanningDbContext(mealPlanningOpts);
-        await mealPlanningDb.Database.MigrateAsync();
-
-        var dealsOpts = new DbContextOptionsBuilder<Plantry.Deals.Infrastructure.DealsDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var dealsDb = new Plantry.Deals.Infrastructure.DealsDbContext(dealsOpts);
-        await dealsDb.Database.MigrateAsync();
-
-        var housekeepingOpts = new DbContextOptionsBuilder<Plantry.Housekeeping.Infrastructure.HousekeepingDbContext>()
-            .UseNpgsql(ConnectionString)
-            .Options;
-        await using var housekeepingDb = new Plantry.Housekeeping.Infrastructure.HousekeepingDbContext(housekeepingOpts);
-        await housekeepingDb.Database.MigrateAsync();
+        foreach (var target in MigrationTargets.All)
+        {
+            await using var db = target.CreateContext(ConnectionString);
+            await db.Database.MigrateAsync();
+        }
     }
 }
 

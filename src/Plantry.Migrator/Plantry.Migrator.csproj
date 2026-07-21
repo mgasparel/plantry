@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- All 8 Infrastructure projects that own migrations -->
+    <!-- All 10 Infrastructure projects that own migrations (see MigrationTargets.cs — order is load-bearing) -->
     <ProjectReference Include="..\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Inventory.Infrastructure\Plantry.Inventory.Infrastructure.csproj" />
@@ -28,6 +28,7 @@
     <ProjectReference Include="..\Plantry.Shopping.Infrastructure\Plantry.Shopping.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Deals.Infrastructure\Plantry.Deals.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Housekeeping.Infrastructure\Plantry.Housekeeping.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

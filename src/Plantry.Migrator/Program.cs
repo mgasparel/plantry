@@ -1,18 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
-using Plantry.Catalog.Infrastructure;
-using Plantry.Identity.Infrastructure;
-using Plantry.Intake.Infrastructure;
-using Plantry.Inventory.Infrastructure;
-using Plantry.Deals.Infrastructure;
-using Plantry.MealPlanning.Infrastructure;
-using Plantry.Pricing.Infrastructure;
-using Plantry.Recipes.Infrastructure;
-using Plantry.Shopping.Infrastructure;
+using Plantry.Migrator;
 
-// One-shot console tool: applies all 8 DbContext migrations with the database owner
-// connection and then reconciles the app_user role password from config.
+// One-shot console tool: applies every migration-owning DbContext's migrations (see
+// MigrationTargets — the single ordered registry, order is load-bearing) with the database
+// owner connection and then reconciles the app_user role password from config.
 // Run this before starting Plantry.Web in non-Development environments (ADR-017).
 //
 // Config keys read (same as Plantry.Web):
@@ -39,41 +32,15 @@ Console.WriteLine("Running migrations with owner credentials.");
 
 try
 {
-    // 1. Identity (creates app_user role in the initial migration)
-    await MigrateAsync<PlantryIdentityDbContext>(
-        ownerConnStr, "Plantry.Identity.Infrastructure");
-
-    // 2. Catalog
-    await MigrateAsync<CatalogDbContext>(
-        ownerConnStr, "Plantry.Catalog.Infrastructure");
-
-    // 3. Inventory
-    await MigrateAsync<InventoryDbContext>(
-        ownerConnStr, "Plantry.Inventory.Infrastructure");
-
-    // 4. Pricing
-    await MigrateAsync<PricingDbContext>(
-        ownerConnStr, "Plantry.Pricing.Infrastructure");
-
-    // 5. Intake
-    await MigrateAsync<IntakeDbContext>(
-        ownerConnStr, "Plantry.Intake.Infrastructure");
-
-    // 6. Recipes
-    await MigrateAsync<RecipesDbContext>(
-        ownerConnStr, "Plantry.Recipes.Infrastructure");
-
-    // 7. Shopping
-    await MigrateAsync<ShoppingDbContext>(
-        ownerConnStr, "Plantry.Shopping.Infrastructure");
-
-    // 8. MealPlanning
-    await MigrateAsync<MealPlanningDbContext>(
-        ownerConnStr, "Plantry.MealPlanning.Infrastructure");
-
-    // 9. Deals (Phase 5)
-    await MigrateAsync<DealsDbContext>(
-        ownerConnStr, "Plantry.Deals.Infrastructure");
+    // Apply every migration-owning DbContext's migrations, in registry order. Order is
+    // load-bearing — MigrationTargets.All keeps Identity first because its initial migration
+    // creates the app_user role that every other schema's RLS policies depend on.
+    foreach (var target in MigrationTargets.All)
+    {
+        Console.WriteLine($"  Migrating {target.DisplayName} ({target.Schema})…");
+        await using var db = target.CreateContext(ownerConnStr);
+        await db.Database.MigrateAsync();
+    }
 
     // Open one owner connection for the remaining DDL steps.
     await using var conn = new NpgsqlConnection(ownerConnStr);
@@ -109,17 +76,6 @@ catch (Exception ex)
 {
     Console.Error.WriteLine($"Plantry.Migrator FAILED: {ex}");
     return 1;
-}
-
-static async Task MigrateAsync<TContext>(string ownerConnStr, string migrationsAssembly)
-    where TContext : DbContext
-{
-    Console.WriteLine($"  Migrating {typeof(TContext).Name}…");
-    var opts = new DbContextOptionsBuilder<TContext>()
-        .UseNpgsql(ownerConnStr, npgsql => npgsql.MigrationsAssembly(migrationsAssembly))
-        .Options;
-    await using var db = (TContext)Activator.CreateInstance(typeof(TContext), opts)!;
-    await db.Database.MigrateAsync();
 }
 
 /// <summary>
