@@ -95,20 +95,36 @@ public sealed class SessionModel(
         if (session.Status != ImportStatus.Committed)
             return RedirectToPage("/Intake/History");
 
-        var result = await new GetCommittedSessionDetailQuery(sessionId, sessions, tenant).ExecuteAsync(ct);
+        // The session is already loaded above for the state guard — hand it straight to the query
+        // rather than re-fetching by id (plantry-ubqb).
+        var result = await new GetCommittedSessionDetailQuery(session, tenant).ExecuteAsync(ct);
         if (result.IsFailure)
             return NotFound(); // defensive — the guard above already establishes Committed + household match
 
         Detail = result.Value;
         DisplayCurrency = await displayCurrency.GetAsync(ct);
 
-        // Sequential, not Task.WhenAll: every lookup below shares the same scoped EF DbContext-backed
-        // repositories (products/units/stocks), which cannot run concurrent operations.
         var householdId = HouseholdId.From(hid);
-        var lines = new List<SessionLineView>(Detail.Lines.Count);
-        foreach (var line in Detail.Lines)
-            lines.Add(await BuildLineViewAsync(line, householdId, ct));
-        Lines = lines;
+
+        // Batch-resolve every line's product, stock-existence, and unit code in a fixed number of
+        // round-trips regardless of receipt length, then build the grid synchronously from the
+        // in-memory lookups (plantry-ubqb — was a sequential 2-3 round-trip-per-line N+1).
+        var productIds = Detail.Lines
+            .Where(l => !l.IsDismissed)
+            .Select(l => l.ProductId ?? l.CreatedProductId)
+            .Where(pid => pid.HasValue)
+            .Select(pid => pid!.Value)
+            .Distinct()
+            .ToList();
+
+        var productsById = (await products.ListByIdsAsync(productIds.Select(ProductId.From), ct))
+            .ToDictionary(p => p.Id.Value);
+        var stockedProductIds = await stocks.ListProductIdsWithStockAsync(householdId, productIds, ct);
+        var unitCodesById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
+
+        Lines = Detail.Lines
+            .Select(line => BuildLineView(line, productsById, stockedProductIds, unitCodesById))
+            .ToList();
 
         var member = (await members.ListMembersAsync(ct)).FirstOrDefault(m => m.UserId == Detail.UserId);
         ScannedByName = member?.DisplayName ?? "someone";
@@ -116,7 +132,11 @@ public sealed class SessionModel(
         return Page();
     }
 
-    private async Task<SessionLineView> BuildLineViewAsync(CommittedLineRow line, HouseholdId householdId, CancellationToken ct)
+    private SessionLineView BuildLineView(
+        CommittedLineRow line,
+        IReadOnlyDictionary<Guid, Product> productsById,
+        IReadOnlySet<Guid> stockedProductIds,
+        IReadOnlyDictionary<Guid, string> unitCodesById)
     {
         if (line.IsDismissed)
         {
@@ -129,9 +149,9 @@ public sealed class SessionModel(
                 IsDismissed: true);
         }
 
-        var (productLabel, productHref) = await ResolveProductAsync(line.ProductId ?? line.CreatedProductId, householdId, ct);
+        var (productLabel, productHref) = ResolveProduct(line.ProductId ?? line.CreatedProductId, productsById, stockedProductIds);
         var quantityDisplay = line is { Quantity: { } qty, UnitId: { } unitId }
-            ? $"{qty:0.###} {await ResolveUnitCodeAsync(unitId, ct)}"
+            ? $"{qty:0.###} {ResolveUnitCode(unitId, unitCodesById)}"
             : "—";
 
         return new SessionLineView(
@@ -149,32 +169,19 @@ public sealed class SessionModel(
     /// detail when the product holds a stock record, catalog product detail otherwise; a product removed
     /// from the catalog since commit renders as plain, unlinked text.
     /// </summary>
-    private async Task<(string Label, string? Href)> ResolveProductAsync(Guid? productId, HouseholdId householdId, CancellationToken ct)
+    private (string Label, string? Href) ResolveProduct(
+        Guid? productId, IReadOnlyDictionary<Guid, Product> productsById, IReadOnlySet<Guid> stockedProductIds)
     {
-        if (productId is not { } pid)
+        if (productId is not { } pid || !productsById.TryGetValue(pid, out var product))
             return ("(product removed)", null);
 
-        var product = await products.FindAsync(ProductId.From(pid), ct);
-        if (product is null)
-            return ("(product removed)", null);
-
-        var hasStock = await stocks.FindAsync(householdId, pid, ct) is not null;
+        var hasStock = stockedProductIds.Contains(pid);
         var href = hasStock
             ? Url.Page("/Pantry/Products/Detail", new { id = pid })
             : Url.Page("/Catalog/Products/Detail", new { id = pid });
         return (product.Name, href);
     }
 
-    private readonly Dictionary<Guid, string> _unitCodeCache = [];
-
-    private async Task<string> ResolveUnitCodeAsync(Guid unitId, CancellationToken ct)
-    {
-        if (_unitCodeCache.TryGetValue(unitId, out var cached))
-            return cached;
-
-        var unit = await units.FindAsync(UnitId.From(unitId), ct);
-        var code = unit?.Code ?? "?";
-        _unitCodeCache[unitId] = code;
-        return code;
-    }
+    private static string ResolveUnitCode(Guid unitId, IReadOnlyDictionary<Guid, string> unitCodesById) =>
+        unitCodesById.GetValueOrDefault(unitId, "?");
 }

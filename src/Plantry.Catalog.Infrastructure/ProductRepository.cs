@@ -26,6 +26,12 @@ public sealed class ProductRepository(CatalogDbContext db) : IProductRepository
         return db.Products.Include(p => p.Conversions).Where(p => idList.Contains(p.Id)).ToListAsync(ct);
     }
 
+    public Task<List<Product>> ListByIdsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default)
+    {
+        var idList = ids.ToList();
+        return db.Products.Where(p => idList.Contains(p.Id)).ToListAsync(ct);
+    }
+
     public Task<List<Product>> ListVariantsAsync(ProductId parentId, CancellationToken ct = default) =>
         db.Products
             .Include(p => p.Conversions)
