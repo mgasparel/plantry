@@ -476,6 +476,8 @@ internal sealed class MetricsTestIntakeSessionRepository : IImportSessionReposit
     public Task<bool> HasPendingAsync(HouseholdId householdId, CancellationToken ct = default) => Task.FromResult(false);
     public Task<List<ImportSession>> ListRecentAsync(HouseholdId householdId, int take = 10, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
     public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId householdId, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
+    public Task<List<ImportSession>> ListHistoryPageAsync(HouseholdId householdId, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
+    public Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(HouseholdId householdId, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>([]);
 }
 
 internal sealed class MetricsTestCreateProductPort : ICreateProductPort
@@ -487,7 +489,7 @@ internal sealed class MetricsTestCreateProductPort : ICreateProductPort
 internal sealed class MetricsTestAddStockPort : IAddStockPort
 {
     public Task<Guid> AddStockAsync(Guid productId, Guid? skuId, decimal quantity, Guid unitId, Guid locationId,
-        DateOnly? expiryDate, DateOnly? purchasedAt, Guid userId, CancellationToken ct = default) =>
+        DateOnly? expiryDate, DateOnly? purchasedAt, Guid userId, Guid? sourceRef = null, CancellationToken ct = default) =>
         Task.FromResult(Guid.CreateVersion7());
 }
 
@@ -634,6 +636,9 @@ internal sealed class MetricsTestCookEventRepository : ICookEventRepository
     public Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
         IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CookEvent>>([]);
+    public Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
+        IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(new Dictionary<Guid, RecipeId>());
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 

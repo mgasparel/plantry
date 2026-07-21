@@ -18,8 +18,10 @@
     @* Members roster *@
     <div class="card">
         <div class="card__head">
-            <h3 class="card__head-title">Members</h3>
-            <span class="ch-sub">&middot; @Model.Members.Count</span>
+            <div class="card__head-titlerow">
+                <h3 class="card__head-title">Members</h3>
+                <span class="count">@Model.Members.Count</span>
+            </div>
         </div>
         <div class="card__body">
             @if (Model.Members.Count == 0)

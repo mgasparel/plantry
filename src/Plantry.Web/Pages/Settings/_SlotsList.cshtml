@@ -2,18 +2,20 @@
 
 <div class="card card--overflow-visible">
     <div class="card__head">
-        <h3 class="card__head-title">Daily meals</h3>
-        <span class="ch-sub">&middot; @Model.Slots.Count slot@(Model.Slots.Count == 1 ? "" : "s")</span>
+        <div class="card__head-titlerow">
+            <h3 class="card__head-title">Daily meals</h3>
+            <span class="count">@Model.Slots.Count slot@(Model.Slots.Count == 1 ? "" : "s")</span>
+        </div>
     </div>
     <div class="card__body">
         @if (Model.Slots.Count == 0)
         {
-            <div class="slots-empty">
-                <div class="se-mark">
+            <div class="empty-state">
+                <div class="empty-state__icon">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </div>
-                <div class="se-t">No meal slots yet</div>
-                <div class="se-s">Add a meal below to start planning — e.g. Breakfast, Lunch or Dinner.</div>
+                <div class="empty-state__title">No meal slots yet</div>
+                <div class="empty-state__body">Add a meal below to start planning — e.g. Breakfast, Lunch or Dinner.</div>
             </div>
         }
         else
@@ -219,7 +221,7 @@
                     hx-include="closest .slot-add"
                     hx-on::after-request="draft = ''; $el.closest('.slot-add').querySelector('input').value = ''">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-                Add
+                Create
             </button>
         </div>
     </div>

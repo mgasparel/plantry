@@ -9,6 +9,7 @@ using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Pages.Shared;
 
 namespace Plantry.Web.Pages.Pantry.Products;
 
@@ -19,6 +20,7 @@ public sealed class DetailModel(
     IProductConversionProvider conversions,
     ICatalogReadFacade catalog,
     IUnitRepository units,
+    IStockProvenanceReader provenance,
     IClock clock,
     ITenantContext tenant,
     ILogger<ConsumeStockCommand> consumeLogger,
@@ -26,6 +28,15 @@ public sealed class DetailModel(
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
+
+    /// <summary>
+    /// Resolved provenance chips (receipt-intake-history.md H11) for <see cref="Detail"/>'s History rows,
+    /// keyed by <see cref="StockJournalRow.JournalId"/>. Only Intake/Cook rows are offered to the reader —
+    /// Manual rows keep today's plain text unconditionally. A row absent from this dictionary (unresolved,
+    /// or not attempted) renders its existing plain-text fallback.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, ProvenanceChip> Chips { get; private set; } =
+        new Dictionary<Guid, ProvenanceChip>();
 
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
 
@@ -60,7 +71,9 @@ public sealed class DetailModel(
     {
         ProductId = id;
         Detail = await queries.FindDetailAsync(id);
-        return Detail is null ? NotFound() : Page();
+        if (Detail is null) return NotFound();
+        await LoadChipsAsync(Detail);
+        return Page();
     }
 
     public async Task<IActionResult> OnGetConsumeSheetAsync(Guid id, Guid? entryId)
@@ -98,7 +111,8 @@ public sealed class DetailModel(
 
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: notice));
+        await LoadChipsAsync(Detail);
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: notice, Chips));
     }
 
     /// <summary>Discards an entire lot in one action (SPEC §1c) — amount and unit are read from the
@@ -114,8 +128,9 @@ public sealed class DetailModel(
         var result = await Run(id, lot.Quantity, lot.UnitId, StockReason.Discarded, entryId);
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
+        await LoadChipsAsync(Detail);
         var notice = result.IsFailure ? result.Error.Description : null;
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice, Chips));
     }
 
     public async Task<IActionResult> OnGetThresholdSheetAsync(Guid id)
@@ -152,7 +167,34 @@ public sealed class DetailModel(
 
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null));
+        await LoadChipsAsync(Detail);
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips));
+    }
+
+    /// <summary>
+    /// The History grid's Source column (receipt-intake-history.md H11): a resolved Intake/Cook row (a
+    /// journal id present in <paramref name="chips"/>) renders the provenance chip; everything else —
+    /// Manual, an unresolved Intake/Cook row, or a legacy row with no <see cref="StockSourceType"/> at
+    /// all — keeps the existing plain-text/muted fallback. Public and pure so it is unit-testable without
+    /// a full page render (mirrors <c>Pantry.IndexModel.ExpiryCell</c>).
+    /// </summary>
+    internal static GridCell SourceCell(StockJournalRow row, IReadOnlyDictionary<Guid, ProvenanceChip> chips) =>
+        chips.TryGetValue(row.JournalId, out var chip)
+            ? GridCell.SourceChip(chip.Kind == ProvenanceChipKind.Cook ? SourceChipIcon.Cook : SourceChipIcon.Receipt, chip.Label, chip.Href)
+            : row.SourceType is { } src ? GridCell.Text(src.ToString()) : GridCell.Muted("—");
+
+    /// <summary>
+    /// Batch-resolves provenance chips (receipt-intake-history.md H4/H11) for the History rows sourced
+    /// from Intake or Cook — Manual rows and legacy null-SourceType rows are never offered to the reader,
+    /// since they always keep today's plain text regardless of what it returns.
+    /// </summary>
+    private async Task LoadChipsAsync(ProductStockDetail detail)
+    {
+        var candidates = detail.History
+            .Where(h => h.SourceType is StockSourceType.Intake or StockSourceType.Cook)
+            .Select(h => (h.JournalId, h.SourceType!.Value, h.SourceRef))
+            .ToList();
+        Chips = await provenance.ResolveAsync(candidates);
     }
 
     private Task<Plantry.SharedKernel.Result<ConsumeOutcome>> Run(
@@ -180,5 +222,8 @@ public sealed class DetailModel(
 }
 
 /// <summary>View model for the lot/journal fragment; <see cref="Oob"/> drives the htmx out-of-band swap
-/// after a consume from the sheet.</summary>
-public sealed record StockDetailPartialModel(ProductStockDetail Detail, bool Oob, string? Notice);
+/// after a consume from the sheet. <see cref="Chips"/> carries the resolved provenance chips
+/// (receipt-intake-history.md H11) for the History grid's Source column, keyed by journal row id.</summary>
+public sealed record StockDetailPartialModel(
+    ProductStockDetail Detail, bool Oob, string? Notice,
+    IReadOnlyDictionary<Guid, ProvenanceChip> Chips);

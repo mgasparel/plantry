@@ -8,10 +8,12 @@
 <div class="card card--overflow-visible" style="margin-top: var(--spacing-4)">
     <div class="card__head">
         <div>
-            <h3 class="card__head-title">Pending invites</h3>
+            <div class="card__head-titlerow">
+                <h3 class="card__head-title">Pending invites</h3>
+                <span class="count">@Model.Invites.Count</span>
+            </div>
             <p class="card__head-sub">Share the join link with the person you&rsquo;re inviting &mdash; no email is sent.</p>
         </div>
-        <span class="ch-sub">&middot; @Model.Invites.Count</span>
     </div>
     <div class="card__body">
 

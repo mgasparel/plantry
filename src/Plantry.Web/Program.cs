@@ -11,6 +11,9 @@ using Plantry.Deals.Application;
 using Plantry.Deals.Domain;
 using Plantry.Deals.Infrastructure;
 using Plantry.Composition;
+using Plantry.Housekeeping.Application;
+using Plantry.Housekeeping.Domain;
+using Plantry.Housekeeping.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
@@ -40,6 +43,7 @@ using Plantry.Web.Background;
 using Plantry.Web.Deals;
 using Plantry.Web.Dev;
 using Plantry.Web.Events;
+using Plantry.Web.Housekeeping;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.Pricing;
@@ -429,6 +433,27 @@ builder.Services.AddHostedService<FlyerIngestionWorker>();
 // in its own fresh DI scope with tenancy armed by the item. Singleton queue shared by producers + consumer.
 builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
 builder.Services.AddHostedService<QueuedHostedService>();
+
+// Housekeeping context ("Tidy Up", tidy-up.md). Findings are computed live from other contexts'
+// application services (T4) and are never persisted — the DbContext + schema below back only the
+// Dismissal tombstone (T5/T9). HousekeepingDbContext MUST be wired into RlsMiddleware (see
+// Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0 gotcha. No domain-event dispatch interceptors:
+// Dismissal never raises domain events.
+builder.Services.AddDbContext<HousekeepingDbContext>((sp, opts) =>
+    opts.UseNpgsql(appUserConnStr,
+            npgsql => npgsql.MigrationsAssembly("Plantry.Housekeeping.Infrastructure"))
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+builder.Services.AddScoped<IDismissalRepository, DismissalRepository>();
+builder.Services.AddScoped<GetTidyUpPageQuery>();
+builder.Services.AddScoped<DismissFindingCommand>();
+builder.Services.AddScoped<RestoreFindingCommand>();
+// Singleton (T6): the badge count must survive across requests/scopes with its own TTL; the query
+// service and the dismiss/restore commands (all scoped) write/invalidate into it via the port.
+// IClock is registered Scoped (a singleton cannot safely consume it via constructor injection —
+// the classic captive-dependency trap), so this factory hands the cache SystemClock.Instance
+// directly instead, mirroring WeekBagEnricher's singleton-context clock usage.
+builder.Services.AddSingleton<ITidyUpBadgeCache>(_ => new TidyUpBadgeCache(SystemClock.Instance));
+// IProblemDetector implementations (D1 + D2, v1 — T8) → Plantry.Composition (AddCrossContextAdapters).
 
 // IFlyerSource is the untrusted Flipp seam (D1). Production wires the real Flipp adapter (P5-3): a typed
 // HttpClient (base URL + locale + browser UA from the Deals:Flipp config; standard resilience — timeout +

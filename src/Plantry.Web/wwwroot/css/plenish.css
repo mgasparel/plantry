@@ -278,6 +278,22 @@ button { font-family: inherit; cursor: pointer; }
 .sidebar__link:hover .icon,
 .sidebar__link--active .icon { color: currentColor; }
 
+/* Nav count badge (tidy-up.md T1/T10) — a small right-aligned pill on a sidebar/hub link, rendered
+   only when its count is > 0. Accent tone reads as "there's something to do," not an alarm. */
+.sidebar__count {
+  margin-left: auto;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sidebar__count--accent { background: var(--color-accent); color: var(--color-text-on-accent); }
+
 .sidebar__footer {
   margin-top: auto;
   padding: var(--space-4) var(--space-3);
@@ -429,11 +445,13 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--color-text-muted);
 }
 
-/* ── Hub list (section landing pages: More, Catalog) ───────────────────────────
-   A bordered, rounded list of full-row navigation tiles — each tile is an accent
-   icon + label + subtitle + chevron, and the whole row is the link. Used by hub
-   pages (More, Catalog) that orient the user and route them into sub-pages. NOT a
-   CRUD/data list (that is .catalog-list) and NOT a functional wizard. */
+/* ── Hub list (section landing pages: Settings, More, Catalog) ─────────────────
+   A bordered, rounded list of full-row navigation tiles — each tile is a tinted
+   icon chip + label + subtitle + chevron, and the whole row is the link. Used by
+   hub pages (Settings, More, Catalog) that orient the user and route them into
+   sub-pages. NOT a CRUD/data list (that is .catalog-list) and NOT a functional
+   wizard. Icon chip treatment decided as Option C of .preview/settings-hub-jazz.html
+   (plantry-p7o8) — all hub-list consumers share the identical tinted-chip icon. */
 .hub-list {
   display: flex;
   flex-direction: column;
@@ -462,9 +480,18 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .hub-list__icon {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 2.25rem;
+  height: 2.25rem;
   flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle);
+  display: grid;
+  place-items: center;
+}
+
+.hub-list__icon .icon {
+  width: 1.25rem;
+  height: 1.25rem;
   color: var(--color-accent);
 }
 
@@ -1295,6 +1322,15 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   font-weight: 700;
   letter-spacing: -0.01em;
   margin: 0;
+}
+
+/* Groups the title with its .count pill on one line, so any .card__head-sub below flows
+   on its own line instead of pushing the pill out past a wide sub-line. */
+.card__head-titlerow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .card__head-sub {
@@ -2173,6 +2209,15 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   color: var(--color-text-faint);
   font-weight: 600;
 }
+/* Panel header row (receipt-intake-history.md H12) — title + a trailing affordance (e.g. Upload's
+   "Recent intakes" / "View all →") on one line instead of the title's own block stacking above it. */
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.panel-head h4 { margin-bottom: 0; }
 .recent-row {
   display: flex; align-items: center; gap: 12px; padding: 10px 0;
   border-top: 1px solid var(--color-border);
@@ -2184,6 +2229,10 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 }
 .recent-main { flex: 1; min-width: 0; }
 .recent-title { font-weight: 600; font-size: 14px; }
+/* A committed row's title is a link to its session detail (receipt-intake-history.md H12) — same look
+   as the plain (unlinked) title, with an underline only on hover/focus. */
+a.recent-title { display: block; color: inherit; text-decoration: none; }
+a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline; }
 .recent-sub { font-size: 12.5px; color: var(--color-text-faint); }
 .recent-amt { font-family: var(--font-mono); font-size: 13.5px; color: var(--color-text-muted); }
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -3850,9 +3899,12 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .sl-group-head h3 {
   margin: 0; font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--color-text-muted);
 }
-.sl-group-head .count {
+/* Count pill — shared primitive (component library: Dev/Index.cshtml). Originated on
+   .sl-group-head; generalized so any card head / list-group head can render an "N of
+   something" affordance as a proper pill instead of bare muted text. */
+.count {
   font-size: 11.5px; font-weight: 700; color: var(--color-text-faint); font-variant-numeric: tabular-nums;
-  background: var(--color-surface-2); border-radius: 9999px; padding: 1px 8px;
+  background: var(--color-surface-2); border-radius: 9999px; padding: 1px 8px; line-height: 1.55;
 }
 .sl-group-head .spacer { flex: 1; }
 
@@ -4203,12 +4255,6 @@ button.sadd svg { width: 13px; height: 13px; }
 .plan-grid__add-btn:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-subtle); }
 .plan-grid__add-btn .icon { width: 16px; height: 16px; }
 
-/* Empty state */
-.planner-empty {
-  text-align: center; padding: 64px 24px;
-}
-.planner-empty__message { color: var(--color-text-faint); margin-bottom: 20px; font-size: 15px; }
-
 /* Ensure plan-main fills the page content area */
 .page-content--full { padding: 0 !important; overflow: hidden; }
 
@@ -4359,12 +4405,6 @@ button.sadd svg { width: 13px; height: 13px; }
 /* ═══════════════════════════════════════════════════════════════════════════
    P3-1 — Settings / Meal Slots config screen
    ═══════════════════════════════════════════════════════════════════════════ */
-
-/* ── card header sub-title chip ─────────────────────────────────────────────── */
-.ch-sub {
-  font-size: var(--font-size-sm); color: var(--color-text-muted); margin-left: var(--space-2);
-  font-weight: 500;
-}
 
 /* ── avatar ──────────────────────────────────────────────────────────────────── */
 .pl-av {
@@ -4534,16 +4574,6 @@ button.sadd svg { width: 13px; height: 13px; }
   color: var(--color-text); background: transparent; border: none; outline: none; padding: 8px 4px;
 }
 .slot-add input::placeholder { color: var(--color-text-faint); font-weight: 500; }
-
-/* ── empty state (no active slots) ──────────────────────────────────────────── */
-.slots-empty { text-align: center; padding: 40px 20px 36px; }
-.slots-empty .se-mark {
-  width: 50px; height: 50px; border-radius: 50%; margin: 0 auto 13px; display: grid; place-items: center;
-  background: var(--color-accent-subtle); color: var(--color-accent);
-}
-.slots-empty .se-mark svg { width: 25px; height: 25px; }
-.slots-empty .se-t { font-size: 15px; font-weight: 700; }
-.slots-empty .se-s { font-size: 13px; color: var(--color-text-faint); margin-top: 4px; }
 
 /* ── foot caption ──────────────────────────────────────────────────────────── */
 .cfg-foot-note {
@@ -5873,6 +5903,70 @@ button.sadd svg { width: 13px; height: 13px; }
 .xlink:hover { text-decoration: underline; }
 .xlink--muted { color: var(--color-text-faint); font-weight: 500; cursor: default; }
 
+/* ── Receipt intake history (receipt-intake-history.md, plantry-tmzj) ──────────────────── */
+
+/* Source chip (H11/H13) — the pantry History grid's provenance link back to the receipt line
+   or recipe that produced a stock movement. Reusable primitive: catalogued in the Dev component
+   library since Shopping's contribution rows are a plausible future consumer. */
+.src-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.src-chip:hover { text-decoration: underline; }
+.src-chip svg { width: 11px; height: 11px; }
+
+/* History month separator (H5/H13) — reuses the data-grid caption rhythm to group the
+   /Intake/History rows by calendar month. */
+.intake-month {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--color-text-faint);
+  margin: var(--space-6) 0 var(--space-3);
+}
+.intake-month:first-of-type { margin-top: 0; }
+
+/* Receipt summary strip on the intake session detail page (H8/H13) — the same bones as
+   Upload's .stat-grid, laid out in a fixed 4-up row since the detail page has room for it. */
+.receipt-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.receipt-meta {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+/* Deep-link target row highlight (H9) — the landing state when arriving at a session detail
+   line from a pantry product's history chip (#line-{id}). Each line row carries id="line-{id}", so
+   the browser's own :target match drives the highlight with no script; .line--target is kept as the
+   documented class name (and an equally-styled hook) for any future script-driven use. */
+tr.line--target .data-grid__cell,
+tr[id]:target .data-grid__cell {
+  background: var(--color-accent-subtle);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+/* Dismissed line treatment (H8) — stays visible (the receipt is a factual record) but muted,
+   with the receipt-text cell struck through. */
+tr.line--dismissed .data-grid__cell { color: var(--color-text-faint); }
+tr.line--dismissed .data-grid__cell:first-child {
+  text-decoration: line-through;
+  text-decoration-color: var(--color-text-faint);
+}
+
 /* ===========================================================================
    Take Stock — location picker (J1), walk (J2), lot hatch (J3), save bar (J4),
    add-item trigger (J5), no-location (J7). Ported from the design prototype
@@ -5922,19 +6016,7 @@ button.sadd svg { width: 13px; height: 13px; }
 .ts-loc-card.unplaced { border-style: dashed; background: var(--color-surface-2); box-shadow: none; grid-column: 1 / -1; }
 .ts-loc-card.unplaced .ts-loc-ico { background: var(--color-warning-bg); color: var(--color-warning); }
 
-/* empty / onboarding states */
-.ts-empty {
-  text-align: center; max-width: 460px; margin: var(--space-8) auto; padding: 46px 30px;
-  border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); background: var(--color-surface);
-}
-.ts-empty .em-mark {
-  width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 18px;
-  display: grid; place-items: center; background: var(--color-accent-subtle); color: var(--color-accent);
-}
-.ts-empty .em-mark .icon { width: 26px; height: 26px; }
-.ts-empty h3 { margin: 0 0 8px; font-size: 1.25rem; letter-spacing: -0.01em; color: var(--color-text); }
-.ts-empty p { margin: 0 0 20px; color: var(--color-text-muted); font-size: 0.90625rem; }
-
+/* onboarding states */
 .ts-onboard {
   display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-5);
   padding: 18px 20px; border-radius: var(--radius-lg);

@@ -1,0 +1,102 @@
+@page "{id:guid}"
+@model Plantry.Web.Pages.Intake.SessionModel
+@using System.Globalization
+@{
+    ViewData["Title"] = Model.Detail.MerchantText ?? "Receipt intake";
+    var purchaseDate = Model.Detail.PurchaseDate ?? DateOnly.FromDateTime(Model.Detail.CreatedAt.LocalDateTime);
+    var subtitle = $"{purchaseDate:dddd d MMMM yyyy} · {Model.CommitRecencyText()} · {Model.ItemsAdded} items added";
+}
+
+@*
+    SPEC/receipt-intake-history.md H7/H8 — read-only detail view of one committed intake. Deep-linked
+    from a pantry product's history chip via #line-{id} (H9); each row below carries that id, and
+    tr[id]:target (plenish.css) highlights it on arrival with no script needed.
+*@
+<page-header eyebrow="🧾 Receipt intake" title="@(Model.Detail.MerchantText ?? "Unknown store")" subtitle="@subtitle">
+    <a class="btn btn--secondary" href="@Url.Page("/Intake/History")">← All receipts</a>
+</page-header>
+
+<div class="panel" style="margin-bottom: var(--space-6);">
+    <div class="receipt-stats">
+        <div>
+            <div class="stat-num">@Model.ItemsAdded</div>
+            <div class="stat-lbl">Items added</div>
+        </div>
+        <div>
+            <div class="stat-num stat-num--mono">@Model.FormatMoney(Model.StockedValue)</div>
+            <div class="stat-lbl">Stocked value</div>
+        </div>
+        <div>
+            <div class="stat-num stat-num--mono">@(Model.Detail.Total is { } total ? Model.FormatMoney(total) : "—")</div>
+            <div class="stat-lbl">Receipt total</div>
+        </div>
+        <div>
+            <div class="stat-num stat-num--mono">@(Model.Detail.Tax is { } tax ? Model.FormatMoney(tax) : "—")</div>
+            <div class="stat-lbl">Tax</div>
+        </div>
+    </div>
+    <div class="receipt-meta">
+        @if (Model.Detail.ReceiptNumber is { } receiptNo)
+        {
+            <span>Receipt #&nbsp;<span class="mono">@receiptNo</span></span>
+        }
+        @if (Model.Detail.PaymentDescriptor is { } payment)
+        {
+            <span>Paid&nbsp;·&nbsp;@payment</span>
+        }
+        <span>Scanned by @Model.ScannedByName · @Model.Detail.CreatedAt.ToLocalTime().ToString("ddd d MMM, h:mm tt", CultureInfo.InvariantCulture)</span>
+    </div>
+</div>
+
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Line items</h2>
+    <div class="data-grid">
+        <table class="data-grid__table">
+            <thead>
+                <tr>
+                    <th class="data-grid__header">Receipt line</th>
+                    <th class="data-grid__header">Added to pantry as</th>
+                    <th class="data-grid__header data-grid__cell--end">Qty</th>
+                    <th class="data-grid__header data-grid__cell--end">Price</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var line in Model.Lines)
+                {
+                    <tr id="line-@line.ImportLineId" class="@(line.IsDismissed ? "line--dismissed" : "")">
+                        <td class="data-grid__cell mono">@line.ReceiptText</td>
+                        <td class="data-grid__cell">
+                            @if (line.IsDismissed)
+                            {
+                                @line.ProductLabel
+                            }
+                            else if (line.ProductHref is { } href)
+                            {
+                                <a class="data-grid__link" href="@href">@line.ProductLabel</a>
+                            }
+                            else
+                            {
+                                @line.ProductLabel
+                            }
+                            @if (line.HasEachEstimate)
+                            {
+                                <span class="badge badge--neutral" title="Weight-priced, tracked by each">≈ each</span>
+                            }
+                            @if (line.IsNewProduct)
+                            {
+                                <span class="badge badge--info" title="Created during this intake">New product</span>
+                            }
+                        </td>
+                        <td class="data-grid__cell data-grid__cell--end">@line.QuantityDisplay</td>
+                        <td class="data-grid__cell data-grid__cell--end mono">@line.PriceDisplay</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="note">
+        Product links go to the pantry product detail (catalog detail when the product isn't currently
+        stocked). "New product" marks a line that created its product at commit. Dismissed lines stay
+        visible, struck through — the receipt is a factual record. Rows stay in receipt order.
+    </p>
+</section>

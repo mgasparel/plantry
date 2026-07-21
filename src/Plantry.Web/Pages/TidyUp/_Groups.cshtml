@@ -1,0 +1,108 @@
+@using Plantry.Housekeeping.Application
+@model Plantry.Web.Pages.TidyUp.IndexModel
+@*
+    The swappable body of the Tidy Up page (T2): one card per detector with open findings (severity
+    order, empty groups hidden), then the flat dismissed disclosure, then the "All tidy" empty state
+    when nothing is open. Rendered both on the initial GET (wrapped by Index.cshtml's #tidyup-body)
+    and inside _DismissResult's OOB swap of the same element.
+
+    NOTE: the read model is named "pageResult" here, NOT "page" — "@page" is a reserved Razor
+    directive token, so "@page.Whatever" mid-template is parsed as a (misplaced) @page directive
+    rather than a property access.
+*@
+@{
+    var pageResult = Model.Result;
+    var dismissUrl = Url.Page("./Index", "Dismiss");
+    var restoreUrl = Url.Page("./Index", "Restore");
+}
+
+@if (pageResult.IsAllTidy)
+{
+    <div class="card">
+        <div class="empty-state">
+            <svg class="icon empty-state__icon" aria-hidden="true"><use href="#i-sparkle" /></svg>
+            <div class="empty-state__title">All tidy</div>
+            <p class="empty-state__body">
+                Nothing needs your attention. Plantry re-checks as you cook, shop, and scan — anything new shows up here.
+            </p>
+        </div>
+    </div>
+}
+else
+{
+    foreach (var group in pageResult.Groups)
+    {
+        var iconTone = group.Severity == Severity.BehaviorAffecting ? "warning" : "info";
+        <div class="card">
+            <div class="card__head">
+                <svg class="icon tidyup-finding__icon--@iconTone" aria-hidden="true" style="margin-top:2px"><use href="#@group.IconName" /></svg>
+                <div>
+                    <h3 class="card__head-title">@group.Title</h3>
+                    <p class="card__head-sub">@group.Consequence</p>
+                </div>
+            </div>
+            <div class="card__body--flush">
+                @foreach (var row in group.Rows)
+                {
+                    var finding = row.Finding;
+                    <div class="tidyup-finding">
+                        <div class="tidyup-finding__text">
+                            <span class="tidyup-finding__primary">@finding.SubjectName</span>
+                            <span class="tidyup-finding__secondary">— @finding.Specifics</span>
+                            <div class="tidyup-finding__consequence">@finding.Consequence</div>
+                        </div>
+                        <div class="tidyup-finding__actions">
+                            <a class="btn btn--ghost btn--sm" href="@finding.FixUrl">@finding.FixLabel →</a>
+                            <form method="post" asp-page-handler="Dismiss"
+                                  hx-post="@dismissUrl" hx-target="#tidyup-body" hx-swap="innerHTML"
+                                  style="margin:0">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="detectorId" value="@group.DetectorId.Value" />
+                                <input type="hidden" name="subjectId" value="@finding.SubjectId" />
+                                <input type="hidden" name="fingerprint" value="@finding.FactsFingerprint" />
+                                <button type="submit" class="btn btn--ghost btn--sm tidyup-finding__dismiss" title="Dismiss">Dismiss</button>
+                            </form>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@if (pageResult.Dismissed.Count > 0)
+{
+    <details class="tidyup-dismissed">
+        <summary>
+            <svg class="icon" aria-hidden="true" style="width:14px;height:14px"><use href="#i-chevron" /></svg>
+            Dismissed (@pageResult.Dismissed.Count)
+        </summary>
+        <div class="card">
+            <div class="card__body--flush" style="padding-top:0">
+                @foreach (var row in pageResult.Dismissed)
+                {
+                    var finding = row.Finding;
+                    <div class="tidyup-finding tidyup-finding--dismissed" style="border-top:none">
+                        <div class="tidyup-finding__text">
+                            <span class="tidyup-finding__primary">@finding.SubjectName</span>
+                            <span class="tidyup-finding__secondary">— @finding.Specifics</span>
+                            <div class="tidyup-finding__consequence">
+                                Dismissed @Plantry.Web.Pages.TidyUp.TidyUpDisplay.DismissedAgo(row.DismissedAtUtc, Model.NowUtc) · reopens if its details change
+                            </div>
+                        </div>
+                        <div class="tidyup-finding__actions">
+                            <form method="post" asp-page-handler="Restore"
+                                  hx-post="@restoreUrl" hx-target="#tidyup-body" hx-swap="innerHTML"
+                                  style="margin:0">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="detectorId" value="@finding.DetectorId.Value" />
+                                <input type="hidden" name="subjectId" value="@finding.SubjectId" />
+                                <button type="submit" class="btn btn--ghost btn--sm">Restore</button>
+                            </form>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </details>
+}

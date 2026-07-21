@@ -41,6 +41,22 @@ public sealed class CookEventRepository(RecipesDbContext db) : ICookEventReposit
             .ToListAsync(ct);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
+        IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default)
+    {
+        if (cookEventIds.Count == 0)
+            return new Dictionary<Guid, RecipeId>();
+
+        var wanted = cookEventIds.Select(CookEventId.From).ToHashSet();
+        var rows = await db.CookEvents
+            .Where(c => wanted.Contains(c.Id))
+            .Select(c => new { c.Id, c.RecipeId })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(r => r.Id.Value, r => r.RecipeId);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);
 }

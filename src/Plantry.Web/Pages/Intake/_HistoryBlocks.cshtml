@@ -1,0 +1,91 @@
+@model Plantry.Web.Pages.Intake.HistoryModel
+@using Plantry.Intake.Application
+@using Plantry.Intake.Domain
+@using Plantry.Web.Pages.Shared
+@functions {
+    static BadgeTone StatusTone(ImportStatus status) => status switch
+    {
+        ImportStatus.Committed => BadgeTone.Success,
+        ImportStatus.Ready => BadgeTone.Info,
+        ImportStatus.Failed => BadgeTone.Danger,
+        _ => BadgeTone.Neutral,
+    };
+
+    static string StatusLabel(ImportStatus status) => status switch
+    {
+        ImportStatus.Committed => "Committed",
+        ImportStatus.Ready => "Being reviewed",
+        ImportStatus.Failed => "Failed",
+        ImportStatus.Discarded => "Discarded",
+        _ => status.ToString(),
+    };
+}
+@{
+    // Failed/Discarded rows render every cell muted (SPEC H5 — visible but plainly de-emphasised); a
+    // Ready row is normal-weight for store/date but its item count/total are muted (not yet final);
+    // a Committed row is fully normal-weight and its store name links to the session detail.
+    GridCell StoreCell(IntakeHistoryRow row)
+    {
+        var store = row.Store ?? "Unknown store";
+        if (row.Status is ImportStatus.Failed or ImportStatus.Discarded)
+            return GridCell.Muted(store);
+        if (row.Status == ImportStatus.Committed)
+            return GridCell.Link(store, Url.Page("/Intake/Session", new { id = row.Id.Value })!);
+        return GridCell.Text(store);
+    }
+
+    GridCell DateCell(IntakeHistoryRow row) =>
+        row.Status is ImportStatus.Failed or ImportStatus.Discarded
+            ? GridCell.Muted(Plantry.Web.Pages.Intake.HistoryModel.FormatDate(row.Date))
+            : GridCell.Text(Plantry.Web.Pages.Intake.HistoryModel.FormatDate(row.Date));
+
+    GridCell ItemsCell(IntakeHistoryRow row) =>
+        row.ItemCount is { } n
+            ? (row.Status == ImportStatus.Committed ? GridCell.Text(n.ToString()) : GridCell.Muted(n.ToString()))
+            : GridCell.Muted("—");
+
+    GridCell TotalCell(IntakeHistoryRow row) =>
+        row.Total is { } t
+            ? (row.Status == ImportStatus.Committed ? GridCell.Text(Model.FormatAmount(t)) : GridCell.Muted(Model.FormatAmount(t)))
+            : GridCell.Muted("—");
+
+    GridCell ActionCell(IntakeHistoryRow row) =>
+        row.Status == ImportStatus.Ready
+            ? GridCell.Actions(GridAction.Link("Resume", Url.Page("/Intake/Review", new { id = row.Id.Value })!))
+            : GridCell.Text(string.Empty);
+}
+@foreach (var block in Model.MonthBlocks)
+{
+    <div class="intake-month">@block.Label</div>
+    var grid = new DataGridViewModel(
+        Columns:
+        [
+            new("Store"),
+            new("Date"),
+            new("Status"),
+            new("Items", Align: GridAlign.End),
+            new("Total", Align: GridAlign.End),
+            new(""),
+        ],
+        Rows: [.. block.Rows.Select(row => new GridRow(
+        [
+            StoreCell(row),
+            DateCell(row),
+            GridCell.Badge(StatusLabel(row.Status), StatusTone(row.Status)),
+            ItemsCell(row),
+            TotalCell(row),
+            ActionCell(row),
+        ]))],
+        EmptyMessage: "No receipts yet.");
+    <partial name="Shared/_DataGrid" model="grid" />
+}
+<div id="show-earlier-slot">
+    @if (Model.NextCursor is { } cursor)
+    {
+        <button type="button" class="btn btn--secondary"
+                hx-get="@Url.Page("./History", "More", new { before = cursor })"
+                hx-target="#show-earlier-slot" hx-swap="outerHTML">
+            Show earlier
+        </button>
+    }
+</div>

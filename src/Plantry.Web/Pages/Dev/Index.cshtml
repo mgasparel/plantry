@@ -155,11 +155,23 @@
         Razor partials can't slot arbitrary children, card is a pure CSS pattern — write the
         wrapper markup directly wherever a section needs it.
     </p>
+    <p>
+        When a card head shows an "N of something" affordance next to the title (a roster size,
+        an active count, a pending count), wrap the title and the <code>.count</code> pill
+        together in a <code>.card__head-titlerow</code> — a flex row so the pill always hugs the
+        heading. If the head also has a <code>.card__head-sub</code>, put the sub-line
+        <strong>below</strong> the title row (not beside it), so a long sub-line never pushes the
+        pill out to the right. Use this for every card-head count — do not fall back to bare
+        muted text.
+    </p>
 
     <div class="card" style="max-width: 28rem">
         <div class="card__head">
             <div>
-                <h3 class="card__head-title">Section title</h3>
+                <div class="card__head-titlerow">
+                    <h3 class="card__head-title">Section title</h3>
+                    <span class="count">4</span>
+                </div>
                 <p class="card__head-sub">An optional one-line description below the title.</p>
             </div>
             <div class="card__head-actions">
@@ -171,7 +183,7 @@
         </div>
     </div>
 
-    <pre class="code-sample"><code>@("<div class=\"card\">\n  <div class=\"card__head\">\n    <div>\n      <h3 class=\"card__head-title\">Section title</h3>\n      <p class=\"card__head-sub\">Optional subtitle</p>   <!-- omit if none -->\n    </div>\n    <div class=\"card__head-actions\">                    <!-- omit if no actions -->\n      <button class=\"btn btn--sm btn--secondary\">Action</button>\n    </div>\n  </div>\n  <div class=\"card__body\">\n    <!-- content -->\n  </div>\n</div>")</code></pre>
+    <pre class="code-sample"><code>@("<div class=\"card\">\n  <div class=\"card__head\">\n    <div>\n      <div class=\"card__head-titlerow\">        <!-- wraps title + count pill -->\n        <h3 class=\"card__head-title\">Section title</h3>\n        <span class=\"count\">4</span>          <!-- omit if no count -->\n      </div>\n      <p class=\"card__head-sub\">Optional subtitle</p>   <!-- flows BELOW the title row -->\n    </div>\n    <div class=\"card__head-actions\">                    <!-- omit if no actions -->\n      <button class=\"btn btn--sm btn--secondary\">Action</button>\n    </div>\n  </div>\n  <div class=\"card__body\">\n    <!-- content -->\n  </div>\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -856,15 +868,16 @@
     <p>
         <strong>Hub</strong> — a section landing page that orients the user and routes them into
         that section's sub-pages. Rendered with <code>.hub-list</code>: a bordered, rounded list of
-        full-row navigation tiles, each = accent icon + label + subtitle + chevron; the whole row is
-        the link. Used by the <code>More</code> page and the <code>Catalog</code> page. NOT for
-        CRUD/data lists (that is the data-grid / <code>.catalog-list</code> row primitive) and NOT
-        for functional wizards (e.g. Import step cards).
+        full-row navigation tiles, each = tinted icon chip + label + subtitle + chevron; the whole
+        row is the link. Used by the <code>Settings</code>, <code>More</code>, and <code>Catalog</code>
+        pages — all three share the identical chip treatment. NOT for CRUD/data lists (that is the
+        data-grid / <code>.catalog-list</code> row primitive) and NOT for functional wizards
+        (e.g. Import step cards).
     </p>
 
     <nav class="hub-list" aria-label="Hub list example">
         <a href="#" class="hub-list__item" onclick="return false">
-            <svg class="icon hub-list__icon" aria-hidden="true"><use href="#i-box" /></svg>
+            <span class="hub-list__icon"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></span>
             <div class="hub-list__text">
                 <span class="hub-list__label">Products</span>
                 <span class="hub-list__sub">SKUs, conversions, expiry defaults, parent/variant groups</span>
@@ -872,7 +885,7 @@
             <svg class="icon hub-list__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
         </a>
         <a href="#" class="hub-list__item" onclick="return false">
-            <svg class="icon hub-list__icon" aria-hidden="true"><use href="#i-scale" /></svg>
+            <span class="hub-list__icon"><svg class="icon" aria-hidden="true"><use href="#i-scale" /></svg></span>
             <div class="hub-list__text">
                 <span class="hub-list__label">Units</span>
                 <span class="hub-list__sub">Mass, volume, and count units used for sizing and conversions</span>
@@ -881,7 +894,7 @@
         </a>
     </nav>
 
-    <pre class="code-sample"><code>@("<nav class=\"hub-list\" aria-label=\"Section options\">\n  <a href=\"/Section/Sub\" class=\"hub-list__item\">\n    <svg class=\"icon hub-list__icon\" aria-hidden=\"true\"><use href=\"#i-box\" /></svg>\n    <div class=\"hub-list__text\">\n      <span class=\"hub-list__label\">Label</span>\n      <span class=\"hub-list__sub\">Subtitle</span>\n    </div>\n    <svg class=\"icon hub-list__chevron\" aria-hidden=\"true\"><use href=\"#i-chevron-right\" /></svg>\n  </a>\n</nav>")</code></pre>
+    <pre class="code-sample"><code>@("<nav class=\"hub-list\" aria-label=\"Section options\">\n  <a href=\"/Section/Sub\" class=\"hub-list__item\">\n    <span class=\"hub-list__icon\"><svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-box\" /></svg></span>\n    <div class=\"hub-list__text\">\n      <span class=\"hub-list__label\">Label</span>\n      <span class=\"hub-list__sub\">Subtitle</span>\n    </div>\n    <svg class=\"icon hub-list__chevron\" aria-hidden=\"true\"><use href=\"#i-chevron-right\" /></svg>\n  </a>\n</nav>")</code></pre>
 </section>
 
 <section class="catalog-section">
@@ -911,6 +924,27 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Source chip</h2>
+    </div>
+    <p>
+        <code>.src-chip</code> is the pantry History grid's provenance link (receipt-intake-history.md
+        H11) — a resolvable cross-context source pointing at the receipt line or recipe that produced a
+        stock movement. Only a row whose source actually resolves earns a chip; an unresolvable one (a
+        deleted recipe, a foreign ref, a Manual movement) stays plain muted text instead — the chip is
+        progressive enhancement, never a dead link. In a data grid cell, use
+        <code>GridCell.SourceChip(icon, label, url)</code>.
+    </p>
+
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center">
+        <a class="src-chip" href="#"><svg aria-hidden="true"><use href="#i-receipt" /></svg> Costco · 18 Jul <span aria-hidden="true">→</span></a>
+        <a class="src-chip" href="#"><svg aria-hidden="true"><use href="#i-chef-hat" /></svg> Shakshuka <span aria-hidden="true">→</span></a>
+    </div>
+
+    <pre class="code-sample"><code>@("// In a data grid cell:\nGridCell.SourceChip(SourceChipIcon.Receipt, \"Costco · 18 Jul\", \"/Intake/Session/{id}#line-{lineId}\")\nGridCell.SourceChip(SourceChipIcon.Cook, \"Shakshuka\", \"/Recipes/{recipeId}\")")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Confidence badge</h2>
     </div>
     <p>
@@ -929,6 +963,26 @@
     </div>
 
     <pre class="code-sample"><code>@("<partial name=\"Shared/_ConfidenceBadge\" model=\"line.Confidence\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Nav count badge</h2>
+    </div>
+    <p>
+        <code>.sidebar__count</code> (+ <code>_TidyUpBadge.cshtml</code>) is the reusable nav-link count
+        pill (tidy-up.md T1/T10) — a small right-aligned badge on a sidebar or hub-tile link, rendered
+        only when its count is &gt; 0 (an empty, invisible span otherwise so an htmx out-of-band swap
+        always has a stable target id to update). Introduced for the Tidy Up nav item and More-hub tile;
+        reach for it before inventing a new nav badge shape. Accent tone reads as "there's something to
+        do" — calmer than a warning/danger tone, which would read as an alarm.
+    </p>
+
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center">
+        <span class="sidebar__count sidebar__count--accent">4</span>
+    </div>
+
+    <pre class="code-sample"><code>@("<partial name=\"_TidyUpBadge\" model=\"new TidyUpBadgeViewModel(openCount, targetId, oob: false)\" />\n\n// The partial renders nothing visually when Count == 0, but keeps the #targetId span in the DOM\n// so a later htmx OOB response (hx-swap-oob=\"true\") can still update it.")</code></pre>
 </section>
 
 <section class="catalog-section">

@@ -190,5 +190,9 @@ public sealed class UploadModelStatsTests
             Task.FromResult(new List<ImportSession>());
         public Task<bool> HasPendingAsync(HouseholdId householdId, CancellationToken ct = default) =>
             Task.FromResult(false);
+        public Task<List<ImportSession>> ListHistoryPageAsync(HouseholdId householdId, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) =>
+            Task.FromResult(new List<ImportSession>());
+        public Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(HouseholdId householdId, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>([]);
     }
 }

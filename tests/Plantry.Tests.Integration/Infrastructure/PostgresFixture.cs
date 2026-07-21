@@ -45,7 +45,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(conn, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = ["identity", "catalog", "inventory", "pricing", "intake", "recipes", "shopping", "meal_planning", "deals"],
+            SchemasToInclude = ["identity", "catalog", "inventory", "pricing", "intake", "recipes", "shopping", "meal_planning", "deals", "housekeeping"],
         });
     }
 
@@ -114,6 +114,12 @@ public sealed class PostgresFixture : IAsyncLifetime
             .Options;
         await using var dealsDb = new Plantry.Deals.Infrastructure.DealsDbContext(dealsOpts);
         await dealsDb.Database.MigrateAsync();
+
+        var housekeepingOpts = new DbContextOptionsBuilder<Plantry.Housekeeping.Infrastructure.HousekeepingDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+        await using var housekeepingDb = new Plantry.Housekeeping.Infrastructure.HousekeepingDbContext(housekeepingOpts);
+        await housekeepingDb.Database.MigrateAsync();
     }
 }
 

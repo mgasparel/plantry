@@ -46,11 +46,24 @@ public sealed record StockLotRow(
     bool IsOpen);
 
 /// <summary>One movement in a product's stock journal (SPEC §1b history).</summary>
+/// <param name="JournalId">
+/// The journal row's own id (receipt-intake-history.md H3) — the provenance-chip correlation key: the
+/// composition-side <c>IStockProvenanceReader</c> keys its resolved chip dictionary by this value, and it
+/// also doubles as the legacy-row reverse-lookup key (H2) when <see cref="SourceRef"/> is null.
+/// </param>
+/// <param name="SourceRef">
+/// The orthogonal "what triggered this" reference (DM-14) — an <c>ImportLine.Id</c> for a post-H1 Intake
+/// row, a <c>CookEvent.Id</c> for a Cook row, null for Manual or a pre-H1 legacy Intake row. Exposed here
+/// (raw, untyped) purely so the Web-side provenance reader can resolve it without Inventory taking any
+/// dependency on Intake/Recipes (Gate 2 — IDs only).
+/// </param>
 public sealed record StockJournalRow(
+    Guid JournalId,
     decimal Delta,
     string UnitCode,
     StockReason Reason,
     StockSourceType? SourceType,
+    Guid? SourceRef,
     DateTimeOffset OccurredAt);
 
 /// <summary>
@@ -299,10 +312,12 @@ public class InventoryQueryService(
         var history = stock.Journal
             .OrderByDescending(j => j.OccurredAt)
             .Select(j => new StockJournalRow(
+                j.Id.Value,
                 j.Delta,
                 unitCodes.GetValueOrDefault(j.UnitId, "?"),
                 j.Reason,
                 j.SourceType,
+                j.SourceRef,
                 j.OccurredAt))
             .ToList();
 
@@ -324,8 +339,14 @@ public class InventoryQueryService(
     /// When all lots convert to <paramref name="defaultUnitId"/> that result is used.
     /// When conversion fails entirely (e.g. "ea" lots on a "g" product), falls back to the
     /// lots' own unit so the user sees "1 ea" rather than a misleading "0 g".
+    ///
+    /// <para>Public so <c>ShoppingPantryReaderAdapter</c> (the Shopping→Inventory ACL adapter,
+    /// ADR-002) can share this exact fallback semantics rather than re-deriving its own
+    /// aggregation — a product whose only active lots fail unit conversion must never be
+    /// reported as zero/"out" by one context while the other shows its real quantity
+    /// (plantry-2hfi). <see cref="SumInDisplayUnit"/> is similarly shared with the consume path.</para>
     /// </summary>
-    private static (decimal Total, string UnitCode) DisplayQuantity(
+    public static (decimal Total, string UnitCode) DisplayQuantity(
         IReadOnlyList<StockEntry> activeLots, Guid defaultUnitId, string defaultUnitCode,
         IQuantityConverter converter, IReadOnlyDictionary<Guid, string> unitCodes)
     {

@@ -167,6 +167,9 @@ namespace Plantry.Intake.Infrastructure.Migrations
                     b.HasIndex("SessionId")
                         .HasDatabaseName("ix_import_line_session");
 
+                    b.HasIndex("HouseholdId", "JournalId")
+                        .HasDatabaseName("ix_import_line_household_journal");
+
                     b.ToTable("import_line", "intake");
                 });
 

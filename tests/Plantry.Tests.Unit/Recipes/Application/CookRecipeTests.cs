@@ -1355,6 +1355,16 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
             .ToList());
     }
 
+    public Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
+        IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default)
+    {
+        var wanted = cookEventIds as HashSet<Guid> ?? [.. cookEventIds];
+        var result = Items
+            .Where(e => wanted.Contains(e.Id.Value))
+            .ToDictionary(e => e.Id.Value, e => e.RecipeId);
+        return Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(result);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
         OnSaveChanges?.Invoke();

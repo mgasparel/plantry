@@ -2,10 +2,10 @@
 
 @if (Model.Locations.Count == 0)
 {
-    <div class="ts-empty" id="take-stock-list">
-        <div class="em-mark"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></div>
-        <h3>No storage locations yet</h3>
-        <p>Take Stock walks you shelf by shelf — so first, tell Plantry where things live. Add a location like Fridge or Pantry to begin.</p>
+    <div class="empty-state" id="take-stock-list">
+        <div class="empty-state__icon"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></div>
+        <div class="empty-state__title">No storage locations yet</div>
+        <div class="empty-state__body">Take Stock walks you shelf by shelf — so first, tell Plantry where things live. Add a location like Fridge or Pantry to begin.</div>
         <a class="btn btn--primary" href="/Catalog/Locations">
             <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> Create a location
         </a>

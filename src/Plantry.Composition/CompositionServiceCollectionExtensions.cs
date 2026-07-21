@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Plantry.Catalog.Application;
 using Plantry.Deals.Application;
+using Plantry.Housekeeping.Application;
 using Plantry.Intake.Application;
 using Plantry.Inventory.Application;
 using Plantry.MealPlanning.Application;
@@ -10,6 +11,7 @@ using Plantry.Shopping.Application;
 using Plantry.SharedKernel.Domain;
 using Plantry.Web.Deals;
 using Plantry.Web.Events;
+using Plantry.Web.Housekeeping;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.MealPlanning;
@@ -111,6 +113,17 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<IRecordPricePort, RecordPriceAdapter>();
         services.AddScoped<IEnsurePurchaseStorePort, EnsurePurchaseStoreAdapter>();
         services.AddScoped<ISeedConversionPort, SeedConversionAdapter>();
+
+        // Inventory → Intake/Recipes ACL (receipt-intake-history.md H4): the pantry History grid's
+        // provenance chip. Inventory itself takes no dependency on either context — this adapter is the
+        // composition-root join, same seam ShoppingRecipeReaderAdapter plays for Shopping.
+        services.AddScoped<IStockProvenanceReader, StockProvenanceReaderAdapter>();
+
+        // Housekeeping (tidy-up.md T4/T8) — v1 ships D1 + D2, the conversion-gap detector family.
+        // Registered as IProblemDetector so GetTidyUpPageQuery discovers every implementation via
+        // IEnumerable<IProblemDetector> — adding a detector is one class + one line here, no other edits.
+        services.AddScoped<IProblemDetector, StockUnitUnconvertibleDetector>();
+        services.AddScoped<IProblemDetector, RecipeConversionGapDetector>();
 
         return services;
     }

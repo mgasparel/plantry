@@ -70,8 +70,9 @@ public sealed class MealPlanningSmokeTests(AppHostFixture appHost) : IAsyncLifet
             // The wkgrid (P3-3+) is present and contains the Breakfast/Lunch/Dinner
             // slot labels seeded by MealPlanningReferenceDataSeeder at registration.
             // If RlsMiddleware does NOT call mealPlanningDb.SetHouseholdId, the EF
-            // query filter returns zero slots and the planner-empty state renders
-            // instead — these assertions would fail, catching the gotcha.
+            // query filter returns zero slots and the .empty-state "No meal slots are
+            // configured yet" block renders instead — these assertions would fail,
+            // catching the gotcha.
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
             // slot-band is the current CSS class (was plan-grid__slot-label before plantry-v0r rename)
             await Assertions.Expect(page.Locator(".slot-band")).ToHaveCountAsync(3);

@@ -1,0 +1,56 @@
+@page "/TidyUp"
+@model Plantry.Web.Pages.TidyUp.IndexModel
+@{
+    ViewData["Title"] = "Tidy Up";
+}
+
+<page-header eyebrow="Manage" title="Tidy Up"
+             subtitle="Small gaps left over from quick entry. None of these block you — fixing them makes stock counts, alerts, and costs more trustworthy." />
+
+<div id="tidyup-body">
+    <partial name="_Groups" model="Model" />
+</div>
+
+@*
+    Page-scoped compositions (T10): the group card head icon tone and the finding-row / dismissed-
+    disclosure rhythm are specific to this page, built from the shared .card / .badge / .btn primitives
+    already in plenish.css — only the reusable .sidebar__count badge was promoted to the shared
+    stylesheet + Dev component library.
+*@
+<style>
+    .tidyup-finding {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-3) var(--space-5);
+        border-top: 1px solid var(--color-border-subtle);
+    }
+
+    .tidyup-finding__text { min-width: 0; }
+    .tidyup-finding__primary { font-weight: 600; font-size: var(--font-size-sm); }
+    .tidyup-finding__secondary { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+    .tidyup-finding__consequence { color: var(--color-text-faint); font-size: var(--font-size-xs); margin-top: 1px; }
+    .tidyup-finding__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex: none; }
+    .tidyup-finding__icon--warning { color: var(--color-warning); }
+    .tidyup-finding__icon--info { color: var(--color-info); }
+
+    .tidyup-dismissed { margin-top: var(--space-6); }
+    .tidyup-dismissed summary {
+        cursor: pointer;
+        color: var(--color-text-faint);
+        font-size: var(--font-size-sm);
+        font-weight: 600;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .tidyup-dismissed summary::-webkit-details-marker { display: none; }
+    .tidyup-dismissed[open] summary { margin-bottom: var(--space-2); }
+    .tidyup-finding--dismissed { opacity: .62; }
+    .tidyup-finding--dismissed .tidyup-finding__primary {
+        text-decoration: line-through;
+        text-decoration-color: var(--color-text-faint);
+        text-decoration-thickness: 1px;
+    }
+</style>

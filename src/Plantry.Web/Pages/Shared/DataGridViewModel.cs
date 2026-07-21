@@ -4,7 +4,11 @@ namespace Plantry.Web.Pages.Shared;
 public enum GridAlign { Start, Center, End }
 
 /// <summary>The closed vocabulary of cell presentations the `_DataGrid` partial knows how to render.</summary>
-public enum GridCellKind { Text, Muted, Link, Badge, Actions, ExpiryBadge }
+public enum GridCellKind { Text, Muted, Link, Badge, Actions, ExpiryBadge, SourceChip }
+
+/// <summary>The icon a <see cref="GridCellKind.SourceChip"/> cell renders (receipt-intake-history.md H11)
+/// — which cross-context surface the chip links to.</summary>
+public enum SourceChipIcon { Receipt, Cook }
 
 /// <summary>Tonal badge palette, mapped to the generic `.badge--*` modifiers (design tokens) in plenish.css.</summary>
 public enum BadgeTone { Neutral, Info, Success, Warning, Danger }
@@ -73,11 +77,23 @@ public sealed record GridCell
     /// <summary>The <c>.badge-expiry--{tier}</c> modifier ("urgent"/"soon"/"ok") for an ExpiryBadge cell.</summary>
     public string? ExpiryTier { get; init; }
 
+    /// <summary>The icon for a <see cref="GridCellKind.SourceChip"/> cell.</summary>
+    public SourceChipIcon? ChipIcon { get; init; }
+
     public static GridCell Text(string value) => new() { Kind = GridCellKind.Text, Value = value };
     public static GridCell Muted(string value) => new() { Kind = GridCellKind.Muted, Value = value };
     public static GridCell Link(string value, string url) => new() { Kind = GridCellKind.Link, Value = value, Url = url };
     public static GridCell Badge(string value, BadgeTone tone) => new() { Kind = GridCellKind.Badge, Value = value, Tone = tone };
     public static GridCell Actions(params GridAction[] actions) => new() { Kind = GridCellKind.Actions, Items = actions };
+
+    /// <summary>
+    /// The pantry-history provenance chip (receipt-intake-history.md H11) — a resolvable cross-context
+    /// source link (Intake receipt line / Cook recipe). <paramref name="url"/> is always non-null: an
+    /// unresolved source never becomes a chip at all — the caller falls back to <see cref="Text"/> or
+    /// <see cref="Muted"/> instead (the chip is progressive enhancement, never a dead link).
+    /// </summary>
+    public static GridCell SourceChip(SourceChipIcon icon, string value, string url) =>
+        new() { Kind = GridCellKind.SourceChip, Value = value, Url = url, ChipIcon = icon };
 
     /// <summary>
     /// The unified expiry pill — the canonical <c>.badge-expiry</c> component driven by

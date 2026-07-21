@@ -147,6 +147,11 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.CreatedProductId).HasColumnName("created_product_id");
 
             b.HasIndex(l => l.SessionId).HasDatabaseName("ix_import_line_session");
+            // Legacy provenance-chip reverse lookup (receipt-intake-history.md H2): a pre-H1 committed
+            // journal row carries no SourceRef, so the reader resolves it by matching the journal row's own
+            // id against THIS column instead. Every committed line has written journal_id since the initial
+            // schema, so the index gives complete legacy coverage without a backfill migration.
+            b.HasIndex(l => new { l.HouseholdId, l.JournalId }).HasDatabaseName("ix_import_line_household_journal");
             b.HasQueryFilter(l => l.HouseholdId == HouseholdId.From(_householdId));
         });
 

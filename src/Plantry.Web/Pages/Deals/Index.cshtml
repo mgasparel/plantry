@@ -84,8 +84,10 @@
             <div class="card deal-alerts" style="margin-bottom: var(--space-4)">
                 <div class="card__head">
                     <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg>
-                    <h3 class="card__head-title">Stock up</h3>
-                    <span class="ch-sub">&middot; @Model.Alerts.Count</span>
+                    <div class="card__head-titlerow">
+                        <h3 class="card__head-title">Stock up</h3>
+                        <span class="count">@Model.Alerts.Count</span>
+                    </div>
                 </div>
                 <div class="card__body">
                     <p class="deal-alerts__lead">
@@ -153,8 +155,10 @@
         @* Active deals — grouped by store or category via a client-side toggle over the one read result. *@
         <div class="card" x-data="{ group: 'store' }">
             <div class="card__head">
-                <h3 class="card__head-title">Active deals</h3>
-                <span class="ch-sub">&middot; @Model.Board.Active.Count</span>
+                <div class="card__head-titlerow">
+                    <h3 class="card__head-title">Active deals</h3>
+                    <span class="count">@Model.Board.Active.Count</span>
+                </div>
                 @if (Model.Board.Active.Count > 0)
                 {
                     <div class="seg-ctrl deal-group-toggle" role="group" aria-label="Group deals by">

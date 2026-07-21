@@ -1,0 +1,22 @@
+@model Plantry.Web.Pages.Shared.TidyUpBadgeViewModel
+@*
+    The Tidy Up nav count badge (T1/T6, tidy-up.md; the `.sidebar__count` reusable primitive, T10).
+    Renders only when Count > 0 (an empty, invisible span otherwise) so an htmx OOB response (dismiss/
+    restore) always has a stable #Model.TargetId to swap into, whether the badge is currently shown or
+    not. The layout renders this from the cached count only — it must never trigger a detector run.
+*@
+@{
+    // A plain @(...) expression HTML-encodes its output, which would turn the attribute's quotes into
+    // &quot; and leave htmx reading the literal string "true" (quotes included) as the OOB swap value
+    // instead of the boolean attribute — the element would silently fail to swap. Html.Raw is required
+    // here, matching every other OOB partial in the codebase (e.g. _ShoppingSummary.cshtml).
+    var oobAttr = Model.Oob ? " hx-swap-oob=\"true\"" : "";
+}
+@if (Model.Count > 0)
+{
+    <span id="@Model.TargetId" class="sidebar__count sidebar__count--accent"@Html.Raw(oobAttr)>@Model.Count</span>
+}
+else
+{
+    <span id="@Model.TargetId" style="display:none"@Html.Raw(oobAttr)></span>
+}

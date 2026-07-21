@@ -1,0 +1,29 @@
+@page
+@model Plantry.Web.Pages.Intake.HistoryModel
+@{
+    ViewData["Title"] = "Receipt history";
+}
+
+@*
+    SPEC/receipt-intake-history.md H5 — /Intake/History. Month-grouped data-grid (store / date / status
+    badge / items / total), reached from the Upload page's Recent-intakes panel "View all" link (H12).
+    "Show earlier" (_HistoryBlocks.cshtml) htmx-appends the next page of month blocks.
+*@
+<page-header eyebrow="🧾 Receipt intakes" title="Receipt history"
+             subtitle="Every receipt you've scanned, and what it added to your pantry.">
+    <a class="btn btn--secondary" href="@Url.Page("/Intake/Upload")">＋ Add groceries</a>
+</page-header>
+
+@if (Model.MonthBlocks.Count == 0 && Model.NextCursor is null)
+{
+    <div class="empty-state">
+        <div class="empty-state__title">No receipts yet</div>
+        <div class="empty-state__body">Scan a receipt to start building your history.</div>
+    </div>
+}
+else
+{
+    <div id="intake-history-list">
+        <partial name="_HistoryBlocks" model="Model" />
+    </div>
+}

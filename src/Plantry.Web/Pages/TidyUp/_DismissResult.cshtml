@@ -1,0 +1,15 @@
+@model Plantry.Web.Pages.TidyUp.IndexModel
+@*
+    Response for a Dismiss/Restore POST. Renders two fragments:
+      1. The refreshed groups + dismissed disclosure — swapped into #tidyup-body (the form's hx-target).
+      2. The nav badge, OOB-swapped in both render locations (desktop sidebar + mobile More hub, T7) —
+         dismiss/restore always changes the open count, so both badges refresh every time (T6).
+    Same fragment-composition pattern as Shopping's _AddPostResult.
+*@
+@{
+    var sidebarBadge = new Plantry.Web.Pages.Shared.TidyUpBadgeViewModel(Model.Result.OpenCount, "sidebar-tidyup-badge", true);
+    var moreBadge = new Plantry.Web.Pages.Shared.TidyUpBadgeViewModel(Model.Result.OpenCount, "more-tidyup-badge", true);
+}
+<partial name="_Groups" model="Model" />
+<partial name="_TidyUpBadge" model="sidebarBadge" />
+<partial name="_TidyUpBadge" model="moreBadge" />
