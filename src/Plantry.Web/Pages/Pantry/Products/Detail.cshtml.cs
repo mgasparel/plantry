@@ -176,12 +176,30 @@ public sealed class DetailModel(
     /// journal id present in <paramref name="chips"/>) renders the provenance chip; everything else —
     /// Manual, an unresolved Intake/Cook row, or a legacy row with no <see cref="StockSourceType"/> at
     /// all — keeps the existing plain-text/muted fallback. Public and pure so it is unit-testable without
-    /// a full page render (mirrors <c>Pantry.IndexModel.ExpiryCell</c>).
+    /// a full page render (mirrors <c>Pantry.IndexModel.ExpiryCell</c>). <see cref="ProvenanceChip"/> carries
+    /// only raw target ids (Plantry.Composition stays ASP.NET-free — plantry-72c6), so the caller supplies
+    /// <paramref name="hrefFor"/> — built with <c>Url.Page</c> at the Razor-view call site, where an
+    /// <c>IUrlHelper</c> is in scope — to turn a chip into its rendered href.
     /// </summary>
-    internal static GridCell SourceCell(StockJournalRow row, IReadOnlyDictionary<Guid, ProvenanceChip> chips) =>
+    internal static GridCell SourceCell(
+        StockJournalRow row, IReadOnlyDictionary<Guid, ProvenanceChip> chips, Func<ProvenanceChip, string> hrefFor) =>
         chips.TryGetValue(row.JournalId, out var chip)
-            ? GridCell.SourceChip(chip.Kind == ProvenanceChipKind.Cook ? SourceChipIcon.Cook : SourceChipIcon.Receipt, chip.Label, chip.Href)
+            ? GridCell.SourceChip(chip.Kind == ProvenanceChipKind.Cook ? SourceChipIcon.Cook : SourceChipIcon.Receipt, chip.Label, hrefFor(chip))
             : row.SourceType is { } src ? GridCell.Text(src.ToString()) : GridCell.Muted("—");
+
+    /// <summary>
+    /// Resolves a <see cref="ProvenanceChip"/> into its rendered href via <c>Url.Page</c> (PathBase-safe —
+    /// plantry-72c6): the Intake chip links to the session detail page with a <c>#line-{id}</c> anchor to
+    /// the committed line; the Cook chip links to the recipe detail page. Public so the Razor partial
+    /// (<c>_StockDetail.cshtml</c>, the sole caller) can pass it straight to <see cref="SourceCell"/> as
+    /// <c>chip => DetailModel.HrefFor(chip, Url)</c>.
+    /// </summary>
+    public static string HrefFor(ProvenanceChip chip, IUrlHelper url) => chip.Kind switch
+    {
+        ProvenanceChipKind.Intake => $"{url.Page("/Intake/Session", new { id = chip.TargetId })}#line-{chip.LineAnchorId}",
+        ProvenanceChipKind.Cook => url.Page("/Recipes/Details", new { id = chip.TargetId })!,
+        _ => throw new ArgumentOutOfRangeException(nameof(chip), chip.Kind, "Unknown provenance chip kind."),
+    };
 
     /// <summary>
     /// Batch-resolves provenance chips (receipt-intake-history.md H4/H11) for the History rows sourced

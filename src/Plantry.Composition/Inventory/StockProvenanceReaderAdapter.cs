@@ -74,8 +74,7 @@ public sealed class StockProvenanceReaderAdapter(
             var store = string.IsNullOrWhiteSpace(line.MerchantText) ? "Unknown store" : line.MerchantText;
             var date = line.PurchaseDate ?? DateOnly.FromDateTime(line.SessionCreatedAt.LocalDateTime);
             var label = $"{store} · {date:d MMM}";
-            var href = $"/Intake/Session/{line.SessionId}#line-{line.ImportLineId}";
-            result[row.JournalId] = new ProvenanceChip(ProvenanceChipKind.Intake, label, href);
+            result[row.JournalId] = new ProvenanceChip(ProvenanceChipKind.Intake, label, line.SessionId, line.ImportLineId);
         }
     }
 
@@ -103,7 +102,7 @@ public sealed class StockProvenanceReaderAdapter(
             if (!namesByRecipeId.TryGetValue(recipeId, out var name))
                 continue; // recipe since deleted — no chip
 
-            result[row.JournalId] = new ProvenanceChip(ProvenanceChipKind.Cook, name, $"/Recipes/{recipeId.Value}");
+            result[row.JournalId] = new ProvenanceChip(ProvenanceChipKind.Cook, name, recipeId.Value);
         }
     }
 }
