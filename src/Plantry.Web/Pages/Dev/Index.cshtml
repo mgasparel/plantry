@@ -868,15 +868,16 @@
     <p>
         <strong>Hub</strong> — a section landing page that orients the user and routes them into
         that section's sub-pages. Rendered with <code>.hub-list</code>: a bordered, rounded list of
-        full-row navigation tiles, each = accent icon + label + subtitle + chevron; the whole row is
-        the link. Used by the <code>More</code> page and the <code>Catalog</code> page. NOT for
-        CRUD/data lists (that is the data-grid / <code>.catalog-list</code> row primitive) and NOT
-        for functional wizards (e.g. Import step cards).
+        full-row navigation tiles, each = tinted icon chip + label + subtitle + chevron; the whole
+        row is the link. Used by the <code>Settings</code>, <code>More</code>, and <code>Catalog</code>
+        pages — all three share the identical chip treatment. NOT for CRUD/data lists (that is the
+        data-grid / <code>.catalog-list</code> row primitive) and NOT for functional wizards
+        (e.g. Import step cards).
     </p>
 
     <nav class="hub-list" aria-label="Hub list example">
         <a href="#" class="hub-list__item" onclick="return false">
-            <svg class="icon hub-list__icon" aria-hidden="true"><use href="#i-box" /></svg>
+            <span class="hub-list__icon"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></span>
             <div class="hub-list__text">
                 <span class="hub-list__label">Products</span>
                 <span class="hub-list__sub">SKUs, conversions, expiry defaults, parent/variant groups</span>
@@ -884,7 +885,7 @@
             <svg class="icon hub-list__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
         </a>
         <a href="#" class="hub-list__item" onclick="return false">
-            <svg class="icon hub-list__icon" aria-hidden="true"><use href="#i-scale" /></svg>
+            <span class="hub-list__icon"><svg class="icon" aria-hidden="true"><use href="#i-scale" /></svg></span>
             <div class="hub-list__text">
                 <span class="hub-list__label">Units</span>
                 <span class="hub-list__sub">Mass, volume, and count units used for sizing and conversions</span>
@@ -893,7 +894,7 @@
         </a>
     </nav>
 
-    <pre class="code-sample"><code>@("<nav class=\"hub-list\" aria-label=\"Section options\">\n  <a href=\"/Section/Sub\" class=\"hub-list__item\">\n    <svg class=\"icon hub-list__icon\" aria-hidden=\"true\"><use href=\"#i-box\" /></svg>\n    <div class=\"hub-list__text\">\n      <span class=\"hub-list__label\">Label</span>\n      <span class=\"hub-list__sub\">Subtitle</span>\n    </div>\n    <svg class=\"icon hub-list__chevron\" aria-hidden=\"true\"><use href=\"#i-chevron-right\" /></svg>\n  </a>\n</nav>")</code></pre>
+    <pre class="code-sample"><code>@("<nav class=\"hub-list\" aria-label=\"Section options\">\n  <a href=\"/Section/Sub\" class=\"hub-list__item\">\n    <span class=\"hub-list__icon\"><svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-box\" /></svg></span>\n    <div class=\"hub-list__text\">\n      <span class=\"hub-list__label\">Label</span>\n      <span class=\"hub-list__sub\">Subtitle</span>\n    </div>\n    <svg class=\"icon hub-list__chevron\" aria-hidden=\"true\"><use href=\"#i-chevron-right\" /></svg>\n  </a>\n</nav>")</code></pre>
 </section>
 
 <section class="catalog-section">

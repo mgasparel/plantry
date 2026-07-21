@@ -445,11 +445,13 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--color-text-muted);
 }
 
-/* ── Hub list (section landing pages: More, Catalog) ───────────────────────────
-   A bordered, rounded list of full-row navigation tiles — each tile is an accent
-   icon + label + subtitle + chevron, and the whole row is the link. Used by hub
-   pages (More, Catalog) that orient the user and route them into sub-pages. NOT a
-   CRUD/data list (that is .catalog-list) and NOT a functional wizard. */
+/* ── Hub list (section landing pages: Settings, More, Catalog) ─────────────────
+   A bordered, rounded list of full-row navigation tiles — each tile is a tinted
+   icon chip + label + subtitle + chevron, and the whole row is the link. Used by
+   hub pages (Settings, More, Catalog) that orient the user and route them into
+   sub-pages. NOT a CRUD/data list (that is .catalog-list) and NOT a functional
+   wizard. Icon chip treatment decided as Option C of .preview/settings-hub-jazz.html
+   (plantry-p7o8) — all hub-list consumers share the identical tinted-chip icon. */
 .hub-list {
   display: flex;
   flex-direction: column;
@@ -478,9 +480,18 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .hub-list__icon {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 2.25rem;
+  height: 2.25rem;
   flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle);
+  display: grid;
+  place-items: center;
+}
+
+.hub-list__icon .icon {
+  width: 1.25rem;
+  height: 1.25rem;
   color: var(--color-accent);
 }
 
