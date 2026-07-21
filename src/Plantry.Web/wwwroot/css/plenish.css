@@ -278,6 +278,22 @@ button { font-family: inherit; cursor: pointer; }
 .sidebar__link:hover .icon,
 .sidebar__link--active .icon { color: currentColor; }
 
+/* Nav count badge (tidy-up.md T1/T10) — a small right-aligned pill on a sidebar/hub link, rendered
+   only when its count is > 0. Accent tone reads as "there's something to do," not an alarm. */
+.sidebar__count {
+  margin-left: auto;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sidebar__count--accent { background: var(--color-accent); color: var(--color-text-on-accent); }
+
 .sidebar__footer {
   margin-top: auto;
   padding: var(--space-4) var(--space-3);

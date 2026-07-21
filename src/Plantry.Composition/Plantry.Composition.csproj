@@ -51,6 +51,7 @@
     <ProjectReference Include="..\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Deals\Plantry.Deals.csproj" />
     <ProjectReference Include="..\Plantry.Deals.Infrastructure\Plantry.Deals.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Housekeeping\Plantry.Housekeeping.csproj" />
   </ItemGroup>
 
 </Project>

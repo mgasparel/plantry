@@ -933,6 +933,26 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Nav count badge</h2>
+    </div>
+    <p>
+        <code>.sidebar__count</code> (+ <code>_TidyUpBadge.cshtml</code>) is the reusable nav-link count
+        pill (tidy-up.md T1/T10) — a small right-aligned badge on a sidebar or hub-tile link, rendered
+        only when its count is &gt; 0 (an empty, invisible span otherwise so an htmx out-of-band swap
+        always has a stable target id to update). Introduced for the Tidy Up nav item and More-hub tile;
+        reach for it before inventing a new nav badge shape. Accent tone reads as "there's something to
+        do" — calmer than a warning/danger tone, which would read as an alarm.
+    </p>
+
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center">
+        <span class="sidebar__count sidebar__count--accent">4</span>
+    </div>
+
+    <pre class="code-sample"><code>@("<partial name=\"_TidyUpBadge\" model=\"new TidyUpBadgeViewModel(openCount, targetId, oob: false)\" />\n\n// The partial renders nothing visually when Count == 0, but keeps the #targetId span in the DOM\n// so a later htmx OOB response (hx-swap-oob=\"true\") can still update it.")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Filter chip</h2>
     </div>
     <p>
