@@ -251,6 +251,96 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
         return new ConsumeOutcome(deductions, shortfall, unitId);
     }
 
+    /// <summary>
+    /// Fixes a data-entry mistake on a purchase without breaking the append-only ledger (ADR-023,
+    /// <c>docs/DomainDesign/purchase-entry-amendment.md</c>). Appends a compensating
+    /// <see cref="StockReason.Amendment"/> journal row on the <b>same</b> lot — never a new one —
+    /// and adjusts that lot's <see cref="StockEntry.Quantity"/> by the signed delta between
+    /// <paramref name="correctedQuantity"/> and the lot's <b>effective purchased quantity</b> (the
+    /// original Purchase row + every prior Amendment row on this lot, all in the lot's unit — the
+    /// committed unit IS the lot unit, so no conversion is involved, unlike <see cref="Consume"/>).
+    ///
+    /// Guards (spec §3/A4, evaluated in this order):
+    /// <list type="number">
+    /// <item><paramref name="correctedQuantity"/> must be positive.</item>
+    /// <item>It must be at least the total already consumed from this lot (Σ of every negative
+    /// <see cref="StockJournalEntry.Delta"/> recorded against this <see cref="StockEntryId"/>, any
+    /// reason) — an amendment can never drive the lot negative
+    /// (<c>Inventory.AmendBelowConsumed</c>).</item>
+    /// <item>The lot must be active (not depleted) — resurrecting a depleted lot is out of scope
+    /// for v1.</item>
+    /// <item>The amendment must not be closed: closed once any <see cref="StockReason.Correction"/>
+    /// row exists anywhere on this <b>product</b> (not just this lot — A5, deliberately
+    /// conservative: a Take Stock positive true-up lands as a new lot, invisible lot-locally) dated
+    /// after this lot's Purchase row (<c>Inventory.AmendmentClosedByCorrection</c>).</item>
+    /// </list>
+    ///
+    /// A zero delta (the corrected quantity already matches the effective quantity) is a no-op
+    /// success — the idempotent-re-drive guarantee for <c>AmendCommittedLineCommand</c>'s retry
+    /// after a mid-sequence failure (spec A10). Returns the signed delta actually applied, for the
+    /// caller's toast/UI ("+2 lb" / "−0.5 lb").
+    /// </summary>
+    public Result<decimal> AmendPurchase(
+        StockEntryId entryId, decimal correctedQuantity, Guid importLineId, Guid userId, IClock clock)
+    {
+        if (correctedQuantity <= 0m)
+            return Error.Custom("Inventory.InvalidAmendQuantity", "Corrected quantity must be greater than zero.");
+
+        var lot = _entries.FirstOrDefault(e => e.Id == entryId);
+        if (lot is null)
+            return Error.Custom("Inventory.LotNotFound", $"No lot '{entryId}' to amend.");
+
+        var purchaseRow = _journal
+            .Where(j => j.StockEntryId == entryId && j.Reason == StockReason.Purchase)
+            .OrderBy(j => j.OccurredAt)
+            .FirstOrDefault();
+        if (purchaseRow is null)
+            return Error.Custom("Inventory.LotNotFromIntake", "This lot was not created by an intake purchase and cannot be amended.");
+
+        // Only TRUE consumption counts here — Consumed/Discarded/negative-Correction removals.
+        // A prior downward Amendment is a correction to the purchased quantity, not consumption,
+        // so it must be excluded or a repeat downward amendment (A3 explicitly allows repeats)
+        // would be wrongly rejected against its own prior compensating delta.
+        var consumedTotal = _journal
+            .Where(j => j.StockEntryId == entryId && j.Reason != StockReason.Amendment && j.Delta < 0m)
+            .Sum(j => -j.Delta);
+        if (correctedQuantity < consumedTotal)
+            return Error.Custom(
+                "Inventory.AmendBelowConsumed",
+                $"Corrected quantity cannot be less than the {consumedTotal} already consumed from this lot.");
+
+        if (!lot.IsActive)
+            return Error.Custom("Inventory.LotNotActive", "A depleted lot cannot be amended.");
+
+        var closedByCorrection = _journal.Any(j =>
+            j.Reason == StockReason.Correction && j.OccurredAt > purchaseRow.OccurredAt);
+        if (closedByCorrection)
+            return Error.Custom(
+                "Inventory.AmendmentClosedByCorrection",
+                "This product has been recounted since the purchase; the amendment window is closed. Use a recount (Take Stock) instead.");
+
+        var priorAmendments = _journal
+            .Where(j => j.StockEntryId == entryId && j.Reason == StockReason.Amendment)
+            .Sum(j => j.Delta);
+        var effectiveQuantity = purchaseRow.Delta + priorAmendments;
+        var delta = correctedQuantity - effectiveQuantity;
+        if (delta == 0m)
+            return delta; // A10: idempotent re-drive — already at the corrected quantity, nothing to do.
+
+        var now = clock.UtcNow;
+        if (delta > 0m)
+            lot.Increase(delta, clock);
+        else
+            lot.Deduct(-delta, clock);
+
+        _journal.Add(StockJournalEntry.Record(
+            HouseholdId, ProductId, lot.Id, delta, lot.UnitId,
+            StockReason.Amendment, StockSourceType.Intake, importLineId, sourceLineRef: null, now, userId));
+        UpdatedAt = now;
+
+        return delta;
+    }
+
     // Identity is the composite (household_id, product_id); EF maps those columns as the key and
     // does not populate the base Id on materialization, so compare on the real key properties.
     public override bool Equals(object? obj) =>

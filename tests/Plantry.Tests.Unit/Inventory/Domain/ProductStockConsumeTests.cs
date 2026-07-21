@@ -169,6 +169,18 @@ public sealed class ProductStockConsumeTests
         Assert.Equal("Inventory.InvalidConsumeReason", result.Error.Code);
     }
 
+    [Fact(DisplayName = "Consume cannot record an Amendment reason (ADR-023 — written only by AmendPurchase)")]
+    public void Consume_Rejects_Amendment_Reason()
+    {
+        var stock = NewStock(out var clock);
+        stock.AddStock(5m, Unit, Location, User, clock, expiryDate: Day(1));
+
+        var result = stock.Consume(1m, Unit, StockReason.Amendment, new IdentityQuantityConverter(), User, clock);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Inventory.InvalidConsumeReason", result.Error.Code);
+    }
+
     [Theory(DisplayName = "A non-positive consume amount is rejected")]
     [InlineData(0)]
     [InlineData(-3)]

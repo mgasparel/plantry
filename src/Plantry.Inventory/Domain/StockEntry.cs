@@ -77,4 +77,20 @@ public sealed class StockEntry : Entity<StockEntryId>
         }
         UpdatedAt = now;
     }
+
+    /// <summary>
+    /// Adds <paramref name="amount"/> (in this lot's unit) to the lot — the counterpart to
+    /// <see cref="Deduct"/>, used only by <see cref="ProductStock.AmendPurchase"/> (ADR-023) to
+    /// apply a positive compensating delta to the <b>same</b> lot (never a new one). Un-depleting an
+    /// already-depleted lot stays out of scope for v1 — the root confirms <see cref="IsActive"/>
+    /// before calling. Called only by the root, keeping the aggregate boundary intact.
+    /// </summary>
+    internal void Increase(decimal amount, IClock clock)
+    {
+        if (amount <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(amount), "Increase must be positive.");
+
+        Quantity += amount;
+        UpdatedAt = clock.UtcNow;
+    }
 }
