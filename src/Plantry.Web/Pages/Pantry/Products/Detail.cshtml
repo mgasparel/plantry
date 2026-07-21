@@ -2,30 +2,25 @@
 @model Plantry.Web.Pages.Pantry.Products.DetailModel
 @{
     ViewData["Title"] = Model.Detail?.Name ?? "Product";
+    // Stock total is the subtitle; keep id="product-total" so _StockDetail's OOB swap stays live.
+    var stockTotal = $"{Model.Detail!.TotalQuantity.ToString("0.###")} {Model.Detail.DisplayUnitCode} in stock";
 }
 
-<div class="pantry-detail__header">
-    <div>
-        <h1 class="pantry-detail__title">@Model.Detail!.Name</h1>
-        <p id="product-total" class="pantry-detail__total">@Model.Detail.TotalQuantity.ToString("0.###") @Model.Detail.DisplayUnitCode in stock</p>
-        @if (Model.Detail.CategoryName is { Length: > 0 } categoryName)
-        {
-            <p class="pantry-detail__category">@categoryName</p>
-        }
-    </div>
-    <div style="display: flex; gap: var(--space-2)">
-        <button type="button" class="btn btn--ghost"
-                hx-get="@Url.Page("./Detail", "ThresholdSheet", new { id = Model.ProductId })"
-                hx-target="#sheet-host" hx-swap="innerHTML">
-            Set alert
-        </button>
-        <button type="button" class="btn btn--primary"
-                hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id = Model.ProductId })"
-                hx-target="#sheet-host" hx-swap="innerHTML">
-            Consume
-        </button>
-    </div>
-</div>
+@* Shared .page-header primitive (plantry-7yf1): category -> eyebrow, name -> title,
+   stock total -> subtitle (id="product-total", kept live by the OOB swap). *@
+<page-header eyebrow="@Model.Detail.CategoryName" title="@Model.Detail.Name"
+             subtitle="@stockTotal" subtitle-id="product-total">
+    <button type="button" class="btn btn--ghost"
+            hx-get="@Url.Page("./Detail", "ThresholdSheet", new { id = Model.ProductId })"
+            hx-target="#sheet-host" hx-swap="innerHTML">
+        Set alert
+    </button>
+    <button type="button" class="btn btn--primary"
+            hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id = Model.ProductId })"
+            hx-target="#sheet-host" hx-swap="innerHTML">
+        Consume
+    </button>
+</page-header>
 
 <partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null)" />
 

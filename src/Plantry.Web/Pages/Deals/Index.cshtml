@@ -50,12 +50,8 @@
 }
 
 <div class="cfg-wrap" data-screen-label="Deals">
-    <div class="cfg-head">
-        <div class="eyebrow">Flyer deals</div>
-        <h1>Deals</h1>
-        <p>Active flyer deals from the stores you follow, matched to your catalog. New deals wait in the
-           review queue until you confirm them.</p>
-    </div>
+    <page-header eyebrow="Flyer deals" title="Deals"
+                 subtitle="Active flyer deals from the stores you follow, matched to your catalog. New deals wait in the review queue until you confirm them." />
 
     @if (Model.Board.IsEmpty)
     {

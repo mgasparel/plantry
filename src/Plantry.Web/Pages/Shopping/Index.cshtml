@@ -5,18 +5,13 @@
 }
 
 <div class="sl-wrap">
-    @* ── Header (sl-head) ──────────────────────────────────────────────── *@
-    <div class="sl-head">
-        <div>
-            <h1>Shopping List</h1>
-            <p>One shared list for your household &middot; grouped by aisle.</p>
-        </div>
-        <div class="spacer"></div>
+    @* ── Header (shared .page-header primitive — plantry-7yf1) ──────────── *@
+    <page-header title="Shopping List" subtitle="One shared list for your household · grouped by aisle.">
         @* Summary stat box extracted to a partial so every mutation handler can OOB-swap
            #sl-summary and keep to-buy / checked / total counts live (plantry-3dh.2 A). *@
         <partial name="_ShoppingSummary"
                  model="new Plantry.Web.Pages.Shopping.ShoppingSummaryPartialModel(Model.ShoppingList, false)" />
-    </div>
+    </page-header>
 
     @* ── Add item form (sl-add card, SPEC §3b) ─────────────────────────── *@
     @* Extracted to _AddForm so an AddItem POST can swap it out-of-band — clearing it on

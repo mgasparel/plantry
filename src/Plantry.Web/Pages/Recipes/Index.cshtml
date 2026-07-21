@@ -5,6 +5,14 @@
     // .recipes-browse-wrap (max-width 1260px) sets its own width; opt out of the default
     // 900px .page-content cap so the gallery/grid can use the full prototype width.
     ViewData["ContentClass"] = "page-content--wide";
+
+    var cookableLine = Model.Result.CookableCount switch
+    {
+        1 => "1 recipe ready to make tonight without a shopping trip.",
+        > 1 => $"{Model.Result.CookableCount} recipes ready to make tonight without a shopping trip.",
+        _ => "Stock up to unlock what you can cook."
+    };
+    var recipesSubtitle = $"What you can cook with what you have. {cookableLine}";
 }
 
 <div class="recipes-browse-wrap"
@@ -13,30 +21,12 @@
          setView(v) { this.view = v; localStorage.setItem('recipeView', v); }
      }">
 
-    @* ── Header row ──────────────────────────────────────────────────────── *@
-    <div class="recipes-browse-head">
-        <div class="recipes-browse-head__titles">
-            <h1 class="recipes-browse-head__title">Recipes</h1>
-            <p class="recipes-browse-head__sub">
-                What you can cook with what you have.
-                @if (Model.Result.CookableCount == 1)
-                {
-                    <span>1 recipe ready to make tonight without a shopping trip.</span>
-                }
-                else if (Model.Result.CookableCount > 1)
-                {
-                    <span>@Model.Result.CookableCount recipes ready to make tonight without a shopping trip.</span>
-                }
-                else
-                {
-                    <span>Stock up to unlock what you can cook.</span>
-                }
-            </p>
-        </div>
+    @* ── Header row (shared .page-header primitive — plantry-7yf1) ────────── *@
+    <page-header title="Recipes" subtitle="@recipesSubtitle">
         <a href="/Recipes/New" class="btn btn--primary">
             <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg> New recipe
         </a>
-    </div>
+    </page-header>
 
     @* ── Toolbar ─────────────────────────────────────────────────────────── *@
     <form id="recipes-filter-form" method="get" action="/Recipes">

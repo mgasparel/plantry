@@ -117,7 +117,8 @@ public sealed class MealPlanningSmokeTests(AppHostFixture appHost) : IAsyncLifet
             await page.WaitForURLAsync("**/Settings**");
 
             // ── Settings hub rendered successfully ────────────────────────────────
-            var heading = await page.Locator("h2").First.TextContentAsync();
+            // The page title is now the shared .page-header primitive (plantry-7yf1), an <h1>.
+            var heading = await page.Locator(".page-header__title").First.TextContentAsync();
             Assert.Contains("Settings", heading, StringComparison.OrdinalIgnoreCase);
         }
         finally

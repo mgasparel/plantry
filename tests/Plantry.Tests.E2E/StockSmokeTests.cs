@@ -93,7 +93,7 @@ public sealed class StockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             // ── Open the product detail and consume part of it ──────────────────
             await page.ClickAsync($"a.data-grid__link:has-text('{productName}')");
             await page.WaitForURLAsync("**/Pantry/Products/Detail/**");
-            await Assertions.Expect(page.Locator(".pantry-detail__total")).ToContainTextAsync("500 g");
+            await Assertions.Expect(page.Locator("#product-total")).ToContainTextAsync("500 g");
 
             await page.ClickAsync("button:has-text('Consume')");
             await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();

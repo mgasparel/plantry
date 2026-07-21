@@ -7,33 +7,27 @@
 
 <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
+@* Product identity now uses the shared .page-header primitive (plantry-7yf1): category ->
+   eyebrow, name -> title, "(archived)" -> muted title-meta, Archive/Unarchive -> actions. No
+   subtitle (Catalog has no natural stat line). Lifted out of the first card's head. *@
+<page-header eyebrow="@product.CategoryName" title="@product.Name"
+             title-meta="@(product.IsArchived ? "(archived)" : null)">
+    @if (product.IsArchived)
+    {
+        <form method="post" asp-page-handler="Unarchive" asp-route-id="@product.Id.Value">
+            <button type="submit" class="btn btn--ghost btn--sm">Unarchive</button>
+        </form>
+    }
+    else
+    {
+        <form method="post" asp-page-handler="Archive" asp-route-id="@product.Id.Value"
+              onsubmit="return confirm('Archive this product? It will be hidden from your catalog and won\'t appear when adding items. You can unarchive it later.');">
+            <button type="submit" class="btn btn--ghost btn--sm">Archive</button>
+        </form>
+    }
+</page-header>
+
 <div class="card">
-    <div class="card__head">
-        <div>
-            <h3 class="card__head-title">
-                @product.Name
-                @if (product.IsArchived)
-                {
-                    <span class="catalog-list__meta">(archived)</span>
-                }
-            </h3>
-        </div>
-        <div class="card__head-actions">
-            @if (product.IsArchived)
-            {
-                <form method="post" asp-page-handler="Unarchive" asp-route-id="@product.Id.Value">
-                    <button type="submit" class="btn btn--ghost btn--sm">Unarchive</button>
-                </form>
-            }
-            else
-            {
-                <form method="post" asp-page-handler="Archive" asp-route-id="@product.Id.Value"
-                      onsubmit="return confirm('Archive this product? It will be hidden from your catalog and won\'t appear when adding items. You can unarchive it later.');">
-                    <button type="submit" class="btn btn--ghost btn--sm">Archive</button>
-                </form>
-            }
-        </div>
-    </div>
     <div class="card__body">
         <form method="post" class="form-stack">
             <div class="form-grid">

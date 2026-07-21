@@ -3,34 +3,23 @@
 @{
     ViewData["Title"] = "Today";
     ViewData["ContentClass"] = "page-content--wide";
+    var todaySubtitle = string.IsNullOrEmpty(Model.HouseholdName)
+        ? Model.DateDisplay
+        : $"{Model.DateDisplay} · {Model.HouseholdName}";
 }
 
 <div class="today-wrap">
-    <div class="today-head">
-        <div class="today-head__greet">
-            <h1 class="today-head__greeting">@(Model.IsColdStart ? "Welcome to Plantry." : Model.Greeting)</h1>
-            <div class="today-head__date">
-                <span>@Model.DateDisplay</span>
-                @if (!string.IsNullOrEmpty(Model.HouseholdName))
-                {
-                    <span class="today-head__ddot"></span>
-                    <span>@Model.HouseholdName</span>
-                }
-            </div>
-        </div>
-        <div class="today-head__spacer"></div>
+    <page-header title="@(Model.IsColdStart ? "Welcome to Plantry." : Model.Greeting)" subtitle="@todaySubtitle">
         @if (!Model.IsColdStart)
         {
-            <div class="today-head__actions">
-                <a class="today-linkbtn" href="/Pantry">
-                    <svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg> Pantry
-                </a>
-                <a class="today-linkbtn today-linkbtn--accent" href="/MealPlan">
-                    <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Weekly plan
-                </a>
-            </div>
+            <a class="today-linkbtn" href="/Pantry">
+                <svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg> Pantry
+            </a>
+            <a class="today-linkbtn today-linkbtn--accent" href="/MealPlan">
+                <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Weekly plan
+            </a>
         }
-    </div>
+    </page-header>
 
     @if (Model.IsColdStart)
     {

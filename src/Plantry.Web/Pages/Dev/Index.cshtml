@@ -21,6 +21,35 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Page header</h2>
+    </div>
+    <p>
+        <code>&lt;page-header&gt;</code> is the one shared page-title strip (prominent weight,
+        1.875rem) at the top of every top-level page and both product-detail pages. A required
+        <code>title</code>, an optional accent-pill <code>eyebrow</code> (context/section label),
+        an optional <code>subtitle</code>, and an optional muted <code>title-meta</code> suffix
+        (e.g. <code>(archived)</code>). Any child content renders as right-aligned header actions
+        — the reason this is a tag helper, not a partial: a partial can't slot arbitrary action
+        markup. Pass <code>subtitle-id</code> when an htmx out-of-band swap must keep the subtitle
+        live (Pantry detail's <code>product-total</code>).
+    </p>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Title + subtitle</h3>
+    <page-header title="Pantry" subtitle="Everything your household has on hand, grouped by location." />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Optional eyebrow</h3>
+    <page-header eyebrow="Flyer deals" title="Deals" subtitle="Active flyer deals from the stores you follow, matched to your catalog." />
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)">Eyebrow + title-meta + actions (product detail)</h3>
+    <page-header eyebrow="Dairy" title="Whole milk" title-meta="(archived)">
+        <button type="button" class="btn btn--ghost btn--sm">Unarchive</button>
+    </page-header>
+
+    <pre class="code-sample"><code>@("<page-header title=\"Pantry\"\n             subtitle=\"Everything your household has on hand, grouped by location.\" />\n\n<!-- Optional accent-pill eyebrow (context/section label) -->\n<page-header eyebrow=\"Flyer deals\" title=\"Deals\" subtitle=\"...\" />\n\n<!-- Muted title-meta + right-aligned actions (child content) -->\n<page-header eyebrow=\"Dairy\" title=\"Whole milk\" title-meta=\"(archived)\">\n    <button type=\"submit\" class=\"btn btn--ghost btn--sm\">Unarchive</button>\n</page-header>\n\n<!-- subtitle-id keeps the subtitle live for an htmx OOB swap -->\n<page-header title=\"Whole milk\" subtitle=\"3.5 L in stock\" subtitle-id=\"product-total\" />")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Field row</h2>
     </div>
     <p>
