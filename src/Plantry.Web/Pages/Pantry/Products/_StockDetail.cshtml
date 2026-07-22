@@ -3,6 +3,7 @@
 @using Plantry.Web.Pages.Shared
 @{
     var id = Model.Detail.ProductId;
+    var hasStock = Model.Detail.Lots.Count > 0;
     string DeltaText(StockJournalRow r) => $"{(r.Delta > 0 ? "+" : "")}{r.Delta.ToString("0.###")} {r.UnitCode}";
 
     var lotsGrid = new DataGridViewModel(
@@ -56,10 +57,29 @@
         <div class="alert alert--info" role="status">@notice</div>
     }
 
-    <section class="catalog-section">
-        <h2 class="catalog-section__heading">Lots</h2>
-        <partial name="Shared/_DataGrid" model="lotsGrid" />
-    </section>
+    @if (hasStock)
+    {
+        <section class="catalog-section">
+            <h2 class="catalog-section__heading">Lots</h2>
+            <partial name="Shared/_DataGrid" model="lotsGrid" />
+        </section>
+    }
+    else
+    {
+        @* Zero-stock landing (plantry-sjfn): no active lots — either never stocked (the Pantry
+           "Everything" scope links catalog-only products straight here) or consumed to zero.
+           Add stock is the primary CTA here too, mirroring the header's toggle. *@
+        <div class="card">
+            <div class="empty-state">
+                <p style="margin:0;">Nothing on hand — your household tracks this product but hasn't stocked it yet.</p>
+                <button type="button" class="btn btn--primary"
+                        hx-get="@Url.Page("./Detail", "AddStockSheet", new { id })"
+                        hx-target="#sheet-host" hx-swap="innerHTML">
+                    Add stock
+                </button>
+            </div>
+        </div>
+    }
 
     <section class="catalog-section">
         <h2 class="catalog-section__heading">History</h2>
@@ -68,5 +88,8 @@
 </div>
 @if (Model.Oob)
 {
-    <p id="product-total" class="page-header__subtitle" hx-swap-oob="true">@Model.Detail.TotalQuantity.ToString("0.###") @Model.Detail.DisplayUnitCode in stock</p>
+    <p id="product-total" class="page-header__subtitle" hx-swap-oob="true">
+        @(hasStock ? $"{Model.Detail.TotalQuantity.ToString("0.###")} {Model.Detail.DisplayUnitCode} in stock" : "Not in stock")
+    </p>
+    <partial name="_PrimaryStockAction" model="new Plantry.Web.Pages.Pantry.Products.PrimaryStockActionPartialModel(id, hasStock, true)" />
 }

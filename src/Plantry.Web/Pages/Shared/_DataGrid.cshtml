@@ -66,7 +66,7 @@ else
         <tbody>
             @foreach (var row in Model.Rows)
             {
-                <tr>
+                <tr class="@row.CssClass">
                     @for (var i = 0; i < row.Cells.Count; i++)
                     {
                         var cell = row.Cells[i];
@@ -99,7 +99,14 @@ else
                                 case GridCellKind.Actions:
                                     foreach (var action in cell.Items)
                                     {
-                                        if (action.IsHxGet)
+                                        if (action.IsIcon)
+                                        {
+                                            <a class="data-grid__icon-action" href="@action.Url"
+                                               aria-label="@action.Label" title="@action.Label">
+                                                <svg class="icon" aria-hidden="true"><use href="#@action.IconId" /></svg>
+                                            </a>
+                                        }
+                                        else if (action.IsHxGet)
                                         {
                                             <button type="button" class="btn btn--sm btn--ghost data-grid__action"
                                                     hx-get="@action.Url"

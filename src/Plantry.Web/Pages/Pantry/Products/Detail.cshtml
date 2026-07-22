@@ -3,8 +3,16 @@
 @using Plantry.Web.Pages.Shared
 @{
     ViewData["Title"] = Model.Detail?.Name ?? "Product";
-    // Stock total is the subtitle; keep id="product-total" so _StockDetail's OOB swap stays live.
-    var stockTotal = $"{Model.Detail!.TotalQuantity.ToString("0.###")} {Model.Detail.DisplayUnitCode} in stock";
+
+    // Zero-stock landing (plantry-sjfn): a product with no active lots — either never stocked at all
+    // (the Pantry "Everything" scope links catalog-only products straight here) or consumed down to
+    // zero — gets "Not in stock" instead of a quantity, and the header's primary action swaps from
+    // Consume to Add stock (_PrimaryStockAction). Keep id="product-total" so _StockDetail's OOB swap
+    // of this same subtitle text stays live.
+    var hasStock = Model.Detail!.Lots.Count > 0;
+    var stockTotal = hasStock
+        ? $"{Model.Detail.TotalQuantity.ToString("0.###")} {Model.Detail.DisplayUnitCode} in stock"
+        : "Not in stock";
 
     // "Recipes" section (plantry-o0r8) — which household recipes directly reference this product, either
     // as a consumer ("Used in") or as the recipe's declared cook yield ("Made by"). Both roles are folded
@@ -48,11 +56,7 @@
             hx-target="#sheet-host" hx-swap="innerHTML">
         Set price
     </button>
-    <button type="button" class="btn btn--primary"
-            hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id = Model.ProductId })"
-            hx-target="#sheet-host" hx-swap="innerHTML">
-        Consume
-    </button>
+    <partial name="_PrimaryStockAction" model="new Plantry.Web.Pages.Pantry.Products.PrimaryStockActionPartialModel(Model.ProductId, hasStock, false)" />
 </page-header>
 
 @* Current effective price (plantry-3fqm) — the same read model CostingService uses, so what's shown here

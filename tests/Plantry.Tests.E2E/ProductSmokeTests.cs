@@ -93,6 +93,10 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             var heading = await page.Locator(".page-header__title").First.TextContentAsync();
             Assert.Contains(productName, heading);
 
+            // Capture the product id from the Detail redirect URL — reused below to navigate
+            // straight to both detail pages without depending on prior-step DOM state.
+            var productId = new Uri(page.Url).Segments[^1];
+
             // ── Step 4: Add a SKU ──────────────────────────────────────────────────
             await page.FillAsync("[name='SkuInput.Label']", "1 kg bag");
             await page.FillAsync("[name='SkuInput.SizeQuantity']", "1");
@@ -119,14 +123,78 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             var renamedHeading = await page.Locator(".page-header__title").First.TextContentAsync();
             Assert.Contains(renamedProductName, renamedHeading);
 
-            // ── Step 7: Archive it ─────────────────────────────────────────────────
+            // ── Step 6b: Unified product list (plantry-sjfn) — the product has never been
+            // stocked, so it must NOT appear in Pantry's default "In stock" scope, but must fold
+            // into "Everything" scope as a quiet, never-stocked row. ────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await Assertions.Expect(page.Locator(".data-grid__link", new() { HasText = renamedProductName }))
+                .Not.ToBeVisibleAsync();
+
+            // The scope radio is visually hidden (seg-ctrl, sr-only) — click its label, as other
+            // seg-ctrl E2E tests do (e.g. RecipeAuthorJourneyTests' Scale mode toggle).
+            await page.Locator(".seg-ctrl__item", new() { HasText = "Everything" }).ClickAsync();
+            var everythingRow = page.Locator("tr", new() { HasText = renamedProductName });
+            await Assertions.Expect(everythingRow).ToBeVisibleAsync();
+            await Assertions.Expect(everythingRow).ToContainTextAsync("Not stocked");
+            await Assertions.Expect(everythingRow).ToHaveClassAsync(new System.Text.RegularExpressions.Regex("data-grid__row--muted"));
+
+            // ── Step 6c: The trailing pencil action navigates to the catalog definition form,
+            // never the stock view — verified from the Everything-scope row. ─────────────────
+            await everythingRow.Locator("a.data-grid__icon-action").ClickAsync();
+            await page.WaitForURLAsync($"**/Catalog/Products/{productId}");
+
+            // ── Step 6d: The name link always goes to the stock view — for a never-stocked
+            // product that's the zero-stock empty-state landing (Add stock CTA, no Consume). ──
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            // The scope radio is visually hidden (seg-ctrl, sr-only) — click its label, as other
+            // seg-ctrl E2E tests do (e.g. RecipeAuthorJourneyTests' Scale mode toggle).
+            await page.Locator(".seg-ctrl__item", new() { HasText = "Everything" }).ClickAsync();
+            await page.Locator("tr", new() { HasText = renamedProductName }).Locator("a.data-grid__link").ClickAsync();
+            await page.WaitForURLAsync($"**/Pantry/Products/Detail/{productId}");
+
+            await Assertions.Expect(page.Locator(".page-header__subtitle", new() { HasText = "Not in stock" }))
+                .ToBeVisibleAsync();
+            await Assertions.Expect(page.GetByRole(AriaRole.Button, new() { Name = "Consume" })).Not.ToBeVisibleAsync();
+            // "Add stock" appears twice on the zero-stock landing (header CTA + empty-state card
+            // CTA, both per design) — .First is enough to prove the affordance is there.
+            await Assertions.Expect(page.GetByRole(AriaRole.Button, new() { Name = "Add stock" }).First).ToBeVisibleAsync();
+
+            // ── Step 6e: Add stock works from the zero-stock landing itself — household
+            // registration seeds default locations (Fridge/Freezer/Pantry/Counter), so "Pantry" is
+            // already available. Use the header's primary CTA and confirm the page flips out of
+            // the empty state (subtitle, Consume button, lots row). ───────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Pantry/Products/Detail/{productId}");
+            await page.GetByRole(AriaRole.Button, new() { Name = "Add stock" }).First.ClickAsync();
+            var addStockSheet = page.Locator("#sheet-host [role=dialog][aria-label='Add stock']");
+            await Assertions.Expect(addStockSheet).ToBeVisibleAsync();
+
+            await addStockSheet.Locator("[name='AddStockInput.Quantity']").FillAsync("500");
+            await addStockSheet.Locator("[name='AddStockInput.UnitId']")
+                .SelectOptionAsync(new SelectOptionValue { Label = "g — gram" });
+            await addStockSheet.Locator("[name='AddStockInput.LocationId']")
+                .SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
+            await addStockSheet.GetByRole(AriaRole.Button, new() { Name = "Add to pantry" }).ClickAsync();
+
+            await Assertions.Expect(page.Locator(".page-header__subtitle", new() { HasText = "500 g in stock" }))
+                .ToBeVisibleAsync();
+            await Assertions.Expect(page.GetByRole(AriaRole.Button, new() { Name = "Consume" })).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator("#lots-grid")).ToContainTextAsync("500 g");
+
+            // ── Step 7: Archive it (back on the catalog definition page) ──────────
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/{productId}");
             await page.ClickAsync("button:has-text('Archive')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
             await Assertions.Expect(page.Locator(".page-header__title-meta", new() { HasText = "archived" })).ToBeVisibleAsync();
 
-            // ── Step 8: Archived product disappears from the active list ──────────
+            // ── Step 8: Archived product disappears everywhere — /Catalog/Products is now just a
+            // redirect stub to /Pantry (plantry-sjfn), and it must stay absent from Everything scope. ──
             await page.GotoAsync($"{BaseUrl}/Catalog/Products");
-            await page.WaitForURLAsync("**/Catalog/Products");
+            await page.WaitForURLAsync("**/Pantry**");
+            // The scope radio is visually hidden (seg-ctrl, sr-only) — click its label, as other
+            // seg-ctrl E2E tests do (e.g. RecipeAuthorJourneyTests' Scale mode toggle).
+            await page.Locator(".seg-ctrl__item", new() { HasText = "Everything" }).ClickAsync();
             await Assertions.Expect(page.Locator(".data-grid__link", new() { HasText = renamedProductName })).Not.ToBeVisibleAsync();
         }
         finally

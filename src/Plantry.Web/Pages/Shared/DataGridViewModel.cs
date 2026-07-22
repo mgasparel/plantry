@@ -35,7 +35,8 @@ public sealed record GridSort(string Key, bool Descending);
 /// </summary>
 public sealed record GridAction(
     string Label, string Url, bool IsPost = false, string? Confirm = null, bool RemovesRow = false,
-    bool IsHxGet = false, string? HxTarget = null, string? HxSwap = null)
+    bool IsHxGet = false, string? HxTarget = null, string? HxSwap = null,
+    bool IsIcon = false, string? IconId = null)
 {
     /// <summary>A plain navigation action (edit, jump-to-detail) — just an anchor.</summary>
     public static GridAction Link(string label, string url) => new(label, url);
@@ -51,6 +52,16 @@ public sealed record GridAction(
     /// <summary>A mutating htmx POST that swaps a specific target element rather than removing the row.</summary>
     public static GridAction PostTo(string label, string url, string hxTarget, string hxSwap = "outerHTML", string? confirm = null) =>
         new(label, url, IsPost: true, Confirm: confirm, HxTarget: hxTarget, HxSwap: hxSwap);
+
+    /// <summary>
+    /// An icon-only navigation action (plantry-sjfn) — a quiet ghost icon button rather than the
+    /// text ghost-button treatment the other factories produce. <paramref name="label"/> is not
+    /// rendered as text; it becomes the button's <c>aria-label</c>/<c>title</c> so the affordance
+    /// stays accessible and hoverable. <paramref name="iconId"/> names a <c>&lt;symbol&gt;</c> id
+    /// already registered in <c>_Layout.cshtml</c>'s icon sprite (e.g. <c>"i-edit"</c>).
+    /// </summary>
+    public static GridAction Icon(string label, string url, string iconId) =>
+        new(label, url, IsIcon: true, IconId: iconId);
 }
 
 /// <summary>
@@ -105,8 +116,14 @@ public sealed record GridCell
         new() { Kind = GridCellKind.ExpiryBadge, Value = label, ExpiryTier = tierModifier };
 }
 
-/// <summary>One row — a list of cells the page has already mapped, positionally aligned with <see cref="DataGridViewModel.Columns"/>.</summary>
-public sealed record GridRow(IReadOnlyList<GridCell> Cells);
+/// <summary>
+/// One row — a list of cells the page has already mapped, positionally aligned with
+/// <see cref="DataGridViewModel.Columns"/>. <see cref="CssClass"/> is an optional row-level hook
+/// (plantry-sjfn) for a whole-row visual treatment the cell vocabulary can't express by itself —
+/// e.g. the Pantry "Everything" scope's quiet styling for a never-stocked row
+/// (<c>"data-grid__row--muted"</c>) — without inventing a bespoke per-page table.
+/// </summary>
+public sealed record GridRow(IReadOnlyList<GridCell> Cells, string? CssClass = null);
 
 /// <summary>
 /// The `_DataGrid` partial's model — a reusable, reflection-free, hypermedia-only data table. The

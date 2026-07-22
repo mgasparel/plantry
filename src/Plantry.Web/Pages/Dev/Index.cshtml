@@ -585,7 +585,7 @@
                         sortable headers, badges, and per-row actions.</td>
                     <td>Typed <code>GridCell</code> vocabulary (Text / Muted / Link / Badge /
                         ExpiryBadge / Actions); column headers + <code>aria-sort</code>.</td>
-                    <td><a href="/Pantry">Pantry</a>, <a href="/Catalog/Products">Catalog&nbsp;Products</a></td>
+                    <td><a href="/Pantry">Pantry</a> (scope control, quiet unstocked rows, icon action)</td>
                 </tr>
                 <tr>
                     <td><strong>Row-list</strong><br><code>_RowList</code></td>
@@ -702,18 +702,22 @@
         partial owns every <code>&lt;td&gt;</code> while the compiler still checks the whole
         page→grid contract. <strong>Sortable headers</strong> (Name, Category) htmx-GET a
         <code>Sort</code> handler that re-orders server-side and swaps the whole table back, marked
-        up with <code>aria-sort</code>. The <strong>Edit</strong> link navigates to the real
-        <code>/Catalog/Products/Edit/{id}</code> route and the product name links to
-        <code>/Catalog/Products/Detail/{id}</code> — these are demo GUIDs, so following them 404s,
-        but they exercise the real URL shape. <strong>Delete</strong> is an htmx POST (the app's
-        first) carrying the antiforgery token via the global
+        up with <code>aria-sort</code>. The trailing column mixes both <code>Actions</code>
+        treatments: an <strong>icon-only</strong> ghost button (<code>GridAction.Icon</code>, the
+        <code>.data-grid__icon-action</code> class — a quiet affordance for a daily-driver view, e.g.
+        the Pantry grid's pencil-to-catalog-definition link) and the <strong>Delete</strong> text
+        ghost button, an htmx POST carrying the antiforgery token via the global
         <code>htmx-antiforgery.js</code> hook; on confirm it swaps its own <code>&lt;tr&gt;</code>
-        out. This demo's handlers persist nothing, so a reload restores the seeded rows.
+        out. A <code>GridRow</code> can also carry an optional <code>CssClass</code> for a whole-row
+        treatment the cell vocabulary alone can't express (e.g. <code>"data-grid__row--muted"</code>
+        for a never-stocked pantry row). These are demo GUIDs, so the icon and product links 404, but
+        they exercise the real URL shapes. This demo's handlers persist nothing, so a reload restores
+        the seeded rows.
     </p>
 
     <partial name="Shared/_DataGrid" model="Model.ProductGrid" />
 
-    <pre class="code-sample"><code>@("Rows: products.Select(p => new GridRow(\n[\n    GridCell.Link(p.Name, $\"/Catalog/Products/Detail/{p.Id}\"),\n    GridCell.Text(p.Category),\n    p.IsParent ? GridCell.Badge(\"Parent\", BadgeTone.Info) : GridCell.Muted(\"—\"),\n    GridCell.Actions(\n        GridAction.Link(\"Edit\", $\"/Catalog/Products/Edit/{p.Id}\"),\n        GridAction.Post(\"Delete\", Url.Page(\"./Index\", \"Delete\", new { id = p.Id }),\n            confirm: $\"Delete {p.Name}?\", removesRow: true)),\n])).ToList()")</code></pre>
+    <pre class="code-sample"><code>@("Rows: products.Select(p => new GridRow(\n[\n    GridCell.Link(p.Name, $\"/Catalog/Products/Detail/{p.Id}\"),\n    GridCell.Text(p.Category),\n    p.IsParent ? GridCell.Badge(\"Parent\", BadgeTone.Info) : GridCell.Muted(\"—\"),\n    GridCell.Actions(\n        GridAction.Icon(\"Edit product details\", $\"/Catalog/Products/{p.Id}\", \"i-edit\"),\n        GridAction.Post(\"Delete\", Url.Page(\"./Index\", \"Delete\", new { id = p.Id }),\n            confirm: $\"Delete {p.Name}?\", removesRow: true)),\n]),\nCssClass: p.IsArchived ? \"data-grid__row--muted\" : null)).ToList()")</code></pre>
 </section>
 
 <section class="catalog-section">

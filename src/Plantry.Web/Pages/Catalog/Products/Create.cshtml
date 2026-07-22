@@ -37,6 +37,8 @@
             <span asp-validation-for="Input.DefaultLocationId" class="field__error"></span>
         </div>
         <button type="submit" class="btn btn--primary">Create Product</button>
-        <a href="/Catalog/Products" class="btn btn--ghost">Cancel</a>
+        @* Cancel returns to Pantry (plantry-sjfn) — the unified product list; /Catalog/Products is
+           now just a redirect stub, so linking straight to /Pantry avoids the extra hop. *@
+        <a href="/Pantry" class="btn btn--ghost">Cancel</a>
     </form>
 </section>

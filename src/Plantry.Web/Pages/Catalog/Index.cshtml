@@ -4,17 +4,11 @@
     ViewData["Title"] = "Catalog";
 }
 
-<page-header title="Catalog" subtitle="Manage the products, units, categories, and locations your household uses to track stock." />
+<page-header title="Catalog" subtitle="Manage the reference data your household uses to track stock: units, categories, and locations." />
 
+@* Products moved out of the Catalog hub (plantry-sjfn) — Pantry (Everything scope) is now the one
+   list of products, stocked or not. Catalog is purely reference data: Units, Categories, Locations. *@
 <nav class="hub-list" aria-label="Catalog sections">
-        <a href="/Catalog/Products" class="hub-list__item">
-            <span class="hub-list__icon"><svg class="icon" aria-hidden="true"><use href="#i-box" /></svg></span>
-            <div class="hub-list__text">
-                <span class="hub-list__label">Products</span>
-                <span class="hub-list__sub">SKUs, conversions, expiry defaults, parent/variant groups</span>
-            </div>
-            <svg class="icon hub-list__chevron" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-        </a>
         <a href="/Catalog/Units" class="hub-list__item">
             <span class="hub-list__icon"><svg class="icon" aria-hidden="true"><use href="#i-scale" /></svg></span>
             <div class="hub-list__text">

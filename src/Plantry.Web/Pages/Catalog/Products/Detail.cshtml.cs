@@ -37,11 +37,14 @@ public sealed class DetailModel(
 
     /// <summary>
     /// True when a <see cref="Plantry.Inventory.Domain.ProductStock"/> record exists for this
-    /// product in the current household — i.e. it has been stocked at least once and the Pantry
-    /// detail page would render rather than 404. Drives the "View in pantry" cross-link: live when
-    /// true, muted "Not in pantry yet" hint when false (plantry-kkeg). Mirrors the exact existence
-    /// condition in <c>InventoryQueryService.FindDetailAsync</c> (a record, not active lots — a
-    /// product consumed to zero still has a stock record and a live pantry view).
+    /// product in the current household — i.e. it has been stocked at least once. Drives the
+    /// "View in pantry" cross-link: live when true, muted "Not in pantry yet" hint when false
+    /// (plantry-kkeg). This is a "has stock history" check, not a "would the Pantry detail page
+    /// 404" check — since plantry-sjfn, <c>InventoryQueryService.FindDetailAsync</c> renders a
+    /// zero-lot empty state for any catalog product (stocked or not) rather than 404ing, so the
+    /// Pantry detail page always renders now. The cross-link intentionally stays conservative
+    /// (kept as the "safety net between the two views" the design called for) rather than always
+    /// linking through to a page the product has never actually touched.
     /// </summary>
     public bool HasPantryStock { get; private set; }
 

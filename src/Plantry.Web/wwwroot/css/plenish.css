@@ -1131,7 +1131,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .pantry-toolbar__search { flex: 1 1 14rem; min-width: 0; }
 .pantry-toolbar__toggle { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); cursor: pointer; }
-.pantry-toolbar__add { margin-left: auto; }
+.pantry-toolbar__add { margin-left: auto; display: flex; gap: var(--space-2); }
 .pantry-toolbar__filters {
   flex: 0 0 100%;
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
@@ -1289,6 +1289,24 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 }
 
 .data-grid__action + .data-grid__action { margin-left: var(--space-2); }
+
+/* Icon-only row action (plantry-sjfn) — the quiet ghost-icon treatment for a trailing Actions cell
+   (e.g. the pantry grid's pencil-to-catalog-definition link), distinct from the text ghost button
+   .data-grid__action renders: no visible label, just an icon + aria-label/title. */
+.data-grid__icon-action {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; border-radius: var(--radius-md); border: none;
+  background: transparent; color: var(--color-text-faint); text-decoration: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.data-grid__icon-action:hover, .data-grid__icon-action:focus-visible { background: var(--color-accent-subtle); color: var(--color-accent); }
+.data-grid__icon-action .icon { width: 15px; height: 15px; }
+
+/* Whole-row quiet treatment (plantry-sjfn) — the Pantry "Everything" scope's never-stocked rows:
+   faint cells throughout, but the name link keeps a live accent (just slightly dimmed) since it's
+   still a working navigation, not decoration. */
+.data-grid__row--muted .data-grid__cell { color: var(--color-text-faint); }
+.data-grid__row--muted .data-grid__link { opacity: .85; }
 
 /* ── Card sections ─────────────────────────────────────────────────────────── */
 .card {

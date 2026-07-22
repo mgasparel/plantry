@@ -23,6 +23,9 @@ public sealed class DetailModel(
     IProductConversionProvider conversions,
     ICatalogReadFacade catalog,
     IUnitRepository units,
+    ILocationRepository locations,
+    IProductRepository products,
+    ICategoryRepository categories,
     IStockProvenanceReader provenance,
     IPriceObservationRepository priceRepository,
     IUnitPriceCalculator priceCalculator,
@@ -32,7 +35,8 @@ public sealed class DetailModel(
     IClock clock,
     ITenantContext tenant,
     ILogger<ConsumeStockCommand> consumeLogger,
-    ILogger<SetLowStockThresholdCommand> thresholdLogger) : PageModel
+    ILogger<SetLowStockThresholdCommand> thresholdLogger,
+    ILogger<AddStockCommand> addStockLogger) : PageModel
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
@@ -59,6 +63,10 @@ public sealed class DetailModel(
 
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
 
+    /// <summary>Locations for the zero-stock landing's Add stock sheet (plantry-sjfn) — the only sheet
+    /// on this page that needs a location picker, so it's loaded on demand rather than every GET.</summary>
+    public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
+
     [BindProperty]
     public ConsumeInputModel Input { get; set; } = new();
 
@@ -67,6 +75,11 @@ public sealed class DetailModel(
 
     [BindProperty]
     public PriceInputModel PriceInput { get; set; } = new();
+
+    /// <summary>Add stock from the product's own detail page (plantry-sjfn) — the primary CTA on the
+    /// zero-stock landing (and available any time). No product picker: the product is this page's id.</summary>
+    [BindProperty]
+    public AddStockInputModel AddStockInput { get; set; } = new();
 
     public sealed class ConsumeInputModel
     {
@@ -103,6 +116,24 @@ public sealed class DetailModel(
 
         [Required(ErrorMessage = "Choose a unit.")]
         public Guid? UnitId { get; set; }
+    }
+
+    /// <summary>Add stock for this exact product (plantry-sjfn) — quantity/unit/location/expiry only,
+    /// mirroring <c>Pantry.IndexModel.AddStockInputModel</c> minus the product picker.</summary>
+    public sealed class AddStockInputModel
+    {
+        [Required(ErrorMessage = "Enter a quantity.")]
+        [Range(0.000001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero.")]
+        public decimal? Quantity { get; set; }
+
+        [Required(ErrorMessage = "Choose a unit.")]
+        public Guid? UnitId { get; set; }
+
+        [Required(ErrorMessage = "Choose a location.")]
+        public Guid? LocationId { get; set; }
+
+        [DataType(DataType.Date)]
+        public DateOnly? ExpiryDate { get; set; }
     }
 
     public async Task<IActionResult> OnGetAsync(Guid id)
@@ -205,6 +236,48 @@ public sealed class DetailModel(
             Detail = await queries.FindDetailAsync(id);
             if (Detail is null) return NotFound();
             return Partial("_SetThresholdSheet", this);
+        }
+
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+        await LoadChipsAsync(Detail);
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips));
+    }
+
+    /// <summary>Opens the Add stock sheet (plantry-sjfn) — the zero-stock landing's primary CTA, also
+    /// reachable any time a household wants to top up this exact product without going via Pantry.</summary>
+    public async Task<IActionResult> OnGetAddStockSheetAsync(Guid id)
+    {
+        ProductId = id;
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+
+        AddStockInput = new AddStockInputModel();
+        await LoadUnitOptionsAsync();
+        await LoadLocationOptionsAsync();
+        return Partial("_AddStockSheet", this);
+    }
+
+    public async Task<IActionResult> OnPostAddStockAsync(Guid id)
+    {
+        ProductId = id;
+        ClearOtherSheetValidation(nameof(AddStockInput));
+
+        if (!ModelState.IsValid)
+            return await ReloadAddStockSheetAsync(id);
+
+        var expiry = await ResolveExpiryAsync(id, AddStockInput.ExpiryDate);
+
+        var cmd = new AddStockCommand(
+            id, AddStockInput.Quantity!.Value, AddStockInput.UnitId!.Value, AddStockInput.LocationId!.Value,
+            CurrentUserId, skuId: null, expiryDate: expiry, purchasedAt: Today(),
+            stocks, catalog, clock, tenant, logger: addStockLogger);
+
+        var result = await cmd.ExecuteAsync();
+        if (result.IsFailure)
+        {
+            ModelState.AddModelError(string.Empty, result.Error.Description);
+            return await ReloadAddStockSheetAsync(id);
         }
 
         Detail = await queries.FindDetailAsync(id);
@@ -344,11 +417,47 @@ public sealed class DetailModel(
             .ToList();
     }
 
+    private async Task LoadLocationOptionsAsync()
+    {
+        LocationOptions = (await locations.ListActiveAsync())
+            .Select(l => new SelectListItem(l.Name, l.Id.Value.ToString()))
+            .ToList();
+    }
+
+    private async Task<IActionResult> ReloadAddStockSheetAsync(Guid id)
+    {
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+        await LoadUnitOptionsAsync();
+        await LoadLocationOptionsAsync();
+        return Partial("_AddStockSheet", this);
+    }
+
+    /// <summary>Same default-expiry fallback chain as <c>Pantry.IndexModel.ResolveExpiryAsync</c>
+    /// (DM-11 via <see cref="ExpiryDefaultResolver"/>) — an explicitly entered date always wins.</summary>
+    private async Task<DateOnly?> ResolveExpiryAsync(Guid productId, DateOnly? entered)
+    {
+        if (entered is not null) return entered;
+
+        // Fully qualified: this page already has an instance ProductId property (Guid), which would
+        // otherwise shadow the Catalog ProductId value-object type of the same simple name.
+        var product = await products.FindAsync(Plantry.Catalog.Domain.ProductId.From(productId));
+        if (product is null) return null;
+
+        Category? category = product.CategoryId is { } categoryId ? await categories.FindAsync(categoryId) : null;
+        return ExpiryDefaultResolver.ResolveDefaultDueDays(product, category) is { } dueDays
+            ? Today().AddDays(dueDays)
+            : null;
+    }
+
+    private DateOnly Today() => DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     /// <summary>
-    /// This page carries three sibling <c>[BindProperty]</c> forms — <see cref="Input"/> (Consume),
-    /// <see cref="ThresholdInput"/> (Set alert), and <see cref="PriceInput"/> (Set price, plantry-3fqm).
+    /// This page carries four sibling <c>[BindProperty]</c> forms — <see cref="Input"/> (Consume),
+    /// <see cref="ThresholdInput"/> (Set alert), <see cref="PriceInput"/> (Set price, plantry-3fqm),
+    /// and <see cref="AddStockInput"/> (Add stock, plantry-sjfn).
     /// Razor Pages binds and validates <b>every</b> <c>[BindProperty]</c> property on <i>every</i> POST
     /// regardless of which handler ran — a well-known cross-form gotcha — so a required field on a sheet
     /// the user never opened (e.g. <c>Input.Amount</c> while posting only the price sheet) would otherwise
@@ -387,3 +496,14 @@ public sealed record StockDetailPartialModel(
 /// role for the lot/journal fragment, but scoped to just the price display since setting a price never
 /// changes stock.</summary>
 public sealed record PriceDisplayPartialModel(string DisplayText, bool Oob);
+
+/// <summary>
+/// View model for the header's primary action toggle (plantry-sjfn): "Consume" when the product has
+/// active lots, "Add stock" on the zero-stock landing. Rendered once in the header itself
+/// (<c>Oob: false</c>) and re-emitted out-of-band by <c>_StockDetail</c> wherever that partial already
+/// opts into <c>Oob: true</c> (Consume, Add stock, Set alert) so the button stays correct without a
+/// full reload — mirrors <see cref="StockDetailPartialModel.Oob"/>'s role for the subtitle. Discard
+/// keeps its existing <c>Oob: false</c> behaviour (pre-existing; out of scope here), so discarding the
+/// last lot to zero still needs a reload to flip the button — same pre-existing gap as the subtitle.
+/// </summary>
+public sealed record PrimaryStockActionPartialModel(Guid ProductId, bool HasStock, bool Oob);

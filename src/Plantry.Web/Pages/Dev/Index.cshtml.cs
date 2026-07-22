@@ -174,6 +174,7 @@ public sealed class IndexModel : PageModel
                     _ => GridCell.Muted("—"),
                 },
                 GridCell.Actions(
+                    GridAction.Icon("Edit product details", $"/Catalog/Products/{p.Id}", "i-edit"),
                     GridAction.Post("Delete", Url.Page("./Index", "DeleteProductDemo", new { id = p.Id })!,
                         confirm: $"Delete {p.Name}?", removesRow: true)),
             ])).ToList(),

@@ -1,11 +1,3 @@
 @page
 @model Plantry.Web.Pages.Catalog.Products.IndexModel
-@{
-    ViewData["Title"] = "Products";
-}
-
-<page-header title="Products" subtitle="Every product your household tracks — its category, default unit, and expiry rules.">
-    <a href="/Catalog/Products/Create" class="btn btn--primary">New Product</a>
-</page-header>
-
-<partial name="Shared/_DataGrid" model="Model.ProductGrid" />
+@* This page's OnGet always redirects (plantry-sjfn) — see Index.cshtml.cs — so this body never renders. *@
