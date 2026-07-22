@@ -172,7 +172,7 @@
                         </div>
                         @if (row.Status == ImportStatus.Ready)
                         {
-                            <a href="/Intake/Review?id=@row.Id.Value" class="btn btn--secondary btn--sm">Resume</a>
+                            <a href="@Url.Page("/Intake/Review", new { id = row.Id.Value })" class="btn btn--secondary btn--sm">Resume</a>
                         }
                         else
                         {

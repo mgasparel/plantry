@@ -52,6 +52,19 @@ public sealed class UploadHistoryLinksTests : IClassFixture<UploadHistoryLinksFr
         Assert.Contains($"/Intake/Session/{_factory.Committed.Id.Value}", html);
         Assert.Contains("Costco Wholesale", html);
     }
+
+    [Fact]
+    public async Task Ready_row_resume_link_uses_route_param_not_query_string()
+    {
+        // Regression for plantry-z3s4: Review.cshtml declares @page "{id:guid}", so the Resume link
+        // must place the session id in the route segment (/Intake/Review/{id}), not a query string
+        // (/Intake/Review?id=...) — the latter 404s because it doesn't match the route template.
+        var resp = await AuthClient().GetAsync("/Intake/Upload");
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains($"/Intake/Review/{_factory.Ready.Id.Value}", html);
+        Assert.DoesNotContain("/Intake/Review?id=", html);
+    }
 }
 
 /// <summary>
@@ -64,6 +77,8 @@ public sealed class UploadHistoryLinksFragmentFactory : WebApplicationFactory<Pr
 {
     public ImportSession Committed { get; } = IntakeHistoryFixture.BuildCommitted(
         IntakeHistoryFixture.HouseholdAId, Guid.CreateVersion7(), Guid.CreateVersion7());
+
+    public ImportSession Ready { get; } = IntakeHistoryFixture.BuildReady(IntakeHistoryFixture.HouseholdAId);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -84,7 +99,7 @@ public sealed class UploadHistoryLinksFragmentFactory : WebApplicationFactory<Pr
 
             services.RemoveAll<IImportSessionRepository>();
             services.AddScoped<IImportSessionRepository>(
-                sp => new MultiSessionImportSessionRepository(sp.GetRequiredService<ITenantContext>(), Committed));
+                sp => new MultiSessionImportSessionRepository(sp.GetRequiredService<ITenantContext>(), Committed, Ready));
 
             services.RemoveAll<ICatalogHintProvider>();
             services.AddScoped<ICatalogHintProvider>(_ => new EmptyCatalogHintProvider());
