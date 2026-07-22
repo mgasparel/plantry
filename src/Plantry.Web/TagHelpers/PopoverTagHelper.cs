@@ -33,9 +33,11 @@ public sealed class PopoverTagHelper : TagHelper
 
     /// <summary>
     /// Placement of the content panel relative to the trigger.
-    /// Accepted values: <c>"above"</c> (default), <c>"below"</c>, <c>"start"</c>, <c>"end"</c>.
-    /// Maps to modifier class <c>popover--below</c>, <c>popover--start</c>, <c>popover--end</c>;
-    /// no modifier class is added for <c>"above"</c>.
+    /// Accepted values: <c>"above"</c> (default), <c>"below"</c>, <c>"start"</c>, <c>"end"</c>,
+    /// <c>"below-end"</c> (compound — panel drops below the trigger AND right-aligns, for a
+    /// trigger near the right edge of its container, e.g. the last cell of a stat strip).
+    /// Maps to modifier class(es) <c>popover--below</c>, <c>popover--start</c>, <c>popover--end</c>,
+    /// or both <c>popover--below popover--end</c>; no modifier class is added for <c>"above"</c>.
     /// </summary>
     public string Position { get; set; } = "above";
 
@@ -65,10 +67,11 @@ public sealed class PopoverTagHelper : TagHelper
         // Resolve modifier class from position.
         var modifier = Position switch
         {
-            "below" => " popover--below",
-            "start" => " popover--start",
-            "end"   => " popover--end",
-            _       => string.Empty, // "above" = default, no modifier
+            "below"     => " popover--below",
+            "start"     => " popover--start",
+            "end"       => " popover--end",
+            "below-end" => " popover--below popover--end", // both modifiers compose via CSS cascade (disjoint properties)
+            _           => string.Empty, // "above" = default, no modifier
         };
 
         output.TagName = null; // suppress the <popover> element itself

@@ -194,7 +194,26 @@
                                     @MoneyDisplay.Format(cost.Amount.Value, Model.DisplayCurrency)
                                     @if (cost.Completeness == CostCompleteness.Partial)
                                     {
-                                        <span title="Partial cost estimate — @(cost.CostableCount - cost.PricedCount) ingredient(s) have no price">~</span>
+                                        @* House popover trigger (plantry-zxo4) replaces the native title-attr tooltip:
+                                           names the un-priced ingredients and links each to its Pantry product page,
+                                           where plantry-3fqm's Set-price sheet lives. *@
+                                        <span class="rd-meta__flag">
+                                            <popover position="below-end" label="~">
+                                                <span class="pop-kicker">Partial estimate</span>
+                                                <span class="pop-body"><b>@(cost.CostableCount - cost.PricedCount) of @cost.CostableCount</b> ingredients aren't priced yet, so the real cost is higher. Set their prices to complete it:</span>
+                                                <ul class="pop-rows">
+                                                    @foreach (var ingredient in recipe.MissingPriceIngredients)
+                                                    {
+                                                        <li>
+                                                            <a href="/Pantry/Products/@ingredient.ProductId">
+                                                                @ingredient.ProductName
+                                                                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                                                            </a>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            </popover>
+                                        </span>
                                     }
                                 </div>
                                 <div class="rd-meta__lbl">
@@ -203,7 +222,28 @@
                             }
                             else
                             {
-                                <div class="rd-meta__val" style="color:var(--color-text-faint)">—</div>
+                                @* None state (plantry-zxo4): the bare "—" used to offer no explanation at all.
+                                   Same popover shape as Partial, listing every costable ingredient. *@
+                                <div class="rd-meta__val" style="color:var(--color-text-faint)">
+                                    —
+                                    <span class="rd-meta__flag">
+                                        <popover position="below-end" label="i">
+                                            <span class="pop-kicker">No cost yet</span>
+                                            <span class="pop-body">None of these ingredients have a price. Prices normally arrive with receipts — or set one on each product's page:</span>
+                                            <ul class="pop-rows">
+                                                @foreach (var ingredient in recipe.MissingPriceIngredients)
+                                                {
+                                                    <li>
+                                                        <a href="/Pantry/Products/@ingredient.ProductId">
+                                                            @ingredient.ProductName
+                                                            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                                                        </a>
+                                                    </li>
+                                                }
+                                            </ul>
+                                        </popover>
+                                    </span>
+                                </div>
                                 <div class="rd-meta__lbl">Cost per serving</div>
                             }
                         </div>

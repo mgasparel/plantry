@@ -138,10 +138,11 @@ public sealed class RecipeDetailSnapshotTests(
     public async Task Detail_cost_bar_present_when_partial()
     {
         // The default factory has Partial prices. This test asserts the mono cost value
-        // IS present and the partial-estimate marker is rendered in the meta strip.
+        // IS present and the popover's "Partial estimate" kicker is rendered in the meta strip
+        // (plantry-zxo4 — replaces the old title-attr tooltip).
         var html = await GetDetailPageAsync(factory);
         Assert.Contains("rd-meta__val--mono", html, StringComparison.Ordinal);
-        Assert.Contains("Partial cost estimate", html, StringComparison.Ordinal);
+        Assert.Contains("Partial estimate", html, StringComparison.Ordinal);
     }
 
     // ── Cost Full: mono value present, no partial-estimate "~" marker ────────
@@ -150,10 +151,42 @@ public sealed class RecipeDetailSnapshotTests(
     public async Task Detail_cost_full_omits_estimate_marker()
     {
         // Every costable ingredient priced → CostCompleteness.Full. The mono cost value renders,
-        // but the "~" partial-estimate marker (title="Partial cost estimate …") must NOT appear.
+        // but the "~" partial-estimate popover (kicker "Partial estimate") must NOT appear.
         var html = await GetDetailPageAsync(fullCostFactory);
         Assert.Contains("rd-meta__val--mono", html, StringComparison.Ordinal);
-        Assert.DoesNotContain("Partial cost estimate", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Partial estimate", html, StringComparison.Ordinal);
+    }
+
+    // ── Cost Partial: popover names the un-priced ingredient and links to its Pantry page (plantry-zxo4) ──
+
+    [Fact]
+    public async Task Detail_cost_partial_popover_lists_missing_price_ingredient()
+    {
+        // Fixture: Pasta and Tomatoes priced, Garlic ("Garlic Cloves") un-priced → Partial. The popover
+        // must name Garlic Cloves and link to its Pantry product Detail page (plantry-3fqm's Set-price sheet).
+        var html = await GetDetailPageAsync(factory);
+        var doc = Parser.ParseDocument(html);
+        var content = doc.QuerySelector(".rd-meta__flag .popover__content")
+            ?? throw new InvalidOperationException("Missing-price popover content not found.");
+
+        Assert.Contains("Partial estimate", content.TextContent, StringComparison.Ordinal);
+        // Pasta and Tomatoes priced, Garlic un-priced → 1 of 3 costable ingredients unpriced. The bolded
+        // count must read the UN-priced tally (CostableCount - PricedCount), matching the "aren't priced
+        // yet" phrasing and the single-item list beneath it — not the priced count.
+        Assert.Contains("1 of 3", content.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Garlic Cloves", content.TextContent, StringComparison.Ordinal);
+        // Only Garlic is un-priced — Pasta/Tomatoes must NOT appear in the list.
+        Assert.DoesNotContain("Rigatoni", content.TextContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("Canned Tomatoes", content.TextContent, StringComparison.Ordinal);
+
+        var link = content.QuerySelector("a")
+            ?? throw new InvalidOperationException("Missing-price popover has no product link.");
+        Assert.Equal($"/Pantry/Products/{RecipeDetailFixture.GarlicId}", link.GetAttribute("href"));
+
+        // Native title-attr tooltip is gone (AC3) — the "~" trigger carries no title attribute.
+        var trigger = doc.QuerySelector(".rd-meta__flag .popover__trigger")
+            ?? throw new InvalidOperationException("Popover trigger not found.");
+        Assert.Null(trigger.GetAttribute("title"));
     }
 
     // ── Cost currency: a non-USD (EUR) household renders the € symbol via MoneyDisplay ──────────
@@ -183,7 +216,7 @@ public sealed class RecipeDetailSnapshotTests(
         // placeholder and omits the mono cost value and the per-serving/total label.
         var html = await GetDetailPageAsync(noCostFactory);
         Assert.DoesNotContain("rd-meta__val--mono", html, StringComparison.Ordinal);
-        Assert.DoesNotContain("Partial cost estimate", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Partial estimate", html, StringComparison.Ordinal);
 
         // The cost cell (third meta cell) shows the em-dash placeholder under the "Cost per serving" label.
         var doc = Parser.ParseDocument(html);
@@ -192,6 +225,37 @@ public sealed class RecipeDetailSnapshotTests(
             ?? throw new InvalidOperationException("'Cost per serving' meta cell not found.");
         var cell = costLabel.ParentElement!;
         Assert.Contains("—", cell.TextContent);
+    }
+
+    // ── Cost None: "i" trigger explains the dash and lists every costable ingredient (plantry-zxo4) ──
+
+    [Fact]
+    public async Task Detail_cost_none_popover_lists_all_costable_ingredients()
+    {
+        // No ingredient priced → every costable ingredient (Pasta, Tomatoes, Garlic — Salt excluded,
+        // untracked) appears in the "No cost yet" popover, each linking to its Pantry product page.
+        var html = await GetDetailPageAsync(noCostFactory);
+        var doc = Parser.ParseDocument(html);
+
+        var trigger = doc.QuerySelector(".rd-meta__flag .popover__trigger")
+            ?? throw new InvalidOperationException("'i' trigger not found in None-state cost cell.");
+        Assert.Equal("i", trigger.TextContent.Trim());
+
+        var content = doc.QuerySelector(".rd-meta__flag .popover__content")
+            ?? throw new InvalidOperationException("None-state popover content not found.");
+        Assert.Contains("No cost yet", content.TextContent, StringComparison.Ordinal);
+
+        var links = content.QuerySelectorAll("a").ToList();
+        Assert.Equal(3, links.Count);
+        var hrefs = links.Select(a => a.GetAttribute("href")).ToList();
+        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.PastaId}", hrefs);
+        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.TomatoId}", hrefs);
+        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.GarlicId}", hrefs);
+        Assert.Contains("Rigatoni", content.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Canned Tomatoes", content.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Garlic Cloves", content.TextContent, StringComparison.Ordinal);
+        // Salt is untracked (excluded from CostableCount, C12) — must not appear in the list.
+        Assert.DoesNotContain("Salt", content.TextContent, StringComparison.Ordinal);
     }
 
     // ── Unauthenticated request is challenged (401 in test env, 302 in prod) ───

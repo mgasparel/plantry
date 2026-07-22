@@ -3149,7 +3149,10 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   display: flex;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* visible (not hidden, plantry-zxo4): the cost cell's missing-price popover is anchored to the
+     strip's rightmost cell and would otherwise be clipped at the rounded corner. Safe because every
+     cell shares the strip's own surface background, so nothing visibly overflows the corners. */
+  overflow: visible;
   background: var(--color-surface);
 }
 
@@ -6343,6 +6346,9 @@ tr.line--dismissed .data-grid__cell:first-child {
   line-height: 1.5;
   text-align: left;
   font-weight: 400;
+  /* Every popover's content wraps (plantry-zxo4) — without this, a panel nested inside a nowrap
+     ancestor (e.g. .rd-meta__val) inherits nowrap and its text runs out past the panel edge. */
+  white-space: normal;
   opacity: 0;
   visibility: hidden;
   /* Default position: above, centered */
@@ -6426,6 +6432,48 @@ tr.line--dismissed .data-grid__cell:first-child {
 
 /* Links inside the content panel */
 .popover__content a { color: var(--color-accent); text-decoration: underline; }
+
+/* ── Recipe cost-stat missing-price popover (plantry-zxo4) ─────────────────── */
+/* Inline flag placement — a popover trigger sitting right after a stat value, e.g. the "~"/"i"
+   glyph after the cost figure in .rd-meta__val. */
+.rd-meta__flag { margin-left: 5px; vertical-align: 1px; }
+.rd-meta__flag .popover__trigger { font-family: var(--font-mono); }
+
+/* Kicker + body scaffolding for a richer popover interior (echoes .rd-meta__lbl's uppercase tone). */
+.pop-kicker {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  margin-bottom: 3px;
+}
+.pop-body { color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.45; }
+.pop-body b { color: var(--color-text); font-weight: 600; }
+
+/* Product links as tappable menu rows — name left, chevron right. */
+.pop-rows { margin: var(--space-2) calc(var(--space-1) * -1) calc(var(--space-1) * -1); padding: var(--space-1) 0 0; list-style: none; border-top: 1px solid var(--color-border); }
+.pop-rows li + li { margin-top: 1px; }
+.pop-rows a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 5px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.pop-rows a:hover { background: var(--color-accent-subtle); color: var(--color-accent); }
+.pop-rows a .icon { width: 13px; height: 13px; color: var(--color-text-faint); }
+.pop-rows a:hover .icon { color: var(--color-accent); }
+
+/* Widened panel so the menu rows breathe (vs the stock 16rem popover). */
+.rd-meta__flag .popover__content { max-width: 17.5rem; min-width: 13.5rem; }
 
 /* Reduced motion — drop translate, keep opacity fade */
 @media (prefers-reduced-motion: reduce) {

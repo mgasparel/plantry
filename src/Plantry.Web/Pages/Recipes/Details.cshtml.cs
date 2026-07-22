@@ -177,7 +177,12 @@ public sealed class DetailsModel(
         FulfilmentCard = await BuildCardModelAsync(
             recipe, recipe.DefaultServings, effectiveLines, ingredientGroups, fulfillment, oob: false, summary: null, ct);
 
-        Recipe = RecipeDetailView.From(recipe, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost, ingredientGroups);
+        // Missing-price ingredient names for the cost-stat popover (plantry-zxo4): resolved from the
+        // ingredient rows already built above, not a fresh Catalog read.
+        var missingPriceIngredients = BuildMissingPriceIngredients(cost, ingredientGroups);
+
+        Recipe = RecipeDetailView.From(
+            recipe, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost, ingredientGroups, missingPriceIngredients);
 
         return true;
     }
@@ -496,6 +501,46 @@ public sealed class DetailsModel(
     }
 
     /// <summary>
+    /// Resolves <see cref="CostPerServing.MissingPriceProductIds"/> into display names for the cost-stat
+    /// popover (plantry-zxo4, Partial and None states) — reuses the <see cref="IngredientItemView.ProductName"/>
+    /// already carried by <paramref name="ingredientGroups"/> (direct rows AND inclusion child rows) rather
+    /// than issuing a new Catalog read. A product line can appear twice in <c>MissingPriceProductIds</c> when
+    /// it is costed across two different units (aggregated by (ProductId, UnitId)), so the result is
+    /// de-duplicated by product id, preserving first-appearance order.
+    /// </summary>
+    private static IReadOnlyList<MissingPriceIngredientView> BuildMissingPriceIngredients(
+        CostPerServing cost, IReadOnlyList<IngredientGroupView> ingredientGroups)
+    {
+        if (cost.MissingPriceProductIds.Count == 0) return [];
+
+        var nameByProductId = new Dictionary<Guid, string>();
+        void Collect(IngredientItemView item) => nameByProductId.TryAdd(item.ProductId, item.ProductName);
+
+        foreach (var row in ingredientGroups.SelectMany(g => g.Items))
+        {
+            switch (row)
+            {
+                case IngredientRowView direct:
+                    Collect(direct.Item);
+                    break;
+                case InclusionRowView inclusion:
+                    foreach (var child in inclusion.Children) Collect(child);
+                    break;
+            }
+        }
+
+        var seen = new HashSet<Guid>();
+        var result = new List<MissingPriceIngredientView>();
+        foreach (var productId in cost.MissingPriceProductIds)
+        {
+            if (!seen.Add(productId)) continue;
+            result.Add(new MissingPriceIngredientView(
+                productId, nameByProductId.GetValueOrDefault(productId, "(unknown product)")));
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Computes the vulgar-fraction display string for each tracked ingredient amount, keyed by
     /// <see cref="Ingredient.Id"/> (quantity-display.md §7). Details always renders at 1× (the recipe's
     /// default servings — the servings stepper scales client-side, Q4), so no unit simplification runs:
@@ -707,7 +752,8 @@ public sealed record RecipeDetailView(
     IReadOnlyList<IngredientGroupView> IngredientGroups,
     IReadOnlyList<DirectionBlock> DirectionBlocks,
     ExpandedFulfillmentResult Fulfillment,
-    CostPerServing Cost)
+    CostPerServing Cost,
+    IReadOnlyList<MissingPriceIngredientView> MissingPriceIngredients)
 {
     /// <summary>
     /// Builds the full-page view from an already-loaded recipe and its pre-built <paramref name="ingredientGroups"/>
@@ -722,7 +768,8 @@ public sealed record RecipeDetailView(
         IReadOnlyList<DirectionBlock> directions,
         ExpandedFulfillmentResult fulfillment,
         CostPerServing cost,
-        IReadOnlyList<IngredientGroupView> ingredientGroups)
+        IReadOnlyList<IngredientGroupView> ingredientGroups,
+        IReadOnlyList<MissingPriceIngredientView> missingPriceIngredients)
     {
         var tagViews = recipe.Tags
             .Select(rt => new TagView(rt.TagId.Value, tagLookup.GetValueOrDefault(rt.TagId)))
@@ -739,9 +786,17 @@ public sealed record RecipeDetailView(
             IngredientGroups: ingredientGroups,
             DirectionBlocks: directions,
             Fulfillment: fulfillment,
-            Cost: cost);
+            Cost: cost,
+            MissingPriceIngredients: missingPriceIngredients);
     }
 }
+
+/// <summary>
+/// One missing-price ingredient link for the cost-stat popover (plantry-zxo4): the resolved product
+/// name paired with its id, linking to <c>/Pantry/Products/{ProductId}</c> where plantry-3fqm's
+/// Set-price sheet lives.
+/// </summary>
+public sealed record MissingPriceIngredientView(Guid ProductId, string ProductName);
 
 /// <summary>A resolved tag pill for the detail view.</summary>
 public sealed record TagView(Guid Id, string? Name);
