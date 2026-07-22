@@ -77,6 +77,7 @@ public sealed class UpdateProductCommand(
     int? defaultDueDaysAfterOpening,
     int? defaultDueDaysAfterFreezing,
     int? defaultDueDaysAfterThawing,
+    bool trackStock,
     IProductRepository products,
     IUnitRepository units,
     ICategoryRepository categories,
@@ -113,6 +114,14 @@ public sealed class UpdateProductCommand(
         product.SetCategory(categoryId is { } catId ? CategoryId.From(catId) : null, clock);
         product.SetDefaultLocation(defaultLocationId is { } locId ? LocationId.From(locId) : null, clock);
         product.SetExpiryDefaults(defaultDueDays, defaultDueDaysAfterOpening, defaultDueDaysAfterFreezing, defaultDueDaysAfterThawing, clock);
+
+        // A parent product is an abstract grouping that can never hold stock (CanHoldStock is
+        // false for any product with variants) — tracking is meaningless there, so the flag is
+        // left untouched regardless of what the caller posted. This is the single source of
+        // truth for "parents don't flip": the UI hides the toggle for parents, but guarding here
+        // too means any other caller gets the same protection for free.
+        if (!product.IsParent)
+            product.SetTrackStock(trackStock, clock);
 
         if (product.IsParent)
         {

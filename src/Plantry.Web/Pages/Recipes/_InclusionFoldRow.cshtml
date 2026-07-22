@@ -1,0 +1,102 @@
+@model Plantry.Web.Pages.Recipes.InclusionRowView
+@using System.Globalization
+@using Microsoft.AspNetCore.Mvc.ViewFeatures
+@using Plantry.Recipes.Domain
+@* Shared partial: one collapsible inclusion roll-up row (plantry-4037, recipe-composition.md §5,
+   decided design Option C — .preview/included-recipes-redesign.html tab C). Renders inside
+   #rd-ing-rows at the inclusion's authored ordinal/GroupHeading, shaped exactly like an ingredient
+   row (status dot / name / sub-label / amount), as a <details>/<summary> fold. Expanding reveals the
+   sub's expanded product-level lines as full-featured rows via the SAME _IngredientRow partial a
+   direct ingredient uses (status/expiry/scaling/unit-gap) — Cook precedent flattens the sub's own
+   internal sections (Cook.cshtml.cs:289), so no second heading level appears inside the fold. *@
+@{
+    var row = Model;
+
+    var statusClass = row.WorstStatus switch
+    {
+        IngredientStatus.InStock => "rd-ing-status--have",
+        IngredientStatus.Low     => "rd-ing-status--low",
+        IngredientStatus.Missing => "rd-ing-status--miss",
+        _                        => "rd-ing-status--untracked",
+    };
+    var subLabelClass = row.TrackedTotalCount == 0 ? "rd-ing-sub--untracked" : row.WorstStatus switch
+    {
+        IngredientStatus.InStock => "rd-ing-sub--have",
+        IngredientStatus.Low     => "rd-ing-sub--low",
+        IngredientStatus.Missing => "rd-ing-sub--miss",
+        _                        => "rd-ing-sub--have",
+    };
+    // "N of M tracked in your pantry" — N = tracked children fully in stock, M = distinct tracked
+    // children (untracked staples excluded from both, matching the roll-up chip's worst-of-children
+    // rule). No trackable children at all reads the same "untracked" wording an untracked ingredient
+    // row uses.
+    var subLabel = row.TrackedTotalCount == 0
+        ? "untracked"
+        : $"{row.TrackedInStockCount} of {row.TrackedTotalCount} tracked in your pantry";
+
+    var foldId = "incl-fold-" + row.InclusionId.ToString("N");
+
+    // Servings + batch-fraction hint render as the server-truth 1× fraction display (quantity-display.md
+    // Q1/§7) and hand off to the Alpine decimal scaler once the stepper moves away from 1× — the same
+    // Q4 contract _IngredientRow's amount cell follows. The batch ratio is itself linear in servings, so
+    // scaling the RATIO by `scale` (via the shared fmt() helper) reproduces
+    // "(Servings × scale) / SubDefaultServings" without a bespoke formula duplicated client-side.
+    var servingsText = Plantry.Web.Pages.Recipes.DetailsModel.FormatServings(row.Servings);
+    var servingsLiteral = row.Servings.ToString(CultureInfo.InvariantCulture);
+    var batchHintText = Plantry.Web.Pages.Recipes.DetailsModel.FormatBatchHint(row.Servings, row.SubDefaultServings);
+    var batchRatio = row.SubDefaultServings > 0 ? row.Servings / row.SubDefaultServings : 0m;
+    var batchRatioLiteral = batchRatio.ToString(CultureInfo.InvariantCulture);
+}
+<details class="rd-sub-fold" id="@foldId">
+    <summary>
+        <div class="rd-ing-row" role="listitem">
+            <div class="rd-ing-status @statusClass" aria-hidden="true">
+                <svg class="icon"><use href="#i-recipe" /></svg>
+            </div>
+            <div class="rd-ing-main">
+                <div class="rd-ing-name">
+                    <a class="rd-sub-name-link" href="/Recipes/@row.SubRecipeId" onclick="event.stopPropagation()">@row.SubName</a>
+                    @if (row.Chip is { } chip)
+                    {
+                        var chipClass = chip.Tone switch
+                        {
+                            IngredientStatus.Missing => "rollup-chip--miss",
+                            IngredientStatus.Low     => "rollup-chip--low",
+                            _                        => "rollup-chip--have",
+                        };
+                        <span class="rollup-chip @chipClass">@chip.Label</span>
+                    }
+                    @if (row.WorstExpiresWithinDays is { } d)
+                    {
+                        @* Expiry roll-up (design item 6): a hidden child's expiry badge is invisible while
+                           collapsed, so the worst (soonest) tier across every child surfaces here instead —
+                           urgency must not be buried behind the fold. Same ExpiryDisplay wording/tier the
+                           child row itself will show once expanded (plantry-fdoq). *@
+                        var (expLabel, expTier) = Plantry.Web.Pages.Shared.ExpiryDisplay.FromDaysUntilExpiry(d);
+                        <span class="badge-expiry badge-expiry--@expTier">
+                            <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                            @expLabel
+                        </span>
+                    }
+                </div>
+                <div class="rd-ing-sub @subLabelClass">
+                    @subLabel
+                    @if (!string.IsNullOrEmpty(batchHintText))
+                    {
+                        <text> · <span x-text="scale === 1 ? @Html.Raw(RazorJs.Literal("≈ " + batchHintText)) : fmtIncBatch(@batchRatioLiteral)">≈ @batchHintText</span></text>
+                    }
+                </div>
+            </div>
+            <div class="rd-ing-amt">
+                <span x-text="scale === 1 ? @Html.Raw(RazorJs.Literal(servingsText)) : fmtIncServings(@servingsLiteral)">@servingsText</span>
+            </div>
+            <svg class="icon rd-sub-fold__chev" aria-hidden="true"><use href="#i-chevron" /></svg>
+        </div>
+    </summary>
+    <div class="rd-sub-fold__body">
+        @foreach (var child in row.Children)
+        {
+            <partial name="_IngredientRow" model="child" view-data="@(new ViewDataDictionary(ViewData) { ["IsSub"] = true })" />
+        }
+    </div>
+</details>

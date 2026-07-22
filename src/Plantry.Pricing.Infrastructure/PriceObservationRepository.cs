@@ -52,4 +52,19 @@ public sealed class PriceObservationRepository(PricingDbContext db) : IPriceObse
             .OrderBy(p => p.UnitPrice)
             .ThenBy(p => p.Price)
             .FirstOrDefaultAsync(ct);
+
+    public async Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idList = productIds.Distinct().ToList();
+        if (idList.Count == 0)
+            return new HashSet<Guid>();
+
+        var found = await db.PriceObservations
+            .Where(p => idList.Contains(p.ProductId) && p.SupersededById == null)
+            .Select(p => p.ProductId)
+            .Distinct()
+            .ToListAsync(ct);
+        return found.ToHashSet();
+    }
 }

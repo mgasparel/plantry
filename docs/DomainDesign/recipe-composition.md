@@ -108,9 +108,16 @@ form fields as the `/`-joined GUID path (empty path = direct ingredient, preserv
   (reuse the meal-planner `SearchJson` endpoint pattern; exclude self client-side — N4 at save is
   authoritative). Picking one creates an inclusion line with a servings stepper and the batch-fraction
   hint (D2).
-- **Line rendering** (editor + Details): inclusion lines sit in ordinal position, titled
-  "2 servings · Vegan Nacho Cheese", linking to the sub (D15), with an expandable read-only preview of
-  the expanded ingredients.
+- **Line rendering** (editor): inclusion lines sit in ordinal position, titled
+  "2 servings · Vegan Nacho Cheese", linking to the sub (D15).
+- **Line rendering** (Details, plantry-4037 — supersedes the v1 read-only preview card): each inclusion
+  renders in ordinal position inside the ingredients card, under its authored `GroupHeading`, as a
+  **collapsible roll-up row** in the ingredient-row grammar — worst-of-children status dot, roll-up
+  chip ("2 to buy"), "N of M tracked" sub-label + batch hint, stepper-scaled servings in the amount
+  slot, and a timer chip when any hidden child is expiring. Expanding reveals the sub's expanded lines
+  as full-featured ingredient rows (status/expiry/scaling; internal sections flattened, matching the
+  cook flow). The recipe name links to the sub (D15). Decided by prototype:
+  `.preview/included-recipes-redesign.html`.
 - Directions: link only in v1 (D15).
 
 ## 6. Cook flow

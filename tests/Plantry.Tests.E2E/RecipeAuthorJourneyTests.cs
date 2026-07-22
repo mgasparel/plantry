@@ -489,8 +489,12 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
             Assert.DoesNotMatch(@"/New$", page.Url);
 
             // ── Verify the product was created in Catalog (tracked) ───────────────
+            // /Catalog/Products is now a redirect stub to /Pantry (plantry-sjfn) — the unified
+            // product list. The product was only referenced by the recipe, never stocked, so it
+            // only shows up in the "Everything" scope.
             await page.GotoAsync($"{BaseUrl}/Catalog/Products");
-            await page.WaitForURLAsync("**/Catalog/Products**");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.Locator(".seg-ctrl__item", new() { HasText = "Everything" }).ClickAsync();
             await Assertions.Expect(page.GetByText(trackedProductName))
                 .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
         }

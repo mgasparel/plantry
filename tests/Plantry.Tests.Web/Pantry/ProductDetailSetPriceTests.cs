@@ -413,4 +413,14 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
             .OrderBy(p => p.UnitPrice)
             .ThenBy(p => p.Price)
             .FirstOrDefault());
+
+    public Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idSet = productIds.ToHashSet();
+        var found = Items
+            .Where(p => idSet.Contains(p.ProductId) && p.SupersededById is null)
+            .Select(p => p.ProductId)
+            .ToHashSet();
+        return Task.FromResult<IReadOnlySet<Guid>>(found);
+    }
 }

@@ -256,6 +256,16 @@ public sealed class DealAwareCostingAdapterTests
 
         public Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<PriceObservation>>([]);
+
+        public Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(IEnumerable<Guid> productIds, CancellationToken ct = default)
+        {
+            var idSet = productIds.ToHashSet();
+            var found = _items
+                .Where(o => idSet.Contains(o.ProductId) && o.SupersededById is null)
+                .Select(o => o.ProductId)
+                .ToHashSet();
+            return Task.FromResult<IReadOnlySet<Guid>>(found);
+        }
     }
 
     /// <summary>Identity unit converter — the recipe ingredient and price share a unit here.</summary>

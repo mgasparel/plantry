@@ -32,7 +32,23 @@ public sealed record PantryListItem(
     /// <summary>The configured low stock threshold for this product/household pair. Null means no threshold set.</summary>
     decimal? LowStockThreshold = null,
     /// <summary>True when <see cref="TotalQuantity"/> ≤ <see cref="LowStockThreshold"/> and a threshold is set.</summary>
-    bool IsRunningLow = false);
+    bool IsRunningLow = false,
+    /// <summary>
+    /// True for a genuine pantry row (came from <see cref="InventoryQueryService.ListPantryAsync"/>,
+    /// which only ever emits products with ≥1 active lot). False marks a synthesized row the Web
+    /// layer added for the Pantry "Everything" scope (plantry-sjfn) — a catalog product with no
+    /// active lots at all. Defaults true so every existing call site (which never sets it) keeps
+    /// today's behaviour unchanged; only the Web-layer merge sets it false.
+    /// </summary>
+    bool IsStocked = true,
+    /// <summary>
+    /// True when this row represents a catalog "parent" product (plantry-sjfn) — a grouping product
+    /// that can never itself hold stock, so it only ever appears as a synthesized "Everything" scope
+    /// row. Mirrors <see cref="Plantry.Catalog.Application.ProductListItem.IsParent"/>; kept here
+    /// (rather than derived) so the pantry grid's Kind badge can render "Parent" for these rows the
+    /// same way <c>Catalog.Products</c> used to, without the grid reaching back into Catalog.
+    /// </summary>
+    bool IsParent = false);
 
 /// <summary>One physical lot on the product detail page (SPEC §1b).</summary>
 public sealed record StockLotRow(
@@ -284,9 +300,24 @@ public class InventoryQueryService(
             return null;
 
         var stock = await stocks.FindWithHistoryAsync(HouseholdId.From(householdId), productId, ct);
-        if (stock is null) return null;
-
         var product = await catalog.FindProductAsync(productId, ct);
+
+        if (stock is null)
+        {
+            // Never stocked (plantry-sjfn): the Pantry "Everything" scope links catalog-only
+            // products straight to this page, so a product that exists in the catalog but has no
+            // ProductStock record yet renders the zero-lot empty state rather than 404ing — the
+            // Detail page model then decides what "no lots" looks like (Add stock CTA, Consume
+            // omitted). A stale/removed id still genuinely 404s, same as before.
+            if (product is null) return null;
+            return new ProductStockDetail(
+                productId, product.Name, product.DefaultUnitCode, 0m, [], [],
+                CategoryName: product.CategoryName,
+                CategoryHue: product.CategoryHue,
+                LowStockThreshold: null,
+                IsRunningLow: false);
+        }
+
         var unitCodes = await catalog.GetUnitCodesAsync(ct);
         var locationNames = await catalog.GetLocationNamesAsync(ct);
         var converter = await conversions.ForProductAsync(productId, ct);

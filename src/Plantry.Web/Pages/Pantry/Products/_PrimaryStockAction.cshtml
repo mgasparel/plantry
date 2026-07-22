@@ -1,0 +1,23 @@
+@model Plantry.Web.Pages.Pantry.Products.PrimaryStockActionPartialModel
+
+@* The header's primary action toggle (plantry-sjfn): Consume when the product has active lots,
+   Add stock on the zero-stock landing. Wrapped in an addressable span so _StockDetail can re-emit
+   it out-of-band after an action flips HasStock — see PrimaryStockActionPartialModel's doc comment. *@
+<span id="stock-primary-action" @(Model.Oob ? "hx-swap-oob=true" : "")>
+@if (Model.HasStock)
+{
+    <button type="button" class="btn btn--primary"
+            hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id = Model.ProductId })"
+            hx-target="#sheet-host" hx-swap="innerHTML">
+        Consume
+    </button>
+}
+else
+{
+    <button type="button" class="btn btn--primary"
+            hx-get="@Url.Page("./Detail", "AddStockSheet", new { id = Model.ProductId })"
+            hx-target="#sheet-host" hx-swap="innerHTML">
+        Add stock
+    </button>
+}
+</span>

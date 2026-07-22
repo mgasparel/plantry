@@ -12,6 +12,10 @@
         <form class="form-stack" hx-post="@Url.Page("./Index", "AddStock")"
               hx-target="#sheet-host" hx-swap="innerHTML">
             @Html.AntiForgeryToken()
+            @* Carries the scope the sheet was opened from (plantry-sjfn) back through the POST, so a
+               successful add refreshes the list in whichever scope — In stock or Everything — the
+               user was viewing rather than silently resetting it. *@
+            <input type="hidden" name="scope" value="@Model.Scope" />
             <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
             <div class="form-grid">

@@ -42,6 +42,13 @@ public sealed class CreateModel(
 
         [Display(Name = "Default location")]
         public Guid? DefaultLocationId { get; set; }
+
+        /// <summary>
+        /// Whether this product participates in quantity accounting (Product.TrackStock). Defaults
+        /// checked — the untracked-staple path stays a deliberate opt-out, not the default.
+        /// </summary>
+        [Display(Name = "Track stock")]
+        public bool TrackStock { get; set; } = true;
     }
 
     public async Task OnGetAsync() => await LoadOptionsAsync();
@@ -56,7 +63,8 @@ public sealed class CreateModel(
 
         var cmd = new CreateProductCommand(
             Input.Name, Input.DefaultUnitId!.Value, Input.CategoryId, Input.DefaultLocationId,
-            products, units, categories, locations, clock, tenant, logger: createProductLogger);
+            products, units, categories, locations, clock, tenant,
+            trackStock: Input.TrackStock, logger: createProductLogger);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)

@@ -1,0 +1,52 @@
+@model Plantry.Web.Pages.Pantry.Products.DetailModel
+
+@* Add stock scoped to this exact product (plantry-sjfn) — the zero-stock landing's primary CTA.
+   Mirrors Pantry/_AddStockSheet.cshtml's fields but drops the product picker: the product is this
+   page's id, carried via the route rather than a form field. *@
+<div class="sheet" x-data="{ close() { document.getElementById('sheet-host').innerHTML = '' } }" role="dialog" aria-modal="true" aria-label="Add stock">
+    <div class="sheet__overlay" x-on:click="close()"></div>
+    <div class="sheet__panel">
+        <header class="sheet__header">
+            <h2 class="sheet__title">Add stock</h2>
+            <button type="button" class="sheet__close" aria-label="Close"
+                    x-on:click="close()">&times;</button>
+        </header>
+
+        <form class="form-stack" hx-post="@Url.Page("./Detail", "AddStock", new { id = Model.ProductId })"
+              hx-target="#sheet-host" hx-swap="innerHTML">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+            <div class="form-grid">
+                <field asp-for="AddStockInput.Quantity" stacked label="Quantity">
+                    <input asp-for="AddStockInput.Quantity" class="field__input" type="number" step="any" min="0" placeholder="e.g. 500" />
+                    <span asp-validation-for="AddStockInput.Quantity" class="field__error"></span>
+                </field>
+
+                <field asp-for="AddStockInput.UnitId" stacked label="Unit">
+                    <select asp-for="AddStockInput.UnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Unit —</option>
+                    </select>
+                    <span asp-validation-for="AddStockInput.UnitId" class="field__error"></span>
+                </field>
+
+                <field asp-for="AddStockInput.LocationId" stacked full label="Location">
+                    <select asp-for="AddStockInput.LocationId" class="field__input" asp-items="Model.LocationOptions">
+                        <option value="">— Select a location —</option>
+                    </select>
+                    <span asp-validation-for="AddStockInput.LocationId" class="field__error"></span>
+                </field>
+
+                <field asp-for="AddStockInput.ExpiryDate" stacked full label="Expiry (optional)" hint="Leave blank to use the product's default.">
+                    <input asp-for="AddStockInput.ExpiryDate" class="field__input" type="date" />
+                </field>
+            </div>
+
+            <div class="sheet__actions">
+                <button type="submit" class="btn btn--primary">Add to pantry</button>
+                <button type="button" class="btn btn--ghost"
+                        x-on:click="close()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

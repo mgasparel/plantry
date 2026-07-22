@@ -37,11 +37,14 @@ public sealed class DetailModel(
 
     /// <summary>
     /// True when a <see cref="Plantry.Inventory.Domain.ProductStock"/> record exists for this
-    /// product in the current household — i.e. it has been stocked at least once and the Pantry
-    /// detail page would render rather than 404. Drives the "View in pantry" cross-link: live when
-    /// true, muted "Not in pantry yet" hint when false (plantry-kkeg). Mirrors the exact existence
-    /// condition in <c>InventoryQueryService.FindDetailAsync</c> (a record, not active lots — a
-    /// product consumed to zero still has a stock record and a live pantry view).
+    /// product in the current household — i.e. it has been stocked at least once. Drives the
+    /// "View in pantry" cross-link: live when true, muted "Not in pantry yet" hint when false
+    /// (plantry-kkeg). This is a "has stock history" check, not a "would the Pantry detail page
+    /// 404" check — since plantry-sjfn, <c>InventoryQueryService.FindDetailAsync</c> renders a
+    /// zero-lot empty state for any catalog product (stocked or not) rather than 404ing, so the
+    /// Pantry detail page always renders now. The cross-link intentionally stays conservative
+    /// (kept as the "safety net between the two views" the design called for) rather than always
+    /// linking through to a page the product has never actually touched.
     /// </summary>
     public bool HasPantryStock { get; private set; }
 
@@ -88,6 +91,15 @@ public sealed class DetailModel(
         [Range(0, 3650)]
         [Display(Name = "Expiry after thawing (days)")]
         public int? DefaultDueDaysAfterThawing { get; set; }
+
+        /// <summary>
+        /// Whether this product participates in quantity accounting (Product.TrackStock). Hidden
+        /// on the form for a parent product (grouping abstraction, can't hold stock) — for those,
+        /// <see cref="UpdateProductCommand"/> ignores whatever value posts here and leaves the
+        /// flag untouched, so a stale/default value from an unrendered field can't flip it.
+        /// </summary>
+        [Display(Name = "Track stock")]
+        public bool TrackStock { get; set; } = true;
     }
 
     public sealed class AddSkuInputModel
@@ -169,7 +181,7 @@ public sealed class DetailModel(
         var cmd = new UpdateProductCommand(
             Id, Input.Name, Input.DefaultUnitId!.Value, Input.CategoryId, Input.DefaultLocationId,
             Input.DefaultDueDays, Input.DefaultDueDaysAfterOpening, Input.DefaultDueDaysAfterFreezing,
-            Input.DefaultDueDaysAfterThawing, products, units, categories, locations, clock,
+            Input.DefaultDueDaysAfterThawing, Input.TrackStock, products, units, categories, locations, clock,
             logger: updateProductLogger);
 
         var result = await cmd.ExecuteAsync();
@@ -411,6 +423,7 @@ public sealed class DetailModel(
             DefaultDueDaysAfterOpening = product.DefaultDueDaysAfterOpening,
             DefaultDueDaysAfterFreezing = product.DefaultDueDaysAfterFreezing,
             DefaultDueDaysAfterThawing = product.DefaultDueDaysAfterThawing,
+            TrackStock = product.TrackStock,
         };
     }
 

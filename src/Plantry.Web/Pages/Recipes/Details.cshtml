@@ -51,6 +51,23 @@
                  ? window.IngredientAmount.formatAmount(v)
                  : Number(v.toFixed(4)).toString();
          },
+         // ── Inclusion roll-up row scaling (plantry-4037) — same Q4 contract as fmt(): the server
+         // renders the 1× vulgar-fraction text (FormatServings / FormatBatchHint); once the stepper
+         // moves the scale away from 1 these take over with the plain decimal render (fmt()), matching
+         // how a direct ingredient amount hands off from its server fraction to the client decimal.
+         fmtIncServings(baseServings) {
+             const n = this.fmt(baseServings);
+             return n + (n === '1' ? ' serving' : ' servings');
+         },
+         fmtIncBatch(baseRatio) {
+             // The batch ratio (Servings ÷ SubDefaultServings) is linear in servings, so scaling the
+             // ratio itself via fmt() reproduces (Servings × scale) ÷ SubDefaultServings exactly.
+             // NOTE: no double-quote characters allowed anywhere in this object literal — it sits
+             // inside the HTML x-data attribute, itself double-quoted; a literal quote mark here
+             // would close that attribute early and corrupt the rest of the tag.
+             const n = this.fmt(baseRatio);
+             return '≈ ' + n + (parseFloat(n) < 1 || n === '1' ? ' batch' : ' batches');
+         },
          refreshFulfilment() {
              clearTimeout(this._fulfTimer);
              this._fulfTimer = setTimeout(() => {
@@ -177,7 +194,26 @@
                                     @MoneyDisplay.Format(cost.Amount.Value, Model.DisplayCurrency)
                                     @if (cost.Completeness == CostCompleteness.Partial)
                                     {
-                                        <span title="Partial cost estimate — @(cost.CostableCount - cost.PricedCount) ingredient(s) have no price">~</span>
+                                        @* House popover trigger (plantry-zxo4) replaces the native title-attr tooltip:
+                                           names the un-priced ingredients and links each to its Pantry product page,
+                                           where plantry-3fqm's Set-price sheet lives. *@
+                                        <span class="rd-meta__flag">
+                                            <popover position="below-end" label="~">
+                                                <span class="pop-kicker">Partial estimate</span>
+                                                <span class="pop-body"><b>@(cost.CostableCount - cost.PricedCount) of @cost.CostableCount</b> ingredients aren't priced yet, so the real cost is higher. Set their prices to complete it:</span>
+                                                <ul class="pop-rows">
+                                                    @foreach (var ingredient in recipe.MissingPriceIngredients)
+                                                    {
+                                                        <li>
+                                                            <a href="/Pantry/Products/@ingredient.ProductId">
+                                                                @ingredient.ProductName
+                                                                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                                                            </a>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            </popover>
+                                        </span>
                                     }
                                 </div>
                                 <div class="rd-meta__lbl">
@@ -186,7 +222,28 @@
                             }
                             else
                             {
-                                <div class="rd-meta__val" style="color:var(--color-text-faint)">—</div>
+                                @* None state (plantry-zxo4): the bare "—" used to offer no explanation at all.
+                                   Same popover shape as Partial, listing every costable ingredient. *@
+                                <div class="rd-meta__val" style="color:var(--color-text-faint)">
+                                    —
+                                    <span class="rd-meta__flag">
+                                        <popover position="below-end" label="i">
+                                            <span class="pop-kicker">No cost yet</span>
+                                            <span class="pop-body">None of these ingredients have a price. Prices normally arrive with receipts — or set one on each product's page:</span>
+                                            <ul class="pop-rows">
+                                                @foreach (var ingredient in recipe.MissingPriceIngredients)
+                                                {
+                                                    <li>
+                                                        <a href="/Pantry/Products/@ingredient.ProductId">
+                                                            @ingredient.ProductName
+                                                            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                                                        </a>
+                                                    </li>
+                                                }
+                                            </ul>
+                                        </popover>
+                                    </span>
+                                </div>
                                 <div class="rd-meta__lbl">Cost per serving</div>
                             }
                         </div>
@@ -275,57 +332,17 @@
                                  increase-label="More servings" />
                     </div>
 
-                    @* Ingredient rows are wrapped in #rd-ing-rows so the OOB swap from
-                       _DetailsFulfilmentCard can update per-ingredient status dots and sub-labels
-                       whenever the servings stepper triggers a fulfillment refresh (J3). *@
+                    @* Ingredient AND inclusion rows are wrapped in #rd-ing-rows (plantry-4037) so the OOB
+                       swap from _DetailsFulfilmentCard can update per-row status dots, sub-labels, and
+                       roll-up chips whenever the servings stepper triggers a fulfillment refresh (J3).
+                       Inclusion folds carry a stable id (#incl-fold-{id}) so the fold-preserve script
+                       below can re-open whatever was open before the swap replaces this content. *@
                     <div class="rd-ing-list" role="list" aria-label="Ingredients">
                         <div id="rd-ing-rows">
                             <partial name="_IngredientRows" model="recipe.IngredientGroups" />
                         </div>
                     </div>
                 </div>
-
-                @* ── Included recipes (plantry-fqb0.3, §5 / D15) — 'N servings · Sub' link in ordinal
-                      position with an expandable read-only preview of the sub's expanded ingredients.
-                      Lives OUTSIDE #rd-ing-rows so the servings-stepper OOB swap never disturbs it. ── *@
-                @if (Model.Inclusions.Count > 0)
-                {
-                    <div class="rd-incl-card">
-                        <div class="rd-incl-head"><h3>Included recipes</h3></div>
-                        @foreach (var inc in Model.Inclusions)
-                        {
-                            var batchHint = Plantry.Web.Pages.Recipes.DetailsModel.FormatBatchHint(inc.Servings, inc.SubDefaultServings);
-                            <div class="rd-incl" role="listitem">
-                                <a class="rd-incl__title" href="/Recipes/@inc.SubRecipeId">
-                                    <svg class="icon" aria-hidden="true"><use href="#i-recipe" /></svg>
-                                    <span>@Plantry.Web.Pages.Recipes.DetailsModel.FormatServings(inc.Servings) · @inc.SubName</span>
-                                </a>
-                                @if (!string.IsNullOrEmpty(batchHint))
-                                {
-                                    <div class="rd-incl__hint">≈ @batchHint</div>
-                                }
-                                @if (inc.Preview.Count > 0)
-                                {
-                                    <details class="rd-incl__preview">
-                                        <summary>Ingredients (@inc.Preview.Count)</summary>
-                                        <ul class="rd-incl__list">
-                                            @foreach (var item in inc.Preview)
-                                            {
-                                                <li class="rd-incl__item">
-                                                    <span class="rd-incl__item-name">@item.ProductName</span>
-                                                    @if (item.Quantity.HasValue)
-                                                    {
-                                                        <span class="rd-incl__item-amt">@(item.DisplayQuantity ?? IngredientAmount.Format(item.Quantity.Value))@(string.IsNullOrEmpty(item.UnitCode) ? "" : " " + item.UnitCode)</span>
-                                                    }
-                                                </li>
-                                            }
-                                        </ul>
-                                    </details>
-                                }
-                            </div>
-                        }
-                    </div>
-                }
 
             </div>@* /rd-rail *@
 
@@ -334,7 +351,9 @@
 
 </div>@* /recipe-detail *@
 
-@* ── Included-recipes card styling (plantry-fqb0.3) — page-specific; composes plenish.css tokens ── *@
+@* ── Page-specific top-bar styling; composes plenish.css tokens. The inclusion roll-up row grammar
+      (.rd-sub-fold / .rollup-chip / .rd-ing-row--sub) lives in plenish.css alongside the rest of the
+      shared .rd-ing-* row grammar it extends (plantry-4037) — it is not page-specific. ── *@
 <style>
     /* Back-link row hosting the entity-level .card__head-actions slot (plantry-jby4). Flex so the
        slot's margin-left:auto right-aligns Archive; owns the row's bottom gap (.rd-back's own is
@@ -346,36 +365,6 @@
         margin-bottom: var(--space-4);
     }
     .rd-topbar .rd-back { margin-bottom: 0; }
-    .rd-incl-card {
-        margin-top: var(--space-4);
-        border: 1px solid var(--color-border);
-        border-radius: var(--radius-lg);
-        background: var(--color-surface);
-        overflow: hidden;
-    }
-    .rd-incl-head { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); }
-    .rd-incl-head h3 { margin: 0; font-size: var(--font-size-md); }
-    .rd-incl { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); }
-    .rd-incl:last-child { border-bottom: none; }
-    .rd-incl__title {
-        display: flex; align-items: center; gap: var(--space-2);
-        color: var(--color-text); font-weight: 600; text-decoration: none;
-    }
-    .rd-incl__title:hover { color: var(--color-accent); }
-    .rd-incl__title .icon { color: var(--color-accent); flex-shrink: 0; }
-    .rd-incl__hint { font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 2px 0 0 calc(16px + var(--space-2)); }
-    .rd-incl__preview { margin: var(--space-2) 0 0 calc(16px + var(--space-2)); }
-    .rd-incl__preview > summary {
-        cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted);
-        list-style: revert;
-    }
-    .rd-incl__preview > summary:hover { color: var(--color-accent); }
-    .rd-incl__list { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
-    .rd-incl__item {
-        display: flex; justify-content: space-between; gap: var(--space-2);
-        font-size: var(--font-size-sm); padding: 2px 0; color: var(--color-text);
-    }
-    .rd-incl__item-amt { color: var(--color-text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 </style>
 
 @section Scripts {
@@ -385,5 +374,40 @@
        the first paint before this resolves, and the server already emitted the cleaned amount text. *@
     <script type="module">
         window.IngredientAmount = await import('@Html.Raw(ingredientAmountSrc)');
+    </script>
+
+    @* ── Inclusion-fold open/closed state preservation across the #rd-ing-rows OOB swap (plantry-4037) ──
+       The servings stepper's refreshFulfilment() replaces #rd-ing-rows wholesale via htmx (see
+       _DetailsFulfilmentCard's OOB block), which would otherwise re-collapse every open inclusion fold
+       on each tick. Each fold carries a stable id (#incl-fold-{InclusionId}, unchanged by the swap since
+       inclusion ids are stable for the request), so capture which ids are open immediately before the
+       OOB swap and re-apply `open` to the matching ids in the freshly-swapped content. Plain DOM/htmx
+       glue (no reactive runtime, no build step) — mirrors htmx-antiforgery.js's global-listener shape. *@
+    <script>
+        (function () {
+            function rdIngRowsEl(el) {
+                if (!el) return null;
+                if (el.id === 'rd-ing-rows') return el;
+                return el.closest ? el.closest('#rd-ing-rows') : null;
+            }
+            var openFoldIds = null;
+            document.body.addEventListener('htmx:oobBeforeSwap', function (evt) {
+                var container = rdIngRowsEl(evt.target);
+                if (!container) return;
+                openFoldIds = Array.prototype.slice
+                    .call(container.querySelectorAll('details.rd-sub-fold[open]'))
+                    .map(function (d) { return d.id; })
+                    .filter(Boolean);
+            });
+            document.body.addEventListener('htmx:oobAfterSwap', function (evt) {
+                if (!openFoldIds || !openFoldIds.length) return;
+                if (!rdIngRowsEl(evt.target)) return;
+                openFoldIds.forEach(function (id) {
+                    var el = document.getElementById(id);
+                    if (el) el.open = true;
+                });
+                openFoldIds = null;
+            });
+        })();
     </script>
 }

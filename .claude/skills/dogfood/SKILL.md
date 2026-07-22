@@ -84,17 +84,24 @@ UX friction (rough), or a missing capability.
    Type mappings: `class:bug` → `type:bug`; `class:improvement` → `type:feature`;
    `class:ux` → `type:task`.
 
-6. **File on approval.** Run:
+6. **File on approval.** Never pass the description inline via `--description`
+   — in PowerShell 5.1, embedded double quotes in a native command's argument
+   are silently mis-rebuilt by `CommandLineToArgvW`, truncating the text at
+   the first quote/whitespace boundary with no error (confirmed root cause of
+   plantry-2rav). Instead, write the description to a temp file in the
+   session scratchpad and pass it via `--body-file`:
 
    ```bash
+   # write {description} to a scratchpad file, e.g.:
+   #   <scratchpad>/dogfood-description.md
    bd create "{title}" \
      --type {type} \
-     --description "{description}" \
+     --body-file "<scratchpad>/dogfood-description.md" \
      --labels "class:{x},theme:{x},source:dogfood{,quick-win}"
    ```
 
-   Report the new issue ID. If the user edits the draft, update and re-show
-   before filing.
+   Report the new issue ID. If the user edits the draft, update the temp file
+   and re-show before filing.
 
 ## Notes
 

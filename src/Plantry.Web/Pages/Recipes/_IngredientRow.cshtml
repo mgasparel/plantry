@@ -1,0 +1,118 @@
+@model Plantry.Web.Pages.Recipes.IngredientItemView
+@using System.Globalization
+@using Plantry.Recipes.Domain
+@* Shared partial: renders ONE ingredient row — status dot, name + expiry badge, sub-label
+   (+ unit-gap popover), scaled amount. Extracted from _IngredientRows.cshtml (plantry-4037) so the
+   exact same markup renders both a direct ingredient row (via _IngredientRows) and an inclusion's
+   expanded child rows (via _InclusionFoldRow) — one source of truth for the row grammar, per the UI
+   "extract before you repeat" convention.
+   ViewData["IsSub"] (bool, default false): set by _InclusionFoldRow for a child row so it renders with
+   the .rd-ing-row--sub accent-bar modifier that visually bounds it to its owning inclusion fold. *@
+@{
+    var item = Model;
+    var isSub = ViewData["IsSub"] as bool? ?? false;
+    var rowClass = isSub ? "rd-ing-row rd-ing-row--sub" : "rd-ing-row";
+
+    // Fulfillment status for this ingredient.
+    var status = item.Status;
+    // Unit gap (plantry-z2sr): the row reads Missing only because on-hand stock can't be converted to
+    // the recipe unit. It is an honest "can't compare" state, not an empty pantry, so it renders in the
+    // info tone with a popover rather than the danger "Not in your pantry" — mirroring the Cook page's
+    // IsUnitGap treatment (plantry-qll2.5). Only meaningful when the status is Missing.
+    var unitGap = item.UnitMismatch;
+    var statusClass = unitGap ? "rd-ing-status--unitgap" : status switch
+    {
+        IngredientStatus.InStock   => "rd-ing-status--have",
+        IngredientStatus.Low       => "rd-ing-status--low",
+        IngredientStatus.Missing   => "rd-ing-status--miss",
+        _                          => "rd-ing-status--untracked",
+    };
+    var iconRef = unitGap ? "#i-info" : status switch
+    {
+        IngredientStatus.InStock   => "#i-check",
+        IngredientStatus.Low       => "#i-alert",
+        IngredientStatus.Missing   => "#i-alert",
+        _                          => "#i-recipe",
+    };
+    var subClass = unitGap ? "rd-ing-sub--unitgap" : status switch
+    {
+        IngredientStatus.InStock   => "rd-ing-sub--have",
+        IngredientStatus.Low       => "rd-ing-sub--low",
+        IngredientStatus.Missing   => "rd-ing-sub--miss",
+        _                          => "rd-ing-sub--untracked",
+    };
+    // Sub-label text.
+    string subLabel;
+    if (item.IsUntracked)
+    {
+        subLabel = "untracked";
+    }
+    else if (unitGap)
+    {
+        subLabel = "Can't compare units";
+    }
+    else if (status == IngredientStatus.InStock)
+    {
+        subLabel = "In your pantry";
+    }
+    else if (status == IngredientStatus.Low)
+    {
+        subLabel = "Running low";
+    }
+    else
+    {
+        subLabel = "Not in your pantry";
+    }
+}
+<div class="@rowClass" role="listitem">
+    <div class="rd-ing-status @(statusClass)" aria-hidden="true">
+        <svg class="icon"><use href="@iconRef" /></svg>
+    </div>
+    <div class="rd-ing-main">
+        <div class="rd-ing-name">
+            @item.ProductName
+            @if (item.ExpiresWithinDays is { } d)
+            {
+                @* Wording + colour tier from the shared ExpiryDisplay so the pill reads identically to
+                   the Today rail and Pantry grid (plantry-fdoq). ExpiresWithinDays is already the signed,
+                   horizon-clamped days-until-expiry, so drive the days-based entry directly. Keep the
+                   recipe's timer icon. *@
+                var (expLabel, expTier) = Plantry.Web.Pages.Shared.ExpiryDisplay.FromDaysUntilExpiry(d);
+                <span class="badge-expiry badge-expiry--@expTier">
+                    <svg class="icon" aria-hidden="true"><use href="#i-timer" /></svg>
+                    @expLabel
+                </span>
+            }
+        </div>
+        @* @subLabel and @if are kept adjacent (no leading whitespace) so a normal row renders
+           byte-identically to before — only a unit-gap row emits the extra popover markup. *@
+        <div class="rd-ing-sub @(subClass)">@subLabel@if (unitGap)
+            {
+                @* Honest "can't compare" explanation (plantry-z2sr): on-hand stock is measured in
+                   a unit with no conversion path to the recipe's unit. The popover links out to the
+                   product page where the Add-conversion affordance lives (same destination as the
+                   Cook page's unit-gap link, plantry-qll2.5). Start-aligned so it never clips the
+                   left rail margin. *@
+                <popover position="start" label="i" title="Can't compare units">
+                    You have some on hand, but it's measured in a unit we can't convert to this recipe's unit — so we can't tell whether it's enough.
+                    <a href="/Catalog/Products/@item.ProductId">Add a conversion</a>
+                </popover>
+            }</div>
+    </div>
+    <div class="rd-ing-amt">
+        @if (!item.IsUntracked && item.Quantity.HasValue)
+        {
+            @* Server render is the 1× vulgar-fraction display (quantity-display.md Q1/§7). The
+               servings stepper scales the amount client-side; the JS twin is decimal-only
+               (plantry-jun6), so keep the server-rendered fraction at scale === 1 and only hand off
+               to the decimal scaler when scaled — never clobbering the 1× fraction on first paint. *@
+            var displayText = item.DisplayQuantity ?? IngredientAmount.Format(item.Quantity.Value);
+            var qtyLiteral = item.Quantity.Value.ToString(CultureInfo.InvariantCulture);
+            <span class="rd-ing-qty" x-text="scale === 1 ? @Html.Raw(RazorJs.Literal(displayText)) : fmt(@qtyLiteral)">@displayText</span>
+            @if (!string.IsNullOrEmpty(item.UnitCode))
+            {
+                <span> @item.UnitCode</span>
+            }
+        }
+    </div>
+</div>

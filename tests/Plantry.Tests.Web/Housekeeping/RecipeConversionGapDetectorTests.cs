@@ -55,7 +55,30 @@ public sealed class RecipeConversionGapDetectorTests
         Assert.Equal(recipe.Ingredients[0].Id.Value, finding.SubjectId);
         Assert.Equal("All-Purpose Flour", finding.SubjectName);
         Assert.Contains("Sunday Pancakes", finding.Specifics);
-        Assert.Equal($"/Recipes/{recipe.Id.Value}/Edit", finding.FixUrl);
+        Assert.Equal($"/Recipes/{recipe.Id.Value}/Edit#ingredient-0", finding.FixUrl);
+    }
+
+    [Fact(DisplayName = "plantry-c7mg: FixUrl anchors on the offending line's own ordinal, not always 0")]
+    public async Task FixUrl_AnchorsOnOffendingLineOrdinal()
+    {
+        // Two lines: ordinal 0 is convertible (skipped), ordinal 1 is the gap — proves the anchor
+        // tracks the specific flagged line's Ordinal rather than a fixed/first-line value.
+        var recipe = Recipe.Create(Household, "Sunday Pancakes", defaultServings: 4, Clock).Value;
+        recipe.ReplaceIngredients(
+            [
+                new IngredientLine(FlourId, 200m, GramId, GroupHeading: null, Ordinal: 0),
+                new IngredientLine(FlourId, 2m, CupId, GroupHeading: null, Ordinal: 1),
+            ], Clock);
+        var recipes = new FakeD2RecipeRepository([recipe]);
+        var products = new FakeD2CatalogProductReader();
+        products.Add(FlourId, "All-Purpose Flour", trackStock: true, GramId);
+
+        var detector = BuildDetector(recipes, products, new FakeD2UnitConverter(succeeds: false));
+        var findings = await detector.DetectAsync();
+
+        var finding = Assert.Single(findings); // ordinal 0 already matches the default unit — no gap
+        Assert.Equal(recipe.Ingredients[1].Id.Value, finding.SubjectId);
+        Assert.Equal($"/Recipes/{recipe.Id.Value}/Edit#ingredient-1", finding.FixUrl);
     }
 
     [Fact(DisplayName = "A conversion path exists — no finding")]

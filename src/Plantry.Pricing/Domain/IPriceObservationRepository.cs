@@ -41,4 +41,11 @@ public interface IPriceObservationRepository
     /// deal is active. Also filters <c>superseded_by_id IS NULL</c> (ADR-023 A7) — a superseded deal
     /// observation never competes for cheapest-active.</summary>
     Task<PriceObservation?> CheapestActiveDealForProductAsync(Guid productId, DateOnly today, CancellationToken ct = default);
+
+    /// <summary>Batch existence check (Tidy Up D5, tidy-up.md §3): of the given product ids, which have at
+    /// least one live (<c>superseded_by_id IS NULL</c>) price observation of any <see cref="PriceSource"/>.
+    /// Lets D5 find products with zero price data in one round trip instead of a per-product query — the
+    /// same batching convention D1/D2 established (plantry-4t0g). Superseded-filtered like every other read
+    /// here (ADR-023 A7): a fully-amended-away observation doesn't count as "has price data."</summary>
+    Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(IEnumerable<Guid> productIds, CancellationToken ct = default);
 }

@@ -86,13 +86,21 @@ public sealed class RecipeConversionGapDetector(
             if (!unconvertible.Contains((product.Id, unitId, product.DefaultUnitId)))
                 continue;
 
+            // plantry-c7mg: anchor to the specific offending line so the editor opens scrolled and
+            // highlighted on it (Edit.cshtml keys the #ingredient-{ordinal} anchor on the same
+            // Ordinal). Accepted limitation: the anchor keys on ordinal, not the ingredient's domain
+            // id, so if the recipe is edited between detection and clicking this link the highlight
+            // may land on a neighbouring line. Cosmetic, self-corrects on the next detector run —
+            // keying on the domain id was rejected as disproportionate plumbing (the GUID is not in
+            // the editor row model; threading it would touch the input model, seeding, and POST
+            // round-trip).
             findings.Add(new Finding(
                 Id,
                 SubjectId: ingredient.Id.Value,
                 SubjectName: product.Name,
                 Specifics: $"{recipe.Name} has no conversion for this line's unit",
                 Consequence: "Cooking can't deduct it from stock · recipe cost is incomplete",
-                FixUrl: $"/Recipes/{recipe.Id.Value}/Edit",
+                FixUrl: $"/Recipes/{recipe.Id.Value}/Edit#ingredient-{ingredient.Ordinal}",
                 FixLabel: "Fix in recipe",
                 FactsFingerprint: Fingerprint(unitId, product.DefaultUnitId)));
         }

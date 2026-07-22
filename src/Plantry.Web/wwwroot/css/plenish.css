@@ -1131,7 +1131,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .pantry-toolbar__search { flex: 1 1 14rem; min-width: 0; }
 .pantry-toolbar__toggle { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); cursor: pointer; }
-.pantry-toolbar__add { margin-left: auto; }
+.pantry-toolbar__add { margin-left: auto; display: flex; gap: var(--space-2); }
 .pantry-toolbar__filters {
   flex: 0 0 100%;
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
@@ -1289,6 +1289,24 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 }
 
 .data-grid__action + .data-grid__action { margin-left: var(--space-2); }
+
+/* Icon-only row action (plantry-sjfn) — the quiet ghost-icon treatment for a trailing Actions cell
+   (e.g. the pantry grid's pencil-to-catalog-definition link), distinct from the text ghost button
+   .data-grid__action renders: no visible label, just an icon + aria-label/title. */
+.data-grid__icon-action {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; border-radius: var(--radius-md); border: none;
+  background: transparent; color: var(--color-text-faint); text-decoration: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.data-grid__icon-action:hover, .data-grid__icon-action:focus-visible { background: var(--color-accent-subtle); color: var(--color-accent); }
+.data-grid__icon-action .icon { width: 15px; height: 15px; }
+
+/* Whole-row quiet treatment (plantry-sjfn) — the Pantry "Everything" scope's never-stocked rows:
+   faint cells throughout, but the name link keeps a live accent (just slightly dimmed) since it's
+   still a working navigation, not decoration. */
+.data-grid__row--muted .data-grid__cell { color: var(--color-text-faint); }
+.data-grid__row--muted .data-grid__link { opacity: .85; }
 
 /* ── Card sections ─────────────────────────────────────────────────────────── */
 .card {
@@ -3131,7 +3149,10 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   display: flex;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* visible (not hidden, plantry-zxo4): the cost cell's missing-price popover is anchored to the
+     strip's rightmost cell and would otherwise be clipped at the rounded corner. Safe because every
+     cell shares the strip's own surface background, so nothing visibly overflows the corners. */
+  overflow: visible;
   background: var(--color-surface);
 }
 
@@ -3442,6 +3463,73 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   flex-shrink: 0;
   text-align: right;
 }
+
+/* ── Inclusion roll-up row (plantry-4037, recipe-composition.md §5) ───────
+ * An included sub-recipe renders as ONE row shaped exactly like an ingredient row (Option C,
+ * .preview/included-recipes-redesign.html tab C): worst-of-children status dot, name + optional
+ * roll-up chip + expiry timer chip, "N of M tracked" sub-label + batch hint, stepper-scaled
+ * servings in the amount slot. It is a <details>/<summary> fold — clicking the row (not the name
+ * link) expands the sub's expanded product-level lines as full-featured rows via _IngredientRow,
+ * reusing the exact same row grammar (status/expiry/scaling/unit-gap) as a direct ingredient.
+ */
+details.rd-sub-fold {
+  border-top: 1px solid var(--color-border);
+}
+details.rd-sub-fold > summary {
+  list-style: none;
+  cursor: pointer;
+}
+details.rd-sub-fold > summary::-webkit-details-marker { display: none; }
+details.rd-sub-fold > summary .rd-ing-row { border-top: none; }
+details.rd-sub-fold > summary:hover .rd-ing-row { background: var(--color-surface-2); }
+details.rd-sub-fold + .rd-ing-row { border-top: 1px solid var(--color-border); }
+
+.rd-sub-fold__chev {
+  color: var(--color-text-faint);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+details.rd-sub-fold[open] .rd-sub-fold__chev { transform: rotate(90deg); }
+
+.rd-sub-fold__body { padding-bottom: 4px; }
+
+/* The recipe name inside the fold header is its own link to the sub's page (stopPropagation in the
+   markup keeps it from also toggling the fold); everything else in the row toggles. */
+.rd-sub-name-link:hover { color: var(--color-accent); text-decoration: underline; }
+
+/* Left accent bar marking a child row as belonging to the currently-expanded sub — mirrors the
+   prototype's Option A/C accent-bar treatment so an ingredient authored right after an inclusion
+   (same section) is unambiguously NOT one of its children. */
+.rd-ing-row--sub {
+  margin-left: 10px;
+  position: relative;
+}
+.rd-ing-row--sub::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 4px;
+  bottom: 4px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--color-accent-subtle);
+}
+.rd-ing-row--sub + .rd-ing-row--sub { border-top-color: transparent; }
+
+/* Compact per-sub verdict chip inline in the row name ("2 to buy" / "1 low") — echoes .rd-fulf-chip's
+   tone palette at inline-row scale; omitted entirely when every tracked child is fully in stock. */
+.rollup-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+.rollup-chip--have { background: var(--color-success-bg); color: var(--color-success); }
+.rollup-chip--low  { background: var(--color-warning-bg); color: var(--color-warning); }
+.rollup-chip--miss { background: var(--color-danger-bg);  color: var(--color-danger); }
 
 /* ── Responsive: collapse to single column on narrow viewports ───────────── */
 @media (max-width: 1080px) {
@@ -6258,6 +6346,9 @@ tr.line--dismissed .data-grid__cell:first-child {
   line-height: 1.5;
   text-align: left;
   font-weight: 400;
+  /* Every popover's content wraps (plantry-zxo4) — without this, a panel nested inside a nowrap
+     ancestor (e.g. .rd-meta__val) inherits nowrap and its text runs out past the panel edge. */
+  white-space: normal;
   opacity: 0;
   visibility: hidden;
   /* Default position: above, centered */
@@ -6341,6 +6432,48 @@ tr.line--dismissed .data-grid__cell:first-child {
 
 /* Links inside the content panel */
 .popover__content a { color: var(--color-accent); text-decoration: underline; }
+
+/* ── Recipe cost-stat missing-price popover (plantry-zxo4) ─────────────────── */
+/* Inline flag placement — a popover trigger sitting right after a stat value, e.g. the "~"/"i"
+   glyph after the cost figure in .rd-meta__val. */
+.rd-meta__flag { margin-left: 5px; vertical-align: 1px; }
+.rd-meta__flag .popover__trigger { font-family: var(--font-mono); }
+
+/* Kicker + body scaffolding for a richer popover interior (echoes .rd-meta__lbl's uppercase tone). */
+.pop-kicker {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  margin-bottom: 3px;
+}
+.pop-body { color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.45; }
+.pop-body b { color: var(--color-text); font-weight: 600; }
+
+/* Product links as tappable menu rows — name left, chevron right. */
+.pop-rows { margin: var(--space-2) calc(var(--space-1) * -1) calc(var(--space-1) * -1); padding: var(--space-1) 0 0; list-style: none; border-top: 1px solid var(--color-border); }
+.pop-rows li + li { margin-top: 1px; }
+.pop-rows a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 5px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.pop-rows a:hover { background: var(--color-accent-subtle); color: var(--color-accent); }
+.pop-rows a .icon { width: 13px; height: 13px; color: var(--color-text-faint); }
+.pop-rows a:hover .icon { color: var(--color-accent); }
+
+/* Widened panel so the menu rows breathe (vs the stock 16rem popover). */
+.rd-meta__flag .popover__content { max-width: 17.5rem; min-width: 13.5rem; }
 
 /* Reduced motion — drop translate, keep opacity fade */
 @media (prefers-reduced-motion: reduce) {
@@ -6849,6 +6982,10 @@ kbd, .kbd {
 
 /* 9. Rail-jump flash — a sure-things row briefly highlights when jumped to from the receipt minimap. */
 .check-row.flash { background: var(--color-warning-bg); }
+
+/* 10. Fix-link anchor flash (plantry-c7mg) — a recipe-editor ingredient row briefly highlights when
+       landed on via a Tidy Up finding's #ingredient-{ordinal} fix link. Same treatment as #9. */
+.ingredient-row.flash { background: var(--color-warning-bg); }
 
 /* ── Guided-flow step nav (.steps / .step) ──────────────────────────────────
    Jumpable step tabs for a multi-pass flow. NOT the <stepper> tag helper — that

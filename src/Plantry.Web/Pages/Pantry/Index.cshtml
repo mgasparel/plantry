@@ -1,5 +1,6 @@
 @page
 @model Plantry.Web.Pages.Pantry.IndexModel
+@using static Plantry.Web.Pages.Pantry.IndexModel
 @{
     ViewData["Title"] = "Pantry";
 }
@@ -12,11 +13,38 @@
            hx-trigger="input changed delay:250ms, search"
            hx-target="#pantry-list" hx-swap="outerHTML"
            hx-include=".pantry-filter" />
-    <button type="button" class="btn btn--primary pantry-toolbar__add"
-            hx-get="@Url.Page("./Index", "AddSheet")"
-            hx-target="#sheet-host" hx-swap="innerHTML">
-        Add stock
-    </button>
+
+    @* Scope control (plantry-sjfn): "In stock" is exactly today's pantry; "Everything" folds in
+       active never-stocked catalog products. Joins the .pantry-filter include group so it composes
+       with search/filters exactly like any other filter. *@
+    <div class="seg-ctrl" role="group" aria-label="Scope">
+        <label class="seg-ctrl__item">
+            <input type="radio" name="scope" value="@ScopeInStock" class="pantry-filter"
+                   checked="@(Model.Scope == ScopeInStock ? "checked" : null)"
+                   hx-get="@Url.Page("./Index", "Filter")"
+                   hx-trigger="change" hx-target="#pantry-list" hx-swap="outerHTML"
+                   hx-include=".pantry-filter" />
+            <span>In stock</span>
+        </label>
+        <label class="seg-ctrl__item">
+            <input type="radio" name="scope" value="@ScopeEverything" class="pantry-filter"
+                   checked="@(Model.Scope == ScopeEverything ? "checked" : null)"
+                   hx-get="@Url.Page("./Index", "Filter")"
+                   hx-trigger="change" hx-target="#pantry-list" hx-swap="outerHTML"
+                   hx-include=".pantry-filter" />
+            <span>Everything</span>
+        </label>
+    </div>
+
+    <div class="pantry-toolbar__add">
+        <a href="/Catalog/Products/Create" class="btn btn--ghost">New product</a>
+        <button type="button" class="btn btn--primary"
+                hx-get="@Url.Page("./Index", "AddSheet")"
+                hx-target="#sheet-host" hx-swap="innerHTML"
+                hx-include=".pantry-filter">
+            Add stock
+        </button>
+    </div>
 
     <div class="pantry-toolbar__filters">
         <div class="seg-ctrl" role="group" aria-label="Filter by expiry">

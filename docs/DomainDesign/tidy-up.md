@@ -43,7 +43,7 @@ it's upkeep, not an alarm, and any finding can be dismissed for good.
 | T5 | **Dismissal = persisted tombstone, findings get deterministic identity.** `FindingKey = (DetectorId, SubjectId)` (subject = the primary entity: productId, recipe line id). Each finding carries a `FactsFingerprint` — a stable hash, computed by its detector, of the facts that make it true (e.g. D1: sorted distinct lot unit ids + display unit id). A finding is suppressed iff a tombstone matches key **and** fingerprint; when facts change the fingerprint differs and the finding reopens with the stale tombstone superseded. Restore deletes the tombstone | The one architectural fork called out in design: dismissal needs identity, but *only* dismissal — so persist the dismissals, not the findings. Reopen-on-fact-change falls out of the fingerprint for free, with detector-local definitions of "what counts as changed" |
 | T6 | **Badge count is cached per household** (in-memory, ~10 min TTL), invalidated by dismiss/restore and refreshed whenever the Tidy Up page computes the real list. Layout renders the badge from the cache only — never runs detectors | The badge is on every page render; running all detectors per request is unacceptable. A briefly-stale count is fine: the page itself is always truthful, and visiting it reconciles the badge |
 | T7 | **Mobile:** no bottom-nav slot (fixed 5 items); Tidy Up appears as a **More-hub tile** with the same count treatment | Matches the existing More-hub pattern for secondary destinations |
-| T8 | **v1 ships detectors D1 + D2** (the conversion-gap family — see §3); D3–D7 are specified here and tracked as a follow-up bead | Conversion gaps just demonstrably bit (Onion Yellow), both fix destinations exist today, and the pair exercises the full framework (two contexts, two deep-link shapes, fingerprint semantics) |
+| T8 | **v1 shipped detectors D1 + D2** (the conversion-gap family — see §3); D3–D7 shipped as the plantry-i55s follow-up, completing the catalogue | Conversion gaps just demonstrably bit (Onion Yellow), both fix destinations exist today, and the pair exercised the full framework (two contexts, two deep-link shapes, fingerprint semantics) before the remaining five detectors were added |
 | T9 | **Dismissal table is household-scoped** with the standard tenancy defense-in-depth (EF filter + RLS, ADR-008) | Findings describe household data; dismissals are household decisions |
 | T10 | **CSS/library:** the nav count badge (`.sidebar__count`) is a genuinely reusable primitive → added to `plenish.css` and the Dev component library. Finding rows and group cards are page-scoped compositions of the existing card / row-rhythm / badge / btn primitives | Per the UI-work rules: extract the cross-cutting piece (a count badge on a nav link is plausibly reused), don't catalogue page-specific composition |
 
@@ -56,11 +56,19 @@ The long-term list, so nothing is lost to "we'll think of them later." Severity:
 |----|----------|--------|---------------------------|---------------|-------|
 | D1 | Stock unit unconvertible to display unit | Any active lot on a product where `Convert(lot.UnitId → DefaultUnitId)` fails | On-hand totals wrong or fall back to lot units; Shopping can misread the product (the Onion Yellow case); low-stock alert can't evaluate | Catalog product detail (conversions) | **v1** · B |
 | D2 | Recipe line without a conversion path | Tracked recipe line whose unit has no path to the product's default unit — including ADR-022 deferred gaps AI seeding never resolved | Cooking can't deduct the line from stock; recipe costing incomplete | Recipe editor, anchored to the line | **v1** · B |
-| D3 | Expired stock still counted | Active lot with `ExpiryDate` past today (threshold: agree exact grace window before implementation) | Inflates on-hand; hides the product from shopping suggestions; meal planning assumes usable stock | Take Stock, filtered to the product | follow-up · B |
-| D4 | Frequent staple with no low-stock alert | Product purchased repeatedly (heuristic + numbers TBD with owner) with `LowStockThreshold = null` | Never appears in "Running low" — only surfaces once fully out | Pantry product detail (Set alert) | follow-up · A |
-| D5 | Recipe ingredient with no price data | Product referenced by ≥1 recipe with zero usable price observations | Recipe cost-per-serving silently incomplete | Catalog product detail (pricing) | follow-up · A |
-| D6 | Mixed incompatible units in one product's stock | Active lots in ≥2 units with no mutual conversion (the `DisplayQuantity` "?" fallback case) | Pantry shows quantity as "?"; consumption ordering across lots unreliable | Catalog product detail (conversions) | follow-up · B |
-| D7 | Recipe line not linked to a catalog product | Free-text ingredient line on a recipe, unresolved to any product | No stock deduction, no shopping-list integration, no costing for the line. Often *intentional* (spices, "water") — dismissal is the designed answer; smarter suppression heuristics can come later | Recipe editor, anchored to the line | follow-up · A |
+| D3 | Expired stock still counted | Active lot with `ExpiryDate` strictly before today — **grace window: 0 days** (agreed with the owner, plantry-i55s): expiring today does not fire, only an already-past expiry | Inflates on-hand; hides the product from shopping suggestions; meal planning assumes usable stock | Pantry product detail (`/Pantry/Products/Detail/{id}`) — **retargeted from Take Stock**: Take Stock has no per-product filter, and the lots grid + per-lot Consume sheet on the product detail page is where an expired lot is actually dealt with | **shipped (plantry-i55s)** · B |
+| D4 | Frequent staple with no low-stock alert | Product with `LowStockThreshold = null` purchased on **≥3 distinct `StockEntry.PurchasedAt` dates within the last 90 days** (agreed with the owner, plantry-i55s) — entries with a null `PurchasedAt` don't count; depleted entries do (frequency is about purchase history, not current stock) | Never appears in "Running low" — only surfaces once fully out | Pantry product detail (Set alert) | **shipped (plantry-i55s)** · A |
+| D5 | Recipe ingredient with no price data | Product with `TrackStock == true`, referenced by ≥1 recipe ingredient line, with zero price observations — untracked products are excluded (that gap is D7's now; flagging "water has no price" on both would be noise) | Recipe cost-per-serving silently incomplete | Catalog product detail — unanchored (`/Catalog/Products/{id}`): no `#pricing` anchor exists on the page today, unlike D1/D6's `#conversions` | **shipped (plantry-i55s)** · A |
+| D6 | Mixed incompatible units in one product's stock | Active lots in ≥2 units with no mutual conversion (the `DisplayQuantity` "?" fallback case) | Pantry shows quantity as "?"; consumption ordering across lots unreliable | Catalog product detail (conversions) | **shipped (plantry-i55s)** · B |
+| D7 | Recipe line uses an untracked product — **redefined (plantry-i55s)**, see note below | Ingredient line whose product resolves with `TrackStock == false` | No stock deduction, no shopping-list integration, no costing for the line. Often *intentional* (spices, "water") — dismissal is the designed answer; smarter suppression heuristics are explicitly out of scope for this bead | Recipe editor, anchored to the line | **shipped (plantry-i55s)** · A |
+
+**D7 redefinition:** the original signal above — "a free-text ingredient line on a recipe, unresolved to
+any product" — turned out to be structurally impossible in the current domain model:
+`Ingredient.ProductId` is a non-nullable `Guid` (R4/C12), and every persisted ingredient line — typed
+against an existing product or inline-created during authoring — always resolves to one. There is no
+unlinked state to detect. Agreed with the owner (2026-07-22) to redefine D7 to the closest real gap
+instead: an ingredient line whose product resolves with `TrackStock == false` — exactly the lines D2
+already skips at its own TrackStock guard.
 
 **Deliberately not in the catalogue:** intake sessions pending review (they have their own surface — the
 Upload panel and `/Intake/History`); anything that is a *defect* rather than a data gap (defects get
@@ -98,8 +106,10 @@ fixed, not surfaced to users as chores).
 
 ## 6. Open questions (agree before the relevant implementation, per working convention)
 
-1. D3 grace window and D4 "frequent staple" heuristic — numbers to be agreed with the owner at
-   follow-up implementation time, not invented in the bead.
+1. ~~D3 grace window and D4 "frequent staple" heuristic — numbers to be agreed with the owner at
+   follow-up implementation time, not invented in the bead.~~ **Resolved (plantry-i55s, agreed with the
+   owner 2026-07-21):** D3 grace window is 0 days (expiring today does not fire, only a past expiry
+   does); D4's "frequent staple" is ≥3 distinct purchase dates within the last 90 days. See §3.
 2. Badge TTL (design says ~10 min) — tune against homelab feel.
 3. Whether D1's fix page needs a "add conversion" anchor/affordance on Catalog product detail, or the
    existing conversions section is discoverable enough once linked.
@@ -110,5 +120,6 @@ fixed, not surfaced to users as chores).
 - `src/Plantry.Composition/Shopping/ShoppingPantryReaderAdapter.cs` — the cross-context adapter pattern detectors follow; also where the Onion Yellow "out" was computed
 - `src/Plantry.Inventory/Application/InventoryQueries.cs` (`DisplayQuantity`, `SumInDisplayUnit`) — the conversion-failure semantics D1/D6 detect
 - `src/Plantry.Recipes/Application/ConversionGapPlanner.cs` + ADR-022 — the entry-time half of D2; Tidy Up is its after-the-fact backstop
+- `src/Plantry.Pricing/Application/PricingQueries.cs` (`ProductIdsWithAnyPriceAsync`) + `src/Plantry.Pricing/Domain/IPriceObservationRepository.cs` (`ProductIdsWithAnyObservationAsync`) — the batch price-existence check D5 added (plantry-4t0g convention: no per-product round trip)
 - `src/Plantry.Web/Pages/Shared/_Layout.cshtml` — nav bands, icon sprite, More hub entry point
 - Beads: `plantry-2hfi` (the originating defect), v1 + follow-up beads filed from this doc

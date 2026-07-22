@@ -224,12 +224,34 @@ public sealed class InventoryQueryServiceTests
         Assert.Equal("ea", item.DisplayUnitCode);
     }
 
-    [Fact]
-    public async Task FindDetail_Returns_Null_When_Stock_Not_Found()
+    [Fact(DisplayName = "FindDetail returns a zero-lot empty detail when the product exists in the catalog "
+        + "but has never been stocked (plantry-sjfn) — the Pantry \"Everything\" scope links catalog-only "
+        + "products straight here, so this must not 404")]
+    public async Task FindDetail_Returns_ZeroStock_Detail_When_Never_Stocked()
     {
         var stocks = new FakeProductStockRepository();
 
         var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).FindDetailAsync(_productId);
+
+        Assert.NotNull(detail);
+        Assert.Equal("Flour", detail!.Name);
+        Assert.Equal("Baking", detail.CategoryName);
+        Assert.Equal("g", detail.DisplayUnitCode);
+        Assert.Equal(0m, detail.TotalQuantity);
+        Assert.Empty(detail.Lots);
+        Assert.Empty(detail.History);
+        Assert.Null(detail.LowStockThreshold);
+        Assert.False(detail.IsRunningLow);
+    }
+
+    [Fact(DisplayName = "FindDetail still returns null when the product doesn't exist in the catalog at all "
+        + "— a stale/removed id genuinely 404s")]
+    public async Task FindDetail_Returns_Null_When_Product_Not_In_Catalog()
+    {
+        var stocks = new FakeProductStockRepository();
+        var emptyCatalog = new FakeCatalogReadFacade(); // no products registered
+
+        var detail = await Service(stocks, emptyCatalog, new IdentityQuantityConverter(), _household).FindDetailAsync(_productId);
 
         Assert.Null(detail);
     }

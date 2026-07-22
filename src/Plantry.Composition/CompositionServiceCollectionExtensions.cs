@@ -119,11 +119,17 @@ public static class CompositionServiceCollectionExtensions
         // composition-root join, same seam ShoppingRecipeReaderAdapter plays for Shopping.
         services.AddScoped<IStockProvenanceReader, StockProvenanceReaderAdapter>();
 
-        // Housekeeping (tidy-up.md T4/T8) — v1 ships D1 + D2, the conversion-gap detector family.
-        // Registered as IProblemDetector so GetTidyUpPageQuery discovers every implementation via
-        // IEnumerable<IProblemDetector> — adding a detector is one class + one line here, no other edits.
+        // Housekeeping (tidy-up.md T4/T8) — v1 shipped D1 + D2 (conversion-gap family); this follow-up
+        // (plantry-i55s) adds D3-D7, the remaining catalogue rows. Registered as IProblemDetector so
+        // GetTidyUpPageQuery discovers every implementation via IEnumerable<IProblemDetector> — adding
+        // a detector is one class + one line here, no other edits.
         services.AddScoped<IProblemDetector, StockUnitUnconvertibleDetector>();
         services.AddScoped<IProblemDetector, RecipeConversionGapDetector>();
+        services.AddScoped<IProblemDetector, StockExpiredDetector>();
+        services.AddScoped<IProblemDetector, StapleNoLowStockAlertDetector>();
+        services.AddScoped<IProblemDetector, RecipeIngredientNoPriceDetector>();
+        services.AddScoped<IProblemDetector, MixedIncompatibleUnitsDetector>();
+        services.AddScoped<IProblemDetector, RecipeLineUntrackedProductDetector>();
 
         return services;
     }
