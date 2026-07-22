@@ -60,6 +60,48 @@ public sealed class StockUnitUnconvertibleDetectorTests
         Assert.Contains("lb", finding.Specifics);
         Assert.Contains("ea", finding.Specifics);
         Assert.Equal("/Catalog/Products/" + OnionId + "#conversions", finding.FixUrl);
+        // Single unconvertible unit: string must be byte-identical to pre-plantry-g223 behavior.
+        Assert.Equal("3 lb in stock, display unit is ea", finding.Specifics);
+    }
+
+    [Fact(DisplayName = "Two distinct unconvertible units — specifics is a per-unit breakdown, terms ordered alphabetically by unit code")]
+    public async Task TwoDistinctUnconvertibleUnits_ProducesPerUnitBreakdown()
+    {
+        var gramId = Guid.Parse("22222222-2222-2222-2222-0000000000d3");
+        var stocks = new FakeD1StockRepository();
+        var stock = ProductStock.Start(Household, OnionId, Clock);
+        stock.AddStock(3m, PoundId, locationId: Guid.NewGuid(), userId: Guid.NewGuid(), Clock);
+        stock.AddStock(200m, gramId, locationId: Guid.NewGuid(), userId: Guid.NewGuid(), Clock);
+        stocks.Add(stock);
+
+        var catalog = new FakeD1CatalogFacade();
+        catalog.AddProduct(OnionId, "Onion Yellow", EachId, "ea");
+        catalog.AddUnitCode(PoundId, "lb");
+        catalog.AddUnitCode(gramId, "g");
+
+        var detector = BuildDetector(stocks, catalog, new FakeD1ConversionProvider(mismatch: true));
+        var finding = Assert.Single(await detector.DetectAsync());
+
+        Assert.Equal("200 g + 3 lb in stock, display unit is ea", finding.Specifics);
+    }
+
+    [Fact(DisplayName = "Multiple lots of the same unconvertible unit — quantities sum into a single term")]
+    public async Task SameUnconvertibleUnit_MultipleLots_SumIntoOneTerm()
+    {
+        var stocks = new FakeD1StockRepository();
+        var stock = ProductStock.Start(Household, OnionId, Clock);
+        stock.AddStock(3m, PoundId, locationId: Guid.NewGuid(), userId: Guid.NewGuid(), Clock);
+        stock.AddStock(2m, PoundId, locationId: Guid.NewGuid(), userId: Guid.NewGuid(), Clock);
+        stocks.Add(stock);
+
+        var catalog = new FakeD1CatalogFacade();
+        catalog.AddProduct(OnionId, "Onion Yellow", EachId, "ea");
+        catalog.AddUnitCode(PoundId, "lb");
+
+        var detector = BuildDetector(stocks, catalog, new FakeD1ConversionProvider(mismatch: true));
+        var finding = Assert.Single(await detector.DetectAsync());
+
+        Assert.Equal("5 lb in stock, display unit is ea", finding.Specifics);
     }
 
     [Fact(DisplayName = "All lots convert cleanly — no finding")]

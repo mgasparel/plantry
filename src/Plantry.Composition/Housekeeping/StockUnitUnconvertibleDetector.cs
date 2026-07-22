@@ -73,16 +73,18 @@ public sealed class StockUnitUnconvertibleDetector(
             if (unconvertibleUnitIds.Count == 0)
                 continue;
 
-            var unconvertibleQty = activeLots
+            var breakdown = string.Join(" + ", activeLots
                 .Where(l => unconvertibleUnitIds.Contains(l.UnitId))
-                .Sum(l => l.Quantity);
-            var representativeUnitCode = unitCodes.GetValueOrDefault(unconvertibleUnitIds[0], "?");
+                .GroupBy(l => l.UnitId)
+                .Select(g => (UnitCode: unitCodes.GetValueOrDefault(g.Key, "?"), Qty: g.Sum(l => l.Quantity)))
+                .OrderBy(t => t.UnitCode, StringComparer.Ordinal)
+                .Select(t => $"{FormatQuantity(t.Qty)} {t.UnitCode}"));
 
             findings.Add(new Finding(
                 Id,
                 SubjectId: stock.ProductId,
                 SubjectName: product.Name,
-                Specifics: $"{FormatQuantity(unconvertibleQty)} {representativeUnitCode} in stock, display unit is {product.DefaultUnitCode}",
+                Specifics: $"{breakdown} in stock, display unit is {product.DefaultUnitCode}",
                 Consequence: "Shopping may show it as \"out\" · low-stock alert can't trigger",
                 FixUrl: $"/Catalog/Products/{stock.ProductId}#conversions",
                 FixLabel: "Fix in Catalog",
