@@ -25,3 +25,13 @@ bd close <id>         # Complete work
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 
 <!-- END BEADS INTEGRATION -->
+
+## Beads CLI guardrail: never pass free text inline on PowerShell
+
+Never pass multi-line or quoted free text inline via `-d`/`--description` (PS 5.1
+truncates at embedded quotes, silently — `CommandLineToArgvW` mis-rebuilds the
+argument when it rebuilds the native command line, and bd stores only the text up
+to the first embedded quote/whitespace boundary, with no error). Use
+`--body-file <file>` / `--stdin` for `create` and `update`. For flags with no file
+variant (`--notes`, `--acceptance`), use a Bash single-quoted heredoc, never
+PowerShell inline.
