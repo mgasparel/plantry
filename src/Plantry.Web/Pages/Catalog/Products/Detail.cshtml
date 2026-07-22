@@ -83,6 +83,16 @@
                     </div>
                     <span asp-validation-for="Input.DefaultDueDaysAfterThawing" class="field__error"></span>
                 </field>
+                @* A parent product is an abstract grouping (CanHoldStock is false) — tracking is
+                   meaningless there, so the toggle is hidden entirely rather than posting a value
+                   for a flag the product can never actually use (plantry-9ndg). *@
+                @if (!product.IsParent)
+                {
+                    <field asp-for="Input.TrackStock" stacked full
+                           hint="Off: treated as an always-available staple (salt, water) — never counted, never consumed by cooking, never added to shopping lists.">
+                        <input asp-for="Input.TrackStock" type="checkbox" />
+                    </field>
+                }
             </div>
             <div>
                 <button type="submit" class="btn btn--primary">Save changes</button>

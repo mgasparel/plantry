@@ -91,6 +91,15 @@ public sealed class DetailModel(
         [Range(0, 3650)]
         [Display(Name = "Expiry after thawing (days)")]
         public int? DefaultDueDaysAfterThawing { get; set; }
+
+        /// <summary>
+        /// Whether this product participates in quantity accounting (Product.TrackStock). Hidden
+        /// on the form for a parent product (grouping abstraction, can't hold stock) — for those,
+        /// <see cref="UpdateProductCommand"/> ignores whatever value posts here and leaves the
+        /// flag untouched, so a stale/default value from an unrendered field can't flip it.
+        /// </summary>
+        [Display(Name = "Track stock")]
+        public bool TrackStock { get; set; } = true;
     }
 
     public sealed class AddSkuInputModel
@@ -172,7 +181,7 @@ public sealed class DetailModel(
         var cmd = new UpdateProductCommand(
             Id, Input.Name, Input.DefaultUnitId!.Value, Input.CategoryId, Input.DefaultLocationId,
             Input.DefaultDueDays, Input.DefaultDueDaysAfterOpening, Input.DefaultDueDaysAfterFreezing,
-            Input.DefaultDueDaysAfterThawing, products, units, categories, locations, clock,
+            Input.DefaultDueDaysAfterThawing, Input.TrackStock, products, units, categories, locations, clock,
             logger: updateProductLogger);
 
         var result = await cmd.ExecuteAsync();
@@ -414,6 +423,7 @@ public sealed class DetailModel(
             DefaultDueDaysAfterOpening = product.DefaultDueDaysAfterOpening,
             DefaultDueDaysAfterFreezing = product.DefaultDueDaysAfterFreezing,
             DefaultDueDaysAfterThawing = product.DefaultDueDaysAfterThawing,
+            TrackStock = product.TrackStock,
         };
     }
 

@@ -36,6 +36,10 @@
             </select>
             <span asp-validation-for="Input.DefaultLocationId" class="field__error"></span>
         </div>
+        <field asp-for="Input.TrackStock"
+               hint="Off: treated as an always-available staple (salt, water) — never counted, never consumed by cooking, never added to shopping lists.">
+            <input asp-for="Input.TrackStock" type="checkbox" />
+        </field>
         <button type="submit" class="btn btn--primary">Create Product</button>
         @* Cancel returns to Pantry (plantry-sjfn) — the unified product list; /Catalog/Products is
            now just a redirect stub, so linking straight to /Pantry avoids the extra hop. *@
