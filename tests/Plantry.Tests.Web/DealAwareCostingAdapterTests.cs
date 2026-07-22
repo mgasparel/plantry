@@ -112,6 +112,29 @@ public sealed class DealAwareCostingAdapterTests
         Assert.Equal(manualUnitPrice + PurchaseUnitPrice, cost.Amount);
     }
 
+    [Fact(DisplayName = "ADR-023 A7: PriceReaderAdapter (IPriceReader) never surfaces a superseded observation")]
+    public async Task PriceReaderAdapter_Excludes_Superseded_Observation()
+    {
+        var productId = Guid.CreateVersion7();
+        var repo = new WindowAwarePriceRepo();
+        var original = PriceObservation.Record(
+            Household, productId, null, price: PurchaseUnitPrice, quantity: 1m, unitId: UnitId,
+            unitPrice: PurchaseUnitPrice, source: PriceSource.Purchase, merchantText: "Superstore",
+            sourceRef: Guid.CreateVersion7(), observedAt: new DateTimeOffset(2026, 6, 20, 0, 0, 0, TimeSpan.Zero),
+            userId: Guid.CreateVersion7());
+        const decimal amendedUnitPrice = 1.33m;
+        var amendment = PriceObservation.RecordAmendment(original, correctedQuantity: 3m, unitPrice: amendedUnitPrice, Guid.CreateVersion7());
+        original.Supersede(amendment.Id);
+        repo.Add(original);
+        repo.Add(amendment);
+
+        var reader = new PriceReaderAdapter(new PricingQueries(repo), new MutableClock(InWindow));
+        var point = await reader.FindLatestAsync(productId);
+
+        Assert.NotNull(point);
+        Assert.Equal(amendedUnitPrice, point.UnitPrice); // the live amendment, never the superseded original
+    }
+
     // ── L5: meal-plan cost reflects the same active deal and reverts on lapse ───────────────────────
 
     [Fact(DisplayName = "L5: meal-plan cost uses the active deal price while the deal window contains today")]
@@ -204,19 +227,24 @@ public sealed class DealAwareCostingAdapterTests
             Task.FromResult(_items
                 .Where(o => o.ProductId == productId
                     && o.Source == PriceSource.Deal
-                    && o.ValidFrom <= today && today <= o.ValidTo)
+                    && o.ValidFrom <= today && today <= o.ValidTo
+                    && o.SupersededById is null) // ADR-023 A7
                 .OrderBy(o => o.UnitPrice)
                 .FirstOrDefault());
 
         public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
             Task.FromResult(_items
                 .Where(o => o.ProductId == productId
-                    && (o.Source == PriceSource.Purchase || o.Source == PriceSource.Manual))
+                    && (o.Source == PriceSource.Purchase || o.Source == PriceSource.Manual)
+                    && o.SupersededById is null) // ADR-023 A7
                 .OrderByDescending(o => o.ObservedAt)
                 .FirstOrDefault());
 
         public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
             Task.FromResult<PriceObservation?>(null);
+
+        public Task<PriceObservation?> FindAsync(PriceObservationId id, CancellationToken ct = default) =>
+            Task.FromResult(_items.FirstOrDefault(o => o.Id == id));
 
         public Task AddAsync(PriceObservation observation, CancellationToken ct = default)
         {

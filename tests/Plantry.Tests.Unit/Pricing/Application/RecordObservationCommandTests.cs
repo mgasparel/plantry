@@ -161,30 +161,37 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
         return Task.CompletedTask;
     }
 
+    public Task<PriceObservation?> FindAsync(PriceObservationId id, CancellationToken ct = default) =>
+        Task.FromResult(Items.FirstOrDefault(p => p.Id == id));
+
     public Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<PriceObservation>>(Items
             .Where(p => p.Source == PriceSource.Purchase
                 && p.StoreId is null
-                && !string.IsNullOrWhiteSpace(p.MerchantText))
+                && !string.IsNullOrWhiteSpace(p.MerchantText)
+                && p.SupersededById is null)
             .OrderBy(p => p.ObservedAt)
             .ToList());
 
     public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(Items
             .Where(p => p.ProductId == productId
-                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual))
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById is null)
             .MaxBy(p => p.ObservedAt));
 
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
         Task.FromResult(Items
             .Where(p => p.SkuId == skuId
-                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual))
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById is null)
             .MaxBy(p => p.ObservedAt));
 
     public Task<PriceObservation?> CheapestActiveDealForProductAsync(Guid productId, DateOnly today, CancellationToken ct = default) =>
         Task.FromResult(Items
             .Where(p => p.ProductId == productId && p.Source == PriceSource.Deal
-                && p.ValidFrom <= today && p.ValidTo >= today)
+                && p.ValidFrom <= today && p.ValidTo >= today
+                && p.SupersededById is null)
             .OrderBy(p => p.UnitPrice)
             .ThenBy(p => p.Price)
             .FirstOrDefault());

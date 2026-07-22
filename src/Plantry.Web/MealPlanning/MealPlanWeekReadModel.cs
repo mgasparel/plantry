@@ -474,7 +474,10 @@ public sealed class MealPlanWeekReadModel(
         CancellationToken ct)
     {
         // DISTINCT ON (product_id) — Postgres extension: one row per product, latest by observed_at.
-        // Equivalent to the per-product LatestForProductAsync but batched for all products at once.
+        // Equivalent to the per-product LatestForProductAsync but batched for all products at once
+        // (including the superseded_by_id IS NULL filter, ADR-023 A7 — an amending row copies the
+        // original's observed_at, so without this filter DISTINCT ON's arbitrary tie-break can surface
+        // an amended-away row, and for any row superseded by a later-observed live row this always would).
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT DISTINCT ON (p.product_id)
@@ -486,6 +489,7 @@ public sealed class MealPlanWeekReadModel(
                 p.observed_at
             FROM pricing.price_observation p
             WHERE p.product_id = ANY(@ids)
+                AND p.superseded_by_id IS NULL
             ORDER BY p.product_id, p.observed_at DESC
             """;
         var param = cmd.CreateParameter();

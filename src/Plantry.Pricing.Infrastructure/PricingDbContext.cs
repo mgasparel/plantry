@@ -48,6 +48,23 @@ public sealed class PricingDbContext(DbContextOptions<PricingDbContext> options)
             b.Property(p => p.SourceRef).HasColumnName("source_ref");
             b.Property(p => p.ObservedAt).HasColumnName("observed_at").IsRequired();
             b.Property(p => p.UserId).HasColumnName("user_id").IsRequired();
+            // ADR-023 A7 — nullable self-FKs for the amendment supersede chain. Null on every ordinary row.
+            b.Property(p => p.AmendsId)
+                .HasConversion(id => id!.Value.Value, v => PriceObservationId.From(v))
+                .HasColumnName("amends_id");
+            b.Property(p => p.SupersededById)
+                .HasConversion(id => id!.Value.Value, v => PriceObservationId.From(v))
+                .HasColumnName("superseded_by_id");
+            b.HasOne<PriceObservation>()
+                .WithMany()
+                .HasForeignKey(p => p.AmendsId)
+                .HasPrincipalKey(p => p.Id)
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<PriceObservation>()
+                .WithMany()
+                .HasForeignKey(p => p.SupersededById)
+                .HasPrincipalKey(p => p.Id)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // Latest-price read model: most recent observation per product or SKU.
             b.HasIndex(p => new { p.HouseholdId, p.ProductId, p.ObservedAt })

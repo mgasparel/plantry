@@ -379,6 +379,9 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
         return Task.CompletedTask;
     }
 
+    public Task<PriceObservation?> FindAsync(PriceObservationId id, CancellationToken ct = default) =>
+        Task.FromResult(Items.FirstOrDefault(p => p.Id == id));
+
     public Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<PriceObservation>>(Items
             .Where(p => p.Source == PriceSource.Purchase && p.StoreId is null && !string.IsNullOrWhiteSpace(p.MerchantText))
