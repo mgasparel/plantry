@@ -85,7 +85,44 @@ public interface IRecipeRepository
     /// </summary>
     Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(
         RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns every non-archived household recipe that directly references <paramref name="productId"/>
+    /// (plantry-o0r8) — either via an ingredient line (<see cref="ProductRecipeReference.IsConsumer"/>,
+    /// "Used in") or as its declared cook yield (<see cref="ProductRecipeReference.IsProducer"/>, "Made by",
+    /// <see cref="Recipe.YieldProductId"/>, recipe-composition.md §9). A recipe with both a matching
+    /// ingredient line and a matching yield sets both flags on the same entry rather than appearing twice.
+    ///
+    /// <para>v1 scope is DIRECT references only (design decision, plantry-o0r8) — a product consumed only
+    /// by a sub-recipe that some other recipe includes is NOT surfaced transitively through the inclusion
+    /// graph; expanding through inclusions was deferred pending product input. Household-scoped by the RLS
+    /// query filter (ADR-008).</para>
+    ///
+    /// <para>The default implementation falls back to <see cref="ListForBrowseAsync"/> (already loads
+    /// Ingredients) so test doubles need not reimplement it; the production repository overrides it with a
+    /// targeted query that avoids loading every household recipe's full ingredient set.</para>
+    /// </summary>
+    async Task<IReadOnlyList<ProductRecipeReference>> ListRecipesReferencingProductAsync(
+        Guid productId, CancellationToken ct = default)
+    {
+        var all = await ListForBrowseAsync(ct);
+        return all
+            .Where(r => r.YieldProductId == productId || r.Ingredients.Any(i => i.ProductId == productId))
+            .Select(r => new ProductRecipeReference(
+                r.Id,
+                r.Name,
+                IsConsumer: r.Ingredients.Any(i => i.ProductId == productId),
+                IsProducer: r.YieldProductId == productId))
+            .ToList();
+    }
 }
 
 /// <summary>One directed inclusion edge: <see cref="ParentId"/> includes <see cref="SubId"/> (N4 graph).</summary>
 public readonly record struct RecipeInclusionEdge(RecipeId ParentId, RecipeId SubId);
+
+/// <summary>
+/// One recipe's direct relationship to a product — a consumer (a direct ingredient line matches), a
+/// producer (the declared yield matches), or both. See
+/// <see cref="IRecipeRepository.ListRecipesReferencingProductAsync"/>.
+/// </summary>
+public readonly record struct ProductRecipeReference(RecipeId RecipeId, string Name, bool IsConsumer, bool IsProducer);

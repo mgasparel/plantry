@@ -139,6 +139,95 @@ public sealed class MealPlanRailBreakpointE2ETests(AppHostFixture appHost) : IAs
         }
     }
 
+    // ── Journey 3: grid re-render (hx-swap=innerHTML) then rotation still re-syncs ──
+    //
+    // plantry-nuvm (deferred from plantry-hldx, Opus critic pass 1, gate 10): Journeys 1-2
+    // exercise the matchMedia listener on the ORIGINAL _WeekGrid.cshtml x-data root, never on
+    // one that has survived a full #plan-main-content innerHTML swap. _WeekGrid's init()/
+    // destroy() pair exists specifically because every grid handler (e.g. the per-day auto-fill
+    // button) re-renders #plan-main-content via hx-swap="innerHTML", which discards the old
+    // .plan-body-inner element (and, without destroy(), would leak its 'change' listener on the
+    // persistent window.matchMedia MediaQueryList — a leaked listener closes over the destroyed
+    // Alpine scope and either errors when it later fires, or double-applies railOpen updates).
+    // This journey triggers that swap, then rotates across the breakpoint on the POST-swap
+    // component and asserts it still re-syncs exactly once with no console errors, proving the
+    // fresh init() listener works and the old one was actually torn down.
+
+    [Fact(DisplayName = "Grid re-render (auto-fill swap) then iPad rotation still re-syncs rail exactly once, no leaked listener")]
+    public async Task GridReRender_ThenRotation_RailResyncsWithNoLeakedListener()
+    {
+        var uniqueEmail = $"e2e-railswap-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions
+        {
+            IgnoreHTTPSErrors = true,
+            ViewportSize = new ViewportSize { Width = LandscapeWidth, Height = LandscapeHeight }
+        });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        var consoleErrors = new List<string>();
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+            page.Console += (_, msg) =>
+            {
+                if (string.Equals(msg.Type, "error", StringComparison.Ordinal))
+                {
+                    consoleErrors.Add(msg.Text);
+                }
+            };
+
+            await RegisterAndGoToMealPlan(page, uniqueEmail, password);
+
+            // ── Starts in landscape (>1000px): rail occupies the layout ──────────────
+            await AssertRailOpenAsync(page);
+
+            // ── Trigger a full #plan-main-content re-render via the per-day auto-fill
+            //    button — the same hx-swap="innerHTML" path the _WeekGrid.cshtml comment
+            //    calls out as the destroy()-then-reinit trigger. Discard whatever
+            //    proposals (if any) come back; only the DOM replacement matters here. ──
+            var autoFillButton = page.Locator(".dh-auto").First;
+            await Assertions.Expect(autoFillButton).ToBeVisibleAsync();
+            await page.RunAndWaitForResponseAsync(
+                async () => await autoFillButton.ClickAsync(),
+                r => r.Url.Contains("handler=Generate") && r.Status == 200);
+
+            // The swapped-in markup re-mounts a brand-new .plan-body-inner x-data root —
+            // wait for it (and the rail inside it) to be back in the DOM before proceeding.
+            await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator("#plan-rail")).ToBeVisibleAsync();
+
+            // The freshly-mounted component re-evaluates railOpen from matchMedia at init,
+            // same as the very first mount — still landscape, so still open.
+            await AssertRailOpenAsync(page);
+            await AssertRailNotOverlayAsync(page);
+
+            // ── Rotate to portrait (<1000px) on the POST-swap component ──────────────
+            await page.SetViewportSizeAsync(PortraitWidth, PortraitHeight);
+            await WaitForRailCollapsedAsync(page, true);
+            await Assertions.Expect(page.Locator("#plan-rail-reopen")).ToBeVisibleAsync();
+
+            // ── Rotate back to landscape — re-expands without a manual tap ───────────
+            await page.SetViewportSizeAsync(LandscapeWidth, LandscapeHeight);
+            await WaitForRailCollapsedAsync(page, false);
+            await Assertions.Expect(page.Locator("#plan-rail-reopen")).Not.ToBeVisibleAsync();
+            await AssertRailNotOverlayAsync(page);
+
+            // ── No leaked listener from the discarded pre-swap component: if destroy()
+            //    hadn't torn it down, the stale listener would still be registered on the
+            //    persistent MediaQueryList and would throw/log when the 'change' events
+            //    above fired against its now-detached Alpine scope. ──────────────────
+            Assert.Empty(consoleErrors);
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-rail-swap-rotation.zip" });
+        }
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private async Task RegisterAndGoToMealPlan(IPage page, string email, string password)

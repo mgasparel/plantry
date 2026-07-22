@@ -178,6 +178,25 @@ internal sealed class ProvenanceChipHrefFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IStockProvenanceReader>();
             services.AddSingleton<IStockProvenanceReader>(new FakeProvenanceReader());
+
+            // plantry-3fqm: Detail's GET path now also resolves the current effective price (source-
+            // agnostic to this test) and the household display currency. Both real implementations hit
+            // a live DB even on their "nothing recorded" fallback path, so — like every other seam this
+            // DB-less factory fakes — they need a stand-in. Reuses the fakes from
+            // ProductDetailSetPriceTests.cs (same namespace).
+            services.RemoveAll<Plantry.Pricing.Domain.IPriceObservationRepository>();
+            services.AddSingleton<Plantry.Pricing.Domain.IPriceObservationRepository>(new FakePriceObservationRepository());
+
+            services.RemoveAll<Plantry.Identity.Application.IDisplayCurrency>();
+            services.AddSingleton<Plantry.Identity.Application.IDisplayCurrency>(new FakeDisplayCurrency());
+
+            // plantry-o0r8: Detail's GET path now also resolves the "Recipes" section
+            // (RecipesUsingProductQuery), which reads through IRecipeRepository — otherwise the real
+            // EF-backed repository, needing a live Postgres connection. Reuses the empty fake from
+            // ProductDetailRecipesSectionTests.cs (same namespace); this test doesn't care about the
+            // Recipes section's content.
+            services.RemoveAll<Plantry.Recipes.Domain.IRecipeRepository>();
+            services.AddSingleton<Plantry.Recipes.Domain.IRecipeRepository>(new FakeRecipeRepository());
         });
     }
 }

@@ -132,6 +132,44 @@ public sealed class PurchaseStoreBackfillTests(PostgresFixture db) : IAsyncLifet
         Assert.Single(await verifyCatalog.Stores.ToListAsync()); // no duplicate store from the second sweep
     }
 
+    [Fact(DisplayName = "Backfill excludes a superseded row (ADR-023 A7) — an amended-away purchase is never a candidate")]
+    public async Task Backfill_Excludes_Superseded_Rows()
+    {
+        // Two saves, mirroring how RecordAmendedObservationCommand actually persists the pair: the
+        // original round-trips first (an INSERT), then the amendment is added and the original
+        // superseded in a second save. Both as fresh INSERTs in one SaveChangesAsync would create a
+        // circular FK dependency (each row's forward-pointing self-FK references the other).
+        PriceObservationId supersededId;
+        await using (var pricingDb = NewPricingDb())
+        {
+            var original = PriceObservation.Record(
+                _household, _productId, null,
+                price: 3.98m, quantity: 1m, unitId: _unitId, unitPrice: 3.98m,
+                source: PriceSource.Purchase, merchantText: "Zehrs",
+                sourceRef: _sourceRef, observedAt: Clock.UtcNow, userId: _userId);
+            await pricingDb.PriceObservations.AddAsync(original);
+            await pricingDb.SaveChangesAsync();
+            supersededId = original.Id;
+        }
+        await using (var pricingDb = NewPricingDb())
+        {
+            var tracked = await pricingDb.PriceObservations.SingleAsync(p => p.Id == supersededId);
+            var amendment = PriceObservation.RecordAmendment(tracked, correctedQuantity: 3m, unitPrice: 1.33m, _userId);
+            tracked.Supersede(amendment.Id);
+            await pricingDb.PriceObservations.AddAsync(amendment);
+            await pricingDb.SaveChangesAsync();
+        }
+
+        var resolved = await RunBackfillAsync();
+
+        // Only the live amendment row (merchant carried over from the original) is eligible.
+        Assert.Equal(1, resolved);
+
+        await using var verifyPricing = NewPricingDb();
+        var supersededRow = await verifyPricing.PriceObservations.SingleAsync(p => p.Id == supersededId);
+        Assert.Null(supersededRow.StoreId); // never touched by the sweep
+    }
+
     /// <summary>Runs the backfill for the test household over a fresh pair of armed contexts.</summary>
     private async Task<int> RunBackfillAsync()
     {

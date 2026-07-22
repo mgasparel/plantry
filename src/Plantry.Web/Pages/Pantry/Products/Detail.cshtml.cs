@@ -7,6 +7,9 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Catalog.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
+using Plantry.Pricing.Application;
+using Plantry.Pricing.Domain;
+using Plantry.Recipes.Application;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Pages.Shared;
@@ -21,6 +24,11 @@ public sealed class DetailModel(
     ICatalogReadFacade catalog,
     IUnitRepository units,
     IStockProvenanceReader provenance,
+    IPriceObservationRepository priceRepository,
+    IUnitPriceCalculator priceCalculator,
+    PricingQueries pricingQueries,
+    RecipesUsingProductQuery recipeUsages,
+    DisplayCurrencyAccessor displayCurrency,
     IClock clock,
     ITenantContext tenant,
     ILogger<ConsumeStockCommand> consumeLogger,
@@ -28,6 +36,17 @@ public sealed class DetailModel(
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
+
+    /// <summary>Recipes that directly reference this product (plantry-o0r8) — either as a consumer
+    /// ("Used in") or as the recipe's declared cook yield ("Made by"). Loaded once on the initial GET;
+    /// no consume/threshold/price action changes this list, so the POST handlers' partial reloads don't
+    /// re-fetch it.</summary>
+    public IReadOnlyList<RecipeProductUsage> RecipeUsages { get; private set; } = [];
+
+    /// <summary>The current effective price (deal-aware — same read model <c>CostingService</c> uses via
+    /// <c>PricingQueries.EffectivePriceAsync</c>), rendered as "£3.99 for 500 g" — or a muted placeholder
+    /// when nothing has ever been observed for this product (plantry-3fqm).</summary>
+    public string PriceDisplayText { get; private set; } = "No price recorded yet";
 
     /// <summary>
     /// Resolved provenance chips (receipt-intake-history.md H11) for <see cref="Detail"/>'s History rows,
@@ -45,6 +64,9 @@ public sealed class DetailModel(
 
     [BindProperty]
     public ThresholdInputModel ThresholdInput { get; set; } = new();
+
+    [BindProperty]
+    public PriceInputModel PriceInput { get; set; } = new();
 
     public sealed class ConsumeInputModel
     {
@@ -67,12 +89,30 @@ public sealed class DetailModel(
         public decimal? Threshold { get; set; }
     }
 
+    /// <summary>Manual price entry (plantry-3fqm) — price/quantity/unit only, deliberately no store
+    /// picker (design decision: manual estimates carry no merchant provenance).</summary>
+    public sealed class PriceInputModel
+    {
+        [Required(ErrorMessage = "Enter a price.")]
+        [Range(0.01, double.MaxValue, ErrorMessage = "Price must be greater than zero.")]
+        public decimal? Price { get; set; }
+
+        [Required(ErrorMessage = "Enter a quantity.")]
+        [Range(0.000001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero.")]
+        public decimal? Quantity { get; set; } = 1m;
+
+        [Required(ErrorMessage = "Choose a unit.")]
+        public Guid? UnitId { get; set; }
+    }
+
     public async Task<IActionResult> OnGetAsync(Guid id)
     {
         ProductId = id;
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
+        PriceDisplayText = await BuildPriceDisplayAsync(id);
+        RecipeUsages = await recipeUsages.ExecuteAsync(id);
         return Page();
     }
 
@@ -95,6 +135,7 @@ public sealed class DetailModel(
     public async Task<IActionResult> OnPostConsumeAsync(Guid id)
     {
         ProductId = id;
+        ClearOtherSheetValidation(nameof(Input));
         if (!ModelState.IsValid)
             return await ReloadSheetAsync(id);
 
@@ -146,6 +187,7 @@ public sealed class DetailModel(
     public async Task<IActionResult> OnPostSetThresholdAsync(Guid id)
     {
         ProductId = id;
+        ClearOtherSheetValidation(nameof(ThresholdInput));
 
         if (!ModelState.IsValid)
         {
@@ -169,6 +211,72 @@ public sealed class DetailModel(
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
         return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips));
+    }
+
+    public async Task<IActionResult> OnGetSetPriceSheetAsync(Guid id)
+    {
+        ProductId = id;
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+
+        var product = await catalog.FindProductAsync(id);
+        PriceInput = new PriceInputModel { Quantity = 1m, UnitId = product?.DefaultUnitId };
+        await LoadUnitOptionsAsync();
+        return Partial("_SetPriceSheet", this);
+    }
+
+    /// <summary>
+    /// Records a household-entered price estimate (plantry-3fqm) — <see cref="PriceSource.Manual"/>,
+    /// no store, no merchant text (design: manual entries carry no merchant provenance). On success closes
+    /// the sheet and refreshes the price line via an out-of-band swap — mirrors the "single OOB fragment,
+    /// empty sheet-host" idiom <see cref="OnPostSetThresholdAsync"/> uses for <c>_StockDetail</c>, except
+    /// stock itself is untouched by a price change, so only the price display needs to refresh.
+    /// </summary>
+    public async Task<IActionResult> OnPostSetPriceAsync(Guid id)
+    {
+        ProductId = id;
+        ClearOtherSheetValidation(nameof(PriceInput));
+
+        if (!ModelState.IsValid)
+        {
+            Detail = await queries.FindDetailAsync(id);
+            if (Detail is null) return NotFound();
+            await LoadUnitOptionsAsync();
+            return Partial("_SetPriceSheet", this);
+        }
+
+        var result = await new RecordObservationCommand(
+            id, skuId: null, PriceInput.Price!.Value, PriceInput.Quantity!.Value, PriceInput.UnitId!.Value,
+            merchantText: null, sourceRef: null, clock.UtcNow, CurrentUserId, PriceSource.Manual,
+            priceRepository, priceCalculator, tenant).ExecuteAsync();
+
+        if (result.IsFailure)
+        {
+            ModelState.AddModelError(string.Empty, result.Error.Description);
+            Detail = await queries.FindDetailAsync(id);
+            if (Detail is null) return NotFound();
+            await LoadUnitOptionsAsync();
+            return Partial("_SetPriceSheet", this);
+        }
+
+        var priceText = await BuildPriceDisplayAsync(id);
+        return Partial("_PriceDisplay", new PriceDisplayPartialModel(priceText, Oob: true));
+    }
+
+    /// <summary>Resolves the current effective price the same way <c>CostingService</c> would
+    /// (<see cref="PricingQueries.EffectivePriceAsync"/> — cheapest active deal, else latest
+    /// purchase/manual observation), rendered as "£3.99 for 500 g". Null when nothing has ever
+    /// been observed for this product.</summary>
+    private async Task<string> BuildPriceDisplayAsync(Guid productId)
+    {
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var observation = await pricingQueries.EffectivePriceAsync(productId, today);
+        if (observation is null) return "No price recorded yet";
+
+        var currency = await displayCurrency.GetAsync();
+        var unitCodes = await catalog.GetUnitCodesAsync();
+        var unitCode = unitCodes.GetValueOrDefault(observation.UnitId, "?");
+        return $"{MoneyDisplay.Format(observation.Price, currency)} for {observation.Quantity.ToString("0.###")} {unitCode}";
     }
 
     /// <summary>
@@ -237,6 +345,34 @@ public sealed class DetailModel(
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    /// <summary>
+    /// This page carries three sibling <c>[BindProperty]</c> forms — <see cref="Input"/> (Consume),
+    /// <see cref="ThresholdInput"/> (Set alert), and <see cref="PriceInput"/> (Set price, plantry-3fqm).
+    /// Razor Pages binds and validates <b>every</b> <c>[BindProperty]</c> property on <i>every</i> POST
+    /// regardless of which handler ran — a well-known cross-form gotcha — so a required field on a sheet
+    /// the user never opened (e.g. <c>Input.Amount</c> while posting only the price sheet) would otherwise
+    /// fail <see cref="PageModel.ModelState"/> even though that sheet's data was never posted. Worse: when
+    /// the "Input.Amount" prefix has zero matches, <c>ComplexObjectModelBinder</c>'s empty-prefix fallback
+    /// then also tries the <i>bare</i> field name ("Amount", "UnitId", …) — so the contaminating keys are
+    /// not reliably prefixed and a plain <c>ModelState.ClearValidationState(nameof(Input))</c> misses them.
+    /// Each POST handler calls this first, clearing every key that isn't this handler's own prefix, so the
+    /// other two sheets' unrelated <c>[Required]</c> fields (prefixed or bare-fallback) can never
+    /// contaminate this handler's <c>ModelState.IsValid</c>.
+    /// </summary>
+    private void ClearOtherSheetValidation(string keepPrefix)
+    {
+        // Remove(key) — not ClearValidationState(key) — is required here: ClearValidationState resets
+        // an entry's state to Unvalidated rather than deleting it, and ModelState.IsValid treats any
+        // remaining Unvalidated entry as not-valid too, so the contaminating keys would still block
+        // IsValid even with no error message attached. Remove(key) drops the entry outright so it can
+        // no longer affect the aggregate at all.
+        var keysToClear = ModelState.Keys
+            .Where(key => key != keepPrefix && !key.StartsWith(keepPrefix + ".", StringComparison.Ordinal))
+            .ToList();
+        foreach (var key in keysToClear)
+            ModelState.Remove(key);
+    }
 }
 
 /// <summary>View model for the lot/journal fragment; <see cref="Oob"/> drives the htmx out-of-band swap
@@ -245,3 +381,9 @@ public sealed class DetailModel(
 public sealed record StockDetailPartialModel(
     ProductStockDetail Detail, bool Oob, string? Notice,
     IReadOnlyDictionary<Guid, ProvenanceChip> Chips);
+
+/// <summary>View model for the price-line fragment (plantry-3fqm). <see cref="Oob"/> drives the htmx
+/// out-of-band swap after a "Set price" submission — mirrors <see cref="StockDetailPartialModel.Oob"/>'s
+/// role for the lot/journal fragment, but scoped to just the price display since setting a price never
+/// changes stock.</summary>
+public sealed record PriceDisplayPartialModel(string DisplayText, bool Oob);

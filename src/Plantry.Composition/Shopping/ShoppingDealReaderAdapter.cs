@@ -38,7 +38,10 @@ public sealed class ShoppingDealReaderAdapter(PricingQueries pricing, IStoreRepo
         {
             var observation = await pricing.CheapestActiveDealAsync(productId, today, ct);
             if (observation is not null)
-                found[productId] = (observation.SourceRef, observation.StoreId);
+                // A Deal-sourced observation always carries a non-null SourceRef — RecordDealObservationAdapter
+                // always passes the deal id (SourceRef is only ever null for a Manual observation, plantry-3fqm,
+                // which never has Source == Deal). Guid.Empty fallback is defensive, never expected to trigger.
+                found[productId] = (observation.SourceRef ?? Guid.Empty, observation.StoreId);
         }
 
         if (found.Count == 0)

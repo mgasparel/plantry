@@ -273,3 +273,62 @@ public sealed class ConsumeStockCommand(
         }, ct);
     }
 }
+
+/// <summary>
+/// The Inventory leg of purchase-entry amendment (ADR-023, <c>docs/DomainDesign/purchase-entry-amendment.md</c>,
+/// origin plantry-x3dy) — fixes the committed quantity of a mis-entered purchase without breaking
+/// the append-only ledger. Loads the root under the same row lock as <see cref="ConsumeStockCommand"/>
+/// (DM-13) and delegates the guards and journal-append mechanics to
+/// <see cref="ProductStock.AmendPurchase"/>. This command is the Inventory-side collaborator that
+/// <c>AmendCommittedLineCommand</c> in <c>Plantry.Intake.Application</c> orchestrates alongside the
+/// pricing supersede step (ADR-014 — no shared transaction, so each side commits independently and
+/// the whole sequence is safe to re-drive on partial failure).
+/// </summary>
+public sealed class AmendPurchaseCommand(
+    Guid productId,
+    Guid stockEntryId,
+    decimal correctedQuantity,
+    Guid importLineId,
+    Guid userId,
+    IProductStockRepository stocks,
+    IClock clock,
+    ITenantContext tenant,
+    ILogger<AmendPurchaseCommand>? logger = null)
+{
+    public async Task<Result<decimal>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var household = HouseholdId.From(householdId);
+
+        return await stocks.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var stock = await stocks.FindForUpdateAsync(household, productId, innerCt);
+            if (stock is null)
+            {
+                logger?.LogWarning("AmendPurchase failed — no stock record for product {ProductId}.", productId);
+                return Result<decimal>.Failure(Error.Custom("Inventory.NoStock", "There is no stock for this product."));
+            }
+
+            var result = stock.AmendPurchase(
+                StockEntryId.From(stockEntryId), correctedQuantity, importLineId, userId, clock);
+
+            if (result.IsFailure)
+            {
+                logger?.LogWarning(
+                    "AmendPurchase rejected for product {ProductId}, entry {EntryId}. Error: {ErrorCode}.",
+                    productId, stockEntryId, result.Error.Code);
+                return result;
+            }
+
+            await stocks.SaveChangesAsync(innerCt);
+
+            logger?.LogInformation(
+                "Purchase amended for product {ProductId}, entry {EntryId}. Delta: {Delta}.",
+                productId, stockEntryId, result.Value);
+
+            return result;
+        }, ct);
+    }
+}

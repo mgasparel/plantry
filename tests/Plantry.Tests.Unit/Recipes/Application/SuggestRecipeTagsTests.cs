@@ -50,7 +50,7 @@ public sealed class SuggestRecipeTagsTests
     {
         var (service, suggester, _) = BuildService(gateEnabled: false);
 
-        var result = await service.ExecuteAsync([ChickenProductId, CreamProductId]);
+        var result = await service.ExecuteAsync([ChickenProductId, CreamProductId], []);
 
         Assert.Empty(result);
         Assert.False(suggester.WasCalled);
@@ -61,7 +61,7 @@ public sealed class SuggestRecipeTagsTests
     {
         var (service, suggester, _) = BuildService(gateEnabled: true);
 
-        var result = await service.ExecuteAsync([]);
+        var result = await service.ExecuteAsync([], []);
 
         Assert.Empty(result);
         Assert.False(suggester.WasCalled);
@@ -73,7 +73,7 @@ public sealed class SuggestRecipeTagsTests
         var (service, suggester, _) = BuildService(gateEnabled: true);
 
         // A product id not registered in the catalog resolves to no name.
-        var result = await service.ExecuteAsync([Guid.NewGuid()]);
+        var result = await service.ExecuteAsync([Guid.NewGuid()], []);
 
         Assert.Empty(result);
         Assert.False(suggester.WasCalled);
@@ -84,7 +84,7 @@ public sealed class SuggestRecipeTagsTests
     {
         var (service, suggester, _) = BuildService(gateEnabled: true);
 
-        var result = await service.ExecuteAsync([ChickenProductId, CreamProductId]);
+        var result = await service.ExecuteAsync([ChickenProductId, CreamProductId], []);
 
         Assert.True(suggester.WasCalled);
         // Ingredient names came from the Catalog ACL (Ingredient carries no Name field).
@@ -102,10 +102,43 @@ public sealed class SuggestRecipeTagsTests
     {
         var (service, suggester, _) = BuildService(gateEnabled: true);
 
-        await service.ExecuteAsync([ChickenProductId, ChickenProductId, ChickenProductId]);
+        await service.ExecuteAsync([ChickenProductId, ChickenProductId, ChickenProductId], []);
 
         Assert.True(suggester.WasCalled);
         Assert.Single(suggester.LastIngredientNames!);
+    }
+
+    // ── plantry-crre: applied-tag names flow through, and redundant suggestions are dropped ────
+
+    [Fact]
+    public async Task Applied_Tag_Names_Are_Passed_Through_To_The_Suggester_Trimmed_And_Deduplicated()
+    {
+        var (service, suggester, _) = BuildService(gateEnabled: true);
+
+        await service.ExecuteAsync(
+            [ChickenProductId, CreamProductId],
+            ["Vegan", " Vegan ", "vegan", "Quick", "", "   "]);
+
+        Assert.True(suggester.WasCalled);
+        Assert.Equal(["Vegan", "Quick"], suggester.LastAppliedTagNames);
+    }
+
+    [Fact]
+    public async Task A_Suggestion_Whose_Name_Exactly_Matches_An_Applied_Tag_Is_Dropped()
+    {
+        // The suggester (faked below) proposes "Chicken" regardless of input; the caller must still drop
+        // it when the client says "Chicken" is already applied — a defense-in-depth backstop that does not
+        // rely on the LLM alone honouring the prompt's "don't repeat an applied tag" rule.
+        var gate = new FakeAiAssistanceGateReader(true);
+        var products = new FakeCatalogProductReader();
+        products.RegisterTracked(ChickenProductId, "Chicken Breast");
+        var tags = new FakeTagRepository();
+        var suggester = new RecordingSuggester([new TagSuggestion("Chicken", TagCategory.Protein, Guid.NewGuid())]);
+        var service = new SuggestRecipeTags(gate, products, tags, suggester);
+
+        var result = await service.ExecuteAsync([ChickenProductId], ["Chicken"]);
+
+        Assert.Empty(result);
     }
 }
 
@@ -122,15 +155,18 @@ internal sealed class RecordingSuggester(IReadOnlyList<TagSuggestion> canned) : 
     public bool WasCalled { get; private set; }
     public IReadOnlyList<string>? LastIngredientNames { get; private set; }
     public IReadOnlyList<TagVocabularyEntry>? LastVocabulary { get; private set; }
+    public IReadOnlyList<string>? LastAppliedTagNames { get; private set; }
 
     public Task<IReadOnlyList<TagSuggestion>> SuggestAsync(
         IReadOnlyList<string> ingredientNames,
         IReadOnlyList<TagVocabularyEntry> vocabulary,
+        IReadOnlyList<string> appliedTagNames,
         CancellationToken ct = default)
     {
         WasCalled = true;
         LastIngredientNames = ingredientNames;
         LastVocabulary = vocabulary;
+        LastAppliedTagNames = appliedTagNames;
         return Task.FromResult(canned);
     }
 }

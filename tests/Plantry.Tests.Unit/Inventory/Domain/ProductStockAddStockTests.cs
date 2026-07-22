@@ -117,9 +117,21 @@ public sealed class ProductStockAddStockTests
     [InlineData(StockReason.Correction, true)]
     [InlineData(StockReason.Consumed, false)]
     [InlineData(StockReason.Discarded, false)]
+    [InlineData(StockReason.Amendment, false)]
     public void IsAddition_Returns_True_For_Purchase_And_Correction_Only(StockReason reason, bool expected)
     {
         Assert.Equal(expected, reason.IsAddition());
+    }
+
+    [Theory(DisplayName = "IsRemoval returns true only for Consumed, Discarded, and Correction")]
+    [InlineData(StockReason.Consumed, true)]
+    [InlineData(StockReason.Discarded, true)]
+    [InlineData(StockReason.Correction, true)]
+    [InlineData(StockReason.Purchase, false)]
+    [InlineData(StockReason.Amendment, false)]
+    public void IsRemoval_Returns_True_For_Consumed_Discarded_Correction_Only(StockReason reason, bool expected)
+    {
+        Assert.Equal(expected, reason.IsRemoval());
     }
 
     [Theory(DisplayName = "AddStock rejects removal reasons")]
@@ -131,6 +143,16 @@ public sealed class ProductStockAddStockTests
         var stock = ProductStock.Start(Household, Product, clock);
 
         var ex = Assert.Throws<ArgumentException>(() => stock.AddStock(3m, Unit, Location, User, clock, reason: reason));
+        Assert.Equal("reason", ex.ParamName);
+    }
+
+    [Fact(DisplayName = "AddStock rejects the Amendment reason (ADR-023 — written only by AmendPurchase)")]
+    public void AddStock_Rejects_Amendment_Reason()
+    {
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(Household, Product, clock);
+
+        var ex = Assert.Throws<ArgumentException>(() => stock.AddStock(3m, Unit, Location, User, clock, reason: StockReason.Amendment));
         Assert.Equal("reason", ex.ParamName);
     }
 

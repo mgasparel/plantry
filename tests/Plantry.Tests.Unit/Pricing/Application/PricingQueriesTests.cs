@@ -28,6 +28,10 @@ public sealed class PricingQueriesTests
         PriceObservation.Record(Household, ProductId, null, unitPrice, 1m, UnitId, unitPrice,
             PriceSource.Purchase, "Superstore", SourceRef, observedAt, UserId);
 
+    private static PriceObservation Manual(decimal unitPrice, DateTimeOffset observedAt) =>
+        PriceObservation.Record(Household, ProductId, null, unitPrice, 1m, UnitId, unitPrice,
+            PriceSource.Manual, null, null, observedAt, UserId);
+
     [Fact]
     public async Task CheapestActiveDeal_Returns_Min_UnitPrice_In_Window()
     {
@@ -87,6 +91,37 @@ public sealed class PricingQueriesTests
     }
 
     [Fact]
+    public async Task EffectivePrice_Falls_Back_To_Latest_Manual_When_No_Purchase_Or_Active_Deal()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Manual(2.99m, DateTimeOffset.UtcNow));
+        repo.Items.Add(Deal(2.00m, new(2026, 6, 1), new(2026, 6, 7))); // expired deal ignored
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePriceAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        Assert.Equal(PriceSource.Manual, result.Source);
+        Assert.Equal(2.99m, result.UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectivePrice_Prefers_Newer_Manual_Over_Older_Purchase()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(4.00m, DateTimeOffset.UtcNow.AddDays(-2)));
+        repo.Items.Add(Manual(3.50m, DateTimeOffset.UtcNow.AddDays(-1))); // newer — a manual estimate is
+        // superseded (and supersedes) purely on observed_at, matching pricing.md's "emergent, free" note.
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePriceAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        Assert.Equal(PriceSource.Manual, result.Source);
+        Assert.Equal(3.50m, result.UnitPrice);
+    }
+
+    [Fact]
     public async Task EffectivePrice_Returns_Null_When_No_Observations()
     {
         var repo = new FakePriceObservationRepository();
@@ -95,5 +130,65 @@ public sealed class PricingQueriesTests
         var result = await queries.EffectivePriceAsync(ProductId, Today);
 
         Assert.Null(result);
+    }
+
+    // ── ADR-023 A7: PricingQueries never surfaces a superseded observation ──────────────────────────
+
+    [Fact]
+    public async Task LatestPurchasePrice_Excludes_A_Superseded_Purchase_Even_Though_It_Is_The_Newest_Row()
+    {
+        var repo = new FakePriceObservationRepository();
+        var original = Purchase(4.00m, DateTimeOffset.UtcNow.AddDays(-1));
+        repo.Items.Add(original);
+        var amendment = PriceObservation.RecordAmendment(original, correctedQuantity: 3m, unitPrice: 1.33m, UserId);
+        original.Supersede(amendment.Id);
+        repo.Items.Add(amendment);
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.LatestPurchasePriceAsync(ProductId);
+
+        Assert.NotNull(result);
+        Assert.Equal(amendment.Id, result.Id);
+        Assert.Equal(1.33m, result.UnitPrice);
+    }
+
+    [Fact]
+    public async Task CheapestActiveDeal_Excludes_A_Superseded_Deal_Even_Though_It_Would_Otherwise_Win()
+    {
+        var repo = new FakePriceObservationRepository();
+        var cheapButSuperseded = Deal(1.00m, new(2026, 7, 1), new(2026, 7, 7));
+        repo.Items.Add(cheapButSuperseded);
+        var replacement = PriceObservation.RecordAmendment(cheapButSuperseded, correctedQuantity: 1m, unitPrice: 5.00m, UserId);
+        cheapButSuperseded.Supersede(replacement.Id);
+        repo.Items.Add(replacement);
+        repo.Items.Add(Deal(2.00m, new(2026, 7, 1), new(2026, 7, 7))); // live, dearer — must win
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.CheapestActiveDealAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        Assert.Equal(2.00m, result.UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectivePrice_Falls_Back_Past_A_Superseded_Purchase_To_An_Older_Live_One()
+    {
+        var repo = new FakePriceObservationRepository();
+        var older = Purchase(4.00m, DateTimeOffset.UtcNow.AddDays(-2));
+        repo.Items.Add(older);
+        var newer = Purchase(3.50m, DateTimeOffset.UtcNow.AddDays(-1));
+        var amendment = PriceObservation.RecordAmendment(newer, correctedQuantity: 3m, unitPrice: 1.00m, UserId);
+        newer.Supersede(amendment.Id);
+        repo.Items.Add(newer);
+        repo.Items.Add(amendment);
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePriceAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        // The live amendment (newest, un-superseded) wins over the older purchase — the superseded
+        // `newer` row itself must never surface.
+        Assert.Equal(amendment.Id, result.Id);
+        Assert.Equal(1.00m, result.UnitPrice);
     }
 }

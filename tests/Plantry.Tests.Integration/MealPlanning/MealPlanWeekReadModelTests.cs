@@ -255,6 +255,30 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         Assert.Null(bag.GetLatestPrice(productId));
     }
 
+    [Fact(DisplayName = "LoadAsync never returns a superseded observation (ADR-023 A7) — even with the SAME observed_at as its amendment")]
+    public async Task LoadAsync_Excludes_Superseded_Price_Even_With_Same_ObservedAt()
+    {
+        // The exact DISTINCT ON hazard: an amending row copies the original's observed_at verbatim
+        // (A7 — "the price event's time didn't change"), so a naive `ORDER BY observed_at DESC` with no
+        // superseded filter can tie-break onto the dead row. Same observed_at pins that failure mode
+        // deterministically rather than relying on the amendment merely being newer.
+        var productId = await SeedProductAsync("Onions", _gramsId);
+        var observedAt = DateTime.UtcNow.AddDays(-1);
+        var originalId = await SeedPriceObservationAsync(
+            productId, price: 3.98m, quantity: 1000m, _gramsId, unitPrice: 0.00398m, observedAt);
+        var amendmentId = await SeedPriceObservationAsync(
+            productId, price: 3.98m, quantity: 3000m, _gramsId, unitPrice: 0.001327m, observedAt);
+        await SupersedeAsync(originalId, amendmentId);
+
+        var rm = NewReadModel(_household);
+        var bag = await rm.LoadAsync([], [productId]);
+
+        var price = bag.GetLatestPrice(productId);
+        Assert.NotNull(price);
+        Assert.Equal(3000m, price.Quantity); // the live amendment, never the superseded original
+        Assert.Equal(0.001327m, price.UnitPrice);
+    }
+
     // ── unit and conversion loading ──────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "LoadAsync returns all household units from catalog schema")]
@@ -492,8 +516,9 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         await cmd.ExecuteNonQueryAsync();
     }
 
-    /// <summary>Seeds a price observation into pricing.price_observation.</summary>
-    private async Task SeedPriceObservationAsync(
+    /// <summary>Seeds a price observation into pricing.price_observation. Returns its generated id so a
+    /// test can chain a <see cref="SupersedeAsync"/> call (ADR-023 A7).</summary>
+    private async Task<Guid> SeedPriceObservationAsync(
         Guid productId,
         decimal price,
         decimal quantity,
@@ -504,6 +529,7 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         await using var conn = new NpgsqlConnection(db.ConnectionString);
         await conn.OpenAsync();
 
+        var id = Guid.NewGuid();
         await using var cmd = conn.CreateCommand();
         var unitPriceObj = unitPrice.HasValue ? (object)unitPrice.Value : DBNull.Value;
 
@@ -515,7 +541,7 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
                 (@id, @hid, @pid, @price, @qty, @uid, @up,
                  'Purchase', @ref, @obs, @usr)
             """;
-        cmd.Parameters.AddWithValue("id", Guid.NewGuid());
+        cmd.Parameters.AddWithValue("id", id);
         cmd.Parameters.AddWithValue("hid", _household.Value);
         cmd.Parameters.AddWithValue("pid", productId);
         cmd.Parameters.AddWithValue("price", price);
@@ -525,6 +551,27 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         cmd.Parameters.AddWithValue("ref", Guid.NewGuid());
         cmd.Parameters.AddWithValue("obs", observedAt);
         cmd.Parameters.AddWithValue("usr", Guid.NewGuid());
+        await cmd.ExecuteNonQueryAsync();
+        return id;
+    }
+
+    /// <summary>Binds <c>superseded_by_id</c> on an existing observation (ADR-023 A7) — the raw-SQL
+    /// equivalent of <see cref="Plantry.Pricing.Domain.PriceObservation.Supersede"/>, used to seed the
+    /// dead half of an amendment pair directly against the schema (mirroring this file's raw-SQL seeding
+    /// convention rather than pulling in the EF entity).</summary>
+    private async Task SupersedeAsync(Guid observationId, Guid replacementId)
+    {
+        await using var conn = new NpgsqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE pricing.price_observation
+            SET superseded_by_id = @replacement
+            WHERE observation_id = @id
+            """;
+        cmd.Parameters.AddWithValue("replacement", replacementId);
+        cmd.Parameters.AddWithValue("id", observationId);
         await cmd.ExecuteNonQueryAsync();
     }
 

@@ -1,0 +1,46 @@
+@model Plantry.Web.Pages.Pantry.Products.DetailModel
+
+<div class="sheet" x-data="{ close() { document.getElementById('sheet-host').innerHTML = '' } }" role="dialog" aria-modal="true" aria-label="Set price">
+    <div class="sheet__overlay" x-on:click="close()"></div>
+    <div class="sheet__panel">
+        <header class="sheet__header">
+            <h2 class="sheet__title">Set price</h2>
+            <button type="button" class="sheet__close" aria-label="Close"
+                    x-on:click="close()">&times;</button>
+        </header>
+
+        <form class="form-stack" hx-post="@Url.Page("./Detail", "SetPrice", new { id = Model.ProductId })"
+              hx-target="#sheet-host" hx-swap="innerHTML">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+            <p class="field__hint">Record a price for stock you already have — e.g. pantry items you're bringing into Plantry rather than buying today. This is a household estimate, not a receipt.</p>
+
+            <div class="field field--inline">
+                <label asp-for="PriceInput.Price" class="field__label">Price</label>
+                <input asp-for="PriceInput.Price" class="field__input" type="number" step="any" min="0" placeholder="e.g. 3.99" />
+                <span asp-validation-for="PriceInput.Price" class="field__error"></span>
+            </div>
+
+            <div class="field field--inline">
+                <label asp-for="PriceInput.Quantity" class="field__label">Quantity</label>
+                <input asp-for="PriceInput.Quantity" class="field__input" type="number" step="any" min="0" />
+                <span asp-validation-for="PriceInput.Quantity" class="field__error"></span>
+            </div>
+
+            <div class="field field--inline">
+                <label asp-for="PriceInput.UnitId" class="field__label">Unit</label>
+                <select asp-for="PriceInput.UnitId" class="field__input" asp-items="Model.UnitOptions">
+                    <option value="">— Select a unit —</option>
+                </select>
+                <span asp-validation-for="PriceInput.UnitId" class="field__error"></span>
+            </div>
+
+            <div class="sheet__actions">
+                <button type="submit" class="btn btn--primary">Save</button>
+                <button type="button" class="btn btn--ghost"
+                        x-on:click="close()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

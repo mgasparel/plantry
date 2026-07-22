@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Plantry.Pricing.Infrastructure;
@@ -11,9 +12,11 @@ using Plantry.Pricing.Infrastructure;
 namespace Plantry.Pricing.Infrastructure.Migrations
 {
     [DbContext(typeof(PricingDbContext))]
-    partial class PricingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260721224147_AllowNullableSourceRef")]
+    partial class AllowNullableSourceRef
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -28,10 +31,6 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("observation_id");
-
-                    b.Property<Guid?>("AmendsId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("amends_id");
 
                     b.Property<Guid>("HouseholdId")
                         .HasColumnType("uuid")
@@ -78,10 +77,6 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("store_id");
 
-                    b.Property<Guid?>("SupersededById")
-                        .HasColumnType("uuid")
-                        .HasColumnName("superseded_by_id");
-
                     b.Property<Guid>("UnitId")
                         .HasColumnType("uuid")
                         .HasColumnName("unit_id");
@@ -105,10 +100,6 @@ namespace Plantry.Pricing.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AmendsId");
-
-                    b.HasIndex("SupersededById");
-
                     b.HasIndex("HouseholdId", "ProductId")
                         .HasDatabaseName("ix_price_observation_deal")
                         .HasFilter("source = 'Deal'");
@@ -124,19 +115,6 @@ namespace Plantry.Pricing.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_price_observation_valid_window", "valid_from <= valid_to");
                         });
-                });
-
-            modelBuilder.Entity("Plantry.Pricing.Domain.PriceObservation", b =>
-                {
-                    b.HasOne("Plantry.Pricing.Domain.PriceObservation", null)
-                        .WithMany()
-                        .HasForeignKey("AmendsId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Plantry.Pricing.Domain.PriceObservation", null)
-                        .WithMany()
-                        .HasForeignKey("SupersededById")
-                        .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
         }

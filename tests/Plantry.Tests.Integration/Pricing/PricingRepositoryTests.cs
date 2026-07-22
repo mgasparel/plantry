@@ -221,6 +221,104 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(4m, latest.Price);
     }
 
+    [Fact(DisplayName = "LatestForProduct includes a Manual observation, and the newest of Purchase/Manual wins")]
+    public async Task LatestForProduct_Includes_Manual_Rows()
+    {
+        await using (var ctx = NewPricingDb())
+        {
+            // Older purchase.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-2), _userId));
+            // Newer MANUAL row — a household estimate, no source_ref — must win (plantry-3fqm).
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Manual, null, null, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var latest = await repo.LatestForProductAsync(_productId);
+
+        Assert.NotNull(latest);
+        Assert.Equal(PriceSource.Manual, latest.Source);
+        Assert.Equal(3m, latest.Price);
+        Assert.Null(latest.SourceRef);
+    }
+
+    [Fact(DisplayName = "LatestForSku includes a Manual observation, and the newest of Purchase/Manual wins")]
+    public async Task LatestForSku_Includes_Manual_Rows()
+    {
+        var skuId = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, skuId, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-2), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, skuId, 3m, 1m, _unitId, 3m,
+                PriceSource.Manual, null, null, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var latest = await repo.LatestForSkuAsync(skuId);
+
+        Assert.NotNull(latest);
+        Assert.Equal(PriceSource.Manual, latest.Source);
+        Assert.Equal(3m, latest.Price);
+    }
+
+    [Fact(DisplayName = "ListPurchasesAwaitingStore stays Purchase-only — a Manual row is never eligible for the DM-16 sweep")]
+    public async Task ListPurchasesAwaitingStore_Excludes_Manual_Rows()
+    {
+        await using (var ctx = NewPricingDb())
+        {
+            // A purchase with a merchant and no store — eligible for backfill.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow, _userId));
+            // A Manual row has no merchant and no store — must never surface in the sweep even though
+            // store_id is also null here.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Manual, null, null, DateTimeOffset.UtcNow, _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var awaiting = await repo.ListPurchasesAwaitingStoreAsync();
+
+        var row = Assert.Single(awaiting);
+        Assert.Equal(PriceSource.Purchase, row.Source);
+        Assert.Equal(4m, row.Price);
+    }
+
+    [Fact(DisplayName = "A Manual observation round-trips a null source_ref through EF")]
+    public async Task Manual_Observation_RoundTrips_Null_SourceRef()
+    {
+        await using (var ctx = NewPricingDb())
+        {
+            var obs = PriceObservation.Record(
+                _household, _productId, null, 2.99m, 1m, _unitId, 2.99m,
+                PriceSource.Manual, merchantText: null, sourceRef: null, DateTimeOffset.UtcNow, _userId);
+            await ctx.PriceObservations.AddAsync(obs);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var loaded = await ctx2.PriceObservations.SingleAsync(p => p.ProductId == _productId);
+
+        Assert.Equal(PriceSource.Manual, loaded.Source);
+        Assert.Null(loaded.SourceRef);
+        Assert.Null(loaded.MerchantText);
+        Assert.Null(loaded.StoreId);
+    }
+
     [Fact(DisplayName = "LatestForSku is source-filtered — a deal row never contaminates a purchase-cost query")]
     public async Task LatestForSku_Excludes_Deal_Rows()
     {
@@ -257,6 +355,159 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
             validFrom: new(2026, 7, 7), validTo: new(2026, 7, 1)));
 
         await Assert.ThrowsAsync<DbUpdateException>(() => ctx.SaveChangesAsync());
+    }
+
+    // ── ADR-023 A7: every pricing read path filters SupersededById IS NULL ─────────────────────────
+
+    [Fact(DisplayName = "PriceObservation round-trips AmendsId/SupersededById through EF (ADR-023 A7)")]
+    public async Task PriceObservation_RoundTrips_Amendment_SelfFks()
+    {
+        var original = PriceObservation.Record(
+            _household, _productId, null, 3.98m, 1m, _unitId, 3.98m,
+            PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow, _userId);
+        var (originalId, amendmentId) = await SeedAmendmentPairAsync(
+            original, correctedQuantity: 3m, unitPrice: 1.33m);
+
+        await using var ctx2 = NewPricingDb();
+        var loadedOriginal = await ctx2.PriceObservations.SingleAsync(p => p.Id == originalId);
+        var loadedAmendment = await ctx2.PriceObservations.SingleAsync(p => p.Id == amendmentId);
+
+        Assert.Equal(amendmentId, loadedOriginal.SupersededById);
+        Assert.Null(loadedOriginal.AmendsId);
+        Assert.Equal(originalId, loadedAmendment.AmendsId);
+        Assert.Null(loadedAmendment.SupersededById);
+    }
+
+    [Fact(DisplayName = "FindAsync returns a superseded row (unfiltered) so Supersede's own guard can fire")]
+    public async Task FindAsync_Returns_Superseded_Row()
+    {
+        var original = PriceObservation.Record(
+            _household, _productId, null, 3.98m, 1m, _unitId, 3.98m,
+            PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow, _userId);
+        var (originalId, _) = await SeedAmendmentPairAsync(original, 3m, 1.33m);
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var found = await repo.FindAsync(originalId);
+
+        Assert.NotNull(found);
+        Assert.NotNull(found.SupersededById);
+    }
+
+    [Fact(DisplayName = "LatestForProduct never sees a superseded observation (ADR-023 A7) — the live amendment wins")]
+    public async Task LatestForProduct_Excludes_Superseded_Rows()
+    {
+        var original = PriceObservation.Record(
+            _household, _productId, null, 3.98m, 1m, _unitId, 3.98m,
+            PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId);
+        await SeedAmendmentPairAsync(original, correctedQuantity: 3m, unitPrice: 1.33m);
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var latest = await repo.LatestForProductAsync(_productId);
+
+        Assert.NotNull(latest);
+        Assert.Equal(3m, latest.Quantity); // the amending row, never the superseded original
+        Assert.Null(latest.SupersededById);
+    }
+
+    [Fact(DisplayName = "LatestForSku never sees a superseded observation (ADR-023 A7)")]
+    public async Task LatestForSku_Excludes_Superseded_Rows()
+    {
+        var skuId = Guid.CreateVersion7();
+        var original = PriceObservation.Record(
+            _household, _productId, skuId, 3.98m, 1m, _unitId, 3.98m,
+            PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId);
+        await SeedAmendmentPairAsync(original, correctedQuantity: 3m, unitPrice: 1.33m);
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var latest = await repo.LatestForSkuAsync(skuId);
+
+        Assert.NotNull(latest);
+        Assert.Equal(3m, latest.Quantity);
+        Assert.Null(latest.SupersededById);
+    }
+
+    [Fact(DisplayName = "CheapestActiveDeal never sees a superseded observation (ADR-023 A7) — even if it was the cheapest")]
+    public async Task CheapestActiveDeal_Excludes_Superseded_Rows()
+    {
+        var today = new DateOnly(2026, 7, 4);
+
+        // Cheapest, but superseded — must be excluded even though it would otherwise win.
+        var original = PriceObservation.Record(
+            _household, _productId, null, 1m, 1m, _unitId, 1m,
+            PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+            validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7));
+        await SeedAmendmentPairAsync(original, correctedQuantity: 1m, unitPrice: 5m);
+
+        // Dearer, live — must win once the cheaper row is excluded.
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 2), validTo: new(2026, 7, 6)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var cheapest = await repo.CheapestActiveDealForProductAsync(_productId, today);
+
+        Assert.NotNull(cheapest);
+        Assert.Equal(3m, cheapest.UnitPrice);
+        Assert.Null(cheapest.SupersededById);
+    }
+
+    [Fact(DisplayName = "ListPurchasesAwaitingStore never sees a superseded observation (ADR-023 A7)")]
+    public async Task ListPurchasesAwaitingStore_Excludes_Superseded_Rows()
+    {
+        var original = PriceObservation.Record(
+            _household, _productId, null, 3.98m, 1m, _unitId, 3.98m,
+            PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow, _userId);
+        await SeedAmendmentPairAsync(original, correctedQuantity: 3m, unitPrice: 1.33m);
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var awaiting = await repo.ListPurchasesAwaitingStoreAsync();
+
+        // Only the live amendment (store_id still null, merchant carried over) is eligible; the
+        // superseded original must never surface, even though it also matches store_id IS NULL.
+        var row = Assert.Single(awaiting);
+        Assert.Equal(3m, row.Quantity);
+        Assert.Null(row.SupersededById);
+    }
+
+    /// <summary>
+    /// Seeds a live purchase/deal row and its amendment in two saves, mirroring how
+    /// <c>RecordAmendedObservationCommand</c> actually persists the pair: the original round-trips first
+    /// (an INSERT), then the amendment is added and the original superseded in a second save (an INSERT +
+    /// an UPDATE). Doing both as fresh INSERTs in one <c>SaveChangesAsync</c> call — as a naive test seed
+    /// would — creates a circular FK dependency (each row's forward-pointing self-FK references the other,
+    /// neither yet persisted) that EF's insert-ordering cannot resolve.
+    /// </summary>
+    private async Task<(PriceObservationId OriginalId, PriceObservationId AmendmentId)> SeedAmendmentPairAsync(
+        PriceObservation original, decimal correctedQuantity, decimal? unitPrice)
+    {
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(original);
+            await ctx.SaveChangesAsync();
+        }
+
+        PriceObservationId amendmentId;
+        await using (var ctx = NewPricingDb())
+        {
+            var tracked = await ctx.PriceObservations.SingleAsync(p => p.Id == original.Id);
+            var amendment = PriceObservation.RecordAmendment(tracked, correctedQuantity, unitPrice, _userId);
+            tracked.Supersede(amendment.Id);
+            await ctx.PriceObservations.AddAsync(amendment);
+            await ctx.SaveChangesAsync();
+            amendmentId = amendment.Id;
+        }
+
+        return (original.Id, amendmentId);
     }
 
     [Fact(DisplayName = "RLS: household B cannot read household A's price observations")]

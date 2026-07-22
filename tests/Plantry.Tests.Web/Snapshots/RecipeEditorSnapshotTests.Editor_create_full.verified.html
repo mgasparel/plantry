@@ -16,27 +16,53 @@
              this.tagDropOpen = false;
              this.$nextTick(() => this.$refs.tagInput.focus());
          },
-         // AI tag suggestions (plantry-qll2.2) — create-moment only. Fires ONCE per create, the first
-         // time an ingredient exists (not on every save; the contradiction nudge covers edits). The
-         // server gate check + LLM call live behind SuggestTags; a suggestion NEVER auto-applies —
-         // acceptSuggestion runs only on a tap.
+         // AI tag suggestions (plantry-qll2.2, timing settled by plantry-5xeg) — create-moment only.
+         // Fires ONCE per create (not on every save; the contradiction nudge covers edits), but NOT the
+         // instant the first ingredient lands — that fired mid-entry, before the author had a chance to
+         // finish the list (plantry-5xeg). Instead, every ingredient add/edit (re)schedules a debounced
+         // call via scheduleTagSuggest(): the fetch only actually runs once tagSuggestDebounceMs has
+         // elapsed with no further ingredient changes — i.e. once the list has settled or the author has
+         // paused. The server gate check + LLM call live behind SuggestTags; a suggestion NEVER
+         // auto-applies — acceptSuggestion runs only on a tap.
          isCreate: true,
          tagSuggestFetched: false,
          tagSuggestDismissed: false,
          tagSuggestions: [],   // [{ name, category, existingTagId, isNew }]
          newTags: [],          // accepted new-tag chips (minted on save): [{ name, category }]
+         _tagSuggestTimer: null,
+         tagSuggestDebounceMs: 2500, // how long the ingredient list must sit quiet before suggesting
+         // Debounced trigger — called after every ingredient add/edit. Resets the timer on each call, so
+         // the underlying fetch (maybeSuggestTags) only fires after the ingredient list has been quiet for
+         // tagSuggestDebounceMs. Cheap to call when suggestions are already fetched/dismissed/not
+         // applicable — the early-return in maybeSuggestTags still guards the eventual fetch, but bailing
+         // here too avoids scheduling a timer that can only ever no-op.
+         scheduleTagSuggest() {
+             if (!this.isCreate || this.tagSuggestFetched || this.tagSuggestDismissed) return;
+             clearTimeout(this._tagSuggestTimer);
+             this._tagSuggestTimer = setTimeout(() => this.maybeSuggestTags(), this.tagSuggestDebounceMs);
+         },
          async maybeSuggestTags() {
              if (!this.isCreate || this.tagSuggestFetched || this.tagSuggestDismissed) return;
              const productIds = this.rows.map(r => r.productId).filter(id => id);
              if (productIds.length === 0) return;
              this.tagSuggestFetched = true; // fire-once latch, set before await so re-entry is a no-op
              try {
-                 const params = productIds.map(id => 'productIds=' + encodeURIComponent(id)).join('&amp;');
+                 // plantry-crre: send every tag currently applied in the editor — existing chips AND
+                 // accepted-but-unsaved new-tag chips — so the server/AI can skip proposing a tag that's
+                 // redundant with (or a subset already implied by) one already applied, e.g. Vegetarian
+                 // when Vegan is already on the recipe, even though Vegan itself hasn't been saved yet.
+                 const appliedTagNames = this.tags.map(t => t.name).concat(this.newTags.map(t => t.name));
+                 const params = productIds.map(id => 'productIds=' + encodeURIComponent(id))
+                     .concat(appliedTagNames.map(n => 'appliedTagNames=' + encodeURIComponent(n)))
+                     .join('&amp;');
                  const url = `/Recipes/New?handler=SuggestTags&amp;${params}`;
                  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                  if (!res.ok) return;
                  const data = await res.json();
-                 // Drop any suggestion already applied (existing tag already a chip, or new tag already accepted).
+                 // Drop any suggestion already applied (existing tag already a chip, or new tag already
+                 // accepted) — a defense-in-depth backstop; the server also filters exact-name matches, and
+                 // the prompt asks the model to skip implied-subset redundancy (e.g. Vegetarian when Vegan
+                 // is applied), but an exact-name re-check here costs nothing.
                  this.tagSuggestions = (data.suggestions || []).filter(s =>
                      s.isNew
                          ? !this.newTags.some(t => t.name.toLowerCase() === s.name.toLowerCase())
@@ -246,8 +272,9 @@
              // and reassign ordinals so the posted order equals what Details renders.
              this.rows = window.RecipeSections.normalizeRows(this.rows);             this.sheetView = 'search';
              this.sheetOpen = false;
-             // Create-moment tag suggestions (plantry-qll2.2): fire once now that an ingredient exists.
-             this.maybeSuggestTags();
+             // Create-moment tag suggestions (plantry-qll2.2): (re)schedule the debounced fetch now that
+             // an ingredient exists — plantry-5xeg defers the actual call until the list settles.
+             this.scheduleTagSuggest();
          },
          unitLabel(id) { return this.unitCodes[id] || ''; },
          // ── Four-field conversion equation (plantry-qno9) ──────────────────────────

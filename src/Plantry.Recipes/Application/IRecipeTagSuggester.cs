@@ -63,12 +63,17 @@ public interface IRecipeTagSuggester
 {
     /// <summary>
     /// Propose tags for a recipe from its <paramref name="ingredientNames"/>, preferring names already in
-    /// <paramref name="vocabulary"/> over minting new ones. Returns an empty list — never throws — on any
-    /// failure or when nothing plausible is found. Suggestions matching a vocabulary entry by name carry
-    /// that entry's <see cref="TagVocabularyEntry.TagId"/>; the rest are new-tag proposals.
+    /// <paramref name="vocabulary"/> over minting new ones. <paramref name="appliedTagNames"/> carries every
+    /// tag currently applied to the recipe in the editor — existing chips AND accepted-but-unsaved new-tag
+    /// chips alike — so the model can avoid proposing a tag that duplicates, or is merely a subset already
+    /// implied by, an applied tag (plantry-crre; e.g. skip "Vegetarian"/"Dairy-Free" when "Vegan" is
+    /// applied). Returns an empty list — never throws — on any failure or when nothing plausible is found.
+    /// Suggestions matching a vocabulary entry by name carry that entry's
+    /// <see cref="TagVocabularyEntry.TagId"/>; the rest are new-tag proposals.
     /// </summary>
     Task<IReadOnlyList<TagSuggestion>> SuggestAsync(
         IReadOnlyList<string> ingredientNames,
         IReadOnlyList<TagVocabularyEntry> vocabulary,
+        IReadOnlyList<string> appliedTagNames,
         CancellationToken ct = default);
 }

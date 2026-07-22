@@ -344,19 +344,23 @@ public sealed class EditModel(
 
     /// <summary>
     /// Returns AI-proposed tag chips for the recipe currently being authored, given its chosen product
-    /// ids. Called by the editor once per create (client-triggered when the first ingredient is added —
-    /// never on every save; the contradiction nudge, sibling bead qll2.3, covers edits).
+    /// ids and the tag names already applied in the editor (<paramref name="appliedTagNames"/> — existing
+    /// chips AND accepted-but-unsaved new-tag chips, straight from the client's live Alpine state). Called
+    /// by the editor once per create (client-triggered when the first ingredient is added — never on every
+    /// save; the contradiction nudge, sibling bead qll2.3, covers edits).
     ///
     /// <para>All the read-side work — the household assistive-AI gate check, resolving product ids to
     /// ingredient names via the Catalog ACL, loading the tag vocabulary, and the untrusted LLM call —
-    /// lives in <see cref="SuggestRecipeTags"/>. When the gate is off, no product resolves, or the
-    /// suggester soft-fails, this returns <c>{"suggestions":[]}</c> and the editor renders nothing (no
-    /// empty-state noise). A suggestion NEVER auto-applies: it becomes a tag only when the user taps its
-    /// chip (Gate 5 / ADR-007).</para>
+    /// lives in <see cref="SuggestRecipeTags"/>, which also passes <paramref name="appliedTagNames"/>
+    /// through so the model can avoid proposing a tag that's redundant with — a subset already implied
+    /// by — an applied tag (plantry-crre). When the gate is off, no product resolves, or the suggester
+    /// soft-fails, this returns <c>{"suggestions":[]}</c> and the editor renders nothing (no empty-state
+    /// noise). A suggestion NEVER auto-applies: it becomes a tag only when the user taps its chip
+    /// (Gate 5 / ADR-007).</para>
     /// </summary>
-    public async Task<IActionResult> OnGetSuggestTagsAsync(Guid[] productIds, CancellationToken ct)
+    public async Task<IActionResult> OnGetSuggestTagsAsync(Guid[] productIds, string[] appliedTagNames, CancellationToken ct)
     {
-        var suggestions = await suggestRecipeTags.ExecuteAsync(productIds ?? [], ct);
+        var suggestions = await suggestRecipeTags.ExecuteAsync(productIds ?? [], appliedTagNames ?? [], ct);
 
         return new JsonResult(new
         {
