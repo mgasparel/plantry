@@ -438,6 +438,152 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Contains(new RecipeInclusionEdge(b, sub), edges);
     }
 
+    // ── ListRecipesReferencingProductAsync (plantry-o0r8, product→recipes cross-context read) ───
+
+    [Fact(DisplayName = "ListRecipesReferencingProductAsync — a recipe with a matching ingredient line is a consumer match")]
+    public async Task ListRecipesReferencingProductAsync_ConsumerMatch()
+    {
+        var productId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+        RecipeId recipeId;
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var recipe = Recipe.Create(_household, "Chili", 4, _clock).Value;
+            recipe.ReplaceIngredients([new IngredientLine(productId, 1m, unitId, null, 0)], _clock);
+            recipeId = recipe.Id;
+            await repo.AddAsync(recipe);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var result = await new RecipeRepository(ctx2).ListRecipesReferencingProductAsync(productId);
+
+        var usage = Assert.Single(result);
+        Assert.Equal(recipeId, usage.RecipeId);
+        Assert.Equal("Chili", usage.Name);
+        Assert.True(usage.IsConsumer);
+        Assert.False(usage.IsProducer);
+    }
+
+    [Fact(DisplayName = "ListRecipesReferencingProductAsync — a recipe whose declared yield targets the product is a producer match")]
+    public async Task ListRecipesReferencingProductAsync_ProducerMatch()
+    {
+        var productId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+        RecipeId recipeId;
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var recipe = Recipe.Create(_household, "Vegetable stock", 4, _clock).Value;
+            recipe.ReplaceIngredients([new IngredientLine(Guid.CreateVersion7(), 1m, unitId, null, 0)], _clock);
+            recipe.SetYield(productId, 6m, unitId, _clock);
+            recipeId = recipe.Id;
+            await repo.AddAsync(recipe);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var result = await new RecipeRepository(ctx2).ListRecipesReferencingProductAsync(productId);
+
+        var usage = Assert.Single(result);
+        Assert.Equal(recipeId, usage.RecipeId);
+        Assert.Equal("Vegetable stock", usage.Name);
+        Assert.False(usage.IsConsumer);
+        Assert.True(usage.IsProducer);
+    }
+
+    [Fact(DisplayName = "ListRecipesReferencingProductAsync — a recipe that is both a consumer and a producer sets both flags on one row")]
+    public async Task ListRecipesReferencingProductAsync_BothConsumerAndProducer_OneRow()
+    {
+        var productId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+        RecipeId recipeId;
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var recipe = Recipe.Create(_household, "Reduction", 2, _clock).Value;
+            recipe.ReplaceIngredients([new IngredientLine(productId, 1m, unitId, null, 0)], _clock);
+            recipe.SetYield(productId, 2m, unitId, _clock);
+            recipeId = recipe.Id;
+            await repo.AddAsync(recipe);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var result = await new RecipeRepository(ctx2).ListRecipesReferencingProductAsync(productId);
+
+        var usage = Assert.Single(result);
+        Assert.Equal(recipeId, usage.RecipeId);
+        Assert.True(usage.IsConsumer);
+        Assert.True(usage.IsProducer);
+    }
+
+    [Fact(DisplayName = "ListRecipesReferencingProductAsync — a recipe that neither consumes nor produces the product is excluded")]
+    public async Task ListRecipesReferencingProductAsync_NoMatch_Excluded()
+    {
+        var productId = Guid.CreateVersion7();
+        await SeedRecipeAsync("Unrelated soup");
+
+        await using var ctx = NewContext();
+        var result = await new RecipeRepository(ctx).ListRecipesReferencingProductAsync(productId);
+
+        Assert.Empty(result);
+    }
+
+    [Fact(DisplayName = "ListRecipesReferencingProductAsync — an archived recipe referencing the product is excluded")]
+    public async Task ListRecipesReferencingProductAsync_ArchivedRecipe_Excluded()
+    {
+        var productId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var recipe = Recipe.Create(_household, "Retired dish", 2, _clock).Value;
+            recipe.ReplaceIngredients([new IngredientLine(productId, 1m, unitId, null, 0)], _clock);
+            recipe.Archive(_clock);
+            await repo.AddAsync(recipe);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var result = await new RecipeRepository(ctx2).ListRecipesReferencingProductAsync(productId);
+
+        Assert.Empty(result);
+    }
+
+    [Fact(DisplayName = "ListRecipesReferencingProductAsync — a matching recipe in another household is excluded (RLS-scoped)")]
+    public async Task ListRecipesReferencingProductAsync_Does_Not_Leak_Across_Households()
+    {
+        var productId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+        var otherHousehold = HouseholdId.New();
+
+        // Seed the foreign recipe via a superuser context (no household query filter) — mirrors
+        // ResolveExistingIdsAsync_Does_Not_Leak_Across_Households above.
+        var opts = new DbContextOptionsBuilder<RecipesDbContext>()
+            .UseNpgsql(db.ConnectionString)
+            .Options;
+        await using (var superCtx = new RecipesDbContext(opts))
+        {
+            var recipe = Recipe.Create(otherHousehold, "Other household's chili", 4, _clock).Value;
+            recipe.ReplaceIngredients([new IngredientLine(productId, 1m, unitId, null, 0)], _clock);
+            await superCtx.Recipes.AddAsync(recipe);
+            await superCtx.SaveChangesAsync();
+        }
+
+        // Query scoped to _household — the foreign recipe must not resolve even though it
+        // references the same product.
+        await using var ctx = NewContext();
+        var result = await new RecipeRepository(ctx).ListRecipesReferencingProductAsync(productId);
+
+        Assert.Empty(result);
+    }
+
     // ── Private helpers ────────────────────────────────────────────────────────
 
     private RecipesDbContext NewContext()

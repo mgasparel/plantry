@@ -1,9 +1,33 @@
 @page "{id:guid}"
 @model Plantry.Web.Pages.Pantry.Products.DetailModel
+@using Plantry.Web.Pages.Shared
 @{
     ViewData["Title"] = Model.Detail?.Name ?? "Product";
     // Stock total is the subtitle; keep id="product-total" so _StockDetail's OOB swap stays live.
     var stockTotal = $"{Model.Detail!.TotalQuantity.ToString("0.###")} {Model.Detail.DisplayUnitCode} in stock";
+
+    // "Recipes" section (plantry-o0r8) — which household recipes directly reference this product, either
+    // as a consumer ("Used in") or as the recipe's declared cook yield ("Made by"). Both roles are folded
+    // into one badge cell when a recipe is somehow both (rare — same product as ingredient and yield).
+    static string RoleLabel(Plantry.Recipes.Application.RecipeProductUsage u)
+    {
+        var roles = new List<string>();
+        if (u.IsConsumer) roles.Add("Used in");
+        if (u.IsProducer) roles.Add("Made by");
+        return string.Join(" · ", roles);
+    }
+    static BadgeTone RoleTone(Plantry.Recipes.Application.RecipeProductUsage u) =>
+        u.IsProducer && !u.IsConsumer ? BadgeTone.Success : BadgeTone.Info;
+
+    var recipesGrid = new DataGridViewModel(
+        Id: "product-recipes-grid",
+        Columns: [new("Recipe"), new("Role")],
+        Rows: [.. Model.RecipeUsages.Select(u => new GridRow(
+        [
+            GridCell.Link(u.Name, Url.Page("/Recipes/Details", new { id = u.RecipeId })!),
+            GridCell.Badge(RoleLabel(u), RoleTone(u)),
+        ]))],
+        EmptyMessage: "Not used in any recipes yet.");
 }
 
 @* Shared .page-header primitive (plantry-7yf1): category -> eyebrow, name -> title,
@@ -36,5 +60,12 @@
 <partial name="_PriceDisplay" model="new Plantry.Web.Pages.Pantry.Products.PriceDisplayPartialModel(Model.PriceDisplayText, false)" />
 
 <partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null, Model.Chips)" />
+
+@* Product→recipes cross-context read (plantry-o0r8): every household recipe that directly references
+   this product, either as an ingredient ("Used in") or as its declared cook yield ("Made by"). *@
+<section class="catalog-section">
+    <h2 class="catalog-section__heading">Recipes</h2>
+    <partial name="Shared/_DataGrid" model="recipesGrid" />
+</section>
 
 <div id="sheet-host"></div>

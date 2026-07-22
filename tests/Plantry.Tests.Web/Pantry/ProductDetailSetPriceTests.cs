@@ -255,6 +255,14 @@ internal sealed class ProductDetailSetPriceFactory : WebApplicationFactory<Progr
 
             services.RemoveAll<IUnitPriceCalculator>();
             services.AddSingleton<IUnitPriceCalculator>(new FakeUnitPriceCalculator(0.5m));
+
+            // plantry-o0r8: Detail's GET path now also resolves the "Recipes" section
+            // (RecipesUsingProductQuery), which reads through IRecipeRepository — otherwise the real
+            // EF-backed repository, needing a live Postgres connection. Reuses the empty fake from
+            // ProductDetailRecipesSectionTests.cs (same namespace); this test doesn't care about the
+            // Recipes section's content.
+            services.RemoveAll<Plantry.Recipes.Domain.IRecipeRepository>();
+            services.AddSingleton<Plantry.Recipes.Domain.IRecipeRepository>(new FakeRecipeRepository());
         });
     }
 }

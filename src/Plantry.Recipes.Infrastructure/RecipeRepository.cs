@@ -120,4 +120,41 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
         }
         return result;
     }
+
+    /// <summary>
+    /// Targeted override of the interface's default (plantry-o0r8): rather than loading every household
+    /// recipe's full ingredient set via <see cref="ListForBrowseAsync"/>, this runs two lean projection
+    /// queries — <c>Ingredients.ProductId</c> for consumers, <c>Recipe.YieldProductId</c> for producers —
+    /// and merges the results in memory. Both queries are RLS-scoped automatically (ADR-008).
+    /// </summary>
+    public async Task<IReadOnlyList<ProductRecipeReference>> ListRecipesReferencingProductAsync(
+        Guid productId, CancellationToken ct = default)
+    {
+        var consumerRecipeIds = await db.Ingredients
+            .Where(i => i.ProductId == productId)
+            .Select(i => i.RecipeId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var consumers = consumerRecipeIds.Count == 0
+            ? []
+            : await db.Recipes
+                .Where(r => r.ArchivedAt == null && consumerRecipeIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Name })
+                .ToListAsync(ct);
+
+        var producers = await db.Recipes
+            .Where(r => r.ArchivedAt == null && r.YieldProductId == productId)
+            .Select(r => new { r.Id, r.Name })
+            .ToListAsync(ct);
+
+        var consumerIds = consumers.Select(c => c.Id).ToHashSet();
+        var producerIds = producers.Select(p => p.Id).ToHashSet();
+
+        return consumers.Concat(producers)
+            .GroupBy(r => r.Id)
+            .Select(g => new ProductRecipeReference(
+                g.Key, g.First().Name, consumerIds.Contains(g.Key), producerIds.Contains(g.Key)))
+            .ToList();
+    }
 }

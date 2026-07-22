@@ -9,6 +9,7 @@ using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
+using Plantry.Recipes.Application;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Pages.Shared;
@@ -26,6 +27,7 @@ public sealed class DetailModel(
     IPriceObservationRepository priceRepository,
     IUnitPriceCalculator priceCalculator,
     PricingQueries pricingQueries,
+    RecipesUsingProductQuery recipeUsages,
     DisplayCurrencyAccessor displayCurrency,
     IClock clock,
     ITenantContext tenant,
@@ -34,6 +36,12 @@ public sealed class DetailModel(
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
+
+    /// <summary>Recipes that directly reference this product (plantry-o0r8) — either as a consumer
+    /// ("Used in") or as the recipe's declared cook yield ("Made by"). Loaded once on the initial GET;
+    /// no consume/threshold/price action changes this list, so the POST handlers' partial reloads don't
+    /// re-fetch it.</summary>
+    public IReadOnlyList<RecipeProductUsage> RecipeUsages { get; private set; } = [];
 
     /// <summary>The current effective price (deal-aware — same read model <c>CostingService</c> uses via
     /// <c>PricingQueries.EffectivePriceAsync</c>), rendered as "£3.99 for 500 g" — or a muted placeholder
@@ -104,6 +112,7 @@ public sealed class DetailModel(
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
         PriceDisplayText = await BuildPriceDisplayAsync(id);
+        RecipeUsages = await recipeUsages.ExecuteAsync(id);
         return Page();
     }
 

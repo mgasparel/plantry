@@ -658,6 +658,9 @@ builder.Services.AddSingleton<RecipeConversionBackfillCycle>();
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
 
+// Product→recipes cross-context read (plantry-o0r8) — the Pantry product Detail page's "Recipes" section.
+builder.Services.AddScoped<RecipesUsingProductQuery>();
+
 // Cook line-drive protocol (plantry-dq16). The single owner of the anchor-first exception-to-status
 // mapping (Applied / DeferredUnitGap / Shorted for consumes; Applied / Failed for produces) shared by
 // CookRecipe and ReconcilePendingCooks, so a live cook and a reconcile can never classify the same
