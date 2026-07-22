@@ -18,11 +18,14 @@ using CatalogUnit = Plantry.Catalog.Domain.Unit;
 namespace Plantry.Tests.Web;
 
 /// <summary>
-/// Proves the Details inclusion sub-recipe preview renders amounts through <see cref="IQuantityFormatter"/>
-/// the same way the primary ingredient list does (plantry-51c3) — vulgar fractions, not the raw
-/// <c>0.###</c> decimal — closing the visible inconsistency where a preview showed "0.5 cup" while the
-/// primary row for the same amount showed "½ cup". The preview is a distinct render path built in
-/// <c>DetailsModel.BuildInclusionViewsAsync</c> from expanded lines (out of scope for plantry-vci8.3).
+/// Proves the Details inclusion roll-up row's expanded child rows render amounts through
+/// <see cref="IQuantityFormatter"/> the same way the primary ingredient list does (plantry-51c3, extended
+/// to the collapsible roll-up row by plantry-4037) — vulgar fractions, not the raw <c>0.###</c> decimal.
+/// Since plantry-4037 the expanded child rows are literally the SAME <c>_IngredientRow</c> partial a direct
+/// ingredient row uses (quantity and unit code render in separate inline elements, exactly like a direct
+/// row), so assertions below strip tags before checking for "amount + unit" rather than matching raw HTML
+/// substrings across element boundaries. The child rows are built in
+/// <c>DetailsModel.BuildIngredientGroupsAsync</c> from expanded lines.
 ///
 /// Fixture: an inclusions-only parent (2 servings of a 4-serving sub → expansion factor ½) whose sub has a
 /// Fraction-styled 1 cup line (→ 0.5 cup = "½"), a Decimal-styled 100 g line (→ 50 g, the decimal path), and
@@ -31,6 +34,16 @@ namespace Plantry.Tests.Web;
 /// </summary>
 public sealed class InclusionPreviewQuantityDisplayTests
 {
+    /// <summary>
+    /// Strips HTML tags and collapses whitespace so an assertion can check for "amount unit" as a reader
+    /// would see it, regardless of how many inline elements the renderer splits the text across (the
+    /// quantity and the unit code render in separate <c>&lt;span&gt;</c>s, mirroring every direct
+    /// ingredient row — plantry-4037).
+    /// </summary>
+    private static string TextOnly(string html) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " "), @"\s+", " ").Trim();
+
     private static readonly Guid HouseholdGuid = Guid.Parse("e1e1e1e1-0000-0000-0000-000000000001");
     private static readonly Guid ParentId = Guid.Parse("e0000000-0000-0000-0000-000000000001");
     private static readonly Guid SubId = Guid.Parse("e0000000-0000-0000-0000-000000000002");
@@ -53,7 +66,7 @@ public sealed class InclusionPreviewQuantityDisplayTests
         var client = AuthedClient(factory);
 
         var raw = await client.GetStringAsync($"/Recipes/{ParentId}");
-        var html = System.Net.WebUtility.HtmlDecode(raw);
+        var html = TextOnly(System.Net.WebUtility.HtmlDecode(raw));
 
         // Sub's 1 cup × (2/4) = 0.5 cup → "½ cup" in the preview, not "0.5 cup".
         Assert.Contains("½ cup", html);
@@ -68,7 +81,7 @@ public sealed class InclusionPreviewQuantityDisplayTests
         var client = AuthedClient(factory);
 
         var raw = await client.GetStringAsync($"/Recipes/{ParentId}");
-        var html = System.Net.WebUtility.HtmlDecode(raw);
+        var html = TextOnly(System.Net.WebUtility.HtmlDecode(raw));
 
         // Sub's 100 g × (2/4) = 50 g → the plain "50 g" (g is Decimal-styled — no fraction glyph).
         Assert.Contains("50 g", html);
@@ -82,7 +95,7 @@ public sealed class InclusionPreviewQuantityDisplayTests
         var client = AuthedClient(factory);
 
         var raw = await client.GetStringAsync($"/Recipes/{ParentId}");
-        var html = System.Net.WebUtility.HtmlDecode(raw);
+        var html = TextOnly(System.Net.WebUtility.HtmlDecode(raw));
 
         // Salt renders as a name-only preview line; its 7 g × (2/4) = 3.5 g amount is never shown.
         Assert.Contains("Salt", html);

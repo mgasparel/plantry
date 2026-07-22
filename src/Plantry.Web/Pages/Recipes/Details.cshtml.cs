@@ -63,13 +63,6 @@ public sealed class DetailsModel(
     public RecipeDetailView Recipe { get; private set; } = null!;
 
     /// <summary>
-    /// Inclusion lines (recipe-composition.md §5 / D15) rendered in ordinal position — each an "N servings ·
-    /// Sub" link to the sub-recipe with an expandable read-only preview of its expanded product-level
-    /// ingredients (via <see cref="RecipeExpansionService"/>). Empty when the recipe has no inclusions.
-    /// </summary>
-    public IReadOnlyList<InclusionDetailView> Inclusions { get; private set; } = [];
-
-    /// <summary>
     /// Set when the Archive action is blocked by N5 (recipe-composition.md D12 — "used by N recipes"), so
     /// the page re-renders with the domain error as a validation banner rather than a 500 or silent no-op.
     /// </summary>
@@ -171,116 +164,22 @@ public sealed class DetailsModel(
         // 1×: FormatAmount in the authored unit's DisplayStyle, no simplification). Keyed by IngredientId.
         var displayQuantities = await ComputeIngredientDisplayAsync(recipe, ct);
 
+        // Ingredient + inclusion rows, unioned by ordinal and grouped by GroupHeading (recipe-composition.md
+        // §5, plantry-4037): each inclusion renders in ordinal position as a collapsible roll-up row, the
+        // ingredient-row grammar reused verbatim for both. Built ONCE here — fulfillment/expandedLines are
+        // identical for the full-page view and the initial fulfilment card (both render at DefaultServings),
+        // so reusing the same list avoids a second sub-recipe-name lookup + formatter round-trip per load.
+        var ingredientGroups = await BuildIngredientGroupsAsync(
+            recipe, productLookup, unitLookup, expandedLines, fulfillment, displayQuantities, ct);
+
         // Server-compute the add-to-shopping button label states from the true delta between the
         // recipe's shortfall/required sets and its existing contribution slice (plantry-gsj).
         FulfilmentCard = await BuildCardModelAsync(
-            recipe, recipe.DefaultServings, productLookup, unitLookup, effectiveLines, fulfillment, oob: false, summary: null, displayQuantities, ct);
+            recipe, recipe.DefaultServings, effectiveLines, ingredientGroups, fulfillment, oob: false, summary: null, ct);
 
-        Recipe = RecipeDetailView.From(recipe, productLookup, unitLookup, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost, displayQuantities);
-
-        // Inclusions (recipe-composition.md §5 / D15): each inclusion renders in ordinal position as an
-        // "N servings · Sub" link plus an expandable preview of the sub's expanded product-level ingredients.
-        Inclusions = await BuildInclusionViewsAsync(recipe, expandedLines, ct);
+        Recipe = RecipeDetailView.From(recipe, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost, ingredientGroups);
 
         return true;
-    }
-
-    /// <summary>
-    /// Builds the ordinal-ordered inclusion view list. Resolves each sub's name + DefaultServings (for the
-    /// batch-fraction hint, D2) and, via the <see cref="RecipeExpansionService"/> choke point (D4), the flat
-    /// product-level preview lines that belong to each top-level inclusion (those whose expansion Path begins
-    /// with the inclusion's id). Product names/unit codes are batch-resolved across all previews in two calls.
-    /// </summary>
-    private async Task<IReadOnlyList<InclusionDetailView>> BuildInclusionViewsAsync(
-        Recipe recipe, IReadOnlyList<ExpandedLine> expandedLines, CancellationToken ct)
-    {
-        if (recipe.Inclusions.Count == 0) return [];
-
-        // Sub display name + DefaultServings — one lightweight load per distinct sub (household-scale counts).
-        var subInfo = new Dictionary<RecipeId, (string Name, int DefaultServings)>();
-        foreach (var subId in recipe.Inclusions.Select(i => i.SubRecipeId).Distinct())
-        {
-            var sub = await recipes.GetByIdAsync(subId, ct);
-            if (sub is not null) subInfo[subId] = (sub.Name, sub.DefaultServings);
-        }
-
-        // The recipe was already expanded once by the caller (D4 single choke point); the previews reuse
-        // those lines. On the defensive-cycle / missing-sub error path the list is empty — the inclusion
-        // titles/links still render.
-        var exProductIds = expandedLines.Select(l => l.ProductId).Distinct().ToList();
-        var exProductLookup = exProductIds.Count > 0
-            ? await catalog.ResolveSummariesAsync(exProductIds, ct)
-            : new Dictionary<Guid, CatalogProductSummary>();
-        var exUnitIds = expandedLines.Where(l => l.UnitId is not null).Select(l => l.UnitId!.Value).Distinct().ToList();
-        var exUnitLookup = exUnitIds.Count > 0
-            ? await catalog.ResolveUnitCodesAsync(exUnitIds, ct)
-            : new Dictionary<Guid, string>();
-
-        // Resolve each inclusion's ordered preview lines up front (Preview = expanded lines whose top-level
-        // path element is THIS inclusion — D6 path identity) so a single formatter call can span every
-        // preview line before the views are built.
-        var orderedInclusions = recipe.Inclusions.OrderBy(i => i.Ordinal).ToList();
-        var previewLinesByInclusion = orderedInclusions.ToDictionary(
-            inc => inc.Id,
-            inc => expandedLines.Where(l => l.Path.Count > 0 && l.Path[0] == inc.Id).ToList());
-
-        // Batch the vulgar-fraction display for every preview line that will show a quantity (tracked product,
-        // Quantity + UnitId present) into ONE FormatAsync call across ALL inclusions — mirrors
-        // ComputeIngredientDisplayAsync; never per inclusion or per line. Details renders at 1× so Simplify is
-        // false (authored unit, no Q2 simplification — quantity-display.md §7). Preview lines carry no ingredient
-        // id, so key by a synthetic "{inclusionId}:{lineIndex}" stable within the page render.
-        var previewRequests = new List<QuantityFormatRequest>();
-        foreach (var (incId, lines) in previewLinesByInclusion)
-        {
-            for (var idx = 0; idx < lines.Count; idx++)
-            {
-                var l = lines[idx];
-                exProductLookup.TryGetValue(l.ProductId, out var p);
-                var isUntracked = p is { TrackStock: false };
-                if (!isUntracked && l.Quantity.HasValue && l.UnitId.HasValue)
-                    previewRequests.Add(new QuantityFormatRequest(
-                        $"{incId.Value}:{idx}", l.Quantity.Value, l.UnitId.Value, Simplify: false));
-            }
-        }
-        var previewDisplay = previewRequests.Count > 0
-            ? await quantityFormatter.FormatAsync(previewRequests, ct)
-            : new Dictionary<string, FormattedQuantity>();
-
-        return orderedInclusions
-            .Select(inc =>
-            {
-                subInfo.TryGetValue(inc.SubRecipeId, out var info);
-
-                var lines = previewLinesByInclusion[inc.Id];
-                var preview = new List<InclusionPreviewItem>(lines.Count);
-                for (var idx = 0; idx < lines.Count; idx++)
-                {
-                    var l = lines[idx];
-                    exProductLookup.TryGetValue(l.ProductId, out var p);
-                    var isUntracked = p is { TrackStock: false };
-                    var unitCode = l.UnitId is { } u ? exUnitLookup.GetValueOrDefault(u) : null;
-                    // Vulgar-fraction display at 1× (quantity-display.md Q1/§7) — same shape as the primary rows.
-                    // Null for untracked / unit-less lines and formatter misses (unknown unit): the view then
-                    // falls back to the canonical decimal, identical to BuildIngredientGroups.
-                    var displayQuantity = !isUntracked && l.Quantity.HasValue
-                        ? previewDisplay.GetValueOrDefault($"{inc.Id.Value}:{idx}")?.Amount
-                        : null;
-                    preview.Add(new InclusionPreviewItem(
-                        ProductName: p?.Name ?? "(unknown product)",
-                        Quantity: isUntracked ? null : l.Quantity,
-                        UnitCode: isUntracked ? null : unitCode,
-                        DisplayQuantity: displayQuantity));
-                }
-
-                return new InclusionDetailView(
-                    SubRecipeId: inc.SubRecipeId.Value,
-                    SubName: info.Name ?? "(unknown recipe)",
-                    Servings: inc.Servings,
-                    SubDefaultServings: info.DefaultServings <= 0 ? 1 : info.DefaultServings,
-                    GroupHeading: inc.GroupHeading,
-                    Preview: preview);
-            })
-            .ToList();
     }
 
     /// <summary>
@@ -301,7 +200,7 @@ public sealed class DetailsModel(
         // Clamp requested servings to a valid range (mirrors the stepper bounds in the view).
         var desiredServings = servings is > 0 and <= 24 ? servings : recipe.DefaultServings;
 
-        var (productLookup, unitLookup, effectiveLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
+        var (productLookup, unitLookup, effectiveLines, expandedLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
 
         // Oob: true so the partial's #rd-ing-rows block carries hx-swap-oob="true" and htmx
         // replaces the ingredient rows in place alongside the primary #rd-fulf-card swap. Recomputing
@@ -309,8 +208,10 @@ public sealed class DetailsModel(
         // blind full re-add when servings grew (plantry-gsj).
         // Ingredient amounts render at 1× server-side (the servings stepper scales client-side, Q4/§7).
         var displayQuantities = await ComputeIngredientDisplayAsync(recipe, ct);
+        var ingredientGroups = await BuildIngredientGroupsAsync(
+            recipe, productLookup, unitLookup, expandedLines, fulfillment, displayQuantities, ct);
         var vm = await BuildCardModelAsync(
-            recipe, desiredServings, productLookup, unitLookup, effectiveLines, fulfillment, oob: true, summary: null, displayQuantities, ct);
+            recipe, desiredServings, effectiveLines, ingredientGroups, fulfillment, oob: true, summary: null, ct);
 
         return Partial("_DetailsFulfilmentCard", vm);
     }
@@ -318,10 +219,14 @@ public sealed class DetailsModel(
     /// <summary>
     /// Resolves the catalog lookups and the fresh fulfilment result for a recipe at a given serving
     /// count — the shared read every card render needs (initial load, servings refresh, post-add swap).
+    /// <see cref="ExpandedLine"/>s are returned alongside the aggregated <see cref="EffectiveIngredient"/>s
+    /// because the ingredient-row grouping (plantry-4037) needs the raw, unaggregated Path to attribute
+    /// each expanded line back to its owning top-level inclusion (Path[0] == inclusion id, D6).
     /// </summary>
     private async Task<(IReadOnlyDictionary<Guid, CatalogProductSummary> Products,
                         IReadOnlyDictionary<Guid, string> Units,
                         IReadOnlyList<EffectiveIngredient> EffectiveLines,
+                        IReadOnlyList<ExpandedLine> ExpandedLines,
                         ExpandedFulfillmentResult Fulfillment)> ResolveFulfilmentAsync(
         Recipe recipe, int servings, CancellationToken ct)
     {
@@ -338,13 +243,13 @@ public sealed class DetailsModel(
         // Expand + aggregate so fulfillment and the shopping targets reflect included recipes' products
         // (recipe-composition.md §7). A flat recipe expands to its own ingredients.
         var expandResult = await expansionService.ExpandAsync(recipe.Id, ct);
-        var effectiveLines = (expandResult.IsSuccess ? expandResult.Value : Array.Empty<ExpandedLine>())
-            .AggregateByProductAndUnit();
+        IReadOnlyList<ExpandedLine> expandedLines = expandResult.IsSuccess ? expandResult.Value : [];
+        var effectiveLines = expandedLines.AggregateByProductAndUnit();
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(
             effectiveLines, recipe.DefaultServings, servings, today, ct);
-        return (productLookup, unitLookup, effectiveLines, fulfillment);
+        return (productLookup, unitLookup, effectiveLines, expandedLines, fulfillment);
     }
 
     /// <summary>
@@ -354,21 +259,21 @@ public sealed class DetailsModel(
     /// and its existing contribution slice, read via Shopping's public query surface (the Web page is
     /// the composition root, mirroring plantry-yt0m). <paramref name="summary"/> is non-null only on a
     /// post-add re-render, surfacing "Added X · Y already on your list · Z checked off".
+    /// <paramref name="ingredientGroups"/> is built by the caller (<see cref="BuildIngredientGroupsAsync"/>)
+    /// rather than here, so <see cref="LoadDetailAsync"/> can build it exactly ONCE and share it with both
+    /// this card and the full-page <see cref="RecipeDetailView"/> — it needs a sub-recipe-name lookup and a
+    /// formatter round-trip (plantry-4037), so building it twice per initial load would double both.
     /// </summary>
     private async Task<DetailsFulfilmentCardModel> BuildCardModelAsync(
         Recipe recipe,
         int servings,
-        IReadOnlyDictionary<Guid, CatalogProductSummary> productLookup,
-        IReadOnlyDictionary<Guid, string> unitLookup,
         IReadOnlyList<EffectiveIngredient> effectiveLines,
+        IReadOnlyList<IngredientGroupView> ingredientGroups,
         ExpandedFulfillmentResult fulfillment,
         bool oob,
         ShoppingSyncOutcome? summary,
-        IReadOnlyDictionary<Guid, string> displayQuantities,
         CancellationToken ct)
     {
-        var ingredientGroups = BuildIngredientGroups(recipe, productLookup, unitLookup, fulfillment, displayQuantities);
-
         // Target sets computed via the same shared calculator the write path uses, so the label and the
         // synced set cannot drift (plantry-gsj). The "Add all" set spans the whole expanded product set
         // (including sub products), so resolve track_stock across every effective product — not just the
@@ -401,52 +306,192 @@ public sealed class DetailsModel(
     }
 
     /// <summary>
-    /// Builds the fulfilment-keyed ingredient group list (per-ingredient status dots + sub-labels).
-    /// Shared by the full-page view (<see cref="RecipeDetailView.From"/>) and the card partial so the
-    /// grouping/status logic lives in one place.
+    /// Builds the fulfilment-keyed row list — a UNION of direct ingredient rows and collapsible inclusion
+    /// roll-up rows (recipe-composition.md §5, plantry-4037), ordered by the shared N3 ordinal space and
+    /// grouped by GroupHeading exactly like a flat ingredient list. Shared by the full-page view
+    /// (<see cref="RecipeDetailView.From"/>) and the card partial (stepper OOB refresh, post-add
+    /// re-render) so the grouping/status/roll-up logic lives in one place.
+    /// <para>
+    /// A product appearing in BOTH the parent and a sub shows the SAME aggregate verdict in both rows —
+    /// <paramref name="fulfillment"/> is keyed on the (ProductId, UnitId) grain (D14), read identically by
+    /// a direct row and a child row. This is intentional (design item 7), not a bug.
+    /// </para>
     /// </summary>
-    internal static IReadOnlyList<IngredientGroupView> BuildIngredientGroups(
+    private async Task<IReadOnlyList<IngredientGroupView>> BuildIngredientGroupsAsync(
         Recipe recipe,
         IReadOnlyDictionary<Guid, CatalogProductSummary> productLookup,
         IReadOnlyDictionary<Guid, string> unitLookup,
+        IReadOnlyList<ExpandedLine> expandedLines,
         ExpandedFulfillmentResult fulfillment,
-        IReadOnlyDictionary<Guid, string> displayQuantities)
+        IReadOnlyDictionary<Guid, string> displayQuantities,
+        CancellationToken ct)
     {
         // The expanded fulfillment is keyed on the (ProductId, UnitId) aggregation grain (recipe-composition.md
-        // §7); a direct ingredient row looks up its own product+unit. For a flat recipe this is 1:1 with the
-        // old IngredientId-keyed lookup; where a direct product also appears inside a sub, the row reflects the
-        // combined availability (the same figure the shortfall/shopping/cookability numbers use).
+        // §7) — shared by direct rows AND inclusion child rows below.
         var fulfillmentByKey = fulfillment.Lines.ToDictionary(l => (l.ProductId, l.UnitId));
-        return recipe.Ingredients
-            .OrderBy(i => i.Ordinal)
-            .GroupBy(i => i.GroupHeading)
-            .Select(g => new IngredientGroupView(
-                Heading: g.Key,
-                Items: g.Select(i =>
+
+        IngredientItemView BuildItem(
+            Guid productId, Guid? unitId, decimal? quantity,
+            IReadOnlyDictionary<Guid, CatalogProductSummary> products,
+            IReadOnlyDictionary<Guid, string> units,
+            string? displayQuantity)
+        {
+            products.TryGetValue(productId, out var product);
+            var isUntracked = product is { TrackStock: false };
+            var unitCode = !isUntracked && unitId is { } uid ? units.GetValueOrDefault(uid) : null;
+            fulfillmentByKey.TryGetValue((productId, unitId), out var f);
+            return new IngredientItemView(
+                ProductName: product?.Name ?? "(unknown product)",
+                ProductId: productId,
+                Quantity: isUntracked ? null : quantity,
+                UnitCode: unitCode,
+                IsUntracked: isUntracked,
+                Status: f?.Status ?? IngredientStatus.Untracked,
+                ExpiresWithinDays: f?.ExpiresWithinDays,
+                UnitMismatch: f?.UnitMismatch ?? false,
+                DisplayQuantity: displayQuantity);
+        }
+
+        // Inclusion support data (sub name/DefaultServings, expanded-product lookups, batched child
+        // display-quantity formatting) — resolved only when the recipe actually has inclusions, exactly
+        // mirroring the previous BuildInclusionViewsAsync's up-front resolution block.
+        var subInfo = new Dictionary<RecipeId, (string Name, int DefaultServings)>();
+        IReadOnlyDictionary<Guid, CatalogProductSummary> exProductLookup = new Dictionary<Guid, CatalogProductSummary>();
+        IReadOnlyDictionary<Guid, string> exUnitLookup = new Dictionary<Guid, string>();
+        IReadOnlyDictionary<string, FormattedQuantity> childDisplay = new Dictionary<string, FormattedQuantity>();
+        var childLinesByInclusion = new Dictionary<InclusionId, List<ExpandedLine>>();
+
+        if (recipe.Inclusions.Count > 0)
+        {
+            foreach (var subId in recipe.Inclusions.Select(i => i.SubRecipeId).Distinct())
+            {
+                var sub = await recipes.GetByIdAsync(subId, ct);
+                if (sub is not null) subInfo[subId] = (sub.Name, sub.DefaultServings);
+            }
+
+            var exProductIds = expandedLines.Select(l => l.ProductId).Distinct().ToList();
+            exProductLookup = exProductIds.Count > 0
+                ? await catalog.ResolveSummariesAsync(exProductIds, ct)
+                : new Dictionary<Guid, CatalogProductSummary>();
+            var exUnitIds = expandedLines.Where(l => l.UnitId is not null).Select(l => l.UnitId!.Value).Distinct().ToList();
+            exUnitLookup = exUnitIds.Count > 0
+                ? await catalog.ResolveUnitCodesAsync(exUnitIds, ct)
+                : new Dictionary<Guid, string>();
+
+            foreach (var inc in recipe.Inclusions)
+                childLinesByInclusion[inc.Id] = expandedLines.Where(l => l.Path.Count > 0 && l.Path[0] == inc.Id).ToList();
+
+            // Batch every child line's vulgar-fraction display into ONE formatter call across ALL inclusions
+            // (mirrors ComputeIngredientDisplayAsync — never per inclusion or per line). Details renders at
+            // 1× so Simplify is false (quantity-display.md §7). Child lines carry no ingredient id, so key
+            // by a synthetic "{inclusionId}:{lineIndex}" stable within this render.
+            var childRequests = new List<QuantityFormatRequest>();
+            foreach (var (incId, lines) in childLinesByInclusion)
+            {
+                for (var idx = 0; idx < lines.Count; idx++)
                 {
-                    productLookup.TryGetValue(i.ProductId, out var product);
-                    var isUntracked = product is { TrackStock: false };
-                    var unitCode = !isUntracked && i.UnitId is { } unitId
-                        ? unitLookup.GetValueOrDefault(unitId)
-                        : null;
-                    fulfillmentByKey.TryGetValue((i.ProductId, i.UnitId), out var ingFulfillment);
-                    // Pretty (vulgar-fraction) rendering of the authored quantity at 1× (quantity-display.md
-                    // Q1/§7). Falls back to the canonical decimal formatter for untracked lines or if the
-                    // formatter had no entry (e.g. a null quantity / unknown unit).
-                    var displayQuantity = !isUntracked && i.Quantity.HasValue
-                        ? displayQuantities.GetValueOrDefault(i.Id.Value, IngredientAmount.Format(i.Quantity.Value))
-                        : null;
-                    return new IngredientItemView(
-                        ProductName: product?.Name ?? "(unknown product)",
-                        ProductId: i.ProductId,
-                        Quantity: isUntracked ? null : i.Quantity,
-                        UnitCode: unitCode,
-                        IsUntracked: isUntracked,
-                        Status: ingFulfillment?.Status ?? IngredientStatus.Untracked,
-                        ExpiresWithinDays: ingFulfillment?.ExpiresWithinDays,
-                        UnitMismatch: ingFulfillment?.UnitMismatch ?? false,
-                        DisplayQuantity: displayQuantity);
-                }).ToList()))
+                    var l = lines[idx];
+                    exProductLookup.TryGetValue(l.ProductId, out var p);
+                    var isUntracked = p is { TrackStock: false };
+                    if (!isUntracked && l.Quantity.HasValue && l.UnitId.HasValue)
+                        childRequests.Add(new QuantityFormatRequest($"{incId.Value}:{idx}", l.Quantity.Value, l.UnitId.Value, Simplify: false));
+                }
+            }
+            childDisplay = childRequests.Count > 0
+                ? await quantityFormatter.FormatAsync(childRequests, ct)
+                : new Dictionary<string, FormattedQuantity>();
+        }
+
+        InclusionRowView BuildInclusionRow(Inclusion inc)
+        {
+            subInfo.TryGetValue(inc.SubRecipeId, out var info);
+            var subDefaultServings = info.DefaultServings <= 0 ? 1 : info.DefaultServings;
+            var childLines = childLinesByInclusion.GetValueOrDefault(inc.Id, []);
+
+            var children = new List<IngredientItemView>(childLines.Count);
+            for (var idx = 0; idx < childLines.Count; idx++)
+            {
+                var l = childLines[idx];
+                var displayQuantity = childDisplay.GetValueOrDefault($"{inc.Id.Value}:{idx}")?.Amount;
+                children.Add(BuildItem(l.ProductId, l.UnitId, l.Quantity, exProductLookup, exUnitLookup, displayQuantity));
+            }
+
+            // Roll-up stats over DISTINCT tracked children (untracked staples excluded, matching the
+            // ingredient row's own untracked treatment) — worst-of-children status (miss > low > have),
+            // "N of M tracked in your pantry" (N = fully in stock, M = distinct tracked), and the worst
+            // (soonest) expiry across every child so urgency is never hidden behind the collapsed fold
+            // (design item 6). Interpretation: "tracked" = distinct (ProductId, UnitId) rather than raw
+            // line count, so a sub that lists the same product twice does not inflate the denominator.
+            var seenKeys = new HashSet<(Guid ProductId, Guid? UnitId)>();
+            var trackedTotal = 0;
+            var inStockCount = 0;
+            var lowCount = 0;
+            var missCount = 0;
+            for (var idx = 0; idx < childLines.Count; idx++)
+            {
+                var item = children[idx];
+                if (item.IsUntracked) continue;
+                if (!seenKeys.Add((childLines[idx].ProductId, childLines[idx].UnitId))) continue;
+                trackedTotal++;
+                switch (item.Status)
+                {
+                    case IngredientStatus.InStock: inStockCount++; break;
+                    case IngredientStatus.Low: lowCount++; break;
+                    case IngredientStatus.Missing: missCount++; break;
+                }
+            }
+            var worstStatus = trackedTotal == 0 ? IngredientStatus.Untracked
+                : missCount > 0 ? IngredientStatus.Missing
+                : lowCount > 0 ? IngredientStatus.Low
+                : IngredientStatus.InStock;
+            RollupChipView? chip = missCount > 0
+                ? new RollupChipView($"{missCount} to buy", IngredientStatus.Missing)
+                : lowCount > 0
+                    ? new RollupChipView($"{lowCount} low", IngredientStatus.Low)
+                    : null;
+            var expiryDays = children.Where(c => c.ExpiresWithinDays.HasValue).Select(c => c.ExpiresWithinDays!.Value).ToList();
+            int? worstExpiry = expiryDays.Count > 0 ? expiryDays.Min() : null;
+
+            return new InclusionRowView(
+                InclusionId: inc.Id.Value,
+                SubRecipeId: inc.SubRecipeId.Value,
+                SubName: info.Name ?? "(unknown recipe)",
+                Servings: inc.Servings,
+                SubDefaultServings: subDefaultServings,
+                WorstStatus: worstStatus,
+                Chip: chip,
+                TrackedInStockCount: inStockCount,
+                TrackedTotalCount: trackedTotal,
+                WorstExpiresWithinDays: worstExpiry,
+                Children: children);
+        }
+
+        IngredientRowView BuildIngredientRow(Ingredient i)
+        {
+            productLookup.TryGetValue(i.ProductId, out var product);
+            var isUntracked = product is { TrackStock: false };
+            // Pretty (vulgar-fraction) rendering of the authored quantity at 1× (quantity-display.md
+            // Q1/§7). Falls back to the canonical decimal formatter for untracked lines or if the
+            // formatter had no entry (e.g. a null quantity / unknown unit).
+            var displayQuantity = !isUntracked && i.Quantity.HasValue
+                ? displayQuantities.GetValueOrDefault(i.Id.Value, IngredientAmount.Format(i.Quantity.Value))
+                : null;
+            return new IngredientRowView(BuildItem(i.ProductId, i.UnitId, i.Quantity, productLookup, unitLookup, displayQuantity));
+        }
+
+        // Union the two line types by their shared N3 ordinal space (IngredientOrdinalMerge assigns each
+        // contiguous, unique positions at save time, so a plain OrderBy(Ordinal) needs no tie-break here),
+        // then group by GroupHeading exactly as a flat ingredient list would — an inclusion slots into its
+        // authored section like any other line.
+        var merged = recipe.Ingredients
+            .Select(i => (i.Ordinal, i.GroupHeading, Row: (IngredientLineRowView)BuildIngredientRow(i)))
+            .Concat(recipe.Inclusions.Select(inc => (inc.Ordinal, inc.GroupHeading, Row: (IngredientLineRowView)BuildInclusionRow(inc))))
+            .OrderBy(x => x.Ordinal)
+            .ToList();
+
+        return merged
+            .GroupBy(x => x.GroupHeading)
+            .Select(g => new IngredientGroupView(Heading: g.Key, Items: g.Select(x => x.Row).ToList()))
             .ToList();
     }
 
@@ -566,11 +611,13 @@ public sealed class DetailsModel(
         if (recipe is null) return NotFound();
 
         var desiredServings = servings is > 0 and <= 24 ? servings : recipe.DefaultServings;
-        var (productLookup, unitLookup, effectiveLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
+        var (productLookup, unitLookup, effectiveLines, expandedLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
 
         var displayQuantities = await ComputeIngredientDisplayAsync(recipe, ct);
+        var ingredientGroups = await BuildIngredientGroupsAsync(
+            recipe, productLookup, unitLookup, expandedLines, fulfillment, displayQuantities, ct);
         var vm = await BuildCardModelAsync(
-            recipe, desiredServings, productLookup, unitLookup, effectiveLines, fulfillment, oob: false, summary: outcome, displayQuantities, ct);
+            recipe, desiredServings, effectiveLines, ingredientGroups, fulfillment, oob: false, summary: outcome, ct);
 
         return Partial("_DetailsFulfilmentCard", vm);
     }
@@ -662,19 +709,21 @@ public sealed record RecipeDetailView(
     ExpandedFulfillmentResult Fulfillment,
     CostPerServing Cost)
 {
+    /// <summary>
+    /// Builds the full-page view from an already-loaded recipe and its pre-built <paramref name="ingredientGroups"/>
+    /// (recipe-composition.md §5, plantry-4037) — the union of direct ingredient rows and collapsible inclusion
+    /// roll-up rows is built once by <see cref="DetailsModel.LoadDetailAsync"/> via the async
+    /// <c>BuildIngredientGroupsAsync</c> (it needs sub-recipe reads + a formatter round-trip, so it cannot live in
+    /// this synchronous factory) and simply threaded through here.
+    /// </summary>
     internal static RecipeDetailView From(
         Recipe recipe,
-        IReadOnlyDictionary<Guid, CatalogProductSummary> productLookup,
-        IReadOnlyDictionary<Guid, string> unitLookup,
         IReadOnlyDictionary<TagId, string> tagLookup,
         IReadOnlyList<DirectionBlock> directions,
         ExpandedFulfillmentResult fulfillment,
         CostPerServing cost,
-        IReadOnlyDictionary<Guid, string> displayQuantities)
+        IReadOnlyList<IngredientGroupView> ingredientGroups)
     {
-        // Group ingredients by GroupHeading with per-line fulfilment status (shared with the card partial).
-        var groups = DetailsModel.BuildIngredientGroups(recipe, productLookup, unitLookup, fulfillment, displayQuantities);
-
         var tagViews = recipe.Tags
             .Select(rt => new TagView(rt.TagId.Value, tagLookup.GetValueOrDefault(rt.TagId)))
             .ToList();
@@ -687,7 +736,7 @@ public sealed record RecipeDetailView(
             Source: recipe.Source,
             HasPhoto: recipe.Photo is not null,
             Tags: tagViews,
-            IngredientGroups: groups,
+            IngredientGroups: ingredientGroups,
             DirectionBlocks: directions,
             Fulfillment: fulfillment,
             Cost: cost);
@@ -697,31 +746,57 @@ public sealed record RecipeDetailView(
 /// <summary>A resolved tag pill for the detail view.</summary>
 public sealed record TagView(Guid Id, string? Name);
 
+/// <summary>A group of ingredient/inclusion rows sharing the same optional section heading (C6, N3).</summary>
+public sealed record IngredientGroupView(
+    string? Heading,
+    IReadOnlyList<IngredientLineRowView> Items);
+
 /// <summary>
-/// One inclusion line on the Details page (recipe-composition.md §5 / D15). Renders as an "N servings ·
-/// <see cref="SubName"/>" link to the sub-recipe with an expandable read-only <see cref="Preview"/> of the
-/// sub's expanded product-level ingredients. <see cref="SubDefaultServings"/> drives the batch-fraction hint (D2).
+/// One row in the ingredients card: a direct ingredient (<see cref="IngredientRowView"/>) or a
+/// collapsible sub-recipe roll-up (<see cref="InclusionRowView"/>) — the union type
+/// <see cref="IngredientGroupView.Items"/> carries so the two line types can share one ordinal/heading
+/// space (recipe-composition.md §5 N3, plantry-4037).
 /// </summary>
-public sealed record InclusionDetailView(
+public abstract record IngredientLineRowView;
+
+/// <summary>A direct ingredient row (unchanged shape/behaviour from before plantry-4037).</summary>
+public sealed record IngredientRowView(IngredientItemView Item) : IngredientLineRowView;
+
+/// <summary>
+/// A collapsible inclusion roll-up row (plantry-4037, recipe-composition.md §5 — decided design Option C,
+/// <c>.preview/included-recipes-redesign.html</c> tab C). Renders shaped exactly like an ingredient row:
+/// a worst-of-children status dot (<see cref="WorstStatus"/>), an optional roll-up <see cref="Chip"/>
+/// ("2 to buy" / "1 low", omitted when every tracked child is fully in stock), a "N of M tracked in your
+/// pantry" sub-label (<see cref="TrackedInStockCount"/> of <see cref="TrackedTotalCount"/>), and the
+/// inclusion's own servings in the amount slot. <see cref="WorstExpiresWithinDays"/> surfaces the
+/// soonest child expiry as a timer chip while collapsed, since a child's own expiry badge is invisible
+/// until the fold is opened. Expanding reveals <see cref="Children"/> as full-featured rows via the same
+/// <c>_IngredientRow</c> partial a direct row uses — Cook precedent flattens the sub's own internal
+/// sections (Cook.cshtml.cs:289), so no second heading level appears inside the fold.
+/// <para>
+/// A product appearing in BOTH the parent and this sub shows the SAME aggregate verdict in both rows —
+/// <see cref="Children"/> read through the shared (ProductId, UnitId) fulfillment grain exactly like a
+/// direct row (D14) — intentional, not a bug (design item 7).
+/// </para>
+/// </summary>
+public sealed record InclusionRowView(
+    Guid InclusionId,
     Guid SubRecipeId,
     string SubName,
     decimal Servings,
     int SubDefaultServings,
-    string? GroupHeading,
-    IReadOnlyList<InclusionPreviewItem> Preview);
+    IngredientStatus WorstStatus,
+    RollupChipView? Chip,
+    int TrackedInStockCount,
+    int TrackedTotalCount,
+    int? WorstExpiresWithinDays,
+    IReadOnlyList<IngredientItemView> Children) : IngredientLineRowView;
 
-/// <summary>One expanded product-level line in an inclusion's read-only preview (untracked staples carry no qty/unit).</summary>
-/// <param name="DisplayQuantity">
-/// The pretty (vulgar-fraction) rendering of <paramref name="Quantity"/> at 1× in the authored unit's
-/// DisplayStyle (quantity-display.md Q1/§7) — matching the primary ingredient rows for the same amount. Null
-/// for untracked / unit-less lines and formatter misses; the view then falls back to the <c>0.###</c> decimal.
-/// </param>
-public sealed record InclusionPreviewItem(string ProductName, decimal? Quantity, string? UnitCode, string? DisplayQuantity = null);
-
-/// <summary>A group of ingredients sharing the same optional section heading (C6).</summary>
-public sealed record IngredientGroupView(
-    string? Heading,
-    IReadOnlyList<IngredientItemView> Items);
+/// <summary>
+/// The collapsed inclusion row's roll-up verdict chip ("2 to buy" / "1 low") — the worst tier's count
+/// only (miss takes priority over low), echoing <c>.rd-fulf-chip</c>'s tone palette at inline-row scale.
+/// </summary>
+public sealed record RollupChipView(string Label, IngredientStatus Tone);
 
 /// <summary>A single ingredient row with resolved product name, quantity, unit code, tracked state, and live fulfillment status.</summary>
 /// <param name="ProductId">Catalog product id (DM-3) — links the unit-mismatch popover to the product's "Add conversion" page.</param>

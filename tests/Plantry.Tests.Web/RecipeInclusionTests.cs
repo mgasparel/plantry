@@ -161,7 +161,7 @@ public sealed class RecipeInclusionTests
         Assert.Contains("Nacho Platter", html);
     }
 
-    // ── Details: inclusion line + expandable expanded-ingredient preview (D15) ───────────
+    // ── Details: inclusion roll-up row + expandable full-featured child rows (D15, plantry-4037) ────────
 
     [Fact]
     public async Task Details_renders_inclusion_line_with_expanded_preview()
@@ -171,16 +171,20 @@ public sealed class RecipeInclusionTests
 
         var html = await client.GetStringAsync($"/Recipes/{ParentId}");
 
-        // Inclusion title: "2 servings · Cashew Cheese", linking to the sub (D15).
+        // Inclusion row: "2 servings" in the amount slot, "Cashew Cheese" the row's name, linking to the sub (D15).
         Assert.Contains("2 servings", html);
         Assert.Contains("Cashew Cheese", html);
         Assert.Contains($"/Recipes/{SubId}", html);
         // Batch-fraction hint rendered (2 servings of a 4-serving sub = ½ batch, D2). The ½ glyph is
         // entity-encoded by the Razor HTML encoder, so assert on the stable "batch" token.
         Assert.Contains("batch", html);
-        // Expanded preview: the sub's ingredient at factor 2/4 = 0.5 → 200g × 0.5 = 100 g.
+        // Expanded child row: the sub's ingredient at factor 2/4 = 0.5 → 200g × 0.5 = 100 g. The child row
+        // reuses the SAME _IngredientRow partial a direct ingredient uses (plantry-4037), which renders the
+        // quantity and unit code in separate inline elements — strip tags before matching "100 g" as text.
         Assert.Contains("Cashews", html);
-        Assert.Contains("100 g", html);
+        var textOnly = System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " "), @"\s+", " ");
+        Assert.Contains("100 g", textOnly);
     }
 
     // ── Details: N5 archive guard (D12) ─────────────────────────────────────────────────

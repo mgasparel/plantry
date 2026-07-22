@@ -13,6 +13,23 @@
                  ? window.IngredientAmount.formatAmount(v)
                  : Number(v.toFixed(4)).toString();
          },
+         // ── Inclusion roll-up row scaling (plantry-4037) — same Q4 contract as fmt(): the server
+         // renders the 1× vulgar-fraction text (FormatServings / FormatBatchHint); once the stepper
+         // moves the scale away from 1 these take over with the plain decimal render (fmt()), matching
+         // how a direct ingredient amount hands off from its server fraction to the client decimal.
+         fmtIncServings(baseServings) {
+             const n = this.fmt(baseServings);
+             return n + (n === '1' ? ' serving' : ' servings');
+         },
+         fmtIncBatch(baseRatio) {
+             // The batch ratio (Servings ÷ SubDefaultServings) is linear in servings, so scaling the
+             // ratio itself via fmt() reproduces (Servings × scale) ÷ SubDefaultServings exactly.
+             // NOTE: no double-quote characters allowed anywhere in this object literal — it sits
+             // inside the HTML x-data attribute, itself double-quoted; a literal quote mark here
+             // would close that attribute early and corrupt the rest of the tag.
+             const n = this.fmt(baseRatio);
+             return '≈ ' + n + (parseFloat(n) < 1 || n === '1' ? ' batch' : ' batches');
+         },
          refreshFulfilment() {
              clearTimeout(this._fulfTimer);
              this._fulfTimer = setTimeout(() => {

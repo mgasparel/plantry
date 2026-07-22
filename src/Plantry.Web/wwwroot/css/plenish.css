@@ -3461,6 +3461,73 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   text-align: right;
 }
 
+/* ── Inclusion roll-up row (plantry-4037, recipe-composition.md §5) ───────
+ * An included sub-recipe renders as ONE row shaped exactly like an ingredient row (Option C,
+ * .preview/included-recipes-redesign.html tab C): worst-of-children status dot, name + optional
+ * roll-up chip + expiry timer chip, "N of M tracked" sub-label + batch hint, stepper-scaled
+ * servings in the amount slot. It is a <details>/<summary> fold — clicking the row (not the name
+ * link) expands the sub's expanded product-level lines as full-featured rows via _IngredientRow,
+ * reusing the exact same row grammar (status/expiry/scaling/unit-gap) as a direct ingredient.
+ */
+details.rd-sub-fold {
+  border-top: 1px solid var(--color-border);
+}
+details.rd-sub-fold > summary {
+  list-style: none;
+  cursor: pointer;
+}
+details.rd-sub-fold > summary::-webkit-details-marker { display: none; }
+details.rd-sub-fold > summary .rd-ing-row { border-top: none; }
+details.rd-sub-fold > summary:hover .rd-ing-row { background: var(--color-surface-2); }
+details.rd-sub-fold + .rd-ing-row { border-top: 1px solid var(--color-border); }
+
+.rd-sub-fold__chev {
+  color: var(--color-text-faint);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+details.rd-sub-fold[open] .rd-sub-fold__chev { transform: rotate(90deg); }
+
+.rd-sub-fold__body { padding-bottom: 4px; }
+
+/* The recipe name inside the fold header is its own link to the sub's page (stopPropagation in the
+   markup keeps it from also toggling the fold); everything else in the row toggles. */
+.rd-sub-name-link:hover { color: var(--color-accent); text-decoration: underline; }
+
+/* Left accent bar marking a child row as belonging to the currently-expanded sub — mirrors the
+   prototype's Option A/C accent-bar treatment so an ingredient authored right after an inclusion
+   (same section) is unambiguously NOT one of its children. */
+.rd-ing-row--sub {
+  margin-left: 10px;
+  position: relative;
+}
+.rd-ing-row--sub::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 4px;
+  bottom: 4px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--color-accent-subtle);
+}
+.rd-ing-row--sub + .rd-ing-row--sub { border-top-color: transparent; }
+
+/* Compact per-sub verdict chip inline in the row name ("2 to buy" / "1 low") — echoes .rd-fulf-chip's
+   tone palette at inline-row scale; omitted entirely when every tracked child is fully in stock. */
+.rollup-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+.rollup-chip--have { background: var(--color-success-bg); color: var(--color-success); }
+.rollup-chip--low  { background: var(--color-warning-bg); color: var(--color-warning); }
+.rollup-chip--miss { background: var(--color-danger-bg);  color: var(--color-danger); }
+
 /* ── Responsive: collapse to single column on narrow viewports ───────────── */
 @media (max-width: 1080px) {
   .rd-grid { grid-template-columns: 1fr; }
