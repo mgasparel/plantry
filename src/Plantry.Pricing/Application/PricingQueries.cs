@@ -26,4 +26,9 @@ public sealed class PricingQueries(IPriceObservationRepository repository)
     public async Task<PriceObservation?> EffectivePriceAsync(Guid productId, DateOnly today, CancellationToken ct = default) =>
         await repository.CheapestActiveDealForProductAsync(productId, today, ct)
             ?? await repository.LatestForProductAsync(productId, ct);
+
+    /// <summary>Batch existence check for Tidy Up's D5 detector (tidy-up.md §3): of the given products,
+    /// which have any live price observation at all, in one round trip.</summary>
+    public Task<IReadOnlySet<Guid>> ProductIdsWithAnyPriceAsync(IEnumerable<Guid> productIds, CancellationToken ct = default) =>
+        repository.ProductIdsWithAnyObservationAsync(productIds, ct);
 }
