@@ -223,12 +223,22 @@
              if (productIds.length === 0) return;
              this.tagSuggestFetched = true; // fire-once latch, set before await so re-entry is a no-op
              try {
-                 const params = productIds.map(id => 'productIds=' + encodeURIComponent(id)).join('&');
+                 // plantry-crre: send every tag currently applied in the editor — existing chips AND
+                 // accepted-but-unsaved new-tag chips — so the server/AI can skip proposing a tag that's
+                 // redundant with (or a subset already implied by) one already applied, e.g. Vegetarian
+                 // when Vegan is already on the recipe, even though Vegan itself hasn't been saved yet.
+                 const appliedTagNames = this.tags.map(t => t.name).concat(this.newTags.map(t => t.name));
+                 const params = productIds.map(id => 'productIds=' + encodeURIComponent(id))
+                     .concat(appliedTagNames.map(n => 'appliedTagNames=' + encodeURIComponent(n)))
+                     .join('&');
                  const url = `@Url.Page("./Edit", "SuggestTags")&${params}`;
                  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                  if (!res.ok) return;
                  const data = await res.json();
-                 // Drop any suggestion already applied (existing tag already a chip, or new tag already accepted).
+                 // Drop any suggestion already applied (existing tag already a chip, or new tag already
+                 // accepted) — a defense-in-depth backstop; the server also filters exact-name matches, and
+                 // the prompt asks the model to skip implied-subset redundancy (e.g. Vegetarian when Vegan
+                 // is applied), but an exact-name re-check here costs nothing.
                  this.tagSuggestions = (data.suggestions || []).filter(s =>
                      s.isNew
                          ? !this.newTags.some(t => t.name.toLowerCase() === s.name.toLowerCase())

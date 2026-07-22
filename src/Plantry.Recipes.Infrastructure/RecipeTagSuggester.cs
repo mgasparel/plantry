@@ -66,8 +66,9 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
 
     private const string SystemPrompt = """
         You suggest dietary/style tags for ONE home recipe, to help the cook keep their recipe library
-        searchable. You are given the recipe's ingredient names and the household's existing tag vocabulary.
-        Return ONLY valid JSON, no markdown.
+        searchable. You are given the recipe's ingredient names, the household's existing tag vocabulary,
+        and the tags already applied to this recipe (including ones the cook just added but hasn't saved
+        yet). Return ONLY valid JSON, no markdown.
 
         Output format:
         {
@@ -84,6 +85,11 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
           present (e.g. Chicken, Beef), obvious diet stances (e.g. Vegetarian when no meat/fish appears), or
           a clear cuisine. Do NOT guess diet stances you cannot verify from the ingredients (e.g. never assert
           "dairy-free" — the cook confirms that, not you).
+        - NEVER suggest a tag already applied, and NEVER suggest a tag whose meaning is redundant with — a
+          narrower subset already implied by — an applied tag. Example: if "Vegan" is applied, do NOT also
+          suggest "Vegetarian" or "Dairy-Free" (Vegan already implies both); if "Gluten-Free" is applied, do
+          NOT also suggest "Wheat-Free". Only suggest a stricter/unrelated tag the applied ones do not already
+          cover.
         - Return at most 6 tags, fewer is better. Return an empty "tags" array when nothing is confidently
           suggestable.
         - "category" is one of Diet, Protein, Flavor, Cuisine, or null. For an existing vocabulary tag you may
@@ -94,6 +100,7 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
     public async Task<IReadOnlyList<TagSuggestion>> SuggestAsync(
         IReadOnlyList<string> ingredientNames,
         IReadOnlyList<TagVocabularyEntry> vocabulary,
+        IReadOnlyList<string> appliedTagNames,
         CancellationToken ct = default)
     {
         if (ingredientNames.Count == 0)
@@ -106,12 +113,12 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
 
         var sw = Stopwatch.StartNew();
         _logger.LogInformation(
-            "AI recipe-tag suggestion starting. Model: {Model}, Ingredients: {IngredientCount}, Vocabulary: {VocabCount}.",
-            _modelId, ingredientNames.Count, vocabulary.Count);
+            "AI recipe-tag suggestion starting. Model: {Model}, Ingredients: {IngredientCount}, Vocabulary: {VocabCount}, AppliedTags: {AppliedCount}.",
+            _modelId, ingredientNames.Count, vocabulary.Count, appliedTagNames.Count);
 
         try
         {
-            var userMessage = new UserChatMessage(BuildUserMessage(ingredientNames, vocabulary));
+            var userMessage = new UserChatMessage(BuildUserMessage(ingredientNames, vocabulary, appliedTagNames));
 
             var response = await _chat.CompleteChatAsync(
                 [new SystemChatMessage(SystemPrompt), userMessage],
@@ -152,7 +159,9 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
     }
 
     private static string BuildUserMessage(
-        IReadOnlyList<string> ingredientNames, IReadOnlyList<TagVocabularyEntry> vocabulary)
+        IReadOnlyList<string> ingredientNames,
+        IReadOnlyList<TagVocabularyEntry> vocabulary,
+        IReadOnlyList<string> appliedTagNames)
     {
         var sb = new StringBuilder();
         sb.AppendLine("Recipe ingredients:");
@@ -174,6 +183,20 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
                     sb.Append(" (").Append(cat.ToDbValue()).Append(')');
                 sb.Append('\n');
             }
+        }
+        sb.AppendLine();
+
+        // plantry-crre: tags the cook already applied in the editor (saved or not) — do not repeat these,
+        // and do not suggest anything they already imply (e.g. skip Vegetarian/Dairy-Free when Vegan is here).
+        sb.AppendLine("Tags already applied to this recipe (do NOT suggest these, or anything they already imply):");
+        if (appliedTagNames.Count == 0)
+        {
+            sb.AppendLine("(none yet)");
+        }
+        else
+        {
+            foreach (var name in appliedTagNames)
+                sb.Append("- ").AppendLine(name);
         }
         return sb.ToString();
     }

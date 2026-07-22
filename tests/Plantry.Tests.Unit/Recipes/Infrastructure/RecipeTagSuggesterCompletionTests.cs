@@ -35,6 +35,7 @@ public sealed class RecipeTagSuggesterCompletionTests
     ];
 
     private static readonly IReadOnlyList<string> Ingredients = ["chicken thighs", "cream"];
+    private static readonly IReadOnlyList<string> NoAppliedTags = [];
 
     private static RecipeTagSuggester Suggester(ChatClient chat) =>
         new(
@@ -49,11 +50,25 @@ public sealed class RecipeTagSuggesterCompletionTests
             """{ "tags": [ { "name": "Chicken", "category": "Protein" } ] }"""));
         var suggester = Suggester(chat);
 
-        var result = await suggester.SuggestAsync(Ingredients, Vocabulary);
+        var result = await suggester.SuggestAsync(Ingredients, Vocabulary, NoAppliedTags);
 
         Assert.Equal(1, chat.CallCount);
         var s = Assert.Single(result);
         Assert.Equal(ChickenTagId, s.ExistingTagId);
+    }
+
+    // plantry-crre: the applied-tag names go into the outgoing prompt so the model can avoid proposing a
+    // tag redundant with (or a subset already implied by) one already on the recipe.
+    [Fact]
+    public async Task Applied_Tag_Names_Are_Included_In_The_Outgoing_Prompt()
+    {
+        var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion("""{ "tags": [] }"""));
+        var suggester = Suggester(chat);
+
+        await suggester.SuggestAsync(Ingredients, Vocabulary, ["Vegan"]);
+
+        Assert.Equal(1, chat.CallCount);
+        Assert.Contains("Vegan", chat.Calls[0].UserText);
     }
 
     [Fact]
@@ -62,7 +77,7 @@ public sealed class RecipeTagSuggesterCompletionTests
         var chat = new ScriptedChatClient((_, _) => throw new InvalidOperationException("gateway 500"));
         var suggester = Suggester(chat);
 
-        var result = await suggester.SuggestAsync(Ingredients, Vocabulary);
+        var result = await suggester.SuggestAsync(Ingredients, Vocabulary, NoAppliedTags);
 
         Assert.Empty(result);
         Assert.Equal(1, chat.CallCount); // the completion was attempted before it faulted
@@ -74,7 +89,7 @@ public sealed class RecipeTagSuggesterCompletionTests
         var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion("   ")); // whitespace-only
         var suggester = Suggester(chat);
 
-        var result = await suggester.SuggestAsync(Ingredients, Vocabulary);
+        var result = await suggester.SuggestAsync(Ingredients, Vocabulary, NoAppliedTags);
 
         Assert.Empty(result);
         Assert.Equal(1, chat.CallCount);
@@ -88,7 +103,7 @@ public sealed class RecipeTagSuggesterCompletionTests
         var suggester = Suggester(chat);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
-            () => suggester.SuggestAsync(Ingredients, Vocabulary));
+            () => suggester.SuggestAsync(Ingredients, Vocabulary, NoAppliedTags));
     }
 
     [Fact]
@@ -97,7 +112,7 @@ public sealed class RecipeTagSuggesterCompletionTests
         var chat = new ScriptedChatClient((_, _) => throw new InvalidOperationException("must not be called"));
         var suggester = Suggester(chat);
 
-        var result = await suggester.SuggestAsync([], Vocabulary);
+        var result = await suggester.SuggestAsync([], Vocabulary, NoAppliedTags);
 
         Assert.Empty(result);
         Assert.Equal(0, chat.CallCount);

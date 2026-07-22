@@ -116,6 +116,45 @@ public sealed class RecipeEditorTagSuggestionTests
         Assert.Empty(doc.RootElement.GetProperty("suggestions").EnumerateArray());
     }
 
+    // ── plantry-crre: applied tag names reach the suggester, and redundant exact matches are dropped ──
+
+    [Fact]
+    public async Task SuggestTags_passes_applied_tag_names_through_to_the_suggester()
+    {
+        using var factory = new TagSuggestionFactory(gateEnabled: true, CannedSuggestions());
+        var client = AuthedClient(factory);
+
+        var response = await client.GetAsync(
+            $"/Recipes/New?handler=SuggestTags&productIds={RecipeEditorFixture.PastaId}"
+            + "&appliedTagNames=Vegan&appliedTagNames=Quick");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(factory.Suggester.LastAppliedTagNames);
+        Assert.Equal(["Vegan", "Quick"], factory.Suggester.LastAppliedTagNames);
+    }
+
+    [Fact]
+    public async Task SuggestTags_drops_a_suggestion_whose_name_exactly_matches_an_applied_tag()
+    {
+        // The stub suggester always returns "Vegetarian" + "Dairy-Free" regardless of input; the handler
+        // must still strip "Vegetarian" from the response when the client says it's already applied — a
+        // defense-in-depth backstop independent of whatever the LLM itself honours.
+        using var factory = new TagSuggestionFactory(gateEnabled: true, CannedSuggestions());
+        var client = AuthedClient(factory);
+
+        var response = await client.GetAsync(
+            $"/Recipes/New?handler=SuggestTags&productIds={RecipeEditorFixture.PastaId}"
+            + "&appliedTagNames=Vegetarian");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var suggestions = doc.RootElement.GetProperty("suggestions").EnumerateArray().ToList();
+
+        Assert.DoesNotContain(suggestions, s => s.GetProperty("name").GetString() == "Vegetarian");
+        Assert.Contains(suggestions, s => s.GetProperty("name").GetString() == "Dairy-Free");
+    }
+
     // ── New-tag accept path: minted + applied on save ────────────────────────────
 
     [Fact]
@@ -271,13 +310,16 @@ internal sealed class StubGateReader(bool enabled) : IAiAssistanceGateReader
 internal sealed class StubTagSuggester(IReadOnlyList<TagSuggestion> canned) : IRecipeTagSuggester
 {
     public bool WasCalled { get; private set; }
+    public IReadOnlyList<string>? LastAppliedTagNames { get; private set; }
 
     public Task<IReadOnlyList<TagSuggestion>> SuggestAsync(
         IReadOnlyList<string> ingredientNames,
         IReadOnlyList<TagVocabularyEntry> vocabulary,
+        IReadOnlyList<string> appliedTagNames,
         CancellationToken ct = default)
     {
         WasCalled = true;
+        LastAppliedTagNames = appliedTagNames;
         return Task.FromResult(canned);
     }
 }

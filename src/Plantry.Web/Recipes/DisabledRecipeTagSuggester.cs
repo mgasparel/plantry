@@ -15,6 +15,7 @@ public sealed class DisabledRecipeTagSuggester : IRecipeTagSuggester
     public Task<IReadOnlyList<TagSuggestion>> SuggestAsync(
         IReadOnlyList<string> ingredientNames,
         IReadOnlyList<TagVocabularyEntry> vocabulary,
+        IReadOnlyList<string> appliedTagNames,
         CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<TagSuggestion>>([]);
 }
