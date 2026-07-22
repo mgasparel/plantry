@@ -6850,6 +6850,10 @@ kbd, .kbd {
 /* 9. Rail-jump flash — a sure-things row briefly highlights when jumped to from the receipt minimap. */
 .check-row.flash { background: var(--color-warning-bg); }
 
+/* 10. Fix-link anchor flash (plantry-c7mg) — a recipe-editor ingredient row briefly highlights when
+       landed on via a Tidy Up finding's #ingredient-{ordinal} fix link. Same treatment as #9. */
+.ingredient-row.flash { background: var(--color-warning-bg); }
+
 /* ── Guided-flow step nav (.steps / .step) ──────────────────────────────────
    Jumpable step tabs for a multi-pass flow. NOT the <stepper> tag helper — that
    is the −[value]+ quantity control. Each step carries a mono count chip; when

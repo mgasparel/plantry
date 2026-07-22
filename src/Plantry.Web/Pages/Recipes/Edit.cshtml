@@ -18,6 +18,10 @@
     // pins (__tests__/ingredient-conversion.test.js). Not an island — no reactive runtime here.
     var ingredientConversionSrc = FileVersionProvider.AddFileVersionToPath(
         ViewContext.HttpContext.Request.PathBase, "/js/ingredient-conversion.js");
+    // Pure #ingredient-{ordinal} hash parsing (plantry-c7mg, D2 tidy-up.md fix link) — bridged onto
+    // window.IngredientAnchor below so init() can scroll/flash the row a Tidy Up finding points at.
+    var ingredientAnchorSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/ingredient-anchor.js");
 }
 
 @*
@@ -1184,9 +1188,13 @@
                             </div>
 
                             <div class="ing-rows">
+                                @* plantry-c7mg: stable anchor for the D2 Tidy Up fix link
+                                   (#ingredient-{ordinal}) — ingredient rows only; inclusion
+                                   rows have no detector finding to anchor to. *@
                                 <template x-for="row in section.items" :key="row._id">
                                     <div class="ingredient-row"
                                          :data-row-id="row._id"
+                                         :id="row.kind === 'ingredient' ? 'ingredient-' + row.ordinal : null"
                                          :class="{ 'ingredient-row--needs-conversion': row.needsConversion && !rowConvFilled(row), 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }"
                                          draggable="true"
                                          @@dragstart="onDragStart(row, $event)"
@@ -1616,5 +1624,28 @@
         window.RecipeSections = await import('@Html.Raw(recipeSectionsSrc)');
         window.IngredientAmount = await import('@Html.Raw(ingredientAmountSrc)');
         window.IngredientConversion = await import('@Html.Raw(ingredientConversionSrc)');
+        window.IngredientAnchor = await import('@Html.Raw(ingredientAnchorSrc)');
+
+        @* plantry-c7mg: scroll to + flash the ingredient row a D2 Tidy Up fix link points at
+           (#ingredient-{ordinal} — RecipeConversionGapDetector.FixUrl). Deliberately handled HERE
+           rather than inside the x-data init() above: alpine.min.js is a deferred classic script
+           that appears earlier in the document (_Layout.cshtml), and per the HTML spec, deferred
+           classic scripts and deferred module scripts share one execution queue ordered by document
+           position — so Alpine's init() always runs, and rows[] always renders, before this module
+           script's own body executes. That ordering guarantee is exactly "after rows first render"
+           with no race against window.IngredientAnchor still loading, so no $nextTick/watch dance is
+           needed here. The setTimeout(...,0) still mirrors islands/intake-review.js's railJump "sure"
+           branch, giving the browser one more tick before scrollIntoView measures layout. *@
+        const anchorOrdinal = window.IngredientAnchor.parseIngredientAnchor(location.hash);
+        if (anchorOrdinal !== null) {
+            setTimeout(() => {
+                const anchorRow = document.getElementById('ingredient-' + anchorOrdinal);
+                if (anchorRow) {
+                    anchorRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    anchorRow.classList.add('flash');
+                    setTimeout(() => anchorRow.classList.remove('flash'), 1200);
+                }
+            }, 0);
+        }
     </script>
 }

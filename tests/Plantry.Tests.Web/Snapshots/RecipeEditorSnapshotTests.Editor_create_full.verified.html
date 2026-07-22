@@ -835,7 +835,7 @@
 									</button></template>
 							</div>
 							<div class="ing-rows">
-								<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :class="{ 'ingredient-row--needs-conversion': row.needsConversion &amp;&amp; !rowConvFilled(row), 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
+								<template x-for="row in section.items" :key="row._id"><div class="ingredient-row" :data-row-id="row._id" :id="row.kind === 'ingredient' ? 'ingredient-' + row.ordinal : null" :class="{ 'ingredient-row--needs-conversion': row.needsConversion &amp;&amp; !rowConvFilled(row), 'ingredient-row--needs-attention': rowNeedsQtyUnit(row), 'ingredient-row--dragging': row._id === _dragId }" draggable="true" @dragstart="onDragStart(row, $event)" @dragend="onDragEnd()">
 										<template x-if="row.kind === 'inclusion'"><div class="ingredient-row__body">
 												<div class="ingredient-row__drag" aria-hidden="true" title="Drag to reorder or move between sections">
 													<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
