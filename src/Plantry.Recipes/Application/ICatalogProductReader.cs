@@ -89,6 +89,21 @@ public interface ICatalogProductReader
         IReadOnlyList<Guid> unitIds, CancellationToken ct = default);
 
     /// <summary>
+    /// Resolves whether each unit id is styled <c>DisplayStyle.Fraction</c> (true) or <c>Decimal</c>
+    /// (false) — for threading onto a rendered ingredient row's fraction-style flag so the Details
+    /// page's client-side servings-stepper rescale (bead plantry-jun6) can attempt the same Q1
+    /// vulgar-fraction snap the server's 1× render already does (quantity-display.md Q1/Q4,
+    /// plantry-95w5). Ids absent from this household are omitted.
+    ///
+    /// <para>The default implementation returns empty (every unit resolves as Decimal) so existing
+    /// test doubles need not reimplement it; the production adapter overrides it with one batched
+    /// query (mirrors <see cref="ResolveUnitCodesAsync"/>).</para>
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, bool>> ResolveUnitDisplayStylesAsync(
+        IReadOnlyList<Guid> unitIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, bool>>(new Dictionary<Guid, bool>());
+
+    /// <summary>
     /// Lists all active (non-archived) units for the household — the ingredient editor needs them
     /// to populate the unit dropdown. Returns id and display code for each unit, ordered by code.
     /// </summary>

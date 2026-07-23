@@ -139,6 +139,9 @@ public sealed class DetailsModel(
             .Distinct()
             .ToList();
         var unitLookup = await catalog.ResolveUnitCodesAsync(unitIds, ct);
+        // Per-unit fraction/decimal display style (quantity-display.md Q1/Q4, plantry-95w5) — threaded
+        // onto each ingredient row so the client-side servings-stepper rescale can snap fractions too.
+        var unitStyles = await catalog.ResolveUnitDisplayStylesAsync(unitIds, ct);
 
         // Resolve tag names via the in-context tag repository.
         var tagIds = recipe.Tags.Select(rt => rt.TagId).ToList();
@@ -170,7 +173,7 @@ public sealed class DetailsModel(
         // identical for the full-page view and the initial fulfilment card (both render at DefaultServings),
         // so reusing the same list avoids a second sub-recipe-name lookup + formatter round-trip per load.
         var ingredientGroups = await BuildIngredientGroupsAsync(
-            recipe, productLookup, unitLookup, expandedLines, fulfillment, displayQuantities, ct);
+            recipe, productLookup, unitLookup, unitStyles, expandedLines, fulfillment, displayQuantities, ct);
 
         // Server-compute the add-to-shopping button label states from the true delta between the
         // recipe's shortfall/required sets and its existing contribution slice (plantry-gsj).
@@ -205,7 +208,7 @@ public sealed class DetailsModel(
         // Clamp requested servings to a valid range (mirrors the stepper bounds in the view).
         var desiredServings = servings is > 0 and <= 24 ? servings : recipe.DefaultServings;
 
-        var (productLookup, unitLookup, effectiveLines, expandedLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
+        var (productLookup, unitLookup, unitStyles, effectiveLines, expandedLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
 
         // Oob: true so the partial's #rd-ing-rows block carries hx-swap-oob="true" and htmx
         // replaces the ingredient rows in place alongside the primary #rd-fulf-card swap. Recomputing
@@ -214,7 +217,7 @@ public sealed class DetailsModel(
         // Ingredient amounts render at 1× server-side (the servings stepper scales client-side, Q4/§7).
         var displayQuantities = await ComputeIngredientDisplayAsync(recipe, ct);
         var ingredientGroups = await BuildIngredientGroupsAsync(
-            recipe, productLookup, unitLookup, expandedLines, fulfillment, displayQuantities, ct);
+            recipe, productLookup, unitLookup, unitStyles, expandedLines, fulfillment, displayQuantities, ct);
         var vm = await BuildCardModelAsync(
             recipe, desiredServings, effectiveLines, ingredientGroups, fulfillment, oob: true, summary: null, ct);
 
@@ -230,6 +233,7 @@ public sealed class DetailsModel(
     /// </summary>
     private async Task<(IReadOnlyDictionary<Guid, CatalogProductSummary> Products,
                         IReadOnlyDictionary<Guid, string> Units,
+                        IReadOnlyDictionary<Guid, bool> UnitStyles,
                         IReadOnlyList<EffectiveIngredient> EffectiveLines,
                         IReadOnlyList<ExpandedLine> ExpandedLines,
                         ExpandedFulfillmentResult Fulfillment)> ResolveFulfilmentAsync(
@@ -244,6 +248,9 @@ public sealed class DetailsModel(
             .Distinct()
             .ToList();
         var unitLookup = await catalog.ResolveUnitCodesAsync(unitIds, ct);
+        // Per-unit fraction/decimal display style (quantity-display.md Q1/Q4, plantry-95w5) — see
+        // LoadDetailAsync for why this rides alongside the unit-code lookup.
+        var unitStyles = await catalog.ResolveUnitDisplayStylesAsync(unitIds, ct);
 
         // Expand + aggregate so fulfillment and the shopping targets reflect included recipes' products
         // (recipe-composition.md §7). A flat recipe expands to its own ingredients.
@@ -254,7 +261,7 @@ public sealed class DetailsModel(
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(
             effectiveLines, recipe.DefaultServings, servings, today, ct);
-        return (productLookup, unitLookup, effectiveLines, expandedLines, fulfillment);
+        return (productLookup, unitLookup, unitStyles, effectiveLines, expandedLines, fulfillment);
     }
 
     /// <summary>
@@ -326,6 +333,7 @@ public sealed class DetailsModel(
         Recipe recipe,
         IReadOnlyDictionary<Guid, CatalogProductSummary> productLookup,
         IReadOnlyDictionary<Guid, string> unitLookup,
+        IReadOnlyDictionary<Guid, bool> unitStyles,
         IReadOnlyList<ExpandedLine> expandedLines,
         ExpandedFulfillmentResult fulfillment,
         IReadOnlyDictionary<Guid, string> displayQuantities,
@@ -339,11 +347,16 @@ public sealed class DetailsModel(
             Guid productId, Guid? unitId, decimal? quantity,
             IReadOnlyDictionary<Guid, CatalogProductSummary> products,
             IReadOnlyDictionary<Guid, string> units,
+            IReadOnlyDictionary<Guid, bool> styles,
             string? displayQuantity)
         {
             products.TryGetValue(productId, out var product);
             var isUntracked = product is { TrackStock: false };
             var unitCode = !isUntracked && unitId is { } uid ? units.GetValueOrDefault(uid) : null;
+            // Fraction/decimal display style (quantity-display.md Q1/Q4, plantry-95w5) — read alongside
+            // the unit code so _IngredientRow can tell the client-side rescale whether to attempt the
+            // vulgar-fraction snap once the servings stepper moves the amount off scale 1.
+            var isFractionStyle = !isUntracked && unitId.HasValue && styles.GetValueOrDefault(unitId.Value);
             fulfillmentByKey.TryGetValue((productId, unitId), out var f);
             return new IngredientItemView(
                 ProductName: product?.Name ?? "(unknown product)",
@@ -354,7 +367,8 @@ public sealed class DetailsModel(
                 Status: f?.Status ?? IngredientStatus.Untracked,
                 ExpiresWithinDays: f?.ExpiresWithinDays,
                 UnitMismatch: f?.UnitMismatch ?? false,
-                DisplayQuantity: displayQuantity);
+                DisplayQuantity: displayQuantity,
+                IsFractionStyle: isFractionStyle);
         }
 
         // Inclusion support data (sub name/DefaultServings, expanded-product lookups, batched child
@@ -363,6 +377,7 @@ public sealed class DetailsModel(
         var subInfo = new Dictionary<RecipeId, (string Name, int DefaultServings)>();
         IReadOnlyDictionary<Guid, CatalogProductSummary> exProductLookup = new Dictionary<Guid, CatalogProductSummary>();
         IReadOnlyDictionary<Guid, string> exUnitLookup = new Dictionary<Guid, string>();
+        IReadOnlyDictionary<Guid, bool> exUnitStyles = new Dictionary<Guid, bool>();
         IReadOnlyDictionary<string, FormattedQuantity> childDisplay = new Dictionary<string, FormattedQuantity>();
         var childLinesByInclusion = new Dictionary<InclusionId, List<ExpandedLine>>();
 
@@ -382,6 +397,9 @@ public sealed class DetailsModel(
             exUnitLookup = exUnitIds.Count > 0
                 ? await catalog.ResolveUnitCodesAsync(exUnitIds, ct)
                 : new Dictionary<Guid, string>();
+            exUnitStyles = exUnitIds.Count > 0
+                ? await catalog.ResolveUnitDisplayStylesAsync(exUnitIds, ct)
+                : new Dictionary<Guid, bool>();
 
             foreach (var inc in recipe.Inclusions)
                 childLinesByInclusion[inc.Id] = expandedLines.Where(l => l.Path.Count > 0 && l.Path[0] == inc.Id).ToList();
@@ -418,7 +436,7 @@ public sealed class DetailsModel(
             {
                 var l = childLines[idx];
                 var displayQuantity = childDisplay.GetValueOrDefault($"{inc.Id.Value}:{idx}")?.Amount;
-                children.Add(BuildItem(l.ProductId, l.UnitId, l.Quantity, exProductLookup, exUnitLookup, displayQuantity));
+                children.Add(BuildItem(l.ProductId, l.UnitId, l.Quantity, exProductLookup, exUnitLookup, exUnitStyles, displayQuantity));
             }
 
             var (worstStatus, chip, inStockCount, trackedTotal, worstExpiry) =
@@ -448,7 +466,7 @@ public sealed class DetailsModel(
             var displayQuantity = !isUntracked && i.Quantity.HasValue
                 ? displayQuantities.GetValueOrDefault(i.Id.Value, IngredientAmount.Format(i.Quantity.Value))
                 : null;
-            return new IngredientRowView(BuildItem(i.ProductId, i.UnitId, i.Quantity, productLookup, unitLookup, displayQuantity));
+            return new IngredientRowView(BuildItem(i.ProductId, i.UnitId, i.Quantity, productLookup, unitLookup, unitStyles, displayQuantity));
         }
 
         // Union the two line types by their shared N3 ordinal space (IngredientOrdinalMerge assigns each
@@ -674,11 +692,11 @@ public sealed class DetailsModel(
         if (recipe is null) return NotFound();
 
         var desiredServings = servings is > 0 and <= 24 ? servings : recipe.DefaultServings;
-        var (productLookup, unitLookup, effectiveLines, expandedLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
+        var (productLookup, unitLookup, unitStyles, effectiveLines, expandedLines, fulfillment) = await ResolveFulfilmentAsync(recipe, desiredServings, ct);
 
         var displayQuantities = await ComputeIngredientDisplayAsync(recipe, ct);
         var ingredientGroups = await BuildIngredientGroupsAsync(
-            recipe, productLookup, unitLookup, expandedLines, fulfillment, displayQuantities, ct);
+            recipe, productLookup, unitLookup, unitStyles, expandedLines, fulfillment, displayQuantities, ct);
         var vm = await BuildCardModelAsync(
             recipe, desiredServings, effectiveLines, ingredientGroups, fulfillment, oob: false, summary: outcome, ct);
 
@@ -882,7 +900,16 @@ public sealed record RollupChipView(string Label, IngredientStatus Tone);
 /// The pretty (vulgar-fraction) rendering of <paramref name="Quantity"/> at 1× in the authored unit's
 /// DisplayStyle (quantity-display.md Q1/§7) — "½", "1¾", or the plain <c>0.###</c> decimal when it snaps to
 /// no fraction. Null for untracked / quantity-less lines. The server render shows this; the client-side
-/// servings scaler re-renders scaled amounts as decimals (the JS twin is decimal-only, plantry-jun6).
+/// servings scaler re-renders scaled amounts through <see cref="IsFractionStyle"/> so it can also snap
+/// fractions (quantity-display.md Q1/Q4, plantry-95w5 — supersedes the earlier decimal-only JS twin,
+/// plantry-jun6).
+/// </param>
+/// <param name="IsFractionStyle">
+/// True when the authored unit is styled <c>DisplayStyle.Fraction</c> (quantity-display.md Q1/Q4,
+/// plantry-95w5) — threaded into <c>_IngredientRow</c>'s client-side <c>fmt()</c> call so the
+/// servings-stepper rescale attempts the same vulgar-fraction snap the server's 1× render does, instead
+/// of always falling back to a bare decimal. False for untracked / quantity-less lines and for any
+/// <c>Decimal</c>-styled unit.
 /// </param>
 public sealed record IngredientItemView(
     string ProductName,
@@ -893,7 +920,8 @@ public sealed record IngredientItemView(
     IngredientStatus Status,
     int? ExpiresWithinDays,
     bool UnitMismatch = false,
-    string? DisplayQuantity = null);
+    string? DisplayQuantity = null,
+    bool IsFractionStyle = false);
 
 /// <summary>A derived direction block produced by <see cref="DetailsModel.ParseDirections"/> (C13).</summary>
 public sealed record DirectionBlock(

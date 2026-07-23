@@ -41,14 +41,17 @@
          defaultServings: @recipe.DefaultServings,
          _fulfTimer: null,
          get scale() { return this.servings / this.defaultServings; },
-         // Canonical amount rendering (plantry-jun6) — mirrors C# IngredientAmount.Format via the
-         // ingredient-amount.js twin bridged onto window.IngredientAmount below. Falls back to a plain
-         // round+string on the off-chance the module has not resolved yet on first paint; the server
-         // already emitted the cleaned value as the x-text fallback text, so nothing shows unformatted.
-         fmt(qty) {
+         // Canonical amount rendering (plantry-jun6, plantry-95w5) — mirrors C# QuantityDisplay.FormatAmount
+         // via the ingredient-amount.js twin bridged onto window.IngredientAmount below. style is
+         // optional ('fraction' | 'decimal'); only the ingredient-amount row passes it — the inherently
+         // decimal serving/batch callers below (fmtIncServings, fmtIncBatch) omit it, keeping their
+         // existing decimal-only render. Falls back to a plain round+string on the off-chance the module
+         // has not resolved yet on first paint; the server already emitted the cleaned value as the
+         // x-text fallback text, so nothing shows unformatted.
+         fmt(qty, style) {
              const v = qty * this.scale;
              return window.IngredientAmount
-                 ? window.IngredientAmount.formatAmount(v)
+                 ? window.IngredientAmount.formatAmount(v, style)
                  : Number(v.toFixed(4)).toString();
          },
          // ── Inclusion roll-up row scaling (plantry-4037) — same Q4 contract as fmt(): the server

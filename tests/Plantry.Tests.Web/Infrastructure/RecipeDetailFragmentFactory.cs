@@ -224,3 +224,31 @@ public sealed class RecipeDetailUnitGapFactory : RecipeDetailFragmentFactory
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
     protected override IReadOnlyDictionary<Guid, ProductStock> Stock => RecipeDetailFixture.StockWithUnitGap(Today);
 }
+
+/// <summary>
+/// Variant: a single ¼-cup ingredient in a <c>DisplayStyle.Fraction</c>-styled unit (plantry-95w5's repro
+/// recipe) — overrides the base factory's catalog reader registration with one that also resolves the
+/// "cup" unit's fraction style, proving the flag reaches <c>_IngredientRow</c>'s rendered client-side
+/// scaler call rather than only the base factory's decimal-only unit set.
+/// </summary>
+public sealed class RecipeDetailFractionStyleFactory : RecipeDetailFragmentFactory
+{
+    protected override Recipe BuildRecipe() => RecipeDetailFixture.BuildWithFractionStyledUnit();
+    protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesNone();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+
+        // Re-register over the base factory's catalog reader (Decimal-only unit set) with one that also
+        // knows "cup" is Fraction-styled — the fact plantry-95w5's fix threads onto the rendered row.
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<ICatalogProductReader>();
+            services.AddSingleton<ICatalogProductReader>(new FakeCatalogProductReader(
+                RecipeDetailFixture.Products(),
+                RecipeDetailFixture.UnitCodesWithCup(),
+                RecipeDetailFixture.UnitDisplayStyles()));
+        });
+    }
+}

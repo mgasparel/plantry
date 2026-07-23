@@ -3,14 +3,17 @@
          defaultServings: 4,
          _fulfTimer: null,
          get scale() { return this.servings / this.defaultServings; },
-         // Canonical amount rendering (plantry-jun6) — mirrors C# IngredientAmount.Format via the
-         // ingredient-amount.js twin bridged onto window.IngredientAmount below. Falls back to a plain
-         // round+string on the off-chance the module has not resolved yet on first paint; the server
-         // already emitted the cleaned value as the x-text fallback text, so nothing shows unformatted.
-         fmt(qty) {
+         // Canonical amount rendering (plantry-jun6, plantry-95w5) — mirrors C# QuantityDisplay.FormatAmount
+         // via the ingredient-amount.js twin bridged onto window.IngredientAmount below. style is
+         // optional ('fraction' | 'decimal'); only the ingredient-amount row passes it — the inherently
+         // decimal serving/batch callers below (fmtIncServings, fmtIncBatch) omit it, keeping their
+         // existing decimal-only render. Falls back to a plain round+string on the off-chance the module
+         // has not resolved yet on first paint; the server already emitted the cleaned value as the
+         // x-text fallback text, so nothing shows unformatted.
+         fmt(qty, style) {
              const v = qty * this.scale;
              return window.IngredientAmount
-                 ? window.IngredientAmount.formatAmount(v)
+                 ? window.IngredientAmount.formatAmount(v, style)
                  : Number(v.toFixed(4)).toString();
          },
          // ── Inclusion roll-up row scaling (plantry-4037) — same Q4 contract as fmt(): the server
@@ -264,7 +267,7 @@
 									<div class="rd-ing-sub rd-ing-sub--have">In your pantry</div>
 								</div>
 								<div class="rd-ing-amt">
-									<span class="rd-ing-qty" x-text="scale === 1 ? '400' : fmt(400)">400</span>
+									<span class="rd-ing-qty" x-text="scale === 1 ? '400' : fmt(400, 'decimal')">400</span>
 									<span>
 										g</span>
 								</div>
@@ -285,7 +288,7 @@
 									<div class="rd-ing-sub rd-ing-sub--low">Running low</div>
 								</div>
 								<div class="rd-ing-amt">
-									<span class="rd-ing-qty" x-text="scale === 1 ? '500' : fmt(500)">500</span>
+									<span class="rd-ing-qty" x-text="scale === 1 ? '500' : fmt(500, 'decimal')">500</span>
 									<span>
 										g</span>
 								</div>
@@ -303,7 +306,7 @@
 									<div class="rd-ing-sub rd-ing-sub--miss">Not in your pantry</div>
 								</div>
 								<div class="rd-ing-amt">
-									<span class="rd-ing-qty" x-text="scale === 1 ? '3' : fmt(3)">3</span>
+									<span class="rd-ing-qty" x-text="scale === 1 ? '3' : fmt(3, 'decimal')">3</span>
 									<span>
 										ea</span>
 								</div>

@@ -144,6 +144,20 @@ public sealed class CatalogProductReaderAdapter(
             .ToDictionary(u => u.Id.Value, u => u.Code);
     }
 
+    public async Task<IReadOnlyDictionary<Guid, bool>> ResolveUnitDisplayStylesAsync(
+        IReadOnlyList<Guid> unitIds, CancellationToken ct = default)
+    {
+        if (unitIds.Count == 0) return EmptyStyles;
+
+        // Units are small household reference data; one ListAsync, filtered to the requested ids
+        // (mirrors ResolveUnitCodesAsync above).
+        var wanted = unitIds.ToHashSet();
+        var all = await units.ListAsync(ct);
+        return all
+            .Where(u => wanted.Contains(u.Id.Value))
+            .ToDictionary(u => u.Id.Value, u => u.DisplayStyle == DisplayStyle.Fraction);
+    }
+
     public async Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default)
     {
         var all = await units.ListAsync(ct);
@@ -179,4 +193,5 @@ public sealed class CatalogProductReaderAdapter(
     private static readonly IReadOnlyDictionary<Guid, CatalogProduct> EmptyProducts =
         new Dictionary<Guid, CatalogProduct>();
     private static readonly IReadOnlyDictionary<Guid, string> EmptyCodes = new Dictionary<Guid, string>();
+    private static readonly IReadOnlyDictionary<Guid, bool> EmptyStyles = new Dictionary<Guid, bool>();
 }

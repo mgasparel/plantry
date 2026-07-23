@@ -31,6 +31,10 @@ public static class RecipeDetailFixture
     public static readonly Guid EachUnitId = Guid.Parse("55555555-5555-5555-5555-555555555555");
     public static readonly Guid GramUnitId = Guid.Parse("66666666-6666-6666-6666-666666666666");
 
+    // Fraction-styled unit (plantry-95w5), used only by BuildWithFractionStyledUnit()'s own recipe —
+    // isolated from the base fixture recipe above so it never perturbs the other snapshots.
+    public static readonly Guid CupUnitId = Guid.Parse("99999999-0000-0000-0000-000000000001");
+
     // Tag ids.
     public static readonly TagId VegetarianTagId = new(Guid.Parse("77777777-7777-7777-7777-777777777777"));
     public static readonly TagId SpicyTagId      = new(Guid.Parse("88888888-8888-8888-8888-888888888888"));
@@ -101,6 +105,34 @@ public static class RecipeDetailFixture
 
         return recipe;
     }
+
+    /// <summary>
+    /// Builds a recipe with a single ¼-cup ingredient in a <c>DisplayStyle.Fraction</c>-styled unit
+    /// (plantry-95w5's repro: "Nutritional Yeast" at ¼ cup, 4 default servings) — proves the
+    /// fraction-style flag threads from the catalog reader onto the rendered client-side scaler call
+    /// (<c>fmt(qty, 'fraction')</c>), the wiring the bug's decimal-only JS twin was missing.
+    /// </summary>
+    public static Recipe BuildWithFractionStyledUnit()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Fraction Style Recipe", defaultServings: 4, clock).Value;
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(PastaId, 0.25m, CupUnitId, GroupHeading: null, Ordinal: 1),
+        ], clock);
+
+        return recipe;
+    }
+
+    /// <summary>Unit codes for <see cref="BuildWithFractionStyledUnit"/>'s recipe (adds "cup" to the base set).</summary>
+    public static IReadOnlyDictionary<Guid, string> UnitCodesWithCup() =>
+        new Dictionary<Guid, string>(UnitCodes()) { [CupUnitId] = "cup" };
+
+    /// <summary>Per-unit fraction/decimal display style — only "cup" is Fraction-styled (plantry-95w5).</summary>
+    public static IReadOnlyDictionary<Guid, bool> UnitDisplayStyles() =>
+        new Dictionary<Guid, bool> { [CupUnitId] = true };
 
     /// <summary>Products the page resolves ingredient names from.</summary>
     public static IReadOnlyDictionary<Guid, CatalogProduct> Products() =>
@@ -314,7 +346,8 @@ public sealed class FakeRecipeRepository(ITenantContext tenant, Recipe recipe) :
 /// </summary>
 public sealed class FakeCatalogProductReader(
     IReadOnlyDictionary<Guid, CatalogProduct> products,
-    IReadOnlyDictionary<Guid, string> unitCodes)
+    IReadOnlyDictionary<Guid, string> unitCodes,
+    IReadOnlyDictionary<Guid, bool>? unitStyles = null)
     : ICatalogProductReader
 {
     public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
@@ -341,6 +374,17 @@ public sealed class FakeCatalogProductReader(
             .Where(unitCodes.ContainsKey)
             .Distinct()
             .ToDictionary(id => id, id => unitCodes[id]);
+        return Task.FromResult(result);
+    }
+
+    public Task<IReadOnlyDictionary<Guid, bool>> ResolveUnitDisplayStylesAsync(
+        IReadOnlyList<Guid> unitIds, CancellationToken ct = default)
+    {
+        var styles = unitStyles ?? new Dictionary<Guid, bool>();
+        IReadOnlyDictionary<Guid, bool> result = unitIds
+            .Where(styles.ContainsKey)
+            .Distinct()
+            .ToDictionary(id => id, id => styles[id]);
         return Task.FromResult(result);
     }
 
