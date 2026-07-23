@@ -1,4 +1,5 @@
 using Plantry.Catalog.Domain;
+using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Catalog.Application;
 
@@ -56,7 +57,8 @@ public sealed class ProductQueryService(
     IProductRepository products,
     IUnitRepository units,
     ICategoryRepository categories,
-    ILocationRepository locations)
+    ILocationRepository locations,
+    IClock clock)
 {
     public async Task<IReadOnlyList<ProductListItem>> ListActiveAsync(CancellationToken ct = default)
     {
@@ -135,5 +137,23 @@ public sealed class ProductQueryService(
             skus,
             conversions,
             LatestPrice: null);
+    }
+
+    /// <summary>
+    /// DM-11 default-expiry composition, shared by every Add Stock sheet (Pantry Index, Product Detail):
+    /// product-level default wins, else the product's category default, else no default at all
+    /// (<see cref="ExpiryDefaultResolver.ResolveDefaultDueDays"/>), materialized as today + dueDays. An
+    /// explicitly entered date always wins over this — that guard stays at the call site (form semantics,
+    /// not policy) rather than here.
+    /// </summary>
+    public async Task<DateOnly?> DefaultExpiryDateAsync(Guid productId, CancellationToken ct = default)
+    {
+        var product = await products.FindAsync(ProductId.From(productId), ct);
+        if (product is null) return null;
+
+        Category? category = product.CategoryId is { } categoryId ? await categories.FindAsync(categoryId, ct) : null;
+        return ExpiryDefaultResolver.ResolveDefaultDueDays(product, category) is { } dueDays
+            ? DateOnly.FromDateTime(clock.UtcNow.UtcDateTime).AddDays(dueDays)
+            : null;
     }
 }
