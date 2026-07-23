@@ -36,7 +36,8 @@ public sealed class DetailModel(
     ITenantContext tenant,
     ILogger<ConsumeStockCommand> consumeLogger,
     ILogger<SetLowStockThresholdCommand> thresholdLogger,
-    ILogger<AddStockCommand> addStockLogger) : PageModel
+    ILogger<AddStockCommand> addStockLogger,
+    ILogger<RecordObservationCommand> priceLogger) : PageModel
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
@@ -321,7 +322,7 @@ public sealed class DetailModel(
         var result = await new RecordObservationCommand(
             id, skuId: null, PriceInput.Price!.Value, PriceInput.Quantity!.Value, PriceInput.UnitId!.Value,
             merchantText: null, sourceRef: null, clock.UtcNow, CurrentUserId, PriceSource.Manual,
-            priceRepository, priceCalculator, tenant).ExecuteAsync();
+            priceRepository, priceCalculator, tenant, priceLogger).ExecuteAsync();
 
         if (result.IsFailure)
         {

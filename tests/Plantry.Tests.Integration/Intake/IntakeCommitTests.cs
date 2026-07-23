@@ -8,6 +8,7 @@ using Plantry.Intake.Domain;
 using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
+using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
 using Plantry.SharedKernel;
@@ -98,7 +99,8 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         var createProduct = new CreateProductAdapter(products, units, categories, locations, Clock, tenant);
         var addStock = new AddStockAdapter(new ProductStockRepository(inventoryDb), catalogFacade, Clock, tenant);
         var recordPrice = new RecordPriceAdapter(
-            new PriceObservationRepository(pricingDb), new UnitPriceCalculatorAdapter(units), tenant);
+            new PriceObservationRepository(pricingDb), new UnitPriceCalculatorAdapter(units), tenant,
+            NullLogger<RecordObservationCommand>.Instance);
         var ensureStore = new EnsurePurchaseStoreAdapter(new StoreRepository(catalogDb), tenant, Clock);
         var referenceData = new ReviewReferenceDataProvider(products, units, locations, categories, new StoreRepository(catalogDb));
         var seedConversion = new SeedConversionAdapter(products, Clock, NullLogger<SeedConversionAdapter>.Instance);

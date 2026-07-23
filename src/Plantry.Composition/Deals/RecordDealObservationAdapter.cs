@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Deals.Application;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
@@ -20,7 +21,8 @@ namespace Plantry.Web.Deals;
 public sealed class RecordDealObservationAdapter(
     IPriceObservationRepository repository,
     IUnitPriceCalculator calculator,
-    ITenantContext tenant) : IPriceObservationWriter
+    ITenantContext tenant,
+    ILogger<RecordObservationCommand> priceLogger) : IPriceObservationWriter
 {
     public async Task<Guid> RecordObservationAsync(
         Guid productId,
@@ -49,6 +51,7 @@ public sealed class RecordDealObservationAdapter(
             repository,
             calculator,
             tenant,
+            priceLogger,
             validFrom: validFrom,
             validTo: validTo,
             storeId: storeId);

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.SharedKernel;
@@ -13,6 +14,8 @@ public sealed class RecordObservationCommandTests
     private static readonly Guid UserId = Guid.CreateVersion7();
     private static readonly Guid SourceRef = Guid.CreateVersion7();
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow;
+    private static readonly NullLogger<RecordObservationCommand> NullLogger =
+        NullLogger<RecordObservationCommand>.Instance;
 
     private RecordObservationCommand Command(
         FakePriceObservationRepository repo,
@@ -21,7 +24,7 @@ public sealed class RecordObservationCommandTests
         decimal price = 3.99m,
         decimal quantity = 500m) =>
         new(ProductId, null, price, quantity, UnitId, "Superstore", SourceRef, Now, UserId,
-            PriceSource.Purchase, repo, calculator, new FakeTenantContext(householdId ?? Household));
+            PriceSource.Purchase, repo, calculator, new FakeTenantContext(householdId ?? Household), NullLogger);
 
     [Fact]
     public async Task Saves_Observation_With_Calculated_UnitPrice_On_Happy_Path()
@@ -58,7 +61,7 @@ public sealed class RecordObservationCommandTests
 
         var result = await new RecordObservationCommand(
             ProductId, null, 1m, 1m, UnitId, null, SourceRef, Now, UserId,
-            PriceSource.Purchase, repo, calculator, new FakeTenantContext(null))
+            PriceSource.Purchase, repo, calculator, new FakeTenantContext(null), NullLogger)
             .ExecuteAsync();
 
         Assert.True(result.IsFailure);
@@ -90,7 +93,7 @@ public sealed class RecordObservationCommandTests
 
         var result = await new RecordObservationCommand(
             ProductId, null, 2.50m, 1m, UnitId, "Flyer", dealRef, Now, UserId,
-            PriceSource.Deal, repo, calculator, new FakeTenantContext(Household),
+            PriceSource.Deal, repo, calculator, new FakeTenantContext(Household), NullLogger,
             validFrom: from, validTo: to, storeId: storeId)
             .ExecuteAsync();
 
@@ -112,7 +115,7 @@ public sealed class RecordObservationCommandTests
 
         var result = await new RecordObservationCommand(
             ProductId, null, 5m, 2m, UnitId, merchantText: null, sourceRef: null, Now, UserId,
-            PriceSource.Manual, repo, calculator, new FakeTenantContext(Household))
+            PriceSource.Manual, repo, calculator, new FakeTenantContext(Household), NullLogger)
             .ExecuteAsync();
 
         Assert.True(result.IsSuccess);

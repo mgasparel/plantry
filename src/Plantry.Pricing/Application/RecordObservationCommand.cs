@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Pricing.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
@@ -22,6 +23,7 @@ public sealed class RecordObservationCommand(
     IPriceObservationRepository repository,
     IUnitPriceCalculator calculator,
     ITenantContext tenant,
+    ILogger<RecordObservationCommand> logger,
     DateOnly? validFrom = null,
     DateOnly? validTo = null,
     Guid? storeId = null)
@@ -29,7 +31,12 @@ public sealed class RecordObservationCommand(
     public async Task<Result<PriceObservationId>> ExecuteAsync(CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdId)
+        {
+            logger.LogWarning(
+                "RecordObservation: no household in tenant context — rejecting {Source} observation for product {ProductId}.",
+                source, productId);
             return Error.Unauthorized;
+        }
 
         var unitPrice = await calculator.TryNormalizeAsync(price, quantity, unitId, ct);
 
@@ -52,6 +59,11 @@ public sealed class RecordObservationCommand(
 
         await repository.AddAsync(observation, ct);
         await repository.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "RecordObservation: product {ProductId} — {Source} observation {ObservationId} recorded " +
+            "(unit price normalization soft-failed: {UnitPriceSoftFailed}).",
+            productId, source, observation.Id.Value, unitPrice is null);
 
         return observation.Id;
     }
