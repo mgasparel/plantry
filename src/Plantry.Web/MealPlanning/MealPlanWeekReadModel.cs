@@ -1,4 +1,5 @@
 using Npgsql;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Web.MealPlanning;
@@ -36,7 +37,8 @@ public interface IMealPlanWeekReadModel
 /// </summary>
 public sealed class MealPlanWeekReadModel(
     string connectionString,
-    ITenantContext tenant) : IMealPlanWeekReadModel
+    ITenantContext tenant,
+    IClock clock) : IMealPlanWeekReadModel
 {
     /// <summary>
     /// Loads the full week's raw inputs for a given set of recipe and product ids gathered
@@ -123,13 +125,15 @@ public sealed class MealPlanWeekReadModel(
             await LoadStockAsync(conn, stockProductIds, stockByProduct, ct);
         }
 
-        // ── Query 6: Latest price per product (pricing) ─────────────────────────
-        // DISTINCT ON (product_id) ORDER BY product_id, observed_at DESC — one row per product.
+        // ── Query 6: Effective price per product (pricing) ──────────────────────
+        // Batched parity with PricingQueries.EffectivePriceAsync (P5-9b, DJ6): cheapest
+        // active-today Deal, else latest live Purchase|Manual. See LoadLatestPricesAsync.
         var latestPriceByProduct = new Dictionary<Guid, PriceFact>();
 
         if (allProductIdList.Count > 0)
         {
-            await LoadLatestPricesAsync(conn, allProductIdList, latestPriceByProduct, ct);
+            var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+            await LoadLatestPricesAsync(conn, allProductIdList, today, latestPriceByProduct, ct);
         }
 
         // Cast the mutable accumulation dictionaries to the read-only bag shape.
@@ -470,16 +474,26 @@ public sealed class MealPlanWeekReadModel(
     private static async Task LoadLatestPricesAsync(
         NpgsqlConnection conn,
         IReadOnlyList<Guid> productIds,
+        DateOnly today,
         Dictionary<Guid, PriceFact> latestPriceByProduct,
         CancellationToken ct)
     {
+        // Batched parity with PricingQueries.EffectivePriceAsync (P5-9b, DJ6): cheapest
+        // active-today Deal wins for a product; otherwise its latest live Purchase|Manual
+        // observation. Two simple DISTINCT ON legs, merged in memory — not one query — because
+        // the two legs order by different keys (observed_at DESC vs unit_price/price ASC) and
+        // filter on different source sets; folding them into one query would need a window
+        // function partitioned by a synthetic priority column, losing the direct correspondence
+        // to CheapestActiveDealForProductAsync/LatestForProductAsync this batching mirrors.
+
+        // Leg 1 (baseline): latest live Purchase|Manual observation per product — mirrors
+        // IPriceObservationRepository.LatestForProductAsync, batched for all products at once.
         // DISTINCT ON (product_id) — Postgres extension: one row per product, latest by observed_at.
-        // Equivalent to the per-product LatestForProductAsync but batched for all products at once
-        // (including the superseded_by_id IS NULL filter, ADR-023 A7 — an amending row copies the
+        // Includes the superseded_by_id IS NULL filter (ADR-023 A7 — an amending row copies the
         // original's observed_at, so without this filter DISTINCT ON's arbitrary tie-break can surface
         // an amended-away row, and for any row superseded by a later-observed live row this always would).
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        await using var baselineCmd = conn.CreateCommand();
+        baselineCmd.CommandText = """
             SELECT DISTINCT ON (p.product_id)
                 p.product_id,
                 p.price,
@@ -489,26 +503,75 @@ public sealed class MealPlanWeekReadModel(
                 p.observed_at
             FROM pricing.price_observation p
             WHERE p.product_id = ANY(@ids)
+                AND p.source IN ('Purchase', 'Manual')
                 AND p.superseded_by_id IS NULL
             ORDER BY p.product_id, p.observed_at DESC
             """;
-        var param = cmd.CreateParameter();
-        param.ParameterName = "ids";
-        param.Value = productIds.ToArray();
-        cmd.Parameters.Add(param);
+        var baselineParam = baselineCmd.CreateParameter();
+        baselineParam.ParameterName = "ids";
+        baselineParam.Value = productIds.ToArray();
+        baselineCmd.Parameters.Add(baselineParam);
 
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
+        await using (var reader = await baselineCmd.ExecuteReaderAsync(ct))
         {
-            var productId = reader.GetGuid(0);
-            var price = reader.GetDecimal(1);
-            var quantity = reader.GetDecimal(2);
-            var unitId = reader.GetGuid(3);
-            var unitPrice = reader.IsDBNull(4) ? (decimal?)null : reader.GetDecimal(4);
-            var observedAt = reader.GetDateTime(5);
+            while (await reader.ReadAsync(ct))
+            {
+                var productId = reader.GetGuid(0);
+                var price = reader.GetDecimal(1);
+                var quantity = reader.GetDecimal(2);
+                var unitId = reader.GetGuid(3);
+                var unitPrice = reader.IsDBNull(4) ? (decimal?)null : reader.GetDecimal(4);
+                var observedAt = reader.GetDateTime(5);
 
-            latestPriceByProduct[productId] = new PriceFact(
-                productId, price, quantity, unitId, unitPrice, observedAt);
+                latestPriceByProduct[productId] = new PriceFact(
+                    productId, price, quantity, unitId, unitPrice, observedAt);
+            }
+        }
+
+        // Leg 2 (deals): cheapest active-today Deal per product — mirrors
+        // IPriceObservationRepository.CheapestActiveDealForProductAsync, batched. A leg-2 row
+        // always wins over leg 1 for its product (EffectivePriceAsync's precedence), so this
+        // overwrite runs after leg 1 unconditionally.
+        await using var dealCmd = conn.CreateCommand();
+        dealCmd.CommandText = """
+            SELECT DISTINCT ON (p.product_id)
+                p.product_id,
+                p.price,
+                p.quantity,
+                p.unit_id,
+                p.unit_price,
+                p.observed_at
+            FROM pricing.price_observation p
+            WHERE p.product_id = ANY(@ids)
+                AND p.source = 'Deal'
+                AND p.valid_from <= @today
+                AND p.valid_to >= @today
+                AND p.superseded_by_id IS NULL
+            ORDER BY p.product_id, p.unit_price, p.price
+            """;
+        var dealIdsParam = dealCmd.CreateParameter();
+        dealIdsParam.ParameterName = "ids";
+        dealIdsParam.Value = productIds.ToArray();
+        dealCmd.Parameters.Add(dealIdsParam);
+        var dealTodayParam = dealCmd.CreateParameter();
+        dealTodayParam.ParameterName = "today";
+        dealTodayParam.Value = today.ToDateTime(TimeOnly.MinValue);
+        dealCmd.Parameters.Add(dealTodayParam);
+
+        await using (var reader = await dealCmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                var productId = reader.GetGuid(0);
+                var price = reader.GetDecimal(1);
+                var quantity = reader.GetDecimal(2);
+                var unitId = reader.GetGuid(3);
+                var unitPrice = reader.IsDBNull(4) ? (decimal?)null : reader.GetDecimal(4);
+                var observedAt = reader.GetDateTime(5);
+
+                latestPriceByProduct[productId] = new PriceFact(
+                    productId, price, quantity, unitId, unitPrice, observedAt);
+            }
         }
     }
 

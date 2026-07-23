@@ -4,6 +4,7 @@ using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
+using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
 using Plantry.Pricing.Infrastructure;
 using Plantry.Recipes.Domain;
@@ -279,6 +280,130 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         Assert.Equal(0.001327m, price.UnitPrice);
     }
 
+    // ── deal-aware price loading (plantry-epzj: parity with PricingQueries.EffectivePriceAsync) ────
+
+    [Fact(DisplayName = "LoadAsync: a live in-window Deal wins over a Purchase, cheapest by unit_price")]
+    public async Task LoadAsync_Deal_Wins_When_Live_And_Cheaper_Than_Purchase()
+    {
+        var productId = await SeedProductAsync("Cereal", _gramsId);
+        var today = new DateOnly(2026, 7, 15);
+
+        await SeedPriceObservationAsync(
+            productId, price: 4m, quantity: 500m, _gramsId, unitPrice: 0.008m, DateTime.UtcNow.AddDays(-1));
+        await SeedDealObservationAsync(
+            productId, price: 3m, quantity: 500m, _gramsId, unitPrice: 0.006m,
+            validFrom: today.AddDays(-2), validTo: today.AddDays(2), observedAt: DateTime.UtcNow);
+
+        var rm = NewReadModel(_household, FixedClockAt(today));
+        var bag = await rm.LoadAsync([], [productId]);
+
+        var price = bag.GetLatestPrice(productId);
+        Assert.NotNull(price);
+        Assert.Equal(3m, price.Price); // the cheaper live deal, not the purchase
+        Assert.Equal(0.006m, price.UnitPrice);
+
+        await AssertParityAsync(productId, today);
+    }
+
+    [Fact(DisplayName = "LoadAsync: an expired Deal never wins even with a later observed_at than the Purchase")]
+    public async Task LoadAsync_Purchase_Wins_When_Deal_Expired_Despite_Later_ObservedAt()
+    {
+        var productId = await SeedProductAsync("Pasta2", _gramsId);
+        var today = new DateOnly(2026, 7, 15);
+
+        await SeedPriceObservationAsync(
+            productId, price: 4m, quantity: 500m, _gramsId, unitPrice: 0.008m, DateTime.UtcNow.AddDays(-5));
+        // Observed more recently than the purchase, but its validity window lapsed before "today" —
+        // must never surface regardless of raw observed_at ordering.
+        await SeedDealObservationAsync(
+            productId, price: 2m, quantity: 500m, _gramsId, unitPrice: 0.004m,
+            validFrom: today.AddDays(-10), validTo: today.AddDays(-3), observedAt: DateTime.UtcNow.AddDays(-1));
+
+        var rm = NewReadModel(_household, FixedClockAt(today));
+        var bag = await rm.LoadAsync([], [productId]);
+
+        var price = bag.GetLatestPrice(productId);
+        Assert.NotNull(price);
+        Assert.Equal(4m, price.Price); // purchase wins; expired deal never surfaces
+
+        await AssertParityAsync(productId, today);
+    }
+
+    [Fact(DisplayName = "LoadAsync: a superseded Deal never wins even if its window would otherwise be live")]
+    public async Task LoadAsync_Purchase_Wins_When_Deal_Superseded()
+    {
+        var productId = await SeedProductAsync("Butter2", _gramsId);
+        var today = new DateOnly(2026, 7, 15);
+
+        var purchaseId = await SeedPriceObservationAsync(
+            productId, price: 5m, quantity: 500m, _gramsId, unitPrice: 0.010m, DateTime.UtcNow.AddDays(-3));
+        // Live, cheap deal — would win the leg-2 query outright if not for the supersede below.
+        var dealId = await SeedDealObservationAsync(
+            productId, price: 1m, quantity: 500m, _gramsId, unitPrice: 0.002m,
+            validFrom: today.AddDays(-2), validTo: today.AddDays(2), observedAt: DateTime.UtcNow);
+        // Mark the deal superseded (ADR-023 A7). The FK only requires a real existing row id — reusing
+        // the purchase's own id here (as this file's existing SupersedeAsync raw-SQL helper does
+        // elsewhere) keeps the seed minimal; the test targets the superseded-filter behaviour, not a
+        // realistic amendment chain.
+        await SupersedeAsync(dealId, purchaseId);
+
+        var rm = NewReadModel(_household, FixedClockAt(today));
+        var bag = await rm.LoadAsync([], [productId]);
+
+        var price = bag.GetLatestPrice(productId);
+        Assert.NotNull(price);
+        Assert.Equal(5m, price.Price); // purchase wins; superseded deal must never surface
+
+        await AssertParityAsync(productId, today);
+    }
+
+    [Fact(DisplayName = "LoadAsync: a deal-only product whose window lapsed yields no price fact")]
+    public async Task LoadAsync_Returns_NullPrice_WhenOnlyDeal_HasLapsed()
+    {
+        var productId = await SeedProductAsync("Yeast", _gramsId);
+        var today = new DateOnly(2026, 7, 15);
+
+        // No Purchase/Manual observation at all — only a Deal, and its window has lapsed.
+        await SeedDealObservationAsync(
+            productId, price: 1m, quantity: 500m, _gramsId, unitPrice: 0.002m,
+            validFrom: today.AddDays(-10), validTo: today.AddDays(-3), observedAt: DateTime.UtcNow.AddDays(-3));
+
+        var rm = NewReadModel(_household, FixedClockAt(today));
+        var bag = await rm.LoadAsync([], [productId]);
+
+        Assert.Null(bag.GetLatestPrice(productId));
+
+        await AssertParityAsync(productId, today);
+    }
+
+    /// <summary>
+    /// Pins parity between the batched read model and <see cref="PricingQueries.EffectivePriceAsync"/>
+    /// for the given product/today, using the same underlying data (acceptance criterion: "matching
+    /// EffectivePriceAsync for the same data").
+    /// </summary>
+    private async Task AssertParityAsync(Guid productId, DateOnly today)
+    {
+        await using var pricingDb = NewPricingDb();
+        var queries = new PricingQueries(new PriceObservationRepository(pricingDb));
+        var expected = await queries.EffectivePriceAsync(productId, today);
+
+        var rm = NewReadModel(_household, FixedClockAt(today));
+        var bag = await rm.LoadAsync([], [productId]);
+        var actual = bag.GetLatestPrice(productId);
+
+        if (expected is null)
+        {
+            Assert.Null(actual);
+            return;
+        }
+
+        Assert.NotNull(actual);
+        Assert.Equal(expected.Price, actual.Price);
+        Assert.Equal(expected.Quantity, actual.Quantity);
+        Assert.Equal(expected.UnitId, actual.UnitId);
+        Assert.Equal(expected.UnitPrice, actual.UnitPrice);
+    }
+
     // ── unit and conversion loading ──────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "LoadAsync returns all household units from catalog schema")]
@@ -354,11 +479,14 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
 
-    private MealPlanWeekReadModel NewReadModel(HouseholdId household)
+    private MealPlanWeekReadModel NewReadModel(HouseholdId household) =>
+        NewReadModel(household, Clock);
+
+    private MealPlanWeekReadModel NewReadModel(HouseholdId household, IClock clock)
     {
         var tenant = new TenantContext();
         tenant.Set(household.Value);
-        return new MealPlanWeekReadModel(db.ConnectionString, tenant);
+        return new MealPlanWeekReadModel(db.ConnectionString, tenant, clock);
     }
 
     private CatalogDbContext NewCatalogDb(HouseholdId household)
@@ -573,6 +701,61 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         cmd.Parameters.AddWithValue("replacement", replacementId);
         cmd.Parameters.AddWithValue("id", observationId);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>Seeds a Deal-source price observation (with a validity window) into
+    /// pricing.price_observation. Returns its generated id so a test can chain a
+    /// <see cref="SupersedeAsync"/> call (ADR-023 A7).</summary>
+    private async Task<Guid> SeedDealObservationAsync(
+        Guid productId,
+        decimal price,
+        decimal quantity,
+        Guid unitId,
+        decimal? unitPrice,
+        DateOnly validFrom,
+        DateOnly validTo,
+        DateTime observedAt)
+    {
+        await using var conn = new NpgsqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var id = Guid.NewGuid();
+        await using var cmd = conn.CreateCommand();
+        var unitPriceObj = unitPrice.HasValue ? (object)unitPrice.Value : DBNull.Value;
+
+        cmd.CommandText = """
+            INSERT INTO pricing.price_observation
+                (observation_id, household_id, product_id, price, quantity, unit_id, unit_price,
+                 source, source_ref, observed_at, user_id, valid_from, valid_to)
+            VALUES
+                (@id, @hid, @pid, @price, @qty, @uid, @up,
+                 'Deal', @ref, @obs, @usr, @vf, @vt)
+            """;
+        cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("hid", _household.Value);
+        cmd.Parameters.AddWithValue("pid", productId);
+        cmd.Parameters.AddWithValue("price", price);
+        cmd.Parameters.AddWithValue("qty", quantity);
+        cmd.Parameters.AddWithValue("uid", unitId);
+        cmd.Parameters.AddWithValue("up", unitPriceObj);
+        cmd.Parameters.AddWithValue("ref", Guid.NewGuid());
+        cmd.Parameters.AddWithValue("obs", observedAt);
+        cmd.Parameters.AddWithValue("usr", Guid.NewGuid());
+        cmd.Parameters.AddWithValue("vf", validFrom.ToDateTime(TimeOnly.MinValue));
+        cmd.Parameters.AddWithValue("vt", validTo.ToDateTime(TimeOnly.MinValue));
+        await cmd.ExecuteNonQueryAsync();
+        return id;
+    }
+
+    /// <summary>A fixed-"today" <see cref="IClock"/> for deal-window tests, mirroring the pattern in
+    /// <c>PurchaseStoreBackfillTests.FixedClock</c> — noon UTC on the given date, so
+    /// <c>DateOnly.FromDateTime(clock.UtcNow.UtcDateTime)</c> lands unambiguously on that date.</summary>
+    private static IClock FixedClockAt(DateOnly date) =>
+        new FixedClock(new DateTimeOffset(date.Year, date.Month, date.Day, 12, 0, 0, TimeSpan.Zero));
+
+    private sealed class FixedClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow => now;
     }
 
     /// <summary>Seeds a product conversion into catalog.product_conversions.</summary>
