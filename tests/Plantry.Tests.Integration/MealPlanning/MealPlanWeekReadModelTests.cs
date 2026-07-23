@@ -280,7 +280,9 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         Assert.Equal(0.001327m, price.UnitPrice);
     }
 
-    // ── deal-aware price loading (plantry-epzj: parity with PricingQueries.EffectivePriceAsync) ────
+    // ── deal-aware price loading (plantry-epzj: parity with PricingQueries.EffectivePriceAsync;
+    //    plantry-pxjp: except an unusable-unit Deal, where this read model instead parities with
+    //    PricingQueries.EffectiveCostablePriceAsync) ──────────────────────────────────────────────
 
     [Fact(DisplayName = "LoadAsync: a live in-window Deal wins over a Purchase, cheapest by unit_price")]
     public async Task LoadAsync_Deal_Wins_When_Live_And_Cheaper_Than_Purchase()
@@ -374,6 +376,40 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         Assert.Null(bag.GetLatestPrice(productId));
 
         await AssertParityAsync(productId, today);
+    }
+
+    [Fact(DisplayName = "plantry-pxjp: LoadAsync skips an active unitless Deal (DM-17) and falls back to the costable Purchase")]
+    public async Task LoadAsync_Purchase_Wins_When_Active_Deal_Is_Unitless()
+    {
+        var productId = await SeedProductAsync("Broccoli", _gramsId);
+        var today = new DateOnly(2026, 7, 15);
+
+        await SeedPriceObservationAsync(
+            productId, price: 12m, quantity: 4m, _gramsId, unitPrice: 3m, DateTime.UtcNow.AddDays(-1));
+        // A deal confirmed without a pack size (DM-17): empty unit, null unit price. Active and
+        // cheaper by raw price alone — must never shadow the costable purchase above.
+        await SeedDealObservationAsync(
+            productId, price: 2.49m, quantity: 1m, Guid.Empty, unitPrice: null,
+            validFrom: today.AddDays(-2), validTo: today.AddDays(2), observedAt: DateTime.UtcNow);
+
+        var rm = NewReadModel(_household, FixedClockAt(today));
+        var bag = await rm.LoadAsync([], [productId]);
+
+        var price = bag.GetLatestPrice(productId);
+        Assert.NotNull(price);
+        Assert.Equal(12m, price.Price); // the costable purchase, never the unitless deal
+        Assert.Equal(3m, price.UnitPrice);
+
+        // Deliberately does NOT call AssertParityAsync here: PricingQueries.EffectivePriceAsync (the
+        // display/sales-callout read) still surfaces the unitless deal by design (plantry-pxjp) — this
+        // batched read model instead parities with EffectiveCostablePriceAsync for costing callers.
+        await using var pricingDb = NewPricingDb();
+        var queries = new PricingQueries(new PriceObservationRepository(pricingDb));
+        var costableExpected = await queries.EffectiveCostablePriceAsync(productId, today);
+        Assert.NotNull(costableExpected);
+        Assert.Equal(costableExpected.Price, price.Price);
+        Assert.Equal(costableExpected.UnitId, price.UnitId);
+        Assert.Equal(costableExpected.UnitPrice, price.UnitPrice);
     }
 
     /// <summary>

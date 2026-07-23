@@ -50,6 +50,31 @@ public sealed class ShoppingDealReaderAdapterTests
         Assert.Equal("FreshCo", deal.StoreName);
     }
 
+    [Fact(DisplayName = "plantry-pxjp: adapter still surfaces an active deal confirmed without a pack size (unitless, DM-17)")]
+    public async Task Surfaces_Unitless_ActiveDeal()
+    {
+        // The costing path (PricingQueries.EffectiveCostablePriceAsync) skips a deal with no usable
+        // unit, but the shopping-list/sales-callout path used here (CheapestActiveDealAsync) must keep
+        // showing it — it's still a real, worth-surfacing deal, just not costable.
+        var productId = Guid.CreateVersion7();
+        var dealId = Guid.CreateVersion7();
+        var priceRepo = new FakePriceObservationRepository();
+        var unitlessDeal = PriceObservation.Record(
+            Household, productId, null, price: 2.49m, quantity: 1m, unitId: Guid.Empty,
+            unitPrice: null, source: PriceSource.Deal, merchantText: "Flyer",
+            sourceRef: dealId, observedAt: DateTimeOffset.UtcNow, userId: Guid.CreateVersion7(),
+            validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7), storeId: null);
+        priceRepo.RegisterActiveDeal(productId, Today, unitlessDeal);
+
+        var adapter = new ShoppingDealReaderAdapter(
+            new PricingQueries(priceRepo), new FakeStoreRepository([]));
+
+        var result = await adapter.GetActiveDealsAsync([productId], Today);
+
+        var deal = Assert.Contains(productId, result);
+        Assert.Equal(dealId, deal.DealId);
+    }
+
     [Fact(DisplayName = "Adapter omits products with no active deal")]
     public async Task Omits_Products_With_No_Active_Deal()
     {

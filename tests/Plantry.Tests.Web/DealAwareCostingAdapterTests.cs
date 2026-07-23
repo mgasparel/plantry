@@ -112,6 +112,35 @@ public sealed class DealAwareCostingAdapterTests
         Assert.Equal(manualUnitPrice + PurchaseUnitPrice, cost.Amount);
     }
 
+    [Fact(DisplayName = "plantry-pxjp: recipe cost skips an active unitless deal and falls back to the costable purchase")]
+    public async Task Recipe_Cost_Skips_Unitless_Deal_Falls_Back_To_Purchase()
+    {
+        var productId = Guid.CreateVersion7();
+        var repo = new WindowAwarePriceRepo();
+        repo.Add(PriceObservation.Record(
+            Household, productId, null, price: PurchaseUnitPrice, quantity: 1m, unitId: UnitId,
+            unitPrice: PurchaseUnitPrice, source: PriceSource.Purchase, merchantText: "Superstore",
+            sourceRef: Guid.CreateVersion7(), observedAt: new DateTimeOffset(2026, 6, 20, 0, 0, 0, TimeSpan.Zero),
+            userId: Guid.CreateVersion7()));
+        // A deal confirmed without a pack size (DM-17): empty unit, null unit price, but still cheaper
+        // and active — must not shadow the costable purchase above.
+        repo.Add(PriceObservation.Record(
+            Household, productId, null, price: DealUnitPrice, quantity: 1m, unitId: Guid.Empty,
+            unitPrice: null, source: PriceSource.Deal, merchantText: "Flyer",
+            sourceRef: Guid.CreateVersion7(), observedAt: new DateTimeOffset(2026, 6, 30, 0, 0, 0, TimeSpan.Zero),
+            userId: Guid.CreateVersion7(), validFrom: DealFrom, validTo: DealTo));
+
+        var clock = new MutableClock(InWindow); // deal is active, but unitless
+        var costing = new CostingService(
+            new PriceReaderAdapter(new PricingQueries(repo), clock),
+            new IdentityUnitConverter());
+
+        var cost = await costing.ComputeAsync(SingleIngredientRecipe(productId), desiredServings: 1);
+
+        Assert.Equal(CostCompleteness.Full, cost.Completeness);
+        Assert.Equal(PurchaseUnitPrice, cost.Amount); // never the unitless deal's price
+    }
+
     [Fact(DisplayName = "ADR-023 A7: PriceReaderAdapter (IPriceReader) never surfaces a superseded observation")]
     public async Task PriceReaderAdapter_Excludes_Superseded_Observation()
     {
@@ -167,6 +196,33 @@ public sealed class DealAwareCostingAdapterTests
 
         Assert.Equal(Plantry.MealPlanning.Domain.CostCompleteness.Full, result.Completeness);
         Assert.Equal(PurchaseUnitPrice, result.Amount);
+    }
+
+    [Fact(DisplayName = "plantry-pxjp: meal-plan cost skips an active unitless deal and falls back to the costable purchase")]
+    public async Task MealPlan_Cost_Skips_Unitless_Deal_Falls_Back_To_Purchase()
+    {
+        var productId = Guid.CreateVersion7();
+        var repo = new WindowAwarePriceRepo();
+        repo.Add(PriceObservation.Record(
+            Household, productId, null, price: PurchaseUnitPrice, quantity: 1m, unitId: UnitId,
+            unitPrice: PurchaseUnitPrice, source: PriceSource.Purchase, merchantText: "Superstore",
+            sourceRef: Guid.CreateVersion7(), observedAt: new DateTimeOffset(2026, 6, 20, 0, 0, 0, TimeSpan.Zero),
+            userId: Guid.CreateVersion7()));
+        repo.Add(PriceObservation.Record(
+            Household, productId, null, price: DealUnitPrice, quantity: 1m, unitId: Guid.Empty,
+            unitPrice: null, source: PriceSource.Deal, merchantText: "Flyer",
+            sourceRef: Guid.CreateVersion7(), observedAt: new DateTimeOffset(2026, 6, 30, 0, 0, 0, TimeSpan.Zero),
+            userId: Guid.CreateVersion7(), validFrom: DealFrom, validTo: DealTo));
+
+        var clock = new MutableClock(InWindow);
+        var planCosting = new PlanCostingService(
+            new UnusedRecipeReadModel(),
+            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock));
+
+        var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
+
+        Assert.Equal(Plantry.MealPlanning.Domain.CostCompleteness.Full, result.Completeness);
+        Assert.Equal(PurchaseUnitPrice, result.Amount); // never the unitless deal's price
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────────────
