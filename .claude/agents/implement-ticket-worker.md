@@ -170,15 +170,38 @@ fix and loop back to 4a as normal.
   they are reported in the verdict (Step 6) and must show every acceptance-criterion-bearing
   suite as executed green.
 
-### 4c. Opus critic review
+### 4c. Opus critic review (handoff — you cannot spawn your own subagent)
 
 Increment `pass_count`.
 
-Spawn a **fresh Opus sub-agent** (`model: opus`) with this prompt (substitute `<issue-id>`,
+**You cannot spawn the Opus critic yourself.** A dispatched subagent has no access to the
+`Agent` tool — it cannot spawn a further subagent of its own. Instead, hand control back to
+whoever dispatched you (the pipeline orchestrator, or a human running you directly) and wait
+to be resumed. Emit exactly this and stop — do not do anything else this turn:
+
+```
+=== implement-ticket READY-FOR-CRITIC ===
+ISSUE: <issue-id>
+WORKTREE: <worktree-path>
+BASE: <base-branch>
+TESTS: <per-category executed/passed/skipped counts captured in step 4b, e.g. Unit 600/600,
+  Integration 114/114, E2E 2/2, Architecture 26/26 — name any suite that was skipped or did
+  not run>
+PASS_COUNT: <pass_count>
+```
+
+Your caller spawns a fresh Opus sub-agent (`model: opus`) against `<worktree-path>` /
+`<base-branch>` using the critic prompt template below — it lives here so the review criteria
+travel with this file, but the *dispatch* itself happens one level up, wherever you were
+dispatched from — then resumes you (via `SendMessage` to your own agent, not a fresh spawn)
+with the critic's raw verdict text. Everything under **"When resumed with the critic's raw
+verdict text"** below is the continuation of this same step, not a new task — treat it as
+picking back up mid-4c, not starting over.
+
+**Critic prompt template** (for your caller to use verbatim, substituting `<issue-id>`,
 `<worktree-path>`, `<base-branch>` — the branch the worktree was cut from, `epic/<parent-id>`
-in the loop or `origin/main` for a direct invocation — and `<test-results>` — the per-category
-executed/passed/skipped counts captured in step 4b, e.g. `Unit 600/600, Integration 114/114,
-E2E 2/2, Architecture 26/26`, naming any suite that was skipped or did not run):
+in the loop or `origin/main` for a direct invocation — and `<test-results>` from the handoff
+above):
 
 ---
 
@@ -282,7 +305,7 @@ E2E 2/2, Architecture 26/26`, naming any suite that was skipped or did not run):
 
 ---
 
-**After the critic responds** — write the pre-flight report immediately:
+**When resumed with the critic's raw verdict text** — write the pre-flight report immediately:
 
 ```
 .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md
@@ -308,7 +331,9 @@ bd comment <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<o
   - Otherwise: apply every FIX instruction exactly as specified, then loop back to **4a**.
     (Honour the scope ceiling: if a FIX would spread beyond this change's footprint, the critic
     should have classified it DEFER — if you discover mid-fix that it does, stop and re-classify
-    it as DEFER rather than expanding the diff.)
+    it as DEFER rather than expanding the diff.) 4a→4b→4c will bring you back to another
+    `READY-FOR-CRITIC` handoff and another pause — that is expected; each pass gets a fresh
+    critic and a fresh handoff.
 - **No FIX findings** (`VERDICT: PASS`): before proceeding to **Step 5**, resolve the other tiers:
   - **DEFER findings** — for each, create a tracked issue so it is never silently dropped.
     Set priority by the finding's gate, and label it `code-review` so gate-filed beads are
