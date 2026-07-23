@@ -23,10 +23,12 @@ namespace Plantry.Tests.Web;
 public sealed class RecipeDetailSnapshotTests(
     RecipeDetailFragmentFactory factory,
     RecipeDetailFullCostFactory fullCostFactory,
-    RecipeDetailNoCostFactory noCostFactory)
+    RecipeDetailNoCostFactory noCostFactory,
+    RecipeDetailAllUntrackedFactory allUntrackedFactory)
     : IClassFixture<RecipeDetailFragmentFactory>,
       IClassFixture<RecipeDetailFullCostFactory>,
-      IClassFixture<RecipeDetailNoCostFactory>
+      IClassFixture<RecipeDetailNoCostFactory>,
+      IClassFixture<RecipeDetailAllUntrackedFactory>
 {
     private static readonly HtmlParser Parser = new();
 
@@ -256,6 +258,34 @@ public sealed class RecipeDetailSnapshotTests(
         Assert.Contains("Garlic Cloves", content.TextContent, StringComparison.Ordinal);
         // Salt is untracked (excluded from CostableCount, C12) — must not appear in the list.
         Assert.DoesNotContain("Salt", content.TextContent, StringComparison.Ordinal);
+    }
+
+    // ── Cost None, all-untracked: no flag/popover at all (plantry-7vb7) ───────
+
+    [Fact]
+    public async Task Detail_cost_none_all_untracked_omits_flag_and_popover()
+    {
+        // Every ingredient untracked / "to taste" (null Quantity/UnitId) → CostableCount == 0,
+        // Completeness == None, MissingPriceProductIds empty. The "missing prices" popover would
+        // otherwise render a dangling empty list — the fix suppresses the "i" trigger/popover entirely
+        // and renders the bare dash, unlike the costable-but-unpriced None shape (which still shows the
+        // popover, pinned above by Detail_cost_none_popover_lists_all_costable_ingredients).
+        var html = await GetDetailPageAsync(allUntrackedFactory);
+
+        Assert.DoesNotContain("rd-meta__val--mono", html, StringComparison.Ordinal);
+
+        var doc = Parser.ParseDocument(html);
+        var costLabel = doc.QuerySelectorAll(".rd-meta__lbl")
+            .FirstOrDefault(e => e.TextContent.Trim() == "Cost per serving")
+            ?? throw new InvalidOperationException("'Cost per serving' meta cell not found.");
+        var cell = costLabel.ParentElement!;
+
+        // The bare em-dash renders...
+        Assert.Contains("—", cell.TextContent);
+        // ...but no flag/trigger/popover at all — not even an empty one.
+        Assert.Null(cell.QuerySelector(".rd-meta__flag"));
+        Assert.Null(cell.QuerySelector(".popover__trigger"));
+        Assert.Null(cell.QuerySelector(".popover__content"));
     }
 
     // ── Unauthenticated request is challenged (401 in test env, 302 in prod) ───

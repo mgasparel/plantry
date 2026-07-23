@@ -223,26 +223,34 @@
                             else
                             {
                                 @* None state (plantry-zxo4): the bare "—" used to offer no explanation at all.
-                                   Same popover shape as Partial, listing every costable ingredient. *@
+                                   Same popover shape as Partial, listing every costable ingredient.
+                                   plantry-7vb7: when every ingredient is untracked (CostableCount == 0),
+                                   MissingPriceIngredients is empty and there's nothing to list — the
+                                   "missing prices" framing doesn't even apply (the issue is no costable
+                                   quantities, not missing prices), so suppress the flag/popover entirely
+                                   and render the bare em-dash. *@
                                 <div class="rd-meta__val" style="color:var(--color-text-faint)">
                                     —
-                                    <span class="rd-meta__flag">
-                                        <popover position="below-end" label="i">
-                                            <span class="pop-kicker">No cost yet</span>
-                                            <span class="pop-body">None of these ingredients have a price. Prices normally arrive with receipts — or set one on each product's page:</span>
-                                            <ul class="pop-rows">
-                                                @foreach (var ingredient in recipe.MissingPriceIngredients)
-                                                {
-                                                    <li>
-                                                        <a href="/Pantry/Products/@ingredient.ProductId">
-                                                            @ingredient.ProductName
-                                                            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-                                                        </a>
-                                                    </li>
-                                                }
-                                            </ul>
-                                        </popover>
-                                    </span>
+                                    @if (recipe.MissingPriceIngredients.Count > 0)
+                                    {
+                                        <span class="rd-meta__flag">
+                                            <popover position="below-end" label="i">
+                                                <span class="pop-kicker">No cost yet</span>
+                                                <span class="pop-body">None of these ingredients have a price. Prices normally arrive with receipts — or set one on each product's page:</span>
+                                                <ul class="pop-rows">
+                                                    @foreach (var ingredient in recipe.MissingPriceIngredients)
+                                                    {
+                                                        <li>
+                                                            <a href="/Pantry/Products/@ingredient.ProductId">
+                                                                @ingredient.ProductName
+                                                                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                                                            </a>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            </popover>
+                                        </span>
+                                    }
                                 </div>
                                 <div class="rd-meta__lbl">Cost per serving</div>
                             }
