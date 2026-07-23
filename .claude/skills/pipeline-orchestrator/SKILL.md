@@ -280,15 +280,45 @@ git show-ref --verify --quiet refs/heads/epic/<epic-id> || \
   git worktree add ../worktrees/<epic-id> -b epic/<epic-id> origin/main
 ```
 
-### Step 2 — Dispatch implement-ticket-worker
+### Step 2 — Dispatch implement-ticket-worker (own its critic loop)
 
 ```
-Agent(subagent_type="implement-ticket-worker", prompt="<issue-id>")
+worker = Agent(subagent_type="implement-ticket-worker", prompt="<issue-id>")
 ```
 
 The worker derives its base from the issue's parent (`epic/<epic-id>`), branches its
 child worktree off it, pre-flights locally, commits, and returns — **without** pushing
-or opening a PR. Wait for the verdict:
+or opening a PR.
+
+**A dispatched subagent cannot spawn a further subagent of its own** — it has no access
+to the `Agent` tool. The worker's Opus critic pass therefore cannot happen inside the
+worker; you (the orchestrator, running at the top level) own that dispatch instead. Loop
+on the worker's response:
+
+```
+loop:
+  response = wait for worker
+
+  if response is "=== implement-ticket READY-FOR-CRITIC ===" (fields ISSUE, WORKTREE,
+     BASE, TESTS, PASS_COUNT):
+    critic = Agent(model="opus", prompt=<the critic prompt template from
+      implement-ticket-worker.md Step 4c, filled in with this handoff's ISSUE,
+      WORKTREE, BASE, TESTS>)
+    SendMessage(to=worker, "<critic's raw verdict text, verbatim>")
+    continue loop
+
+  if response is "=== implement-ticket VERDICT ===" (RESULT: PASS | FAILED):
+    done — fall through to Step 3
+```
+
+Each `READY-FOR-CRITIC` handoff gets a **fresh** Opus critic spawn — never reuse a critic
+across passes, and never let the orchestrator itself read the diff or apply review
+criteria; it only ferries the critic's verdict text back to the worker, which owns all
+report-writing, `bd comment`/DEFER-filing, and the FIX-apply loop. This keeps the same
+context-firewall property the worker dispatch already had — the orchestrator's own
+context only ever holds a verdict's worth of text, never the implementation diff.
+
+The final verdict looks like:
 
 ```
 === implement-ticket VERDICT ===
