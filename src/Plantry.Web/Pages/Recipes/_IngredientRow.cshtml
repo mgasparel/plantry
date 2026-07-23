@@ -100,7 +100,7 @@
             }</div>
     </div>
     <div class="rd-ing-amt">
-        @if (!item.IsUntracked && item.Quantity.HasValue)
+        @if (item.Quantity.HasValue)
         {
             @* Server render is the 1× vulgar-fraction display (quantity-display.md Q1/§7). The servings
                stepper scales the amount client-side; keep the server-rendered fraction at scale === 1

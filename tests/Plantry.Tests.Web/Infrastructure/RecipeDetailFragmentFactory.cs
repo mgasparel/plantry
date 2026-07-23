@@ -215,6 +215,18 @@ public sealed class RecipeDetailAllUntrackedFactory : RecipeDetailFragmentFactor
 }
 
 /// <summary>
+/// Variant: a single untracked ingredient (Salt) with a REAL authored quantity (2 ea) — plantry-cbww.
+/// Distinct from <see cref="RecipeDetailAllUntrackedFactory"/>, whose untracked lines are all null-qty
+/// ("to taste"). Proves an untracked ingredient's authored amount still renders alongside its
+/// "untracked" sub-label rather than being suppressed purely because <c>Product.TrackStock</c> is false.
+/// </summary>
+public sealed class RecipeDetailUntrackedQuantityFactory : RecipeDetailFragmentFactory
+{
+    protected override Recipe BuildRecipe() => RecipeDetailFixture.BuildWithUntrackedQuantity();
+    protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesNone();
+}
+
+/// <summary>
 /// Variant: Garlic on hand as a weight (grams) while the recipe line is a count ("ea") with no conversion
 /// path — the unit-gap render path (plantry-z2sr). The Garlic row must read "Can't compare units" with the
 /// info-tone status and the explanatory popover, not the flat danger "Not in your pantry".

@@ -29,8 +29,10 @@ namespace Plantry.Tests.Web;
 ///
 /// Fixture: an inclusions-only parent (2 servings of a 4-serving sub → expansion factor ½) whose sub has a
 /// Fraction-styled 1 cup line (→ 0.5 cup = "½"), a Decimal-styled 100 g line (→ 50 g, the decimal path), and
-/// an untracked 7 g line (→ quantity hidden). A recording formatter over those units also captures the call
-/// count + Simplify flag so the batching contract (one page-wide call, Simplify:false at 1×) is pinned.
+/// an untracked 7 g line (→ 3.5 g, still rendered alongside the "untracked" sub-label — untracked-ness is
+/// orthogonal to whether a quantity was authored, R5, plantry-cbww). A recording formatter over those units
+/// also captures the call count + Simplify flag so the batching contract (one page-wide call, Simplify:false
+/// at 1×) is pinned.
 /// </summary>
 public sealed class InclusionPreviewQuantityDisplayTests
 {
@@ -87,9 +89,9 @@ public sealed class InclusionPreviewQuantityDisplayTests
         Assert.Contains("50 g", html);
     }
 
-    // ── An untracked staple still hides its quantity entirely (existing behavior preserved) ──────────────
+    // ── An untracked staple with a real authored quantity still shows its amount (plantry-cbww) ───────────
     [Fact]
-    public async Task Preview_hides_the_quantity_for_an_untracked_product()
+    public async Task Preview_shows_the_quantity_for_an_untracked_product_with_a_real_amount()
     {
         using var factory = new PreviewFactory();
         var client = AuthedClient(factory);
@@ -97,9 +99,12 @@ public sealed class InclusionPreviewQuantityDisplayTests
         var raw = await client.GetStringAsync($"/Recipes/{ParentId}");
         var html = TextOnly(System.Net.WebUtility.HtmlDecode(raw));
 
-        // Salt renders as a name-only preview line; its 7 g × (2/4) = 3.5 g amount is never shown.
+        // Salt is untracked but authored with a real quantity (7 g) — untracked-ness (Product.TrackStock)
+        // is orthogonal to whether a quantity was supplied (R5). Its 7 g × (2/4) = 3.5 g amount renders
+        // alongside its "untracked" sub-label, not suppressed (plantry-cbww).
         Assert.Contains("Salt", html);
-        Assert.DoesNotContain("3.5 g", html);
+        Assert.Contains("3.5 g", html);
+        Assert.Contains("untracked", html, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── The formatter is hit exactly once for the whole page, and always with Simplify:false at 1× ───────
@@ -112,9 +117,11 @@ public sealed class InclusionPreviewQuantityDisplayTests
         await client.GetStringAsync($"/Recipes/{ParentId}");
 
         // One page-wide call (parent is inclusions-only, so no direct-ingredient call precedes it) carrying
-        // both tracked preview lines (Butter cup + Flour g); the untracked Salt line is excluded.
+        // ALL THREE preview lines — Butter (cup), Flour (g), AND Salt (g). Salt is untracked but has a real
+        // authored quantity, so it's no longer excluded from the formatter batch (plantry-cbww) — untracked-
+        // ness is orthogonal to whether a quantity was supplied.
         var call = Assert.Single(factory.Formatter.Calls);
-        Assert.Equal(2, call.Count);
+        Assert.Equal(3, call.Count);
         Assert.All(call, r => Assert.False(r.Simplify));
     }
 

@@ -107,6 +107,26 @@ public static class RecipeDetailFixture
     }
 
     /// <summary>
+    /// Builds a recipe with a single untracked ingredient (Salt, <c>TrackStock: false</c>) that HAS a
+    /// real authored quantity/unit (2 ea) — plantry-cbww's repro. Untracked-ness (Product.TrackStock)
+    /// is orthogonal to whether a quantity was supplied (R5); this is distinct from
+    /// <see cref="BuildAllUntracked"/>, whose untracked lines are all null-qty ("to taste").
+    /// </summary>
+    public static Recipe BuildWithUntrackedQuantity()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Untracked With Quantity", defaultServings: 4, clock).Value;
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(SaltId, 2m, EachUnitId, GroupHeading: null, Ordinal: 1),
+        ], clock);
+
+        return recipe;
+    }
+
+    /// <summary>
     /// Builds a recipe with a single ¼-cup ingredient in a <c>DisplayStyle.Fraction</c>-styled unit
     /// (plantry-95w5's repro: "Nutritional Yeast" at ¼ cup, 4 default servings) — proves the
     /// fraction-style flag threads from the catalog reader onto the rendered client-side scaler call

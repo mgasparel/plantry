@@ -352,16 +352,20 @@ public sealed class DetailsModel(
         {
             products.TryGetValue(productId, out var product);
             var isUntracked = product is { TrackStock: false };
-            var unitCode = !isUntracked && unitId is { } uid ? units.GetValueOrDefault(uid) : null;
+            // Untracked-ness (Product.TrackStock) is orthogonal to whether the recipe author supplied a
+            // quantity (R5: Quantity/UnitId are both-set or both-null) — "to taste" (null qty/unit) is one
+            // valid case of an untracked ingredient, not the only one. Pass the authored quantity/unit
+            // through unconditionally; only the line's own null qty/unit suppresses the amount.
+            var unitCode = unitId is { } uid ? units.GetValueOrDefault(uid) : null;
             // Fraction/decimal display style (quantity-display.md Q1/Q4, plantry-95w5) — read alongside
             // the unit code so _IngredientRow can tell the client-side rescale whether to attempt the
             // vulgar-fraction snap once the servings stepper moves the amount off scale 1.
-            var isFractionStyle = !isUntracked && unitId.HasValue && styles.GetValueOrDefault(unitId.Value);
+            var isFractionStyle = unitId.HasValue && styles.GetValueOrDefault(unitId.Value);
             fulfillmentByKey.TryGetValue((productId, unitId), out var f);
             return new IngredientItemView(
                 ProductName: product?.Name ?? "(unknown product)",
                 ProductId: productId,
-                Quantity: isUntracked ? null : quantity,
+                Quantity: quantity,
                 UnitCode: unitCode,
                 IsUntracked: isUntracked,
                 Status: f?.Status ?? IngredientStatus.Untracked,
@@ -414,9 +418,10 @@ public sealed class DetailsModel(
                 for (var idx = 0; idx < lines.Count; idx++)
                 {
                     var l = lines[idx];
-                    exProductLookup.TryGetValue(l.ProductId, out var p);
-                    var isUntracked = p is { TrackStock: false };
-                    if (!isUntracked && l.Quantity.HasValue && l.UnitId.HasValue)
+                    // Untracked-ness (Product.TrackStock) is orthogonal to whether a quantity was
+                    // authored (R5, plantry-cbww) — an untracked child with a real quantity/unit still
+                    // gets the vulgar-fraction display formatting, not just the plain decimal fallback.
+                    if (l.Quantity.HasValue && l.UnitId.HasValue)
                         childRequests.Add(new QuantityFormatRequest($"{incId.Value}:{idx}", l.Quantity.Value, l.UnitId.Value, Simplify: false));
                 }
             }
@@ -458,12 +463,11 @@ public sealed class DetailsModel(
 
         IngredientRowView BuildIngredientRow(Ingredient i)
         {
-            productLookup.TryGetValue(i.ProductId, out var product);
-            var isUntracked = product is { TrackStock: false };
             // Pretty (vulgar-fraction) rendering of the authored quantity at 1× (quantity-display.md
-            // Q1/§7). Falls back to the canonical decimal formatter for untracked lines or if the
-            // formatter had no entry (e.g. a null quantity / unknown unit).
-            var displayQuantity = !isUntracked && i.Quantity.HasValue
+            // Q1/§7) — untracked-ness is orthogonal to whether a quantity was authored (R5, plantry-cbww),
+            // so this no longer special-cases untracked lines. Falls back to the canonical decimal
+            // formatter only when the formatter had no entry (e.g. a null quantity / unknown unit).
+            var displayQuantity = i.Quantity.HasValue
                 ? displayQuantities.GetValueOrDefault(i.Id.Value, IngredientAmount.Format(i.Quantity.Value))
                 : null;
             return new IngredientRowView(BuildItem(i.ProductId, i.UnitId, i.Quantity, productLookup, unitLookup, unitStyles, displayQuantity));

@@ -295,7 +295,10 @@ public sealed class CookModel(
             var view = await BuildLineViewAsync(line, groupHeading, scale, renderContext, ct);
             if (view is null) continue; // unknown product — skip
 
-            if (!view.IsUntracked && view.ScaledQuantity.HasValue && line.UnitId.HasValue)
+            // Untracked-ness is orthogonal to whether a quantity was authored (R5, plantry-cbww) — an
+            // untracked line with a real scaled quantity gets the same fraction-simplified display
+            // formatting as a tracked line, not just the plain decimal fallback.
+            if (view.ScaledQuantity.HasValue && line.UnitId.HasValue)
                 displayRequests.Add(new QuantityFormatRequest(
                     view.LineKey, view.ScaledQuantity.Value, line.UnitId.Value, Simplify: scale != 1m));
 
@@ -411,7 +414,10 @@ public sealed class CookModel(
 
         if (!product.TrackStock)
         {
-            // Untracked staple (C12): show but no quantity / picker.
+            // Untracked staple (C12): shown greyed, no picker/stepper — but untracked-ness
+            // (Product.TrackStock) is orthogonal to whether a real quantity was authored (R5). Pass the
+            // scaled quantity/unit through unconditionally; only a genuinely null authored qty/unit
+            // ("to taste") ends up with a null ScaledQuantity here (plantry-cbww).
             return new CookLineView(
                 IngredientId: ingredientId,
                 LineKey: lineKey,
@@ -420,8 +426,8 @@ public sealed class CookModel(
                 ProductId: line.ProductId,
                 ProductName: product.Name,
                 GroupHeading: groupHeading,
-                ScaledQuantity: null,
-                UnitCode: null,
+                ScaledQuantity: scaledQty,
+                UnitCode: unitCode,
                 IsUntracked: true,
                 IsParent: false,
                 VariantOptions: [],

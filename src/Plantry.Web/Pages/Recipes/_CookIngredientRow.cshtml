@@ -21,14 +21,29 @@
         ? new Microsoft.AspNetCore.Html.HtmlString($":disabled=\"isInclusionSkipped('{line.PathKey}')\"")
         : null;
     var defaultVariant = line.VariantOptions.FirstOrDefault(v => v.IsAutoSelected)?.VariantId.ToString() ?? "";
+    // Untracked row's amount reads the same simplified/sibling-unit display code as a tracked line when
+    // available, falling back to the authored unit code (plantry-cbww).
+    var untrackedUnitCode = line.DisplayUnitCode ?? line.UnitCode;
 }
 
 @if (line.IsUntracked)
 {
-    @* Untracked staple (C12): shown greyed, no qty, no picker *@
+    @* Untracked staple (C12): shown greyed, no picker/stepper — but untracked-ness (Product.TrackStock)
+       is orthogonal to whether the recipe author supplied a real quantity (R5, plantry-cbww). A real
+       authored quantity (e.g. "2 cloves") renders alongside the "untracked" sub-label; a genuinely null
+       qty/unit keeps the existing "to taste" sub-label unchanged, with no amount. *@
     <div class="cook-ing-row cook-ing-row--untracked" role="listitem">
         <div class="cook-ing-row__name">@line.ProductName</div>
-        <div class="cook-ing-row__sub">to taste</div>
+        @* No leading/trailing whitespace around the @if/@else so the null-qty ("to taste") branch
+           renders byte-identically to before — only the has-quantity branch emits extra markup. *@
+        <div class="cook-ing-row__sub">@if (line.ScaledQuantity.HasValue)
+            {
+                <text>untracked &middot; @(line.DisplayQuantity ?? FormatQty(line.ScaledQuantity.Value))@(string.IsNullOrEmpty(untrackedUnitCode) ? "" : " " + untrackedUnitCode)</text>
+            }
+            else
+            {
+                <text>to taste</text>
+            }</div>
     </div>
 }
 else
