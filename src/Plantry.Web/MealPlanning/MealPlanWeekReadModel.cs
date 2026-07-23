@@ -125,9 +125,9 @@ public sealed class MealPlanWeekReadModel(
             await LoadStockAsync(conn, stockProductIds, stockByProduct, ct);
         }
 
-        // ── Query 6: Effective price per product (pricing) ──────────────────────
-        // Batched parity with PricingQueries.EffectivePriceAsync (P5-9b, DJ6): cheapest
-        // active-today Deal, else latest live Purchase|Manual. See LoadLatestPricesAsync.
+        // ── Query 6: Effective, costable price per product (pricing) ────────────
+        // Batched parity with PricingQueries.EffectiveCostablePriceAsync (P5-9b, DJ6; plantry-pxjp):
+        // cheapest active-today, usable-unit Deal, else latest live Purchase|Manual. See LoadLatestPricesAsync.
         var latestPriceByProduct = new Dictionary<Guid, PriceFact>();
 
         if (allProductIdList.Count > 0)
@@ -478,9 +478,13 @@ public sealed class MealPlanWeekReadModel(
         Dictionary<Guid, PriceFact> latestPriceByProduct,
         CancellationToken ct)
     {
-        // Batched parity with PricingQueries.EffectivePriceAsync (P5-9b, DJ6): cheapest
-        // active-today Deal wins for a product; otherwise its latest live Purchase|Manual
-        // observation. Two simple DISTINCT ON legs, merged in memory — not one query — because
+        // Batched parity with PricingQueries.EffectiveCostablePriceAsync (P5-9b, DJ6; plantry-pxjp):
+        // cheapest active-today Deal with a usable unit wins for a product; otherwise its latest live
+        // Purchase|Manual observation. A deal recorded without a pack size (DM-17: unit_id =
+        // '00000000-0000-0000-0000-000000000000', unit_price NULL) is excluded from leg 2 below — it has
+        // no conversion basis for costing, so it must never shadow a costable purchase (unlike the
+        // display/sales-callout read model, PricingQueries.EffectivePriceAsync, which still surfaces it).
+        // Two simple DISTINCT ON legs, merged in memory — not one query — because
         // the two legs order by different keys (observed_at DESC vs unit_price/price ASC) and
         // filter on different source sets; folding them into one query would need a window
         // function partitioned by a synthetic priority column, losing the direct correspondence
@@ -528,10 +532,13 @@ public sealed class MealPlanWeekReadModel(
             }
         }
 
-        // Leg 2 (deals): cheapest active-today Deal per product — mirrors
-        // IPriceObservationRepository.CheapestActiveDealForProductAsync, batched. A leg-2 row
-        // always wins over leg 1 for its product (EffectivePriceAsync's precedence), so this
-        // overwrite runs after leg 1 unconditionally.
+        // Leg 2 (deals): cheapest active-today, usable-unit Deal per product — mirrors
+        // IPriceObservationRepository.CheapestActiveDealForProductAsync, batched, plus the
+        // plantry-pxjp costable filter: a deal confirmed without a pack size (DM-17) writes
+        // unit_id = the empty guid and a NULL unit_price, and has no conversion basis for costing,
+        // so it is excluded here — it must fall through to leg 1's purchase instead of shadowing it.
+        // A leg-2 row always wins over leg 1 for its product (EffectiveCostablePriceAsync's
+        // precedence), so this overwrite runs after leg 1 unconditionally.
         await using var dealCmd = conn.CreateCommand();
         dealCmd.CommandText = """
             SELECT DISTINCT ON (p.product_id)
@@ -547,6 +554,8 @@ public sealed class MealPlanWeekReadModel(
                 AND p.valid_from <= @today
                 AND p.valid_to >= @today
                 AND p.superseded_by_id IS NULL
+                AND p.unit_id <> '00000000-0000-0000-0000-000000000000'
+                AND p.unit_price IS NOT NULL
             ORDER BY p.product_id, p.unit_price, p.price
             """;
         var dealIdsParam = dealCmd.CreateParameter();

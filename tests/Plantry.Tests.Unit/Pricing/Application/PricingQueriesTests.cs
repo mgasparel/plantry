@@ -32,6 +32,13 @@ public sealed class PricingQueriesTests
         PriceObservation.Record(Household, ProductId, null, unitPrice, 1m, UnitId, unitPrice,
             PriceSource.Manual, null, null, observedAt, UserId);
 
+    /// <summary>A deal confirmed without a pack size (DM-17): <c>unitId = Guid.Empty</c>, <c>unitPrice</c>
+    /// null — the exact shape <c>RecordDealObservationAdapter</c> writes.</summary>
+    private static PriceObservation UnitlessDeal(decimal price, DateOnly from, DateOnly to) =>
+        PriceObservation.Record(Household, ProductId, null, price, 1m, Guid.Empty, unitPrice: null,
+            PriceSource.Deal, "Flyer", SourceRef, DateTimeOffset.UtcNow, UserId,
+            validFrom: from, validTo: to);
+
     [Fact]
     public async Task CheapestActiveDeal_Returns_Min_UnitPrice_In_Window()
     {
@@ -130,6 +137,74 @@ public sealed class PricingQueriesTests
         var result = await queries.EffectivePriceAsync(ProductId, Today);
 
         Assert.Null(result);
+    }
+
+    // ── plantry-pxjp: EffectiveCostablePriceAsync skips unit-less deals for costing ─────────────────
+
+    [Fact]
+    public async Task EffectiveCostablePrice_Skips_Unitless_Active_Deal_Falls_Back_To_Latest_Purchase()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, DateTimeOffset.UtcNow.AddDays(-1))); // e.g. broccoli, $3.00/ea
+        repo.Items.Add(UnitlessDeal(2.49m, new(2026, 7, 1), new(2026, 7, 7))); // active, cheaper, no unit
+
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectiveCostablePriceAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        Assert.Equal(PriceSource.Purchase, result.Source);
+        Assert.Equal(3.00m, result.UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectiveCostablePrice_Prefers_Fully_Specified_Active_Deal_Over_Purchase()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(4.00m, DateTimeOffset.UtcNow.AddDays(-1)));
+        repo.Items.Add(Deal(2.50m, new(2026, 7, 1), new(2026, 7, 7))); // active, usable unit — should win
+
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectiveCostablePriceAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        Assert.Equal(PriceSource.Deal, result.Source);
+        Assert.Equal(2.50m, result.UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectiveCostablePrice_Returns_Null_When_Only_An_Unitless_Deal_Exists()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(UnitlessDeal(2.49m, new(2026, 7, 1), new(2026, 7, 7))); // active, but no purchase to fall back to
+
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectiveCostablePriceAsync(ProductId, Today);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task EffectiveCostablePrice_Falls_Back_When_Active_Deal_Has_Null_UnitPrice_But_A_Real_Unit()
+    {
+        // Degenerate case: a unit id is present but the unit-price calculator soft-failed (null UnitPrice).
+        // Still not costable — the conversion basis (a derived per-unit price) is missing either way.
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, DateTimeOffset.UtcNow.AddDays(-1)));
+        var degenerateDeal = PriceObservation.Record(Household, ProductId, null, 2.49m, 1m, UnitId, unitPrice: null,
+            PriceSource.Deal, "Flyer", SourceRef, DateTimeOffset.UtcNow, UserId,
+            validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7));
+        repo.Items.Add(degenerateDeal);
+
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectiveCostablePriceAsync(ProductId, Today);
+
+        Assert.NotNull(result);
+        Assert.Equal(PriceSource.Purchase, result.Source);
+        Assert.Equal(3.00m, result.UnitPrice);
     }
 
     // ── ADR-023 A7: PricingQueries never surfaces a superseded observation ──────────────────────────
