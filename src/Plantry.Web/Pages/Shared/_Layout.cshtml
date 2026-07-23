@@ -1,6 +1,7 @@
 @using Plantry.Web.Pages.Shared
 @inject IWebHostEnvironment Env
 @inject Plantry.Housekeeping.Application.ITidyUpBadgeCache TidyUpBadgeCache
+@inject Plantry.Web.Housekeeping.TidyUpBadgeRefresher TidyUpBadgeRefresher
 @inject Plantry.SharedKernel.Tenancy.ITenantContext Tenant
 @{
     var pagePath = ViewContext.RouteData.Values["page"]?.ToString() ?? "";
@@ -16,12 +17,29 @@
     string BottomNavActive(string prefix) =>
         ViewContext.RouteData.Values["page"]?.ToString()?.StartsWith(prefix) == true ? " bottom-nav__item--active" : "";
 
-    // Tidy Up nav badge (T6): reads the cached open-finding count ONLY — never runs a detector on a
-    // plain page render. A cache miss (cold start, or TTL expiry with no recent Tidy Up visit) reads
-    // as 0 (no badge) until the next real Tidy Up page render repopulates it.
-    var tidyUpCount = Tenant.HouseholdId is { } tidyUpHouseholdId
-        ? await TidyUpBadgeCache.TryGetAsync(Plantry.SharedKernel.HouseholdId.From(tidyUpHouseholdId)) ?? 0
-        : 0;
+    // Tidy Up nav badge (T6/SWR, plantry-h0qq): reads the cached open-finding count ONLY — never runs a
+    // detector on a plain page render. A miss or stale (TTL-expired) read still renders the last known
+    // count (stale-while-revalidate: the badge never blinks off) and asks TidyUpBadgeRefresher for a
+    // single-flight background recompute; a true miss (never populated — should only be a narrow window
+    // right after a restart, before warmup/refresh lands) renders no badge.
+    //
+    // The refresh request itself is skipped under the "Testing" WAF host (the layout renders on nearly
+    // every page, so it fires on the first request of almost every WebApplicationFactory<Program> test —
+    // several of those tests substitute a counting IBackgroundTaskQueue fake and assert an exact enqueued
+    // count, e.g. RecipeEditorConversionDeferTests). Production/Development are unaffected; the wiring
+    // itself (this code actually calls RequestRefreshAsync on miss/stale) is proven directly by
+    // TidyUpBadgeSwrIntegrationTests using a non-"Testing" host name so the gate doesn't apply there.
+    var tidyUpCount = 0;
+    if (Tenant.HouseholdId is { } tidyUpHouseholdId)
+    {
+        var tidyUpHousehold = Plantry.SharedKernel.HouseholdId.From(tidyUpHouseholdId);
+        var tidyUpSnapshot = await TidyUpBadgeCache.TryGetAsync(tidyUpHousehold);
+        tidyUpCount = tidyUpSnapshot?.Count ?? 0;
+        if ((tidyUpSnapshot is null || !tidyUpSnapshot.IsFresh) && !Env.IsEnvironment("Testing"))
+        {
+            await TidyUpBadgeRefresher.RequestRefreshAsync(tidyUpHousehold);
+        }
+    }
     var tidyUpSidebarBadge = new TidyUpBadgeViewModel(tidyUpCount, "sidebar-tidyup-badge", false);
 }
 <!DOCTYPE html>

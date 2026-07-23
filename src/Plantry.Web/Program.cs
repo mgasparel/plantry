@@ -455,6 +455,14 @@ builder.Services.AddScoped<RestoreFindingCommand>();
 builder.Services.AddSingleton<ITidyUpBadgeCache>(_ => new TidyUpBadgeCache(SystemClock.Instance));
 // IProblemDetector implementations (D1 + D2, v1 — T8) → Plantry.Composition (AddCrossContextAdapters).
 
+// T6 proactive population (plantry-h0qq): the layout/More-hub read path never runs detectors, but a
+// miss or stale (SWR-expired) cache read requests a single-flight background recompute here, and every
+// process start warms every household up front — see TidyUpBadgeRefresher/TidyUpBadgeWarmup for the
+// tenancy-arming and single-flight details. Singletons: the refresher's in-flight guard and the queue it
+// wraps are both process-wide state; the warmup owns no per-request state and opens its own scope.
+builder.Services.AddSingleton<TidyUpBadgeRefresher>();
+builder.Services.AddSingleton<TidyUpBadgeWarmup>();
+
 // IFlyerSource is the untrusted Flipp seam (D1). Production wires the real Flipp adapter (P5-3): a typed
 // HttpClient (base URL + locale + browser UA from the Deals:Flipp config; standard resilience — timeout +
 // retry — applied to every HttpClient by ServiceDefaults) mapping raw Flipp payloads to RawDeal/DirectoryMerchant.
@@ -813,5 +821,20 @@ if (app.Environment.IsDevelopment())
 app.MapStaticAssets();
 app.MapRazorPages().WithStaticAssets();
 app.MapDefaultEndpoints();
+
+// T6 badge warmup (plantry-h0qq): fire-and-forget once the host finishes starting, so the badge cache
+// is populated for every household before the first real request without delaying boot. Skipped under
+// the "Testing" WAF host: each of the many WebApplicationFactory<Program> classes in Plantry.Tests.Web
+// boots its own throwaway app instance, so an eager cross-household detector sweep on every one of them
+// would only add DB load and log noise — those hosts still get correct badge behavior via the
+// miss/stale-triggered TidyUpBadgeRefresher, and TidyUpBadgeWarmup itself is covered directly by
+// TidyUpBadgeWarmupTests rather than by this hook firing.
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.Lifetime.ApplicationStarted.Register(() =>
+    {
+        _ = app.Services.GetRequiredService<TidyUpBadgeWarmup>().RunAsync(app.Lifetime.ApplicationStopping);
+    });
+}
 
 app.Run();

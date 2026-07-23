@@ -138,7 +138,7 @@ public sealed class GetTidyUpPageQueryTests
         var result = await query.ExecuteAsync();
 
         Assert.Equal(2, result.OpenCount);
-        Assert.Equal(2, await badgeCache.TryGetAsync(Household));
+        Assert.Equal(2, (await badgeCache.TryGetAsync(Household))?.Count);
     }
 
     [Fact(DisplayName = "Dismissed list is ordered most-recently-dismissed first")]
