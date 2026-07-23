@@ -210,6 +210,18 @@ public static class RecipeDetailFixture
     /// <summary>No price points → nothing costable is priced → CostCompleteness.None (dash cell).</summary>
     public static IReadOnlyDictionary<Guid, PricePoint> PricesNone() =>
         new Dictionary<Guid, PricePoint>();
+
+    /// <summary>
+    /// Only Pasta priced (Tomatoes AND Garlic un-priced) → still Partial, but with TWO distinct missing
+    /// products instead of one (plantry-rpg8) — pins the plural branch of the Partial popover's bolded
+    /// count ("N ingredients … aren't priced … their prices"), complementing the base <see cref="Prices"/>
+    /// fixture's single-missing-product (singular) case.
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, PricePoint> PricesPastaOnly() =>
+        new Dictionary<Guid, PricePoint>
+        {
+            [PastaId] = new(PastaId, Price: 2.00m, Quantity: 1000m, UnitId: GramUnitId, UnitPrice: 0.002m),
+        };
 }
 
 /// <summary>

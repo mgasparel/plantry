@@ -197,10 +197,24 @@
                                         @* House popover trigger (plantry-zxo4) replaces the native title-attr tooltip:
                                            names the un-priced ingredients and links each to its Pantry product page,
                                            where plantry-3fqm's Set-price sheet lives. *@
+                                        var missingPriceCount = recipe.MissingPriceIngredients.Count;
                                         <span class="rd-meta__flag">
                                             <popover position="below-end" label="~">
                                                 <span class="pop-kicker">Partial estimate</span>
-                                                <span class="pop-body"><b>@(cost.CostableCount - cost.PricedCount) of @cost.CostableCount</b> ingredients aren't priced yet, so the real cost is higher. Set their prices to complete it:</span>
+                                                @* plantry-rpg8: bold the distinct unpriced-product count (the
+                                                   rendered link list's own length) with no "of M" denominator —
+                                                   the costing engine aggregates by (ProductId, UnitId), so a
+                                                   line-based N could exceed the product-based row count below
+                                                   when one product backs two costable lines (e.g. parent +
+                                                   inclusion in different units). *@
+                                                @if (missingPriceCount == 1)
+                                                {
+                                                    <span class="pop-body"><b>1 ingredient</b> isn't priced yet, so the real cost is higher. Set its price to complete it:</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="pop-body"><b>@missingPriceCount ingredients</b> aren't priced yet, so the real cost is higher. Set their prices to complete it:</span>
+                                                }
                                                 <ul class="pop-rows">
                                                     @foreach (var ingredient in recipe.MissingPriceIngredients)
                                                     {

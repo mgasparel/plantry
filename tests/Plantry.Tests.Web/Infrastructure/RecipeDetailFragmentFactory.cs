@@ -183,6 +183,16 @@ public sealed class RecipeDetailNoCostFactory : RecipeDetailFragmentFactory
 }
 
 /// <summary>
+/// Variant: only Pasta priced — Tomatoes AND Garlic un-priced — still <c>CostCompleteness.Partial</c>
+/// but with TWO distinct missing products (plantry-rpg8). Pins the plural branch of the Partial popover's
+/// bolded count, complementing the base factory's single-missing-product (singular) fixture.
+/// </summary>
+public sealed class RecipeDetailTwoMissingPricesFactory : RecipeDetailFragmentFactory
+{
+    protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesPastaOnly();
+}
+
+/// <summary>
 /// Variant: fully-priced (Full) cost rendered for a EUR household (plantry-2x6e.2) — proves the cost meta
 /// renders the '€' symbol from MoneyDisplay rather than a hardcoded '$'.
 /// </summary>
