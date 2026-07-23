@@ -3187,9 +3187,15 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  /* No overflow/text-overflow clipping (plantry-fh2g): the missing-price popover's panel
+     (.popover__content) is absolutely positioned relative to a .popover wrapper nested inside
+     this element, so an overflow:hidden here clips the panel below the one-line-tall box even
+     though the hover reveal fires correctly — the panel is present but invisible. white-space:
+     nowrap alone is enough; the stat values here are short and bounded ("25 min", "4", a
+     formatted price), so there was never real content to truncate. If a future stat value ever
+     needs truncation, move the flag OUTSIDE .rd-meta__val (value + flag as flex siblings)
+     rather than reintroducing the clip. */
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .rd-meta__val--mono { font-family: var(--font-mono); }

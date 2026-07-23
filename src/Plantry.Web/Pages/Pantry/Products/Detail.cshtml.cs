@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
@@ -24,12 +25,11 @@ public sealed class DetailModel(
     ICatalogReadFacade catalog,
     IUnitRepository units,
     ILocationRepository locations,
-    IProductRepository products,
-    ICategoryRepository categories,
     IStockProvenanceReader provenance,
     IPriceObservationRepository priceRepository,
     IUnitPriceCalculator priceCalculator,
     PricingQueries pricingQueries,
+    ProductQueryService catalogProducts,
     RecipesUsingProductQuery recipeUsages,
     DisplayCurrencyAccessor displayCurrency,
     IClock clock,
@@ -266,7 +266,7 @@ public sealed class DetailModel(
         if (!ModelState.IsValid)
             return await ReloadAddStockSheetAsync(id);
 
-        var expiry = await ResolveExpiryAsync(id, AddStockInput.ExpiryDate);
+        var expiry = AddStockInput.ExpiryDate ?? await catalogProducts.DefaultExpiryDateAsync(id);
 
         var cmd = new AddStockCommand(
             id, AddStockInput.Quantity!.Value, AddStockInput.UnitId!.Value, AddStockInput.LocationId!.Value,
@@ -431,23 +431,6 @@ public sealed class DetailModel(
         await LoadUnitOptionsAsync();
         await LoadLocationOptionsAsync();
         return Partial("_AddStockSheet", this);
-    }
-
-    /// <summary>Same default-expiry fallback chain as <c>Pantry.IndexModel.ResolveExpiryAsync</c>
-    /// (DM-11 via <see cref="ExpiryDefaultResolver"/>) — an explicitly entered date always wins.</summary>
-    private async Task<DateOnly?> ResolveExpiryAsync(Guid productId, DateOnly? entered)
-    {
-        if (entered is not null) return entered;
-
-        // Fully qualified: this page already has an instance ProductId property (Guid), which would
-        // otherwise shadow the Catalog ProductId value-object type of the same simple name.
-        var product = await products.FindAsync(Plantry.Catalog.Domain.ProductId.From(productId));
-        if (product is null) return null;
-
-        Category? category = product.CategoryId is { } categoryId ? await categories.FindAsync(categoryId) : null;
-        return ExpiryDefaultResolver.ResolveDefaultDueDays(product, category) is { } dueDays
-            ? Today().AddDays(dueDays)
-            : null;
     }
 
     private DateOnly Today() => DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);

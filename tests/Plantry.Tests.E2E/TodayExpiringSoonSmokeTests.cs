@@ -1,5 +1,6 @@
 using Microsoft.Playwright;
 using Plantry.Tests.E2E.Infrastructure;
+using Plantry.Web.Dev;
 using Xunit;
 
 namespace Plantry.Tests.E2E;
@@ -10,9 +11,13 @@ namespace Plantry.Tests.E2E;
 ///
 ///   "A household with an expiring lot sees it on Home."
 ///
-/// Journey:
-///   Register a fresh household → create a product → add stock with an expiry date within 7 days
-///   → navigate to Today → verify the expiring-soon widget shows the product name and a day badge.
+/// Converted (plantry-abq5) from UI-authored setup to the seed-then-navigate path: rather than
+/// registering a fresh household and authoring a product + stock entry through the Pantry editor,
+/// seed the demo household (<see cref="DevSeedHelper.SeedDemoDataAsync"/> — additive, idempotent) and
+/// sign in AS the demo user to reach its pre-seeded expiring stock ("Chicken breast", 2 days out —
+/// see <see cref="FakeDataSeeder"/>'s inventory stock plan). Demo LOGIN replaces registration here
+/// because the seed endpoint targets a fixed demo household, not the calling session's — see
+/// <see cref="DevSeedHelper"/>'s doc comment for the verified mechanic.
 ///
 /// Run with: dotnet test --filter "Category=E2E"
 /// </summary>
@@ -24,6 +29,10 @@ public sealed class TodayExpiringSoonSmokeTests(AppHostFixture appHost) : IAsync
     private IBrowser _browser = null!;
 
     private string BaseUrl => appHost.BaseUrl;
+
+    /// <summary>Seeded (FakeDataSeeder.SeedInventoryAsync) with an expiry 2 days out — within the
+    /// default expiring-soon horizon.</summary>
+    private const string ProductName = "Chicken breast";
 
     public async Task InitializeAsync()
     {
@@ -40,13 +49,6 @@ public sealed class TodayExpiringSoonSmokeTests(AppHostFixture appHost) : IAsync
     [Fact(DisplayName = "Today: household with expiring stock sees it in the expiring-soon widget (plantry-81x/AC1)")]
     public async Task Today_ExpiringSoon_ShowsProductWithExpiryInWidget()
     {
-        var uniqueEmail = $"expiring-{Guid.NewGuid():N}@test.local";
-        const string password = "testpass1";
-        var productName = $"ExpirySmoke {Guid.NewGuid():N}".Substring(0, 20);
-
-        // Expiry date: 3 days from now (well within the 7-day window)
-        var expiryDate = DateTime.UtcNow.AddDays(3).ToString("yyyy-MM-dd");
-
         await using var context = await _browser.NewContextAsync(
             new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
         await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
@@ -56,48 +58,17 @@ public sealed class TodayExpiringSoonSmokeTests(AppHostFixture appHost) : IAsync
             var page = await context.NewPageAsync();
             page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
 
-            // ── 1. Register a fresh household ─────────────────────────────────────
-            await page.GotoAsync($"{BaseUrl}/Account/Register");
-            await page.WaitForURLAsync("**/Account/Register");
-            await page.FillAsync("[name='Input.HouseholdName']", "Expiry Test Household");
-            await page.FillAsync("[name='Input.Email']", uniqueEmail);
-            await page.FillAsync("[name='Input.DisplayName']", "Expiry Tester");
-            await page.FillAsync("[name='Input.Password']", password);
+            // ── 1. Seed the demo household (additive, idempotent), then sign in as the demo user ──
+            await DevSeedHelper.SeedDemoDataAsync(page, BaseUrl);
+
+            await page.GotoAsync($"{BaseUrl}/Account/Login");
+            await page.WaitForURLAsync("**/Account/Login**");
+            await page.FillAsync("[name='Input.Email']", FakeDataSeeder.DemoEmail);
+            await page.FillAsync("[name='Input.Password']", FakeDataSeeder.DemoPassword);
             await page.ClickAsync("button[type=submit]");
             await page.WaitForURLAsync("**/Today**");
 
-            // ── 2. Create a product ───────────────────────────────────────────────
-            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
-            await page.WaitForURLAsync("**/Catalog/Products/Create");
-            await page.FillAsync("[name='Input.Name']", productName);
-            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.ClickAsync("button:has-text('Create Product')");
-            await page.WaitForURLAsync("**/Catalog/Products/**");
-
-            // ── 3. Add stock with an expiry date within the window ────────────────
-            await page.GotoAsync($"{BaseUrl}/Pantry");
-            await page.WaitForURLAsync("**/Pantry**");
-            await page.ClickAsync("button:has-text('Add stock')");
-            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
-
-            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
-            await productSearch.FillAsync(productName);
-            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
-            await Assertions.Expect(productOption).ToBeVisibleAsync();
-            await productOption.ClickAsync();
-
-            await page.FillAsync("[name='Input.Quantity']", "250");
-            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
-            await page.FillAsync("[name='Input.ExpiryDate']", expiryDate);
-            await page.ClickAsync("button:has-text('Add to pantry')");
-
-            // Confirm the stock row appears in the Pantry table
-            var pantryRow = page.Locator("tr", new() { HasText = productName });
-            await Assertions.Expect(pantryRow).ToBeVisibleAsync(
-                new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-
-            // ── 4. Navigate to Today and verify expiring-soon widget ───────────────
+            // ── 2. Navigate to Today and verify expiring-soon widget ───────────────
             await page.GotoAsync($"{BaseUrl}/Today");
             await page.WaitForURLAsync("**/Today**");
             await page.Locator(".today-wrap").WaitForAsync();
@@ -107,8 +78,8 @@ public sealed class TodayExpiringSoonSmokeTests(AppHostFixture appHost) : IAsync
             await Assertions.Expect(widget).ToBeVisibleAsync(
                 new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
-            // The product name must appear in the expiring list
-            var expRow = page.Locator(".today-exp-row", new() { HasText = productName });
+            // The seeded product must appear in the expiring list
+            var expRow = page.Locator(".today-exp-row", new() { HasText = ProductName });
             await Assertions.Expect(expRow).ToBeVisibleAsync(
                 new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
 

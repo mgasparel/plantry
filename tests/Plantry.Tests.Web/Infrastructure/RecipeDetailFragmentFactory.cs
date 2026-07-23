@@ -63,7 +63,20 @@ file sealed class NullShoppingListRepository : IShoppingListRepository
 public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
 {
     /// <summary>The recipe used in all Detail snapshots; expose it so tests can construct the URL.</summary>
-    public Recipe Recipe { get; } = RecipeDetailFixture.Build();
+    public Recipe Recipe { get; }
+
+    public RecipeDetailFragmentFactory()
+    {
+        Recipe = BuildRecipe();
+    }
+
+    /// <summary>
+    /// The recipe fixture this factory serves. Default is the mixed-shape fixture
+    /// (<see cref="RecipeDetailFixture.Build"/>). A derived factory overrides this to exercise a
+    /// different recipe shape — e.g. <see cref="RecipeDetailAllUntrackedFactory"/>, which serves the
+    /// all-untracked shape (<see cref="RecipeDetailFixture.BuildAllUntracked"/>).
+    /// </summary>
+    protected virtual Recipe BuildRecipe() => RecipeDetailFixture.Build();
 
     public Guid RecipeId => Recipe.Id.Value;
 
@@ -170,6 +183,16 @@ public sealed class RecipeDetailNoCostFactory : RecipeDetailFragmentFactory
 }
 
 /// <summary>
+/// Variant: only Pasta priced — Tomatoes AND Garlic un-priced — still <c>CostCompleteness.Partial</c>
+/// but with TWO distinct missing products (plantry-rpg8). Pins the plural branch of the Partial popover's
+/// bolded count, complementing the base factory's single-missing-product (singular) fixture.
+/// </summary>
+public sealed class RecipeDetailTwoMissingPricesFactory : RecipeDetailFragmentFactory
+{
+    protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesPastaOnly();
+}
+
+/// <summary>
 /// Variant: fully-priced (Full) cost rendered for a EUR household (plantry-2x6e.2) — proves the cost meta
 /// renders the '€' symbol from MoneyDisplay rather than a hardcoded '$'.
 /// </summary>
@@ -177,6 +200,18 @@ public sealed class RecipeDetailEurCostFactory : RecipeDetailFragmentFactory
 {
     protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesFull();
     protected override string DisplayCurrency => "EUR";
+}
+
+/// <summary>
+/// Variant: every ingredient is untracked / "to taste" (null Quantity/UnitId) — <c>CostableCount == 0</c>
+/// (plantry-7vb7). Costs to <c>CostCompleteness.None</c> like <see cref="RecipeDetailNoCostFactory"/>, but
+/// with an empty <c>MissingPriceProductIds</c> list (nothing is costable, so nothing can be "missing a
+/// price") — the meta strip must render the bare dash with no "i" trigger/popover at all.
+/// </summary>
+public sealed class RecipeDetailAllUntrackedFactory : RecipeDetailFragmentFactory
+{
+    protected override Recipe BuildRecipe() => RecipeDetailFixture.BuildAllUntracked();
+    protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesNone();
 }
 
 /// <summary>

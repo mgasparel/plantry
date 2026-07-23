@@ -197,15 +197,29 @@
                                         @* House popover trigger (plantry-zxo4) replaces the native title-attr tooltip:
                                            names the un-priced ingredients and links each to its Pantry product page,
                                            where plantry-3fqm's Set-price sheet lives. *@
+                                        var missingPriceCount = recipe.MissingPriceIngredients.Count;
                                         <span class="rd-meta__flag">
                                             <popover position="below-end" label="~">
                                                 <span class="pop-kicker">Partial estimate</span>
-                                                <span class="pop-body"><b>@(cost.CostableCount - cost.PricedCount) of @cost.CostableCount</b> ingredients aren't priced yet, so the real cost is higher. Set their prices to complete it:</span>
+                                                @* plantry-rpg8: bold the distinct unpriced-product count (the
+                                                   rendered link list's own length) with no "of M" denominator —
+                                                   the costing engine aggregates by (ProductId, UnitId), so a
+                                                   line-based N could exceed the product-based row count below
+                                                   when one product backs two costable lines (e.g. parent +
+                                                   inclusion in different units). *@
+                                                @if (missingPriceCount == 1)
+                                                {
+                                                    <span class="pop-body"><b>1 ingredient</b> isn't priced yet, so the real cost is higher. Set its price to complete it:</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="pop-body"><b>@missingPriceCount ingredients</b> aren't priced yet, so the real cost is higher. Set their prices to complete it:</span>
+                                                }
                                                 <ul class="pop-rows">
                                                     @foreach (var ingredient in recipe.MissingPriceIngredients)
                                                     {
                                                         <li>
-                                                            <a href="/Pantry/Products/@ingredient.ProductId">
+                                                            <a href="/Pantry/Products/Detail/@ingredient.ProductId">
                                                                 @ingredient.ProductName
                                                                 <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
                                                             </a>
@@ -223,26 +237,34 @@
                             else
                             {
                                 @* None state (plantry-zxo4): the bare "—" used to offer no explanation at all.
-                                   Same popover shape as Partial, listing every costable ingredient. *@
+                                   Same popover shape as Partial, listing every costable ingredient.
+                                   plantry-7vb7: when every ingredient is untracked (CostableCount == 0),
+                                   MissingPriceIngredients is empty and there's nothing to list — the
+                                   "missing prices" framing doesn't even apply (the issue is no costable
+                                   quantities, not missing prices), so suppress the flag/popover entirely
+                                   and render the bare em-dash. *@
                                 <div class="rd-meta__val" style="color:var(--color-text-faint)">
                                     —
-                                    <span class="rd-meta__flag">
-                                        <popover position="below-end" label="i">
-                                            <span class="pop-kicker">No cost yet</span>
-                                            <span class="pop-body">None of these ingredients have a price. Prices normally arrive with receipts — or set one on each product's page:</span>
-                                            <ul class="pop-rows">
-                                                @foreach (var ingredient in recipe.MissingPriceIngredients)
-                                                {
-                                                    <li>
-                                                        <a href="/Pantry/Products/@ingredient.ProductId">
-                                                            @ingredient.ProductName
-                                                            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
-                                                        </a>
-                                                    </li>
-                                                }
-                                            </ul>
-                                        </popover>
-                                    </span>
+                                    @if (recipe.MissingPriceIngredients.Count > 0)
+                                    {
+                                        <span class="rd-meta__flag">
+                                            <popover position="below-end" label="i">
+                                                <span class="pop-kicker">No cost yet</span>
+                                                <span class="pop-body">None of these ingredients have a price. Prices normally arrive with receipts — or set one on each product's page:</span>
+                                                <ul class="pop-rows">
+                                                    @foreach (var ingredient in recipe.MissingPriceIngredients)
+                                                    {
+                                                        <li>
+                                                            <a href="/Pantry/Products/Detail/@ingredient.ProductId">
+                                                                @ingredient.ProductName
+                                                                <svg class="icon" aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                                                            </a>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            </popover>
+                                        </span>
+                                    }
                                 </div>
                                 <div class="rd-meta__lbl">Cost per serving</div>
                             }

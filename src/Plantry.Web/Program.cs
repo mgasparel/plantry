@@ -540,7 +540,8 @@ builder.Services.AddScoped<PlanInsightsService>();
 builder.Services.AddScoped<IMealPlanWeekReadModel>(sp =>
     new MealPlanWeekReadModel(
         appUserConnStr,
-        sp.GetRequiredService<ITenantContext>()));
+        sp.GetRequiredService<ITenantContext>(),
+        sp.GetRequiredService<IClock>()));
 
 // Meal Planning — P3-6a AI generate plan (plantry-o0z).
 // GeneratePlanService orchestrates slot discovery, constraint resolution, candidate loading,

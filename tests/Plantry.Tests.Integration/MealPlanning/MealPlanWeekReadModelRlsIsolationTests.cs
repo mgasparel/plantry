@@ -202,7 +202,7 @@ public sealed class MealPlanWeekReadModelRlsIsolationTests(PostgresFixture db) :
         // TenantContext with no household set writes app.household_id = '' — RLS strict policy
         // returns no rows. The read model must not surface data from any household.
         var emptyTenant = new TenantContext(); // never called Set()
-        var rm = new MealPlanWeekReadModel(db.AppUserConnectionString, emptyTenant);
+        var rm = new MealPlanWeekReadModel(db.AppUserConnectionString, emptyTenant, SystemClock.Instance);
 
         var bag = await rm.LoadAsync([_recipeIdA, _recipeIdB], [_productIdA, _productIdB]);
 
@@ -225,7 +225,7 @@ public sealed class MealPlanWeekReadModelRlsIsolationTests(PostgresFixture db) :
     {
         var tenant = new TenantContext();
         tenant.Set(household.Value);
-        return new MealPlanWeekReadModel(db.AppUserConnectionString, tenant);
+        return new MealPlanWeekReadModel(db.AppUserConnectionString, tenant, SystemClock.Instance);
     }
 
     private CatalogDbContext NewCatalogDb(HouseholdId household)

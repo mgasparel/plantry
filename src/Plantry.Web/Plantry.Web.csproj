@@ -15,6 +15,12 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Plantry.Tests.Integration</_Parameter1>
     </AssemblyAttribute>
+    <!-- plantry-fd0x: E2E seed-consuming tests reference FakeDataSeeder's internal well-known scenario
+         names (e.g. InclusionParentRecipeName) directly rather than duplicating the literal string,
+         per plantry-abq5's "keep well-known entity names stable and documented in the seeder" discipline. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Plantry.Tests.E2E</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <!-- Real-ingest flyer fixture consumed by FakeDataSeeder (plantry-q9zr.14). Embedded (not copied to

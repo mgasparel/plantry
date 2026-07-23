@@ -23,10 +23,12 @@ namespace Plantry.Tests.Web;
 public sealed class RecipeDetailSnapshotTests(
     RecipeDetailFragmentFactory factory,
     RecipeDetailFullCostFactory fullCostFactory,
-    RecipeDetailNoCostFactory noCostFactory)
+    RecipeDetailNoCostFactory noCostFactory,
+    RecipeDetailAllUntrackedFactory allUntrackedFactory)
     : IClassFixture<RecipeDetailFragmentFactory>,
       IClassFixture<RecipeDetailFullCostFactory>,
-      IClassFixture<RecipeDetailNoCostFactory>
+      IClassFixture<RecipeDetailNoCostFactory>,
+      IClassFixture<RecipeDetailAllUntrackedFactory>
 {
     private static readonly HtmlParser Parser = new();
 
@@ -170,10 +172,11 @@ public sealed class RecipeDetailSnapshotTests(
             ?? throw new InvalidOperationException("Missing-price popover content not found.");
 
         Assert.Contains("Partial estimate", content.TextContent, StringComparison.Ordinal);
-        // Pasta and Tomatoes priced, Garlic un-priced → 1 of 3 costable ingredients unpriced. The bolded
-        // count must read the UN-priced tally (CostableCount - PricedCount), matching the "aren't priced
-        // yet" phrasing and the single-item list beneath it — not the priced count.
-        Assert.Contains("1 of 3", content.TextContent, StringComparison.Ordinal);
+        // Pasta and Tomatoes priced, Garlic un-priced → one distinct un-priced product. The bolded count
+        // (plantry-rpg8) reads the distinct-product tally (recipe.MissingPriceIngredients.Count — the
+        // rendered link list's own length), singular-worded, with no "of M" denominator.
+        Assert.Contains("1 ingredient", content.TextContent, StringComparison.Ordinal);
+        Assert.DoesNotContain(" of ", content.TextContent, StringComparison.Ordinal);
         Assert.Contains("Garlic Cloves", content.TextContent, StringComparison.Ordinal);
         // Only Garlic is un-priced — Pasta/Tomatoes must NOT appear in the list.
         Assert.DoesNotContain("Rigatoni", content.TextContent, StringComparison.Ordinal);
@@ -181,12 +184,35 @@ public sealed class RecipeDetailSnapshotTests(
 
         var link = content.QuerySelector("a")
             ?? throw new InvalidOperationException("Missing-price popover has no product link.");
-        Assert.Equal($"/Pantry/Products/{RecipeDetailFixture.GarlicId}", link.GetAttribute("href"));
+        Assert.Equal($"/Pantry/Products/Detail/{RecipeDetailFixture.GarlicId}", link.GetAttribute("href"));
 
         // Native title-attr tooltip is gone (AC3) — the "~" trigger carries no title attribute.
         var trigger = doc.QuerySelector(".rd-meta__flag .popover__trigger")
             ?? throw new InvalidOperationException("Popover trigger not found.");
         Assert.Null(trigger.GetAttribute("title"));
+    }
+
+    // ── Cost Partial, plural: two distinct missing products → "N ingredients" copy (plantry-rpg8) ────
+
+    [Fact]
+    public async Task Detail_cost_partial_popover_uses_plural_copy_for_multiple_missing_products()
+    {
+        // Only Pasta priced — Tomatoes AND Garlic un-priced — two distinct missing products, still
+        // Partial. The bolded count must switch to the plural branch ("N ingredients … aren't priced …
+        // their prices"), matching the two rendered link rows and completing the singular/plural split
+        // required by plantry-rpg8's acceptance criteria (the base fixture above pins the singular case).
+        using var twoMissingFactory = new RecipeDetailTwoMissingPricesFactory();
+        var html = await GetDetailPageAsync(twoMissingFactory);
+        var doc = Parser.ParseDocument(html);
+        var content = doc.QuerySelector(".rd-meta__flag .popover__content")
+            ?? throw new InvalidOperationException("Missing-price popover content not found.");
+
+        Assert.Contains("2 ingredients", content.TextContent, StringComparison.Ordinal);
+        Assert.Contains("aren't priced yet", content.TextContent, StringComparison.Ordinal);
+        Assert.DoesNotContain(" of ", content.TextContent, StringComparison.Ordinal);
+
+        var links = content.QuerySelectorAll("a").ToList();
+        Assert.Equal(2, links.Count);
     }
 
     // ── Cost currency: a non-USD (EUR) household renders the € symbol via MoneyDisplay ──────────
@@ -248,14 +274,42 @@ public sealed class RecipeDetailSnapshotTests(
         var links = content.QuerySelectorAll("a").ToList();
         Assert.Equal(3, links.Count);
         var hrefs = links.Select(a => a.GetAttribute("href")).ToList();
-        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.PastaId}", hrefs);
-        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.TomatoId}", hrefs);
-        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.GarlicId}", hrefs);
+        Assert.Contains($"/Pantry/Products/Detail/{RecipeDetailFixture.PastaId}", hrefs);
+        Assert.Contains($"/Pantry/Products/Detail/{RecipeDetailFixture.TomatoId}", hrefs);
+        Assert.Contains($"/Pantry/Products/Detail/{RecipeDetailFixture.GarlicId}", hrefs);
         Assert.Contains("Rigatoni", content.TextContent, StringComparison.Ordinal);
         Assert.Contains("Canned Tomatoes", content.TextContent, StringComparison.Ordinal);
         Assert.Contains("Garlic Cloves", content.TextContent, StringComparison.Ordinal);
         // Salt is untracked (excluded from CostableCount, C12) — must not appear in the list.
         Assert.DoesNotContain("Salt", content.TextContent, StringComparison.Ordinal);
+    }
+
+    // ── Cost None, all-untracked: no flag/popover at all (plantry-7vb7) ───────
+
+    [Fact]
+    public async Task Detail_cost_none_all_untracked_omits_flag_and_popover()
+    {
+        // Every ingredient untracked / "to taste" (null Quantity/UnitId) → CostableCount == 0,
+        // Completeness == None, MissingPriceProductIds empty. The "missing prices" popover would
+        // otherwise render a dangling empty list — the fix suppresses the "i" trigger/popover entirely
+        // and renders the bare dash, unlike the costable-but-unpriced None shape (which still shows the
+        // popover, pinned above by Detail_cost_none_popover_lists_all_costable_ingredients).
+        var html = await GetDetailPageAsync(allUntrackedFactory);
+
+        Assert.DoesNotContain("rd-meta__val--mono", html, StringComparison.Ordinal);
+
+        var doc = Parser.ParseDocument(html);
+        var costLabel = doc.QuerySelectorAll(".rd-meta__lbl")
+            .FirstOrDefault(e => e.TextContent.Trim() == "Cost per serving")
+            ?? throw new InvalidOperationException("'Cost per serving' meta cell not found.");
+        var cell = costLabel.ParentElement!;
+
+        // The bare em-dash renders...
+        Assert.Contains("—", cell.TextContent);
+        // ...but no flag/trigger/popover at all — not even an empty one.
+        Assert.Null(cell.QuerySelector(".rd-meta__flag"));
+        Assert.Null(cell.QuerySelector(".popover__trigger"));
+        Assert.Null(cell.QuerySelector(".popover__content"));
     }
 
     // ── Unauthenticated request is challenged (401 in test env, 302 in prod) ───

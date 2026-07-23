@@ -74,6 +74,34 @@ public static class RecipeDetailFixture
         return recipe;
     }
 
+    /// <summary>
+    /// Builds a variant of the fixture recipe where EVERY ingredient is untracked / "to taste"
+    /// (null Quantity/UnitId) — the all-untracked shape (plantry-7vb7). <see cref="CostingService"/>
+    /// excludes every line from <c>CostableCount</c> (C12), so this recipe always costs to
+    /// <c>CostCompleteness.None</c> with <c>CostableCount == 0</c> and an empty
+    /// <c>MissingPriceProductIds</c> — there is nothing to name because nothing is costable, as
+    /// distinct from the "costable but unpriced" None shape <see cref="Build"/> + <see cref="PricesNone"/>
+    /// exercises.
+    /// </summary>
+    public static Recipe BuildAllUntracked()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Herb Garnish", defaultServings: 4, clock).Value;
+
+        recipe.SetDirections("Sprinkle to taste.", clock);
+
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(PastaId,  Quantity: null, UnitId: null, GroupHeading: "Garnish", Ordinal: 1),
+            new IngredientLine(TomatoId, Quantity: null, UnitId: null, GroupHeading: "Garnish", Ordinal: 2),
+            new IngredientLine(SaltId,   Quantity: null, UnitId: null, GroupHeading: "Garnish", Ordinal: 3),
+        ], clock);
+
+        return recipe;
+    }
+
     /// <summary>Products the page resolves ingredient names from.</summary>
     public static IReadOnlyDictionary<Guid, CatalogProduct> Products() =>
         new Dictionary<Guid, CatalogProduct>
@@ -182,6 +210,18 @@ public static class RecipeDetailFixture
     /// <summary>No price points → nothing costable is priced → CostCompleteness.None (dash cell).</summary>
     public static IReadOnlyDictionary<Guid, PricePoint> PricesNone() =>
         new Dictionary<Guid, PricePoint>();
+
+    /// <summary>
+    /// Only Pasta priced (Tomatoes AND Garlic un-priced) → still Partial, but with TWO distinct missing
+    /// products instead of one (plantry-rpg8) — pins the plural branch of the Partial popover's bolded
+    /// count ("N ingredients … aren't priced … their prices"), complementing the base <see cref="Prices"/>
+    /// fixture's single-missing-product (singular) case.
+    /// </summary>
+    public static IReadOnlyDictionary<Guid, PricePoint> PricesPastaOnly() =>
+        new Dictionary<Guid, PricePoint>
+        {
+            [PastaId] = new(PastaId, Price: 2.00m, Quantity: 1000m, UnitId: GramUnitId, UnitPrice: 0.002m),
+        };
 }
 
 /// <summary>

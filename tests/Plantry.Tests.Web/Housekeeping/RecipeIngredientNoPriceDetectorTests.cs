@@ -57,8 +57,8 @@ public sealed class RecipeIngredientNoPriceDetectorTests
         Assert.Equal(FlourId, finding.SubjectId);
         Assert.Equal("All-Purpose Flour", finding.SubjectName);
         Assert.Contains("Sunday Pancakes", finding.Specifics);
-        Assert.Equal("/Catalog/Products/" + FlourId, finding.FixUrl);
-        Assert.Equal("Fix in Catalog", finding.FixLabel);
+        Assert.Equal("/Pantry/Products/Detail/" + FlourId, finding.FixUrl);
+        Assert.Equal("Set price in Pantry", finding.FixLabel);
     }
 
     [Fact(DisplayName = "Tracked product WITH a price observation — no finding")]

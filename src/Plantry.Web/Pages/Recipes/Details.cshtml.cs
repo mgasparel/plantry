@@ -793,7 +793,7 @@ public sealed record RecipeDetailView(
 
 /// <summary>
 /// One missing-price ingredient link for the cost-stat popover (plantry-zxo4): the resolved product
-/// name paired with its id, linking to <c>/Pantry/Products/{ProductId}</c> where plantry-3fqm's
+/// name paired with its id, linking to <c>/Pantry/Products/Detail/{ProductId}</c> where plantry-3fqm's
 /// Set-price sheet lives.
 /// </summary>
 public sealed record MissingPriceIngredientView(Guid ProductId, string ProductName);

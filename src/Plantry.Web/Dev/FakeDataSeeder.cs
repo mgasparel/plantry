@@ -264,8 +264,140 @@ public sealed class FakeDataSeeder(
             recipes.Add(recipe);
         }
 
+        // Parent-recipe-with-inclusion scenario (plantry-abq5) — closes a demo-parity gap: the seeder
+        // predates plantry-4037 (inclusion lines as collapsible roll-up rows) and shipped zero inclusion
+        // recipes, so nothing here exercised that UI. Appended separately from the RecipeSeeds loop above
+        // because RecipeSeed only carries IngredientLines; Inclusion needs a second, already-created
+        // Recipe to reference (RecipeLineSet.Create's N1/N2 + the shared ordinal space, recipe-composition.md §3).
+        recipes.AddRange(BuildInclusionScenario(householdId, products, tags, clock));
+
         await recipesDb.Recipes.AddRangeAsync(recipes, ct);
         await recipesDb.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Stable, well-known names for the parent-recipe-with-inclusion demo scenario (plantry-abq5) —
+    /// referenced by seed-consuming E2E tests, so keep these in sync with any rename here.
+    /// </summary>
+    internal const string InclusionSubRecipeName = "Basic Tomato Sauce";
+    internal const string InclusionParentRecipeName = "Beef Meatballs with Tomato Sauce";
+
+    /// <summary>
+    /// Builds the sub-recipe ("Basic Tomato Sauce", its own direct ingredients) and the parent recipe
+    /// ("Beef Meatballs with Tomato Sauce", direct ingredients PLUS one <see cref="Inclusion"/> line for
+    /// the sub) under the stable names above. "Garlic" and "Olive oil" deliberately appear in both the
+    /// parent's direct lines and the sub's lines — plantry-4037's documented duplicate-product case (both
+    /// rows show the aggregate verdict on the (ProductId, UnitId) grain) — so that scenario has seeded
+    /// coverage too. Both recipes are added to (not saved by) the caller's <c>recipes</c> list; the
+    /// sub-recipe's <see cref="RecipeId"/> is minted in-memory by <see cref="Recipe.Create"/>, and
+    /// <c>recipe_inclusion.sub_recipe_id</c> is a bare soft-reference (no FK, RecipesDbContext), so the
+    /// two can be inserted in either order within the same SaveChanges.
+    /// </summary>
+    private List<Recipe> BuildInclusionScenario(
+        HouseholdId householdId,
+        Dictionary<string, Product> products,
+        Dictionary<string, Tag> tags,
+        IClock clock)
+    {
+        // Defensive: this scenario depends on a fixed set of ProductTemplates entries. Fail loud (not the
+        // RecipeSeeds loop's silent skip) — an E2E scope item depends on this recipe always being present.
+        string[] required =
+        [
+            "Chopped tomatoes", "Onions", "Garlic", "Olive oil", "Oregano", "Sea salt",
+            "Beef mince", "Breadcrumbs",
+        ];
+        var missing = required.Where(n => !products.ContainsKey(n)).ToList();
+        if (missing.Count > 0)
+            throw new InvalidOperationException(
+                $"Inclusion demo scenario seed data references products missing from the catalog: " +
+                $"{string.Join(", ", missing)}. Check ProductTemplates.");
+
+        Recipe BuildRecipe(
+            string name, string? source, int? cookTimeMinutes, int servings, string[] tagNames,
+            (string Product, decimal? Qty, string? Group)[] lines, string directions,
+            IReadOnlyList<InclusionLine> inclusions)
+        {
+            var created = Recipe.Create(householdId, name, servings, clock);
+            if (created.IsFailure)
+                throw new InvalidOperationException(
+                    $"Inclusion demo seed recipe '{name}' is invalid: {created.Error.Description}");
+
+            var recipe = created.Value;
+            recipe.SetSource(source, clock);
+            recipe.SetCookTime(cookTimeMinutes, clock);
+            recipe.SetDirections(directions, clock);
+
+            var ingredientLines = lines.Select((l, i) =>
+            {
+                var product = products[l.Product];
+                AssertSeedLineSatisfiesR5(product, l.Qty, name);
+                Guid? unit = l.Qty.HasValue ? product.DefaultUnitId.Value : null;
+                return new IngredientLine(product.Id.Value, l.Qty, unit, l.Group, i);
+            }).ToList();
+
+            // Inclusions share the ordinal space with ingredients (N3) — they continue numbering
+            // immediately after the direct ingredient lines built above.
+            var offsetInclusions = inclusions
+                .Select((inc, i) => inc with { Ordinal = ingredientLines.Count + i })
+                .ToList();
+
+            var lineSet = RecipeLineSet.Create(ingredientLines, offsetInclusions, recipe.Id);
+            if (lineSet.IsFailure)
+                throw new InvalidOperationException(
+                    $"Inclusion demo seed recipe '{name}' lines are invalid: {lineSet.Error.Description}");
+
+            recipe.ReplaceLines(lineSet.Value, clock);
+
+            var tagIds = tagNames.Where(tags.ContainsKey).Select(t => tags[t].Id).ToList();
+            recipe.SetTags(tagIds, clock);
+
+            return recipe;
+        }
+
+        var sub = BuildRecipe(
+            InclusionSubRecipeName, "Plantry kitchen", 20, 4,
+            ["Vegan", "Vegetarian"],
+            [
+                ("Chopped tomatoes", 800m, null),
+                ("Onions",           150m, null),
+                ("Garlic",            10m, null),
+                ("Olive oil",         30m, null),
+                ("Oregano",            5m, null),
+                ("Sea salt",         null, null),
+            ],
+            """
+            Heat the olive oil and soften the diced onion for 5 minutes.
+
+            Stir in the garlic and oregano and cook until fragrant.
+
+            Add the chopped tomatoes and simmer for 15 minutes until thickened.
+
+            Season to taste.
+            """,
+            inclusions: []);
+
+        var parent = BuildRecipe(
+            InclusionParentRecipeName, "Plantry kitchen", 45, 4,
+            ["Meat"],
+            [
+                ("Beef mince",   500m, null),
+                ("Breadcrumbs",   50m, null),
+                ("Garlic",        10m, null),
+                ("Olive oil",     15m, null),
+            ],
+            """
+            Combine the beef mince, breadcrumbs and garlic; shape into meatballs.
+
+            Fry the meatballs in the olive oil until browned all over.
+
+            Add the tomato sauce and simmer the meatballs through for 15 minutes.
+
+            Serve with the sauce spooned over.
+            """,
+            // One full batch (all 4 servings) of the sub-recipe. Ordinal reassigned in BuildRecipe above.
+            inclusions: [new InclusionLine(sub.Id, Servings: 4m, GroupHeading: null, Ordinal: 0)]);
+
+        return [sub, parent];
     }
 
     private List<Product> BuildProducts(

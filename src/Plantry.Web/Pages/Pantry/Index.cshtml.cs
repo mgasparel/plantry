@@ -22,7 +22,6 @@ public sealed class IndexModel(
     InventoryQueryService queries,
     ICatalogReadFacade catalog,
     Plantry.Inventory.Domain.IProductStockRepository stocks,
-    IProductRepository products,
     IUnitRepository units,
     ICategoryRepository categories,
     ILocationRepository locations,
@@ -134,7 +133,7 @@ public sealed class IndexModel(
         if (!ModelState.IsValid)
             return await ReloadSheetAsync();
 
-        var expiry = await ResolveExpiryAsync(Input.ProductId!.Value, Input.ExpiryDate);
+        var expiry = Input.ExpiryDate ?? await catalogProducts.DefaultExpiryDateAsync(Input.ProductId!.Value);
 
         var cmd = new AddStockCommand(
             Input.ProductId!.Value, Input.Quantity!.Value, Input.UnitId!.Value, Input.LocationId!.Value,
@@ -306,19 +305,6 @@ public sealed class IndexModel(
     {
         await LoadAddOptionsAsync();
         return Partial("_AddStockSheet", this);
-    }
-
-    private async Task<DateOnly?> ResolveExpiryAsync(Guid productId, DateOnly? entered)
-    {
-        if (entered is not null) return entered;
-
-        var product = await products.FindAsync(ProductId.From(productId));
-        if (product is null) return null;
-
-        Category? category = product.CategoryId is { } categoryId ? await categories.FindAsync(categoryId) : null;
-        return ExpiryDefaultResolver.ResolveDefaultDueDays(product, category) is { } dueDays
-            ? Today().AddDays(dueDays)
-            : null;
     }
 
     private async Task LoadAddOptionsAsync()
