@@ -64,7 +64,7 @@ public sealed class RecipeDetailSharedInclusionMissingPriceTests
 
         var links = content.QuerySelectorAll("a").ToList();
         Assert.Single(links);
-        Assert.Equal($"/Pantry/Products/{CheeseId}", links[0].GetAttribute("href"));
+        Assert.Equal($"/Pantry/Products/Detail/{CheeseId}", links[0].GetAttribute("href"));
     }
 
     // ── Fixture ──────────────────────────────────────────────────────────────────────────────────────────

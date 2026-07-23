@@ -84,8 +84,8 @@ public sealed class RecipeIngredientNoPriceDetector(
                 SubjectName: product.Name,
                 Specifics: specifics,
                 Consequence: "Recipe cost-per-serving is silently incomplete",
-                FixUrl: $"/Catalog/Products/{productId}",
-                FixLabel: "Fix in Catalog",
+                FixUrl: $"/Pantry/Products/Detail/{productId}",
+                FixLabel: "Set price in Pantry",
                 FactsFingerprint: ConstantFingerprint));
         }
 

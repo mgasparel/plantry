@@ -184,7 +184,7 @@ public sealed class RecipeDetailSnapshotTests(
 
         var link = content.QuerySelector("a")
             ?? throw new InvalidOperationException("Missing-price popover has no product link.");
-        Assert.Equal($"/Pantry/Products/{RecipeDetailFixture.GarlicId}", link.GetAttribute("href"));
+        Assert.Equal($"/Pantry/Products/Detail/{RecipeDetailFixture.GarlicId}", link.GetAttribute("href"));
 
         // Native title-attr tooltip is gone (AC3) — the "~" trigger carries no title attribute.
         var trigger = doc.QuerySelector(".rd-meta__flag .popover__trigger")
@@ -274,9 +274,9 @@ public sealed class RecipeDetailSnapshotTests(
         var links = content.QuerySelectorAll("a").ToList();
         Assert.Equal(3, links.Count);
         var hrefs = links.Select(a => a.GetAttribute("href")).ToList();
-        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.PastaId}", hrefs);
-        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.TomatoId}", hrefs);
-        Assert.Contains($"/Pantry/Products/{RecipeDetailFixture.GarlicId}", hrefs);
+        Assert.Contains($"/Pantry/Products/Detail/{RecipeDetailFixture.PastaId}", hrefs);
+        Assert.Contains($"/Pantry/Products/Detail/{RecipeDetailFixture.TomatoId}", hrefs);
+        Assert.Contains($"/Pantry/Products/Detail/{RecipeDetailFixture.GarlicId}", hrefs);
         Assert.Contains("Rigatoni", content.TextContent, StringComparison.Ordinal);
         Assert.Contains("Canned Tomatoes", content.TextContent, StringComparison.Ordinal);
         Assert.Contains("Garlic Cloves", content.TextContent, StringComparison.Ordinal);
