@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Intake.Application;
 using Plantry.Pricing.Application;
 using Plantry.Pricing.Domain;
@@ -14,7 +15,8 @@ namespace Plantry.Web.Intake;
 public sealed class RecordPriceAdapter(
     IPriceObservationRepository repository,
     IUnitPriceCalculator calculator,
-    ITenantContext tenant) : IRecordPricePort
+    ITenantContext tenant,
+    ILogger<RecordObservationCommand> priceLogger) : IRecordPricePort
 {
     public async Task<Guid> RecordAsync(
         Guid productId, Guid? skuId, decimal price, decimal quantity, Guid unitId,
@@ -22,7 +24,7 @@ public sealed class RecordPriceAdapter(
     {
         var command = new RecordObservationCommand(
             productId, skuId, price, quantity, unitId, merchantText, sourceRef, observedAt, userId,
-            PriceSource.Purchase, repository, calculator, tenant, storeId: storeId);
+            PriceSource.Purchase, repository, calculator, tenant, priceLogger, storeId: storeId);
 
         var result = await command.ExecuteAsync(ct);
         if (result.IsFailure)

@@ -62,8 +62,10 @@ internal sealed class FakeTidyUpBadgeCache : ITidyUpBadgeCache
 
     public int? LastSetCount => _counts.Count == 0 ? null : _counts.Values.Last();
 
-    public Task<int?> TryGetAsync(HouseholdId householdId, CancellationToken ct = default) =>
-        Task.FromResult(_counts.TryGetValue(householdId.Value, out var count) ? count : (int?)null);
+    public Task<TidyUpBadgeSnapshot?> TryGetAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult(_counts.TryGetValue(householdId.Value, out var count)
+            ? new TidyUpBadgeSnapshot(count, IsFresh: true)
+            : null);
 
     public Task SetAsync(HouseholdId householdId, int count, CancellationToken ct = default)
     {

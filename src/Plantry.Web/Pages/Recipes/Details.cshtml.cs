@@ -421,41 +421,8 @@ public sealed class DetailsModel(
                 children.Add(BuildItem(l.ProductId, l.UnitId, l.Quantity, exProductLookup, exUnitLookup, displayQuantity));
             }
 
-            // Roll-up stats over DISTINCT tracked children (untracked staples excluded, matching the
-            // ingredient row's own untracked treatment) — worst-of-children status (miss > low > have),
-            // "N of M tracked in your pantry" (N = fully in stock, M = distinct tracked), and the worst
-            // (soonest) expiry across every child so urgency is never hidden behind the collapsed fold
-            // (design item 6). Interpretation: "tracked" = distinct (ProductId, UnitId) rather than raw
-            // line count, so a sub that lists the same product twice does not inflate the denominator.
-            var seenKeys = new HashSet<(Guid ProductId, Guid? UnitId)>();
-            var trackedTotal = 0;
-            var inStockCount = 0;
-            var lowCount = 0;
-            var missCount = 0;
-            for (var idx = 0; idx < childLines.Count; idx++)
-            {
-                var item = children[idx];
-                if (item.IsUntracked) continue;
-                if (!seenKeys.Add((childLines[idx].ProductId, childLines[idx].UnitId))) continue;
-                trackedTotal++;
-                switch (item.Status)
-                {
-                    case IngredientStatus.InStock: inStockCount++; break;
-                    case IngredientStatus.Low: lowCount++; break;
-                    case IngredientStatus.Missing: missCount++; break;
-                }
-            }
-            var worstStatus = trackedTotal == 0 ? IngredientStatus.Untracked
-                : missCount > 0 ? IngredientStatus.Missing
-                : lowCount > 0 ? IngredientStatus.Low
-                : IngredientStatus.InStock;
-            RollupChipView? chip = missCount > 0
-                ? new RollupChipView($"{missCount} to buy", IngredientStatus.Missing)
-                : lowCount > 0
-                    ? new RollupChipView($"{lowCount} low", IngredientStatus.Low)
-                    : null;
-            var expiryDays = children.Where(c => c.ExpiresWithinDays.HasValue).Select(c => c.ExpiresWithinDays!.Value).ToList();
-            int? worstExpiry = expiryDays.Count > 0 ? expiryDays.Min() : null;
+            var (worstStatus, chip, inStockCount, trackedTotal, worstExpiry) =
+                ComputeInclusionRollup(children, childLines);
 
             return new InclusionRowView(
                 InclusionId: inc.Id.Value,
@@ -586,6 +553,57 @@ public sealed class DetailsModel(
         // not the contradictory "1 batches" that keying off Math.Round(b, 2) would give. Singular for a
         // proper-fraction batch ("½ batch") and for a magnitude that renders as "1"; plural otherwise.
         return formatted + (b < 1m || formatted == "1" ? " batch" : " batches");
+    }
+
+    /// <summary>
+    /// Computes an inclusion roll-up row's worst-of-children verdict (plantry-4037, plantry-j4cx) — pure and
+    /// synchronous, extracted from <c>BuildInclusionRow</c> for direct L1 unit coverage. <paramref
+    /// name="children"/> and <paramref name="childLines"/> are index-aligned (same length, same order) — the
+    /// dedup key comes from <paramref name="childLines"/>[i] while the fulfillment status comes from
+    /// <paramref name="children"/>[i].
+    /// <para>
+    /// Roll-up stats are over DISTINCT tracked children (untracked staples excluded, matching the ingredient
+    /// row's own untracked treatment) — worst-of-children status (miss &gt; low &gt; have), "N of M tracked
+    /// in your pantry" (N = fully in stock, M = distinct tracked), and the worst (soonest) expiry across
+    /// EVERY child — deliberately NOT deduped — so urgency is never hidden behind the collapsed fold (design
+    /// item 6). Interpretation: "tracked" = distinct (ProductId, UnitId) rather than raw line count, so a sub
+    /// that lists the same product twice does not inflate the denominator.
+    /// </para>
+    /// </summary>
+    public static (IngredientStatus WorstStatus, RollupChipView? Chip, int InStockCount, int TrackedTotal, int? WorstExpiresWithinDays)
+        ComputeInclusionRollup(IReadOnlyList<IngredientItemView> children, IReadOnlyList<ExpandedLine> childLines)
+    {
+        var seenKeys = new HashSet<(Guid ProductId, Guid? UnitId)>();
+        var trackedTotal = 0;
+        var inStockCount = 0;
+        var lowCount = 0;
+        var missCount = 0;
+        for (var idx = 0; idx < childLines.Count; idx++)
+        {
+            var item = children[idx];
+            if (item.IsUntracked) continue;
+            if (!seenKeys.Add((childLines[idx].ProductId, childLines[idx].UnitId))) continue;
+            trackedTotal++;
+            switch (item.Status)
+            {
+                case IngredientStatus.InStock: inStockCount++; break;
+                case IngredientStatus.Low: lowCount++; break;
+                case IngredientStatus.Missing: missCount++; break;
+            }
+        }
+        var worstStatus = trackedTotal == 0 ? IngredientStatus.Untracked
+            : missCount > 0 ? IngredientStatus.Missing
+            : lowCount > 0 ? IngredientStatus.Low
+            : IngredientStatus.InStock;
+        RollupChipView? chip = missCount > 0
+            ? new RollupChipView($"{missCount} to buy", IngredientStatus.Missing)
+            : lowCount > 0
+                ? new RollupChipView($"{lowCount} low", IngredientStatus.Low)
+                : null;
+        var expiryDays = children.Where(c => c.ExpiresWithinDays.HasValue).Select(c => c.ExpiresWithinDays!.Value).ToList();
+        int? worstExpiry = expiryDays.Count > 0 ? expiryDays.Min() : null;
+
+        return (worstStatus, chip, inStockCount, trackedTotal, worstExpiry);
     }
 
     /// <summary>
