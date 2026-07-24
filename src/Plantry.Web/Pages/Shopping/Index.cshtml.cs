@@ -45,8 +45,15 @@ public sealed class IndexModel(
     /// <summary>Active categories for the recategorize dropdown (plantry-259).</summary>
     public IReadOnlyList<ShoppingCategoryOption> CategoryOptions { get; private set; } = [];
 
-    /// <summary>All household units for the inline qty editor unit select (plantry-259).</summary>
-    public IReadOnlyList<ShoppingUnitOption> UnitOptionsList { get; private set; } = [];
+    /// <summary>
+    /// Dimension-grouped unit options for the inline per-row qty editor unit select (plantry-259,
+    /// grouped in plantry-pe7n). A second, code-only build alongside <see cref="UnitOptions"/> — this
+    /// one uses the bare unit code as Text (compact for the inline row; the optgroup header already
+    /// supplies dimension context) rather than the add form's "Code — Name". No Selected is set here;
+    /// each row's <c>_ShoppingItem</c> partial projects its own per-item copies with Selected set from
+    /// that item's UnitId, since one shared base list is reused across every row on the page.
+    /// </summary>
+    public IReadOnlyList<SelectListItem> InlineUnitOptions { get; private set; } = [];
 
     /// <summary>
     /// Pantry suggestions for the "Running low in your pantry" strip (plantry-48l / plantry-14q).
@@ -459,7 +466,6 @@ public sealed class IndexModel(
         // grouped by dimension (plantry-n9iw). The "no unit" option (empty value, ungrouped) is always
         // prepended so users can add items without a unit.
         var unitOptions = await catalog.ListUnitsAsync();
-        UnitOptionsList = unitOptions;
         UnitOptions = UnitSelectListBuilder.Build(
                 unitOptions,
                 u => u.UnitId.ToString(),
@@ -468,6 +474,17 @@ public sealed class IndexModel(
                 u => u.Code)
             .Prepend(new SelectListItem("no unit", ""))
             .ToList();
+
+        // Inline per-row qty editor's unit select (plantry-pe7n): same dimension grouping, but Text
+        // is the bare code — the row is compact and the optgroup header already supplies dimension
+        // context. Built once here; each row projects its own Selected-aware copies (see
+        // ShoppingItemPartialModel.UnitOptions doc).
+        InlineUnitOptions = UnitSelectListBuilder.Build(
+            unitOptions,
+            u => u.UnitId.ToString(),
+            u => u.Code,
+            u => DimensionExtensions.Parse(u.Dimension),
+            u => u.Code);
 
         // Category options: sourced from the household's active catalog categories (plantry-259).
         // Used to populate the recategorize dropdown on uncategorized items.
@@ -515,7 +532,7 @@ public sealed record ShoppingListPartialModel(
     IReadOnlyList<SelectListItem> ProductOptions,
     IReadOnlyList<SelectListItem> UnitOptions,
     IReadOnlyList<ShoppingCategoryOption> CategoryOptions,
-    IReadOnlyList<ShoppingUnitOption> UnitOptionsList,
+    IReadOnlyList<SelectListItem> InlineUnitOptions,
     bool Oob);
 
 /// <summary>
@@ -539,8 +556,12 @@ public sealed record ShoppingSummaryPartialModel(
 /// View model passed to the <c>_ShoppingItem</c> partial — combines the item view with the
 /// category options list (for the recategorize dropdown) and unit options list (for the
 /// inline qty editor unit select), both populated server-side from the catalog (plantry-259).
+/// <see cref="UnitOptions"/> is the dimension-grouped base list shared across every row on the page
+/// (<see cref="IndexModel.InlineUnitOptions"/>, plantry-pe7n) — none of its items have Selected set;
+/// <c>_ShoppingItem</c> projects its own per-row copies with Selected derived from this item's UnitId
+/// before handing them to <c>_UnitOptionGroups</c>.
 /// </summary>
 public sealed record ShoppingItemPartialModel(
     ShoppingListItemView Item,
     IReadOnlyList<ShoppingCategoryOption> CategoryOptions,
-    IReadOnlyList<ShoppingUnitOption> UnitOptions);
+    IReadOnlyList<SelectListItem> UnitOptions);

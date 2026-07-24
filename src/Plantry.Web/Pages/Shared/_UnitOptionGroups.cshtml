@@ -7,6 +7,14 @@
     x-model-bound <select> (a @@foreach over Model.UnitOptions building raw <option> tags) and can't use
     asp-items — this partial is the one shared place those loops delegate to, instead of each
     re-implementing the group-boundary tracking. Items with no Group render outside any optgroup.
+
+    Honors SelectListItem.Selected (plantry-pe7n) for callers that pre-select the current value
+    server-side (e.g. Shopping's inline per-row qty editor, which posts a plain named <select> rather
+    than binding via asp-for). Rendered via the ternary-to-string-or-null pattern used elsewhere in this
+    codebase (Currency.cshtml, Import pages: selected="@@(cond ? "selected" : null)") rather than
+    handing the bool straight to the attribute, which can render as the literal text selected="False".
+    Existing callers that never set Selected are unaffected — it defaults to false, so the attribute is
+    simply omitted.
 *@
 @{
     string? currentGroup = null;
@@ -26,7 +34,7 @@
         }
         currentGroup = groupName;
     }
-    <option value="@u.Value">@u.Text</option>
+    <option value="@u.Value" selected="@(u.Selected ? "selected" : null)">@u.Text</option>
 }
 @if (currentGroup != null)
 {

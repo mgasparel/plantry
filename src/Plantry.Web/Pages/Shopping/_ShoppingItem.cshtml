@@ -1,12 +1,19 @@
 @using Plantry.Shopping.Application
 @using Plantry.Web.Pages.Shared
+@using Microsoft.AspNetCore.Mvc.Rendering
 @using System.Text.Json
 @model Plantry.Web.Pages.Shopping.ShoppingItemPartialModel
 
 @{
     var item = Model.Item;
     var categoryOptions = Model.CategoryOptions;
-    var unitOptionsList = Model.UnitOptions;
+    // Per-row projection (plantry-pe7n): the shared dimension-grouped base list has no Selected set
+    // (it's reused across every row), so each row builds its own copies with Selected derived from
+    // this item's current UnitId before handing them to the shared _UnitOptionGroups renderer.
+    var currentUnitValue = item.UnitId?.ToString() ?? "";
+    var inlineUnitOptions = Model.UnitOptions
+        .Select(u => new SelectListItem(u.Text, u.Value, u.Value == currentUnitValue) { Group = u.Group })
+        .ToList();
     var doneClass = item.IsChecked ? " done" : "";
     var checkOnClass = item.IsChecked ? " on" : "";
     var isFreeText = item.ProductId is null && item.FreeText is not null;
@@ -233,21 +240,13 @@
                      increase-click="qty = (+qty + 1).toFixed(3).replace(/\.?0+$/, '') || '1'"
                      decrease-label="Decrease quantity"
                      increase-label="Increase quantity" />
-            @* Unit select: populated with the household's full unit list (plantry-259).
-               The current item's unit is pre-selected; "no unit" is always available. *@
+            @* Unit select: populated with the household's full unit list, grouped by dimension
+               optgroup for consistency with the add-item form's unit select (plantry-259, plantry-n9iw,
+               grouping added plantry-pe7n). The current item's unit is pre-selected; "no unit" is
+               always available and stays a hand-rendered, ungrouped option first. *@
             <select name="unitId" class="sl-qsel" aria-label="Unit">
                 <option value="">no unit</option>
-                @foreach (var u in unitOptionsList)
-                {
-                    if (item.UnitId == u.UnitId)
-                    {
-                        <option value="@u.UnitId" selected>@u.Code</option>
-                    }
-                    else
-                    {
-                        <option value="@u.UnitId">@u.Code</option>
-                    }
-                }
+                <partial name="Shared/_UnitOptionGroups" model="inlineUnitOptions" />
             </select>
             <button type="submit" class="sl-act save" aria-label="Save quantity">
                 <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
