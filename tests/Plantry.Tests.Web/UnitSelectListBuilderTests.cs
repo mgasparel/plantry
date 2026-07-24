@@ -45,6 +45,48 @@ public sealed class UnitSelectListBuilderTests
     }
 
     [Fact]
+    public void BuildFromUnits_Reuses_The_Same_Group_Instance_Within_A_Dimension()
+    {
+        // Regression for plantry-tmv7: ASP.NET Core's <select asp-items="..."> tag helper
+        // (DefaultHtmlGenerator.GenerateGroupsAndOptions) wraps consecutive items into one <optgroup>
+        // only when their SelectListItem.Group objects are ReferenceEquals — it never compares
+        // Group.Name. A fresh `new SelectListGroup` per item silently produced one <optgroup> per
+        // option; asserting Name equality alone (as the other tests here do) can't catch that.
+        var gram = MakeUnit("g", "Gram", Dimension.Mass);
+        var kilogram = MakeUnit("kg", "Kilogram", Dimension.Mass);
+        var litre = MakeUnit("L", "Litre", Dimension.Volume);
+
+        var result = UnitSelectListBuilder.BuildFromUnits(
+            [gram, kilogram, litre],
+            u => u.Id.Value.ToString(),
+            u => u.Code);
+
+        Assert.Same(result[0].Group, result[1].Group);
+        Assert.NotSame(result[0].Group, result[2].Group);
+    }
+
+    [Fact]
+    public void Build_Generic_Reuses_The_Same_Group_Instance_Within_A_Dimension()
+    {
+        var units = new[]
+        {
+            new FakeUnitDto(Guid.NewGuid(), "kg", "mass"),
+            new FakeUnitDto(Guid.NewGuid(), "g", "mass"),
+            new FakeUnitDto(Guid.NewGuid(), "L", "volume"),
+        };
+
+        var result = UnitSelectListBuilder.Build(
+            units,
+            u => u.Id.ToString(),
+            u => u.Code,
+            u => DimensionExtensions.Parse(u.DimensionRaw),
+            u => u.Code);
+
+        Assert.Same(result[0].Group, result[1].Group);
+        Assert.NotSame(result[0].Group, result[2].Group);
+    }
+
+    [Fact]
     public void Build_Generic_Orders_By_Dimension_Then_SortKey_For_AclDtos()
     {
         var units = new[]

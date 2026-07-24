@@ -22,13 +22,16 @@ public static class UnitSelectListBuilder
     public static List<SelectListItem> BuildFromUnits(
         IEnumerable<Unit> units,
         Func<Unit, string> value,
-        Func<Unit, string> text) =>
-        UnitQueries.OrderForDropdown(units)
+        Func<Unit, string> text)
+    {
+        var groups = new Dictionary<Dimension, SelectListGroup>();
+        return UnitQueries.OrderForDropdown(units)
             .Select(u => new SelectListItem(text(u), value(u))
             {
-                Group = new SelectListGroup { Name = u.Dimension.ToString() },
+                Group = GroupFor(groups, u.Dimension),
             })
             .ToList();
+    }
 
     /// <summary>
     /// For the 3 call sites that go through an anti-corruption-layer DTO
@@ -42,13 +45,37 @@ public static class UnitSelectListBuilder
         Func<T, string> value,
         Func<T, string> text,
         Func<T, Dimension> dimension,
-        Func<T, string> sortKey) =>
-        units
+        Func<T, string> sortKey)
+    {
+        var groups = new Dictionary<Dimension, SelectListGroup>();
+        return units
             .OrderBy(dimension)
             .ThenBy(sortKey, StringComparer.OrdinalIgnoreCase)
             .Select(u => new SelectListItem(text(u), value(u))
             {
-                Group = new SelectListGroup { Name = dimension(u).ToString() },
+                Group = GroupFor(groups, dimension(u)),
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// Returns the same <see cref="SelectListGroup"/> instance for every item in a given
+    /// <see cref="Dimension"/>, rather than a fresh instance per item. This matters beyond cosmetics:
+    /// ASP.NET Core's own <c>&lt;select asp-items="..."&gt;</c> tag helper
+    /// (<c>DefaultHtmlGenerator.GenerateGroupsAndOptions</c>) wraps consecutive items into the same
+    /// &lt;optgroup&gt; only when their <see cref="SelectListItem.Group"/> objects are
+    /// <c>ReferenceEquals</c> — it does not compare <see cref="SelectListGroup.Name"/>. A fresh
+    /// <c>new SelectListGroup { Name = ... }</c> per item (the previous behaviour here) therefore
+    /// produced one &lt;optgroup&gt; per option even when every option shared the same dimension.
+    /// </summary>
+    private static SelectListGroup GroupFor(Dictionary<Dimension, SelectListGroup> groups, Dimension dimension)
+    {
+        if (!groups.TryGetValue(dimension, out var group))
+        {
+            group = new SelectListGroup { Name = dimension.ToString() };
+            groups[dimension] = group;
+        }
+
+        return group;
+    }
 }
