@@ -84,6 +84,12 @@ public sealed class PlanCostingService(
                 return new DishCost(null, false);
 
             // Use pre-computed UnitPrice when available; otherwise derive from Price / Quantity.
+            // KNOWN BUG (plantry-9n7l, follow-up to plantry-1oca): UnitPrice is Pricing's price per
+            // BASE unit of the dimension (per gram, per ml), not per price.UnitId — the same
+            // unit-basis mismatch CostingService.ComputeLineCore had, fixed in plantry-1oca. If the
+            // product's default unit (what dish.Servings is expressed in) has FactorToBase != 1
+            // (kg, lb, L), this line is wrong by that factor. Not fixed here — needs a conversion
+            // step this path doesn't have; see plantry-9n7l.
             decimal unitPrice;
             if (price.UnitPrice.HasValue)
             {

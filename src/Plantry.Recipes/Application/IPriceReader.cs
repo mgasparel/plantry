@@ -34,9 +34,15 @@ public interface IPriceReader
 /// <param name="Quantity">Number of units purchased (e.g. 500 for 500 g).</param>
 /// <param name="UnitId">Unit in which <see cref="Quantity"/> is expressed.</param>
 /// <param name="UnitPrice">
-/// Pre-computed price per single unit, if the Pricing context computed it successfully (soft-fail
-/// per pricing.md resolved-call #2 — null means the normalisation failed, not that the price is
-/// zero). When non-null, prefer this over re-deriving from Price / Quantity.
+/// Pricing's pre-computed price per BASE unit of the dimension (per gram, per ml — see
+/// <c>UnitPriceCalculatorAdapter</c>: <c>price / (quantity × unit.FactorToBase)</c>), if the
+/// normalisation succeeded (soft-fail per pricing.md resolved-call #2 — null means normalisation
+/// failed, not that the price is zero). This is <b>not</b> price per <see cref="UnitId"/> whenever
+/// that unit's <c>FactorToBase != 1</c> (kg, lb, L, ...) — it is a different, larger unit basis.
+/// <see cref="Plantry.Recipes.Domain.CostingService"/> does not use this field for costing math (it
+/// derives cost from <see cref="Price"/> / <see cref="Quantity"/>, which is already expressed per
+/// <see cref="UnitId"/> and matches its unit-conversion pipeline); treat it as a display/persistence
+/// concern for other readers (plantry-1oca).
 /// </param>
 public sealed record PricePoint(
     Guid ProductId,

@@ -248,23 +248,27 @@ public sealed class CostingService(
             if (!priceByRef.TryGetValue(refId, out var pricePoint))
                 continue; // this ref has never been priced
 
-            // Derive the unit price (price per one unit). Prefer the Pricing-computed UnitPrice;
-            // otherwise derive from Price / Quantity (guarded against zero).
+            // Derive the unit price expressed per ONE pricePoint.UnitId (price per kg, per lb, per ea —
+            // whatever unit the observation was recorded in). Deliberately NOT pricePoint.UnitPrice:
+            // that field is Pricing's normalized price per BASE unit of the dimension (per gram, per
+            // ml — see UnitPriceCalculatorAdapter), a different basis than pricePoint.UnitId whenever
+            // the observation's unit has FactorToBase != 1 (kg, lb, L, ...). Using it here would need
+            // re-basing by that unit's FactorToBase before the conversion below is valid; deriving
+            // straight from Price / Quantity is already on the right basis and needs no extra unit
+            // metadata (plantry-1oca — this mismatch understated kg/lb-priced ingredients by exactly
+            // that factor, e.g. 1000x for kg). UnitPrice remains a display/persistence concern for
+            // other readers (e.g. the product detail page) — CostingService never reads it.
             decimal unitPrice;
-            if (pricePoint.UnitPrice.HasValue)
-            {
-                unitPrice = pricePoint.UnitPrice.Value;
-            }
-            else if (pricePoint.Quantity > 0m)
+            if (pricePoint.Quantity > 0m)
             {
                 unitPrice = pricePoint.Price / pricePoint.Quantity;
             }
             else
             {
-                continue; // degenerate observation (zero quantity, no UnitPrice) — skip as a candidate
+                continue; // degenerate observation (zero/negative quantity) — skip as a candidate
             }
 
-            // The unit price is expressed in pricePoint.UnitId. Convert 1 unit of pricePoint.UnitId →
+            // unitPrice is expressed in pricePoint.UnitId. Convert 1 unit of pricePoint.UnitId →
             // the line's UnitId to get cost per line-unit. Conversion is keyed on the REF's id (the
             // variant's own conversion bridges, if any) — not the line's productId — since the price
             // and any density bridge belong to the concrete product actually priced.
