@@ -328,6 +328,8 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
 
             // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
             services.RemoveAll<IMealPlanWeekReadModel>();
@@ -481,6 +483,8 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
 
             // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
             services.RemoveAll<IMealPlanWeekReadModel>();
@@ -800,6 +804,8 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
 
             // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
             services.RemoveAll<IMealPlanWeekReadModel>();
@@ -936,6 +942,21 @@ internal sealed class NullShoppingWriter : IMealPlanShoppingWriter
 {
     public Task AddItemsAsync(IEnumerable<MealPlanShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
         => Task.CompletedTask;
+}
+
+// ── plantry-0eut null stub (no-op cook status for WAF factories that don't test the Cook strip) ──
+
+/// <summary>
+/// Always-pending <see cref="IMealPlanCookStatusReader"/> — every dish resolves to absent (pending).
+/// Registered wherever a WAF factory seeds real planned dishes but does not itself exercise the Cook
+/// strip, so <see cref="MealPlanCookStatusReaderAdapter"/>'s real Recipes/Inventory DB dependency is
+/// never constructed in these hermetic fragment tests (mirrors NullStockReader/NullPriceReader).
+/// </summary>
+internal sealed class NullCookStatusReader : IMealPlanCookStatusReader
+{
+    public Task<IReadOnlyDictionary<Guid, DishCookStatus>> GetStatusesAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, DishCookStatus>>(new Dictionary<Guid, DishCookStatus>());
 }
 
 // ── plantry-so5.3 null stubs (planning settings — no-op for WAF tests that don't test budget) ──

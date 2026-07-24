@@ -215,6 +215,9 @@ public sealed class StockProvenanceReaderAdapterTests
         public Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
             IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<CookEvent>>([]);
+        public Task<IReadOnlyDictionary<Guid, DateTimeOffset>> GetLatestCookedAtByPlannedDishIdsAsync(
+            IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, DateTimeOffset>>(new Dictionary<Guid, DateTimeOffset>());
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 

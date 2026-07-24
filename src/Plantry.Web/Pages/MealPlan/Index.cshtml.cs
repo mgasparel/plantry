@@ -40,6 +40,7 @@ public sealed class IndexModel(
     IHouseholdPlanningSettingsRepository planningSettingsRepo,
     IWeekPlanningOverrideRepository weekOverrideRepo,
     IMealPlanWeekReadModel weekReadModel,
+    IMealPlanCookStatusReader cookStatusReader,
     Plantry.Recipes.Domain.FulfillmentService recipesFulfillmentService,
     Plantry.Recipes.Domain.CostingService recipesCostingService,
     Plantry.Recipes.Application.IExpiringSoonHorizonReader expiringSoonHorizon,
@@ -971,6 +972,16 @@ public sealed class IndexModel(
             bool weekCostAnyPartial = false;
             bool weekCostAnyUnpriced = false;
 
+            // Cook strip (plantry-0eut): one batched cook-status query for every planned dish in the
+            // week, up front — never per-dish/per-meal. A dish id absent from the result is pending.
+            var allPlannedDishIds = loadedPlan.PlannedMeals
+                .SelectMany(m => m.PlannedDishes)
+                .Select(d => d.Id.Value)
+                .ToList();
+            var cookStatusByDish = allPlannedDishIds.Count > 0
+                ? await cookStatusReader.GetStatusesAsync(allPlannedDishIds, ct)
+                : new Dictionary<Guid, DishCookStatus>();
+
             foreach (var meal in loadedPlan.PlannedMeals.OrderBy(m => m.Ordinal))
             {
                 var key = CellKey(meal.Date, meal.MealSlotId);
@@ -995,17 +1006,39 @@ public sealed class IndexModel(
                         ? await catalogReader.ResolveNamesAsync(productDishIds, ct)
                         : new Dictionary<Guid, string>();
 
-                var dishNames = meal.PlannedDishes
+                // Cook strip per-dish data (plantry-0eut): identity, kind, servings, and derived
+                // done state, sharing the same name resolution as dishNames below in one pass.
+                var dishVms = meal.PlannedDishes
                     .OrderBy(d => d.Ordinal)
                     .Select(d =>
                     {
+                        string name;
+                        DishKind kind;
+                        Guid itemId;
                         if (d.RecipeId.HasValue)
-                            return enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
-                        if (d.ProductId.HasValue)
-                            return productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product");
-                        return "Unknown";
+                        {
+                            name = enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
+                            kind = DishKind.Recipe;
+                            itemId = d.RecipeId.Value;
+                        }
+                        else if (d.ProductId.HasValue)
+                        {
+                            name = productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product");
+                            kind = DishKind.Product;
+                            itemId = d.ProductId.Value;
+                        }
+                        else
+                        {
+                            name = "Unknown";
+                            kind = DishKind.Recipe;
+                            itemId = Guid.Empty;
+                        }
+
+                        var status = cookStatusByDish.GetValueOrDefault(d.Id.Value);
+                        return new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At);
                     })
                     .ToList();
+                var dishNames = dishVms.Select(v => v.Name).ToList();
 
                 // Compute per-meal fulfillment and cost enrichment using the bag enricher
                 // (memoized per (recipeId, servings) — a recipe appearing in multiple cells
@@ -1100,7 +1133,19 @@ public sealed class IndexModel(
                     }
                 }
 
-                list.Add(new MealCellVm(meal.Id.Value, meal.Note, dishNames, meal.AttendeesOverride ?? [], enrichment));
+                // Cook strip renders only for dish-based meals dated today or earlier (plantry-0eut) —
+                // never for note meals, never for future dates (cooking ahead is out of scope).
+                var showCookStrip = meal.Note is null && meal.Date <= today;
+
+                // The Cook deep-link's eatingTonight param (plantry-iejb's leftover-prefill seam):
+                // attendee count for THIS meal = AttendeesOverride ?? slot default_attendees, counted
+                // by the plan link (Cook.cshtml.cs EatingTonight doc comment). Computed here so both
+                // the strip and the plan retain sole ownership of MealPlanning knowledge.
+                var slot = Slots.FirstOrDefault(s => s.Id == meal.MealSlotId);
+                var eatingTonight = (meal.AttendeesOverride ?? slot?.DefaultAttendees ?? []).Count;
+
+                list.Add(new MealCellVm(meal.Id.Value, meal.Note, dishNames, meal.AttendeesOverride ?? [], enrichment,
+                    dishVms, showCookStrip, eatingTonight));
             }
 
             // Derive week total from summed per-meal results (no separate RollUpWeekAsync pass).
@@ -1600,7 +1645,26 @@ public sealed class IndexModel(
         string? Note,
         List<string> DishNames,
         List<Guid> EffectiveAttendees,
-        MealFulfillmentVm? Enrichment = null);
+        MealFulfillmentVm? Enrichment = null,
+        /// <summary>Per-dish Cook-strip data (plantry-0eut): identity, kind, servings, done state.</summary>
+        List<MealCardDishVm>? Dishes = null,
+        /// <summary>True for a dish-based meal dated today or earlier — gates the Cook strip render.</summary>
+        bool ShowCookStrip = false,
+        /// <summary>
+        /// Attendee count for THIS meal — AttendeesOverride ?? slot default_attendees — carried onto
+        /// the Cook strip's deep-link as plantry-iejb's <c>eatingTonight</c> param (Cook.cshtml.cs),
+        /// the leftover-prefill subtraction seam. Zero for a meal with no resolvable slot/attendees.
+        /// </summary>
+        int EatingTonight = 0);
+
+    /// <summary>
+    /// Per-dish data for the Cook strip on _MealCard.cshtml (plantry-0eut): identity, name, servings,
+    /// and derived cooked/eaten state. <see cref="CookedAt"/> is null while the dish is pending; once
+    /// set the dish renders as done — a recipe dish's latest matching CookEvent's CookedAt, or a
+    /// product dish's latest net-consuming Inventory journal movement's OccurredAt.
+    /// </summary>
+    public sealed record MealCardDishVm(
+        Guid DishId, DishKind Kind, Guid ItemId, string Name, int Servings, DateTimeOffset? CookedAt);
 
     public sealed record MealEditorVm(
         Guid? MealId,

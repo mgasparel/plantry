@@ -1519,6 +1519,17 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
         return Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(result);
     }
 
+    public Task<IReadOnlyDictionary<Guid, DateTimeOffset>> GetLatestCookedAtByPlannedDishIdsAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default)
+    {
+        var wanted = plannedDishIds as HashSet<Guid> ?? [.. plannedDishIds];
+        var result = Items
+            .Where(e => e.PlannedDishId.HasValue && wanted.Contains(e.PlannedDishId.Value))
+            .GroupBy(e => e.PlannedDishId!.Value)
+            .ToDictionary(g => g.Key, g => g.Max(e => e.CookedAt));
+        return Task.FromResult<IReadOnlyDictionary<Guid, DateTimeOffset>>(result);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default)
     {
         OnSaveChanges?.Invoke();

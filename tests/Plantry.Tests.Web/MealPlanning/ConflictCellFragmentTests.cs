@@ -182,6 +182,8 @@ public sealed class ConflictCellFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
 
             // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
             services.RemoveAll<IMealPlanWeekReadModel>();

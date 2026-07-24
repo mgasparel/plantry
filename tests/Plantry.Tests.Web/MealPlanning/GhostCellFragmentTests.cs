@@ -214,6 +214,8 @@ public sealed class GhostCellFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
 
             // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
             services.RemoveAll<IMealPlanWeekReadModel>();
@@ -428,6 +430,8 @@ public sealed class MixedCostGhostFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
 
             // ADR-021: provide a bag where Recipe A is priced and Recipe B is not.
             services.RemoveAll<IMealPlanWeekReadModel>();

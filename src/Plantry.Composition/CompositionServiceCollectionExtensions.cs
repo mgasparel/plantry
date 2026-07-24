@@ -75,6 +75,9 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<IMealPlanPriceReader, MealPlanPriceReaderAdapter>();
         services.AddScoped<IMealPlanShoppingWriter, MealPlanShoppingWriterAdapter>();
         services.AddScoped<IMealPlanExpiringStockReader, MealPlanExpiringStockReaderAdapter>();
+        // Cook-status read port (plantry-0eut): joins Recipes CookEvent + Inventory journal — neither
+        // context depends on the other or on MealPlanning (Gate 2); this is the composition-root join.
+        services.AddScoped<IMealPlanCookStatusReader, MealPlanCookStatusReaderAdapter>();
         // Fully qualified: IExpiringSoonHorizonReader + ExpiringSoonHorizonReaderAdapter names exist in
         // both the MealPlanning and Recipes namespaces.
         services.AddScoped<Plantry.MealPlanning.Application.IExpiringSoonHorizonReader,

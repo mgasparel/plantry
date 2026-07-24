@@ -258,6 +258,10 @@ builder.Services.AddScoped<ExpiringSoonSettingsService>();
 builder.Services.AddScoped<IExpiringSoonHorizon>(sp => sp.GetRequiredService<ExpiringSoonSettingsService>());
 // Purchase-frequency read over the stock journal — feeds the Deals stock-up alerts (P5-10 / DL-O4).
 builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
+// Batched journal-by-SourceRef read (plantry-0eut) — feeds the MealPlanning cook-status composition
+// adapter's product-dish leg (Plantry.Composition, AddCrossContextAdapters). Inventory-only, so it is
+// registered here like IPurchaseJournalReader rather than in the composition root.
+builder.Services.AddScoped<IJournalEntriesBySourceRefReader, JournalEntriesBySourceRefReader>();
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 // ITakeStockReader/ITakeStockCatalogWriter adapters → Plantry.Composition (AddCrossContextAdapters).

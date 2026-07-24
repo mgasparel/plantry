@@ -207,6 +207,8 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();
             services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
 
             services.RemoveAll<PlanFulfillmentService>();
             services.AddScoped<PlanFulfillmentService>();
