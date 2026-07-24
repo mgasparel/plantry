@@ -192,6 +192,7 @@ public sealed class DetailModel(
             return await ReloadAsync(keepInput: true);
         }
 
+        TempData["ToastMessage"] = "Product updated.";
         return RedirectToPage(new { id });
     }
 
@@ -205,12 +206,14 @@ public sealed class DetailModel(
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
 
+        TempData["ToastMessage"] = "SKU added.";
         return RedirectToPage(new { id });
     }
 
     public async Task<IActionResult> OnPostRemoveSkuAsync(Guid id, Guid skuId)
     {
         await new RemoveSkuCommand(ProductId.From(id), ProductSkuId.From(skuId), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "SKU removed.";
         return RedirectToPage(new { id });
     }
 
@@ -230,12 +233,14 @@ public sealed class DetailModel(
         // Not gated by the AI toggle: a manually-entered conversion settles deferred consumes just the same.
         await TryApplyDeferredUnitGapsAsync(id);
 
+        TempData["ToastMessage"] = "Conversion added.";
         return RedirectToPage(new { id });
     }
 
     public async Task<IActionResult> OnPostRemoveConversionAsync(Guid id, Guid conversionId)
     {
         await new RemoveConversionCommand(ProductId.From(id), ProductConversionId.From(conversionId), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "Conversion removed.";
         return RedirectToPage(new { id });
     }
 
@@ -254,6 +259,7 @@ public sealed class DetailModel(
         // consume lines waiting on it now (plantry-qll2.6), matching the manual-add path above.
         await TryApplyDeferredUnitGapsAsync(id);
 
+        TempData["ToastMessage"] = "Conversion confirmed.";
         return RedirectToPage(new { id });
     }
 
@@ -267,6 +273,7 @@ public sealed class DetailModel(
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
 
+        TempData["ToastMessage"] = "Product made a variant.";
         return RedirectToPage(new { id });
     }
 
@@ -318,24 +325,28 @@ public sealed class DetailModel(
         }
 
         // Redirect to the newly created variant so the user can see and further edit it.
+        TempData["ToastMessage"] = "Variant created.";
         return RedirectToPage(new { id = result.Value.Value });
     }
 
     public async Task<IActionResult> OnPostDetachAsync(Guid id)
     {
         await new DetachProductFromParentCommand(ProductId.From(id), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "Product detached from parent.";
         return RedirectToPage(new { id });
     }
 
     public async Task<IActionResult> OnPostArchiveAsync(Guid id)
     {
         await new ArchiveProductCommand(ProductId.From(id), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "Product archived.";
         return RedirectToPage(new { id });
     }
 
     public async Task<IActionResult> OnPostUnarchiveAsync(Guid id)
     {
         await new UnarchiveProductCommand(ProductId.From(id), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "Product unarchived.";
         return RedirectToPage(new { id });
     }
 
