@@ -177,14 +177,17 @@ public sealed class CostingServiceTests
     }
 
     [Fact]
-    public async Task Full_Uses_UnitPrice_When_Available()
+    public async Task Full_Ignores_Populated_UnitPrice_And_Derives_From_Price_Over_Quantity()
     {
         var h = new Harness();
         var unit = Guid.CreateVersion7();
         var productId = Guid.CreateVersion7();
 
-        // UnitPrice already computed: $0.005/g (overrides deriving from Price/Quantity)
-        h.Prices.Add(productId, price: 999m, quantity: 1m, unitId: unit, unitPrice: 0.005m);
+        // UnitPrice is on a DIFFERENT basis (price per BASE unit of the dimension, per
+        // UnitPriceCalculatorAdapter) than pricePoint.UnitId — deliberately set to a wildly wrong
+        // value here to prove CostingService never reads it. $1.00 for 200g → $0.005/g is the
+        // correct per-pricePoint.UnitId price, derived from Price / Quantity (plantry-1oca).
+        h.Prices.Add(productId, price: 1.00m, quantity: 200m, unitId: unit, unitPrice: 999m);
 
         // Recipe: 200g for 4 servings (identity unit → no conversion needed)
         // cost = 200 × $0.005 = $1.00, per serving = $0.25
@@ -490,6 +493,96 @@ public sealed class CostingServiceTests
         Assert.Equal(0.50m, result.Amount!.Value, precision: 6);
     }
 
+    // ── plantry-1oca regression: populated UnitPrice on a non-base-unit price observation ────────
+
+    [Fact]
+    public async Task Full_Cross_Unit_Conversion_With_Populated_UnitPrice_Uses_Correct_Basis()
+    {
+        // Regression test for plantry-1oca: pricePoint.UnitPrice is Pricing's price PER BASE UNIT of
+        // the dimension (price / (quantity × unit.FactorToBase) — UnitPriceCalculatorAdapter), not per
+        // pricePoint.UnitId. Dividing it by the pricePoint.UnitId → line-unit conversion ratio (as the
+        // pre-fix code did) understated the line by the price unit's FactorToBase (~1000x for kg).
+        // Mirrors the reported "Ground Beef and Broccoli" repro: $23.74 for 1.5 kg (true ≈ $15.83/kg ≈
+        // $7.18/lb), 1 lb used in the recipe line. This test fails against the pre-fix code (which
+        // yields ≈ $0.0072 — wrong by the kg factor of 1000).
+        var h = new Harness();
+        var kg = Guid.CreateVersion7();
+        var lb = Guid.CreateVersion7();
+        var beefId = Guid.CreateVersion7();
+
+        h.Catalog.RegisterLeaf(beefId, kg);
+        // UnitPrice as UnitPriceCalculatorAdapter would compute it: 23.74 / (1.5 × 1000) — a per-GRAM
+        // figure. Populated to prove CostingService does not use it directly for the conversion math.
+        h.Prices.Add(beefId, price: 23.74m, quantity: 1.5m, unitId: kg, unitPrice: 0.0158266666666667m);
+        h.Converter.AddPath(beefId, kg, lb, 2.2046226218487757m); // 1 kg → lb
+
+        var recipe = BuildSingleIngredientRecipe(beefId, 1m, lb, defaultServings: 1);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 1);
+
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.NotNull(result.Amount);
+        Assert.Equal(7.18m, result.Amount!.Value, precision: 2);
+    }
+
+    [Fact]
+    public async Task Parent_Variants_Cheapest_Converted_Rollup_With_Populated_UnitPrice()
+    {
+        // Same scenario as Parent_Variants_Priced_In_Different_Units_Cheapest_Converted_Line_Cost_Wins
+        // but with UnitPrice populated on both variants (bogus/decoy values) — the shape production
+        // always hits, since RecordObservationCommand/RecordAmendedObservationCommand populate
+        // UnitPrice on essentially every recorded price. Proves the DM-19 cheapest-converted rollup is
+        // correct on the branch production actually uses (plantry-1oca).
+        var h = new Harness();
+        var gram = Guid.CreateVersion7();
+        var kg = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var gramVariant = Guid.CreateVersion7();
+        var kgVariant = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, gram, [gramVariant, kgVariant]);
+        h.Catalog.RegisterLeaf(gramVariant, gram);
+        h.Catalog.RegisterLeaf(kgVariant, kg);
+        // gramVariant: $0.01/g. kgVariant: $5.00/kg = $0.005/g once converted — cheaper. UnitPrice is
+        // set to an obviously bogus value (999) on both to prove it is never read.
+        h.Prices.Add(gramVariant, price: 1.00m, quantity: 100m, unitId: gram, unitPrice: 999m);
+        h.Prices.Add(kgVariant, price: 5.00m, quantity: 1m, unitId: kg, unitPrice: 999m);
+        h.Converter.AddPath(kgVariant, kg, gram, 1000m);
+
+        var recipe = BuildSingleIngredientRecipe(parentId, 100m, gram, defaultServings: 1);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 1);
+
+        // Cheapest converted line cost = 100g × $0.005/g = $0.50 (same figure as the fallback-branch
+        // sibling test above — proves the two unitPrice branches now agree).
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(0.50m, result.Amount!.Value, precision: 6);
+    }
+
+    [Fact]
+    public async Task Full_Cross_Dimension_ProductConversion_Bridge_With_Populated_UnitPrice_Still_Prices_Correctly()
+    {
+        // Proves the fix didn't lose product-specific ProductConversion bridging (mass-priced,
+        // volume-used line, DM-12) — shape (b) (this fix) routes everything through the existing
+        // per-product IUnitConverter, so a density-style bridge keeps working unchanged even with a
+        // populated (and, here, deliberately wrong) UnitPrice.
+        var h = new Harness();
+        var kg = Guid.CreateVersion7();
+        var mL = Guid.CreateVersion7();
+        var honeyId = Guid.CreateVersion7();
+
+        h.Catalog.RegisterLeaf(honeyId, kg);
+        // $10.00 for 2 kg honey → $5.00/kg. UnitPrice populated with a bogus value to prove it is
+        // never used for the conversion math.
+        h.Prices.Add(honeyId, price: 10.00m, quantity: 2m, unitId: kg, unitPrice: 999m);
+        h.Converter.AddPath(honeyId, kg, mL, 704m); // product-specific density bridge: 1 kg honey ≈ 704 mL
+
+        var recipe = BuildSingleIngredientRecipe(honeyId, 352m, mL, defaultServings: 1); // half a kg by volume
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 1);
+
+        // $5.00/kg ÷ 704 mL-per-kg × 352 mL = $2.50 (352 mL is exactly half of 704 mL, i.e. half a kg).
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(2.50m, result.Amount!.Value, precision: 6);
+    }
+
     [Fact]
     public async Task Parent_One_Variant_Unconvertible_Other_Variant_Still_Prices_The_Line()
     {
@@ -713,14 +806,16 @@ public sealed class CostingServicePureOverloadTests
     }
 
     [Fact]
-    public void Pure_Full_Uses_UnitPrice_When_Available()
+    public void Pure_Full_Ignores_Populated_UnitPrice_And_Derives_From_Price_Over_Quantity()
     {
         var unit = Guid.CreateVersion7();
         var productId = Guid.CreateVersion7();
-        // UnitPrice: $0.005/unit; recipe: 200 for 4 servings → $1.00 total / 4 = $0.25/serving
+        // UnitPrice is a different (per-base-unit) basis and deliberately wrong here — CostingService
+        // must derive from Price / Quantity instead: $1.00 for 200 → $0.005/unit; recipe: 200 for 4
+        // servings → $1.00 total / 4 = $0.25/serving (plantry-1oca).
         var prices = new Dictionary<Guid, PricePoint>
         {
-            [productId] = MakePrice(productId, 999m, 1m, unit, unitPrice: 0.005m),
+            [productId] = MakePrice(productId, 1.00m, 200m, unit, unitPrice: 999m),
         };
 
         var recipe = BuildSingleIngredientRecipe(productId, 200m, unit, 4);
