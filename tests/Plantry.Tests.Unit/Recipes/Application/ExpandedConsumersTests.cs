@@ -186,7 +186,7 @@ public sealed class ExpandedConsumersTests
         var parent = Seed(repo, "Nachos", 4, [], [new InclusionLine(sub.Id, 3m, null, 0)]);
 
         var effective = await ExpandAndAggregateAsync(repo, parent.Id);
-        var costing = new CostingService(prices, new IdentityConverter());
+        var costing = new CostingService(prices, new IdentityConverter(), new FakeCatalogProductReader());
 
         // At default 4 servings: scale 1 → cost = 150 × $0.01 = $1.50 → per serving = $0.375.
         var result = await costing.ComputeExpandedAsync(effective, parent.DefaultServings, parent.DefaultServings);

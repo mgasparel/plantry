@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Plantry.Catalog.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -454,12 +455,17 @@ public sealed class IndexModel(
             .Select(p => new SelectListItem(p.Name, p.ProductId.ToString()))
             .ToList();
 
-        // Unit options: sourced from the household's catalog unit table via ListUnitsAsync (plantry-259).
-        // The "no unit" option (empty value) is always prepended so users can add items without a unit.
+        // Unit options: sourced from the household's catalog unit table via ListUnitsAsync (plantry-259),
+        // grouped by dimension (plantry-n9iw). The "no unit" option (empty value, ungrouped) is always
+        // prepended so users can add items without a unit.
         var unitOptions = await catalog.ListUnitsAsync();
         UnitOptionsList = unitOptions;
-        UnitOptions = unitOptions
-            .Select(u => new SelectListItem($"{u.Code} — {u.Name}", u.UnitId.ToString()))
+        UnitOptions = UnitSelectListBuilder.Build(
+                unitOptions,
+                u => u.UnitId.ToString(),
+                u => $"{u.Code} — {u.Name}",
+                u => DimensionExtensions.Parse(u.Dimension),
+                u => u.Code)
             .Prepend(new SelectListItem("no unit", ""))
             .ToList();
 

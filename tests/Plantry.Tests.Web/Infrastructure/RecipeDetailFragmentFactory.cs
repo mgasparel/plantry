@@ -215,6 +215,18 @@ public sealed class RecipeDetailAllUntrackedFactory : RecipeDetailFragmentFactor
 }
 
 /// <summary>
+/// Variant: a single untracked ingredient (Salt) with a REAL authored quantity (2 ea) — plantry-cbww.
+/// Distinct from <see cref="RecipeDetailAllUntrackedFactory"/>, whose untracked lines are all null-qty
+/// ("to taste"). Proves an untracked ingredient's authored amount still renders alongside its
+/// "untracked" sub-label rather than being suppressed purely because <c>Product.TrackStock</c> is false.
+/// </summary>
+public sealed class RecipeDetailUntrackedQuantityFactory : RecipeDetailFragmentFactory
+{
+    protected override Recipe BuildRecipe() => RecipeDetailFixture.BuildWithUntrackedQuantity();
+    protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesNone();
+}
+
+/// <summary>
 /// Variant: Garlic on hand as a weight (grams) while the recipe line is a count ("ea") with no conversion
 /// path — the unit-gap render path (plantry-z2sr). The Garlic row must read "Can't compare units" with the
 /// info-tone status and the explanatory popover, not the flat danger "Not in your pantry".
@@ -223,4 +235,32 @@ public sealed class RecipeDetailUnitGapFactory : RecipeDetailFragmentFactory
 {
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
     protected override IReadOnlyDictionary<Guid, ProductStock> Stock => RecipeDetailFixture.StockWithUnitGap(Today);
+}
+
+/// <summary>
+/// Variant: a single ¼-cup ingredient in a <c>DisplayStyle.Fraction</c>-styled unit (plantry-95w5's repro
+/// recipe) — overrides the base factory's catalog reader registration with one that also resolves the
+/// "cup" unit's fraction style, proving the flag reaches <c>_IngredientRow</c>'s rendered client-side
+/// scaler call rather than only the base factory's decimal-only unit set.
+/// </summary>
+public sealed class RecipeDetailFractionStyleFactory : RecipeDetailFragmentFactory
+{
+    protected override Recipe BuildRecipe() => RecipeDetailFixture.BuildWithFractionStyledUnit();
+    protected override IReadOnlyDictionary<Guid, PricePoint> Prices => RecipeDetailFixture.PricesNone();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+
+        // Re-register over the base factory's catalog reader (Decimal-only unit set) with one that also
+        // knows "cup" is Fraction-styled — the fact plantry-95w5's fix threads onto the rendered row.
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<ICatalogProductReader>();
+            services.AddSingleton<ICatalogProductReader>(new FakeCatalogProductReader(
+                RecipeDetailFixture.Products(),
+                RecipeDetailFixture.UnitCodesWithCup(),
+                RecipeDetailFixture.UnitDisplayStyles()));
+        });
+    }
 }

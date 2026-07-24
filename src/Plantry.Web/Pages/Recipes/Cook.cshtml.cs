@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Plantry.Catalog.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -295,7 +296,10 @@ public sealed class CookModel(
             var view = await BuildLineViewAsync(line, groupHeading, scale, renderContext, ct);
             if (view is null) continue; // unknown product — skip
 
-            if (!view.IsUntracked && view.ScaledQuantity.HasValue && line.UnitId.HasValue)
+            // Untracked-ness is orthogonal to whether a quantity was authored (R5, plantry-cbww) — an
+            // untracked line with a real scaled quantity gets the same fraction-simplified display
+            // formatting as a tracked line, not just the plain decimal fallback.
+            if (view.ScaledQuantity.HasValue && line.UnitId.HasValue)
                 displayRequests.Add(new QuantityFormatRequest(
                     view.LineKey, view.ScaledQuantity.Value, line.UnitId.Value, Simplify: scale != 1m));
 
@@ -355,11 +359,15 @@ public sealed class CookModel(
             })
             .ToList();
 
-        // Unit options for the Add-product rows (plantry-7zjm) — via the anti-corruption port (Gate 2).
+        // Unit options for the Add-product rows (plantry-7zjm) — via the anti-corruption port (Gate 2),
+        // grouped by dimension (plantry-n9iw).
         var unitOptions = await catalog.ListUnitsAsync(ct);
-        UnitOptions = unitOptions
-            .Select(u => new SelectListItem(u.Code, u.Id.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.Build(
+            unitOptions,
+            u => u.Id.ToString(),
+            u => u.Code,
+            u => DimensionExtensions.Parse(u.Dimension),
+            u => u.Code);
 
         // Yield-on-cook (plantry-854a, recipe-composition.md §9): surface the declared yield so the
         // confirmation can offer "storing N". The suggested quantity is the declared yield scaled to this
@@ -411,7 +419,10 @@ public sealed class CookModel(
 
         if (!product.TrackStock)
         {
-            // Untracked staple (C12): show but no quantity / picker.
+            // Untracked staple (C12): shown greyed, no picker/stepper — but untracked-ness
+            // (Product.TrackStock) is orthogonal to whether a real quantity was authored (R5). Pass the
+            // scaled quantity/unit through unconditionally; only a genuinely null authored qty/unit
+            // ("to taste") ends up with a null ScaledQuantity here (plantry-cbww).
             return new CookLineView(
                 IngredientId: ingredientId,
                 LineKey: lineKey,
@@ -420,8 +431,8 @@ public sealed class CookModel(
                 ProductId: line.ProductId,
                 ProductName: product.Name,
                 GroupHeading: groupHeading,
-                ScaledQuantity: null,
-                UnitCode: null,
+                ScaledQuantity: scaledQty,
+                UnitCode: unitCode,
                 IsUntracked: true,
                 IsParent: false,
                 VariantOptions: [],

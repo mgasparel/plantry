@@ -10,6 +10,7 @@ using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Pages.Shared;
 
 namespace Plantry.Web.Pages.Catalog.Products;
 
@@ -192,6 +193,7 @@ public sealed class DetailModel(
             return await ReloadAsync(keepInput: true);
         }
 
+        TempData["ToastMessage"] = "Product updated.";
         return RedirectToPage(new { id });
     }
 
@@ -205,12 +207,14 @@ public sealed class DetailModel(
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
 
+        TempData["ToastMessage"] = "SKU added.";
         return RedirectToPage(new { id });
     }
 
     public async Task<IActionResult> OnPostRemoveSkuAsync(Guid id, Guid skuId)
     {
         await new RemoveSkuCommand(ProductId.From(id), ProductSkuId.From(skuId), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "SKU removed.";
         return RedirectToPage(new { id });
     }
 
@@ -230,12 +234,14 @@ public sealed class DetailModel(
         // Not gated by the AI toggle: a manually-entered conversion settles deferred consumes just the same.
         await TryApplyDeferredUnitGapsAsync(id);
 
+        TempData["ToastMessage"] = "Conversion added.";
         return RedirectToPage(new { id });
     }
 
     public async Task<IActionResult> OnPostRemoveConversionAsync(Guid id, Guid conversionId)
     {
         await new RemoveConversionCommand(ProductId.From(id), ProductConversionId.From(conversionId), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "Conversion removed.";
         return RedirectToPage(new { id });
     }
 
@@ -254,6 +260,7 @@ public sealed class DetailModel(
         // consume lines waiting on it now (plantry-qll2.6), matching the manual-add path above.
         await TryApplyDeferredUnitGapsAsync(id);
 
+        TempData["ToastMessage"] = "Conversion confirmed.";
         return RedirectToPage(new { id });
     }
 
@@ -267,6 +274,7 @@ public sealed class DetailModel(
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
 
+        TempData["ToastMessage"] = "Product made a variant.";
         return RedirectToPage(new { id });
     }
 
@@ -318,24 +326,28 @@ public sealed class DetailModel(
         }
 
         // Redirect to the newly created variant so the user can see and further edit it.
+        TempData["ToastMessage"] = "Variant created.";
         return RedirectToPage(new { id = result.Value.Value });
     }
 
     public async Task<IActionResult> OnPostDetachAsync(Guid id)
     {
         await new DetachProductFromParentCommand(ProductId.From(id), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "Product detached from parent.";
         return RedirectToPage(new { id });
     }
 
     public async Task<IActionResult> OnPostArchiveAsync(Guid id)
     {
         await new ArchiveProductCommand(ProductId.From(id), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "Product archived.";
         return RedirectToPage(new { id });
     }
 
     public async Task<IActionResult> OnPostUnarchiveAsync(Guid id)
     {
         await new UnarchiveProductCommand(ProductId.From(id), products, clock).ExecuteAsync();
+        TempData["ToastMessage"] = "Product unarchived.";
         return RedirectToPage(new { id });
     }
 
@@ -429,9 +441,10 @@ public sealed class DetailModel(
 
     private async Task LoadOptionsAsync()
     {
-        UnitOptions = (await units.ListAsync())
-            .Select(u => new SelectListItem($"{u.Code} — {u.Name}", u.Id.Value.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.BuildFromUnits(
+            await units.ListAsync(),
+            u => u.Id.Value.ToString(),
+            u => $"{u.Code} — {u.Name}");
 
         var categoryOptions = (await categories.ListActiveAsync())
             .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))

@@ -413,9 +413,10 @@ public sealed class DetailModel(
 
     private async Task LoadUnitOptionsAsync()
     {
-        UnitOptions = (await units.ListAsync())
-            .Select(u => new SelectListItem($"{u.Code} — {u.Name}", u.Id.Value.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.BuildFromUnits(
+            await units.ListAsync(),
+            u => u.Id.Value.ToString(),
+            u => $"{u.Code} — {u.Name}");
     }
 
     private async Task LoadLocationOptionsAsync()

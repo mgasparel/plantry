@@ -1,0 +1,27 @@
+@*
+    Shared save-toast for classic POST-Redirect-GET Razor Pages (plantry-u7n9). Any mutating handler
+    that redirects on success sets TempData["ToastMessage"] immediately before RedirectToPage(...);
+    TempData's set-before-redirect/read-on-next-request/auto-clear lifecycle is exactly the semantics
+    needed, so no new storage or plumbing is required. Rendered once here in _Layout.cshtml so any
+    future PRG page adopts the pattern with zero per-page markup.
+
+    This is the 4th toast implementation in the codebase (Deals/Review's htmx HX-Trigger + Alpine host,
+    Take Stock's and Intake Review's Preact-island signal state) — deliberately landed as THE shared
+    pattern for PRG pages, since PRG is the majority shape across the app's page models. The other three
+    are untouched; their consolidation is tracked separately (plantry-55bv).
+
+    Reuses the same `.toast` CSS primitive (markup shape matches Deals/Review.cshtml) so it looks
+    identical to the existing toasts; only the state mechanism differs (Alpine x-show/x-init here vs.
+    a bubbling event there, since there is no shared client-side event bus for a plain PRG page).
+*@
+@{
+    var toastMessage = TempData["ToastMessage"] as string;
+}
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="toast" role="status" aria-live="polite"
+         x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4000)" x-on:click="show = false">
+        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+        <span>@toastMessage</span>
+    </div>
+}

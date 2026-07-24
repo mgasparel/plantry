@@ -7,6 +7,7 @@ using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Pages.Shared;
 
 namespace Plantry.Web.Pages.Catalog.Products;
 
@@ -79,9 +80,10 @@ public sealed class CreateModel(
 
     private async Task LoadOptionsAsync()
     {
-        UnitOptions = (await units.ListAsync())
-            .Select(u => new SelectListItem($"{u.Code} — {u.Name}", u.Id.Value.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.BuildFromUnits(
+            await units.ListAsync(),
+            u => u.Id.Value.ToString(),
+            u => $"{u.Code} — {u.Name}");
         CategoryOptions = (await categories.ListActiveAsync())
             .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))
             .ToList();

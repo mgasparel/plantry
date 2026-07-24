@@ -724,8 +724,12 @@
 						<div class="form-grid__field__control">
 							<select class="field__input" id="Input_YieldUnitId" name="Input.YieldUnitId">
 								<option value="">Choose a unit…</option>
-								<option value="Guid_3">g</option>
-								<option value="Guid_4">ea</option>
+								<optgroup label="Mass">
+									<option value="Guid_3">g</option>
+								</optgroup>
+								<optgroup label="Count">
+									<option value="Guid_4">ea</option>
+								</optgroup>
 							</select>
 							<span class="field__error field-validation-valid" data-valmsg-for="Input.YieldUnitId" data-valmsg-replace="true"></span>
 						</div>
@@ -1055,8 +1059,12 @@
 							<div class="form-grid__field__control">
 								<select class="field__input" x-model="draft.unitId">
 									<option value="">— Unit —</option>
-									<option value="Guid_3">g</option>
-									<option value="Guid_4">ea</option>
+									<optgroup label="Mass">
+										<option value="Guid_3">g</option>
+									</optgroup>
+									<optgroup label="Count">
+										<option value="Guid_4">ea</option>
+									</optgroup>
 								</select>
 							</div>
 						</div>
@@ -1105,8 +1113,12 @@
 							<div class="form-grid__field__control">
 								<select id="create-product-recipe-unit" class="field__input" x-model="draft.unitId" @change="draft.recipeUnitPinned = true; sheetError = ''">
 									<option value="">— Unit —</option>
-									<option value="Guid_3">g</option>
-									<option value="Guid_4">ea</option>
+									<optgroup label="Mass">
+										<option value="Guid_3">g</option>
+									</optgroup>
+									<optgroup label="Count">
+										<option value="Guid_4">ea</option>
+									</optgroup>
 								</select>
 							</div>
 						</div>
@@ -1213,8 +1225,12 @@
 								<div class="form-grid__field__control">
 									<select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
 										<option value="">— Unit —</option>
-										<option value="Guid_3">g</option>
-										<option value="Guid_4">ea</option>
+										<optgroup label="Mass">
+											<option value="Guid_3">g</option>
+										</optgroup>
+										<optgroup label="Count">
+											<option value="Guid_4">ea</option>
+										</optgroup>
 									</select>
 								</div>
 							</div>

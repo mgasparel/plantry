@@ -1,3 +1,4 @@
+using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Shopping.Application;
 
@@ -86,9 +87,8 @@ public sealed class ShoppingCatalogReaderAdapter(
     public async Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default)
     {
         var allUnits = await units.ListAsync(ct);
-        return allUnits
-            .OrderBy(u => u.Code, StringComparer.OrdinalIgnoreCase)
-            .Select(u => new ShoppingUnitOption(u.Id.Value, u.Code, u.Name))
+        return UnitQueries.OrderForDropdown(allUnits)
+            .Select(u => new ShoppingUnitOption(u.Id.Value, u.Code, u.Name, u.Dimension.ToDbValue()))
             .ToList();
     }
 

@@ -96,13 +96,13 @@ internal sealed class WeekBagEnricher
         var converter = BuildConverter(recipeId);
         var catalogById = BuildCatalogById(ingredients);
         var stockById = BuildStockById(catalogById, converter);
-        var priceById = BuildPriceById(ingredients);
+        var priceById = BuildPriceById(ingredients, catalogById);
 
         // Fulfillment (pure — zero round-trips).
         var fulfillment = _fulfillmentService.Compute(recipe, servings, today, catalogById, stockById, converter, _expiringSoonDays);
 
         // Cost (pure — zero round-trips).
-        var cost = _costingService.Compute(recipe, servings, priceById, converter);
+        var cost = _costingService.Compute(recipe, servings, catalogById, priceById, converter);
 
         // Map fulfillment lines → percentage (mirrors RecipeReadModelAdapter.GetEnrichmentAsync).
         var trackedLines = fulfillment.Lines
@@ -252,26 +252,41 @@ internal sealed class WeekBagEnricher
     }
 
     /// <summary>
-    /// Builds the PricePoint lookup for the pure CostingService.Compute overload.
+    /// Builds the PricePoint lookup for the pure CostingService.Compute overload. Includes the
+    /// product itself and, for a parent product (DM-19), its variant children's prices too — a parent
+    /// is never itself priced, so <c>CostingService</c>'s cheapest-variant rollup needs the variant
+    /// prices present in this dictionary (mirrors <see cref="BuildCatalogById"/>'s variant walk).
     /// </summary>
     private IReadOnlyDictionary<Guid, PricePoint> BuildPriceById(
-        IReadOnlyList<IngredientFact> ingredients)
+        IReadOnlyList<IngredientFact> ingredients,
+        IReadOnlyDictionary<Guid, CatalogProduct> catalogById)
     {
         var result = new Dictionary<Guid, PricePoint>();
 
-        foreach (var ing in ingredients)
+        void AddPriceIfPresent(Guid productId)
         {
-            if (result.ContainsKey(ing.ProductId)) continue;
+            if (result.ContainsKey(productId)) return;
 
-            var priceFact = _bag.GetLatestPrice(ing.ProductId);
-            if (priceFact is null) continue;
+            var priceFact = _bag.GetLatestPrice(productId);
+            if (priceFact is null) return;
 
-            result[ing.ProductId] = new PricePoint(
+            result[productId] = new PricePoint(
                 priceFact.ProductId,
                 priceFact.Price,
                 priceFact.Quantity,
                 priceFact.UnitId,
                 priceFact.UnitPrice);
+        }
+
+        foreach (var ing in ingredients)
+        {
+            AddPriceIfPresent(ing.ProductId);
+
+            if (catalogById.TryGetValue(ing.ProductId, out var catalogProduct))
+            {
+                foreach (var variantId in catalogProduct.VariantProductIds)
+                    AddPriceIfPresent(variantId);
+            }
         }
 
         return result;

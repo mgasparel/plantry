@@ -82,6 +82,22 @@ public sealed class AssignMealServiceTests
     }
 
     [Fact]
+    public async Task AssignDishesAsync_RejectsParentProduct()
+    {
+        // plantry-pt79: a parent (grouping) product exists in the catalog but has no resolution
+        // point for "which variant was consumed" — it must be rejected as a direct product dish.
+        var catalogReader = new FakeCatalogProductReader(existsResult: true, plannableResult: false);
+        var svc = BuildService(catalogReader: catalogReader);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.AssignDishesAsync(HouseholdId, Monday, SlotA,
+                [new DishSpec(DishKind.Product, Guid.NewGuid(), 1)],
+                null, UserId));
+
+        Assert.Contains("parent product group", ex.Message);
+    }
+
+    [Fact]
     public async Task AssignDishesAsync_SourceIsManual()
     {
         var repo = new FakeMealPlanRepository();
@@ -282,10 +298,13 @@ public sealed class FakeRecipeReadModel : IRecipeReadModel
         => Task.FromResult(false);
 }
 
-public sealed class FakeCatalogProductReader(bool existsResult = true) : IMealPlanCatalogProductReader
+public sealed class FakeCatalogProductReader(bool existsResult = true, bool plannableResult = true) : IMealPlanCatalogProductReader
 {
     public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
         => Task.FromResult(existsResult);
+
+    public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult(existsResult && plannableResult);
 
     public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(string nameQuery, int maxResults, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<MealPlanProductReadModel>>([]);

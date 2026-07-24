@@ -580,12 +580,12 @@ public sealed class WalkModel(
         Rows = await reader.ListLocationRowsAsync(LocationId, ct);
         IslandRowsJson = BuildIslandRowsJson(Rows);
 
-        // Load unit options for the inline-add sheet (P4-7).
+        // Load unit options for the inline-add sheet (P4-7), grouped by dimension (plantry-n9iw).
         var units = await unitRepository.ListAsync(ct);
-        UnitOptions = units
-            .OrderBy(u => u.Code, StringComparer.OrdinalIgnoreCase)
-            .Select(u => new SelectListItem(u.Code, u.Id.Value.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.BuildFromUnits(
+            units,
+            u => u.Id.Value.ToString(),
+            u => u.Code);
 
         // Load group options for the create-view Group combobox (plantry-40n6).
         // Groups are active products with HasVariants = true. Filtered client-side in Alpine.

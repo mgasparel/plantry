@@ -60,8 +60,13 @@ public interface IShoppingCatalogReader
     Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default);
 }
 
-/// <summary>Lightweight unit option for the add-item unit select and inline qty editor.</summary>
-public sealed record ShoppingUnitOption(Guid UnitId, string Code, string Name);
+/// <summary>
+/// Lightweight unit option for the add-item unit select and inline qty editor.
+/// <see cref="Dimension"/> is the raw <c>Catalog.Domain.Dimension</c> db value ("mass"/"volume"/"count")
+/// so the add-item &lt;select&gt; can group by dimension (plantry-n9iw) without Shopping.Application
+/// taking a dependency on Catalog.Domain's enum type.
+/// </summary>
+public sealed record ShoppingUnitOption(Guid UnitId, string Code, string Name, string Dimension);
 
 /// <summary>Lightweight category option for the recategorize dropdown.</summary>
 public sealed record ShoppingCategoryOption(Guid CategoryId, string Name, int? Hue);

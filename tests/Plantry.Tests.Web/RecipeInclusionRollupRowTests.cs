@@ -45,7 +45,7 @@ public sealed class RecipeInclusionRollupRowTests
     private static readonly Guid TomatoesId = Guid.Parse("a2000000-0000-0000-0000-000000000001");
     private static readonly Guid GarlicId = Guid.Parse("a2000000-0000-0000-0000-000000000002");
     private static readonly Guid BasilId = Guid.Parse("a2000000-0000-0000-0000-000000000003");
-    private static readonly Guid OreganoId = Guid.Parse("a2000000-0000-0000-0000-000000000004"); // untracked
+    private static readonly Guid OreganoId = Guid.Parse("a2000000-0000-0000-0000-000000000004"); // untracked, real qty (plantry-cbww)
     private static readonly Guid ChiliFlakesId = Guid.Parse("a2000000-0000-0000-0000-000000000005"); // untracked
 
     private static readonly Guid GramUnitId = Guid.Parse("a3000000-0000-0000-0000-000000000001");
@@ -156,6 +156,17 @@ public sealed class RecipeInclusionRollupRowTests
 
         var oreganoRow = childRows.Single(r => r.TextContent.Contains("Oregano"));
         Assert.Contains("rd-ing-status--untracked", oreganoRow.QuerySelector(".rd-ing-status")!.ClassList);
+
+        // plantry-cbww: Oregano is untracked but authored with a real quantity/unit (5 g) — the inclusion
+        // child row renders that amount (expanded to the inclusion's 2/6 servings factor: 5 * 2/6 ≈ 1.667 g)
+        // alongside its "untracked" sub-label via the SAME _IngredientRow partial a direct row uses,
+        // proving the BuildItem fix covers inclusion children too (no separate fix needed in
+        // _InclusionFoldRow.cshtml).
+        var oreganoAmount = oreganoRow.QuerySelector(".rd-ing-amt")
+            ?? throw new InvalidOperationException("Oregano's amount cell not found.");
+        Assert.Contains("1.667", oreganoAmount.TextContent, StringComparison.Ordinal);
+        Assert.Contains("g", oreganoAmount.TextContent, StringComparison.Ordinal);
+        Assert.Contains("untracked", oreganoRow.QuerySelector(".rd-ing-sub")!.TextContent, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── Duplicate product across parent + sub: same aggregate verdict in both rows (design item 7, D14) ───
@@ -206,7 +217,11 @@ public sealed class RecipeInclusionRollupRowTests
 
     /// <summary>
     /// Sub-recipe "Marinara Sauce", 6 default servings: Tomatoes (miss), Garlic (contributes to a combined
-    /// Low with the parent's direct Garlic line), Basil (in stock but expiring in 2 days), Oregano (untracked).
+    /// Low with the parent's direct Garlic line), Basil (in stock but expiring in 2 days), Oregano
+    /// (untracked, but WITH a real authored quantity/unit — plantry-cbww's repro: untracked-ness is
+    /// orthogonal to whether a quantity was supplied, so a child row must still show it, not just "to
+    /// taste" (that null-qty case is covered separately by <see cref="RecipeDetailUntrackedQuantityTests"/>
+    /// and the base <see cref="Infrastructure.RecipeDetailFixture"/>'s Salt line)).
     /// </summary>
     private static Recipe SubRecipe()
     {
@@ -218,7 +233,7 @@ public sealed class RecipeInclusionRollupRowTests
             new IngredientLine(TomatoesId, 400m, GramUnitId, GroupHeading: null, Ordinal: 0),
             new IngredientLine(GarlicId, 2m, EachUnitId, GroupHeading: null, Ordinal: 1),
             new IngredientLine(BasilId, 10m, GramUnitId, GroupHeading: null, Ordinal: 2),
-            new IngredientLine(OreganoId, Quantity: null, UnitId: null, GroupHeading: null, Ordinal: 3),
+            new IngredientLine(OreganoId, 5m, GramUnitId, GroupHeading: null, Ordinal: 3),
         ], clock);
         return recipe;
     }

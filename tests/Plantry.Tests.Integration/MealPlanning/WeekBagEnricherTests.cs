@@ -35,7 +35,7 @@ public sealed class WeekBagEnricherTests
     private static WeekBagEnricher MakeEnricher(WeekBag bag) =>
         new(bag,
             new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader()),
-            new CostingService(new NullPriceReader(), new NullConverter()),
+            new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
             SystemClock.Instance,
             expiringSoonDays: 7);
 
@@ -169,6 +169,74 @@ public sealed class WeekBagEnricherTests
         Assert.NotNull(result);
         // 1 tracked ingredient, 0 fully InStock (Low) → 0 % fulfillment.
         Assert.Equal(0, result.FulfillmentPercent);
+    }
+
+    // ── DM-19: parent-referencing ingredient rolls up a priced variant (plantry-daal) ─────────────
+
+    /// <summary>
+    /// The Black Beans bug scenario (plantry-daal): a recipe references a PARENT product; only its
+    /// variant child has ever been priced. <see cref="WeekBagEnricher.BuildPriceById"/> must include the
+    /// variant's price fact (not just the parent's, which is never itself priced) so the pure
+    /// <see cref="CostingService.Compute"/> overload's DM-19 rollup can find it — proving parity between
+    /// the MealPlan week grid figure and the Recipe Details page figure for the same recipe.
+    /// </summary>
+    [Fact(DisplayName = "Parent-referencing ingredient with a priced variant shows a cost in the week rollup (DM-19)")]
+    public void ParentReferencingIngredient_WithPricedVariant_ShowsCostInWeekRollup()
+    {
+        var parentId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
+        var variantId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000003");
+
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Bean Soup", DefaultServings: 4),
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                // References the PARENT, not the variant.
+                [RecipeId] = [new IngredientFact(Ing1Id, RecipeId, parentId, Quantity: 250m, UnitId: GramUnitId, Ordinal: 0)],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [parentId] = new ProductFact(
+                    parentId, "Black Beans",
+                    TrackStock: true,
+                    DefaultUnitId: GramUnitId,
+                    ParentProductId: null,
+                    HasVariants: true,
+                    Archived: false,
+                    VariantProductIds: [variantId]),
+                [variantId] = new ProductFact(
+                    variantId, "Black Beans Dry",
+                    TrackStock: true,
+                    DefaultUnitId: GramUnitId,
+                    ParentProductId: parentId,
+                    HasVariants: false,
+                    Archived: false,
+                    VariantProductIds: []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [GramUnitId] = new UnitFact(GramUnitId, "g", "grams", "mass", FactorToBase: 1m, IsBase: true),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>(),
+            // Only the VARIANT has ever been priced — the parent is never itself priced (DM-19).
+            // $2.00 for 500g → $0.004/g.
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>
+            {
+                [variantId] = new PriceFact(variantId, Price: 2.00m, Quantity: 500m, UnitId: GramUnitId, UnitPrice: null, ObservedAt: DateTime.UtcNow),
+            });
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = enricher.Enrich(RecipeId, servings: 4, today);
+
+        Assert.NotNull(result);
+        // 250g × $0.004/g = $1.00 total for 4 servings (per-serving $0.25 × 4 servings = $1.00).
+        Assert.Equal(1.00m, result!.TotalCost);
+        Assert.False(result.CostIsPartial);
     }
 
     // ── Null-returning port fakes ─────────────────────────────────────────────────

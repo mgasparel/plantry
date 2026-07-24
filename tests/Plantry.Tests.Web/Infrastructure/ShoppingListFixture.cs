@@ -103,11 +103,16 @@ public static class ShoppingListFixture
 
     /// <summary>
     /// Unit options for the fixture (plantry-259) — used to populate add-form and inline qty editor.
+    /// Deliberately left in non-dimension-sorted order (Volume before Mass) — the add-form's grouped
+    /// <c>UnitOptions</c> re-sorts via <c>UnitSelectListBuilder.Build</c> (plantry-n9iw), so this also
+    /// proves that re-sort happens rather than merely preserving whatever order the reader returns.
+    /// <c>UnitOptionsList</c> (the inline per-row editor's raw list) intentionally keeps this fixture's
+    /// order — that select is a separate, un-grouped presentation outside this ticket's 9 call sites.
     /// </summary>
     public static IReadOnlyList<ShoppingUnitOption> UnitOptions() =>
     [
-        new(UnitId, "L", "Litre"),
-        new(Guid.Parse("33333333-3333-3333-3333-333333333311"), "g", "Gram"),
+        new(UnitId, "L", "Litre", "volume"),
+        new(Guid.Parse("33333333-3333-3333-3333-333333333311"), "g", "Gram", "mass"),
     ];
 
     /// <summary>

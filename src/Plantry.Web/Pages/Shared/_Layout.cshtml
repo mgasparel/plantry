@@ -357,6 +357,11 @@
         </div>
     </div>
 
+    @* Shared save-toast for PRG pages (plantry-u7n9) — reads TempData["ToastMessage"] set by a
+       handler right before its redirect. Lives outside #main-content so it survives full-page
+       navigations. *@
+    <partial name="_Toast" />
+
     <script src="~/js/htmx.min.js" defer></script>
     <script src="~/js/htmx-config.js" defer></script>
     <script src="~/js/htmx-antiforgery.js" defer></script>

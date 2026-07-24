@@ -100,15 +100,17 @@
             }</div>
     </div>
     <div class="rd-ing-amt">
-        @if (!item.IsUntracked && item.Quantity.HasValue)
+        @if (item.Quantity.HasValue)
         {
-            @* Server render is the 1× vulgar-fraction display (quantity-display.md Q1/§7). The
-               servings stepper scales the amount client-side; the JS twin is decimal-only
-               (plantry-jun6), so keep the server-rendered fraction at scale === 1 and only hand off
-               to the decimal scaler when scaled — never clobbering the 1× fraction on first paint. *@
+            @* Server render is the 1× vulgar-fraction display (quantity-display.md Q1/§7). The servings
+               stepper scales the amount client-side; keep the server-rendered fraction at scale === 1
+               and hand off to the client scaler when scaled — never clobbering the 1× fraction on first
+               paint. The scaler is told the unit's DisplayStyle (quantity-display.md Q1/Q4, plantry-95w5)
+               so it can also snap the scaled amount to a vulgar fraction, not just render a bare decimal. *@
             var displayText = item.DisplayQuantity ?? IngredientAmount.Format(item.Quantity.Value);
             var qtyLiteral = item.Quantity.Value.ToString(CultureInfo.InvariantCulture);
-            <span class="rd-ing-qty" x-text="scale === 1 ? @Html.Raw(RazorJs.Literal(displayText)) : fmt(@qtyLiteral)">@displayText</span>
+            var styleLiteral = item.IsFractionStyle ? "'fraction'" : "'decimal'";
+            <span class="rd-ing-qty" x-text="scale === 1 ? @Html.Raw(RazorJs.Literal(displayText)) : fmt(@qtyLiteral, @Html.Raw(styleLiteral))">@displayText</span>
             @if (!string.IsNullOrEmpty(item.UnitCode))
             {
                 <span> @item.UnitCode</span>
