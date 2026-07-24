@@ -21,13 +21,21 @@ public sealed class CostingServiceTests
     private sealed class FakePriceReader : IPriceReader
     {
         private readonly Dictionary<Guid, PricePoint> _prices = [];
+        private readonly Dictionary<Guid, int> _callCounts = [];
 
         /// <summary>Registers a price: <paramref name="price"/> for <paramref name="quantity"/> of <paramref name="unitId"/>.</summary>
         public void Add(Guid productId, decimal price, decimal quantity, Guid unitId, decimal? unitPrice = null) =>
             _prices[productId] = new PricePoint(productId, price, quantity, unitId, unitPrice);
 
-        public Task<PricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default) =>
-            Task.FromResult(_prices.GetValueOrDefault(productId));
+        /// <summary>Number of times <see cref="FindLatestAsync"/> was called for the given product id — used to
+        /// assert memoization (a ref shared across lines is fetched at most once per compute call).</summary>
+        public int CallCount(Guid productId) => _callCounts.GetValueOrDefault(productId);
+
+        public Task<PricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default)
+        {
+            _callCounts[productId] = _callCounts.GetValueOrDefault(productId) + 1;
+            return Task.FromResult(_prices.GetValueOrDefault(productId));
+        }
     }
 
     /// <summary>Identity converter — passes when units are the same; fails otherwise (explicit paths can be added).</summary>
@@ -50,13 +58,66 @@ public sealed class CostingServiceTests
         }
     }
 
+    /// <summary>
+    /// Minimal catalog reader test double — registers products (leaf or parent/variant, DM-19) and
+    /// counts <see cref="FindManyWithVariantsAsync"/> calls so the async-path batching test (exactly
+    /// one catalog round-trip per compute) can assert on it.
+    /// </summary>
+    private sealed class FakeCatalogProductReader : ICatalogProductReader
+    {
+        private readonly Dictionary<Guid, CatalogProduct> _products = [];
+
+        public int FindManyWithVariantsCallCount { get; private set; }
+
+        public void RegisterLeaf(Guid id, Guid defaultUnitId, string name = "Product") =>
+            _products[id] = new CatalogProduct(id, name, TrackStock: true, defaultUnitId, null, false, []);
+
+        public void RegisterParent(Guid id, Guid defaultUnitId, IReadOnlyList<Guid> variantIds, string name = "Parent") =>
+            _products[id] = new CatalogProduct(id, name, TrackStock: true, defaultUnitId, null, true, variantIds);
+
+        public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult(_products.GetValueOrDefault(productId));
+
+        public Task<IReadOnlyDictionary<Guid, CatalogProduct>> FindManyWithVariantsAsync(
+            IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+        {
+            FindManyWithVariantsCallCount++;
+            IReadOnlyDictionary<Guid, CatalogProduct> result = productIds
+                .Distinct()
+                .Where(_products.ContainsKey)
+                .ToDictionary(id => id, id => _products[id]);
+            return Task.FromResult(result);
+        }
+
+        public Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(string nameQuery, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogProductCandidate>>([]);
+
+        public Task<IReadOnlyDictionary<Guid, CatalogProductSummary>> ResolveSummariesAsync(
+            IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, CatalogProductSummary>>(new Dictionary<Guid, CatalogProductSummary>());
+
+        public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+            IReadOnlyList<Guid> unitIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+        public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+
+        public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
+
+        public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
+    }
+
     // ── Harness ───────────────────────────────────────────────────────────────
 
     private sealed class Harness
     {
         public FakePriceReader Prices { get; } = new();
         public FakeUnitConverter Converter { get; } = new();
-        public CostingService Service => new(Prices, Converter);
+        public FakeCatalogProductReader Catalog { get; } = new();
+        public CostingService Service => new(Prices, Converter, Catalog);
     }
 
     /// <summary>
@@ -349,6 +410,250 @@ public sealed class CostingServiceTests
         Assert.Equal(0, result.PricedCount);
         Assert.Empty(result.MissingPriceProductIds);
     }
+
+    // ── DM-19: parent → variant price rollup (plantry-daal) ───────────────────
+
+    [Fact]
+    public async Task Parent_With_One_Priced_Variant_Prices_The_Line()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var variantId = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, unit, [variantId]);
+        h.Catalog.RegisterLeaf(variantId, unit);
+        // $2.00 for 500 units → $0.004/unit
+        h.Prices.Add(variantId, price: 2.00m, quantity: 500m, unitId: unit);
+
+        // Recipe references the PARENT, not the variant.
+        var recipe = BuildSingleIngredientRecipe(parentId, 250m, unit, defaultServings: 4);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4);
+
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(0.25m, result.Amount!.Value, precision: 6);
+        Assert.Equal(1, result.PricedCount);
+        Assert.Equal(1, result.CostableCount);
+        Assert.Empty(result.MissingPriceProductIds);
+    }
+
+    [Fact]
+    public async Task Parent_Multiple_Priced_Variants_Same_Unit_Cheapest_Wins()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var cheapVariant = Guid.CreateVersion7();
+        var pricierVariant = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, unit, [pricierVariant, cheapVariant]);
+        h.Catalog.RegisterLeaf(cheapVariant, unit);
+        h.Catalog.RegisterLeaf(pricierVariant, unit);
+        h.Prices.Add(cheapVariant, price: 1.00m, quantity: 500m, unitId: unit);   // $0.002/unit
+        h.Prices.Add(pricierVariant, price: 2.00m, quantity: 500m, unitId: unit); // $0.004/unit
+
+        var recipe = BuildSingleIngredientRecipe(parentId, 250m, unit, defaultServings: 4);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4);
+
+        // Cheapest wins: 250 × $0.002 = $0.50 / 4 servings = $0.125/serving.
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(0.125m, result.Amount!.Value, precision: 6);
+    }
+
+    [Fact]
+    public async Task Parent_Variants_Priced_In_Different_Units_Cheapest_Converted_Line_Cost_Wins()
+    {
+        var h = new Harness();
+        var gram = Guid.CreateVersion7();
+        var kg = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var gramVariant = Guid.CreateVersion7();
+        var kgVariant = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, gram, [gramVariant, kgVariant]);
+        h.Catalog.RegisterLeaf(gramVariant, gram);
+        h.Catalog.RegisterLeaf(kgVariant, kg);
+        // gramVariant: $0.01/g. kgVariant: $5.00/kg = $0.005/g — cheaper once converted.
+        h.Prices.Add(gramVariant, price: 1.00m, quantity: 100m, unitId: gram);
+        h.Prices.Add(kgVariant, price: 5.00m, quantity: 1m, unitId: kg);
+        // 1 kg = 1000 g: converting 1 kg-unit → g-line-unit needs the kg→g factor; the line unit is
+        // grams, so converting 1 unit of kg (the price unit) into g yields 1000.
+        h.Converter.AddPath(kgVariant, kg, gram, 1000m);
+
+        // Recipe line is expressed in grams (the parent's default unit).
+        var recipe = BuildSingleIngredientRecipe(parentId, 100m, gram, defaultServings: 1);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 1);
+
+        // kgVariant: unitPrice $5.00/kg-unit; convert 1 kg → 1000 g ⇒ $5.00/1000 = $0.005/g ⇒ cheaper.
+        // gramVariant: $0.01/g. Cheapest converted line cost = 100g × $0.005/g = $0.50.
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(0.50m, result.Amount!.Value, precision: 6);
+    }
+
+    [Fact]
+    public async Task Parent_One_Variant_Unconvertible_Other_Variant_Still_Prices_The_Line()
+    {
+        var h = new Harness();
+        var lineUnit = Guid.CreateVersion7();
+        var otherUnit = Guid.CreateVersion7(); // no conversion path registered to lineUnit
+        var parentId = Guid.CreateVersion7();
+        var unconvertibleVariant = Guid.CreateVersion7();
+        var usableVariant = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, lineUnit, [unconvertibleVariant, usableVariant]);
+        h.Catalog.RegisterLeaf(unconvertibleVariant, otherUnit);
+        h.Catalog.RegisterLeaf(usableVariant, lineUnit);
+        h.Prices.Add(unconvertibleVariant, price: 1.00m, quantity: 100m, unitId: otherUnit); // no path → skipped
+        h.Prices.Add(usableVariant, price: 3.00m, quantity: 100m, unitId: lineUnit);         // $0.03/unit
+
+        var recipe = BuildSingleIngredientRecipe(parentId, 100m, lineUnit, defaultServings: 1);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 1);
+
+        // The unconvertible variant is skipped as a candidate; the usable variant still prices the line.
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(3.00m, result.Amount!.Value, precision: 6); // 100 × $0.03
+        Assert.Empty(result.MissingPriceProductIds);
+    }
+
+    [Fact]
+    public async Task Parent_No_Variant_Priced_Line_Unpriced_Parent_Own_Id_In_MissingPriceProductIds()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var variantId = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, unit, [variantId]);
+        h.Catalog.RegisterLeaf(variantId, unit);
+        // No price registered for the variant.
+
+        var recipe = BuildSingleIngredientRecipe(parentId, 100m, unit, defaultServings: 1);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 1);
+
+        Assert.Equal(CostCompleteness.None, result.Completeness);
+        Assert.Null(result.Amount);
+        Assert.Single(result.MissingPriceProductIds);
+        // The PARENT's own id is in the list — never the variant's — since the UI resolves this
+        // list against ingredient product ids (D2).
+        Assert.Contains(parentId, result.MissingPriceProductIds);
+        Assert.DoesNotContain(variantId, result.MissingPriceProductIds);
+    }
+
+    [Fact]
+    public async Task Parent_With_Zero_Live_Variants_Line_Unpriced_Parent_Id_In_Missing()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, unit, []); // no live variants
+
+        var recipe = BuildSingleIngredientRecipe(parentId, 100m, unit, defaultServings: 1);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 1);
+
+        Assert.Equal(CostCompleteness.None, result.Completeness);
+        Assert.Null(result.Amount);
+        Assert.Contains(parentId, result.MissingPriceProductIds);
+    }
+
+    [Fact]
+    public async Task Parent_Partially_Priced_Variant_Set_Still_Counts_The_Line_As_Priced()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var pricedVariant = Guid.CreateVersion7();
+        var unpricedVariant = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, unit, [pricedVariant, unpricedVariant]);
+        h.Catalog.RegisterLeaf(pricedVariant, unit);
+        h.Catalog.RegisterLeaf(unpricedVariant, unit);
+        h.Prices.Add(pricedVariant, price: 2.00m, quantity: 500m, unitId: unit); // $0.004/unit
+        // unpricedVariant has no price at all — should not affect the line's own completeness.
+
+        var recipe = BuildSingleIngredientRecipe(parentId, 250m, unit, defaultServings: 4);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4);
+
+        // One usable variant price IS a price — the recipe-level completeness is Full (only one
+        // costable line, and it priced), not Partial. A partially-priced variant SET is not the same
+        // as a partially-priced ingredient LIST.
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(1, result.PricedCount);
+        Assert.Equal(1, result.CostableCount);
+        Assert.Empty(result.MissingPriceProductIds);
+    }
+
+    [Fact]
+    public async Task Parent_Line_In_ComputeExpandedAsync_Rolls_Up_The_Same_Way()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var variantId = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, unit, [variantId]);
+        h.Catalog.RegisterLeaf(variantId, unit);
+        h.Prices.Add(variantId, price: 2.00m, quantity: 500m, unitId: unit); // $0.004/unit
+
+        var lines = new List<EffectiveIngredient> { new(parentId, 250m, unit) };
+        var result = await h.Service.ComputeExpandedAsync(lines, defaultServings: 4, desiredServings: 4);
+
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(0.25m, result.Amount!.Value, precision: 6);
+        Assert.Empty(result.MissingPriceProductIds);
+    }
+
+    [Fact]
+    public async Task ComputeAsync_Calls_FindManyWithVariantsAsync_Exactly_Once_Per_Compute()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flourId = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var variantId = Guid.CreateVersion7();
+
+        h.Catalog.RegisterLeaf(flourId, unit);
+        h.Catalog.RegisterParent(parentId, unit, [variantId]);
+        h.Catalog.RegisterLeaf(variantId, unit);
+        h.Prices.Add(flourId, price: 1.00m, quantity: 100m, unitId: unit);
+        h.Prices.Add(variantId, price: 2.00m, quantity: 100m, unitId: unit);
+
+        var recipe = Recipe.Create(Household, "Multi", 4, Clock).Value;
+        recipe.ReplaceIngredients([
+            new IngredientLine(flourId, 100m, unit, null, 0),
+            new IngredientLine(parentId, 100m, unit, null, 1),
+        ], Clock);
+
+        await h.Service.ComputeAsync(recipe, desiredServings: 4);
+
+        Assert.Equal(1, h.Catalog.FindManyWithVariantsCallCount);
+    }
+
+    [Fact]
+    public async Task ComputeAsync_Memoizes_Price_Fetch_For_A_Variant_Shared_By_Several_Lines()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var variantId = Guid.CreateVersion7();
+
+        h.Catalog.RegisterParent(parentId, unit, [variantId]);
+        h.Catalog.RegisterLeaf(variantId, unit);
+        h.Prices.Add(variantId, price: 2.00m, quantity: 500m, unitId: unit);
+
+        // Two ingredient lines both resolve to the same price ref (the variant): one references the
+        // variant directly, the other references the parent (whose only variant is the same ref).
+        var recipe = Recipe.Create(Household, "Shared Ref", 4, Clock).Value;
+        recipe.ReplaceIngredients([
+            new IngredientLine(variantId, 100m, unit, null, 0),
+            new IngredientLine(parentId, 100m, unit, null, 1),
+        ], Clock);
+
+        await h.Service.ComputeAsync(recipe, desiredServings: 4);
+
+        // Fetched once per compute call, even though two lines draw from the same ref.
+        Assert.Equal(1, h.Prices.CallCount(variantId));
+    }
 }
 
 /// <summary>
@@ -360,6 +665,11 @@ public sealed class CostingServicePureOverloadTests
 {
     private static readonly IClock Clock = SystemClock.Instance;
     private static readonly HouseholdId Household = HouseholdId.New();
+
+    // Empty catalog lookup — every scenario below is a leaf product, and a product id absent from
+    // catalogById is treated as a leaf (self) by CostingService.PriceRefsFor, matching prior behaviour.
+    private static readonly IReadOnlyDictionary<Guid, CatalogProduct> EmptyCatalog =
+        new Dictionary<Guid, CatalogProduct>();
 
     // Identity converter — same unit → same amount; different unit → fail.
     private static Result<decimal> IdentityConverter(Guid _, decimal amount, Guid from, Guid to) =>
@@ -392,8 +702,8 @@ public sealed class CostingServicePureOverloadTests
 
         // Recipe: 250 for 4 servings → cost = 250 × $0.004 = $1.00 / 4 = $0.25/serving
         var recipe = BuildSingleIngredientRecipe(productId, 250m, unit, 4);
-        var svc = new CostingService(null!, null!); // ports unused by pure overload
-        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+        var svc = new CostingService(null!, null!, null!); // ports unused by pure overload
+        var result = svc.Compute(recipe, 4, EmptyCatalog, prices, IdentityConverter);
 
         Assert.Equal(CostCompleteness.Full, result.Completeness);
         Assert.Equal(0.25m, result.Amount!.Value, precision: 6);
@@ -414,8 +724,8 @@ public sealed class CostingServicePureOverloadTests
         };
 
         var recipe = BuildSingleIngredientRecipe(productId, 200m, unit, 4);
-        var svc = new CostingService(null!, null!);
-        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+        var svc = new CostingService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, EmptyCatalog, prices, IdentityConverter);
 
         Assert.Equal(CostCompleteness.Full, result.Completeness);
         Assert.Equal(0.25m, result.Amount!.Value, precision: 6);
@@ -434,8 +744,8 @@ public sealed class CostingServicePureOverloadTests
         };
 
         var recipe = BuildSingleIngredientRecipe(productId, 100m, unit, 2);
-        var svc = new CostingService(null!, null!);
-        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+        var svc = new CostingService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, EmptyCatalog, prices, IdentityConverter);
 
         Assert.Equal(0.50m, result.Amount!.Value, precision: 6);
     }
@@ -460,8 +770,8 @@ public sealed class CostingServicePureOverloadTests
             new IngredientLine(sugarId, 100m, unit, null, 1),
         ], Clock);
 
-        var svc = new CostingService(null!, null!);
-        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+        var svc = new CostingService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, EmptyCatalog, prices, IdentityConverter);
 
         Assert.Equal(CostCompleteness.Partial, result.Completeness);
         Assert.Equal(1, result.PricedCount);
@@ -479,8 +789,8 @@ public sealed class CostingServicePureOverloadTests
         var prices = new Dictionary<Guid, PricePoint>(); // empty
 
         var recipe = BuildSingleIngredientRecipe(flourId, 200m, unit, 4);
-        var svc = new CostingService(null!, null!);
-        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+        var svc = new CostingService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, EmptyCatalog, prices, IdentityConverter);
 
         Assert.Equal(CostCompleteness.None, result.Completeness);
         Assert.Null(result.Amount);
@@ -507,8 +817,8 @@ public sealed class CostingServicePureOverloadTests
             new IngredientLine(saltId, null, null, null, 1),
         ], Clock);
 
-        var svc = new CostingService(null!, null!);
-        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+        var svc = new CostingService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, EmptyCatalog, prices, IdentityConverter);
 
         Assert.Equal(CostCompleteness.Full, result.Completeness);
         Assert.Equal(1, result.CostableCount);
@@ -531,12 +841,61 @@ public sealed class CostingServicePureOverloadTests
         };
 
         var recipe = BuildSingleIngredientRecipe(productId, 100m, ingredientUnit, 4);
-        var svc = new CostingService(null!, null!);
-        var result = svc.Compute(recipe, 4, prices, IdentityConverter);
+        var svc = new CostingService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, EmptyCatalog, prices, IdentityConverter);
 
         // Converter fails → treated as un-priced → None
         Assert.Equal(CostCompleteness.None, result.Completeness);
         Assert.Null(result.Amount);
         Assert.Contains(productId, result.MissingPriceProductIds);
+    }
+
+    // ── DM-19: parent → variant rollup, pure overload (byte-identical to the async path) ────────
+
+    [Fact]
+    public void Pure_Parent_With_One_Priced_Variant_Prices_The_Line()
+    {
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var variantId = Guid.CreateVersion7();
+
+        var catalogById = new Dictionary<Guid, CatalogProduct>
+        {
+            [parentId] = new(parentId, "Parent", TrackStock: true, unit, null, IsParent: true, [variantId]),
+        };
+        var prices = new Dictionary<Guid, PricePoint>
+        {
+            [variantId] = MakePrice(variantId, 2.00m, 500m, unit), // $0.004/unit
+        };
+
+        var recipe = BuildSingleIngredientRecipe(parentId, 250m, unit, 4);
+        var svc = new CostingService(null!, null!, null!);
+        var result = svc.Compute(recipe, 4, catalogById, prices, IdentityConverter);
+
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(0.25m, result.Amount!.Value, precision: 6);
+        Assert.Empty(result.MissingPriceProductIds);
+    }
+
+    [Fact]
+    public void Pure_Parent_No_Variant_Priced_Parent_Own_Id_In_Missing()
+    {
+        var unit = Guid.CreateVersion7();
+        var parentId = Guid.CreateVersion7();
+        var variantId = Guid.CreateVersion7();
+
+        var catalogById = new Dictionary<Guid, CatalogProduct>
+        {
+            [parentId] = new(parentId, "Parent", TrackStock: true, unit, null, IsParent: true, [variantId]),
+        };
+        var prices = new Dictionary<Guid, PricePoint>(); // no variant priced
+
+        var recipe = BuildSingleIngredientRecipe(parentId, 100m, unit, 1);
+        var svc = new CostingService(null!, null!, null!);
+        var result = svc.Compute(recipe, 1, catalogById, prices, IdentityConverter);
+
+        Assert.Equal(CostCompleteness.None, result.Completeness);
+        Assert.Contains(parentId, result.MissingPriceProductIds);
+        Assert.DoesNotContain(variantId, result.MissingPriceProductIds);
     }
 }

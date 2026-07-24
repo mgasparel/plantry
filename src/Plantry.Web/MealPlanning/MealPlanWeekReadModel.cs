@@ -128,12 +128,15 @@ public sealed class MealPlanWeekReadModel(
         // ── Query 6: Effective, costable price per product (pricing) ────────────
         // Batched parity with PricingQueries.EffectiveCostablePriceAsync (P5-9b, DJ6; plantry-pxjp):
         // cheapest active-today, usable-unit Deal, else latest live Purchase|Manual. See LoadLatestPricesAsync.
+        // Widened to the same allProductIds ∪ variantProductIds union Query 5 (stock) computes
+        // (stockProductIds) — a parent product is never itself priced, so CostingService's DM-19
+        // cheapest-variant rollup needs its variant children's prices in this bag too (plantry-daal).
         var latestPriceByProduct = new Dictionary<Guid, PriceFact>();
 
-        if (allProductIdList.Count > 0)
+        if (stockProductIds.Count > 0)
         {
             var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
-            await LoadLatestPricesAsync(conn, allProductIdList, today, latestPriceByProduct, ct);
+            await LoadLatestPricesAsync(conn, stockProductIds, today, latestPriceByProduct, ct);
         }
 
         // Cast the mutable accumulation dictionaries to the read-only bag shape.

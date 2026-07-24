@@ -6,6 +6,7 @@ using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.MealPlanning;
 using Plantry.Web.Recipes;
 using CostCompleteness = Plantry.Recipes.Domain.CostCompleteness;
@@ -34,6 +35,11 @@ public sealed class DealAwareCostingAdapterTests
     private static readonly DateTimeOffset InWindow = new(2026, 7, 4, 12, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset AfterWindow = new(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
 
+    // Every product in this file is a leaf — a product id absent from the catalog lookup is treated
+    // as a leaf (self) by CostingService, so an empty catalog reproduces prior (pre-DM-19) behaviour.
+    private static readonly ICatalogProductReader EmptyCatalog =
+        new FakeCatalogProductReader(new Dictionary<Guid, CatalogProduct>(), new Dictionary<Guid, string>());
+
     private const decimal PurchaseUnitPrice = 5.00m;
     private const decimal DealUnitPrice = 2.00m;
 
@@ -47,7 +53,8 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(InWindow);
         var costing = new CostingService(
             new PriceReaderAdapter(new PricingQueries(repo), clock),
-            new IdentityUnitConverter());
+            new IdentityUnitConverter(),
+            EmptyCatalog);
 
         var cost = await costing.ComputeAsync(SingleIngredientRecipe(productId), desiredServings: 1);
 
@@ -63,7 +70,8 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(AfterWindow); // deal expired; only latest purchase remains buyable
         var costing = new CostingService(
             new PriceReaderAdapter(new PricingQueries(repo), clock),
-            new IdentityUnitConverter());
+            new IdentityUnitConverter(),
+            EmptyCatalog);
 
         var cost = await costing.ComputeAsync(SingleIngredientRecipe(productId), desiredServings: 1);
 
@@ -95,7 +103,8 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(InWindow);
         var costing = new CostingService(
             new PriceReaderAdapter(new PricingQueries(repo), clock),
-            new IdentityUnitConverter());
+            new IdentityUnitConverter(),
+            EmptyCatalog);
 
         var recipe = Recipe.Create(Household, "Manual Price Test Recipe", defaultServings: 1, SystemClock.Instance).Value;
         recipe.ReplaceIngredients(
@@ -133,7 +142,8 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(InWindow); // deal is active, but unitless
         var costing = new CostingService(
             new PriceReaderAdapter(new PricingQueries(repo), clock),
-            new IdentityUnitConverter());
+            new IdentityUnitConverter(),
+            EmptyCatalog);
 
         var cost = await costing.ComputeAsync(SingleIngredientRecipe(productId), desiredServings: 1);
 
