@@ -27,13 +27,18 @@ public sealed class CatalogReadFacade(
         return ToInfo(product, unitsById, categoryInfo.name, categoryInfo.hue);
     }
 
-    public async Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default) =>
+        await ProjectAsync(await products.ListActiveAsync(ct), ct);
+
+    public async Task<IReadOnlyList<CatalogProductInfo>> ListArchivedProductsAsync(CancellationToken ct = default) =>
+        await ProjectAsync(await products.ListArchivedAsync(ct), ct);
+
+    private async Task<IReadOnlyList<CatalogProductInfo>> ProjectAsync(List<Product> source, CancellationToken ct)
     {
-        var active = await products.ListActiveAsync(ct);
         var unitsById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value);
         var categoriesById = (await categories.ListAsync(ct)).ToDictionary(c => c.Id);
 
-        return active
+        return source
             .Select(p =>
             {
                 var (catName, catHue) = p.CategoryId is { } cid && categoriesById.TryGetValue(cid, out var cat)
@@ -65,5 +70,6 @@ public sealed class CatalogReadFacade(
             CategoryHue: categoryHue,
             DefaultDueDaysAfterOpening: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterOpening(p),
             DefaultDueDaysAfterFreezing: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing(p),
-            DefaultDueDaysAfterThawing: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterThawing(p));
+            DefaultDueDaysAfterThawing: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterThawing(p),
+            IsArchived: p.IsArchived);
 }

@@ -103,9 +103,21 @@ public sealed record GridCell
     /// <summary>The icon for a <see cref="GridCellKind.SourceChip"/> cell.</summary>
     public SourceChipIcon? ChipIcon { get; init; }
 
+    /// <summary>
+    /// Optional badge rendered immediately after a Link cell's anchor (plantry-lxm2) — e.g. the neutral
+    /// "Archived" badge on a Pantry row whose name still links through to the product detail page, so
+    /// archival status reads inline with the primary link rather than needing its own column.
+    /// </summary>
+    public string? TrailingBadge { get; init; }
+
+    /// <summary>The tone for <see cref="TrailingBadge"/>.</summary>
+    public BadgeTone TrailingBadgeTone { get; init; }
+
     public static GridCell Text(string value) => new() { Kind = GridCellKind.Text, Value = value };
     public static GridCell Muted(string value) => new() { Kind = GridCellKind.Muted, Value = value };
-    public static GridCell Link(string value, string url) => new() { Kind = GridCellKind.Link, Value = value, Url = url };
+
+    public static GridCell Link(string value, string url, string? trailingBadge = null, BadgeTone trailingBadgeTone = BadgeTone.Neutral) =>
+        new() { Kind = GridCellKind.Link, Value = value, Url = url, TrailingBadge = trailingBadge, TrailingBadgeTone = trailingBadgeTone };
     public static GridCell Badge(string value, BadgeTone tone) => new() { Kind = GridCellKind.Badge, Value = value, Tone = tone };
     public static GridCell Actions(params GridAction[] actions) => new() { Kind = GridCellKind.Actions, Items = actions };
 

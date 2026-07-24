@@ -67,15 +67,24 @@ internal sealed class FakeProductStockRepository : IProductStockRepository
 internal sealed class FakeCatalogReadFacade : ICatalogReadFacade
 {
     public List<CatalogProductInfo> Products { get; } = [];
+
+    /// <summary>Archived products (plantry-lxm2) — kept separate from <see cref="Products"/> so tests can
+    /// exercise <see cref="ListProductsAsync"/> (active-only) and <see cref="ListArchivedProductsAsync"/>
+    /// independently, mirroring the real <c>CatalogReadFacade</c>'s two distinct queries.</summary>
+    public List<CatalogProductInfo> ArchivedProducts { get; } = [];
+
     public Dictionary<Guid, string> UnitCodes { get; } = [];
     public Dictionary<Guid, string> LocationNames { get; } = [];
     public Dictionary<Guid, bool> LocationFrozenFlags { get; } = [];
 
     public Task<CatalogProductInfo?> FindProductAsync(Guid productId, CancellationToken ct = default) =>
-        Task.FromResult(Products.SingleOrDefault(p => p.Id == productId));
+        Task.FromResult(Products.Concat(ArchivedProducts).SingleOrDefault(p => p.Id == productId));
 
     public Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default) =>
         Task.FromResult((IReadOnlyList<CatalogProductInfo>)Products.ToList());
+
+    public Task<IReadOnlyList<CatalogProductInfo>> ListArchivedProductsAsync(CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyList<CatalogProductInfo>)ArchivedProducts.ToList());
 
     public Task<IReadOnlyDictionary<Guid, string>> GetUnitCodesAsync(CancellationToken ct = default) =>
         Task.FromResult((IReadOnlyDictionary<Guid, string>)UnitCodes);

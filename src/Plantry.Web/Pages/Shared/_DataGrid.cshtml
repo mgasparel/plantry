@@ -82,6 +82,10 @@ else
                                     break;
                                 case GridCellKind.Link:
                                     <a class="data-grid__link" href="@cell.Url">@cell.Value</a>
+                                    if (cell.TrailingBadge is { } trailingBadge)
+                                    {
+                                        <span class="badge @ToneClass(cell.TrailingBadgeTone)">@trailingBadge</span>
+                                    }
                                     break;
                                 case GridCellKind.Badge:
                                     <span class="badge @ToneClass(cell.Tone)">@cell.Value</span>

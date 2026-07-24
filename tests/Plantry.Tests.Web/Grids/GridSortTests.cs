@@ -19,9 +19,10 @@ public sealed class GridSortTests
     private static PantryListItem Pantry(
         string name, string? category = null, string? location = null,
         bool isVariant = false, decimal qty = 0m, DateOnly? expiry = null,
-        bool isStocked = true, bool isParent = false, int? lotCount = null) =>
+        bool isStocked = true, bool isParent = false, int? lotCount = null,
+        Guid? productId = null, bool isArchived = false) =>
         new(
-            ProductId: Guid.NewGuid(),
+            ProductId: productId ?? Guid.NewGuid(),
             Name: name,
             CategoryName: category,
             LocationDisplay: location,
@@ -32,7 +33,8 @@ public sealed class GridSortTests
             SoonestExpiry: expiry,
             ExpiryTone: ExpiryTone.None,
             IsStocked: isStocked,
-            IsParent: isParent);
+            IsParent: isParent,
+            IsArchived: isArchived);
 
     // ---- Pantry ------------------------------------------------------------
 
@@ -209,5 +211,33 @@ public sealed class GridSortTests
         var cell = PantryPage.KindCell(plain);
 
         Assert.Equal(GridCellKind.Muted, cell.Kind);
+    }
+
+    [Fact(DisplayName = "plantry-lxm2: an archived row's name cell carries the Archived badge and links to the Catalog product page")]
+    public void Pantry_name_cell_archived_row_links_to_catalog_product_page_with_badge()
+    {
+        var productId = Guid.NewGuid();
+        var archived = Pantry("Instant espresso", productId: productId, isArchived: true);
+
+        var cell = PantryPage.NameCell(archived);
+
+        Assert.Equal(GridCellKind.Link, cell.Kind);
+        Assert.Equal("Instant espresso", cell.Value);
+        Assert.Equal($"/Catalog/Products/{productId}", cell.Url);
+        Assert.Equal("Archived", cell.TrailingBadge);
+        Assert.Equal(BadgeTone.Neutral, cell.TrailingBadgeTone);
+    }
+
+    [Fact(DisplayName = "plantry-lxm2: a non-archived row's name cell still links to the Pantry stock detail page, no badge")]
+    public void Pantry_name_cell_non_archived_row_links_to_pantry_detail_no_badge()
+    {
+        var productId = Guid.NewGuid();
+        var plain = Pantry("Olive oil", productId: productId);
+
+        var cell = PantryPage.NameCell(plain);
+
+        Assert.Equal(GridCellKind.Link, cell.Kind);
+        Assert.Equal($"/Pantry/Products/Detail/{productId}", cell.Url);
+        Assert.Null(cell.TrailingBadge);
     }
 }

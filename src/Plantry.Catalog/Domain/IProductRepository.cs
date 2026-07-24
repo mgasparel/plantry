@@ -12,6 +12,15 @@ public interface IProductRepository
     /// review form, which needs pack-size options per matched product.</summary>
     Task<List<Product>> ListActiveWithSkusAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Archived products — the counterpart to <see cref="ListActiveAsync"/> (plantry-lxm2), so the
+    /// Pantry "Everything" scope can fold archived products in as reachable rows (the only UI route
+    /// back to the Unarchive control) instead of them disappearing from every list once archived.
+    /// Defaults to an empty list so existing test doubles need not implement it; only the real EF
+    /// repository and any archival-focused test double need to override it.
+    /// </summary>
+    Task<List<Product>> ListArchivedAsync(CancellationToken ct = default) => Task.FromResult(new List<Product>());
+
     /// <summary>Loads the specified products with their conversion rules in a single query — for batch paths that need converters.</summary>
     Task<List<Product>> ListWithConversionsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default);
 

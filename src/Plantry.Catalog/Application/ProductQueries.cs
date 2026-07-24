@@ -60,13 +60,29 @@ public sealed class ProductQueryService(
     ILocationRepository locations,
     IClock clock)
 {
-    public async Task<IReadOnlyList<ProductListItem>> ListActiveAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<ProductListItem>> ListActiveAsync(CancellationToken ct = default) =>
+        await ProjectAsync(await products.ListActiveAsync(ct), ct);
+
+    /// <summary>
+    /// Every product, active and archived (plantry-lxm2) — feeds the Pantry "Everything" scope so
+    /// archived products stay reachable inline (a neutral "Archived" badge, still clickable through
+    /// to the product detail page) instead of disappearing from every list the moment they're
+    /// archived — the only route back to the Unarchive control. <see cref="ProductListItem.IsArchived"/>
+    /// distinguishes the two on the resulting rows.
+    /// </summary>
+    public async Task<IReadOnlyList<ProductListItem>> ListEverythingAsync(CancellationToken ct = default)
     {
         var activeProducts = await products.ListActiveAsync(ct);
+        var archivedProducts = await products.ListArchivedAsync(ct);
+        return await ProjectAsync([.. activeProducts, .. archivedProducts], ct);
+    }
+
+    private async Task<IReadOnlyList<ProductListItem>> ProjectAsync(IEnumerable<Product> source, CancellationToken ct)
+    {
         var unitsById = (await units.ListAsync(ct)).ToDictionary(u => u.Id);
         var categoriesById = (await categories.ListAsync(ct)).ToDictionary(c => c.Id);
 
-        return activeProducts
+        return source
             .Select(p => new ProductListItem(
                 p.Id,
                 p.Name,

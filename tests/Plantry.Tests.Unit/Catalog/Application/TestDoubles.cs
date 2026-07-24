@@ -22,6 +22,9 @@ internal sealed class FakeProductRepository : IProductRepository
     public Task<List<Product>> ListActiveWithSkusAsync(CancellationToken ct = default) =>
         Task.FromResult(Items.Where(p => p.ArchivedAt is null).ToList());
 
+    public Task<List<Product>> ListArchivedAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(p => p.ArchivedAt is not null).ToList());
+
     public Task<List<Product>> ListWithConversionsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default) =>
         Task.FromResult(Items.Where(p => ids.Contains(p.Id)).ToList());
 

@@ -28,13 +28,14 @@ public sealed class PantryEverythingScopeMergeTests
             ExpiryTone: ExpiryTone.None);
 
     private static ProductListItem Catalog(
-        string name, Guid? id = null, string? category = null, bool isVariant = false, bool isParent = false) =>
+        string name, Guid? id = null, string? category = null, bool isVariant = false, bool isParent = false,
+        bool isArchived = false) =>
         new(
             Id: id is { } i ? ProductId.From(i) : ProductId.New(),
             Name: name,
             CategoryName: category,
             DefaultUnitCode: "ea",
-            IsArchived: false,
+            IsArchived: isArchived,
             IsVariant: isVariant,
             IsParent: isParent);
 
@@ -80,6 +81,19 @@ public sealed class PantryEverythingScopeMergeTests
         var merged = PantryPage.MergeEverythingScope(inStock, catalog);
 
         Assert.True(Assert.Single(merged).IsParent);
+    }
+
+    [Fact(DisplayName = "plantry-lxm2: an archived, never-stocked catalog product folds in with IsArchived set")]
+    public void ArchivedAndUnstocked_CarriesIsArchived()
+    {
+        var inStock = Array.Empty<PantryListItem>();
+        var catalog = new[] { Catalog("Instant espresso", category: "Beverages", isArchived: true) };
+
+        var merged = PantryPage.MergeEverythingScope(inStock, catalog);
+
+        var row = Assert.Single(merged);
+        Assert.True(row.IsArchived);
+        Assert.False(row.IsStocked);
     }
 
     [Fact(DisplayName = "In-stock rows and unstocked catalog rows both appear, stocked rows unchanged")]
