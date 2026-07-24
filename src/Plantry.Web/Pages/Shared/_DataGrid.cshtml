@@ -113,6 +113,14 @@ else
                                                     hx-target="@action.HxTarget"
                                                     hx-swap="@(action.HxSwap ?? "innerHTML")">@action.Label</button>
                                         }
+                                        else if (action.IsPost && action.IsBadge)
+                                        {
+                                            <button type="button" class="badge @ToneClass(action.BadgeTone) data-grid__action data-grid__action-badge"
+                                                    hx-post="@action.Url"
+                                                    hx-confirm="@action.Confirm"
+                                                    hx-target="@action.HxTarget"
+                                                    hx-swap="@action.HxSwap">@action.Label</button>
+                                        }
                                         else if (action.IsPost)
                                         {
                                             var target = action.HxTarget ?? (action.RemovesRow ? "closest tr" : null);

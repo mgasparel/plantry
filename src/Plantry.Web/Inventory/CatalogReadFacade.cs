@@ -59,5 +59,6 @@ public sealed class CatalogReadFacade(
             unitsById.TryGetValue(p.DefaultUnitId.Value, out var unit) ? unit.Code : "?",
             p.CanHoldStock,
             p.IsVariant,
-            CategoryHue: categoryHue);
+            CategoryHue: categoryHue,
+            DefaultDueDaysAfterOpening: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterOpening(p));
 }

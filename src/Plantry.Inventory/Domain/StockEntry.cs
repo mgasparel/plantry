@@ -7,9 +7,11 @@ namespace Plantry.Inventory.Domain;
 /// A single lot of stock — the child of <see cref="ProductStock"/> (inventory.md). Carries the
 /// remaining <see cref="Quantity"/> in <see cref="UnitId"/>, its <see cref="LocationId"/>, and the
 /// expiry <b>materialized at event time</b> (DM-11) — never recomputed at read time.
-/// <see cref="FrozenAt"/>/<see cref="ThawedAt"/>/<see cref="IsOpen"/> exist now but the transitions
-/// that drive them are Slice 3. A depleted lot keeps its row (<see cref="DepletedAt"/> set) because
-/// the append-only journal's FK requires every historical lot to stay live.
+/// <see cref="IsOpen"/>'s transitions are driven by <see cref="ProductStock.MarkOpened"/> /
+/// <see cref="ProductStock.UnmarkOpened"/> (plantry-1le6); <see cref="FrozenAt"/>/<see cref="ThawedAt"/>
+/// are still unset — their transitions land with the freeze/thaw slice (plantry-6owm). A depleted lot
+/// keeps its row (<see cref="DepletedAt"/> set) because the append-only journal's FK requires every
+/// historical lot to stay live.
 /// </summary>
 public sealed class StockEntry : Entity<StockEntryId>
 {
@@ -91,6 +93,28 @@ public sealed class StockEntry : Entity<StockEntryId>
             throw new ArgumentOutOfRangeException(nameof(amount), "Increase must be positive.");
 
         Quantity += amount;
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Flips the lot open and applies <paramref name="expiryDate"/> — the already-clamped value
+    /// <see cref="ProductStock.MarkOpened"/> (or the auto-open step of <see cref="ProductStock.Consume"/>,
+    /// plantry-1le6 rule 5) computed. Called only by the root, keeping the aggregate boundary intact.
+    /// </summary>
+    internal void MarkOpen(DateOnly? expiryDate, IClock clock)
+    {
+        IsOpen = true;
+        ExpiryDate = expiryDate;
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Un-marks an opened lot (plantry-1le6 rule 3) — a correction, not a recompute: the expiry that
+    /// opening replaced is <b>not</b> restored (no history is kept of it). Called only by the root.
+    /// </summary>
+    internal void UnmarkOpen(IClock clock)
+    {
+        IsOpen = false;
         UpdatedAt = clock.UtcNow;
     }
 }

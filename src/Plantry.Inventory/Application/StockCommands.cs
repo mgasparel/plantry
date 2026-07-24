@@ -228,7 +228,8 @@ public sealed class ConsumeStockCommand(
                 sourceRef: sourceRef,
                 sourceType: sourceType,
                 targetEntry: targetEntryId is { } id ? StockEntryId.From(id) : null,
-                sourceLineRef: sourceLineRef);
+                sourceLineRef: sourceLineRef,
+                dueDaysAfterOpening: product?.DefaultDueDaysAfterOpening);
 
             if (outcome.IsFailure)
             {
@@ -327,6 +328,107 @@ public sealed class AmendPurchaseCommand(
             logger?.LogInformation(
                 "Purchase amended for product {ProductId}, entry {EntryId}. Delta: {Delta}.",
                 productId, stockEntryId, result.Value);
+
+            return result;
+        }, ct);
+    }
+}
+
+/// <summary>
+/// The "Mark opened" row action (plantry-1le6, UI spec §1) — a one-tap, no-input command. Resolves
+/// the product's after-opening default through <see cref="ICatalogReadFacade"/> (Inventory must not
+/// reach into Catalog directly) and delegates the clamp/guards to <see cref="ProductStock.MarkOpened"/>.
+/// Loads the root under the same row lock as <see cref="ConsumeStockCommand"/> (DM-13) even though this
+/// is not consumption (rule 6: no journal row, no quantity change) — <c>IsOpen</c>/<c>ExpiryDate</c> are
+/// still fields on the same concurrency-anchored aggregate.
+/// </summary>
+public sealed class MarkStockOpenedCommand(
+    Guid productId,
+    Guid stockEntryId,
+    IProductStockRepository stocks,
+    ICatalogReadFacade catalog,
+    IClock clock,
+    ITenantContext tenant,
+    ILogger<MarkStockOpenedCommand>? logger = null)
+{
+    public async Task<Result<MarkOpenedOutcome>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var household = HouseholdId.From(householdId);
+        var product = await catalog.FindProductAsync(productId, ct);
+
+        return await stocks.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var stock = await stocks.FindForUpdateAsync(household, productId, innerCt);
+            if (stock is null)
+            {
+                logger?.LogWarning("MarkOpened failed — no stock record for product {ProductId}.", productId);
+                return Result<MarkOpenedOutcome>.Failure(Error.Custom("Inventory.NoStock", "There is no stock for this product."));
+            }
+
+            var result = stock.MarkOpened(StockEntryId.From(stockEntryId), product?.DefaultDueDaysAfterOpening, clock);
+            if (result.IsFailure)
+            {
+                logger?.LogWarning(
+                    "MarkOpened rejected for product {ProductId}, entry {EntryId}. Error: {ErrorCode}.",
+                    productId, stockEntryId, result.Error.Code);
+                return result;
+            }
+
+            await stocks.SaveChangesAsync(innerCt);
+
+            logger?.LogInformation(
+                "Lot marked opened for product {ProductId}, entry {EntryId}.", productId, stockEntryId);
+
+            return result;
+        }, ct);
+    }
+}
+
+/// <summary>
+/// The "Open" badge's tap-to-undo action (plantry-1le6, UI spec §3) — corrections happen; un-marking
+/// does NOT restore the expiry opening replaced (no history is kept) and runs no recompute. Same row
+/// lock as <see cref="MarkStockOpenedCommand"/>; needs no Catalog fact at all.
+/// </summary>
+public sealed class UnmarkStockOpenedCommand(
+    Guid productId,
+    Guid stockEntryId,
+    IProductStockRepository stocks,
+    IClock clock,
+    ITenantContext tenant,
+    ILogger<UnmarkStockOpenedCommand>? logger = null)
+{
+    public async Task<Result<UnmarkOpenedOutcome>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var household = HouseholdId.From(householdId);
+
+        return await stocks.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var stock = await stocks.FindForUpdateAsync(household, productId, innerCt);
+            if (stock is null)
+            {
+                logger?.LogWarning("UnmarkOpened failed — no stock record for product {ProductId}.", productId);
+                return Result<UnmarkOpenedOutcome>.Failure(Error.Custom("Inventory.NoStock", "There is no stock for this product."));
+            }
+
+            var result = stock.UnmarkOpened(StockEntryId.From(stockEntryId), clock);
+            if (result.IsFailure)
+            {
+                logger?.LogWarning(
+                    "UnmarkOpened rejected for product {ProductId}, entry {EntryId}. Error: {ErrorCode}.",
+                    productId, stockEntryId, result.Error.Code);
+                return result;
+            }
+
+            await stocks.SaveChangesAsync(innerCt);
+
+            logger?.LogInformation(
+                "Lot unmarked opened for product {ProductId}, entry {EntryId}.", productId, stockEntryId);
 
             return result;
         }, ct);

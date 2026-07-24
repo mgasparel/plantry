@@ -11,7 +11,8 @@ namespace Plantry.Inventory.Domain;
 /// <c>xmin</c> as the optimistic backstop.
 ///
 /// All stock removal flows through the single <see cref="Consume"/> primitive (ADR-011); intake
-/// flows through <see cref="AddStock"/>. Transfer/freeze/thaw/open are Slice 3.
+/// flows through <see cref="AddStock"/>. <see cref="MarkOpened"/>/<see cref="UnmarkOpened"/>
+/// (plantry-1le6) are the "opened" transitions; transfer/freeze/thaw (plantry-6owm) are next.
 /// </summary>
 public sealed class ProductStock : AggregateRoot<ProductStockId>
 {
@@ -155,11 +156,21 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     /// scopes the check to one cook. Instead of returning zero shortfall, the short-circuit
     /// recomputes the original shortfall from the matching journal rows so that
     /// <c>ReconcilePendingCooks</c> preserves real partial shortfalls on re-drive.
+    ///
+    /// <para><b>Auto-open (plantry-1le6 rule 5):</b> every lot this call deducts from without fully
+    /// depleting — i.e. a partial deduction — is flipped open if it was still sealed, applying the
+    /// same clamp <see cref="MarkOpened"/> uses (<paramref name="dueDaysAfterOpening"/> resolved by
+    /// the caller, since Inventory must not reach into Catalog). A lot deducted to zero is left
+    /// alone (nothing left to expire); an already-open lot is left alone (no re-fire). This runs for
+    /// every caller of this single primitive — manual consume, Cook, Meal Plan Eat, Take Stock's
+    /// targeted reduce — not just the UI's Consume sheet, per ADR-011's "one primitive" discipline.
+    /// Reported back via <see cref="ConsumeOutcome.AutoOpened"/>.</para>
     /// </summary>
     public Result<ConsumeOutcome> Consume(
         decimal amount, Guid unitId, StockReason reason, IQuantityConverter converter,
         Guid userId, IClock clock, Guid? sourceRef = null, StockSourceType? sourceType = null,
-        StockEntryId? targetEntry = null, Guid? sourceLineRef = null, Guid? locationId = null)
+        StockEntryId? targetEntry = null, Guid? sourceLineRef = null, Guid? locationId = null,
+        int? dueDaysAfterOpening = null)
     {
         if (amount <= 0m)
             return Error.Custom("Inventory.InvalidConsumeAmount", "Consume amount must be positive.");
@@ -198,7 +209,7 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
                     satisfied += converted.IsSuccess ? converted.Value : Math.Abs(row.Delta);
                 }
                 var recomputedShortfall = Math.Max(0m, amount - satisfied);
-                return new ConsumeOutcome([], recomputedShortfall, unitId);
+                return new ConsumeOutcome([], recomputedShortfall, unitId, []);
             }
         }
 
@@ -235,20 +246,91 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
 
         // Apply pass — mutate lots and append journal rows.
         var now = clock.UtcNow;
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
         var deductions = new List<LotDeduction>(plan.Count);
+        var autoOpened = new List<MarkOpenedOutcome>();
         foreach (var (lot, takeInLot, _) in plan)
         {
+            var wasSealed = !lot.IsOpen;
             lot.Deduct(takeInLot, clock);
             _journal.Add(StockJournalEntry.Record(
                 HouseholdId, ProductId, lot.Id, -takeInLot, lot.UnitId,
                 reason, sourceType, sourceRef, sourceLineRef, now, userId));
             deductions.Add(new LotDeduction(lot.Id, takeInLot, lot.UnitId));
+
+            // Rule 5: a partial deduction from a still-sealed lot auto-opens it; a lot deducted to
+            // zero is skipped (nothing left to expire) and an already-open lot never re-fires.
+            if (wasSealed && lot.IsActive)
+            {
+                var newExpiry = ApplyOpeningClamp(lot.ExpiryDate, today, dueDaysAfterOpening);
+                lot.MarkOpen(newExpiry, clock);
+                autoOpened.Add(new MarkOpenedOutcome(lot.Id, newExpiry, DefaultApplied: dueDaysAfterOpening is not null));
+            }
         }
 
         if (plan.Count > 0) UpdatedAt = now;
 
         var shortfall = remaining > 0m ? remaining : 0m;
-        return new ConsumeOutcome(deductions, shortfall, unitId);
+        return new ConsumeOutcome(deductions, shortfall, unitId, autoOpened);
+    }
+
+    /// <summary>
+    /// Marks a sealed lot as opened (plantry-1le6 UI spec §1) — flips <see cref="StockEntry.IsOpen"/>
+    /// and recomputes its expiry anchored at today (DM-11 materialize-at-event-time), via
+    /// <see cref="ApplyOpeningClamp"/>. Not consumption (rule 6): writes no journal row and changes no
+    /// quantity. <paramref name="dueDaysAfterOpening"/> is the product's already-resolved after-opening
+    /// default (Catalog fact resolved by the caller — Inventory must not reach into Catalog); null means
+    /// no default is configured anywhere, so the flag flips but the expiry is left untouched (rule 4).
+    /// </summary>
+    public Result<MarkOpenedOutcome> MarkOpened(StockEntryId entryId, int? dueDaysAfterOpening, IClock clock)
+    {
+        var lot = _entries.FirstOrDefault(e => e.Id == entryId);
+        if (lot is null)
+            return Error.Custom("Inventory.LotNotFound", $"No lot '{entryId}' to mark opened.");
+        if (!lot.IsActive)
+            return Error.Custom("Inventory.LotNotActive", "A depleted lot cannot be marked opened.");
+        if (lot.IsOpen)
+            return Error.Custom("Inventory.LotAlreadyOpen", "This lot is already marked opened.");
+
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var newExpiry = ApplyOpeningClamp(lot.ExpiryDate, today, dueDaysAfterOpening);
+        lot.MarkOpen(newExpiry, clock);
+        UpdatedAt = clock.UtcNow;
+        return new MarkOpenedOutcome(lot.Id, newExpiry, DefaultApplied: dueDaysAfterOpening is not null);
+    }
+
+    /// <summary>
+    /// Un-marks an opened lot (plantry-1le6 UI spec §3 — corrections happen). A pure flag flip: the
+    /// expiry that opening replaced is <b>not</b> restored (no history is kept), and no recompute runs.
+    /// </summary>
+    public Result<UnmarkOpenedOutcome> UnmarkOpened(StockEntryId entryId, IClock clock)
+    {
+        var lot = _entries.FirstOrDefault(e => e.Id == entryId);
+        if (lot is null)
+            return Error.Custom("Inventory.LotNotFound", $"No lot '{entryId}' to unmark.");
+        if (!lot.IsOpen)
+            return Error.Custom("Inventory.LotNotOpen", "This lot is not marked opened.");
+
+        lot.UnmarkOpen(clock);
+        UpdatedAt = clock.UtcNow;
+        return new UnmarkOpenedOutcome(lot.Id, lot.ExpiryDate);
+    }
+
+    /// <summary>
+    /// The DM-11 opening clamp (plantry-1le6 rule 2) shared by <see cref="MarkOpened"/> and
+    /// <see cref="Consume"/>'s auto-open step: opening never <b>extends</b> a printed date — the new
+    /// expiry is <c>min(existingExpiry, today + dueDaysAfterOpening)</c>, deliberately the opposite of
+    /// freezing's replace-outright rule (plantry-6owm), because "use within N days of opening" can
+    /// never push a date later than what's already printed. A null <paramref name="existingExpiry"/>
+    /// takes the candidate outright (nothing to clamp against). A null
+    /// <paramref name="dueDaysAfterOpening"/> (rule 4 — no default configured anywhere) leaves
+    /// <paramref name="existingExpiry"/> untouched.
+    /// </summary>
+    private static DateOnly? ApplyOpeningClamp(DateOnly? existingExpiry, DateOnly today, int? dueDaysAfterOpening)
+    {
+        if (dueDaysAfterOpening is not { } days) return existingExpiry;
+        var candidate = today.AddDays(days);
+        return existingExpiry is { } existing && existing < candidate ? existing : candidate;
     }
 
     /// <summary>

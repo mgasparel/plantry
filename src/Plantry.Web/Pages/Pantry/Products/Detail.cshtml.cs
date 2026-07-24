@@ -37,7 +37,9 @@ public sealed class DetailModel(
     ILogger<ConsumeStockCommand> consumeLogger,
     ILogger<SetLowStockThresholdCommand> thresholdLogger,
     ILogger<AddStockCommand> addStockLogger,
-    ILogger<RecordObservationCommand> priceLogger) : PageModel
+    ILogger<RecordObservationCommand> priceLogger,
+    ILogger<MarkStockOpenedCommand> markOpenedLogger,
+    ILogger<UnmarkStockOpenedCommand> unmarkOpenedLogger) : PageModel
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
@@ -178,14 +180,31 @@ public sealed class DetailModel(
             return await ReloadSheetAsync(id);
         }
 
-        var notice = result.Value.HasShortfall
-            ? $"Consumed what was available — {result.Value.ShortfallAmount:0.###} could not be satisfied."
-            : null;
+        var notice = BuildConsumeNotice(result.Value);
 
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
         return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: notice, Chips));
+    }
+
+    /// <summary>
+    /// Combines the shortfall notice with any auto-open lines (plantry-1le6 rule 5) into the single
+    /// inline notice this page already shows for a consume result. A multi-lot consume can auto-open
+    /// more than one lot, so each gets its own sentence.
+    /// </summary>
+    internal static string? BuildConsumeNotice(ConsumeOutcome outcome)
+    {
+        var parts = new List<string>();
+        if (outcome.HasShortfall)
+            parts.Add($"Consumed what was available — {outcome.ShortfallAmount:0.###} could not be satisfied.");
+        foreach (var opened in outcome.AutoOpened)
+        {
+            parts.Add(opened.DefaultApplied
+                ? $"Marked opened — now expires {opened.ExpiryDate:d MMM yyyy}."
+                : "Marked opened — expiry unchanged.");
+        }
+        return parts.Count > 0 ? string.Join(" ", parts) : null;
     }
 
     /// <summary>Discards an entire lot in one action (SPEC §1c) — amount and unit are read from the
@@ -205,6 +224,59 @@ public sealed class DetailModel(
         var notice = result.IsFailure ? result.Error.Description : null;
         return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice, Chips));
     }
+
+    /// <summary>
+    /// The "Mark opened" row action (plantry-1le6, UI spec §1) — a one-tap, no-input htmx POST. Unlike
+    /// this page's other mutations (which swap <c>_StockDetail</c> in place via an OOB htmx response),
+    /// this genuinely follows POST-Redirect-GET: it sets the shared save-toast
+    /// (<c>TempData["ToastMessage"]</c>, plantry-u7n9/8b8802a) and responds with <c>HX-Redirect</c> so
+    /// htmx does a full navigation back to this page — the same idiom <c>Intake/Upload</c> uses to hand
+    /// off to a fresh GET. A rejected mark (e.g. a concurrent double-tap) still redirects, carrying the
+    /// error as the toast instead, since the lot's on-screen state already reflects reality either way.
+    /// </summary>
+    public async Task<IActionResult> OnPostMarkOpenAsync(Guid id, Guid entryId)
+    {
+        var result = await new MarkStockOpenedCommand(
+            id, entryId, stocks, catalog, clock, tenant, markOpenedLogger).ExecuteAsync();
+
+        TempData["ToastMessage"] = result.IsSuccess
+            ? FormatMarkOpenedToast(result.Value)
+            : result.Error.Description;
+
+        Response.Headers["HX-Redirect"] = Url.Page("./Detail", new { id })!;
+        return new EmptyResult();
+    }
+
+    /// <summary>Tapping the "Open" badge un-marks the lot (plantry-1le6, UI spec §3) — same PRG/toast
+    /// shape as <see cref="OnPostMarkOpenAsync"/>. Never restores the expiry opening replaced.</summary>
+    public async Task<IActionResult> OnPostUnmarkOpenAsync(Guid id, Guid entryId)
+    {
+        var result = await new UnmarkStockOpenedCommand(
+            id, entryId, stocks, clock, tenant, unmarkOpenedLogger).ExecuteAsync();
+
+        TempData["ToastMessage"] = result.IsSuccess
+            ? FormatUnmarkedToast(result.Value)
+            : result.Error.Description;
+
+        Response.Headers["HX-Redirect"] = Url.Page("./Detail", new { id })!;
+        return new EmptyResult();
+    }
+
+    /// <summary>"Opened — now expires 5 Aug 2026", or "Opened — expiry unchanged" when no after-opening
+    /// default is configured anywhere (product or category) — <see cref="MarkOpenedOutcome.DefaultApplied"/>
+    /// is the honest signal here, not whether the date happens to differ (a tight clamp can leave it
+    /// unchanged even though a default was applied).</summary>
+    internal static string FormatMarkOpenedToast(MarkOpenedOutcome outcome) =>
+        outcome.DefaultApplied
+            ? $"Opened — now expires {outcome.ExpiryDate:d MMM yyyy}"
+            : "Opened — expiry unchanged";
+
+    /// <summary>"Unmarked — expiry stays 5 Aug 2026" — stated honestly: un-marking never recomputes,
+    /// so whatever expiry opening left behind is what remains.</summary>
+    internal static string FormatUnmarkedToast(UnmarkOpenedOutcome outcome) =>
+        outcome.ExpiryDate is { } expiry
+            ? $"Unmarked — expiry stays {expiry:d MMM yyyy}"
+            : "Unmarked — no expiry set";
 
     public async Task<IActionResult> OnGetThresholdSheetAsync(Guid id)
     {

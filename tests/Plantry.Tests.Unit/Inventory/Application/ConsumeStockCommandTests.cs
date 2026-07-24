@@ -135,4 +135,49 @@ public sealed class ConsumeStockCommandTests
         Assert.Equal(100m, stocks.Items.Single().Entries.Single().Quantity); // untouched
         Assert.Equal(0, stocks.SaveChangesCalls);
     }
+
+    // ── Auto-open (plantry-1le6 rule 5) ─────────────────────────────────────────
+
+    [Fact]
+    public async Task Partial_Consume_Resolves_The_Catalog_AfterOpening_Default_And_AutoOpens_The_Lot()
+    {
+        var stocks = StocksWithLot(100m);
+        var catalog = new FakeCatalogReadFacade
+        {
+            Products = { new CatalogProductInfo(
+                _productId, "Mustard", null, _unitId, "ea", CanHoldStock: true,
+                DefaultDueDaysAfterOpening: 5) },
+        };
+        var command = new ConsumeStockCommand(
+            _productId, 30m, _unitId, StockReason.Consumed, _userId, null, null,
+            stocks, catalog, new FakeConversionProvider(new IdentityQuantityConverter()), Clock, new FakeTenantContext(_household));
+
+        var result = await command.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var opened = Assert.Single(result.Value.AutoOpened);
+        Assert.True(opened.DefaultApplied);
+        Assert.True(stocks.Items.Single().Entries.Single().IsOpen);
+    }
+
+    [Fact]
+    public async Task Full_Consume_Never_AutoOpens_Even_With_A_Catalog_Default()
+    {
+        var stocks = StocksWithLot(30m);
+        var catalog = new FakeCatalogReadFacade
+        {
+            Products = { new CatalogProductInfo(
+                _productId, "Mustard", null, _unitId, "ea", CanHoldStock: true,
+                DefaultDueDaysAfterOpening: 5) },
+        };
+        var command = new ConsumeStockCommand(
+            _productId, 30m, _unitId, StockReason.Consumed, _userId, null, null,
+            stocks, catalog, new FakeConversionProvider(new IdentityQuantityConverter()), Clock, new FakeTenantContext(_household));
+
+        var result = await command.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value.AutoOpened);
+        Assert.False(stocks.Items.Single().Entries.Single().IsOpen);
+    }
 }

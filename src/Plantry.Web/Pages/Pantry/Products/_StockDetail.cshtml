@@ -26,6 +26,16 @@
                 GridAction.HxGet("Use",
                     Url.Page("./Detail", "ConsumeSheet", new { id, entryId = lot.EntryId.Value })!,
                     "#sheet-host"),
+                lot.IsOpen
+                    // Tapping the badge un-marks the lot (plantry-1le6 UI spec §3 — corrections
+                    // happen); both handlers redirect via HX-Redirect, so the target/swap here never
+                    // actually gets used to swap a fragment.
+                    ? GridAction.PostBadge("Open",
+                        Url.Page("./Detail", "UnmarkOpen", new { id, entryId = lot.EntryId.Value })!)
+                    // Rendered only while the lot is sealed (plantry-1le6 UI spec §1) — a one-tap
+                    // action with no inputs, so it needs no sheet.
+                    : GridAction.Post("Mark opened",
+                        Url.Page("./Detail", "MarkOpen", new { id, entryId = lot.EntryId.Value })!),
                 GridAction.PostTo("Discard",
                     Url.Page("./Detail", "Discard", new { id, entryId = lot.EntryId.Value })!,
                     "#stock-detail", "outerHTML")

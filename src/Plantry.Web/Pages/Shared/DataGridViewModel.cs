@@ -36,7 +36,8 @@ public sealed record GridSort(string Key, bool Descending);
 public sealed record GridAction(
     string Label, string Url, bool IsPost = false, string? Confirm = null, bool RemovesRow = false,
     bool IsHxGet = false, string? HxTarget = null, string? HxSwap = null,
-    bool IsIcon = false, string? IconId = null)
+    bool IsIcon = false, string? IconId = null,
+    bool IsBadge = false, BadgeTone BadgeTone = BadgeTone.Neutral)
 {
     /// <summary>A plain navigation action (edit, jump-to-detail) — just an anchor.</summary>
     public static GridAction Link(string label, string url) => new(label, url);
@@ -62,6 +63,17 @@ public sealed record GridAction(
     /// </summary>
     public static GridAction Icon(string label, string url, string iconId) =>
         new(label, url, IsIcon: true, IconId: iconId);
+
+    /// <summary>
+    /// A mutating htmx POST rendered as a tappable <c>.badge</c> pill rather than a ghost button
+    /// (plantry-1le6's "Open" badge, tapped again to un-mark) — the same tonal palette
+    /// <see cref="GridCell.Badge"/> cells use, so a row's status badge and its own undo control read
+    /// identically. Redirect-driven handlers (an <c>HX-Redirect</c> response, e.g. the toast-carrying
+    /// full-page PRG) make the swap target/style moot, but a target/swap are still supplied for any
+    /// handler that instead swaps a fragment.
+    /// </summary>
+    public static GridAction PostBadge(string label, string url, BadgeTone tone = BadgeTone.Neutral, string? hxTarget = null, string hxSwap = "outerHTML") =>
+        new(label, url, IsPost: true, IsBadge: true, BadgeTone: tone, HxTarget: hxTarget, HxSwap: hxSwap);
 }
 
 /// <summary>

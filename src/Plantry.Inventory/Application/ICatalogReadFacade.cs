@@ -32,4 +32,12 @@ public sealed record CatalogProductInfo(
     bool CanHoldStock,
     bool IsVariant = false,
     /// <summary>Hue in degrees (0–359) on the oklch colour wheel, inherited from the product's category. Null when uncategorised or category has no hue.</summary>
-    int? CategoryHue = null);
+    int? CategoryHue = null,
+    /// <summary>
+    /// The resolved after-opening due-days default (DM-11 rule 1, plantry-1le6) — Catalog's
+    /// <c>ExpiryDefaultResolver.ResolveDefaultDueDaysAfterOpening</c> fallback chain, already
+    /// materialized here so <c>MarkStockOpenedCommand</c>/<c>ConsumeStockCommand</c> can pass it
+    /// straight to <c>ProductStock.MarkOpened</c>/<c>Consume</c> without Inventory reaching into
+    /// Catalog. Null means no default is configured.
+    /// </summary>
+    int? DefaultDueDaysAfterOpening = null);

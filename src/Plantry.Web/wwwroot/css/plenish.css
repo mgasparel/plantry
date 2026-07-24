@@ -964,6 +964,13 @@ button { font-family: inherit; cursor: pointer; }
 .badge--warning { background: var(--color-warning-bg); color: var(--color-warning); }
 .badge--danger  { background: var(--color-danger-bg);  color: var(--color-danger); }
 
+/* A .badge rendered as a tappable <button> (plantry-1le6's "Open" row badge — tap to un-mark):
+   strip native button chrome so it reads exactly like the plain .badge span, plus a hover/focus cue
+   so it still affords as tappable. Mirrors .sl-deal's "reuse the pill, add just enough interactivity". */
+.data-grid__action-badge { border: none; font: inherit; cursor: pointer; }
+.data-grid__action-badge:hover { filter: brightness(0.95); }
+.data-grid__action-badge:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
 /* ── AI suggestion chip (tappable) ─────────────────────────────────────────── */
 /* A tappable chip for an AI proposal the user confirms with one tap (plantry-qll2.2 —
    recipe tag suggestions). Accent-tinted to read as assistive/provisional, distinct from the
