@@ -50,6 +50,9 @@ public sealed class CatalogReadFacade(
     public async Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) =>
         (await locations.ListAsync(ct)).ToDictionary(l => l.Id.Value, l => l.Name);
 
+    public async Task<IReadOnlyDictionary<Guid, bool>> GetLocationFrozenFlagsAsync(CancellationToken ct = default) =>
+        (await locations.ListAsync(ct)).ToDictionary(l => l.Id.Value, l => l.IsFrozen);
+
     private static CatalogProductInfo ToInfo(Product p, Dictionary<Guid, Unit> unitsById, string? categoryName, int? categoryHue = null) =>
         new(
             p.Id.Value,
@@ -60,5 +63,7 @@ public sealed class CatalogReadFacade(
             p.CanHoldStock,
             p.IsVariant,
             CategoryHue: categoryHue,
-            DefaultDueDaysAfterOpening: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterOpening(p));
+            DefaultDueDaysAfterOpening: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterOpening(p),
+            DefaultDueDaysAfterFreezing: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing(p),
+            DefaultDueDaysAfterThawing: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterThawing(p));
 }

@@ -26,6 +26,9 @@
                 GridAction.HxGet("Use",
                     Url.Page("./Detail", "ConsumeSheet", new { id, entryId = lot.EntryId.Value })!,
                     "#sheet-host"),
+                GridAction.HxGet("Move",
+                    Url.Page("./Detail", "MoveSheet", new { id, entryId = lot.EntryId.Value })!,
+                    "#sheet-host"),
                 lot.IsOpen
                     // Tapping the badge un-marks the lot (plantry-1le6 UI spec §3 — corrections
                     // happen); both handlers redirect via HX-Redirect, so the target/swap here never

@@ -1295,6 +1295,35 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
   @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
 }
 
+/* Move sheet (plantry-6owm) — per-lot transfer with freeze/thaw expiry recompute. */
+
+/* Lot-context strip inside the move sheet — which lot is being acted on. Same shape as the amend
+   sheet's receipt-context strip (surface-2 card, key facts). */
+.move-context { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); }
+.move-context__product { font-weight: 700; font-size: var(--font-size-sm); display: flex; align-items: center; gap: var(--space-2); }
+.move-context__meta { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.move-context__meta b { color: var(--color-text); font-weight: 600; }
+
+/* Quantity row suffix — "of 2 kg" next to the stepper, plus a 'move all' quick reset. */
+.move-qty { display: flex; align-items: center; gap: var(--space-3); }
+.move-qty__of { font-size: var(--font-size-sm); color: var(--color-text-muted); white-space: nowrap; }
+.move-qty__all { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-info); background: none; border: 0; cursor: pointer; padding: 0; }
+.move-qty__all[hidden] { display: none; }
+
+/* Split preview — where each half of the lot ends up when moving less than everything. */
+.move-split { display: flex; flex-direction: column; gap: 6px; border-left: 3px solid var(--color-border-strong); padding: 2px 0 2px var(--space-3); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.move-split b { color: var(--color-text); font-weight: 600; }
+
+/* Effect preview — what the move does to the lot, in user terms (dashed = "not yet real", same
+   convention as the amend sheet's effect preview). */
+.move-preview { border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.move-preview__label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--color-text-faint); }
+.move-preview__grid { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-5); align-items: baseline; }
+.move-preview__k { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-muted); }
+.move-preview__v { font-size: var(--font-size-sm); }
+.move-preview__arrow { color: var(--color-text-faint); margin: 0 6px; }
+.move-preview__note { font-size: var(--font-size-xs); color: var(--color-text-faint); }
+
 .data-grid__action + .data-grid__action { margin-left: var(--space-2); }
 
 /* Icon-only row action (plantry-sjfn) — the quiet ghost-icon treatment for a trailing Actions cell

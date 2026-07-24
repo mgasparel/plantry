@@ -21,4 +21,17 @@ public static class ExpiryDefaultResolver
     /// category-level after-opening field slots in here without touching callers.
     /// </summary>
     public static int? ResolveDefaultDueDaysAfterOpening(Product product) => product.DefaultDueDaysAfterOpening;
+
+    /// <summary>
+    /// The product's own after-freezing default (plantry-6owm rule 3). Resolves from the product alone
+    /// for the same reason as <see cref="ResolveDefaultDueDaysAfterOpening"/> — <see cref="Category"/>
+    /// has no per-transition due-days field to fall back to.
+    /// </summary>
+    public static int? ResolveDefaultDueDaysAfterFreezing(Product product) => product.DefaultDueDaysAfterFreezing;
+
+    /// <summary>
+    /// The product's own after-thawing default (plantry-6owm rule 3). Mirrors
+    /// <see cref="ResolveDefaultDueDaysAfterFreezing"/>.
+    /// </summary>
+    public static int? ResolveDefaultDueDaysAfterThawing(Product product) => product.DefaultDueDaysAfterThawing;
 }

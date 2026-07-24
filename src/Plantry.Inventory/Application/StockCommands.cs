@@ -434,3 +434,82 @@ public sealed class UnmarkStockOpenedCommand(
         }, ct);
     }
 }
+
+/// <summary>
+/// The "Move" action (plantry-6owm) — inventory transfer between locations, with the freeze/thaw
+/// expiry recompute implicit in the destination's <c>LocationType</c> (rule 2). Resolves the
+/// destination's (and the lot's current) frozen-ness plus the product's after-freezing/after-thawing
+/// defaults through <see cref="ICatalogReadFacade"/> (Inventory must not reach into Catalog directly)
+/// and delegates the transition math/guards/split mechanics to <see cref="ProductStock.Transfer"/>.
+/// Loads the root under the same row lock as <see cref="ConsumeStockCommand"/> (DM-13) even though
+/// this is not consumption (rule 7: no journal row, no quantity-consumed accounting change).
+/// </summary>
+public sealed class TransferStockCommand(
+    Guid productId,
+    Guid stockEntryId,
+    Guid destinationLocationId,
+    decimal quantity,
+    IProductStockRepository stocks,
+    ICatalogReadFacade catalog,
+    IClock clock,
+    ITenantContext tenant,
+    ILogger<TransferStockCommand>? logger = null)
+{
+    public async Task<Result<TransferOutcome>> ExecuteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return Error.Unauthorized;
+
+        var product = await catalog.FindProductAsync(productId, ct);
+        var frozenFlags = await catalog.GetLocationFrozenFlagsAsync(ct);
+        if (!frozenFlags.TryGetValue(destinationLocationId, out var destinationIsFrozen))
+        {
+            logger?.LogWarning("Transfer failed — destination location {LocationId} not found.", destinationLocationId);
+            return Error.Custom("Inventory.UnknownLocation", "The selected destination location does not exist.");
+        }
+
+        var household = HouseholdId.From(householdId);
+        var entry = StockEntryId.From(stockEntryId);
+
+        return await stocks.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var stock = await stocks.FindForUpdateAsync(household, productId, innerCt);
+            if (stock is null)
+            {
+                logger?.LogWarning("Transfer failed — no stock record for product {ProductId}.", productId);
+                return Result<TransferOutcome>.Failure(Error.Custom("Inventory.NoStock", "There is no stock for this product."));
+            }
+
+            var lot = stock.Entries.FirstOrDefault(e => e.Id == entry);
+            if (lot is null)
+            {
+                logger?.LogWarning("Transfer failed — no lot {EntryId} for product {ProductId}.", stockEntryId, productId);
+                return Result<TransferOutcome>.Failure(Error.Custom("Inventory.LotNotFound", $"No lot '{stockEntryId}' to move."));
+            }
+
+            // Defensive: an unknown/archived source location (should not happen for a live lot) is
+            // treated as non-frozen rather than failing the whole transfer.
+            var sourceIsFrozen = frozenFlags.GetValueOrDefault(lot.LocationId);
+
+            var result = stock.Transfer(
+                entry, destinationLocationId, sourceIsFrozen, destinationIsFrozen, quantity, clock,
+                product?.DefaultDueDaysAfterFreezing, product?.DefaultDueDaysAfterThawing);
+
+            if (result.IsFailure)
+            {
+                logger?.LogWarning(
+                    "Transfer rejected for product {ProductId}, entry {EntryId}. Error: {ErrorCode}.",
+                    productId, stockEntryId, result.Error.Code);
+                return result;
+            }
+
+            await stocks.SaveChangesAsync(innerCt);
+
+            logger?.LogInformation(
+                "Lot moved for product {ProductId}, entry {EntryId} → location {DestinationLocationId}. Kind: {Kind}.",
+                productId, stockEntryId, destinationLocationId, result.Value.Kind);
+
+            return result;
+        }, ct);
+    }
+}

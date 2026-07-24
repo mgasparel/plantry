@@ -39,7 +39,8 @@ public sealed class DetailModel(
     ILogger<AddStockCommand> addStockLogger,
     ILogger<RecordObservationCommand> priceLogger,
     ILogger<MarkStockOpenedCommand> markOpenedLogger,
-    ILogger<UnmarkStockOpenedCommand> unmarkOpenedLogger) : PageModel
+    ILogger<UnmarkStockOpenedCommand> unmarkOpenedLogger,
+    ILogger<TransferStockCommand> transferLogger) : PageModel
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
@@ -83,6 +84,16 @@ public sealed class DetailModel(
     /// zero-stock landing (and available any time). No product picker: the product is this page's id.</summary>
     [BindProperty]
     public AddStockInputModel AddStockInput { get; set; } = new();
+
+    /// <summary>Move/transfer a lot between locations, with implicit freeze/thaw expiry recompute
+    /// (plantry-6owm). Defaults to the full lot quantity; a partial quantity splits.</summary>
+    [BindProperty]
+    public MoveInputModel MoveInput { get; set; } = new();
+
+    /// <summary>Populated by <see cref="OnGetMoveSheetAsync"/>/<see cref="ReloadMoveSheetAsync"/> — the
+    /// data the Move sheet's Alpine component needs for its live split/effect preview. Null outside
+    /// those two handlers.</summary>
+    public MoveSheetViewModel? MoveSheet { get; private set; }
 
     public sealed class ConsumeInputModel
     {
@@ -137,6 +148,22 @@ public sealed class DetailModel(
 
         [DataType(DataType.Date)]
         public DateOnly? ExpiryDate { get; set; }
+    }
+
+    /// <summary>Move/transfer one lot (plantry-6owm) — quantity defaults to the full lot; a lesser
+    /// amount splits the lot (rule 1). <see cref="EntryId"/> travels as a hidden field, not user
+    /// input, so — mirroring <see cref="ConsumeInputModel.TargetEntryId"/> — it carries no
+    /// <c>[Required]</c> validation message; <see cref="OnPostMoveAsync"/> guards it directly.</summary>
+    public sealed class MoveInputModel
+    {
+        public Guid? EntryId { get; set; }
+
+        [Required(ErrorMessage = "Choose a destination.")]
+        public Guid? LocationId { get; set; }
+
+        [Required(ErrorMessage = "Enter a quantity.")]
+        [Range(0.000001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero.")]
+        public decimal? Quantity { get; set; }
     }
 
     public async Task<IActionResult> OnGetAsync(Guid id)
@@ -277,6 +304,138 @@ public sealed class DetailModel(
         outcome.ExpiryDate is { } expiry
             ? $"Unmarked — expiry stays {expiry:d MMM yyyy}"
             : "Unmarked — no expiry set";
+
+    /// <summary>Opens the Move sheet (plantry-6owm) — the third per-lot row action, beside Use/Discard.
+    /// Mirrors <see cref="OnGetConsumeSheetAsync"/>'s shape.</summary>
+    public async Task<IActionResult> OnGetMoveSheetAsync(Guid id, Guid entryId)
+    {
+        ProductId = id;
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+
+        var moveSheet = await BuildMoveSheetAsync(id, entryId);
+        if (moveSheet is null) return NotFound();
+        MoveSheet = moveSheet;
+
+        MoveInput = new MoveInputModel
+        {
+            EntryId = entryId,
+            LocationId = moveSheet.DefaultDestinationId,
+            Quantity = moveSheet.LotQuantity,
+        };
+        return Partial("_MoveSheet", this);
+    }
+
+    /// <summary>Submits the Move (plantry-6owm) — full-lot transfer in place, or a partial-quantity
+    /// split (rule 1); freeze/thaw is implicit from the destination (rule 2). Mirrors
+    /// <see cref="OnPostAddStockAsync"/>'s shape: on success the refreshed <c>_StockDetail</c> fragment
+    /// speaks for itself (new location, recomputed expiry) — no extra toast, matching Add stock/Set
+    /// alert rather than Consume's shortfall-driven notice.</summary>
+    public async Task<IActionResult> OnPostMoveAsync(Guid id)
+    {
+        ProductId = id;
+        ClearOtherSheetValidation(nameof(MoveInput));
+
+        if (MoveInput.EntryId is not { } entryId)
+            return NotFound();
+
+        if (!ModelState.IsValid)
+            return await ReloadMoveSheetAsync(id, entryId);
+
+        var result = await new TransferStockCommand(
+            id, entryId, MoveInput.LocationId!.Value, MoveInput.Quantity!.Value,
+            stocks, catalog, clock, tenant, transferLogger).ExecuteAsync();
+
+        if (result.IsFailure)
+        {
+            ModelState.AddModelError(string.Empty, result.Error.Description);
+            return await ReloadMoveSheetAsync(id, entryId);
+        }
+
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+        await LoadChipsAsync(Detail);
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips));
+    }
+
+    private async Task<IActionResult> ReloadMoveSheetAsync(Guid id, Guid entryId)
+    {
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+        var moveSheet = await BuildMoveSheetAsync(id, entryId);
+        if (moveSheet is null) return NotFound();
+        MoveSheet = moveSheet;
+        return Partial("_MoveSheet", this);
+    }
+
+    /// <summary>
+    /// Builds the Move sheet's view model — the lot context strip's facts, the destination picker
+    /// (frozen locations carry the ❄ suffix, the current location renders disabled), and the
+    /// freeze/thaw candidate expiry + rule note <b>precomputed server-side</b>. Neither depends on the
+    /// quantity or destination the shopper eventually picks — the client-side preview (Alpine, in
+    /// <c>_MoveSheet.cshtml</c>) only ever switches between these two precomputed outcomes based on the
+    /// live-selected destination's frozen-ness, so no date arithmetic needs to happen in JS.
+    /// </summary>
+    private async Task<MoveSheetViewModel?> BuildMoveSheetAsync(Guid productId, Guid entryId)
+    {
+        if (Detail is null) return null;
+        var lot = Detail.Lots.FirstOrDefault(l => l.EntryId == StockEntryId.From(entryId));
+        if (lot is null) return null;
+
+        var product = await catalog.FindProductAsync(productId);
+        var allLocations = await locations.ListActiveAsync();
+        var today = Today();
+
+        var sourceIsFrozen = allLocations.FirstOrDefault(l => l.Id == LocationId.From(lot.LocationId))?.IsFrozen ?? false;
+
+        var destinations = allLocations
+            .Select(l => new MoveDestinationOption(l.Id.Value, l.Name, l.IsFrozen, l.Id.Value == lot.LocationId))
+            .ToList();
+
+        // Pre-select the "opposite" storage type — the most likely reason to open Move is to freeze a
+        // non-frozen lot or thaw a frozen one — falling back to any other location when the household
+        // has only one storage type configured.
+        var defaultDestinationId = destinations.FirstOrDefault(d => !d.IsCurrent && d.IsFrozen != sourceIsFrozen)?.Id
+            ?? destinations.FirstOrDefault(d => !d.IsCurrent)?.Id
+            ?? Guid.Empty;
+
+        var freezeDays = product?.DefaultDueDaysAfterFreezing;
+        var thawDays = product?.DefaultDueDaysAfterThawing;
+
+        var freezeCandidateDisplay = freezeDays is { } fd ? today.AddDays(fd).ToString("d MMM yyyy") : null;
+        var thawCandidateDisplay = thawDays is { } td ? today.AddDays(td).ToString("d MMM yyyy") : null;
+
+        var freezeNote = freezeDays is { } fdn
+            ? $"{fdn}-day after-freezing default from this product, counted from today."
+            : "No after-freezing default is set for this product — the expiry is left as-is. FrozenAt is still recorded.";
+        var thawNote = thawDays is { } tdn
+            ? $"{tdn}-day after-thawing default from this product, counted from today."
+            : "No after-thawing default is set for this product — the expiry is left as-is. ThawedAt is still recorded.";
+
+        // Transition fact (UI spec §1): the fact that matches the lot's CURRENT storage type — a lot
+        // sitting in a frozen location shows when it was frozen; one sitting non-frozen shows when it
+        // was thawed. Either can be null (never transitioned).
+        var transitionFact = sourceIsFrozen
+            ? (lot.FrozenAt is { } frozenAt ? $"frozen {frozenAt.ToLocalTime():d MMM yyyy}" : null)
+            : (lot.ThawedAt is { } thawedAt ? $"thawed {thawedAt.ToLocalTime():d MMM yyyy}" : null);
+
+        return new MoveSheetViewModel(
+            entryId,
+            Detail.Name,
+            lot.Quantity,
+            lot.UnitCode,
+            lot.LocationName ?? "—",
+            sourceIsFrozen,
+            lot.ExpiryDate is { } exp ? exp.ToString("d MMM yyyy") : "No expiry set",
+            transitionFact,
+            lot.ThawedAt is { } thawedAtDisplay ? thawedAtDisplay.ToLocalTime().ToString("d MMM yyyy") : null,
+            freezeCandidateDisplay,
+            freezeNote,
+            thawCandidateDisplay,
+            thawNote,
+            destinations,
+            defaultDestinationId);
+    }
 
     public async Task<IActionResult> OnGetThresholdSheetAsync(Guid id)
     {
@@ -512,9 +671,10 @@ public sealed class DetailModel(
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     /// <summary>
-    /// This page carries four sibling <c>[BindProperty]</c> forms — <see cref="Input"/> (Consume),
+    /// This page carries five sibling <c>[BindProperty]</c> forms — <see cref="Input"/> (Consume),
     /// <see cref="ThresholdInput"/> (Set alert), <see cref="PriceInput"/> (Set price, plantry-3fqm),
-    /// and <see cref="AddStockInput"/> (Add stock, plantry-sjfn).
+    /// <see cref="AddStockInput"/> (Add stock, plantry-sjfn), and <see cref="MoveInput"/> (Move,
+    /// plantry-6owm).
     /// Razor Pages binds and validates <b>every</b> <c>[BindProperty]</c> property on <i>every</i> POST
     /// regardless of which handler ran — a well-known cross-form gotcha — so a required field on a sheet
     /// the user never opened (e.g. <c>Input.Amount</c> while posting only the price sheet) would otherwise
@@ -523,7 +683,7 @@ public sealed class DetailModel(
     /// then also tries the <i>bare</i> field name ("Amount", "UnitId", …) — so the contaminating keys are
     /// not reliably prefixed and a plain <c>ModelState.ClearValidationState(nameof(Input))</c> misses them.
     /// Each POST handler calls this first, clearing every key that isn't this handler's own prefix, so the
-    /// other two sheets' unrelated <c>[Required]</c> fields (prefixed or bare-fallback) can never
+    /// other four sheets' unrelated <c>[Required]</c> fields (prefixed or bare-fallback) can never
     /// contaminate this handler's <c>ModelState.IsValid</c>.
     /// </summary>
     private void ClearOtherSheetValidation(string keepPrefix)
@@ -564,3 +724,38 @@ public sealed record PriceDisplayPartialModel(string DisplayText, bool Oob);
 /// last lot to zero still needs a reload to flip the button — same pre-existing gap as the subtitle.
 /// </summary>
 public sealed record PrimaryStockActionPartialModel(Guid ProductId, bool HasStock, bool Oob);
+
+/// <summary>One selectable destination in the Move sheet (plantry-6owm) — <see cref="IsCurrent"/>
+/// renders it disabled and labelled "(current)"; <see cref="IsFrozen"/> renders the ❄ suffix (decided:
+/// suffix, not a separate optgroup).</summary>
+public sealed record MoveDestinationOption(Guid Id, string Name, bool IsFrozen, bool IsCurrent);
+
+/// <summary>
+/// View model for the Move sheet (plantry-6owm) — everything <c>_MoveSheet.cshtml</c>'s Alpine
+/// component needs for its live split/effect preview, entirely precomputed server-side (see
+/// <see cref="DetailModel.BuildMoveSheetAsync"/>): the freeze/thaw candidate expiry depends only on
+/// "today" plus the product's resolved due-days default, neither of which changes as the shopper
+/// adjusts quantity or destination, so no date arithmetic needs to happen in JS. A null
+/// <see cref="FreezeCandidateDisplay"/>/<see cref="ThawCandidateDisplay"/> means no default is
+/// configured (rule 6) — the sheet shows "(unchanged)" for that transition instead of a recomputed date.
+/// </summary>
+public sealed record MoveSheetViewModel(
+    Guid EntryId,
+    string ProductName,
+    decimal LotQuantity,
+    string UnitCode,
+    string SourceLocationName,
+    bool SourceIsFrozen,
+    string ExistingExpiryDisplay,
+    /// <summary>"frozen 2 Jun 2026" / "thawed 20 Jul 2026" — whichever matches the lot's current
+    /// storage type; null if it has never transitioned.</summary>
+    string? TransitionFactDisplay,
+    /// <summary>Drives the refreeze warning (UI spec §5) — shown whenever the lot has EVER been
+    /// thawed, regardless of <see cref="TransitionFactDisplay"/>'s recency.</summary>
+    string? ThawedAtDisplay,
+    string? FreezeCandidateDisplay,
+    string FreezeNote,
+    string? ThawCandidateDisplay,
+    string ThawNote,
+    IReadOnlyList<MoveDestinationOption> Destinations,
+    Guid DefaultDestinationId);

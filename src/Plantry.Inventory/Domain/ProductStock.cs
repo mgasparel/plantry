@@ -12,7 +12,8 @@ namespace Plantry.Inventory.Domain;
 ///
 /// All stock removal flows through the single <see cref="Consume"/> primitive (ADR-011); intake
 /// flows through <see cref="AddStock"/>. <see cref="MarkOpened"/>/<see cref="UnmarkOpened"/>
-/// (plantry-1le6) are the "opened" transitions; transfer/freeze/thaw (plantry-6owm) are next.
+/// (plantry-1le6) are the "opened" transitions; <see cref="Transfer"/> (plantry-6owm) is the
+/// location/freeze/thaw transition.
 /// </summary>
 public sealed class ProductStock : AggregateRoot<ProductStockId>
 {
@@ -331,6 +332,76 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
         if (dueDaysAfterOpening is not { } days) return existingExpiry;
         var candidate = today.AddDays(days);
         return existingExpiry is { } existing && existing < candidate ? existing : candidate;
+    }
+
+    /// <summary>
+    /// Moves (all or part of) a lot to a new location (plantry-6owm) — the transfer/freeze/thaw
+    /// primitive. The transition kind is derived implicitly from <paramref name="sourceIsFrozen"/> and
+    /// <paramref name="destinationIsFrozen"/> (rule 2): non-frozen→frozen freezes (expiry recomputed
+    /// via <paramref name="dueDaysAfterFreezing"/>), frozen→non-frozen thaws (via
+    /// <paramref name="dueDaysAfterThawing"/>), same storage type either side is a plain move (expiry
+    /// and timestamps untouched). Both Catalog facts are resolved by the caller — Inventory must not
+    /// reach into Catalog.
+    ///
+    /// <para>Expiry recompute replaces outright, anchored at today (rule 3, DM-11
+    /// materialize-at-event-time): <c>today + dueDays</c> — freezing may legitimately <b>extend</b> the
+    /// date. A null due-days default (rule 6 — nothing configured anywhere) leaves the expiry untouched
+    /// while still recording the transition timestamp.</para>
+    ///
+    /// <para><b>Partial transfer splits</b> (rule 1): <paramref name="quantity"/> defaults to the full
+    /// lot at the call site: an exact-quantity match moves <paramref name="entryId"/> in place
+    /// (<see cref="TransferOutcome.SplitEntryId"/> is null); anything less carves the moved portion
+    /// into a new lot at the destination (inheriting purchase metadata/PurchasedAt) while the source
+    /// lot keeps its own location and expiry, untouched, with the reduced remainder.</para>
+    ///
+    /// <para>Not consumption (rule 7): writes no journal row and never touches quantity-consumed
+    /// accounting — product-level on-hand totals are unchanged; stock only changes location.</para>
+    /// </summary>
+    public Result<TransferOutcome> Transfer(
+        StockEntryId entryId, Guid destinationLocationId, bool sourceIsFrozen, bool destinationIsFrozen,
+        decimal quantity, IClock clock, int? dueDaysAfterFreezing, int? dueDaysAfterThawing)
+    {
+        var lot = _entries.FirstOrDefault(e => e.Id == entryId);
+        if (lot is null)
+            return Error.Custom("Inventory.LotNotFound", $"No lot '{entryId}' to move.");
+        if (!lot.IsActive)
+            return Error.Custom("Inventory.LotNotActive", "A depleted lot cannot be moved.");
+        if (quantity <= 0m)
+            return Error.Custom("Inventory.InvalidTransferQuantity", "Quantity must be greater than zero.");
+        if (quantity > lot.Quantity)
+            return Error.Custom("Inventory.InvalidTransferQuantity", "Cannot move more than the lot holds.");
+        if (destinationLocationId == lot.LocationId)
+            return Error.Custom("Inventory.SameLocation", "Choose a different location to move to.");
+
+        var kind = !sourceIsFrozen && destinationIsFrozen ? TransferKind.Freeze
+            : sourceIsFrozen && !destinationIsFrozen ? TransferKind.Thaw
+            : TransferKind.Move;
+
+        var now = clock.UtcNow;
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+
+        var (newExpiry, defaultApplied) = kind switch
+        {
+            TransferKind.Freeze => (dueDaysAfterFreezing is { } f ? today.AddDays(f) : lot.ExpiryDate, dueDaysAfterFreezing is not null),
+            TransferKind.Thaw => (dueDaysAfterThawing is { } t ? today.AddDays(t) : lot.ExpiryDate, dueDaysAfterThawing is not null),
+            _ => (lot.ExpiryDate, false),
+        };
+
+        StockEntryId? splitEntryId = null;
+        if (quantity == lot.Quantity)
+        {
+            lot.MoveTo(destinationLocationId, newExpiry, kind, now);
+        }
+        else
+        {
+            lot.ReduceForSplit(quantity, clock);
+            var newLot = StockEntry.CreateSplit(lot, quantity, destinationLocationId, newExpiry, kind, now);
+            _entries.Add(newLot);
+            splitEntryId = newLot.Id;
+        }
+
+        UpdatedAt = now;
+        return new TransferOutcome(lot.Id, splitEntryId, quantity, lot.UnitId, destinationLocationId, kind, newExpiry, defaultApplied);
     }
 
     /// <summary>

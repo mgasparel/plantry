@@ -59,7 +59,17 @@ public sealed record StockLotRow(
     DateOnly? ExpiryDate,
     string? LocationName,
     DateOnly? PurchasedAt,
-    bool IsOpen);
+    bool IsOpen,
+    /// <summary>The lot's current location id (plantry-6owm) — the Move sheet needs the raw id (not
+    /// just the display name) to exclude/disable it in the destination picker and to resolve the
+    /// source location's frozen-ness for the transition preview.</summary>
+    Guid LocationId = default,
+    /// <summary>Most recent freeze transition (plantry-6owm rule 4 — own-field, never cleared by a
+    /// later thaw). Null if this lot has never been frozen.</summary>
+    DateTimeOffset? FrozenAt = null,
+    /// <summary>Most recent thaw transition (plantry-6owm rule 4), mirroring <see cref="FrozenAt"/>.
+    /// Null if this lot has never been thawed. Also drives the refreeze warning (UI spec §5).</summary>
+    DateTimeOffset? ThawedAt = null);
 
 /// <summary>One movement in a product's stock journal (SPEC §1b history).</summary>
 /// <param name="JournalId">
@@ -337,7 +347,10 @@ public class InventoryQueryService(
                 l.ExpiryDate,
                 locationNames.GetValueOrDefault(l.LocationId),
                 l.PurchasedAt,
-                l.IsOpen))
+                l.IsOpen,
+                LocationId: l.LocationId,
+                FrozenAt: l.FrozenAt,
+                ThawedAt: l.ThawedAt))
             .ToList();
 
         var history = stock.Journal

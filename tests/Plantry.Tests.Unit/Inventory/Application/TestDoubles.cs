@@ -69,6 +69,7 @@ internal sealed class FakeCatalogReadFacade : ICatalogReadFacade
     public List<CatalogProductInfo> Products { get; } = [];
     public Dictionary<Guid, string> UnitCodes { get; } = [];
     public Dictionary<Guid, string> LocationNames { get; } = [];
+    public Dictionary<Guid, bool> LocationFrozenFlags { get; } = [];
 
     public Task<CatalogProductInfo?> FindProductAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(Products.SingleOrDefault(p => p.Id == productId));
@@ -81,6 +82,9 @@ internal sealed class FakeCatalogReadFacade : ICatalogReadFacade
 
     public Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) =>
         Task.FromResult((IReadOnlyDictionary<Guid, string>)LocationNames);
+
+    public Task<IReadOnlyDictionary<Guid, bool>> GetLocationFrozenFlagsAsync(CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyDictionary<Guid, bool>)LocationFrozenFlags);
 }
 
 /// <summary>A clock pinned to a fixed instant so date-window tests can't straddle a day boundary.</summary>

@@ -20,6 +20,17 @@ public interface ICatalogReadFacade
 
     /// <summary>Location name by location id for the pantry/detail views.</summary>
     Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Location frozen-ness (<c>LocationType.Frozen</c>) by location id (plantry-6owm) — lets
+    /// <c>TransferStockCommand</c> derive the implicit freeze/thaw transition kind (rule 2) without
+    /// Inventory reaching into Catalog. Locations absent from the household are simply absent from the
+    /// result. Defaults to an empty dictionary so existing test doubles need not implement it (mirrors
+    /// <see cref="IProductStockRepository.ListProductIdsWithStockAsync"/>'s default-implementation
+    /// pattern) — only the real Web adapter and any Move/Transfer-focused test double need to override it.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, bool>> GetLocationFrozenFlagsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, bool>>(new Dictionary<Guid, bool>());
 }
 
 /// <summary>The slice of a Catalog product the Inventory read models and intake guard depend on.</summary>
@@ -40,4 +51,12 @@ public sealed record CatalogProductInfo(
     /// straight to <c>ProductStock.MarkOpened</c>/<c>Consume</c> without Inventory reaching into
     /// Catalog. Null means no default is configured.
     /// </summary>
-    int? DefaultDueDaysAfterOpening = null);
+    int? DefaultDueDaysAfterOpening = null,
+    /// <summary>The resolved after-freezing due-days default (plantry-6owm rule 3) —
+    /// <c>ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing</c>, already materialized here so
+    /// <c>TransferStockCommand</c> can pass it straight to <c>ProductStock.Transfer</c> without
+    /// Inventory reaching into Catalog. Null means no default is configured.</summary>
+    int? DefaultDueDaysAfterFreezing = null,
+    /// <summary>The resolved after-thawing due-days default (plantry-6owm rule 3), mirroring
+    /// <see cref="DefaultDueDaysAfterFreezing"/>.</summary>
+    int? DefaultDueDaysAfterThawing = null);
