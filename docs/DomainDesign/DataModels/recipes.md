@@ -67,8 +67,9 @@ Backing indexes for Browse sort (J2): the `UNIQUE (household_id, name)` index se
 | `servings_cooked` | `int` | the materialized `ServingsScale × default` at cook time; `CHECK (servings_cooked >= 1)` (R2) |
 | `cooked_by` | `uuid` NOT NULL | attribution (O2); soft ref → identity user. Append-only ⇒ unrecoverable if not captured at write time |
 | `cooked_at` | `timestamptz` | |
+| `planned_dish_id` | `uuid` NULL | bare soft-ref (DM-3, no FK) → MealPlanning `PlannedDish`, set only when the cook was launched from the meal plan (plantry-0eut); null for a direct recipe-launched cook. The plan UI DERIVES cooked state from this — no MealPlanning write, no `RecipeCooked` subscriber (ADR-014) |
 
-**No `updated_at`, no delete** — rows are never updated or deleted (R8), matching `inventory.stock_journal_entry`. Index `(household_id, recipe_id, cooked_at)` for future history / frequency reads.
+**No `updated_at`, no delete** — rows are never updated or deleted (R8), matching `inventory.stock_journal_entry`. Index `(household_id, recipe_id, cooked_at)` for future history / frequency reads, and `(household_id, planned_dish_id)` for the plan-week cooked-state lookup.
 
 ---
 

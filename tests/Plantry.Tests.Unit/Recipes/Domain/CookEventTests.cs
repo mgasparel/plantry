@@ -34,6 +34,29 @@ public sealed class CookEventTests
         Assert.Equal(User, evt.CookedBy);
         Assert.Equal(FixedNow, evt.CookedAt);
         Assert.NotEqual(Guid.Empty, evt.Id.Value);
+        Assert.Null(evt.PlannedDishId); // default — a direct (non-plan) cook
+    }
+
+    // ── Plan provenance (plantry-0eut) ────────────────────────────────────────
+
+    [Fact]
+    public void Record_With_PlannedDishId_Sets_It()
+    {
+        var plannedDishId = Guid.CreateVersion7();
+
+        var result = CookEvent.Record(Recipe, Household, servingsCooked: 4, User, Clock, plannedDishId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(plannedDishId, result.Value.PlannedDishId);
+    }
+
+    [Fact]
+    public void Record_Without_PlannedDishId_Leaves_It_Null()
+    {
+        var result = CookEvent.Record(Recipe, Household, servingsCooked: 4, User, Clock);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value.PlannedDishId);
     }
 
     [Fact]

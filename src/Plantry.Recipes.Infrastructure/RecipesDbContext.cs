@@ -211,6 +211,10 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             b.Property(c => c.ServingsCooked).HasColumnName("servings_cooked").IsRequired();
             b.Property(c => c.CookedBy).HasColumnName("cooked_by").IsRequired();
             b.Property(c => c.CookedAt).HasColumnName("cooked_at");
+            // Bare soft-ref (DM-3, no FK) to MealPlanning's PlannedDish (plantry-0eut) — null for a
+            // direct recipe-launched cook. Indexed: the plan-week reader queries "does a CookEvent
+            // exist with this PlannedDishId" to derive cooked state per dish.
+            b.Property(c => c.PlannedDishId).HasColumnName("planned_dish_id");
 
             // The FK to recipe (household_id, recipe_id) ON DELETE RESTRICT is created via raw SQL
             // in the InitialRecipesSchema migration — EF models no relationship here, mirroring the
@@ -240,6 +244,9 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
 
             b.HasIndex(c => new { c.HouseholdId, c.RecipeId, c.CookedAt })
                 .HasDatabaseName("ix_cook_event_household_recipe_cooked");
+            // Plan-week reader lookup (plantry-0eut): "does a CookEvent exist for this PlannedDishId".
+            b.HasIndex(c => new { c.HouseholdId, c.PlannedDishId })
+                .HasDatabaseName("ix_cook_event_household_planned_dish");
             b.HasQueryFilter(c => c.HouseholdId == HouseholdId.From(_householdId));
         });
 

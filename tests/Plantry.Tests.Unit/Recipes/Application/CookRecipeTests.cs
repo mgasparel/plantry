@@ -210,6 +210,41 @@ public sealed class CookRecipeTests
         Assert.Equal(cooked.CookEventId, evt.Id);
     }
 
+    // ── Plan provenance (plantry-0eut) ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task Cook_Stamps_PlannedDishId_On_The_Minted_CookEvent()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h);
+        var plannedDishId = Guid.CreateVersion7();
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [], PlannedDishId: plannedDishId);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        var evt = Assert.Single(h.CookEvents.Items);
+        Assert.Equal(plannedDishId, evt.PlannedDishId);
+    }
+
+    [Fact]
+    public async Task Cook_Leaves_PlannedDishId_Null_When_Not_Supplied()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h);
+
+        // Default command — a direct recipe-launched cook, same as every pre-existing call site.
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        var evt = Assert.Single(h.CookEvents.Items);
+        Assert.Null(evt.PlannedDishId);
+    }
+
     // ── RecipeCooked event (§9, O2) ──────────────────────────────────────────────
 
     [Fact]

@@ -49,6 +49,17 @@ public sealed class CookModel(
     [BindProperty(SupportsGet = true)]
     public int? Servings { get; set; }
 
+    /// <summary>
+    /// Soft-ref (DM-3) to the MealPlanning <c>PlannedDish</c> this cook was launched from
+    /// (plantry-0eut), when the deep-link came from the meal plan rather than the Recipe Detail
+    /// page. Bound from the <c>plannedDishId</c> query parameter on GET; round-tripped through the
+    /// POST via the form's hidden field so <see cref="CookRecipe"/> can stamp it onto the minted
+    /// CookEvent. Null for a direct recipe-launched cook — the default GET+POST contract
+    /// (<see cref="Id"/> + <see cref="Servings"/>) is otherwise undisturbed.
+    /// </summary>
+    [BindProperty(SupportsGet = true)]
+    public Guid? PlannedDishId { get; set; }
+
     public CookViewModel Cook { get; private set; } = null!;
 
     // ── Resolution inputs (bound from POST form fields) ──────────────────────────────────────────
@@ -754,16 +765,28 @@ public sealed class CookModel(
             Resolutions: resolutions,
             AdHocLines: adHocLines,
             StoredYieldQuantity: storedYield,
-            StoredYieldExpiry: storedYield > 0m ? StoreYieldExpiry : null);
+            StoredYieldExpiry: storedYield > 0m ? StoreYieldExpiry : null,
+            PlannedDishId: PlannedDishId);
 
         var result = await cookService.ExecuteAsync(command, ct);
 
         return result switch
         {
+            // Plan-launched cook (plantry-0eut): PRG back to the meal plan with the standard save-toast
+            // pattern (TempData["ToastMessage"], read by _Toast.cshtml — plantry-u7n9) instead of the
+            // default Detail-page destination, so the plan is what the user sees reflect the cook.
+            // Direct (non-plan) cooks keep today's Detail-page redirect byte-for-byte.
+            CookRecipeResult.Cooked when PlannedDishId is not null => RedirectToPlanWithToast(recipe.Name),
             CookRecipeResult.Cooked => RedirectToPage("/Recipes/Details", new { id = Id }),
             CookRecipeResult.Invalid inv => BadRequest(inv.Error.Description),
             _ => BadRequest("Unknown cook result."),
         };
+    }
+
+    private IActionResult RedirectToPlanWithToast(string recipeName)
+    {
+        TempData["ToastMessage"] = $"{recipeName} cooked.";
+        return RedirectToPage("/MealPlan/Index");
     }
 
     /// <summary>

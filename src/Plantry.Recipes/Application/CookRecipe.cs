@@ -123,7 +123,7 @@ public sealed class CookRecipe(
 
         // ── Mint CookEvent up-front — its Id is the sourceRef on every consume ───
         var cookEventResult = CookEvent.Record(
-            recipe.Id, household, servingsCooked, command.UserId, clock);
+            recipe.Id, household, servingsCooked, command.UserId, clock, command.PlannedDishId);
         if (cookEventResult.IsFailure)
         {
             // Defensive guard: CookEvent.Record only fails on servingsCooked < 1, which
@@ -332,6 +332,13 @@ public sealed class CookRecipe(
 /// User-supplied use-by date for the stored yield lot (plantry-854a); null for none. Ignored when
 /// <paramref name="StoredYieldQuantity"/> is zero or the recipe declares no yield.
 /// </param>
+/// <param name="PlannedDishId">
+/// Soft-ref (DM-3) to the MealPlanning <c>PlannedDish</c> this cook fulfills, when the cook was
+/// launched from the meal plan (plantry-0eut). Stamped verbatim onto the minted <see cref="CookEvent"/>
+/// so the plan UI can later DERIVE cooked state by querying for a CookEvent with this id — no
+/// MealPlanning write, no RecipeCookedEvent subscriber (ADR-014 guardrail below). Null (the default)
+/// for a direct recipe-launched cook — existing callers and behaviour are unchanged.
+/// </param>
 public sealed record CookRecipeCommand(
     RecipeId RecipeId,
     int DesiredServings,
@@ -339,7 +346,8 @@ public sealed record CookRecipeCommand(
     IReadOnlyList<IngredientResolution> Resolutions,
     IReadOnlyList<AdHocLine>? AdHocLines = null,
     decimal StoredYieldQuantity = 0m,
-    DateOnly? StoredYieldExpiry = null);
+    DateOnly? StoredYieldExpiry = null,
+    Guid? PlannedDishId = null);
 
 /// <summary>
 /// One existing catalog product added to a single cook via the Cook-page search picker (plantry-7zjm).

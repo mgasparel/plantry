@@ -283,6 +283,42 @@ public sealed class FakeCookEventRepository : ICookEventRepository
 }
 
 /// <summary>
+/// Recording ICookEventRepository for the plan-provenance OnPostAsync tests (plantry-wskj). Captures
+/// every <see cref="AddAsync"/> call so a test can inspect the minted <see cref="CookEvent"/> — in
+/// particular its <see cref="CookEvent.PlannedDishId"/> — without touching the database. Otherwise a
+/// no-op, mirroring <see cref="FakeCookEventRepository"/>.
+/// </summary>
+public sealed class RecordingFakeCookEventRepository : ICookEventRepository
+{
+    private readonly List<CookEvent> _added = [];
+
+    /// <summary>Every <see cref="CookEvent"/> passed to <see cref="AddAsync"/>, in invocation order.</summary>
+    public IReadOnlyList<CookEvent> Added => _added;
+
+    public Task AddAsync(CookEvent e, CancellationToken ct = default)
+    {
+        _added.Add(e);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<CookEvent>> ListByRecipeAsync(RecipeId recipeId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CookEvent>>([]);
+
+    public Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CookEvent>>([]);
+
+    public Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CookEvent>>([]);
+
+    public Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
+        IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(new Dictionary<Guid, RecipeId>());
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
 /// L4 WebApplicationFactory for the Cook confirmation page. Boots the real Plantry.Web pipeline
 /// but replaces all Postgres-backed seams with deterministic in-memory fakes.
 /// </summary>

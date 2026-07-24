@@ -253,6 +253,14 @@
                         <form method="post" action="/Recipes/@cook.RecipeId/Cook?Servings=@cook.DesiredServings">
                             @Html.AntiForgeryToken()
 
+                            @* Plan provenance (plantry-0eut): carries the plan dish this cook was launched
+                               from through the POST, so CookRecipe can stamp it onto the minted CookEvent.
+                               Absent (no hidden field at all) for a direct recipe-launched cook. *@
+                            @if (Model.PlannedDishId is { } plannedDishId)
+                            {
+                                <input type="hidden" name="PlannedDishId" value="@plannedDishId" />
+                            }
+
                             @* Skipped direct ingredient ids — generated dynamically by Alpine *@
                             <template x-for="ingId in directSkips" :key="ingId">
                                 <input type="hidden" name="SkippedIngredientIds" :value="ingId" />
