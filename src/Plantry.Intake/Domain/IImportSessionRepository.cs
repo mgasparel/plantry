@@ -89,4 +89,24 @@ public interface IImportSessionRepository
         IReadOnlyCollection<Guid> lineIds,
         IReadOnlyCollection<Guid> legacyJournalIds,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Loads one <see cref="ImportLine"/> directly by its own id, household-scoped (ADR-023
+    /// <c>AmendCommittedLineCommand</c>) — the line is its own EF-mapped root table
+    /// (<c>intake.import_line</c>), so this does not require loading the owning <see cref="ImportSession"/>.
+    /// The returned entity is tracked by the same context as <see cref="SaveChangesAsync"/>, so a caller
+    /// that mutates it (e.g. <see cref="ImportLine.MarkAmended"/>) can save through this repository.
+    /// </summary>
+    Task<ImportLine?> FindLineAsync(HouseholdId householdId, ImportLineId lineId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reverse-lookup read for the web layer (ADR-023 §6, ADR-021 cross-schema read model): resolves the
+    /// committed <see cref="ImportLine"/> whose own <see cref="ImportLine.JournalId"/> column equals
+    /// <paramref name="journalId"/> — the value <c>CommitSessionCommand</c> stamped via
+    /// <see cref="ImportLine.MarkCommitted"/> for the lot the line's purchase created. A Pantry Product
+    /// Detail History row resolves to this line to render the "Amend" action and its eligibility.
+    /// Household-scoped; returns null when no committed line matches (a non-intake or manually-added lot).
+    /// </summary>
+    Task<ImportLine?> FindCommittedLineByJournalIdAsync(
+        HouseholdId householdId, Guid journalId, CancellationToken ct = default);
 }
