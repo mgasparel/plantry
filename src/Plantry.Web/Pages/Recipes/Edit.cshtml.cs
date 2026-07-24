@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Routing;
+using Plantry.Catalog.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -818,10 +819,14 @@ public sealed class EditModel(
     private async Task LoadReferenceDataAsync(CancellationToken ct)
     {
         // Unit list via the anti-corruption port — never through IUnitRepository directly (Gate 2).
+        // Grouped by dimension (plantry-n9iw).
         var unitOptions = await products.ListUnitsAsync(ct);
-        UnitOptions = unitOptions
-            .Select(u => new SelectListItem(u.Code, u.Id.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.Build(
+            unitOptions,
+            u => u.Id.ToString(),
+            u => u.Code,
+            u => DimensionExtensions.Parse(u.Dimension),
+            u => u.Code);
 
         // Active tag options — activeOnly:true so archived tags are excluded from the picker dropdown.
         // Tags are a small set (dozens, not thousands) — list all and filter client-side in Alpine.

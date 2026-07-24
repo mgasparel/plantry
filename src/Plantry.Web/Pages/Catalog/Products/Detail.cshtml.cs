@@ -10,6 +10,7 @@ using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Pages.Shared;
 
 namespace Plantry.Web.Pages.Catalog.Products;
 
@@ -440,9 +441,10 @@ public sealed class DetailModel(
 
     private async Task LoadOptionsAsync()
     {
-        UnitOptions = (await units.ListAsync())
-            .Select(u => new SelectListItem($"{u.Code} — {u.Name}", u.Id.Value.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.BuildFromUnits(
+            await units.ListAsync(),
+            u => u.Id.Value.ToString(),
+            u => $"{u.Code} — {u.Name}");
 
         var categoryOptions = (await categories.ListActiveAsync())
             .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))

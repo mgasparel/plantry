@@ -1,0 +1,34 @@
+@using Microsoft.AspNetCore.Mvc.Rendering
+@model IReadOnlyList<SelectListItem>
+@*
+    Renders <option>s from a dimension-grouped unit SelectListItem list (plantry-n9iw), wrapping runs
+    of items sharing the same Group.Name in an <optgroup>. asp-items handles this automatically for a
+    plain <select asp-items="...">, but several unit selects are hand-built inside an Alpine
+    x-model-bound <select> (a @@foreach over Model.UnitOptions building raw <option> tags) and can't use
+    asp-items — this partial is the one shared place those loops delegate to, instead of each
+    re-implementing the group-boundary tracking. Items with no Group render outside any optgroup.
+*@
+@{
+    string? currentGroup = null;
+}
+@foreach (var u in Model)
+{
+    var groupName = u.Group?.Name;
+    if (groupName != currentGroup)
+    {
+        if (currentGroup != null)
+        {
+            @:</optgroup>
+        }
+        if (groupName != null)
+        {
+            @:<optgroup label="@groupName">
+        }
+        currentGroup = groupName;
+    }
+    <option value="@u.Value">@u.Text</option>
+}
+@if (currentGroup != null)
+{
+    @:</optgroup>
+}

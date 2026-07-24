@@ -599,10 +599,10 @@ public sealed class ReviewModel(
 
     private async Task LoadSheetOptionsAsync(CancellationToken ct)
     {
-        UnitOptions = (await units.ListAsync(ct))
-            .OrderBy(u => u.Code, StringComparer.OrdinalIgnoreCase)
-            .Select(u => new SelectListItem(u.Code, u.Id.Value.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.BuildFromUnits(
+            await units.ListAsync(ct),
+            u => u.Id.Value.ToString(),
+            u => u.Code);
 
         CategoryOptions = (await categories.ListActiveAsync(ct))
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)

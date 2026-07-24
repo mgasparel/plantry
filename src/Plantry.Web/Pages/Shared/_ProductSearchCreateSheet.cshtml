@@ -221,10 +221,7 @@
                         <div class="form-grid__field__control">
                             <select class="field__input" x-model="draft.unitId">
                                 <option value="">— Unit —</option>
-                                @foreach (var u in Model.UnitOptions)
-                                {
-                                    <option value="@u.Value">@u.Text</option>
-                                }
+                                <partial name="Shared/_UnitOptionGroups" model="Model.UnitOptions" />
                             </select>
                         </div>
                     </div>
@@ -322,10 +319,7 @@
                             <select id="create-product-recipe-unit" class="field__input"
                                     x-model="draft.unitId" @@change="draft.recipeUnitPinned = true; sheetError = ''">
                                 <option value="">— Unit —</option>
-                                @foreach (var u in Model.UnitOptions)
-                                {
-                                    <option value="@u.Value">@u.Text</option>
-                                }
+                                <partial name="Shared/_UnitOptionGroups" model="Model.UnitOptions" />
                             </select>
                         </div>
                     </div>
@@ -511,10 +505,7 @@
                         <div class="form-grid__field__control">
                             <select id="create-product-unit" class="field__input" x-model="draft.newStapleUnit">
                                 <option value="">— Unit —</option>
-                                @foreach (var u in Model.UnitOptions)
-                                {
-                                    <option value="@u.Value">@u.Text</option>
-                                }
+                                <partial name="Shared/_UnitOptionGroups" model="Model.UnitOptions" />
                             </select>
                         </div>
                     </div>

@@ -315,9 +315,10 @@ public sealed class IndexModel(
             .Select(p => new SelectListItem(p.Name, p.Id.ToString()))
             .ToList();
 
-        UnitOptions = (await units.ListAsync())
-            .Select(u => new SelectListItem($"{u.Code} — {u.Name}", u.Id.Value.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.BuildFromUnits(
+            await units.ListAsync(),
+            u => u.Id.Value.ToString(),
+            u => $"{u.Code} — {u.Name}");
 
         LocationOptions = (await locations.ListActiveAsync())
             .Select(l => new SelectListItem(l.Name, l.Id.Value.ToString()))

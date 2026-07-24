@@ -214,10 +214,7 @@
                                     <select class="field__input cook-added-row__unit-sel"
                                             x-model="p.unitId"
                                             aria-label="Added product unit">
-                                        @foreach (var u in Model.UnitOptions)
-                                        {
-                                            <option value="@u.Value">@u.Text</option>
-                                        }
+                                        <partial name="Shared/_UnitOptionGroups" model="Model.UnitOptions" />
                                     </select>
                                 </div>
                                 <button type="button" class="btn btn--ghost btn--sm cook-added-row__remove"

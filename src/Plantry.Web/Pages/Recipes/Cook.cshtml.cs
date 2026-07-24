@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Plantry.Catalog.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -358,11 +359,15 @@ public sealed class CookModel(
             })
             .ToList();
 
-        // Unit options for the Add-product rows (plantry-7zjm) — via the anti-corruption port (Gate 2).
+        // Unit options for the Add-product rows (plantry-7zjm) — via the anti-corruption port (Gate 2),
+        // grouped by dimension (plantry-n9iw).
         var unitOptions = await catalog.ListUnitsAsync(ct);
-        UnitOptions = unitOptions
-            .Select(u => new SelectListItem(u.Code, u.Id.ToString()))
-            .ToList();
+        UnitOptions = UnitSelectListBuilder.Build(
+            unitOptions,
+            u => u.Id.ToString(),
+            u => u.Code,
+            u => DimensionExtensions.Parse(u.Dimension),
+            u => u.Code);
 
         // Yield-on-cook (plantry-854a, recipe-composition.md §9): surface the declared yield so the
         // confirmation can offer "storing N". The suggested quantity is the declared yield scaled to this

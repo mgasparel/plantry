@@ -46,10 +46,7 @@
                         x-model="draft.addUnitId"
                         aria-label="Unit for opening count">
                     <option value="">— Unit —</option>
-                    @foreach (var u in unitOptions)
-                    {
-                        <option value="@u.Value">@u.Text</option>
-                    }
+                    <partial name="Shared/_UnitOptionGroups" model="unitOptions" />
                 </select>
             </div>
         </div>
