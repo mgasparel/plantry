@@ -390,6 +390,9 @@ internal sealed class FakeCatalogProductReaderW(bool existsResult = true) : IMea
     public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
         => Task.FromResult(existsResult);
 
+    public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult(existsResult);
+
     public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(string nameQuery, int maxResults, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<MealPlanProductReadModel>>([]);
 
@@ -651,6 +654,9 @@ internal sealed class FakeRecipeReader(IReadOnlyList<RecipeReadModel> recipes) :
 internal sealed class FakeProductReader(IReadOnlyList<MealPlanProductReadModel> products) : IMealPlanCatalogProductReader
 {
     public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult(products.Any(p => p.ProductId == productId));
+
+    public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default)
         => Task.FromResult(products.Any(p => p.ProductId == productId));
 
     public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(string nameQuery, int maxResults, CancellationToken ct = default)

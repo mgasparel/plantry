@@ -13,8 +13,19 @@ public interface IMealPlanCatalogProductReader
     Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default);
 
     /// <summary>
+    /// Returns true when the product exists (is not archived) AND is a concrete, non-parent product.
+    /// A parent (grouping) product has no resolution point for "which variant was consumed" — no
+    /// price observation, no stock record, no fulfillment target — so it cannot be planned as a
+    /// direct product dish. Used to gate new dish creation; existing planned dishes that already
+    /// reference a parent are grandfathered and unaffected by this check.
+    /// </summary>
+    Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default);
+
+    /// <summary>
     /// Name search for the product search in the meal editor.
-    /// Returns up to <paramref name="maxResults"/> active catalog products whose name contains the query.
+    /// Returns up to <paramref name="maxResults"/> active catalog products whose name contains the
+    /// query. Parent (grouping) products are excluded — only their concrete variants are plannable
+    /// as direct product dishes; variants and unrelated leaf products are returned as usual.
     /// </summary>
     Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default);
 

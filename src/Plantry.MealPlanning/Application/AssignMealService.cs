@@ -40,17 +40,30 @@ public sealed class AssignMealService(
         PlannedMealId? mealId = null,
         CancellationToken ct = default)
     {
-        // Validate product dishes exist in catalog
+        // Validate product dishes exist in catalog and are plannable (plantry-pt79: a parent
+        // (grouping) product has no resolution point for "which variant was consumed" and cannot be
+        // planned as a direct product dish — existing planned parent dishes are grandfathered, but
+        // no new one may be created).
         foreach (var dish in dishes.Where(d => d.Kind == DishKind.Product))
         {
-            var exists = await catalogReader.ExistsAsync(dish.ItemId, ct);
-            if (!exists)
+            var plannable = await catalogReader.IsPlannableAsync(dish.ItemId, ct);
+            if (!plannable)
             {
+                var exists = await catalogReader.ExistsAsync(dish.ItemId, ct);
+                if (!exists)
+                {
+                    logger.LogWarning(
+                        "AssignDishes failed — product {ProductId} does not exist in catalog for slot {SlotId} on {Date}.",
+                        dish.ItemId, slotId.Value, date);
+                    throw new InvalidOperationException(
+                        $"Product {dish.ItemId} does not exist in the catalog.");
+                }
+
                 logger.LogWarning(
-                    "AssignDishes failed — product {ProductId} does not exist in catalog for slot {SlotId} on {Date}.",
+                    "AssignDishes failed — product {ProductId} is a parent (grouping) product and cannot be planned directly for slot {SlotId} on {Date}.",
                     dish.ItemId, slotId.Value, date);
                 throw new InvalidOperationException(
-                    $"Product {dish.ItemId} does not exist in the catalog.");
+                    $"Product {dish.ItemId} is a parent product group and cannot be planned as a dish directly — choose a specific variant.");
             }
         }
 
