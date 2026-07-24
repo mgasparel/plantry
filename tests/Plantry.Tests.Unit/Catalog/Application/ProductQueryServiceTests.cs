@@ -103,4 +103,38 @@ public sealed class ProductQueryServiceTests
 
         Assert.Null(result);
     }
+
+    [Fact(DisplayName = "plantry-lxm2: ListActiveAsync excludes archived products")]
+    public async Task ListActive_Excludes_Archived_Products()
+    {
+        var service = MakeService(out var products, out _);
+        var active = Product.Create(HouseholdId, "Olive oil", UnitId.New(), SystemClock.Instance);
+        var archived = Product.Create(HouseholdId, "Instant espresso", UnitId.New(), SystemClock.Instance);
+        archived.Archive(SystemClock.Instance);
+        products.Items.Add(active);
+        products.Items.Add(archived);
+
+        var result = await service.ListActiveAsync();
+
+        var item = Assert.Single(result);
+        Assert.Equal("Olive oil", item.Name);
+        Assert.False(item.IsArchived);
+    }
+
+    [Fact(DisplayName = "plantry-lxm2: ListEverythingAsync includes both active and archived products, correctly flagged")]
+    public async Task ListEverything_Includes_Active_And_Archived_Products()
+    {
+        var service = MakeService(out var products, out _);
+        var active = Product.Create(HouseholdId, "Olive oil", UnitId.New(), SystemClock.Instance);
+        var archived = Product.Create(HouseholdId, "Instant espresso", UnitId.New(), SystemClock.Instance);
+        archived.Archive(SystemClock.Instance);
+        products.Items.Add(active);
+        products.Items.Add(archived);
+
+        var result = await service.ListEverythingAsync();
+
+        Assert.Equal(2, result.Count);
+        Assert.False(result.Single(p => p.Name == "Olive oil").IsArchived);
+        Assert.True(result.Single(p => p.Name == "Instant espresso").IsArchived);
+    }
 }

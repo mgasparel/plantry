@@ -188,14 +188,21 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/Catalog/Products/**");
             await Assertions.Expect(page.Locator(".page-header__title-meta", new() { HasText = "archived" })).ToBeVisibleAsync();
 
-            // ── Step 8: Archived product disappears everywhere — /Catalog/Products is now just a
-            // redirect stub to /Pantry (plantry-sjfn), and it must stay absent from Everything scope. ──
+            // ── Step 8: Archiving a stocked product must never hide its on-hand stock
+            // (plantry-lxm2, gap 2) — the row stays visible in the default "In stock" scope with
+            // its real quantity and a neutral "Archived" badge, and the name link routes through
+            // to /Catalog/Products/{id} (the Unarchive control lives there, not on the Pantry
+            // stock detail page) rather than disappearing — fixing gap 1's dead end too. ────────
             await page.GotoAsync($"{BaseUrl}/Catalog/Products");
             await page.WaitForURLAsync("**/Pantry**");
-            // The scope radio is visually hidden (seg-ctrl, sr-only) — click its label, as other
-            // seg-ctrl E2E tests do (e.g. RecipeAuthorJourneyTests' Scale mode toggle).
-            await page.Locator(".seg-ctrl__item", new() { HasText = "Everything" }).ClickAsync();
-            await Assertions.Expect(page.Locator(".data-grid__link", new() { HasText = renamedProductName })).Not.ToBeVisibleAsync();
+            var archivedRow = page.Locator("tr", new() { HasText = renamedProductName });
+            await Assertions.Expect(archivedRow).ToBeVisibleAsync();
+            await Assertions.Expect(archivedRow).ToContainTextAsync("500 g");
+            await Assertions.Expect(archivedRow.Locator(".badge", new() { HasText = "Archived" })).ToBeVisibleAsync();
+
+            await archivedRow.Locator("a.data-grid__link").ClickAsync();
+            await page.WaitForURLAsync($"**/Catalog/Products/{productId}");
+            await Assertions.Expect(page.Locator(".page-header__title-meta", new() { HasText = "archived" })).ToBeVisibleAsync();
         }
         finally
         {

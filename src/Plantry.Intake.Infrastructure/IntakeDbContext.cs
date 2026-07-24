@@ -145,6 +145,8 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.JournalId).HasColumnName("journal_id");
             b.Property(l => l.PriceObservationId).HasColumnName("price_observation_id");
             b.Property(l => l.CreatedProductId).HasColumnName("created_product_id");
+            b.Property(l => l.AmendedQuantity).HasColumnName("amended_quantity").HasPrecision(12, 3);
+            b.Property(l => l.AmendedAt).HasColumnName("amended_at");
 
             b.HasIndex(l => l.SessionId).HasDatabaseName("ix_import_line_session");
             // Legacy provenance-chip reverse lookup (receipt-intake-history.md H2): a pre-H1 committed

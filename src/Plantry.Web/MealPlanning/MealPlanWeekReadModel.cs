@@ -95,16 +95,13 @@ public sealed class MealPlanWeekReadModel(
 
         var allProductIdList = allProductIds.ToList();
 
-        // ── Query 3: Products + conversions (catalog) ────────────────────────────
-        // Loads product facts (name, track_stock, default_unit_id, parent/variant tree) and
-        // per-product unit conversions in two batched queries.
+        // ── Query 3: Products (catalog) ───────────────────────────────────────────
+        // Loads product facts (name, track_stock, default_unit_id, parent/variant tree).
         var products = new Dictionary<Guid, ProductFact>();
-        var conversionsByProduct = new Dictionary<Guid, List<ConversionFact>>();
 
         if (allProductIdList.Count > 0)
         {
             await LoadProductsAsync(conn, allProductIdList, products, ct);
-            await LoadConversionsAsync(conn, allProductIdList, conversionsByProduct, ct);
         }
 
         // ── Query 4: Units (catalog) ─────────────────────────────────────────────
@@ -123,6 +120,23 @@ public sealed class MealPlanWeekReadModel(
         if (stockProductIds.Count > 0)
         {
             await LoadStockAsync(conn, stockProductIds, stockByProduct, ct);
+        }
+
+        // ── Query 3b: Conversions (catalog) ───────────────────────────────────────
+        // Widened to the variant-inclusive stockProductIds (not just allProductIdList) — a parent-
+        // referenced ingredient's priced variant may own a cross-dimension (density) conversion
+        // bridge that only the variant's own product id carries. Loading only the ingredient/parent
+        // ids left those variant-owned bridges out of ConversionsByProduct, so the costing rollup's
+        // converter(variantId, …) call (DM-19, plantry-daal) would silently fail to find them —
+        // pricing correctly on Recipe Details (which reads product_conversions directly) but not in
+        // the week grid. Same fix benefits FulfillmentService's variant-aware stock rollup, which
+        // shares this same ConversionsByProduct bag. Run after stockProductIds is computed, so it
+        // must follow Query 5 (plantry-xnt5).
+        var conversionsByProduct = new Dictionary<Guid, List<ConversionFact>>();
+
+        if (stockProductIds.Count > 0)
+        {
+            await LoadConversionsAsync(conn, stockProductIds, conversionsByProduct, ct);
         }
 
         // ── Query 6: Effective, costable price per product (pricing) ────────────

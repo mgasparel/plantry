@@ -478,6 +478,8 @@ internal sealed class MetricsTestIntakeSessionRepository : IImportSessionReposit
     public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId householdId, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
     public Task<List<ImportSession>> ListHistoryPageAsync(HouseholdId householdId, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
     public Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(HouseholdId householdId, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>([]);
+    public Task<ImportLine?> FindLineAsync(HouseholdId householdId, ImportLineId lineId, CancellationToken ct = default) => Task.FromResult<ImportLine?>(null);
+    public Task<ImportLine?> FindCommittedLineByJournalIdAsync(HouseholdId householdId, Guid journalId, CancellationToken ct = default) => Task.FromResult<ImportLine?>(null);
 }
 
 internal sealed class MetricsTestCreateProductPort : ICreateProductPort

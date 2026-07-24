@@ -76,4 +76,29 @@ public sealed class ExpiryDefaultResolverTests
 
         Assert.Equal(7, resolved);
     }
+
+    // ── ResolveDefaultDueDaysAfterOpening (plantry-1le6) ──────────────────────
+    // Category carries no per-transition due-days field of its own (only the plain DefaultDueDays
+    // covered above), so this resolves from the product alone — no category parameter to fall back to.
+
+    [Fact]
+    public void AfterOpening_Returns_ProductDefault_When_Set()
+    {
+        var product = Product.Create(HouseholdId, "Mustard", UnitId.New(), Clock);
+        product.SetExpiryDefaults(null, defaultDueDaysAfterOpening: 30, null, null, Clock);
+
+        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterOpening(product);
+
+        Assert.Equal(30, resolved);
+    }
+
+    [Fact]
+    public void AfterOpening_Returns_Null_When_Product_Has_No_Default()
+    {
+        var product = Product.Create(HouseholdId, "Rice", UnitId.New(), Clock);
+
+        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterOpening(product);
+
+        Assert.Null(resolved);
+    }
 }

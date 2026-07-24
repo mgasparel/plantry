@@ -411,6 +411,49 @@ public sealed class ImportLineTests
     }
 
     [Fact]
+    public void MarkAmended_Records_Corrected_Quantity_And_Timestamp_On_A_Committed_Line()
+    {
+        var line = MakeLine();
+        line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, 3.98m);
+        line.MarkCommitted(Guid.CreateVersion7(), Guid.CreateVersion7());
+        var amendedAt = Clock.UtcNow;
+
+        var result = line.MarkAmended(3m, amendedAt);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3m, line.AmendedQuantity);
+        Assert.Equal(amendedAt, line.AmendedAt);
+    }
+
+    [Fact]
+    public void MarkAmended_Second_Amendment_Overwrites_The_First_ADR_023_A3()
+    {
+        var line = MakeLine();
+        line.Confirm(ProductId, null, 1m, UnitId, LocationId, null, 3.98m);
+        line.MarkCommitted(Guid.CreateVersion7(), Guid.CreateVersion7());
+        line.MarkAmended(3m, Clock.UtcNow);
+
+        var secondAmendedAt = Clock.UtcNow;
+        var result = line.MarkAmended(2.5m, secondAmendedAt);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2.5m, line.AmendedQuantity);
+        Assert.Equal(secondAmendedAt, line.AmendedAt);
+    }
+
+    [Fact]
+    public void MarkAmended_Fails_When_Line_Is_Not_Committed()
+    {
+        var line = MakeLine(); // Pending
+
+        var result = line.MarkAmended(3m, Clock.UtcNow);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotCommitted", result.Error.Code);
+        Assert.Null(line.AmendedQuantity);
+    }
+
+    [Fact]
     public void RawParse_Is_Preserved_After_Confirm_And_Dismiss()
     {
         var line = MakeLine();

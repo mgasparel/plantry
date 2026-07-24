@@ -32,10 +32,12 @@
 // imported module changes, so the browser re-fetches it (changing this file's bytes reloads the graph).
 //   ./runtime.js?v=N              bump when runtime.js changes
 //   ./intake-review-logic.js?v=N  bump when intake-review-logic.js changes
+//   ./toast.js?v=N                bump when toast.js changes
 //   (intake-review-logic.js itself carries the ?v= token on its ./deal-deck-logic.js import.)
 
 import { render, html, signal, computed, batch, useRef } from "./runtime.js?v=1";
 import { readAntiforgeryToken, postJson } from "./helpers.js";
+import { createToast, createToastHost } from "./toast.js?v=1";
 import {
   makeLine as makeLineFromSeed,
   lineSection,
@@ -222,6 +224,9 @@ const fmtMoney = (n) => moneySymbol + n.toFixed(2);
 const fmtRcpt = (n) => moneySymbol + n.toFixed(2);
 /** @param {string} raw */
 const prettyRaw = (raw) => raw.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Shared toast host bound to this island's own `html` tag function (see toast.js header).
+const ToastHost = createToastHost(html);
 
 // ── DetailsStrip — the 4-up qty / unit / location / expiry strip on a deck card ──
 
@@ -760,12 +765,11 @@ function HeaderPanel({ header, stores, storeBranch, handlers }) {
  *   session: SessionHydration,
  *   header: any,
  *   alert: import("@preact/signals").Signal<string>,
- *   toastMsg: import("@preact/signals").Signal<string>,
- *   toastUndo: import("@preact/signals").Signal<boolean>,
+ *   toast: import("./toast.js").Toast,
  *   handlers: any,
  * }} props
  */
-function App({ lines, order, skipStack, baseline, products, units, locations, categories, session, header, alert, toastMsg, toastUndo, handlers }) {
+function App({ lines, order, skipStack, baseline, products, units, locations, categories, session, header, alert, toast, handlers }) {
   const allLines = lines.value;
   const byId = (/** @type {string} */ id) => lines.value.find((l) => l.lineId === id) ?? null;
 
@@ -935,13 +939,7 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
         </div>
       </section>
 
-      ${toastMsg.value && html`
-        <div class="toast" role="status" aria-live="polite"
-             onClick=${(/** @type {MouseEvent} */ e) => { if (!(/** @type {HTMLElement} */ (e.target).closest("[data-action]"))) handlers.dismissToast(); }}>
-          <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-          <span>${toastMsg.value}</span>
-          ${toastUndo.value && html`<button type="button" class="toast__action" data-action="undo" onClick=${handlers.undo}>Undo</button>`}
-        </div>`}
+      <${ToastHost} toast=${toast} />
     </div>
   `;
 }
@@ -973,8 +971,7 @@ export function mountIntakeReview(root, hydration) {
   }
 
   const alertMsg = signal("");
-  const toastMsg = signal("");
-  const toastUndo = signal(false);
+  const toast = createToast(signal);
 
   // ── Receipt-header correction state (plantry-yobz) ───────────────────────────
   // Locked display signals seed from the server hydration (merchantTextRaw is the un-"Receipt"-defaulted
@@ -1004,11 +1001,6 @@ export function mountIntakeReview(root, hydration) {
   const skipStack = signal(/** @type {string[]} */ ([]));
   const baseline = signal(0);
 
-  /** @type {{ fn: (() => void | Promise<void>) | null }} */
-  const undoRef = { fn: null };
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let toastTimer;
-
   const byId = (/** @type {string} */ id) => linesSignal.value.find((l) => l.lineId === id) ?? null;
   const needsIds = () => linesSignal.value.filter((l) => lineSection(l) === "needs").map((l) => l.lineId);
 
@@ -1024,21 +1016,13 @@ export function mountIntakeReview(root, hydration) {
   syncDeck();
 
   // ── toast ──────────────────────────────────────────────────────────────────
-  /** @param {string} msg @param {(() => void | Promise<void>) | null} undoFn */
-  function showToast(msg, undoFn) {
-    undoRef.fn = undoFn ?? null;
-    batch(() => { toastMsg.value = msg; toastUndo.value = !!undoFn; });
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(hideToast, 6000);
-  }
-  function hideToast() {
-    undoRef.fn = null;
-    batch(() => { toastMsg.value = ""; toastUndo.value = false; });
-    clearTimeout(toastTimer);
-  }
+  // toast.show/toast.hide own the message + undo-callback signals and the auto-dismiss
+  // timer (shared with take-stock.js — see toast.js). doUndo remains local: it backs the
+  // "U" keyboard shortcut (below), which the shared ToastHost's own Undo button does not need.
+  const showToast = toast.show;
   async function doUndo() {
-    const fn = undoRef.fn;
-    hideToast();
+    const fn = toast.undo.value;
+    toast.hide();
     if (fn) await fn();
   }
 
@@ -1388,7 +1372,7 @@ export function mountIntakeReview(root, hydration) {
   const handlers = {
     deckConfirm, deckReject, deckSkip, deckBack, searchOn, searchOff,
     toggleCheck, bulkConfirm, saveEdit, rematch, rowReject, restore,
-    railJump, undo: doUndo, dismissToast: hideToast, commit, discard,
+    railJump, commit, discard,
     headerEditStore, headerCancelStore, headerPickStore, headerCreateStore,
     headerEditDate, headerCancelDate, headerSaveDate,
   };
@@ -1405,7 +1389,7 @@ export function mountIntakeReview(root, hydration) {
     html`<${App}
       lines=${linesSignal} order=${order} skipStack=${skipStack} baseline=${baseline}
       products=${hydration.products} units=${hydration.units} locations=${hydration.locations} categories=${hydration.categories}
-      session=${hydration} header=${header} alert=${alertMsg} toastMsg=${toastMsg} toastUndo=${toastUndo}
+      session=${hydration} header=${header} alert=${alertMsg} toast=${toast}
       handlers=${handlers} />`,
     root,
   );

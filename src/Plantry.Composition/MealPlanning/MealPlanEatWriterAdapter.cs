@@ -32,9 +32,11 @@ namespace Plantry.Web.MealPlanning;
 /// count) + 1 and thus the same token — the second racer's <see cref="ProductStock.Consume"/> call
 /// finds the first's journal row already carrying that token and short-circuits to a no-op
 /// (the same (SourceRef, SourceLineRef) guard the Recipes cook flow relies on, plantry-292a/fks).</item>
-/// <item>Undo of eat n: token = hash(dishId, n, "eat-undo"), where n = the CURRENT eat count (i.e. the
-/// latest eat's own n) — so undo always targets the most recent eat, and a double-tapped undo
-/// dedupes via <see cref="ProductStock.AddStock"/>'s matching (SourceRef, SourceLineRef) guard.</item>
+/// <item>Undo of eat n: one compensating ADD row per lot the eat actually touched, each token =
+/// hash(dishId, n, "eat-undo:{lotId}") — where n = the CURRENT eat count (i.e. the latest eat's own
+/// n) — so undo always targets the most recent eat, and a double-tapped undo dedupes each row
+/// independently via <see cref="ProductStock.AddStock"/>'s matching (SourceRef, SourceLineRef)
+/// guard.</item>
 /// <item>A re-eat after an undo simply computes a fresh, larger n (the undo's compensating ADD is a
 /// positive-delta row, not a negative one, so it never counts toward "prior eat count") — a brand new
 /// token, a brand new journal row.</item>
@@ -42,13 +44,17 @@ namespace Plantry.Web.MealPlanning;
 /// </para>
 ///
 /// <para>
-/// <b>Undo restores what was actually deducted, not the blanket requested quantity.</b> When the
-/// original eat was shortfall-tolerant (stock ran out partway through), re-issuing the SAME consume
-/// call with the SAME eat-n token is itself idempotent and, per <see cref="ProductStock.Consume"/>'s
-/// own re-drive contract, returns the shortfall recomputed from the matching journal rows instead of
-/// mutating anything — exactly the mechanism <c>ReconcilePendingCooks</c> already relies on. Undo
-/// replays that call purely to learn the true shortfall, then compensates by (requested − shortfall):
-/// the exact amount the original eat removed, never more.
+/// <b>Undo restores exactly what was actually deducted, in each lot's own unit — never a blanket ADD
+/// in the product's default unit.</b> <see cref="ProductStock.Consume"/> writes one negative journal
+/// row per lot it actually touched, each stamped with that lot's own unit; when the eat was
+/// shortfall-tolerant (stock ran out partway through), a lot that was never reached simply has no
+/// row. Undo re-reads the aggregate's own journal for the rows carrying the eat's token and, for each
+/// one, appends a compensating ADD of that row's exact (quantity, unit) — the amount the eat removed
+/// from THAT lot, never more, never converted through the product's default unit. This matters
+/// because <c>MealPlanCookStatusReaderAdapter</c> nets a dish's journal rows by summing raw
+/// <c>Delta</c> with no unit conversion: restoring via the default unit would fix the physical stock
+/// but, whenever the default unit differs from a lot's unit, leave that raw net non-zero and the dish
+/// stuck "eaten" (plantry-wiv2). Mirroring each row's own unit makes the net return to exactly zero.
 /// </para>
 /// </summary>
 public sealed class MealPlanEatWriterAdapter(
@@ -105,38 +111,20 @@ public sealed class MealPlanEatWriterAdapter(
             return; // unauthenticated/no-tenant — nothing to do at this port boundary
         var household = HouseholdId.From(householdGuid);
 
-        var unitId = await ResolveDefaultUnitAsync(productId, ct);
         var eatToken = Token(plannedDishId, eatCount, "eat");
-
-        // Replay the eat consume with the SAME token. ProductStock.Consume's idempotency guard
-        // short-circuits (nothing is mutated) and reports the shortfall recomputed from the matching
-        // journal rows — the sanctioned way (plantry-fks) to learn exactly how much a prior consume
-        // actually removed, even when it was partially or fully shorted.
-        var replay = new ConsumeStockCommand(
-            productId, quantity, unitId, StockReason.Consumed, userId,
-            targetEntryId: null, sourceRef: plannedDishId,
-            stocks, catalog, conversions, clock, tenant,
-            StockSourceType.Eat, sourceLineRef: eatToken, logger: consumeLogger);
-        var replayResult = await replay.ExecuteAsync(ct);
-        if (replayResult.IsFailure)
-            return; // the eat never actually recorded anything (e.g. no-stock at eat time) — nothing to undo
-
-        var actuallyDeducted = quantity - replayResult.Value.ShortfallAmount;
-        if (actuallyDeducted <= 0m)
-            return; // the eat was a full shortfall — nothing was ever removed, nothing to restore
 
         var activeLocations = await locations.ListActiveAsync(ct);
         if (activeLocations.Count == 0)
             throw new InvalidOperationException("Cannot undo eat — the household has no active storage location.");
         var locationId = activeLocations[0].Id.Value;
-        var undoToken = Token(plannedDishId, eatCount, "eat-undo");
 
         // Bypass the shared AddStockCommand (it hard-codes reason = Purchase — wrong here; an undo is
         // a compensating fix to the record, not new spend, so Correction is the correct reason, same
         // rationale as Take Stock's C8 opening balance). Mirrors TakeStockCommands' direct-domain-call
         // pattern: FindForUpdateAsync's row lock serializes a racing double-tapped undo — the loser
-        // blocks, then (once it proceeds) AddStock's own (SourceRef, SourceLineRef) guard finds the
-        // winner's row already there and short-circuits to a no-op, so a double-POST never double-adds.
+        // blocks, then (once it proceeds) each row's own (SourceRef, SourceLineRef) guard finds the
+        // winner's rows already there and short-circuits every one of them to a no-op, so a
+        // double-POST never double-adds.
         await stocks.ExecuteInTransactionAsync(async innerCt =>
         {
             var stock = await stocks.FindForUpdateAsync(household, productId, innerCt);
@@ -148,16 +136,46 @@ public sealed class MealPlanEatWriterAdapter(
                 return false; // the eat's own consume must have created this root; nothing to restore if it's gone
             }
 
-            stock.AddStock(
-                actuallyDeducted, unitId, locationId, userId, clock,
-                sourceType: StockSourceType.Eat, sourceRef: plannedDishId, sourceLineRef: undoToken,
-                reason: StockReason.Correction);
+            // Compensate PER the original eat's own journal rows, each restored in that row's OWN
+            // unit — never a single ADD in the product's default unit (plantry-wiv2). Consume writes
+            // one negative journal row per lot touched, each stamped with that lot's own unit
+            // (ProductStock.Consume). MealPlanCookStatusReaderAdapter nets a dish's journal rows by
+            // summing raw Delta with NO unit conversion, so when the product's default unit differs
+            // from a lot's unit, a single compensating ADD expressed in the default unit restores the
+            // correct PHYSICAL quantity but leaves the raw journal net non-zero — the dish would stay
+            // stuck "eaten" even though the stock is whole again. Mirroring each row's own
+            // (quantity, unit) — the exact deltas already written by the eat this is undoing — makes
+            // the raw net return to exactly zero, with no conversion required.
+            var eatRows = stock.Journal
+                .Where(j => j.SourceRef == plannedDishId && j.SourceLineRef == eatToken && j.Delta < 0m)
+                .OrderBy(j => j.StockEntryId.Value)
+                .ToList();
+            if (eatRows.Count == 0)
+            {
+                addLogger.LogInformation(
+                    "Eat undo skipped — eat n={EatCount} for product {ProductId} (plan dish {DishId}) removed " +
+                    "nothing (full shortfall at eat time); nothing to restore.",
+                    eatCount, productId, plannedDishId);
+                return false;
+            }
+
+            foreach (var row in eatRows)
+            {
+                // Per-row token (keyed by the lot the original eat deducted from) so a racing
+                // double-tapped undo dedupes each compensating row independently, the same guarantee
+                // the single-row token gave before this fix.
+                var rowUndoToken = Token(plannedDishId, eatCount, $"eat-undo:{row.StockEntryId.Value:N}");
+                stock.AddStock(
+                    -row.Delta, row.UnitId, locationId, userId, clock,
+                    sourceType: StockSourceType.Eat, sourceRef: plannedDishId, sourceLineRef: rowUndoToken,
+                    reason: StockReason.Correction);
+            }
 
             await stocks.SaveChangesAsync(innerCt);
 
             addLogger.LogInformation(
-                "Eat undone for product {ProductId} (plan dish {DishId}). Quantity restored: {Quantity}.",
-                productId, plannedDishId, actuallyDeducted);
+                "Eat undone for product {ProductId} (plan dish {DishId}). {LotCount} lot(s) restored.",
+                productId, plannedDishId, eatRows.Count);
 
             return true;
         }, ct);

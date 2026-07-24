@@ -94,6 +94,57 @@ internal sealed class FakeImportSessionRepository : IImportSessionRepository
 
         return Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>(rows);
     }
+
+    public Task<ImportLine?> FindLineAsync(HouseholdId householdId, ImportLineId lineId, CancellationToken ct = default) =>
+        Task.FromResult(Sessions
+            .Where(s => s.HouseholdId == householdId)
+            .SelectMany(s => s.Lines)
+            .SingleOrDefault(l => l.Id == lineId));
+
+    public Task<ImportLine?> FindCommittedLineByJournalIdAsync(
+        HouseholdId householdId, Guid journalId, CancellationToken ct = default) =>
+        Task.FromResult(Sessions
+            .Where(s => s.HouseholdId == householdId)
+            .SelectMany(s => s.Lines)
+            .SingleOrDefault(l => l.Status == LineStatus.Committed && l.JournalId == journalId));
+}
+
+/// <summary>Records each amend and hands back the corrected quantity as the "delta" (tests don't need a
+/// real signed-delta calc — they assert the port was called with the right inputs); can be told to fail
+/// with a specific error to model an Inventory guard rejection, or to throw to model a genuine abort.</summary>
+internal sealed class FakeAmendStockPort : IAmendStockPort
+{
+    public List<(Guid ProductId, Guid StockEntryId, decimal CorrectedQuantity, Guid ImportLineId, Guid UserId)> Calls { get; } = [];
+    public Error? FailWith { get; set; }
+    public decimal DeltaToReturn { get; set; }
+
+    public Task<Result<decimal>> AmendAsync(
+        Guid productId, Guid stockEntryId, decimal correctedQuantity, Guid importLineId, Guid userId,
+        CancellationToken ct = default)
+    {
+        Calls.Add((productId, stockEntryId, correctedQuantity, importLineId, userId));
+        if (FailWith is { } error)
+            return Task.FromResult(Result<decimal>.Failure(error));
+
+        return Task.FromResult(Result<decimal>.Success(DeltaToReturn));
+    }
+}
+
+/// <summary>Records each price-amend call and hands back a fresh observation id; can be told to fail.</summary>
+internal sealed class FakeAmendPricePort : IAmendPricePort
+{
+    public List<(Guid OriginalObservationId, decimal CorrectedQuantity, Guid UserId)> Calls { get; } = [];
+    public Error? FailWith { get; set; }
+
+    public Task<Result<Guid>> AmendAsync(
+        Guid originalObservationId, decimal correctedQuantity, Guid userId, CancellationToken ct = default)
+    {
+        Calls.Add((originalObservationId, correctedQuantity, userId));
+        if (FailWith is { } error)
+            return Task.FromResult(Result<Guid>.Failure(error));
+
+        return Task.FromResult(Result<Guid>.Success(Guid.CreateVersion7()));
+    }
 }
 
 /// <summary>Returns a canned parse result (or error) and records the hints it was handed.</summary>

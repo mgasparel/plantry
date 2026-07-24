@@ -120,6 +120,11 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<IRecordPricePort, RecordPriceAdapter>();
         services.AddScoped<IEnsurePurchaseStorePort, EnsurePurchaseStoreAdapter>();
         services.AddScoped<ISeedConversionPort, SeedConversionAdapter>();
+        // ADR-023 A10 (plantry-hitc) — the amendment leg's own ACLs onto Inventory/Pricing, mirroring
+        // AddStockAdapter/RecordPriceAdapter above but Result-returning rather than throw-on-failure (the
+        // amendment guards are expected, user-facing outcomes, not aborts).
+        services.AddScoped<IAmendStockPort, AmendStockAdapter>();
+        services.AddScoped<IAmendPricePort, AmendPriceAdapter>();
 
         // Inventory → Intake/Recipes ACL (receipt-intake-history.md H4): the pantry History grid's
         // provenance chip. Inventory itself takes no dependency on either context — this adapter is the

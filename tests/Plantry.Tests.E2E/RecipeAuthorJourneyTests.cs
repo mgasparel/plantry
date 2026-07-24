@@ -352,6 +352,78 @@ public sealed class RecipeAuthorJourneyTests(AppHostFixture appHost) : IAsyncLif
         }
     }
 
+    // ── Journey: Yield-on-cook prefill (plantry-n1za) ────────────────────────────
+
+    [Fact(DisplayName = "plantry-n1za: checking the yield box prefills quantity from live servings and unit to 'serving', and never clobbers a value already set")]
+    public async Task YieldCheckbox_PrefillsFromLiveServings_AndNeverClobbersExistingValues()
+    {
+        var email = $"recipe-yield-{Guid.NewGuid():N}@test.local";
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await RegisterHouseholdAsync(context, email, "Recipe Yield Household");
+
+            // ── New recipe: servings = 4, check the yield box → quantity prefills from the LIVE
+            // servings value (4) and unit prefills to the seeded 'serving' unit ──────────────────
+            await page.GotoAsync($"{BaseUrl}/Recipes/New");
+            await page.WaitForURLAsync("**/Recipes/New");
+
+            var recipeName = $"Chili {Guid.NewGuid():N}".Substring(0, 16);
+            await page.FillAsync("[name='Input.Name']", recipeName);
+            await page.FillAsync("[name='Input.DefaultServings']", "4");
+
+            // R3′ — a recipe must carry at least one ingredient to save (Edit.cshtml.cs ~line 584);
+            // add one via the inline tracked-product create path so this journey can reach Save.
+            await AddTrackedProductIngredientAsync(page, "Ground Beef", qty: "1", unitLabel: "ea");
+            await Assertions.Expect(page.Locator(".ingredient-row__summary", new() { HasText = "Ground Beef" }))
+                .ToBeVisibleAsync();
+
+            var qtyLocator = page.Locator("[name='Input.YieldQuantity']");
+            var unitLocator = page.Locator("[name='Input.YieldUnitId']");
+
+            await page.CheckAsync("[name='Input.YieldEnabled']");
+            await Assertions.Expect(qtyLocator).ToHaveValueAsync("4");
+            var prefilledUnitLabel = await unitLocator.Locator("option:checked").TextContentAsync();
+            Assert.Equal("srv", prefilledUnitLabel);
+
+            // Both fields remain fully editable — overwrite the prefill (prep-recipe case: 6 cups).
+            await qtyLocator.FillAsync("6");
+            await unitLocator.SelectOptionAsync(new SelectOptionValue { Label = "cup" });
+
+            // Unchecking then re-checking must never clobber the value the user just set.
+            await page.UncheckAsync("[name='Input.YieldEnabled']");
+            await page.CheckAsync("[name='Input.YieldEnabled']");
+            await Assertions.Expect(qtyLocator).ToHaveValueAsync("6");
+            Assert.Equal("cup", await unitLocator.Locator("option:checked").TextContentAsync());
+
+            // ── Save, then reopen: the persisted yield (6 cups) renders untouched, and re-toggling
+            // the checkbox on the saved recipe still never clobbers it ─────────────────────────────
+            await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
+            await page.WaitForURLAsync(DetailUrlPattern);
+            var editUrl = page.Url.TrimEnd('/') + "/Edit";
+
+            await page.GotoAsync(editUrl);
+            await page.WaitForURLAsync($"**{editUrl.Replace(BaseUrl, "")}");
+
+            // The persisted decimal round-trips through the numeric(x,3) column and renders with its
+            // full scale ("6.000"), unlike the freshly-typed client-side "6" asserted above.
+            await Assertions.Expect(qtyLocator).ToHaveValueAsync("6.000");
+            Assert.Equal("cup", await unitLocator.Locator("option:checked").TextContentAsync());
+
+            await page.UncheckAsync("[name='Input.YieldEnabled']");
+            await page.CheckAsync("[name='Input.YieldEnabled']");
+            await Assertions.Expect(qtyLocator).ToHaveValueAsync("6.000");
+            Assert.Equal("cup", await unitLocator.Locator("option:checked").TextContentAsync());
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-recipe-yield-prefill.zip" });
+        }
+    }
+
     // ── Journey 3: Inspect — servings stepper rescales ingredient quantities ─────
 
     [Fact(DisplayName = "J3 Inspect: browse → open recipe → step servings up → ingredient quantities rescale")]

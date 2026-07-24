@@ -127,4 +127,12 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
             })
             .ToList();
     }
+
+    public Task<ImportLine?> FindLineAsync(HouseholdId householdId, ImportLineId lineId, CancellationToken ct = default) =>
+        db.ImportLines.FirstOrDefaultAsync(l => l.HouseholdId == householdId && l.Id == lineId, ct);
+
+    public Task<ImportLine?> FindCommittedLineByJournalIdAsync(
+        HouseholdId householdId, Guid journalId, CancellationToken ct = default) =>
+        db.ImportLines.FirstOrDefaultAsync(
+            l => l.HouseholdId == householdId && l.Status == LineStatus.Committed && l.JournalId == journalId, ct);
 }

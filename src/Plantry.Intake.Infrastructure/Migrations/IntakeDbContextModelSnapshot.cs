@@ -29,6 +29,15 @@ namespace Plantry.Intake.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("line_id");
 
+                    b.Property<DateTimeOffset?>("AmendedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("amended_at");
+
+                    b.Property<decimal?>("AmendedQuantity")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)")
+                        .HasColumnName("amended_quantity");
+
                     b.Property<Guid?>("CreatedProductId")
                         .HasColumnType("uuid")
                         .HasColumnName("created_product_id");

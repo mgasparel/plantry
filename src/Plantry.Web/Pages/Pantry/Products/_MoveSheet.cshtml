@@ -1,0 +1,149 @@
+@model Plantry.Web.Pages.Pantry.Products.DetailModel
+@using System.Text.Json
+@{
+    var sheet = Model.MoveSheet!;
+    var destinationsJson = JsonSerializer.Serialize(sheet.Destinations.Select(d => new
+    {
+        id = d.Id,
+        name = d.Name,
+        isFrozen = d.IsFrozen,
+        isCurrent = d.IsCurrent,
+    }));
+}
+<div class="sheet"
+     x-data="{
+        close() { document.getElementById('sheet-host').innerHTML = '' },
+        destinations: @Html.Raw(destinationsJson),
+        dest: @Html.Raw(JsonSerializer.Serialize(Model.MoveInput.LocationId?.ToString() ?? "")),
+        qty: @Html.Raw(JsonSerializer.Serialize(Model.MoveInput.Quantity ?? sheet.LotQuantity)),
+        lotQty: @Html.Raw(JsonSerializer.Serialize(sheet.LotQuantity)),
+        unit: @Html.Raw(JsonSerializer.Serialize(sheet.UnitCode)),
+        srcFrozen: @Html.Raw(JsonSerializer.Serialize(sheet.SourceIsFrozen)),
+        freezeCandidate: @Html.Raw(JsonSerializer.Serialize(sheet.FreezeCandidateDisplay)),
+        freezeNote: @Html.Raw(JsonSerializer.Serialize(sheet.FreezeNote)),
+        thawCandidate: @Html.Raw(JsonSerializer.Serialize(sheet.ThawCandidateDisplay)),
+        thawNote: @Html.Raw(JsonSerializer.Serialize(sheet.ThawNote)),
+        hasThawedAt: @Html.Raw(JsonSerializer.Serialize(sheet.ThawedAtDisplay is not null)),
+        thawedAtDisplay: @Html.Raw(JsonSerializer.Serialize(sheet.ThawedAtDisplay)),
+
+        get destOption() { return this.destinations.find(d => d.id === this.dest) ?? null },
+        get destFrozen() { return this.destOption ? this.destOption.isFrozen : false },
+        get destName() { return this.destOption ? this.destOption.name : '' },
+        get kind() { return (!this.srcFrozen && this.destFrozen) ? 'freeze' : ((this.srcFrozen && !this.destFrozen) ? 'thaw' : 'move') },
+        get isPartial() { return this.qty > 0 && this.qty < this.lotQty },
+        fmtQty(n) { return (Math.round(n * 1000) / 1000) + ' ' + this.unit },
+        get splitMovedText() { return this.fmtQty(this.qty) },
+        get splitStaysText() { return this.fmtQty(this.lotQty - this.qty) },
+        get showRefreezeWarning() { return this.kind === 'freeze' && this.hasThawedAt },
+        get fxLabel() {
+            if (this.kind === 'freeze') return this.isPartial ? 'This freezes part of the lot' : 'This freezes the lot'
+            if (this.kind === 'thaw') return this.isPartial ? 'This thaws part of the lot' : 'This thaws the lot'
+            return 'This moves the lot'
+        },
+        get fxCandidate() { return this.kind === 'freeze' ? this.freezeCandidate : (this.kind === 'thaw' ? this.thawCandidate : null) },
+        get fxNote() { return this.kind === 'freeze' ? this.freezeNote : (this.kind === 'thaw' ? this.thawNote : 'Same storage type — nothing to recompute.') },
+        get confirmVerb() { return this.kind === 'freeze' ? 'Freeze' : (this.kind === 'thaw' ? 'Thaw' : 'Move') },
+        get confirmLabel() { return this.confirmVerb + ' ' + this.fmtQty(this.qty) + ' → ' + this.destName },
+        moveAll() { this.qty = this.lotQty },
+        bumpQty(delta) { this.qty = Math.max(0, Math.min(this.lotQty, +(this.qty + delta).toFixed(3))) },
+     }"
+     role="dialog" aria-modal="true" aria-label="Move stock">
+    <div class="sheet__overlay" x-on:click="close()"></div>
+    <div class="sheet__panel">
+        <header class="sheet__header">
+            <h2 class="sheet__title">Move stock</h2>
+            <button type="button" class="sheet__close" aria-label="Close"
+                    x-on:click="close()">&times;</button>
+        </header>
+
+        <form class="form-stack" hx-post="@Url.Page("./Detail", "Move", new { id = Model.ProductId })"
+              hx-target="#sheet-host" hx-swap="innerHTML">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="MoveInput.EntryId" />
+            <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+            <div class="move-context">
+                <div class="move-context__product">@sheet.ProductName</div>
+                <div class="move-context__meta">
+                    <span><b>@sheet.LotQuantity.ToString("0.###") @sheet.UnitCode</b> on hand</span>
+                    <span>in <b>@sheet.SourceLocationName</b></span>
+                    <span>expires <b>@sheet.ExistingExpiryDisplay</b></span>
+                    @if (sheet.TransitionFactDisplay is { } fact)
+                    {
+                        <span>@fact</span>
+                    }
+                </div>
+            </div>
+
+            <div class="field field--inline">
+                <label class="field__label" for="destSelect">Move to</label>
+                <select id="destSelect" name="MoveInput.LocationId" class="field__input" x-model="dest">
+                    @foreach (var d in sheet.Destinations)
+                    {
+                        var label = d.Name + (d.IsFrozen ? " ❄" : "") + (d.IsCurrent ? " (current)" : "");
+                        if (d.IsCurrent)
+                        {
+                            <option value="@d.Id" disabled>@label</option>
+                        }
+                        else if (d.Id == sheet.DefaultDestinationId)
+                        {
+                            <option value="@d.Id" selected>@label</option>
+                        }
+                        else
+                        {
+                            <option value="@d.Id">@label</option>
+                        }
+                    }
+                </select>
+                <span asp-validation-for="MoveInput.LocationId" class="field__error"></span>
+            </div>
+
+            <div class="field field--inline">
+                <label class="field__label" for="qtyInput">Quantity</label>
+                <div class="move-qty">
+                    <stepper name="MoveInput.Quantity" input-id="qtyInput" x-model="qty" x-model-modifier="number"
+                             decrease-click="bumpQty(-1)" increase-click="bumpQty(1)"
+                             decrease-label="Decrease quantity" increase-label="Increase quantity" />
+                    <span class="move-qty__of">of @sheet.LotQuantity.ToString("0.###") @sheet.UnitCode</span>
+                    <button type="button" class="move-qty__all" x-show="isPartial" x-cloak
+                            x-on:click="moveAll()">Move all</button>
+                </div>
+                <span asp-validation-for="MoveInput.Quantity" class="field__error"></span>
+            </div>
+
+            <div class="move-split" x-show="isPartial" x-cloak>
+                <span><b x-text="splitMovedText"></b> moves to <b x-text="destName"></b></span>
+                <span><b x-text="splitStaysText"></b> stays in <b>@sheet.SourceLocationName</b> — keeps its current expiry</span>
+            </div>
+
+            <div class="alert alert--warning" role="alert" x-show="showRefreezeWarning" x-cloak>
+                This lot was thawed on <b x-text="thawedAtDisplay"></b>. Refreezing previously thawed
+                food can affect quality and safety — check it's still fresh before refreezing.
+            </div>
+
+            <div class="move-preview">
+                <span class="move-preview__label" x-text="fxLabel"></span>
+                <div class="move-preview__grid">
+                    <span class="move-preview__k">Location</span>
+                    <span class="move-preview__v">@sheet.SourceLocationName<span class="move-preview__arrow">→</span><b x-text="destName"></b></span>
+                    <span class="move-preview__k">Expiry</span>
+                    <span class="move-preview__v">
+                        <template x-if="fxCandidate">
+                            <span><s style="color:var(--color-text-faint)">@sheet.ExistingExpiryDisplay</s><span class="move-preview__arrow">→</span><span class="badge-expiry" :class="{ 'badge-expiry--soon': kind === 'thaw', 'badge-expiry--ok': kind !== 'thaw' }" x-text="fxCandidate"></span></span>
+                        </template>
+                        <template x-if="!fxCandidate">
+                            <span>@sheet.ExistingExpiryDisplay <span class="move-preview__note">(unchanged)</span></span>
+                        </template>
+                    </span>
+                </div>
+                <span class="move-preview__note" x-text="fxNote"></span>
+            </div>
+
+            <div class="sheet__actions">
+                <button type="submit" class="btn btn--primary" x-text="confirmLabel"></button>
+                <button type="button" class="btn btn--ghost"
+                        x-on:click="close()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

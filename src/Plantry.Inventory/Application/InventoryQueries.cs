@@ -48,7 +48,16 @@ public sealed record PantryListItem(
     /// (rather than derived) so the pantry grid's Kind badge can render "Parent" for these rows the
     /// same way <c>Catalog.Products</c> used to, without the grid reaching back into Catalog.
     /// </summary>
-    bool IsParent = false);
+    bool IsParent = false,
+    /// <summary>
+    /// True when the underlying catalog product is archived (plantry-lxm2). A row with active stock
+    /// can be archived too — archiving stops a product from being offered for new stock, but never
+    /// hides stock that's already on the shelf, so an archived-with-stock row still renders in the
+    /// default "In stock" scope with its real quantity; this flag drives the neutral "Archived" badge
+    /// and the row's link target (through to <c>/Catalog/Products/{id}</c>, where Unarchive lives)
+    /// regardless of whether the row is stocked or a synthesized Everything-scope row.
+    /// </summary>
+    bool IsArchived = false);
 
 /// <summary>One physical lot on the product detail page (SPEC §1b).</summary>
 public sealed record StockLotRow(
@@ -59,7 +68,17 @@ public sealed record StockLotRow(
     DateOnly? ExpiryDate,
     string? LocationName,
     DateOnly? PurchasedAt,
-    bool IsOpen);
+    bool IsOpen,
+    /// <summary>The lot's current location id (plantry-6owm) — the Move sheet needs the raw id (not
+    /// just the display name) to exclude/disable it in the destination picker and to resolve the
+    /// source location's frozen-ness for the transition preview.</summary>
+    Guid LocationId = default,
+    /// <summary>Most recent freeze transition (plantry-6owm rule 4 — own-field, never cleared by a
+    /// later thaw). Null if this lot has never been frozen.</summary>
+    DateTimeOffset? FrozenAt = null,
+    /// <summary>Most recent thaw transition (plantry-6owm rule 4), mirroring <see cref="FrozenAt"/>.
+    /// Null if this lot has never been thawed. Also drives the refreeze warning (UI spec §5).</summary>
+    DateTimeOffset? ThawedAt = null);
 
 /// <summary>One movement in a product's stock journal (SPEC §1b history).</summary>
 /// <param name="JournalId">
@@ -139,7 +158,13 @@ public class InventoryQueryService(
         if (tenant.HouseholdId is not { } householdId)
             return [];
         var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdId), ct);
-        var productsById = (await catalog.ListProductsAsync(ct)).ToDictionary(p => p.Id);
+        // Archived products stay in productsById (plantry-lxm2): a product's stock persists after
+        // archival, so a lot still physically on the shelf must keep resolving name/unit and rendering
+        // in the default "In stock" scope — archiving a product must never make its existing stock
+        // disappear. Only a genuinely removed/unknown product id is skipped below.
+        var productsById = (await catalog.ListProductsAsync(ct))
+            .Concat(await catalog.ListArchivedProductsAsync(ct))
+            .ToDictionary(p => p.Id);
         var locationNames = await catalog.GetLocationNamesAsync(ct);
         var unitCodes = await catalog.GetUnitCodesAsync(ct);
         var today = Today();
@@ -154,7 +179,7 @@ public class InventoryQueryService(
             if (activeLots.Count == 0) continue; // empty shells (all lots depleted) are not pantry rows
 
             if (!productsById.TryGetValue(stock.ProductId, out var product))
-                continue; // product archived/removed from catalog — skip rather than render "?"
+                continue; // product genuinely removed from the catalog — skip rather than render "?"
 
             var converter = convertersByProduct[stock.ProductId];
             var (total, displayUnitCode) = DisplayQuantity(activeLots, product.DefaultUnitId, product.DefaultUnitCode, converter, unitCodes);
@@ -181,7 +206,8 @@ public class InventoryQueryService(
                 ToneFor(soonest, today, expiringSoonDays),
                 CategoryHue: product.CategoryHue,
                 LowStockThreshold: stock.LowStockThreshold,
-                IsRunningLow: stock.IsRunningLow(total)));
+                IsRunningLow: stock.IsRunningLow(total),
+                IsArchived: product.IsArchived));
         }
 
         return items
@@ -200,7 +226,11 @@ public class InventoryQueryService(
         if (tenant.HouseholdId is not { } householdId)
             return 0;
         var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdId), ct);
-        var knownProductIds = (await catalog.ListProductsAsync(ct)).Select(p => p.Id).ToHashSet();
+        // Same archived-inclusive predicate as ListPantryAsync (plantry-lxm2) — this count must keep
+        // agreeing with the rows that method would actually produce, per its own doc contract.
+        var knownProductIds = (await catalog.ListProductsAsync(ct))
+            .Concat(await catalog.ListArchivedProductsAsync(ct))
+            .Select(p => p.Id).ToHashSet();
 
         return allStock.Count(stock =>
             knownProductIds.Contains(stock.ProductId) && stock.ActiveLotsFefo().Any());
@@ -337,7 +367,10 @@ public class InventoryQueryService(
                 l.ExpiryDate,
                 locationNames.GetValueOrDefault(l.LocationId),
                 l.PurchasedAt,
-                l.IsOpen))
+                l.IsOpen,
+                LocationId: l.LocationId,
+                FrozenAt: l.FrozenAt,
+                ThawedAt: l.ThawedAt))
             .ToList();
 
         var history = stock.Journal

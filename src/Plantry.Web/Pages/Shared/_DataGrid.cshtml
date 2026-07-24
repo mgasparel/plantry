@@ -82,6 +82,10 @@ else
                                     break;
                                 case GridCellKind.Link:
                                     <a class="data-grid__link" href="@cell.Url">@cell.Value</a>
+                                    if (cell.TrailingBadge is { } trailingBadge)
+                                    {
+                                        <span class="badge @ToneClass(cell.TrailingBadgeTone)">@trailingBadge</span>
+                                    }
                                     break;
                                 case GridCellKind.Badge:
                                     <span class="badge @ToneClass(cell.Tone)">@cell.Value</span>
@@ -112,6 +116,14 @@ else
                                                     hx-get="@action.Url"
                                                     hx-target="@action.HxTarget"
                                                     hx-swap="@(action.HxSwap ?? "innerHTML")">@action.Label</button>
+                                        }
+                                        else if (action.IsPost && action.IsBadge)
+                                        {
+                                            <button type="button" class="badge @ToneClass(action.BadgeTone) data-grid__action data-grid__action-badge"
+                                                    hx-post="@action.Url"
+                                                    hx-confirm="@action.Confirm"
+                                                    hx-target="@action.HxTarget"
+                                                    hx-swap="@action.HxSwap">@action.Label</button>
                                         }
                                         else if (action.IsPost)
                                         {

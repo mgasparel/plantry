@@ -88,6 +88,24 @@
          _nextId: 0,
          unitCodes: {&quot;Guid_3&quot;:&quot;g&quot;,&quot;Guid_4&quot;:&quot;ea&quot;},
 
+         // ── Yield-on-cook card (plantry-854a; prefill added in plantry-n1za) ────────
+         yieldOn: false,
+         // The household's seeded 'serving' unit id, or '' when absent (pre-migration household).
+         servingUnitId: '',
+         // Fires when the yield checkbox is toggled. Prefills Yield quantity from the LIVE servings
+         // value (this.servings, not the persisted DefaultServings — so an in-progress new recipe
+         // prefills correctly) and Yield unit from the seeded serving unit, but ONLY when the field is
+         // still empty at the moment the box is checked — re-checking after unchecking, or opening a
+         // recipe with a saved yield, must never clobber a value the user (or a prior save) already
+         // set. No-op on uncheck.
+         onYieldToggle() {
+             if (!this.yieldOn) return;
+             const qty = this.$refs.yieldQty;
+             if (qty &amp;&amp; !qty.value) qty.value = this.servings;
+             const unit = this.$refs.yieldUnit;
+             if (unit &amp;&amp; !unit.value &amp;&amp; this.servingUnitId) unit.value = this.servingUnitId;
+         },
+
          // ── Inclusions (plantry-fqb0.3) ────────────────────────────────────────────
          // Inclusion rows live in the shared rows[] array (kind === 'inclusion'). These filtered views feed
          // the two contiguous-index hidden-input loops so ingredients post Input.Lines[i] and inclusions
@@ -697,7 +715,7 @@
 				</div>
 			</div>
 		</div>
-		<div class="card" x-data="{ yieldOn: false }">
+		<div class="card">
 			<div class="card__head">
 				<div>
 					<h3 class="card__head-title">Yield (leftovers &amp; prepped stock)</h3>
@@ -706,14 +724,14 @@
 			</div>
 			<div class="card__body">
 				<label style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer">
-					<input type="checkbox" x-model="yieldOn" data-val="true" data-val-required="The YieldEnabled field is required." id="Input_YieldEnabled" name="Input.YieldEnabled" value="true">
+					<input type="checkbox" x-model="yieldOn" @change="onYieldToggle()" data-val="true" data-val-required="The YieldEnabled field is required." id="Input_YieldEnabled" name="Input.YieldEnabled" value="true">
 					<span>This recipe yields stored leftovers or prepped stock</span>
 				</label>
 				<div class="form-grid" x-show="yieldOn" x-cloak="" style="margin-top:var(--space-3)">
 					<div class="form-grid__field">
 						<label class="form-grid__field__label" for="Input_YieldQuantity">Yield quantity</label>
 						<div class="form-grid__field__control">
-							<input class="field__input" type="number" min="0" step="0.001" placeholder="e.g. 4" data-val="true" data-val-number="The field YieldQuantity must be a number." id="Input_YieldQuantity" name="Input.YieldQuantity" value="">
+							<input x-ref="yieldQty" class="field__input" type="number" min="0" step="0.001" placeholder="e.g. 4" data-val="true" data-val-number="The field YieldQuantity must be a number." id="Input_YieldQuantity" name="Input.YieldQuantity" value="">
 							<input name="__Invariant" type="hidden" value="Input.YieldQuantity">
 							<span class="field__error field-validation-valid" data-valmsg-for="Input.YieldQuantity" data-valmsg-replace="true"></span>
 						</div>
@@ -721,7 +739,7 @@
 					<div class="form-grid__field">
 						<label class="form-grid__field__label" for="Input_YieldUnitId">Yield unit</label>
 						<div class="form-grid__field__control">
-							<select class="field__input" id="Input_YieldUnitId" name="Input.YieldUnitId">
+							<select x-ref="yieldUnit" class="field__input" id="Input_YieldUnitId" name="Input.YieldUnitId">
 								<option value="">Choose a unit…</option>
 								<optgroup label="Mass">
 									<option value="Guid_3">g</option>

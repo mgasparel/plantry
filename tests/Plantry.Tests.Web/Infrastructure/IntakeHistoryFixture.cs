@@ -114,6 +114,8 @@ public sealed class MultiSessionImportSessionRepository(ITenantContext tenant, p
         HouseholdId householdId, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds,
         CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>([]);
+    public Task<ImportLine?> FindLineAsync(HouseholdId householdId, ImportLineId lineId, CancellationToken ct = default) => Task.FromResult<ImportLine?>(null);
+    public Task<ImportLine?> FindCommittedLineByJournalIdAsync(HouseholdId householdId, Guid journalId, CancellationToken ct = default) => Task.FromResult<ImportLine?>(null);
 
     // Unused by the History/Session pages under test:
     public Task AddAsync(ImportSession session, CancellationToken ct = default) => Task.CompletedTask;

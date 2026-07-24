@@ -160,6 +160,8 @@ public sealed class FakeTodaySessionRepository : IImportSessionRepository
     public Task<List<ImportSession>> ListInMonthWindowAsync(HouseholdId hid, DateTimeOffset windowStart, DateTimeOffset windowEnd, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
     public Task<List<ImportSession>> ListHistoryPageAsync(HouseholdId hid, DateTimeOffset? beforeCreatedAt, int take, CancellationToken ct = default) => Task.FromResult(new List<ImportSession>());
     public Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(HouseholdId hid, IReadOnlyCollection<Guid> lineIds, IReadOnlyCollection<Guid> legacyJournalIds, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ImportLineProvenanceRow>>([]);
+    public Task<ImportLine?> FindLineAsync(HouseholdId householdId, ImportLineId lineId, CancellationToken ct = default) => Task.FromResult<ImportLine?>(null);
+    public Task<ImportLine?> FindCommittedLineByJournalIdAsync(HouseholdId householdId, Guid journalId, CancellationToken ct = default) => Task.FromResult<ImportLine?>(null);
 }
 
 /// <summary>

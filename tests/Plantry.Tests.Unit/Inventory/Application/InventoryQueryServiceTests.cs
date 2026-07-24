@@ -67,6 +67,28 @@ public sealed class InventoryQueryServiceTests
         Assert.Empty(pantry);
     }
 
+    [Fact(DisplayName = "plantry-lxm2: archiving a product never hides its still-active stock from the In stock scope")]
+    public async Task ListPantry_Includes_Archived_Product_With_Active_Stock()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(500m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock);
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.ArchivedProducts.Add(new CatalogProductInfo(_productId, "Instant espresso", "Beverages", _grams, "g", CanHoldStock: true, IsArchived: true));
+        catalog.UnitCodes[_grams] = "g";
+        catalog.LocationNames[_location] = "Pantry";
+
+        var pantry = await Service(stocks, catalog, new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        var item = Assert.Single(pantry);
+        Assert.Equal("Instant espresso", item.Name);
+        Assert.Equal(500m, item.TotalQuantity);
+        Assert.True(item.IsArchived);
+        Assert.True(item.IsStocked);
+    }
+
     [Theory]
     [InlineData(-1, ExpiryTone.Expired)]
     [InlineData(3, ExpiryTone.Soon)]

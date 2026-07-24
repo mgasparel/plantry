@@ -194,6 +194,78 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         Assert.Equal(4m, loaded.Entries.Single().Quantity);
     }
 
+    // ── Unit-mismatch netting (plantry-wiv2) ────────────────────────────────────
+    // The compensating undo ADD must restore each lot in that lot's OWN unit (mirroring the eat's own
+    // journal rows), not a single ADD in the product's default unit — otherwise, whenever the default
+    // unit differs from the stock lot's unit, MealPlanCookStatusReaderAdapter's raw (unconverted) net
+    // of journal Delta stays non-zero after undo and the dish never derives back to pending, even
+    // though the physical stock was correctly restored.
+
+    [Theory(DisplayName = "Undo nets the raw journal movement back to exactly zero even when the product's default unit differs from the stock lot's unit, in both directions")]
+    [InlineData(true)]  // default unit is the LARGER unit (kg), lot unit is the SMALLER (g) — the ticket's own repro shape
+    [InlineData(false)] // default unit is the SMALLER unit (g), lot unit is the LARGER (kg)
+    public async Task Undo_Nets_Journal_To_Zero_When_Default_Unit_Differs_From_Lot_Unit(bool defaultUnitIsLarger)
+    {
+        var gram = CatalogUnit.Create(_household, "g", "gram", Dimension.Mass, 1m, isBase: true);
+        var kilogram = CatalogUnit.Create(_household, "kg", "kilogram", Dimension.Mass, 1000m);
+        var defaultUnit = defaultUnitIsLarger ? kilogram : gram;
+        var lotUnit = defaultUnitIsLarger ? gram : kilogram;
+
+        await using (var catalogDb = NewCatalogDb())
+        {
+            await catalogDb.Units.AddRangeAsync(gram, kilogram);
+            await catalogDb.SaveChangesAsync();
+        }
+
+        Guid productId, locationId;
+        await using (var catalogDb = NewCatalogDb())
+        {
+            var product = Product.Create(_household, "Flour", defaultUnit.Id, Clock);
+            await catalogDb.Products.AddAsync(product);
+            var location = Location.Create(_household, "Pantry", LocationType.Ambient);
+            await catalogDb.Locations.AddAsync(location);
+            await catalogDb.SaveChangesAsync();
+            productId = product.Id.Value;
+            locationId = location.Id.Value;
+        }
+
+        // 3000 g of stock, expressed in the LOT's own unit (3000 g, or 3 kg).
+        var lotQuantity = lotUnit.Id == gram.Id ? 3000m : 3m;
+        await using (var invDb = NewInventoryDb())
+        {
+            var stock = InventoryProductStock.Start(_household, productId, Clock);
+            stock.AddStock(lotQuantity, lotUnit.Id.Value, locationId, _userId, Clock);
+            await invDb.ProductStocks.AddAsync(stock);
+            await invDb.SaveChangesAsync();
+        }
+
+        var plannedDishId = Guid.CreateVersion7();
+        var adapter = BuildAdapter();
+
+        // Eat 2000 g worth, expressed in the product's DEFAULT unit (2 kg or 2000 g).
+        var eatQuantity = defaultUnitIsLarger ? 2m : 2000m;
+        await adapter.EatAsync(plannedDishId, productId, eatQuantity, _userId);
+
+        var loaded = await LoadStockDirectAsync(productId);
+        var eatRow = Assert.Single(EatRows(loaded));
+        Assert.Equal(lotUnit.Id.Value, eatRow.UnitId); // written in the LOT's own unit, not the default unit
+        Assert.True(EatRows(loaded).Sum(j => j.Delta) < 0m); // net negative — dish reads as "eaten"
+
+        await adapter.UndoEatAsync(plannedDishId, productId, eatQuantity, _userId);
+
+        var afterUndo = await LoadStockDirectAsync(productId);
+        var undoRows = EatRows(afterUndo);
+        Assert.Equal(2, undoRows.Count); // one Consumed, one compensating Correction
+        var undoRow = undoRows.Single(j => j.Delta > 0);
+        Assert.Equal(lotUnit.Id.Value, undoRow.UnitId); // restored in the LOT's own unit
+        Assert.Equal(-eatRow.Delta, undoRow.Delta); // exact per-row cancellation
+
+        // The raw net — exactly what MealPlanCookStatusReaderAdapter sums, no unit conversion — must
+        // return to zero (≥ 0), or the dish stays stuck "eaten".
+        Assert.Equal(0m, undoRows.Sum(j => j.Delta));
+        Assert.Equal(lotQuantity, afterUndo.Entries.Where(e => e.IsActive).Sum(e => e.Quantity)); // physical stock also whole again
+    }
+
     // ── Shortfall tolerance (C8/R9 mirror) ──────────────────────────────────────
 
     [Fact(DisplayName = "Eat on a never-stocked product never throws (shortfall-tolerant no-op)")]
@@ -236,13 +308,15 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         await invDb.SaveChangesAsync();
     }
 
-    private async Task<InventoryProductStock> LoadStockAsync()
+    private async Task<InventoryProductStock> LoadStockAsync() => await LoadStockDirectAsync(_productId);
+
+    private async Task<InventoryProductStock> LoadStockDirectAsync(Guid productId)
     {
         await using var verify = NewInventoryDb();
         return await verify.ProductStocks
             .Include(p => p.Entries)
             .Include(p => p.Journal)
-            .SingleAsync(p => p.ProductId == _productId);
+            .SingleAsync(p => p.ProductId == productId);
     }
 
     private IMealPlanEatWriter BuildAdapter()

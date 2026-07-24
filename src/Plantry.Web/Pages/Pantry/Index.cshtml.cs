@@ -200,9 +200,21 @@ public sealed class IndexModel(
         _ => GridCell.Muted("—"),
     };
 
+    /// <summary>
+    /// The Name cell (plantry-lxm2): an archived product's row carries a neutral "Archived" badge
+    /// inline after its name and links through to the Catalog product detail page — the only page
+    /// with the Unarchive control (Pantry's own detail page has no archive affordance) — so an
+    /// archived row is never a dead end (fixes the "unarchive is unreachable" gap). Every other row
+    /// keeps linking to the Pantry stock detail page as before. <c>internal</c> for the same reason
+    /// as <see cref="KindCell"/>.
+    /// </summary>
+    internal static GridCell NameCell(PantryListItem item) => item.IsArchived
+        ? GridCell.Link(item.Name, $"/Catalog/Products/{item.ProductId}", trailingBadge: "Archived", trailingBadgeTone: BadgeTone.Neutral)
+        : GridCell.Link(item.Name, $"/Pantry/Products/Detail/{item.ProductId}");
+
     private static GridRow BuildPantryRow(PantryListItem item, DateOnly today) => new(
         [
-            GridCell.Link(item.Name, $"/Pantry/Products/Detail/{item.ProductId}"),
+            NameCell(item),
             GridCell.Text(item.CategoryName ?? "—"),
             item.LocationDisplay is { } loc ? GridCell.Text(loc) : GridCell.Muted("—"),
             KindCell(item),
@@ -260,29 +272,33 @@ public sealed class IndexModel(
     }
 
     /// <summary>Loads the pantry rows for the active scope — the plain in-stock list, or (Everything)
-    /// that list plus every active catalog product folded in via <see cref="MergeEverythingScope"/>.</summary>
+    /// that list plus every catalog product (active and archived, plantry-lxm2) folded in via
+    /// <see cref="MergeEverythingScope"/>.</summary>
     private async Task<IReadOnlyList<PantryListItem>> LoadItemsAsync(bool everything)
     {
         var items = await queries.ListPantryAsync();
         if (!everything) return items;
 
-        var activeCatalog = await catalogProducts.ListActiveAsync();
-        return MergeEverythingScope(items, activeCatalog);
+        var everythingCatalog = await catalogProducts.ListEverythingAsync();
+        return MergeEverythingScope(items, everythingCatalog);
     }
 
     /// <summary>
-    /// Merges the Pantry "Everything" scope (plantry-sjfn): every active catalog product absent from
-    /// the in-stock list is folded in as a synthesized zero-lot row (<see cref="PantryListItem.IsStocked"/>
-    /// false), so the grid reads as one list rather than two separate ones. Web-layer read composition
-    /// only, per the design note — Inventory stays unaware Catalog's full active-product list even
-    /// exists. <c>internal</c> so it's directly unit-testable (no page-handler test harness exists for
-    /// this page, mirroring <see cref="ApplyPantrySort"/>).
+    /// Merges the Pantry "Everything" scope (plantry-sjfn, extended for archived rows by plantry-lxm2):
+    /// every catalog product — active or archived — absent from the in-stock list is folded in as a
+    /// synthesized zero-lot row (<see cref="PantryListItem.IsStocked"/> false), so the grid reads as
+    /// one list rather than two separate ones. An archived product already carrying stock is NOT
+    /// synthesized here — it arrives from <paramref name="inStock"/> already, with its own
+    /// <see cref="PantryListItem.IsArchived"/> flag set by <c>InventoryQueryService.ListPantryAsync</c>.
+    /// Web-layer read composition only, per the design note — Inventory stays unaware Catalog's full
+    /// product list even exists. <c>internal</c> so it's directly unit-testable (no page-handler test
+    /// harness exists for this page, mirroring <see cref="ApplyPantrySort"/>).
     /// </summary>
     internal static IReadOnlyList<PantryListItem> MergeEverythingScope(
-        IReadOnlyList<PantryListItem> inStock, IReadOnlyList<ProductListItem> activeCatalog)
+        IReadOnlyList<PantryListItem> inStock, IReadOnlyList<ProductListItem> everythingCatalog)
     {
         var stockedIds = inStock.Select(i => i.ProductId).ToHashSet();
-        var unstocked = activeCatalog
+        var unstocked = everythingCatalog
             .Where(p => !stockedIds.Contains(p.Id.Value))
             .Select(p => new PantryListItem(
                 ProductId: p.Id.Value,
@@ -296,7 +312,8 @@ public sealed class IndexModel(
                 SoonestExpiry: null,
                 ExpiryTone: ExpiryTone.None,
                 IsStocked: false,
-                IsParent: p.IsParent));
+                IsParent: p.IsParent,
+                IsArchived: p.IsArchived));
 
         return [.. inStock, .. unstocked];
     }

@@ -36,7 +36,8 @@ public sealed record GridSort(string Key, bool Descending);
 public sealed record GridAction(
     string Label, string Url, bool IsPost = false, string? Confirm = null, bool RemovesRow = false,
     bool IsHxGet = false, string? HxTarget = null, string? HxSwap = null,
-    bool IsIcon = false, string? IconId = null)
+    bool IsIcon = false, string? IconId = null,
+    bool IsBadge = false, BadgeTone BadgeTone = BadgeTone.Neutral)
 {
     /// <summary>A plain navigation action (edit, jump-to-detail) — just an anchor.</summary>
     public static GridAction Link(string label, string url) => new(label, url);
@@ -62,6 +63,17 @@ public sealed record GridAction(
     /// </summary>
     public static GridAction Icon(string label, string url, string iconId) =>
         new(label, url, IsIcon: true, IconId: iconId);
+
+    /// <summary>
+    /// A mutating htmx POST rendered as a tappable <c>.badge</c> pill rather than a ghost button
+    /// (plantry-1le6's "Open" badge, tapped again to un-mark) — the same tonal palette
+    /// <see cref="GridCell.Badge"/> cells use, so a row's status badge and its own undo control read
+    /// identically. Redirect-driven handlers (an <c>HX-Redirect</c> response, e.g. the toast-carrying
+    /// full-page PRG) make the swap target/style moot, but a target/swap are still supplied for any
+    /// handler that instead swaps a fragment.
+    /// </summary>
+    public static GridAction PostBadge(string label, string url, BadgeTone tone = BadgeTone.Neutral, string? hxTarget = null, string hxSwap = "outerHTML") =>
+        new(label, url, IsPost: true, IsBadge: true, BadgeTone: tone, HxTarget: hxTarget, HxSwap: hxSwap);
 }
 
 /// <summary>
@@ -91,9 +103,21 @@ public sealed record GridCell
     /// <summary>The icon for a <see cref="GridCellKind.SourceChip"/> cell.</summary>
     public SourceChipIcon? ChipIcon { get; init; }
 
+    /// <summary>
+    /// Optional badge rendered immediately after a Link cell's anchor (plantry-lxm2) — e.g. the neutral
+    /// "Archived" badge on a Pantry row whose name still links through to the product detail page, so
+    /// archival status reads inline with the primary link rather than needing its own column.
+    /// </summary>
+    public string? TrailingBadge { get; init; }
+
+    /// <summary>The tone for <see cref="TrailingBadge"/>.</summary>
+    public BadgeTone TrailingBadgeTone { get; init; }
+
     public static GridCell Text(string value) => new() { Kind = GridCellKind.Text, Value = value };
     public static GridCell Muted(string value) => new() { Kind = GridCellKind.Muted, Value = value };
-    public static GridCell Link(string value, string url) => new() { Kind = GridCellKind.Link, Value = value, Url = url };
+
+    public static GridCell Link(string value, string url, string? trailingBadge = null, BadgeTone trailingBadgeTone = BadgeTone.Neutral) =>
+        new() { Kind = GridCellKind.Link, Value = value, Url = url, TrailingBadge = trailingBadge, TrailingBadgeTone = trailingBadgeTone };
     public static GridCell Badge(string value, BadgeTone tone) => new() { Kind = GridCellKind.Badge, Value = value, Tone = tone };
     public static GridCell Actions(params GridAction[] actions) => new() { Kind = GridCellKind.Actions, Items = actions };
 

@@ -87,6 +87,29 @@ public sealed class InventoryCountQueriesTests
         Assert.Equal(pantry.Count, count);
     }
 
+    [Fact(DisplayName = "plantry-lxm2: CountInStock agrees with ListPantry when a stocked product is archived")]
+    public async Task CountInStock_Agrees_With_ListPantry_For_Archived_Product_With_Stock()
+    {
+        var archived = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository();
+        stocks.Items.Add(StockWith(archived, (500m, null)));
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.ArchivedProducts.Add(new CatalogProductInfo(archived, "Instant espresso", "Beverages", _grams, "g", CanHoldStock: true, IsArchived: true));
+        catalog.UnitCodes[_grams] = "g";
+        catalog.LocationNames[_location] = "Pantry";
+
+        var service = Service(stocks, catalog, _household);
+
+        var pantry = await service.ListPantryAsync();
+        var count = await service.CountInStockAsync();
+
+        Assert.Single(pantry);
+        Assert.True(pantry[0].IsArchived);
+        Assert.Equal(pantry.Count, count);
+    }
+
     [Fact(DisplayName = "CountInStock — empty pantry (no stock) is 0, agreeing with ListPantry")]
     public async Task CountInStock_EmptyPantry_IsZero()
     {

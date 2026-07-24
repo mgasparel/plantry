@@ -94,6 +94,17 @@ public sealed class ImportLine : Entity<ImportLineId>
     public Guid? PriceObservationId { get; private set; }
     public Guid? CreatedProductId { get; private set; }
 
+    // Written by AmendCommittedLineCommand (ADR-023 A9) — Intake staging is not a ledger, so the
+    // corrected quantity is a plain field here rather than a new domain event/aggregate. The receipt
+    // re-display shows both the originally-entered Quantity and this amended value side by side.
+    /// <summary>The corrected purchased quantity from the most recent amendment, or null if this line has
+    /// never been amended. Repeats overwrite (the ledger, not this field, is the append-only audit trail —
+    /// ADR-023 A3/A9).</summary>
+    public decimal? AmendedQuantity { get; private set; }
+
+    /// <summary>When the line was last amended, or null if never amended.</summary>
+    public DateTimeOffset? AmendedAt { get; private set; }
+
     private ImportLine() { } // EF
 
     internal static ImportLine Create(
@@ -249,6 +260,35 @@ public sealed class ImportLine : Entity<ImportLineId>
         PriceObservationId = priceObservationId;
         CreatedProductId = createdProductId;
         Status = LineStatus.Committed;
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Records a purchase-entry amendment (ADR-023 A9): the correction is a plain field on the staging
+    /// line, not a ledger event — the ledger itself already carries the compensating Amendment row
+    /// (<c>ProductStock.AmendPurchase</c>); this is just the receipt's own record of "what it was corrected
+    /// to," so re-display can show both the entered and amended values. Valid only on a <c>Committed</c>
+    /// line that actually produced a purchase lot (<see cref="JournalId"/> set) — a still-<c>Pending</c> or
+    /// <c>Dismissed</c> line, or one that never linked to a lot, has nothing to amend. Repeat amendments are
+    /// allowed (A3): each call simply overwrites the prior corrected value with the latest one.
+    /// </summary>
+    /// <param name="newPriceObservationId">When the amendment superseded the price observation, the new
+    /// (amending) observation's id — <see cref="PriceObservationId"/> is advanced to it so a SUBSEQUENT
+    /// amendment (or a retry) chains off the correct live row rather than the stale one this line already
+    /// knew about (ADR-023 A7/A10). Null when the price leg was skipped (A8: an each-count fix on a
+    /// weight-priced line, or the line never carried a price observation) — <see cref="PriceObservationId"/>
+    /// is left untouched in that case.</param>
+    public Result MarkAmended(decimal correctedQuantity, DateTimeOffset amendedAt, Guid? newPriceObservationId = null)
+    {
+        if (Status != LineStatus.Committed)
+            return Error.Custom("Intake.LineNotCommitted", "Only a committed line can be amended.");
+        if (JournalId is null)
+            return Error.Custom("Intake.LineNotFromIntakePurchase", "This line has no linked purchase to amend.");
+
+        AmendedQuantity = correctedQuantity;
+        AmendedAt = amendedAt;
+        if (newPriceObservationId is { } newId)
+            PriceObservationId = newId;
         return Result.Success();
     }
 }

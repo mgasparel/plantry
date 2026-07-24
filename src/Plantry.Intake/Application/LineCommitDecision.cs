@@ -71,6 +71,29 @@ public abstract record PriceObservationDecision
 }
 
 /// <summary>
+/// The price-amendment outcome for a corrected purchase line (ADR-023 A8, plantry-hitc). Exactly one of:
+/// <see cref="NoObservation"/> (the line never recorded a price observation at commit — nothing to
+/// amend), <see cref="SkipWeightDenominated"/> (the line's observation was recorded against its fixed
+/// receipt weight, not its committed quantity — the corrected quantity does not feed it, so it must be
+/// left untouched: an each-count fix on a weight-priced line, plantry-1mu), or <see cref="Amend"/>
+/// (the observation's quantity IS the committed quantity, so the corrected value replaces it).
+/// </summary>
+public abstract record AmendPriceDecision
+{
+    private AmendPriceDecision() { }
+
+    /// <summary>The line never recorded a price observation — nothing to amend.</summary>
+    public sealed record NoObservation : AmendPriceDecision;
+
+    /// <summary>The observation is denominated in the line's fixed receipt weight, not its committed
+    /// (correctable) quantity — untouched per A8.</summary>
+    public sealed record SkipWeightDenominated : AmendPriceDecision;
+
+    /// <summary>Re-derive the observation for <paramref name="CorrectedQuantity"/>.</summary>
+    public sealed record Amend(decimal CorrectedQuantity) : AmendPriceDecision;
+}
+
+/// <summary>
 /// The weight→each conversion-seed outcome for a single commit line (plantry-1mu / plantry-x7j0 Fix A).
 /// Either <see cref="None"/> (one of the five gates fails, nothing is learned) or <see cref="Seed"/>
 /// (learn <see cref="Seed.Factor"/> as the household's <see cref="Seed.FromUnitId"/> →
@@ -125,6 +148,26 @@ public static class LineCommitDecision
         return line.ReceiptWeight is { } weight
             ? new PriceObservationDecision.Record(price, weight, weightUnitId!.Value)
             : new PriceObservationDecision.Record(price, line.Quantity!.Value, line.UnitId!.Value);
+    }
+
+    /// <summary>
+    /// Decides whether — and how — a purchase-entry amendment (ADR-023 A8, plantry-hitc) re-derives this
+    /// line's price observation for <paramref name="correctedQuantity"/>. Mirrors
+    /// <see cref="DecidePriceObservation"/>'s own unit choice rather than re-running it wholesale: at commit,
+    /// a line carrying a receipt weight (<see cref="ImportLine.ReceiptWeight"/>) observes in that FIXED
+    /// weight, never in the committed (correctable) quantity — so correcting the committed each-count can
+    /// never feed that observation, no matter what the corrected value is. A line with no receipt weight
+    /// observes directly in its committed quantity/unit, so the correction replaces it 1:1.
+    /// </summary>
+    public static AmendPriceDecision DecidePriceAmendment(ImportLine line, decimal correctedQuantity)
+    {
+        if (line.PriceObservationId is null)
+            return new AmendPriceDecision.NoObservation();
+
+        if (line.ReceiptWeight is not null)
+            return new AmendPriceDecision.SkipWeightDenominated();
+
+        return new AmendPriceDecision.Amend(correctedQuantity);
     }
 
     /// <summary>

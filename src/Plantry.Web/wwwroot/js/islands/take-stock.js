@@ -44,6 +44,7 @@
 // CONVENTION — when to bump each ?v= query:
 //   ./runtime.js?v=N           bump when runtime.js changes (Preact/htm/signals re-exports)
 //   ./take-stock-logic.js?v=N  bump when take-stock-logic.js changes
+//   ./toast.js?v=N             bump when toast.js changes
 //   ./helpers.js is imported directly by Walk.cshtml with FileVersionProvider, so it
 //   gets a content-hash automatically — no manual token needed here.
 //
@@ -54,6 +55,7 @@
 import { render, html, signal, computed } from "./runtime.js?v=1";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
 import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage, mergeSheetUnitIntoRow } from "./take-stock-logic.js?v=3";
+import { createToast, createToastHost } from "./toast.js?v=1";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,9 @@ function makeRow(seed) {
 
 // setCount, buildSaveItems, and reconcileResults are imported from take-stock-logic.js
 // and called directly. makeRow is wrapped above to inject the runtime's signal/computed.
+
+// Shared toast host bound to this island's own `html` tag function (see toast.js header).
+const ToastHost = createToastHost(html);
 
 // ── CountRow component ───────────────────────────────────────────────────────────
 
@@ -239,7 +244,7 @@ function CountRow({ row, expandedLots, onExpandLots, onCollapseLots, onAddConver
  * @param {{ rows: import("@preact/signals").Signal<Row[]>,
  *           dirtyCount: import("@preact/signals").ReadonlySignal<number>,
  *           saving: import("@preact/signals").Signal<boolean>,
- *           toast: import("@preact/signals").Signal<string>,
+ *           toast: import("./toast.js").Toast,
  *           locationName: string,
  *           onSave: () => void,
  *           onOpenAdd: () => void,
@@ -328,11 +333,7 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
           </button>
         </div>`}
 
-      ${toast.value && html`
-        <div class="toast" role="status" aria-live="polite" onClick=${() => { toast.value = ""; }}>
-          <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-          <span>${toast.value}</span>
-        </div>`}
+      <${ToastHost} toast=${toast} />
     </div>`;
 }
 
@@ -342,7 +343,7 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
  * @param {import("@preact/signals").Signal<Row[]>} rowsSignal
  * @param {string} saveUrl
  * @param {string} token
- * @param {import("@preact/signals").Signal<string>} toast
+ * @param {import("./toast.js").Toast} toast
  * @param {import("@preact/signals").Signal<boolean>} saving
  */
 async function save(rowsSignal, saveUrl, token, toast, saving) {
@@ -352,13 +353,13 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
   if (dirty.length === 0) return;
 
   saving.value = true;
-  toast.value = "";
+  toast.hide();
   const items = buildSaveItems(dirty);
 
   try {
     const resp = await postJson(saveUrl, { items }, token);
     if (!resp.ok) {
-      toast.value = saveStatusMessage({ ok: false, status: resp.status });
+      toast.show(saveStatusMessage({ ok: false, status: resp.status }));
       return;
     }
 
@@ -366,11 +367,11 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
     const { saved, failed, needsConversion } = reconcileResults(rows, data.results ?? []);
     // A needsConversion row is neither saved nor a plain failure — it is waiting on a factor.
     // Prompt the user toward the highlighted rows rather than reporting a save success/failure.
-    toast.value = needsConversion > 0 && saved === 0 && failed === 0
+    toast.show(needsConversion > 0 && saved === 0 && failed === 0
       ? "Add a conversion factor for the highlighted rows to record them."
-      : saveStatusMessage({ ok: true, saved, failed });
+      : saveStatusMessage({ ok: true, saved, failed }));
   } catch {
-    toast.value = "Network error — please try again";
+    toast.show("Network error — please try again");
   } finally {
     saving.value = false;
   }
@@ -392,7 +393,7 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
 export function mountTakeStockWalk(root, config) {
   const rowsSignal = signal(config.rows.map(makeRow));
   const saving = signal(false);
-  const toast = signal("");
+  const toast = createToast(signal);
   const expandedLots = signal(/** @type {Record<string,boolean>} */ ({}));
   const dirtyCount = computed(() => rowsSignal.value.filter((r) => r.dirty.value).length);
 
@@ -479,7 +480,7 @@ export function mountTakeStockWalk(root, config) {
         mergeSheetUnitIntoRow(existing, detail);
         // supportedUnits/unitCode are plain (non-signal) fields — reassign the array to re-render.
         rowsSignal.value = [...rows];
-        toast.value = "Added — tap Save to record.";
+        toast.show("Added — tap Save to record.");
       } else {
         // New row not yet in working set.
         const counted = parseFloat(String(detail.addCount ?? 0)) || 0;
@@ -500,7 +501,7 @@ export function mountTakeStockWalk(root, config) {
         });
         newRow.counted.value = counted;
         rowsSignal.value = [...rows, newRow];
-        toast.value = "Added — tap Save to record.";
+        toast.show("Added — tap Save to record.");
       }
     } else if (detail.newStapleName) {
       // Path B: new product (standalone, grouped, or variant) — POST to /AddItem.
@@ -524,13 +525,13 @@ export function mountTakeStockWalk(root, config) {
       try {
         const resp = await postJson(config.addItemUrl, payload, config.token);
         if (!resp.ok) {
-          toast.value = `Add item failed (${resp.status}) — please try again`;
+          toast.show(`Add item failed (${resp.status}) — please try again`);
           return;
         }
 
         const data = await resp.json();
         if (!data.isSuccess) {
-          toast.value = data.error ?? "Failed to create product";
+          toast.show(data.error ?? "Failed to create product");
           return;
         }
 
@@ -554,9 +555,9 @@ export function mountTakeStockWalk(root, config) {
         });
         newRow.counted.value = data.countedValue;
         rowsSignal.value = [...rowsSignal.value, newRow];
-        toast.value = data.productName + " added" + (data.countedValue > 0 ? " with " + data.countedValue + " " + data.unitCode : "") + ".";
+        toast.show(data.productName + " added" + (data.countedValue > 0 ? " with " + data.countedValue + " " + data.unitCode : "") + ".");
       } catch {
-        toast.value = "Network error — please try again";
+        toast.show("Network error — please try again");
       }
     }
   }
@@ -608,7 +609,7 @@ export function mountTakeStockWalk(root, config) {
   async function addConversion(row) {
     const factor = parseFloat(row.convFactor.value);
     if (!(factor > 0)) {
-      toast.value = "Enter a conversion factor greater than zero.";
+      toast.show("Enter a conversion factor greater than zero.");
       return;
     }
     try {
@@ -619,12 +620,12 @@ export function mountTakeStockWalk(root, config) {
         factor,
       }, config.token);
       if (!resp.ok) {
-        toast.value = `Couldn't save the conversion (${resp.status}) — please try again`;
+        toast.show(`Couldn't save the conversion (${resp.status}) — please try again`);
         return;
       }
       const data = await resp.json();
       if (!data.isSuccess) {
-        toast.value = data.error ?? "Couldn't save the conversion.";
+        toast.show(data.error ?? "Couldn't save the conversion.");
         return;
       }
       // Conversion stored — clear the prompt and ensure the row keeps the counted unit, then re-save.
@@ -633,7 +634,7 @@ export function mountTakeStockWalk(root, config) {
       row.convFactor.value = "";
       await save(rowsSignal, config.saveUrl, config.token, toast, saving);
     } catch {
-      toast.value = "Network error — please try again";
+      toast.show("Network error — please try again");
     }
   }
 

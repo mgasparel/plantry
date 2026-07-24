@@ -11,7 +11,7 @@
     plantry-14q (decouple suggestions strip from list swap), and plantry-3dh.2 A (live totals).
 *@
 <partial name="_ShoppingList"
-         model="new ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, Model.CategoryOptions, Model.UnitOptionsList, false)" />
+         model="new ShoppingListPartialModel(Model.ShoppingList, Model.ProductOptions, Model.UnitOptions, Model.CategoryOptions, Model.InlineUnitOptions, false)" />
 @{ ViewData["FormOob"] = true; }
 <partial name="_AddForm" model="Model" />
 <partial name="_ShoppingSummary"

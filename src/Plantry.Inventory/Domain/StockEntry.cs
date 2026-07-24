@@ -7,9 +7,12 @@ namespace Plantry.Inventory.Domain;
 /// A single lot of stock — the child of <see cref="ProductStock"/> (inventory.md). Carries the
 /// remaining <see cref="Quantity"/> in <see cref="UnitId"/>, its <see cref="LocationId"/>, and the
 /// expiry <b>materialized at event time</b> (DM-11) — never recomputed at read time.
-/// <see cref="FrozenAt"/>/<see cref="ThawedAt"/>/<see cref="IsOpen"/> exist now but the transitions
-/// that drive them are Slice 3. A depleted lot keeps its row (<see cref="DepletedAt"/> set) because
-/// the append-only journal's FK requires every historical lot to stay live.
+/// <see cref="IsOpen"/>'s transitions are driven by <see cref="ProductStock.MarkOpened"/> /
+/// <see cref="ProductStock.UnmarkOpened"/> (plantry-1le6); <see cref="FrozenAt"/>/<see cref="ThawedAt"/>
+/// are driven by <see cref="ProductStock.Transfer"/> (plantry-6owm) — each field independently records
+/// its own most-recent occurrence (no transition-history table in v1). A depleted lot
+/// keeps its row (<see cref="DepletedAt"/> set) because the append-only journal's FK requires every
+/// historical lot to stay live.
 /// </summary>
 public sealed class StockEntry : Entity<StockEntryId>
 {
@@ -92,5 +95,84 @@ public sealed class StockEntry : Entity<StockEntryId>
 
         Quantity += amount;
         UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Flips the lot open and applies <paramref name="expiryDate"/> — the already-clamped value
+    /// <see cref="ProductStock.MarkOpened"/> (or the auto-open step of <see cref="ProductStock.Consume"/>,
+    /// plantry-1le6 rule 5) computed. Called only by the root, keeping the aggregate boundary intact.
+    /// </summary>
+    internal void MarkOpen(DateOnly? expiryDate, IClock clock)
+    {
+        IsOpen = true;
+        ExpiryDate = expiryDate;
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Un-marks an opened lot (plantry-1le6 rule 3) — a correction, not a recompute: the expiry that
+    /// opening replaced is <b>not</b> restored (no history is kept of it). Called only by the root.
+    /// </summary>
+    internal void UnmarkOpen(IClock clock)
+    {
+        IsOpen = false;
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Moves this lot in place to <paramref name="locationId"/> (plantry-6owm rule 1 — full-lot
+    /// transfer) and applies the already-decided <paramref name="expiryDate"/> (the caller has already
+    /// run the freeze/thaw recompute or left it unchanged for a plain move). <see cref="FrozenAt"/> /
+    /// <see cref="ThawedAt"/> record their <b>own</b> most-recent occurrence independently (rule 4 —
+    /// no transition-history table): a <see cref="TransferKind.Freeze"/> sets <see cref="FrozenAt"/>
+    /// without touching <see cref="ThawedAt"/>, and vice versa for <see cref="TransferKind.Thaw"/>; a
+    /// plain <see cref="TransferKind.Move"/> touches neither. Called only by the root.
+    /// </summary>
+    internal void MoveTo(Guid locationId, DateOnly? expiryDate, TransferKind kind, DateTimeOffset now)
+    {
+        LocationId = locationId;
+        ExpiryDate = expiryDate;
+        if (kind == TransferKind.Freeze) FrozenAt = now;
+        else if (kind == TransferKind.Thaw) ThawedAt = now;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Reduces this lot's quantity for a partial transfer (plantry-6owm rule 1 — the split path): the
+    /// remainder stays at this lot's current location, keeping its expiry and FrozenAt/ThawedAt
+    /// untouched — only the moved portion (a new lot, see <see cref="CreateSplit"/>) goes through the
+    /// freeze/thaw recompute. Unlike <see cref="Deduct"/>, a split can never deplete the source lot —
+    /// the root only calls this when <paramref name="amount"/> is strictly less than <see cref="Quantity"/>.
+    /// Called only by the root.
+    /// </summary>
+    internal void ReduceForSplit(decimal amount, IClock clock)
+    {
+        if (amount <= 0m)
+            throw new ArgumentOutOfRangeException(nameof(amount), "Split amount must be positive.");
+        if (amount >= Quantity)
+            throw new InvalidOperationException("A split must leave a remainder on the source lot.");
+
+        Quantity -= amount;
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
+    /// Creates the new lot a partial transfer's moved portion becomes (plantry-6owm rule 1) —
+    /// inherits <paramref name="source"/>'s household/product/sku/unit/PurchasedAt, lands at
+    /// <paramref name="destinationLocationId"/> with the already-recomputed <paramref name="expiryDate"/>,
+    /// and sets FrozenAt/ThawedAt per <paramref name="kind"/> (mirroring <see cref="MoveTo"/>'s own-field
+    /// independence — the new lot starts with neither set, then picks up whichever this transfer's kind
+    /// implies). Called only by the root, keeping the aggregate boundary intact.
+    /// </summary>
+    internal static StockEntry CreateSplit(
+        StockEntry source, decimal quantity, Guid destinationLocationId, DateOnly? expiryDate,
+        TransferKind kind, DateTimeOffset now)
+    {
+        var entry = new StockEntry(
+            source.HouseholdId, source.ProductId, source.SkuId, quantity, source.UnitId,
+            destinationLocationId, expiryDate, source.PurchasedAt, now);
+        if (kind == TransferKind.Freeze) entry.FrozenAt = now;
+        else if (kind == TransferKind.Thaw) entry.ThawedAt = now;
+        return entry;
     }
 }

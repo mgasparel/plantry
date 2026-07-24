@@ -138,6 +138,57 @@ public sealed class LineCommitDecisionTests
         Assert.Equal(_eachUnitId, record.UnitId);  // committed unit
     }
 
+    // ── Price-amendment decision (ADR-023 A8) — the three outcomes ──────────────────
+
+    [Fact]
+    public void Amend_Is_NoObservation_When_The_Line_Never_Recorded_A_Price()
+    {
+        var session = NewSession();
+        var line = session.AddLine(1, "Free sample", SuggestedConfidence.High, null);
+        line.Confirm(Guid.CreateVersion7(), null, 1m, _eachUnitId, _locationId, null, price: null);
+        line.MarkCommitted(Guid.CreateVersion7(), null);
+
+        var decision = LineCommitDecision.DecidePriceAmendment(line, correctedQuantity: 5m);
+
+        Assert.IsType<AmendPriceDecision.NoObservation>(decision);
+    }
+
+    [Fact]
+    public void Amend_Skips_A_Weight_Priced_Line_Even_Though_Its_EachCount_Was_Corrected()
+    {
+        // spec acceptance #5: an each-count fix on a weight-priced line (plantry-1mu) must leave the
+        // weight-denominated observation untouched — the observation's quantity is the FIXED receipt
+        // weight, never the corrected committed each-count.
+        var session = NewSession();
+        var productId = Guid.CreateVersion7();
+        var line = session.AddLine(1, "ORG BANANAS 1.34 lb", SuggestedConfidence.High, """{"x":1}""",
+            suggestedProductId: productId, suggestedQuantity: 1.34m, suggestedUnitLabel: "lb", suggestedPrice: 0.79m,
+            receiptWeight: 1.34m, receiptWeightUnitLabel: "lb",
+            estimatedEachCount: 7m, estimatedEachConfidence: SuggestedConfidence.High);
+        line.Confirm(productId, null, 7m, _eachUnitId, _locationId, null, price: 0.79m);
+        line.MarkCommitted(Guid.CreateVersion7(), Guid.CreateVersion7());
+
+        var decision = LineCommitDecision.DecidePriceAmendment(line, correctedQuantity: 9m); // 7 -> 9 each
+
+        Assert.IsType<AmendPriceDecision.SkipWeightDenominated>(decision);
+    }
+
+    [Fact]
+    public void Amend_Amends_A_Non_Weight_Line_With_The_Corrected_Quantity()
+    {
+        var session = NewSession();
+        var productId = Guid.CreateVersion7();
+        var line = session.AddLine(1, "ONIONS YELLOW", SuggestedConfidence.High, null,
+            suggestedProductId: productId, suggestedQuantity: 1m, suggestedUnitLabel: "lb", suggestedPrice: 3.98m);
+        line.Confirm(productId, null, 1m, _lbUnitId, _locationId, null, price: 3.98m);
+        line.MarkCommitted(Guid.CreateVersion7(), Guid.CreateVersion7());
+
+        var decision = LineCommitDecision.DecidePriceAmendment(line, correctedQuantity: 3m);
+
+        var amend = Assert.IsType<AmendPriceDecision.Amend>(decision);
+        Assert.Equal(3m, amend.CorrectedQuantity);
+    }
+
     // ── Conversion-seed decision — the five-gate decision table ──────────────────────
 
     /// <summary>
