@@ -207,19 +207,25 @@ public sealed class RecipeEditorPostFactory : WebApplicationFactory<Program>
 
 /// <summary>
 /// <see cref="ICatalogWriter"/> test double for the editor L4 tests. Creates are no-ops returning a
-/// fresh id; <see cref="AddConversionAsync"/> records its arguments in <see cref="ConversionsAdded"/>
-/// so the plantry-qno9 four-field POST test can assert the server computed factor = right/left and
-/// wrote (from = left unit, to = right unit).
+/// fresh id (except <see cref="TrackedProductsCreated"/>, which records the args CookRecipe's
+/// just-in-time yield-product creation passes, plantry-iejb); <see cref="AddConversionAsync"/> records
+/// its arguments in <see cref="ConversionsAdded"/> so the plantry-qno9 four-field POST test can assert
+/// the server computed factor = right/left and wrote (from = left unit, to = right unit).
 /// </summary>
 internal sealed class FakeCatalogWriter : ICatalogWriter
 {
     public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId, decimal Factor)> ConversionsAdded { get; } = [];
+    public List<(string Name, Guid DefaultUnitId, Guid? CategoryId)> TrackedProductsCreated { get; } = [];
 
     public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
-    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default) =>
-        Task.FromResult(Guid.NewGuid());
+    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
+    {
+        var id = Guid.NewGuid();
+        TrackedProductsCreated.Add((name, defaultUnitId, categoryId));
+        return Task.FromResult(id);
+    }
 
     public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());

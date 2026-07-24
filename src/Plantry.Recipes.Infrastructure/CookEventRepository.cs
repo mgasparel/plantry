@@ -57,6 +57,26 @@ public sealed class CookEventRepository(RecipesDbContext db) : ICookEventReposit
         return rows.ToDictionary(r => r.Id.Value, r => r.RecipeId);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<Guid, DateTimeOffset>> GetLatestCookedAtByPlannedDishIdsAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default)
+    {
+        if (plannedDishIds.Count == 0)
+            return new Dictionary<Guid, DateTimeOffset>();
+
+        // Materialise to a list so EF translates the Contains as an ANY(@p) array predicate.
+        var wanted = plannedDishIds as IReadOnlyList<Guid> ?? plannedDishIds.ToList();
+
+        var rows = await db.CookEvents
+            .Where(c => c.PlannedDishId != null && wanted.Contains(c.PlannedDishId!.Value))
+            .Select(c => new { PlannedDishId = c.PlannedDishId!.Value, c.CookedAt })
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(r => r.PlannedDishId)
+            .ToDictionary(g => g.Key, g => g.Max(r => r.CookedAt));
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);
 }

@@ -266,6 +266,65 @@
 									<span class="cook-rail-stat__lbl">skipped</span>
 								</div>
 							</div>
+							<div class="cook-rail-yield" x-data="cookYield(0)" style="margin-top:16px;padding:12px;border:1px solid var(--border,#ddd);border-radius:8px">
+								<label class="field__label" for="StoreYieldQuantity">
+									Storing leftovers of
+									<strong>Garlic Pasta</strong>?
+								</label>
+								<div class="form-grid__unit-suffix" style="margin-top:6px">
+									<input id="StoreYieldQuantity" name="StoreYieldQuantity" type="number" min="0" step="0.001" class="field__input" x-model.number="store">
+									<span class="form-grid__unit-suffix__label">servings</span>
+								</div>
+								<div x-show="store > 0" x-cloak="" style="margin-top:8px">
+									<label class="field__label" for="StoreYieldExpiry">Use by (optional)</label>
+									<div class="filter-chip-bar" style="margin-top:6px">
+										<button type="button" class="filter-chip" :class="expiryDays === 2 ? 'is-active filter-chip--accent' : ''" @click="pickExpiry(2)">
+											2 days
+										</button>
+										<button type="button" class="filter-chip" :class="expiryDays === 3 ? 'is-active filter-chip--accent' : ''" @click="pickExpiry(3)">
+											3 days
+										</button>
+										<button type="button" class="filter-chip" :class="expiryDays === 5 ? 'is-active filter-chip--accent' : ''" @click="pickExpiry(5)">
+											5 days
+										</button>
+										<button type="button" class="filter-chip" :class="expiryDays === 7 ? 'is-active filter-chip--accent' : ''" @click="pickExpiry(7)">
+											1 week
+										</button>
+									</div>
+									<input id="StoreYieldExpiry" name="StoreYieldExpiry" type="date" class="field__input" x-model="expiryDate" @input="expiryDays = null" style="margin-top:6px">
+								</div>
+								<div class="cook-yield-create" x-show="store > 0 &amp;&amp; !pickedYieldProductId" x-cloak="">
+									<p class="cyc-lead">Leftovers need a pantry item to live under. Create one?</p>
+									<div class="cyc-choice">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-plus"></use>
+										</svg>
+										<span>Garlic Pasta (leftovers)
+											<small>New pantry item · tracked in servings · saved on the recipe for next time</small>
+										</span>
+									</div>
+									<p class="cyc-alt">or
+										<button type="button" @click="showYieldPicker = true">pick an existing pantry item…</button>
+									</p>
+								</div>
+								<div x-show="store > 0 &amp;&amp; showYieldPicker &amp;&amp; !pickedYieldProductId" x-cloak="" style="margin-top:8px" @pick-product="pickYieldProduct($event.detail)">
+									<div class="searchable-select" x-data="searchableSelect()" data-initial-label="" data-create-label="as a new product" @click.outside="open = false" @keydown.escape="open = false">
+										<div class="searchable-select__control">
+											<input type="text" class="field__input" role="combobox" aria-controls="cook-yield-pick-search-listbox" aria-autocomplete="list" autocomplete="off" placeholder="Search pantry items…" x-model="query" :aria-expanded="open" @focus="open = true" @keydown.down.prevent="highlightNext()" @keydown.up.prevent="highlightPrev()" @keydown.enter.prevent="chooseHighlighted()" name="q" hx-get="/Recipes/Guid_5/Cook?handler=SearchProducts" hx-trigger="keyup changed delay:250ms, focus" hx-target="#cook-yield-pick-search-listbox" hx-swap="innerHTML" hx-params="q">
+										</div>
+										<ul class="searchable-select__listbox" id="cook-yield-pick-search-listbox" role="listbox" x-ref="listbox" x-show="open" x-cloak="" style="display: none"></ul>
+									</div>
+								</div>
+								<div x-show="store > 0 &amp;&amp; pickedYieldProductId" x-cloak="" style="margin-top:8px;font-size:12.5px">
+									Storing under
+									<strong x-text="pickedYieldProductName"></strong>.
+									<button type="button" class="btn btn--ghost btn--sm" @click="resetYieldPick()">Change</button>
+								</div>
+								<input type="hidden" name="PickedYieldProductId" :value="pickedYieldProductId">
+								<p style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+									Adds a lot of Garlic Pasta to your pantry. Eaten-now servings need no action.
+								</p>
+							</div>
 							<div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
 								<button type="submit" class="btn btn--cook btn--full">
 									<svg class="icon" aria-hidden="true">

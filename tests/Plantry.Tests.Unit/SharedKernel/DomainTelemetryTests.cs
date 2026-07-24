@@ -382,7 +382,7 @@ public sealed class DomainTelemetryTests
         recipes.Items.Add(recipe);
 
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, expansion, dispatcher, clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, new MetricsTestCatalogWriter(), expansion, dispatcher, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -413,7 +413,7 @@ public sealed class DomainTelemetryTests
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, expansion, dispatcher, clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, new MetricsTestCatalogWriter(), expansion, dispatcher, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -639,6 +639,9 @@ internal sealed class MetricsTestCookEventRepository : ICookEventRepository
     public Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
         IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(new Dictionary<Guid, RecipeId>());
+    public Task<IReadOnlyDictionary<Guid, DateTimeOffset>> GetLatestCookedAtByPlannedDishIdsAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, DateTimeOffset>>(new Dictionary<Guid, DateTimeOffset>());
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
@@ -699,6 +702,26 @@ internal sealed class MetricsTestCatalogProductReader : ICatalogProductReader
 internal sealed class MetricsTestDomainEventDispatcher : IDomainEventDispatcher
 {
     public Task DispatchAsync(IEnumerable<IDomainEvent> events, CancellationToken ct = default) =>
+        Task.CompletedTask;
+}
+
+/// <summary>No-op <see cref="ICatalogWriter"/> — these metrics tests never post a stored yield, so the
+/// just-in-time yield-product creation path (plantry-iejb) is never exercised.</summary>
+internal sealed class MetricsTestCatalogWriter : ICatalogWriter
+{
+    public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
+    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
+    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
+    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default) =>
+        Task.FromResult(Guid.NewGuid());
+
+    public Task AddConversionAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default) =>
         Task.CompletedTask;
 }
 

@@ -28,6 +28,15 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
     public Guid CookedBy { get; private set; }
     public DateTimeOffset CookedAt { get; private set; }
 
+    /// <summary>
+    /// Bare soft-ref (DM-3) to the MealPlanning <c>PlannedDish</c> this cook fulfilled, when the cook
+    /// was launched from the meal plan (plantry-0eut). Null for a recipe-launched cook. This is the
+    /// ONLY link between a cook and a plan — MealPlanning is never written to; the plan UI DERIVES
+    /// cooked state by querying for a CookEvent with a matching PlannedDishId (no RecipeCookedEvent
+    /// subscriber — ADR-014 guardrail, see the comment on RecipeCooked dispatch in CookRecipe.cs).
+    /// </summary>
+    public Guid? PlannedDishId { get; private set; }
+
     // ── Consume plan children (292b) ────────────────────────────────────────
     private readonly List<CookConsumeLine> _lines = [];
 
@@ -59,7 +68,8 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
         RecipeId recipeId,
         int servingsCooked,
         Guid cookedBy,
-        DateTimeOffset cookedAt)
+        DateTimeOffset cookedAt,
+        Guid? plannedDishId)
     {
         Id = id;
         HouseholdId = householdId;
@@ -67,6 +77,7 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
         ServingsCooked = servingsCooked;
         CookedBy = cookedBy;
         CookedAt = cookedAt;
+        PlannedDishId = plannedDishId;
     }
 
     /// <summary>
@@ -80,13 +91,18 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
     /// <param name="servingsCooked">Number of servings produced; must be &gt;= 1.</param>
     /// <param name="cookedBy">Identity of the user who initiated the cook.</param>
     /// <param name="clock">Wall-clock source for <see cref="CookedAt"/>.</param>
+    /// <param name="plannedDishId">
+    /// Soft-ref (DM-3) to the plan dish this cook fulfilled, when launched from the meal plan
+    /// (plantry-0eut); null for a direct recipe-launched cook (the default — existing callers unchanged).
+    /// </param>
     /// <returns>The new <see cref="CookEvent"/>, or a <c>Recipes.InvalidServings</c> failure.</returns>
     public static Result<CookEvent> Record(
         RecipeId recipeId,
         HouseholdId householdId,
         int servingsCooked,
         Guid cookedBy,
-        IClock clock)
+        IClock clock,
+        Guid? plannedDishId = null)
     {
         if (servingsCooked < 1)
             return Result<CookEvent>.Failure(Error.Custom("Recipes.InvalidServings",
@@ -98,7 +114,8 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
             recipeId,
             servingsCooked,
             cookedBy,
-            clock.UtcNow));
+            clock.UtcNow,
+            plannedDishId));
     }
 
     /// <summary>

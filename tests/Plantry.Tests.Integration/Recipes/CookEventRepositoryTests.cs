@@ -190,6 +190,80 @@ public sealed class CookEventRepositoryTests(PostgresFixture db) : IAsyncLifetim
         Assert.Single(await repo2.ListWithDeferredUnitGapLinesForProductsAsync([deferredProduct]));
     }
 
+    // ── GetLatestCookedAtByPlannedDishIdsAsync (plantry-0eut cook-status read port) ─────────────
+
+    [Fact(DisplayName = "GetLatestCookedAtByPlannedDishIdsAsync resolves a cooked plan dish's CookedAt")]
+    public async Task GetLatestCookedAtByPlannedDishIdsAsync_Resolves_A_Cooked_Dish()
+    {
+        var userId = Guid.CreateVersion7();
+        var plannedDishId = Guid.NewGuid();
+        var cookedAt = new DateTimeOffset(2026, 7, 24, 18, 42, 0, TimeSpan.Zero);
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new CookEventRepository(ctx);
+            var cookEvent = CookEvent.Record(_recipeId, _household, 2, userId, new FixedClock(cookedAt), plannedDishId).Value;
+            await repo.AddAsync(cookEvent);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var result = await new CookEventRepository(ctx2).GetLatestCookedAtByPlannedDishIdsAsync([plannedDishId]);
+
+        Assert.Equal(cookedAt, Assert.Single(result).Value);
+    }
+
+    [Fact(DisplayName = "GetLatestCookedAtByPlannedDishIdsAsync omits a plan dish never cooked (direct cooks have a null PlannedDishId)")]
+    public async Task GetLatestCookedAtByPlannedDishIdsAsync_Omits_An_Unmatched_Dish()
+    {
+        var userId = Guid.CreateVersion7();
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new CookEventRepository(ctx);
+            // Direct recipe-launched cook — PlannedDishId defaults to null, never matches any dish id.
+            var cookEvent = CookEvent.Record(_recipeId, _household, 2, userId, _clock).Value;
+            await repo.AddAsync(cookEvent);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var result = await new CookEventRepository(ctx2).GetLatestCookedAtByPlannedDishIdsAsync([Guid.NewGuid()]);
+
+        Assert.Empty(result);
+    }
+
+    [Fact(DisplayName = "GetLatestCookedAtByPlannedDishIdsAsync resolves the most recent cook when a dish was cooked twice")]
+    public async Task GetLatestCookedAtByPlannedDishIdsAsync_Resolves_The_Most_Recent_Cook()
+    {
+        var userId = Guid.CreateVersion7();
+        var plannedDishId = Guid.NewGuid();
+        var earlier = new DateTimeOffset(2026, 7, 24, 18, 0, 0, TimeSpan.Zero);
+        var later = new DateTimeOffset(2026, 7, 24, 19, 30, 0, TimeSpan.Zero);
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new CookEventRepository(ctx);
+            await repo.AddAsync(CookEvent.Record(_recipeId, _household, 2, userId, new FixedClock(earlier), plannedDishId).Value);
+            await repo.AddAsync(CookEvent.Record(_recipeId, _household, 2, userId, new FixedClock(later), plannedDishId).Value);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var result = await new CookEventRepository(ctx2).GetLatestCookedAtByPlannedDishIdsAsync([plannedDishId]);
+
+        Assert.Equal(later, Assert.Single(result).Value);
+    }
+
+    [Fact(DisplayName = "GetLatestCookedAtByPlannedDishIdsAsync returns empty for empty input")]
+    public async Task GetLatestCookedAtByPlannedDishIdsAsync_Returns_Empty_For_Empty_Input()
+    {
+        await using var ctx = NewContext();
+        var result = await new CookEventRepository(ctx).GetLatestCookedAtByPlannedDishIdsAsync([]);
+
+        Assert.Empty(result);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private RecipesDbContext NewContext()

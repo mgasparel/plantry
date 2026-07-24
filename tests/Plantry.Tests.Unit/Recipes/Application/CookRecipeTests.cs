@@ -27,6 +27,10 @@ public sealed class CookRecipeTests
 
     // ── Harness ─────────────────────────────────────────────────────────────────
 
+    /// <summary>The household's "ea" count unit, seeded into every harness's catalog reader (plantry-iejb
+    /// just-in-time yield-product creation resolves the count unit via <c>ListUnitsAsync</c>).</summary>
+    private static readonly Guid EachUnitId = Guid.CreateVersion7();
+
     private sealed class Harness
     {
         public required FakeRecipeRepository Recipes { get; init; }
@@ -34,6 +38,7 @@ public sealed class CookRecipeTests
         public required FakeInventoryConsumer Consumer { get; init; }
         public required FakeInventoryProducer Producer { get; init; }
         public required FakeCatalogProductReader Products { get; init; }
+        public required FakeCatalogWriter CatalogWriter { get; init; }
         public required FakeDomainEventDispatcher EventDispatcher { get; init; }
         public required CookRecipe Service { get; init; }
     }
@@ -45,13 +50,16 @@ public sealed class CookRecipeTests
         var consumer = new FakeInventoryConsumer();
         var producer = new FakeInventoryProducer();
         var products = new FakeCatalogProductReader();
+        products.RegisterUnit(EachUnitId, "ea");
+        var converter = new FakeUnitConverter();
+        var catalogWriter = new FakeCatalogWriter(products, converter);
         var dispatcher = new FakeDomainEventDispatcher();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
         var lineDriver = new CookLineDriver(consumer, producer);
         var reconciler = new ReconcilePendingCooks(cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, expansion, dispatcher, Clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, catalogWriter, expansion, dispatcher, Clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
         return new Harness
         {
@@ -60,6 +68,7 @@ public sealed class CookRecipeTests
             Consumer = consumer,
             Producer = producer,
             Products = products,
+            CatalogWriter = catalogWriter,
             EventDispatcher = dispatcher,
             Service = service,
         };
@@ -208,6 +217,41 @@ public sealed class CookRecipeTests
         Assert.Equal(HouseholdId.From(_householdGuid), evt.HouseholdId);
         Assert.Equal(recipe.Id, evt.RecipeId);
         Assert.Equal(cooked.CookEventId, evt.Id);
+    }
+
+    // ── Plan provenance (plantry-0eut) ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task Cook_Stamps_PlannedDishId_On_The_Minted_CookEvent()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h);
+        var plannedDishId = Guid.CreateVersion7();
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [], PlannedDishId: plannedDishId);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        var evt = Assert.Single(h.CookEvents.Items);
+        Assert.Equal(plannedDishId, evt.PlannedDishId);
+    }
+
+    [Fact]
+    public async Task Cook_Leaves_PlannedDishId_Null_When_Not_Supplied()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h);
+
+        // Default command — a direct recipe-launched cook, same as every pre-existing call site.
+        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 4, _userId, Resolutions: []);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        var evt = Assert.Single(h.CookEvents.Items);
+        Assert.Null(evt.PlannedDishId);
     }
 
     // ── RecipeCooked event (§9, O2) ──────────────────────────────────────────────
@@ -506,21 +550,131 @@ public sealed class CookRecipeTests
     }
 
     [Fact]
-    public async Task Cook_Recipe_Without_Yield_Ignores_Stored_Quantity()
+    public async Task Cook_NoYield_Zero_Stored_Quantity_Creates_Nothing()
     {
         var h = BuildHarness();
         var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4); // no yield declared
 
         var command = new CookRecipeCommand(
             recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
-            StoredYieldQuantity: 5m, StoredYieldExpiry: new DateOnly(2026, 8, 1));
+            StoredYieldQuantity: 0m, StoredYieldExpiry: new DateOnly(2026, 8, 1));
 
         var result = await h.Service.ExecuteAsync(command);
 
         Assert.IsType<CookRecipeResult.Cooked>(result);
         Assert.Empty(h.Producer.Calls);
+        Assert.Empty(h.CatalogWriter.TrackedProductsCreated);
+        Assert.Null(recipe.YieldProductId);
         var evt = Assert.Single(h.CookEvents.Items);
-        Assert.Empty(evt.ProduceLines);
+        Assert.Empty(evt.ProduceLines); // storing 0 stages no produce line and creates nothing (plantry-iejb)
+    }
+
+    // ── No-yield-product gap: just-in-time resolution (plantry-iejb) ──────────────
+
+    [Fact]
+    public async Task Cook_NoYield_Positive_Quantity_AutoCreates_Leftovers_Product_And_Persists_On_Recipe()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m); // no yield declared
+        var expiry = new DateOnly(2026, 8, 1);
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 3m, StoredYieldExpiry: expiry);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        // One-tap default: a tracked "«Recipe» (leftovers)" product is minted in the household's count unit.
+        var created = Assert.Single(h.CatalogWriter.TrackedProductsCreated);
+        Assert.Equal("Test Recipe (leftovers)", created.Name);
+        Assert.Equal(EachUnitId, created.DefaultUnitId);
+
+        // It is produced into inventory this cook...
+        var produceCall = Assert.Single(h.Producer.Calls);
+        Assert.NotEqual(Guid.Empty, produceCall.ProductId);
+        Assert.Equal(3m, produceCall.Quantity);
+        Assert.Equal(EachUnitId, produceCall.UnitId);
+        Assert.Equal(expiry, produceCall.ExpiryDate);
+
+        // ...and persisted onto the recipe so the next cook shows the normal yield block, no prompt.
+        Assert.Equal(produceCall.ProductId, recipe.YieldProductId);
+        Assert.Equal(EachUnitId, recipe.YieldUnitId);
+        Assert.True(recipe.HasYield);
+        // DesiredServings == DefaultServings here (scale 1), so the declared-for-default-servings
+        // quantity equals the stored amount verbatim.
+        Assert.Equal(3m, recipe.YieldQuantity);
+    }
+
+    [Fact]
+    public async Task Cook_NoYield_Picked_Existing_Product_Stores_Under_It_And_Persists_On_Recipe()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m); // no yield declared
+        var pickedUnitId = Guid.CreateVersion7();
+        var pickedProduct = h.Products.AddTracked(pickedUnitId, "Leftover Tupperware");
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 2m, PickedYieldProductId: pickedProduct.Id);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+
+        // No product is minted when the user picked an existing one.
+        Assert.Empty(h.CatalogWriter.TrackedProductsCreated);
+
+        var produceCall = Assert.Single(h.Producer.Calls);
+        Assert.Equal(pickedProduct.Id, produceCall.ProductId);
+        Assert.Equal(pickedUnitId, produceCall.UnitId);
+        Assert.Equal(2m, produceCall.Quantity);
+
+        // Persisted onto the recipe — the picked product becomes the recipe's declared yield.
+        Assert.Equal(pickedProduct.Id, recipe.YieldProductId);
+        Assert.Equal(pickedUnitId, recipe.YieldUnitId);
+    }
+
+    [Fact]
+    public async Task Cook_NoYield_Picked_Untracked_Product_Is_Ignored_And_Recorded_Failed()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m);
+        var untrackedId = Guid.CreateVersion7();
+        h.Products.RegisterUntracked(untrackedId, "Not Trackable");
+        h.Producer.ThrowFail(Guid.Empty); // mirrors Inventory's real Catalog.UnknownProduct rejection
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 2m, PickedYieldProductId: untrackedId);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result); // never blocks the cook (C8/R9 mirror)
+        Assert.Null(recipe.YieldProductId); // nothing persisted
+        var produceLine = Assert.Single(h.CookEvents.Items.Single().ProduceLines);
+        Assert.Equal(CookProduceLineStatus.Failed, produceLine.Status);
+    }
+
+    [Fact]
+    public async Task Cook_NoYield_Creation_Failure_Never_Blocks_Cook_And_Marks_Produce_Failed()
+    {
+        var h = BuildHarness();
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m);
+        h.CatalogWriter.FailCreateTrackedProduct = true; // simulate e.g. a duplicate-name rejection
+        h.Producer.ThrowFail(Guid.Empty); // mirrors Inventory's real Catalog.UnknownProduct rejection
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 3m);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result); // never blocks the cook (C8/R9 mirror)
+        Assert.Null(recipe.YieldProductId); // creation failed — nothing persisted
+        var produceLine = Assert.Single(h.CookEvents.Items.Single().ProduceLines);
+        Assert.Equal(CookProduceLineStatus.Failed, produceLine.Status);
     }
 
     [Fact]
@@ -1363,6 +1517,17 @@ internal sealed class FakeCookEventRepository : ICookEventRepository
             .Where(e => wanted.Contains(e.Id.Value))
             .ToDictionary(e => e.Id.Value, e => e.RecipeId);
         return Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(result);
+    }
+
+    public Task<IReadOnlyDictionary<Guid, DateTimeOffset>> GetLatestCookedAtByPlannedDishIdsAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default)
+    {
+        var wanted = plannedDishIds as HashSet<Guid> ?? [.. plannedDishIds];
+        var result = Items
+            .Where(e => e.PlannedDishId.HasValue && wanted.Contains(e.PlannedDishId.Value))
+            .GroupBy(e => e.PlannedDishId!.Value)
+            .ToDictionary(g => g.Key, g => g.Max(e => e.CookedAt));
+        return Task.FromResult<IReadOnlyDictionary<Guid, DateTimeOffset>>(result);
     }
 
     public Task SaveChangesAsync(CancellationToken ct = default)

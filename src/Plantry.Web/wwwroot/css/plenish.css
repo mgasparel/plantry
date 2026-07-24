@@ -3885,6 +3885,48 @@ details.rd-sub-fold[open] .rd-sub-fold__chev { transform: rotate(90deg); }
   flex: 0 0 auto;
 }
 
+/* ── Leftovers block (plantry-854a; prefill hint + no-yield-product create prompt, plantry-iejb) ──
+   Ported from .preview/0eut-cook-from-plan.html section 3, adapted to real plenish tokens. The
+   plan-provenance chip reuses .badge/.badge--info and the use-by quick picks reuse .filter-chip /
+   .filter-chip-bar (Shared/_FilterChip) — only the hint line and create/pick prompt are new here. */
+.cook-yield-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.cook-yield-hint b { color: var(--color-text); font-weight: 600; }
+
+.cook-yield-create {
+  margin-top: 8px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 9px 11px;
+  background: var(--color-surface);
+}
+.cook-yield-create .cyc-lead {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: 0 0 7px;
+}
+.cook-yield-create .cyc-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-cook);
+  background: color-mix(in oklab, var(--color-cook) 6%, var(--color-surface));
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.cook-yield-create .cyc-choice .icon { width: 14px; height: 14px; color: var(--color-cook); flex: none; }
+.cook-yield-create .cyc-choice small { display: block; font-weight: 500; font-size: 11px; color: var(--color-text-muted); }
+.cook-yield-create .cyc-alt { margin: 7px 0 0; font-size: 11.5px; }
+.cook-yield-create .cyc-alt button { background: none; border: 0; padding: 0; color: var(--color-info); font-weight: 600; font-size: 11.5px; cursor: pointer; }
+
 /* ── Rail summary stats ───────────────────────────────────────────────── */
 .cook-rail-summary {
   display: flex;
@@ -4932,6 +4974,32 @@ button.sadd svg { width: 13px; height: 13px; }
 .mc-edit svg { width: 13px; height: 13px; }
 .meal-card .mc-edit { background: rgba(255,255,255,.9); border: none; color: var(--color-text-muted); box-shadow: 0 1px 5px rgba(0,0,0,.22); }
 .meal-card .mc-edit:hover { background: #fff; color: var(--color-accent); }
+
+/* ── cook strip / cooked state (plantry-0eut) ──────────────────────────────
+   Footer zone on today's/past dish-based meal cards — one action or done row per dish.
+   Pill + grayscale photo treatment when every dish in the meal is done (FINAL, 2026-07-23:
+   grayscale photo + corner pill; a green-tint riff and a centered medallion riff were rejected). */
+.mc-cook-strip { border-top: 1px solid var(--color-border); background: var(--color-surface-2); padding: 7px 9px; display: flex; flex-direction: column; gap: 5px; }
+.mc-cook-act { display: flex; align-items: center; gap: 7px; width: 100%; border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-md); padding: 6px 9px; font-size: 12px; font-weight: 600; color: var(--color-text); cursor: pointer; text-align: left; }
+.mc-cook-act .icon { width: 14px; height: 14px; flex: none; color: var(--color-cook); }
+.mc-cook-act.eat .icon { color: var(--color-info); }
+.mc-cook-act:hover { border-color: var(--color-cook); }
+.mc-cook-act.eat:hover { border-color: var(--color-info); }
+.mc-cook-act .act-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-cook-act .act-srv { flex: none; font-size: 11px; font-weight: 600; color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
+/* Done row — replaces the button once the dish is cooked/eaten. Not a button; nothing to press. */
+.mc-cook-done { display: flex; align-items: center; gap: 7px; padding: 6px 9px; font-size: 12px; font-weight: 600; color: var(--color-success); }
+.mc-cook-done .icon { width: 14px; height: 14px; flex: none; }
+.mc-cook-done .done-meta { flex: none; margin-left: auto; font-size: 11px; font-weight: 500; color: var(--color-text-faint); }
+.mc-cook-done .undo { font-size: 11px; font-weight: 700; color: var(--color-info); background: none; border: 0; padding: 0; cursor: pointer; margin-left: auto; }
+
+/* Cooked badge on the photo — same shape/position family as .mc-soon, success-toned. */
+.mc-cooked { position: absolute; left: 7px; bottom: 7px; display: inline-flex; align-items: center; gap: 4px; background: var(--color-success); color: #fff; font-size: 10.5px; font-weight: 700; padding: 3px 7px; border-radius: 99px; box-shadow: var(--shadow-sm); }
+.mc-cooked svg { width: 12px; height: 12px; }
+/* Fully-cooked treatment — applies to whatever the card's photo element is (today: the placeholder
+   div below; a future real photo would carry the same .mc-photo-img class, cf. .today-meal-photo__img). */
+.meal-card.cooked .mc-photo-img { filter: grayscale(.75) brightness(.9); }
+.meal-card.cooked .mc-dishes, .meal-card.cooked .mc-bodyfoot { opacity: .72; }
 
 /* ── empty cell ─────────────────────────────────────────────────────────── */
 .mcell.empty {

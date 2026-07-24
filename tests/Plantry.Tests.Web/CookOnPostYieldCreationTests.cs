@@ -14,16 +14,22 @@ using Plantry.Tests.Web.Infrastructure;
 namespace Plantry.Tests.Web;
 
 /// <summary>
-/// Handler-level tests for the yield-on-cook fields on <c>CookModel.OnPostAsync</c> (plantry-854a).
+/// Handler-level tests for the no-yield-product gap (plantry-iejb): a recipe with no declared yield
+/// gets a just-in-time product resolved at cook-confirm time — either the one-tap
+/// "«Recipe» (leftovers)" auto-create default, or an existing product the user picked via
+/// <c>PickedYieldProductId</c> — and it is persisted onto the recipe (<see cref="Recipe.YieldProductId"/>)
+/// so the next cook shows the normal declared-yield block with no prompt. A zero stored quantity
+/// creates and persists nothing, exactly like today's declared-yield zero-quantity path.
 ///
-/// Assertions capture at the <see cref="IInventoryProducer"/> seam over a real <c>CookRecipe</c> — the
-/// same "no ICookRecipe interface" pattern used by <see cref="CookOnPostResolutionTests"/> at the consumer
-/// seam. The fixture recipe declares a yield (<see cref="CookConfirmFixture.YieldProductId"/> in the
-/// servings unit), so the produce step fires when a positive stored quantity is posted.
+/// Assertions capture at the <see cref="RecordingFakeCookInventoryProducer"/> / <see cref="FakeCatalogWriter"/>
+/// seams over a real <c>CookRecipe</c> — same "no ICookRecipe interface" pattern as
+/// <see cref="CookOnPostYieldTests"/>. The fixture <see cref="Recipe"/> is a single shared instance
+/// (mirrors <see cref="Infrastructure.FakeRecipeRepository"/>'s in-memory semantics), so a SetYield
+/// mutation during the POST is directly observable afterwards.
 /// </summary>
-public sealed class CookOnPostYieldTests : IDisposable
+public sealed class CookOnPostYieldCreationTests : IDisposable
 {
-    private readonly CookYieldPostFactory _factory = new();
+    private readonly CookNoYieldPostFactory _factory = new();
 
     public void Dispose() => _factory.Dispose();
 
@@ -65,74 +71,91 @@ public sealed class CookOnPostYieldTests : IDisposable
     }
 
     [Fact]
-    public async Task Store_yield_quantity_and_expiry_drives_produce_with_those_values()
+    public async Task Zero_Stored_Quantity_Creates_Nothing_And_Persists_Nothing()
     {
         var client = AuthenticatedClient();
 
-        var response = await PostCookAsync(client,
-        [
-            new("StoreYieldQuantity", "2"),
-            new("StoreYieldExpiry", "2026-08-01"),
-        ]);
-
-        Assert.True(
-            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
-            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
-
-        var produce = Assert.Single(_factory.Producer.Calls);
-        Assert.Equal(CookConfirmFixture.YieldProductId, produce.ProductId);
-        Assert.Equal(2m, produce.Quantity);
-        Assert.Equal(CookConfirmFixture.ServingsUnitId, produce.UnitId);
-        Assert.Equal(new DateOnly(2026, 8, 1), produce.ExpiryDate); // expiry passed through
-    }
-
-    [Fact]
-    public async Task Store_zero_yield_drives_no_produce_and_drops_expiry()
-    {
-        var client = AuthenticatedClient();
-
-        // A zero stored quantity must add nothing — even with an expiry present in the post.
         var response = await PostCookAsync(client,
         [
             new("StoreYieldQuantity", "0"),
-            new("StoreYieldExpiry", "2026-08-01"),
         ]);
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
-            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
-
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Empty(_factory.Producer.Calls);
+        Assert.Empty(_factory.CatalogWriter.TrackedProductsCreated);
+        Assert.Null(_factory.Recipe.YieldProductId);
     }
 
     [Fact]
-    public async Task No_yield_fields_posted_stores_nothing()
+    public async Task Positive_Stored_Quantity_With_No_Pick_AutoCreates_Leftovers_Product()
     {
         var client = AuthenticatedClient();
 
-        var response = await PostCookAsync(client, []);
+        var response = await PostCookAsync(client,
+        [
+            new("StoreYieldQuantity", "3"),
+            new("StoreYieldExpiry", "2026-08-01"),
+        ]);
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found,
-            $"Expected redirect after successful cook, got {(int)response.StatusCode}.");
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
 
-        Assert.Empty(_factory.Producer.Calls);
+        var created = Assert.Single(_factory.CatalogWriter.TrackedProductsCreated);
+        Assert.Equal($"{_factory.Recipe.Name} (leftovers)", created.Name);
+        Assert.Equal(CookConfirmFixture.EachUnitId, created.DefaultUnitId);
+
+        var produceCall = Assert.Single(_factory.Producer.Calls);
+        Assert.Equal(3m, produceCall.Quantity);
+        Assert.Equal(CookConfirmFixture.EachUnitId, produceCall.UnitId);
+        Assert.Equal(new DateOnly(2026, 8, 1), produceCall.ExpiryDate);
+
+        // Persisted onto the recipe — the next cook shows the normal declared-yield block, no prompt.
+        Assert.Equal(produceCall.ProductId, _factory.Recipe.YieldProductId);
+        Assert.Equal(CookConfirmFixture.EachUnitId, _factory.Recipe.YieldUnitId);
+        Assert.True(_factory.Recipe.HasYield);
+    }
+
+    [Fact]
+    public async Task Positive_Stored_Quantity_With_Picked_Product_Stores_Under_It_Not_A_New_One()
+    {
+        var client = AuthenticatedClient();
+
+        // Garlic (GarlicParentId) is a parent, not a valid pick target for stock; use a concrete
+        // tracked leaf from the fixture instead — Pasta is tracked and holds stock directly.
+        var response = await PostCookAsync(client,
+        [
+            new("StoreYieldQuantity", "2"),
+            new("PickedYieldProductId", CookConfirmFixture.PastaId.ToString()),
+        ]);
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+
+        Assert.Empty(_factory.CatalogWriter.TrackedProductsCreated);
+
+        var produceCall = Assert.Single(_factory.Producer.Calls);
+        Assert.Equal(CookConfirmFixture.PastaId, produceCall.ProductId);
+        Assert.Equal(CookConfirmFixture.GramUnitId, produceCall.UnitId); // Pasta's own default unit
+        Assert.Equal(2m, produceCall.Quantity);
+
+        Assert.Equal(CookConfirmFixture.PastaId, _factory.Recipe.YieldProductId);
+        Assert.Equal(CookConfirmFixture.GramUnitId, _factory.Recipe.YieldUnitId);
     }
 }
 
-// ── WAF factory for the yield OnPost tests ───────────────────────────────────────────────────────
+// ── WAF factory for the no-yield-product creation OnPost tests ────────────────────────────────────
 
 /// <summary>
-/// <see cref="WebApplicationFactory{TEntryPoint}"/> for the Cook POST yield tests (plantry-854a). Wires the
-/// yield-declaring fixture recipe and a <see cref="RecordingFakeCookInventoryProducer"/> so tests can inspect
-/// what was stored, without touching the database. Mirrors <see cref="CookPostFactory"/>'s seam replacements.
+/// <see cref="WebApplicationFactory{TEntryPoint}"/> for the no-yield-product-gap OnPost tests
+/// (plantry-iejb). Uses the plain <see cref="CookConfirmFixture.Build"/> recipe (no declared yield) and
+/// wires <see cref="CookConfirmFixture.Units"/> so CookRecipe's just-in-time creation can resolve the
+/// household's "ea" count unit. Mirrors <see cref="CookYieldPostFactory"/>'s seam replacements.
 /// </summary>
-internal sealed class CookYieldPostFactory : WebApplicationFactory<Program>
+internal sealed class CookNoYieldPostFactory : WebApplicationFactory<Program>
 {
-    public Recipe Recipe { get; } = CookConfirmFixture.BuildWithYield();
+    public Recipe Recipe { get; } = CookConfirmFixture.Build();
     public Guid RecipeId => Recipe.Id.Value;
 
     public RecordingFakeCookInventoryProducer Producer { get; } = new();
+    public FakeCatalogWriter CatalogWriter { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -155,7 +178,7 @@ internal sealed class CookYieldPostFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<ICatalogProductReader>();
             services.AddSingleton<ICatalogProductReader>(
-                new FakeCookCatalogReader(CookConfirmFixture.ProductsWithYield(), CookConfirmFixture.UnitCodesWithYield()));
+                new FakeCookCatalogReader(CookConfirmFixture.Products(), CookConfirmFixture.UnitCodes(), CookConfirmFixture.Units()));
 
             services.RemoveAll<IInventoryStockReader>();
             services.AddSingleton<IInventoryStockReader>(
@@ -175,11 +198,9 @@ internal sealed class CookYieldPostFactory : WebApplicationFactory<Program>
             services.RemoveAll<ICookEventRepository>();
             services.AddSingleton<ICookEventRepository>(new FakeCookEventRepository());
 
-            // CookRecipe's just-in-time yield-product resolution (plantry-iejb) requires ICatalogWriter —
-            // the fixture recipe already declares a yield, so the create/pick path is never exercised
-            // here, but the WAF must still boot.
+            // The seam under test: record just-in-time yield-product creations (plantry-iejb).
             services.RemoveAll<ICatalogWriter>();
-            services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+            services.AddSingleton<ICatalogWriter>(CatalogWriter);
 
             services.RemoveAll<ITagRepository>();
             services.AddSingleton<ITagRepository>(new FakeTagRepository(new Dictionary<TagId, string>()));

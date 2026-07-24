@@ -113,6 +113,15 @@ public static class CookConfirmFixture
         };
 
     /// <summary>
+    /// The household's unit list, for <see cref="ICatalogProductReader.ListUnitsAsync"/> — needed by
+    /// CookRecipe's just-in-time yield-product creation (plantry-iejb), which resolves the "ea" count
+    /// unit this way. Only the yield-creation OnPost tests need this; other fixture consumers pass an
+    /// empty list (the default) since GET-only rendering never calls ListUnitsAsync for this purpose.
+    /// </summary>
+    public static IReadOnlyList<CatalogUnitOption> Units() =>
+        [new CatalogUnitOption(EachUnitId, "ea", "count")];
+
+    /// <summary>
     /// Pasta: 600g (InStock).  Tomatoes: 200g (Shortfall — need 500g).
     /// GarlicFresh: 5 ea (auto-selected best variant).  GarlicGranule: 2 tbsp (unit-incompatible, disabled).
     /// </summary>
@@ -147,7 +156,8 @@ public sealed class FakeCookUnitConverter : IUnitConverter
 /// <summary>Catalog reader for Cook L4 tests — returns the fixture product set (with parent/variant tree).</summary>
 public sealed class FakeCookCatalogReader(
     IReadOnlyDictionary<Guid, CatalogProduct> products,
-    IReadOnlyDictionary<Guid, string> unitCodes) : ICatalogProductReader
+    IReadOnlyDictionary<Guid, string> unitCodes,
+    IReadOnlyList<CatalogUnitOption>? units = null) : ICatalogProductReader
 {
     public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(products.GetValueOrDefault(productId));
@@ -174,7 +184,7 @@ public sealed class FakeCookCatalogReader(
     }
 
     public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+        Task.FromResult(units ?? []);
 
     public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
@@ -279,6 +289,50 @@ public sealed class FakeCookEventRepository : ICookEventRepository
         IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(new Dictionary<Guid, RecipeId>());
 
+    public Task<IReadOnlyDictionary<Guid, DateTimeOffset>> GetLatestCookedAtByPlannedDishIdsAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, DateTimeOffset>>(new Dictionary<Guid, DateTimeOffset>());
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Recording ICookEventRepository for the plan-provenance OnPostAsync tests (plantry-wskj). Captures
+/// every <see cref="AddAsync"/> call so a test can inspect the minted <see cref="CookEvent"/> — in
+/// particular its <see cref="CookEvent.PlannedDishId"/> — without touching the database. Otherwise a
+/// no-op, mirroring <see cref="FakeCookEventRepository"/>.
+/// </summary>
+public sealed class RecordingFakeCookEventRepository : ICookEventRepository
+{
+    private readonly List<CookEvent> _added = [];
+
+    /// <summary>Every <see cref="CookEvent"/> passed to <see cref="AddAsync"/>, in invocation order.</summary>
+    public IReadOnlyList<CookEvent> Added => _added;
+
+    public Task AddAsync(CookEvent e, CancellationToken ct = default)
+    {
+        _added.Add(e);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<CookEvent>> ListByRecipeAsync(RecipeId recipeId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CookEvent>>([]);
+
+    public Task<IReadOnlyList<CookEvent>> ListWithPendingLinesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CookEvent>>([]);
+
+    public Task<IReadOnlyList<CookEvent>> ListWithDeferredUnitGapLinesForProductsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CookEvent>>([]);
+
+    public Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
+        IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, RecipeId>>(new Dictionary<Guid, RecipeId>());
+
+    public Task<IReadOnlyDictionary<Guid, DateTimeOffset>> GetLatestCookedAtByPlannedDishIdsAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, DateTimeOffset>>(new Dictionary<Guid, DateTimeOffset>());
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
@@ -332,6 +386,12 @@ public sealed class CookConfirmFragmentFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<ICookEventRepository>();
             services.AddSingleton<ICookEventRepository>(new FakeCookEventRepository());
+
+            // CookRecipe's just-in-time yield-product resolution (plantry-iejb) requires ICatalogWriter —
+            // not exercised by these GET-only L4 tests, but the WAF must still boot (mirrors AuthorRecipe's
+            // factories elsewhere in this project).
+            services.RemoveAll<ICatalogWriter>();
+            services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
 
             // Stubs for services the app registers but the Cook page does not use.
             services.RemoveAll<ITagRepository>();

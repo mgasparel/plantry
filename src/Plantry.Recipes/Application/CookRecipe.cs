@@ -41,6 +41,7 @@ public sealed class CookRecipe(
     ICookEventRepository cookEvents,
     CookLineDriver lineDriver,
     ICatalogProductReader products,
+    ICatalogWriter catalogWriter,
     RecipeExpansionService expansion,
     IDomainEventDispatcher eventDispatcher,
     IClock clock,
@@ -123,7 +124,7 @@ public sealed class CookRecipe(
 
         // ── Mint CookEvent up-front — its Id is the sourceRef on every consume ───
         var cookEventResult = CookEvent.Record(
-            recipe.Id, household, servingsCooked, command.UserId, clock);
+            recipe.Id, household, servingsCooked, command.UserId, clock, command.PlannedDishId);
         if (cookEventResult.IsFailure)
         {
             // Defensive guard: CookEvent.Record only fails on servingsCooked < 1, which
@@ -154,20 +155,93 @@ public sealed class CookRecipe(
             cookEvent.AddConsumeLine(
                 target.IngredientId.Value, target.ProductId, target.Quantity, target.UnitId, target.SourceRecipeId);
 
+        // ── Just-in-time yield-product resolution (plantry-iejb) ──────────────────
+        // The leftovers block now renders for every recipe, not just ones with a declared yield
+        // (recipe-composition.md §9 extension). When the recipe already declares a yield, its product/
+        // unit are used unchanged (854a, untouched below). When it does not, and the user is storing a
+        // positive quantity, resolve — and persist onto the recipe via SetYield so future cooks skip the
+        // prompt (Y1) — either the existing product the user picked or a freshly minted
+        // "«Recipe» (leftovers)" tracked product (unit = the household's count unit, "ea"). Resolution
+        // failure never blocks the cook (C8/R9 mirror): nothing is persisted, and the produce line staged
+        // below carries Guid.Empty when nothing resolved — Inventory's own unknown-product check
+        // (Catalog.UnknownProduct) then marks it Failed exactly like today's unknown-yield-product path.
+        var resolvedYieldProductId = recipe.YieldProductId;
+        var resolvedYieldUnitId = recipe.YieldUnitId;
+
+        if (recipe.YieldProductId is null && command.StoredYieldQuantity > 0m)
+        {
+            // The declared-yield quantity is expressed per DefaultServings (854a); back-scale this
+            // cook's stored amount so a future recipe-launched cook's SuggestedQuantity prefill stays sane.
+            var declaredQty = scale > 0m ? command.StoredYieldQuantity / scale : command.StoredYieldQuantity;
+
+            if (command.PickedYieldProductId is { } pickedId)
+            {
+                var picked = await products.FindAsync(pickedId, ct);
+                if (picked is { TrackStock: true })
+                {
+                    var setResult = recipe.SetYield(picked.Id, declaredQty, picked.DefaultUnitId, clock);
+                    if (setResult.IsSuccess)
+                    {
+                        resolvedYieldProductId = picked.Id;
+                        resolvedYieldUnitId = picked.DefaultUnitId;
+                    }
+                    else
+                        logger.LogWarning(
+                            "Cook {RecipeId}: picked yield product {ProductId} rejected by SetYield ({ErrorCode}); leftovers recorded Failed this cook.",
+                            recipe.Id.Value, pickedId, setResult.Error.Code);
+                }
+                else
+                    logger.LogWarning(
+                        "Cook {RecipeId}: picked yield product {ProductId} is unknown or untracked; leftovers recorded Failed this cook.",
+                        recipe.Id.Value, pickedId);
+            }
+            else
+            {
+                // One-tap default (no explicit pick): reuse a same-named tracked product if one already
+                // exists (defensive — mirrors AuthorRecipe.ApplyYieldAsync's re-enablement guard),
+                // otherwise auto-create it via the same Catalog anti-corruption port Author uses (Gate 2).
+                try
+                {
+                    var leftoverName = $"{recipe.Name} (leftovers)";
+                    var units = await products.ListUnitsAsync(ct);
+                    var countUnit = units.FirstOrDefault(u => u.Code == "ea")
+                        ?? throw new InvalidOperationException("No count unit available for the leftovers product.");
+
+                    var matches = await products.SearchAsync(leftoverName, ct);
+                    var match = matches.FirstOrDefault(m =>
+                        m.TrackStock && string.Equals(m.Name, leftoverName, StringComparison.OrdinalIgnoreCase));
+                    var newProductId = match?.Id
+                        ?? await catalogWriter.CreateTrackedProductAsync(leftoverName, countUnit.Id, categoryId: null, ct);
+
+                    var setResult = recipe.SetYield(newProductId, declaredQty, countUnit.Id, clock);
+                    if (setResult.IsSuccess)
+                    {
+                        resolvedYieldProductId = newProductId;
+                        resolvedYieldUnitId = countUnit.Id;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex,
+                        "Cook {RecipeId}: just-in-time yield-product creation failed; leftovers recorded Failed this cook.",
+                        recipe.Id.Value);
+                }
+            }
+        }
+
         // ── Yield-on-cook produce line (plantry-854a, recipe-composition.md §9) ──
-        // If the recipe declares a yield AND the user is storing a positive quantity, stage the inventory
-        // ADD as a Pending produce line in THIS anchor commit — before the produce call runs — so it is
-        // reconcilable on interruption exactly like a consume line. Storing 0 (or a recipe with no yield)
-        // adds nothing. The stored amount is denominated in the recipe's declared YieldUnitId.
-        var storeYield = recipe is { HasYield: true }
-            && command.StoredYieldQuantity > 0m
-            && recipe.YieldProductId is { } yieldProduct
-            && recipe.YieldUnitId is { } yieldUnit;
+        // A positive stored quantity always stages a Pending produce line in THIS anchor commit — before
+        // the produce call runs — so it is reconcilable on interruption exactly like a consume line
+        // (292b). An unresolved product (declaration/creation/pick all absent or failed above) stages
+        // Guid.Empty, which Inventory's AddStockCommand rejects as Catalog.UnknownProduct — the line is
+        // then driven to Failed by the same tolerant mapping every other unknown-yield-product case uses.
+        // Storing 0 adds nothing (no line staged at all).
+        var storeYield = command.StoredYieldQuantity > 0m;
         if (storeYield)
             cookEvent.AddProduceLine(
-                recipe.YieldProductId!.Value,
+                resolvedYieldProductId ?? Guid.Empty,
                 command.StoredYieldQuantity,
-                recipe.YieldUnitId!.Value,
+                resolvedYieldUnitId ?? Guid.Empty,
                 command.StoredYieldExpiry);
 
         await cookEvents.AddAsync(cookEvent, ct);
@@ -332,6 +406,21 @@ public sealed class CookRecipe(
 /// User-supplied use-by date for the stored yield lot (plantry-854a); null for none. Ignored when
 /// <paramref name="StoredYieldQuantity"/> is zero or the recipe declares no yield.
 /// </param>
+/// <param name="PlannedDishId">
+/// Soft-ref (DM-3) to the MealPlanning <c>PlannedDish</c> this cook fulfills, when the cook was
+/// launched from the meal plan (plantry-0eut). Stamped verbatim onto the minted <see cref="CookEvent"/>
+/// so the plan UI can later DERIVE cooked state by querying for a CookEvent with this id — no
+/// MealPlanning write, no RecipeCookedEvent subscriber (ADR-014 guardrail below). Null (the default)
+/// for a direct recipe-launched cook — existing callers and behaviour are unchanged.
+/// </param>
+/// <param name="PickedYieldProductId">
+/// No-yield-product gap (plantry-iejb): an EXISTING tracked catalog product the user picked, via the
+/// Cook page's product search picker, to store this cook's leftovers under — instead of the one-tap
+/// default of minting a fresh "«Recipe» (leftovers)" product. Only meaningful when the recipe does not
+/// already declare a yield (<see cref="Recipe.HasYield"/> false) and <see cref="StoredYieldQuantity"/> is
+/// positive; ignored otherwise. Persisted onto the recipe via <see cref="Recipe.SetYield"/> on success so
+/// the prompt does not reappear on the next cook.
+/// </param>
 public sealed record CookRecipeCommand(
     RecipeId RecipeId,
     int DesiredServings,
@@ -339,7 +428,9 @@ public sealed record CookRecipeCommand(
     IReadOnlyList<IngredientResolution> Resolutions,
     IReadOnlyList<AdHocLine>? AdHocLines = null,
     decimal StoredYieldQuantity = 0m,
-    DateOnly? StoredYieldExpiry = null);
+    DateOnly? StoredYieldExpiry = null,
+    Guid? PlannedDishId = null,
+    Guid? PickedYieldProductId = null);
 
 /// <summary>
 /// One existing catalog product added to a single cook via the Cook-page search picker (plantry-7zjm).

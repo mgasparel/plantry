@@ -44,5 +44,15 @@ public interface ICookEventRepository
     Task<IReadOnlyDictionary<Guid, RecipeId>> GetRecipeIdsByCookEventIdsAsync(
         IReadOnlyCollection<Guid> cookEventIds, CancellationToken ct = default);
 
+    /// <summary>
+    /// Latest <c>CookedAt</c> per <see cref="CookEvent.PlannedDishId"/> among the given plan dish ids
+    /// (plantry-0eut — the MealPlanning cook-status read port's recipe-dish leg). A plan dish never
+    /// cooked, or cooked before a foreign-household filter removed it, is absent from the result. A
+    /// dish re-cooked more than once (re-launching the Cook page from an already-done card) resolves to
+    /// its most recent cook. Empty input returns an empty result.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, DateTimeOffset>> GetLatestCookedAtByPlannedDishIdsAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }

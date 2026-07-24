@@ -104,8 +104,9 @@ An immutable record that a recipe was cooked — the append-only substrate for f
 | `ServingsCooked` | `int` | the materialized `ServingsScale × default` at cook time (≥ 1) |
 | `CookedBy` | `UserId` | attribution (O2 ✅). Inventory's `Consume` already stamps a user on every journal row; CookEvent matches it. Append-only ⇒ unrecoverable if not captured at write time. |
 | `CookedAt` | `DateTimeOffset` | |
+| `PlannedDishId` | `Guid?` | bare soft-ref (DM-3), null default. Set only when the cook was launched from the meal plan (plantry-0eut) — the plan UI DERIVES cooked state by querying for a CookEvent with this id; no MealPlanning write, no `RecipeCooked` subscriber (ADR-014). |
 
-**Behaviours:** `CookEvent.Record(recipeId, householdId, servingsCooked, cookedBy, clock)` — the only factory. **No mutators, no delete.** Writing one is part of the Cook orchestration (§7), which emits **RecipeCooked**.
+**Behaviours:** `CookEvent.Record(recipeId, householdId, servingsCooked, cookedBy, clock, plannedDishId = null)` — the only factory. **No mutators, no delete.** Writing one is part of the Cook orchestration (§7), which emits **RecipeCooked**.
 
 ---
 
