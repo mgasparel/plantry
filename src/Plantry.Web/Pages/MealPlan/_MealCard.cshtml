@@ -7,17 +7,14 @@
     // Fulfillment level class — mirrors PL.lvl() from prototype: >=80 hi, >=50 mid, else lo
     string FulfLevel(int pct) => pct >= 80 ? "hi" : pct >= 50 ? "mid" : "lo";
 
-    // Cook strip (plantry-0eut): derived cooked/eaten state, never a stored plan flag.
+    // Cook strip (plantry-0eut): derived cooked/eaten state, never a stored plan flag. Every dish gets
+    // a row once the strip renders — pending recipe (Cook link), pending product (Eat button,
+    // plantry-zcbx), or done (settled row, either kind).
     var cookDishes = meal.Dishes ?? new List<Plantry.Web.Pages.MealPlan.IndexModel.MealCardDishVm>();
     var showStrip = !isNote && meal.ShowCookStrip;
-    var stripRows = new List<Plantry.Web.Pages.MealPlan.IndexModel.MealCardDishVm>();
-    if (showStrip)
-    {
-        stripRows = cookDishes
-            .Where(d => d.CookedAt.HasValue || d.Kind == Plantry.MealPlanning.Domain.DishKind.Recipe)
-            .ToList();
-    }
+    var stripRows = showStrip ? cookDishes : new List<Plantry.Web.Pages.MealPlan.IndexModel.MealCardDishVm>();
     var allDishesDone = showStrip && cookDishes.Count > 0 && cookDishes.All(d => d.CookedAt.HasValue);
+    var cellId = $"cell-{Model.SlotId.Value:N}-{Model.DateIso}";
 }
 
 <div class="meal-card @(isNote ? "note" : "") @(allDishesDone ? "cooked" : "")"
@@ -129,31 +126,55 @@
             }
         </div>
         @* Cook strip — footer zone below mc-body, today/past dish-based meals only (plantry-0eut).
-           Per pending recipe dish: a Cook deep-link. Per done dish: a settled done-row with time.
-           Pending product dishes render no action here yet — the Eat action lands with plantry-zcbx;
-           the markup shape (one row per dish) is already what it will slot an "eat" button into. *@
+           Per pending recipe dish: a Cook deep-link. Per pending product dish: an Eat button
+           (plantry-zcbx) that POSTs one consume and re-renders this cell. Per done dish: a settled
+           row — today's eaten product gets an Undo button in place of the timestamp (Undo stays live
+           all of today, never on a past date); every other done row shows its timestamp. *@
         @if (stripRows.Count > 0)
         {
             <div class="mc-cook-strip">
                 @foreach (var dish in stripRows)
                 {
+                    var isProduct = dish.Kind == Plantry.MealPlanning.Domain.DishKind.Product;
                     if (dish.CookedAt is { } cookedAt)
                     {
-                        var isProduct = dish.Kind == Plantry.MealPlanning.Domain.DishKind.Product;
                         var verb = isProduct ? "Eaten" : "Cooked";
-                        var timeLabel = cookedAt.ToLocalTime().ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant();
                         <div class="mc-cook-done">
                             <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
                             @verb · @dish.Servings@(isProduct ? "" : " srv")
-                            <span class="done-meta">@timeLabel</span>
+                            @if (isProduct && meal.IsToday)
+                            {
+                                <button class="undo" type="button"
+                                        hx-post="/MealPlan?handler=UndoEat&amp;plannedDishId=@dish.DishId&amp;date=@Model.DateIso&amp;slotId=@Model.SlotId.Value"
+                                        hx-target="#@cellId" hx-swap="outerHTML">
+                                    Undo
+                                </button>
+                            }
+                            else
+                            {
+                                var timeLabel = cookedAt.ToLocalTime().ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant();
+                                <span class="done-meta">@timeLabel</span>
+                            }
                         </div>
+                    }
+                    else if (isProduct)
+                    {
+                        @* Pending product dish: one-tap Eat — no confirmation dialog (shortfall never
+                           blocks, C8/R9 mirror). "Multi-dish" naming mirrors the Cook link below. *@
+                        var eatLabel = cookDishes.Count > 1 ? $"Eat {dish.Name}" : "Eat";
+                        <button class="mc-cook-act eat" type="button"
+                                hx-post="/MealPlan?handler=Eat&amp;plannedDishId=@dish.DishId&amp;date=@Model.DateIso&amp;slotId=@Model.SlotId.Value"
+                                hx-target="#@cellId" hx-swap="outerHTML">
+                            <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+                            <span class="act-name">@eatLabel</span>
+                            <span class="act-srv">@dish.Servings</span>
+                        </button>
                     }
                     else
                     {
-                        @* Pending recipe dish only — stripRows excludes pending product dishes.
-                           "Multi-dish" label is keyed on the MEAL's total dish count, not the
-                           strip's row count, so a pending recipe dish alongside a pending (not-yet
-                           actionable) product dish still gets the disambiguating name. *@
+                        @* Pending recipe dish. "Multi-dish" label is keyed on the MEAL's total dish
+                           count, not the strip's row count, so a pending recipe dish alongside a
+                           pending product dish still gets the disambiguating name. *@
                         var label = cookDishes.Count > 1 ? $"Cook {dish.Name}" : "Cook";
                         <a class="mc-cook-act"
                            href="/Recipes/Cook?id=@dish.ItemId&amp;servings=@dish.Servings&amp;plannedDishId=@dish.DishId&amp;eatingTonight=@meal.EatingTonight">

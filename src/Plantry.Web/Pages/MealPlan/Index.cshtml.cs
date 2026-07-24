@@ -41,6 +41,7 @@ public sealed class IndexModel(
     IWeekPlanningOverrideRepository weekOverrideRepo,
     IMealPlanWeekReadModel weekReadModel,
     IMealPlanCookStatusReader cookStatusReader,
+    IMealPlanEatWriter eatWriter,
     Plantry.Recipes.Domain.FulfillmentService recipesFulfillmentService,
     Plantry.Recipes.Domain.CostingService recipesCostingService,
     Plantry.Recipes.Application.IExpiringSoonHorizonReader expiringSoonHorizon,
@@ -427,6 +428,77 @@ public sealed class IndexModel(
         // Return the full week grid so the pending bar count is always fresh.
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
         return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
+    }
+
+    // ── Eat product dish POST (plantry-zcbx) ─────────────────────────────────
+    // One-tap consume for a pending product dish's Cook-strip row. No confirmation dialog — shortfall
+    // tolerant (mirrors C8/R9): the write always completes; the dish's derived "eaten" state comes
+    // from whatever journal row(s) IMealPlanEatWriter actually manages to write. Re-renders just the
+    // cell (+ OOB rail/plan-bar), same path as Accept/Reject/Regenerate.
+
+    public async Task<IActionResult> OnPostEatAsync(
+        Guid plannedDishId, string date, Guid slotId, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(slotId);
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        // Resolving the dish through the just-loaded, household-RLS-scoped MealsByCell is the tenancy
+        // guard: a plannedDishId belonging to another household (or that simply does not exist) is
+        // absent from this household's week and resolves to nothing here, same as every other
+        // cell-targeted handler in this file. Eat is gated to today-or-past dishes — the same
+        // ShowCookStrip condition the strip itself renders under — checked again here server-side.
+        var found = FindMealDish(parsedDate, sid, plannedDishId);
+        if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.ShowCookStrip)
+            return BadRequest();
+
+        var userId = await GetCurrentUserIdAsync(ct);
+        await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Servings, userId, ct);
+
+        return await CellFragmentAsync(householdId, parsedDate, sid, ct);
+    }
+
+    // ── Undo eat POST (plantry-zcbx) ──────────────────────────────────────────
+    // Reverses the most recent eat with a compensating journal ADD. Undo stays available for the
+    // WHOLE of today (no artificial settle window) but never past days — narrower than Eat's
+    // today-or-past gate, so this checks Meal.IsToday rather than ShowCookStrip.
+
+    public async Task<IActionResult> OnPostUndoEatAsync(
+        Guid plannedDishId, string date, Guid slotId, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(slotId);
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        var found = FindMealDish(parsedDate, sid, plannedDishId);
+        if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.IsToday)
+            return BadRequest();
+
+        var userId = await GetCurrentUserIdAsync(ct);
+        await eatWriter.UndoEatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Servings, userId, ct);
+
+        return await CellFragmentAsync(householdId, parsedDate, sid, ct);
+    }
+
+    /// <summary>Finds a planned dish (and its owning meal) within the currently-loaded week's cell by dish id.</summary>
+    private (MealCellVm Meal, MealCardDishVm Dish)? FindMealDish(DateOnly date, MealSlotId slotId, Guid plannedDishId)
+    {
+        var meals = MealsByCell.GetValueOrDefault(CellKey(date, slotId));
+        if (meals is null) return null;
+
+        foreach (var meal in meals)
+        {
+            var dish = meal.Dishes?.FirstOrDefault(d => d.DishId == plannedDishId);
+            if (dish is not null) return (meal, dish);
+        }
+
+        return null;
     }
 
     // ── Regenerate single cell POST (P3-6b, J8) ─────────────────────────────
@@ -964,6 +1036,12 @@ public sealed class IndexModel(
         _recipeNameCache = bag.Recipes.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name);
 
         // ── Enrich planned meals and build MealsByCell ────────────────────────
+        // Reset on every call (mirrors PendingProposals/GhostEnrichments below) — LoadWeekAsync runs
+        // TWICE within a single mutation request (pre- and post-mutation, e.g. Accept/Reject/Eat/UndoEat),
+        // and without this reset a meal that survives both loads (unchanged identity, only its derived
+        // cook status differs) would accumulate a second, stale MealCellVm in the same cell's list
+        // instead of the second load replacing the first.
+        MealsByCell = [];
         if (loadedPlan is not null)
         {
             // Accumulate per-meal cost to derive week total by summation (no separate RollUpWeekAsync).
@@ -1145,7 +1223,7 @@ public sealed class IndexModel(
                 var eatingTonight = (meal.AttendeesOverride ?? slot?.DefaultAttendees ?? []).Count;
 
                 list.Add(new MealCellVm(meal.Id.Value, meal.Note, dishNames, meal.AttendeesOverride ?? [], enrichment,
-                    dishVms, showCookStrip, eatingTonight));
+                    dishVms, showCookStrip, eatingTonight, IsToday: meal.Date == today));
             }
 
             // Derive week total from summed per-meal results (no separate RollUpWeekAsync pass).
@@ -1655,7 +1733,13 @@ public sealed class IndexModel(
         /// the Cook strip's deep-link as plantry-iejb's <c>eatingTonight</c> param (Cook.cshtml.cs),
         /// the leftover-prefill subtraction seam. Zero for a meal with no resolvable slot/attendees.
         /// </summary>
-        int EatingTonight = 0);
+        int EatingTonight = 0,
+        /// <summary>
+        /// True when this meal is dated exactly today (household-local) — gates the product-dish
+        /// Undo button (plantry-zcbx): Undo stays available all of today, never on a past date, even
+        /// though the strip itself (<see cref="ShowCookStrip"/>) renders for today-or-earlier.
+        /// </summary>
+        bool IsToday = false);
 
     /// <summary>
     /// Per-dish data for the Cook strip on _MealCard.cshtml (plantry-0eut): identity, name, servings,
