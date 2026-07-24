@@ -151,6 +151,7 @@ internal sealed class FakeTagRepository : ITagRepository
 internal sealed class FakeCatalogProductReader : ICatalogProductReader
 {
     private readonly Dictionary<Guid, CatalogProduct> _products = [];
+    private readonly List<CatalogUnitOption> _units = [];
 
     public CatalogProduct AddTracked(Guid defaultUnitId, string name = "Flour")
     {
@@ -158,6 +159,13 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
         _products[p.Id] = p;
         return p;
     }
+
+    /// <summary>
+    /// Registers a household unit so <see cref="ListUnitsAsync"/> can resolve it — used by the
+    /// just-in-time yield-product creation tests (plantry-iejb), which look up the "ea" count unit.
+    /// </summary>
+    public void RegisterUnit(Guid id, string code, string dimension = "count") =>
+        _units.Add(new CatalogUnitOption(id, code, dimension));
 
     public void Register(CatalogProduct product) => _products[product.Id] = product;
 
@@ -196,7 +204,7 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
         Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 
     public Task<IReadOnlyList<CatalogUnitOption>> ListUnitsAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<CatalogUnitOption>>([]);
+        Task.FromResult<IReadOnlyList<CatalogUnitOption>>(_units);
 
     public Task<IReadOnlyList<CatalogGroupOption>> ListGroupsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogGroupOption>>([]);
@@ -219,6 +227,12 @@ internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUni
     public List<(string GroupName, string VariantName, Guid DefaultUnitId)> GroupedProductsCreated { get; } = [];
     public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId, decimal Factor)> ConversionsAdded { get; } = [];
 
+    /// <summary>
+    /// When true, <see cref="CreateTrackedProductAsync"/> throws — simulating a rejected just-in-time
+    /// yield-product creation (plantry-iejb), e.g. a duplicate-name conflict.
+    /// </summary>
+    public bool FailCreateTrackedProduct { get; set; }
+
     public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default)
     {
         StaplesCreated.Add((name, defaultUnitId));
@@ -229,6 +243,9 @@ internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUni
 
     public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
     {
+        if (FailCreateTrackedProduct)
+            throw new InvalidOperationException($"Create tracked product failed (simulated) for '{name}'.");
+
         TrackedProductsCreated.Add((name, defaultUnitId, categoryId));
         var product = new CatalogProduct(Guid.CreateVersion7(), name, TrackStock: true, defaultUnitId, null, false, []);
         reader.Register(product);

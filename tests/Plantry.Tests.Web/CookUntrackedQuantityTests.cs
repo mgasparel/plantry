@@ -155,6 +155,11 @@ public sealed class CookUntrackedQuantityFactory : WebApplicationFactory<Program
             services.RemoveAll<ICookEventRepository>();
             services.AddSingleton<ICookEventRepository>(new FakeCookEventRepository());
 
+            // CookRecipe's just-in-time yield-product resolution (plantry-iejb) requires ICatalogWriter —
+            // not exercised by these untracked-quantity tests, but the WAF must still boot.
+            services.RemoveAll<ICatalogWriter>();
+            services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+
             services.RemoveAll<ITagRepository>();
             services.AddSingleton<ITagRepository>(new FakeTagRepository(new Dictionary<TagId, string>()));
 

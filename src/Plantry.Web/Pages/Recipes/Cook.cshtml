@@ -315,32 +315,110 @@
                                 </div>
                             </div>
 
-                            @* Yield-on-cook (plantry-854a, recipe-composition.md §9): store leftover / prepped
-                               servings as inventory. Only shown when the recipe declares a yield. Leave the
-                               quantity at 0 to store nothing. *@
-                            @if (cook.Yield is { } y)
-                            {
-                                <div class="cook-rail-yield" x-data="{ store: @(y.SuggestedQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)) }"
-                                     style="margin-top:16px;padding:12px;border:1px solid var(--border,#ddd);border-radius:8px">
-                                    <label class="field__label" for="StoreYieldQuantity">
-                                        Storing leftovers of <strong>@y.ProductName</strong>?
-                                    </label>
-                                    <div class="form-grid__unit-suffix" style="margin-top:6px">
-                                        <input id="StoreYieldQuantity" name="StoreYieldQuantity" type="number"
-                                               min="0" step="0.001" class="field__input"
-                                               x-model.number="store" value="@y.SuggestedQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)" />
-                                        <span class="form-grid__unit-suffix__label">@y.UnitCode</span>
-                                    </div>
-                                    <div x-show="store > 0" x-cloak style="margin-top:8px">
-                                        <label class="field__label" for="StoreYieldExpiry">Use by (optional)</label>
-                                        <input id="StoreYieldExpiry" name="StoreYieldExpiry" type="date"
-                                               class="field__input" />
-                                    </div>
-                                    <p style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
-                                        Adds a lot of @y.ProductName to your pantry. Eaten-now servings need no action.
-                                    </p>
+                            @* Yield-on-cook (plantry-854a, recipe-composition.md §9), extended by plantry-iejb:
+                               store leftover / prepped servings as inventory. The block now renders for
+                               EVERY recipe — a recipe with no declared yield gets the inline create/pick
+                               prompt below once the quantity goes positive. Leave the quantity at 0 to
+                               store nothing (and, for a no-yield recipe, create nothing). *@
+                            @{ var y = cook.Yield; }
+                            <div class="cook-rail-yield"
+                                 x-data="cookYield(@y.SuggestedQuantity.ToString(CultureInfo.InvariantCulture))"
+                                 style="margin-top:16px;padding:12px;border:1px solid var(--border,#ddd);border-radius:8px">
+
+                                @* Plan provenance (plantry-0eut): the ONLY MealPlanning-flavoured context this
+                                   page shows — no day/slot label, since Cook only ever learns PlannedDishId +
+                                   EatingTonight (one integer), never which meal this was (bullet 1's boundary). *@
+                                @if (Model.PlannedDishId is not null)
+                                {
+                                    <span class="badge badge--info" style="margin-bottom:8px">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
+                                        From your plan
+                                    </span>
+                                }
+
+                                <label class="field__label" for="StoreYieldQuantity">
+                                    Storing leftovers of <strong>@y.ProductName</strong>?
+                                </label>
+                                <div class="form-grid__unit-suffix" style="margin-top:6px">
+                                    <input id="StoreYieldQuantity" name="StoreYieldQuantity" type="number"
+                                           min="0" step="0.001" class="field__input"
+                                           x-model.number="store" />
+                                    <span class="form-grid__unit-suffix__label">@y.UnitCode</span>
                                 </div>
-                            }
+
+                                @if (y.PrefillHint is not null)
+                                {
+                                    <div class="cook-yield-hint"><b>@y.PrefillHint</b>&nbsp;— adjust freely.</div>
+                                }
+
+                                <div x-show="store > 0" x-cloak style="margin-top:8px">
+                                    <label class="field__label" for="StoreYieldExpiry">Use by (optional)</label>
+                                    @* Use-by quick picks (plantry-iejb): 2 / 3 / 5 days / 1 week, none pre-selected.
+                                       Reuses the .filter-chip primitive (Alpine-driven active state, per its own
+                                       usage doc) rather than bespoke chip CSS. *@
+                                    <div class="filter-chip-bar" style="margin-top:6px">
+                                        <button type="button" class="filter-chip"
+                                                :class="expiryDays === 2 ? 'is-active filter-chip--accent' : ''"
+                                                @@click="pickExpiry(2)">
+                                            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("2 days")' />
+                                        </button>
+                                        <button type="button" class="filter-chip"
+                                                :class="expiryDays === 3 ? 'is-active filter-chip--accent' : ''"
+                                                @@click="pickExpiry(3)">
+                                            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("3 days")' />
+                                        </button>
+                                        <button type="button" class="filter-chip"
+                                                :class="expiryDays === 5 ? 'is-active filter-chip--accent' : ''"
+                                                @@click="pickExpiry(5)">
+                                            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("5 days")' />
+                                        </button>
+                                        <button type="button" class="filter-chip"
+                                                :class="expiryDays === 7 ? 'is-active filter-chip--accent' : ''"
+                                                @@click="pickExpiry(7)">
+                                            <partial name="Shared/_FilterChip" model='new Plantry.Web.Pages.Shared.FilterChipViewModel("1 week")' />
+                                        </button>
+                                    </div>
+                                    <input id="StoreYieldExpiry" name="StoreYieldExpiry" type="date"
+                                           class="field__input" x-model="expiryDate" @@input="expiryDays = null"
+                                           style="margin-top:6px" />
+                                </div>
+
+                                @if (!y.HasDeclaredYield)
+                                {
+                                    @* No-yield-product gap (plantry-iejb): inline create-on-confirm default, or
+                                       pick an existing pantry item via the same search picker the Add-product
+                                       card uses. Neither prompt ever blocks the cook — see CookRecipe's
+                                       just-in-time resolution + Guid.Empty failure-tolerance mirror. *@
+                                    <div class="cook-yield-create" x-show="store > 0 && !pickedYieldProductId" x-cloak>
+                                        <p class="cyc-lead">Leftovers need a pantry item to live under. Create one?</p>
+                                        <div class="cyc-choice">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                                            <span>@y.ProductName (leftovers)
+                                                <small>New pantry item · tracked in servings · saved on the recipe for next time</small>
+                                            </span>
+                                        </div>
+                                        <p class="cyc-alt">or <button type="button" @@click="showYieldPicker = true">pick an existing pantry item…</button></p>
+                                    </div>
+
+                                    <div x-show="store > 0 && showYieldPicker && !pickedYieldProductId" x-cloak
+                                         style="margin-top:8px" @@pick-product="pickYieldProduct($event.detail)">
+                                        <searchable-select id="cook-yield-pick-search"
+                                                           search-url="/Recipes/@cook.RecipeId/Cook?handler=SearchProducts"
+                                                           placeholder="Search pantry items…" />
+                                    </div>
+
+                                    <div x-show="store > 0 && pickedYieldProductId" x-cloak style="margin-top:8px;font-size:12.5px">
+                                        Storing under <strong x-text="pickedYieldProductName"></strong>.
+                                        <button type="button" class="btn btn--ghost btn--sm" @@click="resetYieldPick()">Change</button>
+                                    </div>
+
+                                    <input type="hidden" name="PickedYieldProductId" :value="pickedYieldProductId" />
+                                }
+
+                                <p style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+                                    Adds a lot of @y.ProductName to your pantry. Eaten-now servings need no action.
+                                </p>
+                            </div>
 
                             <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
                                 <button type="submit" class="btn btn--cook btn--full">
@@ -501,6 +579,44 @@ function cookConfirm(lines, units) {
         // under-count (a descendant drops under a skipped ancestor). See cook-logic.js.
         get activeCount() {
             return CookLogic.activeLineCount(this._lineKeys, this.skippedIds, this.skippedInclusions);
+        },
+    };
+}
+
+// Leftovers block (plantry-854a, extended by plantry-iejb): the store-yield quantity, use-by quick
+// picks, and — for a recipe with no declared yield yet — the inline create/pick prompt. A separate,
+// locally-scoped x-data from cookConfirm() above (mirrors the pre-iejb `{ store: ... }` inline scope) —
+// nothing here needs the ingredient skip/quantity state.
+function cookYield(initialStore) {
+    return {
+        store: initialStore,
+
+        // ── Use-by quick picks (2 / 3 / 5 days / 1 week, none pre-selected) ──────────────────────
+        expiryDate: '',
+        expiryDays: null,
+        pickExpiry(days) {
+            const d = new Date();
+            d.setDate(d.getDate() + days);
+            const pad = (n) => String(n).padStart(2, '0');
+            this.expiryDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+            this.expiryDays = days;
+        },
+
+        // ── No-yield-product gap: pick an existing pantry item instead of the create default ─────
+        showYieldPicker: false,
+        pickedYieldProductId: '',
+        pickedYieldProductName: '',
+        pickYieldProduct(detail) {
+            if (!detail || !detail.value) return;
+            if (detail.track !== 'true') return; // untracked products can't hold leftovers stock (C12)
+            this.pickedYieldProductId = detail.value;
+            this.pickedYieldProductName = detail.name || '';
+            this.showYieldPicker = false;
+        },
+        resetYieldPick() {
+            this.pickedYieldProductId = '';
+            this.pickedYieldProductName = '';
+            this.showYieldPicker = false;
         },
     };
 }

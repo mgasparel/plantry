@@ -60,6 +60,27 @@ public sealed class CookModel(
     [BindProperty(SupportsGet = true)]
     public Guid? PlannedDishId { get; set; }
 
+    /// <summary>
+    /// Attendee count for THIS meal (plantry-iejb): <c>AttendeesOverride ?? slot default_attendees</c>,
+    /// counted by the plan link. The ONLY piece of MealPlanning knowledge that crosses into the Recipes
+    /// page — the prefill subtraction itself (<see cref="CookViewModel.Yield"/>'s
+    /// <see cref="CookYieldView.SuggestedQuantity"/>) happens here, server-side, from this one integer.
+    /// Bound from the <c>eatingTonight</c> query parameter; null for a direct recipe-launched cook (the
+    /// declared-yield <c>SuggestedQuantity</c> prefill and no hint line apply instead, byte-for-byte).
+    /// </summary>
+    [BindProperty(SupportsGet = true)]
+    public int? EatingTonight { get; set; }
+
+    /// <summary>
+    /// No-yield-product gap (plantry-iejb): an EXISTING tracked catalog product the user picked via the
+    /// "pick an existing pantry item…" alt link, to store this cook's leftovers under instead of the
+    /// one-tap "«Recipe» (leftovers)" auto-create default. Posted as a hidden field written by the Cook
+    /// page's yield-block Alpine scope once a search-picker selection lands; empty/absent means the user
+    /// took (or never encountered) the create-on-confirm default.
+    /// </summary>
+    [BindProperty]
+    public Guid? PickedYieldProductId { get; set; }
+
     public CookViewModel Cook { get; private set; } = null!;
 
     // ── Resolution inputs (bound from POST form fields) ──────────────────────────────────────────
@@ -380,19 +401,49 @@ public sealed class CookModel(
             u => DimensionExtensions.Parse(u.Dimension),
             u => u.Code);
 
-        // Yield-on-cook (plantry-854a, recipe-composition.md §9): surface the declared yield so the
-        // confirmation can offer "storing N". The suggested quantity is the declared yield scaled to this
-        // cook's servings (3-dp rounded), pre-filling the store field; the user overrides it freely.
-        CookYieldView? yieldView = null;
+        // Yield-on-cook (plantry-854a, recipe-composition.md §9, extended by plantry-iejb): the leftovers
+        // block now renders for EVERY recipe, not just ones with a declared yield — a recipe with no
+        // yield gets the inline create/pick prompt instead once the user types a positive quantity.
+        // Plan-launched automatic leftovers (plantry-0eut): when EatingTonight is present the store field
+        // prefills with max(0, desiredServings − eatingTonight), OVERRIDING the declared-yield
+        // SuggestedQuantity prefill, and a one-line hint explains the arithmetic. A direct recipe-launched
+        // cook (EatingTonight absent) keeps today's SuggestedQuantity behaviour with no hint, byte-for-byte.
+        var planPrefill = EatingTonight is { } eatingTonight
+            ? Math.Max(0, desiredServings - eatingTonight)
+            : (int?)null;
+
+        string yieldProductName;
+        string yieldUnitCode;
+        decimal suggestedQuantity;
+        var hasDeclaredYield = recipe.HasYield;
+
         if (recipe is { HasYield: true, YieldProductId: { } yieldProductId, YieldUnitId: { } yieldUnitId })
         {
             var yieldProduct = await catalog.FindAsync(yieldProductId, ct);
             var yieldUnitCodes = await catalog.ResolveUnitCodesAsync([yieldUnitId], ct);
-            yieldView = new CookYieldView(
-                ProductName: yieldProduct?.Name ?? recipe.Name,
-                UnitCode: yieldUnitCodes.GetValueOrDefault(yieldUnitId, string.Empty),
-                SuggestedQuantity: Math.Round((recipe.YieldQuantity ?? 0m) * scale, 3));
+            yieldProductName = yieldProduct?.Name ?? recipe.Name;
+            yieldUnitCode = yieldUnitCodes.GetValueOrDefault(yieldUnitId, string.Empty);
+            suggestedQuantity = planPrefill ?? Math.Round((recipe.YieldQuantity ?? 0m) * scale, 3);
         }
+        else
+        {
+            // No declared yield yet: display against the recipe's own name (there is no product to
+            // name it after until the inline prompt creates or picks one) in a "servings"-labelled
+            // count, matching the create default's own unit (household count unit "ea", plantry-iejb) —
+            // "servings" is display copy only here; the persisted unit is resolved at cook-confirm time.
+            yieldProductName = recipe.Name;
+            yieldUnitCode = "servings";
+            suggestedQuantity = planPrefill ?? 0m;
+        }
+
+        var yieldView = new CookYieldView(
+            ProductName: yieldProductName,
+            UnitCode: yieldUnitCode,
+            SuggestedQuantity: suggestedQuantity,
+            HasDeclaredYield: hasDeclaredYield,
+            PrefillHint: planPrefill is not null
+                ? $"{desiredServings} planned - {EatingTonight} eating tonight"
+                : null);
 
         Cook = new CookViewModel(
             RecipeId: recipe.Id.Value,
@@ -755,7 +806,8 @@ public sealed class CookModel(
             .ToList();
 
         // Yield-on-cook (plantry-854a): store a positive quantity of the recipe's yield; a non-positive
-        // value or a recipe with no yield stores nothing (the command guards on recipe.HasYield too).
+        // value stores nothing. A recipe with no declared yield (plantry-iejb) resolves one just-in-time
+        // in CookRecipe — either the picked existing product below or the one-tap create default.
         var storedYield = StoreYieldQuantity > 0m ? StoreYieldQuantity : 0m;
 
         var command = new CookRecipeCommand(
@@ -766,7 +818,8 @@ public sealed class CookModel(
             AdHocLines: adHocLines,
             StoredYieldQuantity: storedYield,
             StoredYieldExpiry: storedYield > 0m ? StoreYieldExpiry : null,
-            PlannedDishId: PlannedDishId);
+            PlannedDishId: PlannedDishId,
+            PickedYieldProductId: storedYield > 0m ? PickedYieldProductId : null);
 
         var result = await cookService.ExecuteAsync(command, ct);
 
@@ -836,21 +889,40 @@ public sealed record CookViewModel(
     decimal Scale,
     IReadOnlyList<CookLineView> Lines,
     IReadOnlyList<CookInclusionGroupView> InclusionGroups,
-    CookYieldView? Yield = null);
+    CookYieldView Yield);
 
 /// <summary>
-/// The recipe's declared yield surfaced on the Cook confirmation page (plantry-854a, recipe-composition.md
-/// §9) — drives the "storing N" store-as-inventory affordance. Null when the recipe declares no yield.
+/// The leftovers ("storing N") affordance on the Cook confirmation page (plantry-854a,
+/// recipe-composition.md §9; extended to every recipe by plantry-iejb — the block always renders now,
+/// even when <see cref="HasDeclaredYield"/> is false).
 /// </summary>
-/// <param name="ProductName">Display name of the yield product being stored.</param>
-/// <param name="UnitCode">Display code of the yield unit (e.g. "servings", "cups").</param>
+/// <param name="ProductName">
+/// Display name of the yield product being stored when declared; otherwise the recipe's own name (there
+/// is no product yet — the inline create/pick prompt mints or resolves one at cook-confirm time).
+/// </param>
+/// <param name="UnitCode">
+/// Display code of the yield unit (e.g. "g", "cups") when declared; the literal "servings" label when
+/// not (display copy only — the persisted unit is resolved server-side at cook-confirm time).
+/// </param>
 /// <param name="SuggestedQuantity">
-/// The declared yield scaled to this cook's servings — pre-fills the "storing N" field.
+/// Pre-fills the "storing N" field. Plan-launched (<see cref="PrefillHint"/> non-null): the plan
+/// prefill, overriding the declared-yield default. Otherwise: the declared yield scaled to this cook's
+/// servings, or 0 when no yield is declared yet.
+/// </param>
+/// <param name="HasDeclaredYield">
+/// True when the recipe already has a YieldProductId. False shows the inline create/pick prompt
+/// (<c>.cook-yield-create</c>) once the user types a positive quantity.
+/// </param>
+/// <param name="PrefillHint">
+/// The plan-launched prefill explainer ("4 planned - 2 eating tonight"), or null for a direct
+/// recipe-launched cook (no hint rendered, byte-for-byte pre-plantry-iejb behaviour).
 /// </param>
 public sealed record CookYieldView(
     string ProductName,
     string UnitCode,
-    decimal SuggestedQuantity);
+    decimal SuggestedQuantity,
+    bool HasDeclaredYield,
+    string? PrefillHint);
 
 /// <summary>
 /// One inclusion group on the Cook page (recipe-composition.md §6, D6/D7): the sub-recipe's expanded
