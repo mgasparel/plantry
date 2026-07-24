@@ -88,6 +88,15 @@ public sealed class EditModel(
     public IReadOnlyList<SelectListItem> TagOptions { get; private set; } = [];
 
     /// <summary>
+    /// The household's seeded "serving" count unit (code <c>srv</c>), if present — resolved for the
+    /// Yield card's client-side prefill (plantry-n1za): when the yield checkbox is turned on with both
+    /// fields still empty, Yield quantity prefills from the live servings value and Yield unit prefills
+    /// to this id. Null when absent (e.g. a household seeded before this feature, before its backfill
+    /// migration runs), in which case the card prefills quantity only and leaves the unit unset.
+    /// </summary>
+    public Guid? ServingUnitId { get; private set; }
+
+    /// <summary>
     /// Active group products (IsParent = true) for the household, for the create-view Group combobox
     /// (plantry-orix). Passed to <see cref="ProductSearchCreateSheetViewModel.GroupOptions"/>.
     /// Loaded via <see cref="ICatalogProductReader.ListGroupsAsync"/> (the anti-corruption port).
@@ -827,6 +836,10 @@ public sealed class EditModel(
             u => u.Code,
             u => DimensionExtensions.Parse(u.Dimension),
             u => u.Code);
+
+        // Yield card prefill (plantry-n1za): resolve the seeded "serving" unit by code, case-insensitively
+        // — matches the AddServingUnit backfill migration's match rule. Null if absent.
+        ServingUnitId = unitOptions.FirstOrDefault(u => string.Equals(u.Code, "srv", StringComparison.OrdinalIgnoreCase))?.Id;
 
         // Active tag options — activeOnly:true so archived tags are excluded from the picker dropdown.
         // Tags are a small set (dozens, not thousands) — list all and filter client-side in Alpine.

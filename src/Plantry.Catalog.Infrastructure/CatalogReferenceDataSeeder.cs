@@ -50,13 +50,18 @@ public sealed class CatalogReferenceDataSeeder(CatalogDbContext db) : IReference
 
         // Count units (base: each) stay UnitSystem.Unspecified — count-dimension simplification
         // (12 ea → 1 doz) is deliberately out of scope (quantity-display.md §6).
-        var each  = Unit.Create(hid, "ea",  "each",  Dimension.Count, 1m, isBase: true);
-        var pack  = Unit.Create(hid, "pk",  "pack",  Dimension.Count, 1m);
-        var dozen = Unit.Create(hid, "doz", "dozen", Dimension.Count, 12m);
+        var each    = Unit.Create(hid, "ea",  "each",    Dimension.Count, 1m, isBase: true);
+        var pack    = Unit.Create(hid, "pk",  "pack",    Dimension.Count, 1m);
+        var dozen   = Unit.Create(hid, "doz", "dozen",   Dimension.Count, 12m);
+        // Serving (plantry-n1za): seeded so the recipe editor's Yield card can prefill "Yield unit"
+        // to a count unit that reads naturally for stored-leftovers recipes (the DefaultServings
+        // count is servings, not "each"). A one-time data migration backfills existing households
+        // (20260724132700_AddServingUnit.cs, following the AddUnitSystem precedent).
+        var serving = Unit.Create(hid, "srv", "serving", Dimension.Count, 1m);
 
         return [gram, kilogram, milligram, ounce, pound,
                 ml, litre, flOz, cup, tsp, tbsp,
-                each, pack, dozen];
+                each, pack, dozen, serving];
     }
 
     private static List<Category> BuildCategories(HouseholdId hid)
