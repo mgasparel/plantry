@@ -43,7 +43,7 @@ public sealed class MealCardCookStripTests
         // renders a live Cook deep-link carrying id/servings/plannedDishId.
         Assert.Contains("mc-cook-act", html);
         Assert.Contains("Cook Unknown recipe", html);
-        Assert.Contains($"/Recipes/Cook?id={factory.Repo.PendingRecipeRecipeId:D}", html);
+        Assert.Contains($"/Recipes/{factory.Repo.PendingRecipeRecipeId:D}/Cook?servings=", html);
         Assert.Contains("servings=2", html);
         Assert.Contains($"plannedDishId={factory.Repo.PendingRecipeDishId:D}", html);
         // plantry-iejb's leftover-prefill seam: eatingTonight = the meal's AttendeesOverride count,
