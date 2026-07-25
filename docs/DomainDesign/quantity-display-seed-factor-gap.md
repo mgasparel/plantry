@@ -55,9 +55,10 @@ Investigated directly in the codebase (not speculative):
 - `src/Plantry.Composition/Pricing/UnitPriceCalculatorAdapter.cs:23` —
   `price / (quantity * unit.FactorToBase)` — normalizes a price observation to $/base-unit.
 - `src/Plantry.Recipes/Domain/CostingService.cs` (`CostLineAsync` / `Compute`, ~lines 128-307) —
-  recipe cost-per-serving, via `IUnitConverter.ConvertAsync` and
-  `UnitConverter.SameDimensionFactor` (`src/Plantry.Catalog/Domain/UnitConverter.cs:114-126`),
-  which is `fromUnit.FactorToBase / toUnit.FactorToBase` for any same-dimension pair.
+  recipe cost-per-serving, via `IUnitConverter.ConvertAsync` and `UnitConverter.Convert`'s
+  same-dimension graph edges (`src/Plantry.Catalog/Domain/UnitConverter.cs`, `BuildConversionGraph`
+  as of `plantry-xddq` — formerly the private `SameDimensionFactor` helper, since removed), which
+  is still `fromUnit.FactorToBase / toUnit.FactorToBase` for any same-dimension pair.
 - Any household pricing a product "per cup" while a recipe calls for tbsp/tsp/floz of it (or
   vice versa) will see displayed unit price / cost-per-serving shift by ~1.4% — the same amount
   the cup factor changes.
@@ -139,7 +140,7 @@ Full design in `quantity-display.md` (amended Q5, §6) and the `plantry-5yde` br
 
 - `src/Plantry.Catalog.Infrastructure/CatalogReferenceDataSeeder.cs:38-40` — the seed values
 - `src/Plantry.Catalog/Domain/QuantityDisplay.cs` — `Simplify`'s integer-ratio firewall (Q5)
-- `src/Plantry.Catalog/Domain/UnitConverter.cs:114-126` — `SameDimensionFactor`
+- `src/Plantry.Catalog/Domain/UnitConverter.cs` — `BuildConversionGraph` (formerly `SameDimensionFactor`, removed by `plantry-xddq`)
 - `src/Plantry.Composition/Pricing/UnitPriceCalculatorAdapter.cs:23` — price normalization
 - `src/Plantry.Recipes/Domain/CostingService.cs` — recipe cost-per-serving
 - `docs/DomainDesign/quantity-display.md` — the epic's spec (Q2, Q5, Q7)

@@ -6,14 +6,23 @@ namespace Plantry.Catalog.Domain;
 /// Resolves a quantity from one unit to another (DM-12). Pure and side-effect free — callers
 /// supply the household's units and the product's conversions; nothing is loaded here.
 ///
-/// Resolution order:
-///   1. Same unit / same dimension → linear scaling via <see cref="Unit.FactorToBase"/>
-///      (factor 1 for the same unit).
-///   2. Product-specific <see cref="ProductConversion"/> (cross-dimension / density), tried in
-///      its stored direction and then its inverse — each bridged on either side by a
-///      same-dimension hop when the caller's units don't exactly match the conversion's anchors
-///      (e.g. resolving tablespoons against a product conversion anchored on cups).
-///   3. Fail loudly — never silently return an identity or zero result.
+/// Units are treated as nodes in a small graph and resolution walks it (BFS — these graphs are
+/// small, so shortest-path-by-hop-count is both cheap and the natural "most direct" answer),
+/// composing factors along whichever edges connect <c>fromUnitId</c> to <c>toUnitId</c>:
+///   1. Identity: the same unit, factor 1 — always an edge, checked first as a short-circuit.
+///   2. Same-dimension linear scaling via <see cref="Unit.FactorToBase"/> — but ONLY for a
+///      genuine physical dimension (<see cref="Dimension.Mass"/> / <see cref="Dimension.Volume"/>).
+///      <see cref="Dimension.Count"/> is a bucket for otherwise-unrelated counting units (e.g. a
+///      "serving" and a "pack" on the same product) that share no universal ratio — two distinct
+///      Count units are connected only if a <see cref="ProductConversion"/> says so.
+///   3. Product-specific <see cref="ProductConversion"/> edges, traversable in both directions
+///      (forward multiplies by the stored factor, reverse divides by it — never a precomputed
+///      reciprocal, to avoid baking in decimal-division rounding before it's needed).
+///
+/// Composing edges (2) and (3) transitively lets the walk chain arbitrarily many hops through a
+/// shared pivot unit — e.g. resolving "srv" against "pk" via "srv → cup → g → pk" when only
+/// cup/g and pk/g conversions are configured, not a direct srv/pk one. When no path exists, the
+/// walk fails loudly — it never falls back to an identity or zero result.
 ///
 /// Unit IDs are raw <see cref="Guid"/>s (not the strongly-typed <see cref="UnitId"/>) so this
 /// service can be driven directly from cross-context values such as <see cref="Quantity"/>.
@@ -27,29 +36,98 @@ public static class UnitConverter
         IReadOnlyCollection<Unit> units,
         IReadOnlyCollection<ProductConversion> productConversions)
     {
-        if (SameDimensionFactor(fromUnitId, toUnitId, units) is { } factor)
-            return amount * factor;
+        if (fromUnitId == toUnitId)
+            return amount;
 
-        foreach (var conversion in productConversions)
-        {
-            if (SameDimensionFactor(fromUnitId, conversion.FromUnitId.Value, units) is { } bridgeIn
-                && SameDimensionFactor(conversion.ToUnitId.Value, toUnitId, units) is { } bridgeOut)
-            {
-                return amount * bridgeIn * conversion.Factor * bridgeOut;
-            }
-        }
+        var graph = BuildConversionGraph(units, productConversions);
 
-        foreach (var conversion in productConversions)
+        // BFS: shortest hop count wins, and among same-length options the earliest-discovered
+        // edge wins (mirrors the old resolution-order contract — same-dimension edges are added
+        // before product-conversion edges, and conversions are walked in list order — see
+        // DirectProductConversion_PreferredOver_Inverse_When_Both_Match).
+        //
+        // The running value carried through the queue is the ACTUAL amount-so-far, not an
+        // abstract multiplier composed separately and applied to `amount` at the end — a reverse
+        // ProductConversion edge divides by its stored factor directly (amount / factor), exactly
+        // as the old single-hop code did, rather than pre-computing and multiplying by 1/factor.
+        // Decimal division doesn't always terminate cleanly (e.g. 1/600 rounds to ~29 significant
+        // digits before it's ever used), so composing that way could leave a sub-epsilon residue
+        // even when the true quotient (e.g. 78.75/600 = 0.13125) is exact.
+        var visited = new HashSet<Guid> { fromUnitId };
+        var queue = new Queue<(Guid UnitId, decimal Value)>();
+        queue.Enqueue((fromUnitId, amount));
+
+        while (queue.Count > 0)
         {
-            if (SameDimensionFactor(fromUnitId, conversion.ToUnitId.Value, units) is { } bridgeIn
-                && SameDimensionFactor(conversion.FromUnitId.Value, toUnitId, units) is { } bridgeOut)
+            var (currentId, currentValue) = queue.Dequeue();
+
+            if (!graph.TryGetValue(currentId, out var edges))
+                continue;
+
+            foreach (var edge in edges)
             {
-                return amount * bridgeIn / conversion.Factor * bridgeOut;
+                if (!visited.Add(edge.To))
+                    continue;
+
+                var nextValue = edge.Invert ? currentValue / edge.Factor : currentValue * edge.Factor;
+
+                if (edge.To == toUnitId)
+                    return nextValue;
+
+                queue.Enqueue((edge.To, nextValue));
             }
         }
 
         return Error.Custom("Catalog.UnresolvableConversion",
             $"No conversion is known from unit '{fromUnitId}' to unit '{toUnitId}'.");
+    }
+
+    /// <summary>An edge in the conversion graph: multiply by <see cref="Factor"/>, or divide by it when <see cref="Invert"/>.</summary>
+    private readonly record struct ConversionEdge(Guid To, decimal Factor, bool Invert);
+
+    /// <summary>
+    /// Builds the conversion graph's adjacency list: same-dimension scale edges for genuine
+    /// physical dimensions, then <see cref="ProductConversion"/> edges (both directions).
+    /// </summary>
+    private static Dictionary<Guid, List<ConversionEdge>> BuildConversionGraph(
+        IReadOnlyCollection<Unit> units,
+        IReadOnlyCollection<ProductConversion> productConversions)
+    {
+        var graph = new Dictionary<Guid, List<ConversionEdge>>();
+
+        void AddEdge(Guid from, Guid to, decimal factor, bool invert)
+        {
+            if (!graph.TryGetValue(from, out var edges))
+                graph[from] = edges = [];
+            edges.Add(new ConversionEdge(to, factor, invert));
+        }
+
+        // Same-dimension linear-scale edges — Mass and Volume only. Count is excluded: it is a
+        // catch-all for counting units with no inherent shared ratio (a "serving" is not
+        // universally some multiple of a "pack"), so two distinct Count units connect only
+        // through an explicit ProductConversion below, never for free.
+        var scalable = units.Where(u => u.Dimension is Dimension.Mass or Dimension.Volume).ToList();
+        foreach (var from in scalable)
+        {
+            foreach (var to in scalable)
+            {
+                if (from.Id.Value == to.Id.Value || from.Dimension != to.Dimension)
+                    continue;
+
+                AddEdge(from.Id.Value, to.Id.Value, from.FactorToBase / to.FactorToBase, invert: false);
+            }
+        }
+
+        // Product-specific conversions, traversable in both directions: stored direction
+        // multiplies by the stored factor, reverse divides by it (never a precomputed reciprocal
+        // — see the precision note in Convert above).
+        foreach (var conversion in productConversions)
+        {
+            AddEdge(conversion.FromUnitId.Value, conversion.ToUnitId.Value, conversion.Factor, invert: false);
+            AddEdge(conversion.ToUnitId.Value, conversion.FromUnitId.Value, conversion.Factor, invert: true);
+        }
+
+        return graph;
     }
 
     /// <summary>
@@ -108,20 +186,5 @@ public static class UnitConverter
             .ToList();
 
         return ordered;
-    }
-
-    /// <summary>Linear scaling factor between two units of the same dimension — 1 for the same unit, null when unresolvable.</summary>
-    private static decimal? SameDimensionFactor(Guid fromUnitId, Guid toUnitId, IReadOnlyCollection<Unit> units)
-    {
-        if (fromUnitId == toUnitId)
-            return 1m;
-
-        var fromUnit = units.SingleOrDefault(u => u.Id.Value == fromUnitId);
-        var toUnit = units.SingleOrDefault(u => u.Id.Value == toUnitId);
-
-        if (fromUnit is not null && toUnit is not null && fromUnit.Dimension == toUnit.Dimension)
-            return fromUnit.FactorToBase / toUnit.FactorToBase;
-
-        return null;
     }
 }
