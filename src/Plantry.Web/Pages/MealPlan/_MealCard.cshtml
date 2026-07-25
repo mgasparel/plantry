@@ -15,13 +15,27 @@
     var stripRows = showStrip ? cookDishes : new List<Plantry.Web.Pages.MealPlan.IndexModel.MealCardDishVm>();
     var allDishesDone = showStrip && cookDishes.Count > 0 && cookDishes.All(d => d.CookedAt.HasValue);
     var cellId = $"cell-{Model.SlotId.Value:N}-{Model.DateIso}";
+
+    // plantry-ely3: click-anywhere-opens-editor. Shared with the pencil's own onclick so both
+    // paths call the identical island bridge signature. The card-level handler guards against
+    // double-invocation (and against hijacking nested actions — Cook link, Eat/Undo, pencil) by
+    // bailing when the event target is itself (or is nested inside) an <a> or <button>; those
+    // elements' own onclick/href handles the action instead.
+    var openEditorCall = $"window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('{Model.DateIso}', '{Model.SlotId.Value}', '{meal.MealId:D}')";
 }
 
 <div class="meal-card @(isNote ? "note" : "") @(allDishesDone ? "cooked" : "")"
      draggable="true"
-     ondragstart="onDragStart(event, '@meal.MealId.ToString("D")', '@Model.DateIso', '@Model.SlotId.Value')">
+     ondragstart="onDragStart(event, '@meal.MealId.ToString("D")', '@Model.DateIso', '@Model.SlotId.Value')"
+     role="button"
+     tabindex="0"
+     aria-label="Open meal details"
+     onclick="if (!event.target.closest('a,button')) { @openEditorCall }"
+     onkeydown="if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); @openEditorCall }">
 
-    @* Edit pencil — calls the meal-planner island bridge (plantry-2zvm.4: Preact island port) *@
+    @* Edit pencil — calls the meal-planner island bridge (plantry-2zvm.4: Preact island port).
+       Redundant with the card-level click-anywhere handler above (plantry-ely3); kept as a
+       discoverable affordance and explicit keyboard/focus target. *@
     <button class="mc-edit"
             onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@Model.DateIso', '@Model.SlotId.Value', '@meal.MealId.ToString("D")')"
             aria-label="Edit meal">
