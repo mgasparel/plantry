@@ -12,7 +12,7 @@ namespace Plantry.Tests.E2E;
 /// require a real browser click/keyboard simulation (a rendered-markup assertion cannot prove this):
 ///   AC1 — clicking the card body (a dish name) opens the editor panel.
 ///   AC2 — the Eat button still fires its own hx-post (swap to the Eaten row) and does NOT also open
-///         the panel; the Cook deep-link still navigates to /Recipes/Cook.
+///         the panel; the Cook deep-link still navigates to /Recipes/{id}/Cook.
 ///   AC4 — the card is keyboard-focusable and Enter opens the panel.
 /// AC3 (drag unaffected) and AC5 (empty/ghost cells unchanged) touch no code in this change — the
 /// ondragstart wiring and the empty/ghost cell templates are untouched — so they are not re-asserted
@@ -151,13 +151,13 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
                 resp => resp.Url.Contains("MealPlan") && resp.Url.Contains("handler=Eat") && resp.Status == 200);
             await Assertions.Expect(dialog).ToBeHiddenAsync();
 
-            // ── AC2 (Cook): clicking the Cook deep-link still navigates to /Recipes/Cook (the
+            // ── AC2 (Cook): clicking the Cook deep-link still navigates to /Recipes/{id}/Cook (the
             // card-level guard bails when the click target is nested inside an <a>). ──
             var cookLink = card.Locator("a.mc-cook-act");
             await Assertions.Expect(cookLink).ToBeVisibleAsync();
             await cookLink.ClickAsync();
-            await page.WaitForURLAsync("**/Recipes/Cook**");
-            Assert.Contains("/Recipes/Cook", page.Url);
+            await page.WaitForURLAsync("**/Recipes/*/Cook**");
+            Assert.Matches(new Regex("/Recipes/[0-9a-fA-F-]+/Cook"), page.Url);
 
             // ── AC4: the card is keyboard-focusable (role="button" tabindex="0") and Enter
             // opens the editor panel. ──

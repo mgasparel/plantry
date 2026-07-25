@@ -204,7 +204,7 @@
                            pending product dish still gets the disambiguating name. *@
                         var label = cookDishes.Count > 1 ? $"Cook {dish.Name}" : "Cook";
                         <a class="mc-cook-act"
-                           href="/Recipes/Cook?id=@dish.ItemId&amp;servings=@dish.Servings&amp;plannedDishId=@dish.DishId&amp;eatingTonight=@meal.EatingTonight">
+                           href="/Recipes/@dish.ItemId/Cook?servings=@dish.Servings&amp;plannedDishId=@dish.DishId&amp;eatingTonight=@meal.EatingTonight">
                             <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
                             <span class="act-name">@label</span>
                             <span class="act-srv">@dish.Servings srv</span>
