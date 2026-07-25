@@ -244,6 +244,19 @@ public sealed class CookRecipe(
                 resolvedYieldUnitId ?? Guid.Empty,
                 command.StoredYieldExpiry);
 
+        // Blessed multi-aggregate co-commit (plantry-kw52, ADR-010): when the just-in-time yield
+        // resolution above called recipe.SetYield(...) (:182/:216), that Recipe-aggregate mutation is
+        // still tracked, unsaved, on this same scoped RecipesDbContext (recipes/cookEvents share one
+        // context, ctor above). The SaveChangesAsync below therefore flushes BOTH the Recipe (SetYield)
+        // and this CookEvent anchor in ONE transaction. This is intentional, not an oversight: it is
+        // part of the sanctioned cook-orchestration fan-out ADR-010 names, not the "each downstream call
+        // is its own transaction" case (that clause governs the Inventory/Shopping calls AFTER this
+        // anchor, not the anchor commit itself — see ADR-010's Recipes aggregate bullet and its
+        // 2026-07-25 amendment). No invariant spans Recipe and CookEvent, so atomicity is strictly
+        // desirable here: splitting SetYield into its own prior transaction would let a yield-product
+        // mapping persist for a cook that then fails to anchor (recorded a yield for a cook that never
+        // happened), while splitting it after would let the anchor commit while SetYield fails
+        // (cook happened, yield forgotten). One flush guarantees both are durable together or not at all.
         await cookEvents.AddAsync(cookEvent, ct);
         await cookEvents.SaveChangesAsync(ct); // ← anchor commit: CookEvent + Pending consume & produce lines are durable
 

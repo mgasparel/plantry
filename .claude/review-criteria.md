@@ -30,8 +30,14 @@ do not duplicate or diverge in either consumer.**
 - **One aggregate per transaction.** A single `SaveChanges`/transaction mutates one
   aggregate root. Multi-aggregate fan-out (cook issuing N `Consume` calls, Intake's
   commit orchestration) is the *only* sanctioned exception, and even there each
-  downstream call is its own transaction, driven by an application service — never one
-  cross-aggregate save.
+  **downstream** call (i.e. after the cook/commit anchor has already saved) is its own
+  transaction, driven by an application service — never one cross-aggregate save.
+  This "each downstream call is its own transaction" clause governs calls *after* an
+  anchor commit; it does not forbid the narrow, separately-named exception where the
+  anchor commit itself co-commits with another aggregate sharing the same DbContext/
+  connection (e.g. `CookRecipe`'s `Recipe.SetYield` co-committing with the `CookEvent`
+  anchor — see ADR-010's 2026-07-25 amendment, plantry-kw52). Any such co-commit must
+  be named in ADR-010 as a bounded exception, not assumed by analogy.
 - **Invariants stay inside the aggregate.** Mutation goes through guarded methods on
   the root — private constructor + static `Create` factory + methods like
   `UpdateName`/`SetExpiryWarningDays` that validate before assigning (house style, e.g.
