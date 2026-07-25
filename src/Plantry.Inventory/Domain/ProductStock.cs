@@ -158,14 +158,21 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     /// recomputes the original shortfall from the matching journal rows so that
     /// <c>ReconcilePendingCooks</c> preserves real partial shortfalls on re-drive.
     ///
-    /// <para><b>Auto-open (plantry-1le6 rule 5):</b> every lot this call deducts from without fully
-    /// depleting — i.e. a partial deduction — is flipped open if it was still sealed, applying the
-    /// same clamp <see cref="MarkOpened"/> uses (<paramref name="dueDaysAfterOpening"/> resolved by
-    /// the caller, since Inventory must not reach into Catalog). A lot deducted to zero is left
-    /// alone (nothing left to expire); an already-open lot is left alone (no re-fire). This runs for
-    /// every caller of this single primitive — manual consume, Cook, Meal Plan Eat, Take Stock's
-    /// targeted reduce — not just the UI's Consume sheet, per ADR-011's "one primitive" discipline.
-    /// Reported back via <see cref="ConsumeOutcome.AutoOpened"/>.</para>
+    /// <para><b>Auto-open (plantry-1le6 rule 5, gated to <see cref="StockReason.Consumed"/> per
+    /// plantry-3gyb):</b> every lot this call deducts from without fully depleting — i.e. a partial
+    /// deduction — is flipped open if it was still sealed, applying the same clamp
+    /// <see cref="MarkOpened"/> uses (<paramref name="dueDaysAfterOpening"/> resolved by the caller,
+    /// since Inventory must not reach into Catalog). This only fires when <paramref name="reason"/>
+    /// is <see cref="StockReason.Consumed"/> — the opened-lot flag exists solely to drive
+    /// after-opening expiry tracking, and only genuine consumption ("I used part of this, so the
+    /// package is now open") should shorten a lot's remaining life. A <see cref="StockReason.Correction"/>
+    /// (a miscount), a <see cref="StockReason.Discarded"/> (you're throwing it out — you no longer
+    /// care about its expiry), or an <see cref="StockReason.Amendment"/> (retroactive purchase-qty
+    /// fix) do NOT mean the package was opened, so they never auto-open. A lot deducted to zero is
+    /// left alone (nothing left to expire); an already-open lot is left alone (no re-fire). This
+    /// runs for every caller of this single primitive — manual consume, Cook, Meal Plan Eat, Take
+    /// Stock's targeted reduce — not just the UI's Consume sheet, per ADR-011's "one primitive"
+    /// discipline. Reported back via <see cref="ConsumeOutcome.AutoOpened"/>.</para>
     /// </summary>
     public Result<ConsumeOutcome> Consume(
         decimal amount, Guid unitId, StockReason reason, IQuantityConverter converter,
@@ -259,9 +266,12 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
                 reason, sourceType, sourceRef, sourceLineRef, now, userId));
             deductions.Add(new LotDeduction(lot.Id, takeInLot, lot.UnitId));
 
-            // Rule 5: a partial deduction from a still-sealed lot auto-opens it; a lot deducted to
-            // zero is skipped (nothing left to expire) and an already-open lot never re-fires.
-            if (wasSealed && lot.IsActive)
+            // Rule 5 (gated to Consumed per plantry-3gyb): a partial deduction from a still-sealed
+            // lot auto-opens it only when the reason is genuine consumption; a lot deducted to zero
+            // is skipped (nothing left to expire) and an already-open lot never re-fires. Correction,
+            // Discarded, and Amendment reduces never auto-open — they don't mean the package was
+            // opened.
+            if (wasSealed && lot.IsActive && reason == StockReason.Consumed)
             {
                 var newExpiry = ApplyOpeningClamp(lot.ExpiryDate, today, dueDaysAfterOpening);
                 lot.MarkOpen(newExpiry, clock);

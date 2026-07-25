@@ -317,6 +317,57 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.True(result.IsSuccess, $"Expected success but got: {result.Error}");
     }
 
+    [Fact(DisplayName = "POST SaveLots with a Correction lot reduce leaves the sealed lot sealed (plantry-3gyb)")]
+    public async Task Post_SaveLots_LotReduce_Correction_DoesNotAutoOpenLot()
+    {
+        var client = AuthClient();
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var lotAId = _factory.StockRepository.FlourLotIds[0];
+
+        var payload = new
+        {
+            adjustments = new[]
+            {
+                new
+                {
+                    entryId = lotAId,
+                    amount = 50m,
+                    unitId = TakeStockFixture.GramUnitId,
+                    reason = "Correction",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=SaveLots&productId={TakeStockFixture.FlourId}")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveLotsResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got: {result.Error}");
+
+        // A Correction reduce is a miscount, not consumption — the lot must remain sealed
+        // (regression guard for the bug where auto-open fired for every removal reason).
+        var stock = _factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        var lot = stock.Entries.Single(e => e.Id.Value == lotAId);
+        Assert.False(lot.IsOpen);
+    }
+
     [Fact(DisplayName = "POST SaveLots with spoiled reason writes Discarded (J3)")]
     public async Task Post_SaveLots_Spoiled_WritesDiscardedReason()
     {
