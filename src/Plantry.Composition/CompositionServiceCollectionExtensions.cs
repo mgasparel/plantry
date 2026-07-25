@@ -135,6 +135,11 @@ public static class CompositionServiceCollectionExtensions
         // composition-root join, same seam ShoppingRecipeReaderAdapter plays for Shopping.
         services.AddScoped<IStockProvenanceReader, StockProvenanceReaderAdapter>();
 
+        // Inventory → Intake ACL (ADR-023 §6/A11): the pantry History grid's batched "Amend" eligibility
+        // check (does this Purchase row have a committed line to amend), same join seam as
+        // StockProvenanceReaderAdapter above but keyed by StockEntryId rather than the chip correlation.
+        services.AddScoped<IAmendableLineReader, AmendableLineReaderAdapter>();
+
         // Housekeeping (tidy-up.md T4/T8) — v1 shipped D1 + D2 (conversion-gap family); this follow-up
         // (plantry-i55s) adds D3-D7, the remaining catalogue rows. Registered as IProblemDetector so
         // GetTidyUpPageQuery discovers every implementation via IEnumerable<IProblemDetector> — adding

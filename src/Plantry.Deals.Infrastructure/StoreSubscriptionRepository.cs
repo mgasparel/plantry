@@ -21,6 +21,15 @@ public sealed class StoreSubscriptionRepository(DealsDbContext db) : IStoreSubsc
     public Task<List<StoreSubscription>> ListActiveAsync(CancellationToken ct = default) =>
         db.StoreSubscriptions.Where(s => s.IsActive).OrderBy(s => s.CreatedAt).ToListAsync(ct);
 
+    // Cross-tenant: IgnoreQueryFilters lifts the app-layer household filter, mirroring
+    // HouseholdRepository.ListAllIdsAsync. The Postgres RLS policy (household_isolation, extended by the
+    // AllowCrossHouseholdStoreSubscriptionRead migration) still guards the row set and only exposes every
+    // household's rows when app.household_id is unset — see the port contract.
+    public Task<DateTimeOffset?> GetLastPulledAtAcrossHouseholdsAsync(CancellationToken ct = default) =>
+        db.StoreSubscriptions
+            .IgnoreQueryFilters()
+            .MaxAsync(s => (DateTimeOffset?)s.LastPulledAt, ct);
+
     public async Task AddAsync(StoreSubscription subscription, CancellationToken ct = default) =>
         await db.StoreSubscriptions.AddAsync(subscription, ct);
 

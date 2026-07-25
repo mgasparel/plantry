@@ -1,0 +1,123 @@
+@model Plantry.Web.Pages.Pantry.Products.DetailModel
+@using System.Text.Json
+@{
+    var sheet = Model.AmendSheet!;
+    var previouslyFixed = sheet.PreviouslyFixedQuantity ?? sheet.EnteredQuantity;
+}
+<div class="sheet" x-data="{ close() { document.getElementById('sheet-host').innerHTML = '' } }"
+     role="dialog" aria-modal="true" aria-label="Fix purchase entry">
+    <div class="sheet__overlay" x-on:click="close()"></div>
+    <div class="sheet__panel">
+        <header class="sheet__header">
+            <h2 class="sheet__title">Fix purchase entry</h2>
+            <button type="button" class="sheet__close" aria-label="Close" x-on:click="close()">&times;</button>
+        </header>
+
+        @if (sheet.Blocked)
+        {
+            @* Eligibility is evaluated when the sheet opens (ADR-023 A4-iv) — closed-by-Correction opens
+               an EXPLAINING sheet, never a disabled/hidden button. *@
+            <div class="alert alert--warning" role="alert">@sheet.BlockedMessage</div>
+            <p class="field__hint">If the shelf amount still looks wrong, run another Take Stock count for this product.</p>
+            <div class="sheet__actions">
+                <button type="button" class="btn btn--ghost" x-on:click="close()">Close</button>
+            </div>
+        }
+        else
+        {
+            <form class="form-stack" hx-post="@Url.Page("./Detail", "Amend", new { id = Model.ProductId })"
+                  hx-target="#sheet-host" hx-swap="innerHTML"
+                  x-data="{
+                    price: @Html.Raw(JsonSerializer.Serialize(sheet.Price)),
+                    entered: @Html.Raw(JsonSerializer.Serialize(sheet.EnteredQuantity)),
+                    effective: @Html.Raw(JsonSerializer.Serialize(previouslyFixed)),
+                    consumed: @Html.Raw(JsonSerializer.Serialize(sheet.ConsumedTotal)),
+                    unit: @Html.Raw(JsonSerializer.Serialize(sheet.UnitCode)),
+                    currency: @Html.Raw(JsonSerializer.Serialize(sheet.CurrencySymbol)),
+                    quantity: @Html.Raw(JsonSerializer.Serialize(previouslyFixed)),
+
+                    fmt(n) { return (Math.round(n * 1000) / 1000).toString() },
+                    get guardMessage() {
+                        const q = Number(this.quantity);
+                        if (isNaN(q) || q <= 0) return 'Enter a quantity above zero.';
+                        if (q < this.consumed) return this.fmt(this.consumed) + ' ' + this.unit + ' of this lot has already been used — the receipt quantity can\'t be below that.';
+                        return null;
+                    },
+                    get delta() { return Number(this.quantity) - this.effective },
+                    get noChange() { return Math.abs(this.delta) < 1e-9 },
+                    get saveDisabled() { return !!this.guardMessage || this.noChange },
+                    get onHandBefore() { return this.effective - this.consumed },
+                    get stockPreview() {
+                        if (this.guardMessage || this.noChange) return this.fmt(this.onHandBefore) + ' ' + this.unit + ' — no change';
+                        const after = Number(this.quantity) - this.consumed;
+                        const cls = this.delta > 0 ? 'amend-preview__delta--add' : 'amend-preview__delta--remove';
+                        const sign = this.delta > 0 ? '+' : '−';
+                        return this.fmt(this.onHandBefore) + ' ' + this.unit + ' → <b>' + this.fmt(after) + ' ' + this.unit + '</b> <span class=\'' + cls + '\'>(' + sign + this.fmt(Math.abs(this.delta)) + ' ' + this.unit + ')</span>';
+                    },
+                    get pricePreview() {
+                        if (this.price === null) return 'Not tracked for this line';
+                        const before = (this.price / this.effective).toFixed(2);
+                        if (this.guardMessage || this.noChange) return this.currency + before + '/' + this.unit + ' — no change';
+                        const after = (this.price / Number(this.quantity)).toFixed(2);
+                        return this.currency + before + '/' + this.unit + ' → <b>' + this.currency + after + '/' + this.unit + '</b>';
+                    },
+                  }">
+                @Html.AntiForgeryToken()
+                <input type="hidden" asp-for="AmendInput.EntryId" />
+                <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
+
+                @* PROPOSED .amend-context — receipt provenance strip (ADR-023 A11), plenish.css. *@
+                <div class="amend-context">
+                    <div class="amend-context__store">@(sheet.MerchantText ?? "Unknown store") · receipt scanned @sheet.ReceiptDateDisplay</div>
+                    <div class="amend-context__line">
+                        <span>@sheet.ReceiptLineText</span>
+                        @if (sheet.Price is { } price)
+                        {
+                            <span>@price.ToString("0.00")</span>
+                        }
+                    </div>
+                    <div class="amend-context__entered">
+                        Quantity entered at review: <b>@sheet.EnteredQuantity.ToString("0.###") @sheet.UnitCode</b>
+                        @if (sheet.PreviouslyFixedQuantity is { } prev)
+                        {
+                            <text> · previously fixed to <b>@prev.ToString("0.###") @sheet.UnitCode</b></text>
+                        }
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-grid__field form-grid__field--full">
+                        <label class="form-grid__field__label" asp-for="AmendInput.Quantity">Quantity on the receipt</label>
+                        <div class="form-grid__field__control">
+                            <div class="form-grid__unit-suffix">
+                                <input asp-for="AmendInput.Quantity" class="field__input" type="number" step="any" min="0"
+                                       x-model.number="quantity" />
+                                <span class="form-grid__unit-suffix__label">@sheet.UnitCode</span>
+                            </div>
+                            <span class="field__error" x-show="guardMessage" x-text="guardMessage" x-cloak></span>
+                            <span asp-validation-for="AmendInput.Quantity" class="field__error"></span>
+                        </div>
+                    </div>
+                </div>
+
+                @* PROPOSED .amend-preview — live "Effect of this fix" in user terms only (ADR-023 A11):
+                   no ledger/append-only implementation language, plenish.css. *@
+                <div class="amend-preview">
+                    <span class="amend-preview__label">Effect of this fix</span>
+                    <div class="amend-preview__grid">
+                        <span class="amend-preview__k">On hand</span>
+                        <span class="amend-preview__v" x-html="stockPreview"></span>
+                        <span class="amend-preview__k">Unit price</span>
+                        <span class="amend-preview__v" x-html="pricePreview"></span>
+                    </div>
+                    <span class="amend-preview__note">The fix is recorded in this product's history, alongside the original entry.</span>
+                </div>
+
+                <div class="sheet__actions">
+                    <button type="submit" class="btn btn--primary" x-bind:disabled="saveDisabled">Save fix</button>
+                    <button type="button" class="btn btn--ghost" x-on:click="close()">Cancel</button>
+                </div>
+            </form>
+        }
+    </div>
+</div>

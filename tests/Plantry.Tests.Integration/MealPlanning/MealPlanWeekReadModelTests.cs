@@ -101,6 +101,27 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         var recipe = bag.Recipes[recipeId];
         Assert.Equal("Cake", recipe.Name);
         Assert.Equal(4, recipe.DefaultServings);
+        // plantry-tyvg: no recipe_photo row seeded — the EXISTS subquery's false branch.
+        Assert.False(recipe.HasPhoto);
+    }
+
+    /// <summary>
+    /// plantry-tyvg: pins the true branch of the <c>EXISTS (SELECT 1 FROM recipes.recipe_photo ...)</c>
+    /// subquery in LoadRecipesAsync against the real migrated schema — a recipe with a stored photo
+    /// row must report HasPhoto=true. Without this, an always-false or mis-correlated subquery would
+    /// pass every other test (the Web-layer tests only exercise the VM→markup path via a fake read model).
+    /// </summary>
+    [Fact(DisplayName = "LoadAsync returns HasPhoto=true when a recipe_photo row exists (plantry-tyvg)")]
+    public async Task LoadAsync_Returns_HasPhotoTrue_WhenPhotoRowExists()
+    {
+        var recipeId = await SeedRecipeAsync("Photographed Cake", 4);
+        await SeedRecipePhotoAsync(recipeId);
+
+        var rm = NewReadModel(_household);
+        var bag = await rm.LoadAsync([recipeId], []);
+
+        Assert.True(bag.Recipes.ContainsKey(recipeId));
+        Assert.True(bag.Recipes[recipeId].HasPhoto);
     }
 
     [Fact(DisplayName = "LoadAsync returns ingredients for a recipe in ordinal order")]
@@ -615,6 +636,31 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         }
 
         return recipeId;
+    }
+
+    /// <summary>
+    /// Seeds a row into recipes.recipe_photo for the given recipe (plantry-tyvg) — pins the true
+    /// branch of the <c>EXISTS (SELECT 1 FROM recipes.recipe_photo ...)</c> subquery in
+    /// LoadRecipesAsync against the real schema. Mirrors the RecipePhoto entity's column set
+    /// (RecipesDbContext.cs): recipe_id (PK/FK), household_id, content, content_type, sha256
+    /// (nullable), created_at, updated_at.
+    /// </summary>
+    private async Task SeedRecipePhotoAsync(Guid recipeId)
+    {
+        await using var conn = new NpgsqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO recipes.recipe_photo
+                (recipe_id, household_id, content, content_type, created_at, updated_at)
+            VALUES
+                (@rid, @hid, @content, @ctype, NOW(), NOW())
+            """;
+        cmd.Parameters.AddWithValue("rid", recipeId);
+        cmd.Parameters.AddWithValue("hid", _household.Value);
+        cmd.Parameters.AddWithValue("content", new byte[] { 1, 2, 3 });
+        cmd.Parameters.AddWithValue("ctype", "image/webp");
+        await cmd.ExecuteNonQueryAsync();
     }
 
     /// <summary>Seeds a location into catalog.locations; returns the location id.</summary>

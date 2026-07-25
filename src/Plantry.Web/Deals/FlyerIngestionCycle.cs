@@ -1,5 +1,6 @@
 using Plantry.Catalog.Infrastructure;
 using Plantry.Deals.Application;
+using Plantry.Deals.Domain;
 using Plantry.Deals.Infrastructure;
 using Plantry.Identity.Domain;
 using Plantry.Pricing.Infrastructure;
@@ -70,5 +71,21 @@ public sealed class FlyerIngestionCycle(IServiceScopeFactory scopeFactory, ILogg
         sp.GetRequiredService<PricingDbContext>().SetHouseholdId(id);  // Pricing: deal-sourced observation
 
         await sp.GetRequiredService<IngestFlyer>().RunAsync(ct);
+    }
+
+    /// <summary>
+    /// plantry-rb36: the boot due-check's cross-tenant read — the latest successful pull recorded by
+    /// <b>any</b> household, or <c>null</c> if none ever has. Opens its own unarmed scope, exactly like the
+    /// household enumeration in <see cref="RunAsync"/>: no <see cref="TenantContext"/> is set, so
+    /// <c>deals.store_subscription</c>'s RLS policy (extended by the
+    /// <c>AllowCrossHouseholdStoreSubscriptionRead</c> migration) exposes every household's rows to this one
+    /// query. <see cref="FlyerIngestionWorker"/> uses the result to decide whether a sweep is already due at
+    /// boot, or how long to wait for the next one.
+    /// </summary>
+    public async Task<DateTimeOffset?> GetLastPullAcrossHouseholdsAsync(CancellationToken ct = default)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IStoreSubscriptionRepository>();
+        return await repo.GetLastPulledAtAcrossHouseholdsAsync(ct);
     }
 }

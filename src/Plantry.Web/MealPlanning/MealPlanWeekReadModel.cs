@@ -188,6 +188,7 @@ public sealed class MealPlanWeekReadModel(
                 r.recipe_id,
                 r.name,
                 r.default_servings,
+                EXISTS (SELECT 1 FROM recipes.recipe_photo p WHERE p.recipe_id = r.recipe_id) AS has_photo,
                 i.ingredient_id,
                 i.product_id       AS ing_product_id,
                 i.quantity         AS ing_quantity,
@@ -214,17 +215,18 @@ public sealed class MealPlanWeekReadModel(
                 recipes[recipeId] = new RecipeFact(
                     recipeId,
                     reader.GetString(1),
-                    reader.GetInt32(2));
+                    reader.GetInt32(2),
+                    reader.GetBoolean(3));
             }
 
             // ingredient_id is null for recipes with no ingredients (LEFT JOIN).
-            if (!reader.IsDBNull(3))
+            if (!reader.IsDBNull(4))
             {
-                var ingredientId = reader.GetGuid(3);
-                var productId = reader.GetGuid(4);
-                var quantity = reader.IsDBNull(5) ? (decimal?)null : reader.GetDecimal(5);
-                var unitId = reader.IsDBNull(6) ? (Guid?)null : reader.GetGuid(6);
-                var ordinal = reader.GetInt32(7);
+                var ingredientId = reader.GetGuid(4);
+                var productId = reader.GetGuid(5);
+                var quantity = reader.IsDBNull(6) ? (decimal?)null : reader.GetDecimal(6);
+                var unitId = reader.IsDBNull(7) ? (Guid?)null : reader.GetGuid(7);
+                var ordinal = reader.GetInt32(8);
 
                 if (!ingredientsByRecipe.TryGetValue(recipeId, out var list))
                 {
@@ -692,10 +694,15 @@ public sealed class WeekBag(
 // ── Fact records ─────────────────────────────────────────────────────────────────────────────────
 
 /// <summary>Recipe display facts loaded from <c>recipes.recipe</c>.</summary>
+/// <param name="HasPhoto">
+/// True when a row exists in <c>recipes.recipe_photo</c> for this recipe (plantry-tyvg) — used to
+/// render the real recipe photo on meal plan tiles instead of the gradient placeholder.
+/// </param>
 public sealed record RecipeFact(
     Guid RecipeId,
     string Name,
-    int DefaultServings);
+    int DefaultServings,
+    bool HasPhoto = false);
 
 /// <summary>
 /// One ingredient row from <c>recipes.recipe_ingredient</c>.

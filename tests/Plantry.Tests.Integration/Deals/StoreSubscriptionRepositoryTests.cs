@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Plantry.Deals.Domain;
 using Plantry.Deals.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
 using Xunit;
 
@@ -85,6 +87,70 @@ public sealed class StoreSubscriptionRepositoryTests(PostgresFixture db) : IAsyn
         }
     }
 
+    // ── Cross-tenant boot due-check (plantry-rb36) ──────────────────────────────
+    // FlyerIngestionWorker's boot due-check reads MAX(last_pulled_at) across every household with NO
+    // tenant armed (mirrors HouseholdRepository.ListAllIdsAsync's carve-out — see RlsIsolationTests'
+    // ListAllIds_NoTenant_ReturnsAllHouseholds_ScopedReturnsOwn for the Identity twin of this proof).
+    // These run against the non-superuser app_user role with the real connection interceptor, so a
+    // passing test proves the AllowCrossHouseholdStoreSubscriptionRead RLS carve-out actually fires —
+    // not just the EF-layer IgnoreQueryFilters call.
+
+    [Fact(DisplayName =
+        "Cross-tenant boot due-check: no tenant sees the MAX last-pull across every household; a scoped tenant collapses to its own")]
+    public async Task GetLastPulledAtAcrossHouseholds_NoTenant_ReturnsOverallMax_ScopedReturnsOwnMax()
+    {
+        var householdAPulledAt = new FixedClock(new DateTimeOffset(2026, 7, 20, 9, 0, 0, TimeSpan.Zero));
+        var householdBPulledAt = new FixedClock(householdAPulledAt.UtcNow + TimeSpan.FromHours(6)); // the overall max
+
+        await using (var ctxA = NewRepoContext(_householdA))
+        {
+            var repo = new StoreSubscriptionRepository(ctxA);
+            var sub = await repo.FindByStoreAsync(_storeA);
+            sub!.RecordPull("flyer-a-1", householdAPulledAt);
+            await repo.SaveChangesAsync();
+        }
+
+        await using (var ctxB = NewRepoContext(_householdB))
+        {
+            var repo = new StoreSubscriptionRepository(ctxB);
+            var sub = await repo.FindByStoreAsync(_storeB);
+            sub!.RecordPull("flyer-b-1", householdBPulledAt);
+            await repo.SaveChangesAsync();
+        }
+
+        // No tenant armed — the worker's actual boot path — sees the overall max (household B's later pull).
+        var noTenant = new TenantContext();
+        await using (var unarmed = new DealsDbContext(
+            BuildAppUserOptions(new HouseholdRlsConnectionInterceptor(noTenant))))
+        {
+            var max = await new StoreSubscriptionRepository(unarmed).GetLastPulledAtAcrossHouseholdsAsync();
+            Assert.Equal(householdBPulledAt.UtcNow, max);
+        }
+
+        // Armed to household A (the misuse case) — RLS collapses the read to A's own max only, proving a
+        // stray tenant-scoped call can never see another household's pull timestamp.
+        var tenantA = new TenantContext();
+        tenantA.Set(_householdA.Value);
+        await using (var armed = new DealsDbContext(
+            BuildAppUserOptions(new HouseholdRlsConnectionInterceptor(tenantA))))
+        {
+            var max = await new StoreSubscriptionRepository(armed).GetLastPulledAtAcrossHouseholdsAsync();
+            Assert.Equal(householdAPulledAt.UtcNow, max);
+        }
+    }
+
+    [Fact(DisplayName = "Cross-tenant boot due-check: returns null when no subscription has ever recorded a pull")]
+    public async Task GetLastPulledAtAcrossHouseholds_NoPullsRecorded_ReturnsNull()
+    {
+        var noTenant = new TenantContext();
+        await using var unarmed = new DealsDbContext(
+            BuildAppUserOptions(new HouseholdRlsConnectionInterceptor(noTenant)));
+
+        var max = await new StoreSubscriptionRepository(unarmed).GetLastPulledAtAcrossHouseholdsAsync();
+
+        Assert.Null(max);
+    }
+
     private DealsDbContext NewRepoContext(HouseholdId household)
     {
         var options = new DbContextOptionsBuilder<DealsDbContext>()
@@ -93,6 +159,18 @@ public sealed class StoreSubscriptionRepositoryTests(PostgresFixture db) : IAsyn
         var ctx = new DealsDbContext(options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
+    }
+
+    private DbContextOptions<DealsDbContext> BuildAppUserOptions(IInterceptor interceptor) =>
+        new DbContextOptionsBuilder<DealsDbContext>()
+            .UseNpgsql(db.AppUserConnectionString)
+            .AddInterceptors(interceptor)
+            .Options;
+
+    /// <summary>A settable-time <see cref="IClock"/> so pull timestamps can be ordered deterministically.</summary>
+    private sealed class FixedClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = now;
     }
 }
 

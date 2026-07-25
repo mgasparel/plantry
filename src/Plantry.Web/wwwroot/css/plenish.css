@@ -1324,6 +1324,26 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .move-preview__arrow { color: var(--color-text-faint); margin: 0 6px; }
 .move-preview__note { font-size: var(--font-size-xs); color: var(--color-text-faint); }
 
+/* Receipt-context strip inside the amend sheet (ADR-023 A11) — where a mis-entered purchase came from.
+   Same surface-2/key-facts shape as .move-context above; reuses the receipt facsimile tone (mono line)
+   at sheet scale. Prototype: .preview/amend-purchase-entry.html. */
+.amend-context { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
+.amend-context__store { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-bottom: 4px; }
+.amend-context__line { font-family: var(--font-mono); font-size: 12.5px; display: flex; justify-content: space-between; gap: 12px; color: var(--color-text); }
+.amend-context__entered { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 6px; }
+.amend-context__entered b { color: var(--color-text); }
+
+/* Live "Effect of this fix" preview (ADR-023 A11) — what the fix changes, in user terms only (no
+   ledger/append-only language). Same dashed-border "not yet real" convention as .move-preview above. */
+.amend-preview { border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); padding: var(--space-4); margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.amend-preview__label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--color-text-faint); }
+.amend-preview__grid { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-5); align-items: baseline; }
+.amend-preview__k { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-muted); }
+.amend-preview__v { font-size: var(--font-size-sm); }
+.amend-preview__delta--add { color: var(--color-success); font-weight: 700; }
+.amend-preview__delta--remove { color: var(--color-danger); font-weight: 700; }
+.amend-preview__note { font-size: var(--font-size-xs); color: var(--color-text-faint); }
+
 .data-grid__action + .data-grid__action { margin-left: var(--space-2); }
 
 /* Icon-only row action (plantry-sjfn) — the quiet ghost-icon treatment for a trailing Actions cell
@@ -5003,7 +5023,7 @@ button.sadd svg { width: 13px; height: 13px; }
 .add-meal svg { width: 14px; height: 14px; }
 
 .mc-photo { position: relative; height: 76px; flex: none; background: var(--color-surface-2); }
-.mc-photo-img { position: absolute; inset: 0; }
+.mc-photo-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .mc-photo-img.placeholder { display: grid; place-items: center; color: rgba(255,255,255,.72); }
 .mc-photo-img.placeholder svg { width: 26px; height: 26px; }
 .mc-photo-scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(22,17,10,.5), transparent 56%); }
@@ -5087,8 +5107,8 @@ button.sadd svg { width: 13px; height: 13px; }
 /* Cooked badge on the photo — same shape/position family as .mc-soon, success-toned. */
 .mc-cooked { position: absolute; left: 7px; bottom: 7px; display: inline-flex; align-items: center; gap: 4px; background: var(--color-success); color: #fff; font-size: 10.5px; font-weight: 700; padding: 3px 7px; border-radius: 99px; box-shadow: var(--shadow-sm); }
 .mc-cooked svg { width: 12px; height: 12px; }
-/* Fully-cooked treatment — applies to whatever the card's photo element is (today: the placeholder
-   div below; a future real photo would carry the same .mc-photo-img class, cf. .today-meal-photo__img). */
+/* Fully-cooked treatment — applies to whatever the card's photo element is: the gradient
+   placeholder div, or the real recipe <img> (plantry-tyvg), both carrying .mc-photo-img. */
 .meal-card.cooked .mc-photo-img { filter: grayscale(.75) brightness(.9); }
 .meal-card.cooked .mc-dishes, .meal-card.cooked .mc-bodyfoot { opacity: .72; }
 

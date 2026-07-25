@@ -53,11 +53,24 @@
     }
     else
     {
-        @* Photo placeholder *@
+        @* Recipe photo (plantry-tyvg): the primary recipe dish — the first Recipe-kind dish in
+           ordinal order, mirroring Today's "primary recipe" convention (Today/Index.cshtml.cs) —
+           renders its stored photo via the Recipes photo endpoint when it has one. Every other
+           case (no dishes, product/note meals, a primary recipe with no photo) falls back to the
+           gradient placeholder so the tile never shows a broken-image icon. *@
+        var primaryDish = cookDishes.FirstOrDefault(d => d.Kind == Plantry.MealPlanning.Domain.DishKind.Recipe);
+        var showPhoto = primaryDish is not null && primaryDish.HasPhoto;
         <div class="mc-photo">
-            <div class="mc-photo-img placeholder" style="background:linear-gradient(152deg,oklch(0.72 0.09 150),oklch(0.5 0.12 150))">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h12a1 1 0 0 1 1 1v14H7a2 2 0 0 0-2 2V3Z" /><path d="M18 18v3H7a2 2 0 0 1-2-2" /><path d="M9 7h5M9 10h5" /></svg>
-            </div>
+            @if (showPhoto)
+            {
+                <img class="mc-photo-img" src="/Recipes/@primaryDish!.ItemId?handler=Photo" alt="@primaryDish.Name" loading="lazy" />
+            }
+            else
+            {
+                <div class="mc-photo-img placeholder" style="background:linear-gradient(152deg,oklch(0.72 0.09 150),oklch(0.5 0.12 150))">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h12a1 1 0 0 1 1 1v14H7a2 2 0 0 0-2 2V3Z" /><path d="M18 18v3H7a2 2 0 0 1-2-2" /><path d="M9 7h5M9 10h5" /></svg>
+                </div>
+            }
             <div class="mc-photo-scrim"></div>
             @* Use-soon badge — shown when any ingredient expires within the per-household expiring-soon horizon (P3-4) *@
             @if (enr is not null && enr.HasExpiringIngredients)

@@ -127,6 +127,15 @@ internal sealed class FakeProvenanceReader : IStockProvenanceReader
     }
 }
 
+/// <summary>Always-empty <see cref="IAmendableLineReader"/> stand-in — no lot in this fixture is ever
+/// amendable as far as this test cares (it isolates the provenance-chip href concern, not Amend).</summary>
+internal sealed class FakeEmptyAmendableLineReader : IAmendableLineReader
+{
+    public Task<IReadOnlyDictionary<Guid, Guid>> ResolveAsync(
+        IReadOnlyList<Guid> stockEntryIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, Guid>>(new Dictionary<Guid, Guid>());
+}
+
 /// <summary>In-memory <see cref="IUnitRepository"/> that always reports no units — the Detail GET path
 /// never calls it, but the page constructor still requires one registered.</summary>
 internal sealed class FakeEmptyUnitRepository : IUnitRepository
@@ -178,6 +187,14 @@ internal sealed class ProvenanceChipHrefFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IStockProvenanceReader>();
             services.AddSingleton<IStockProvenanceReader>(new FakeProvenanceReader());
+
+            // ADR-023 §6/A11: the fixture's Intake-sourced Purchase row now also triggers the "Amend"
+            // eligibility reverse-lookup — the real adapter needs Plantry.Intake's EF-backed
+            // IImportSessionRepository (a live Postgres connection), which this DB-less factory
+            // deliberately never wires. This test doesn't exercise Amend at all, so an always-empty
+            // stand-in is enough.
+            services.RemoveAll<IAmendableLineReader>();
+            services.AddSingleton<IAmendableLineReader>(new FakeEmptyAmendableLineReader());
 
             // plantry-3fqm: Detail's GET path now also resolves the current effective price (source-
             // agnostic to this test) and the household display currency. Both real implementations hit

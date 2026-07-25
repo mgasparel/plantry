@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
+using Plantry.Intake.Application;
+using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Pricing.Application;
@@ -26,12 +28,16 @@ public sealed class DetailModel(
     IUnitRepository units,
     ILocationRepository locations,
     IStockProvenanceReader provenance,
+    IAmendableLineReader amendableLineReader,
     IPriceObservationRepository priceRepository,
     IUnitPriceCalculator priceCalculator,
     PricingQueries pricingQueries,
     ProductQueryService catalogProducts,
     RecipesUsingProductQuery recipeUsages,
     DisplayCurrencyAccessor displayCurrency,
+    IImportSessionRepository sessions,
+    IAmendStockPort amendStock,
+    IAmendPricePort amendPrice,
     IClock clock,
     ITenantContext tenant,
     ILogger<ConsumeStockCommand> consumeLogger,
@@ -40,7 +46,8 @@ public sealed class DetailModel(
     ILogger<RecordObservationCommand> priceLogger,
     ILogger<MarkStockOpenedCommand> markOpenedLogger,
     ILogger<UnmarkStockOpenedCommand> unmarkOpenedLogger,
-    ILogger<TransferStockCommand> transferLogger) : PageModel
+    ILogger<TransferStockCommand> transferLogger,
+    ILogger<AmendCommittedLineCommand> amendLogger) : PageModel
 {
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
@@ -64,6 +71,16 @@ public sealed class DetailModel(
     /// </summary>
     public IReadOnlyDictionary<Guid, ProvenanceChip> Chips { get; private set; } =
         new Dictionary<Guid, ProvenanceChip>();
+
+    /// <summary>
+    /// Which Purchase rows on <see cref="Detail"/>'s History grid earn the "Amend" action (ADR-023 §6/A11)
+    /// — keyed by the row's <see cref="StockJournalRow.StockEntryId"/>, mapped to the committed
+    /// <c>ImportLine</c> id the sheet ultimately amends. A row absent from this dictionary is either not
+    /// a Purchase row or not intake-sourced (a manually-added lot), so no action renders for it —
+    /// eligibility (closed-by-Correction / below-consumed) is evaluated separately, when the sheet opens.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, Guid> AmendableLines { get; private set; } =
+        new Dictionary<Guid, Guid>();
 
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
 
@@ -94,6 +111,18 @@ public sealed class DetailModel(
     /// data the Move sheet's Alpine component needs for its live split/effect preview. Null outside
     /// those two handlers.</summary>
     public MoveSheetViewModel? MoveSheet { get; private set; }
+
+    /// <summary>Fixes a mis-entered purchase quantity (ADR-023, spec A11) — one quantity field, the unit
+    /// is fixed (shown as a suffix, never editable; a unit/product mistake is re-commit territory, out of
+    /// scope). <see cref="EntryId"/> is the lot's <c>StockEntryId</c>, carried as a hidden field so a
+    /// failed submit can re-resolve the same committed line and eligibility on reload.</summary>
+    [BindProperty]
+    public AmendInputModel AmendInput { get; set; } = new();
+
+    /// <summary>Populated by <see cref="OnGetAmendSheetAsync"/>/<see cref="ReloadAmendSheetAsync"/> — the
+    /// data the Amend sheet needs, including the blocked/explaining state (ADR-023 A4-iv). Null outside
+    /// those two handlers.</summary>
+    public AmendSheetViewModel? AmendSheet { get; private set; }
 
     public sealed class ConsumeInputModel
     {
@@ -166,6 +195,18 @@ public sealed class DetailModel(
         public decimal? Quantity { get; set; }
     }
 
+    /// <summary>The corrected receipt quantity (ADR-023 A11) — <see cref="EntryId"/> travels as a hidden
+    /// field, not user input (mirrors <see cref="MoveInputModel.EntryId"/>), so it carries no
+    /// <c>[Required]</c> validation message; the handlers guard it directly.</summary>
+    public sealed class AmendInputModel
+    {
+        public Guid? EntryId { get; set; }
+
+        [Required(ErrorMessage = "Enter a quantity.")]
+        [Range(0.000001, double.MaxValue, ErrorMessage = "Quantity must be greater than zero.")]
+        public decimal? Quantity { get; set; }
+    }
+
     public async Task<IActionResult> OnGetAsync(Guid id)
     {
         ProductId = id;
@@ -212,7 +253,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: notice, Chips));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: notice, Chips, AmendableLines));
     }
 
     /// <summary>
@@ -249,7 +290,7 @@ public sealed class DetailModel(
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
         var notice = result.IsFailure ? result.Error.Description : null;
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice, Chips));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice, Chips, AmendableLines));
     }
 
     /// <summary>
@@ -355,7 +396,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines));
     }
 
     private async Task<IActionResult> ReloadMoveSheetAsync(Guid id, Guid entryId)
@@ -437,6 +478,125 @@ public sealed class DetailModel(
             defaultDestinationId);
     }
 
+    /// <summary>
+    /// Opens the Amend sheet (ADR-023 §6/A11) for one History Purchase row, keyed by the lot's
+    /// <c>StockEntryId</c> (<paramref name="entryId"/>) — the same value <see cref="AmendableLines"/>
+    /// resolved to render the action in the first place. Eligibility (closed-by-Correction) is evaluated
+    /// HERE, not at render time (spec: "never a disabled/hidden button") — a closed lot still opens the
+    /// sheet, just showing the explaining state instead of the form.
+    /// </summary>
+    public async Task<IActionResult> OnGetAmendSheetAsync(Guid id, Guid entryId)
+    {
+        ProductId = id;
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+
+        var sheet = await BuildAmendSheetAsync(id, entryId);
+        if (sheet is null) return NotFound();
+        AmendSheet = sheet;
+        AmendInput = new AmendInputModel
+        {
+            EntryId = entryId,
+            Quantity = sheet.PreviouslyFixedQuantity ?? sheet.EnteredQuantity,
+        };
+        return Partial("_AmendSheet", this);
+    }
+
+    /// <summary>
+    /// Submits the fix (ADR-023 A10 orchestration: amend stock → supersede price → mark the line →
+    /// save). Unlike this page's other sheets, success does NOT return an OOB <c>_StockDetail</c>
+    /// fragment — it follows the same PRG + toast pattern as <see cref="OnPostMarkOpenAsync"/> (the only
+    /// other action on this page that needs a save-toast), which also naturally refreshes the whole
+    /// History grid with the new Amendment row via the full navigation.
+    /// </summary>
+    public async Task<IActionResult> OnPostAmendAsync(Guid id)
+    {
+        ProductId = id;
+        ClearOtherSheetValidation(nameof(AmendInput));
+
+        if (AmendInput.EntryId is not { } entryId)
+            return NotFound();
+
+        if (!ModelState.IsValid)
+            return await ReloadAmendSheetAsync(id, entryId);
+
+        var lineResult = await new GetCommittedLineByJournalIdQuery(entryId, sessions, tenant).ExecuteAsync();
+        if (lineResult.IsFailure)
+            return NotFound();
+
+        var result = await new AmendCommittedLineCommand(
+            lineResult.Value.ImportLineId, AmendInput.Quantity!.Value, CurrentUserId,
+            sessions, amendStock, amendPrice, clock, tenant, amendLogger).ExecuteAsync();
+
+        if (result.IsFailure)
+        {
+            ModelState.AddModelError(string.Empty, result.Error.Description);
+            return await ReloadAmendSheetAsync(id, entryId);
+        }
+
+        var unitCode = (await catalog.GetUnitCodesAsync()).GetValueOrDefault(lineResult.Value.UnitId, "?");
+        TempData["ToastMessage"] = $"Purchase entry fixed — now {AmendInput.Quantity.Value.ToString("0.###")} {unitCode}";
+        Response.Headers["HX-Redirect"] = Url.Page("./Detail", new { id })!;
+        return new EmptyResult();
+    }
+
+    private async Task<IActionResult> ReloadAmendSheetAsync(Guid id, Guid entryId)
+    {
+        Detail = await queries.FindDetailAsync(id);
+        if (Detail is null) return NotFound();
+        var sheet = await BuildAmendSheetAsync(id, entryId);
+        if (sheet is null) return NotFound();
+        AmendSheet = sheet;
+        return Partial("_AmendSheet", this);
+    }
+
+    /// <summary>
+    /// Joins the Intake-side reverse lookup (<see cref="GetCommittedLineByJournalIdQuery"/>, everything
+    /// the sheet needs to display) with the Inventory-side ledger-semantic eligibility preview
+    /// (<see cref="InventoryQueryService.GetAmendEligibilityAsync"/>, the closed/guard facts) into the
+    /// one view model <c>_AmendSheet.cshtml</c> renders. Null when either resolves to nothing — the
+    /// Amend action shouldn't have rendered in the first place, but the sheet handler stays defensive
+    /// against a stale/tampered <paramref name="entryId"/>.
+    /// </summary>
+    private async Task<AmendSheetViewModel?> BuildAmendSheetAsync(Guid productId, Guid entryId)
+    {
+        var lineResult = await new GetCommittedLineByJournalIdQuery(entryId, sessions, tenant).ExecuteAsync();
+        if (lineResult.IsFailure) return null;
+        var line = lineResult.Value;
+
+        var eligibility = await queries.GetAmendEligibilityAsync(productId, entryId);
+        if (eligibility is null) return null;
+
+        var unitCode = (await catalog.GetUnitCodesAsync()).GetValueOrDefault(line.UnitId, "?");
+        var currency = await displayCurrency.GetAsync();
+
+        // A5/A4-iii share the same "explanation, not a hidden button" posture (§6): closed-by-Correction
+        // and depleted are both discovered here, at sheet-open, rather than only at submit from
+        // ProductStock.AmendPurchase's rejected result (Inventory.AmendmentClosedByCorrection /
+        // Inventory.LotNotActive). Same copy as the respective domain error — one message each, not a
+        // second slightly-different one to keep in sync.
+        var blocked = eligibility.ClosedByCorrection || eligibility.Depleted;
+        var blockedMessage = eligibility.ClosedByCorrection
+            ? "This product has been recounted since the purchase; the amendment window is closed. Use a recount (Take Stock) instead."
+            : eligibility.Depleted
+                ? "This lot has been fully used up and can no longer be amended."
+                : null;
+
+        return new AmendSheetViewModel(
+            entryId,
+            blocked,
+            blockedMessage,
+            line.MerchantText,
+            line.ReceiptDate.ToString("d MMM yyyy"),
+            line.ReceiptText,
+            line.Price,
+            line.Quantity,
+            line.AmendedQuantity,
+            eligibility.ConsumedTotal,
+            unitCode,
+            MoneyDisplay.Symbol(currency));
+    }
+
     public async Task<IActionResult> OnGetThresholdSheetAsync(Guid id)
     {
         ProductId = id;
@@ -473,7 +633,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines));
     }
 
     /// <summary>Opens the Add stock sheet (plantry-sjfn) — the zero-stock landing's primary CTA, also
@@ -515,7 +675,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines));
     }
 
     public async Task<IActionResult> OnGetSetPriceSheetAsync(Guid id)
@@ -626,6 +786,23 @@ public sealed class DetailModel(
             .Select(h => (h.JournalId, h.SourceType!.Value, h.SourceRef))
             .ToList();
         Chips = await provenance.ResolveAsync(candidates);
+
+        // ADR-023 §6/A11: batch-resolve which Purchase rows earn the "Amend" action, keyed by the lot
+        // (StockEntryId) each row belongs to — a different correlation key than the chips above (which
+        // key off the journal row's own id / SourceRef). Pre-filtered to SourceType.Intake — the only
+        // AddStock path that stamps it is the intake commit adapter, so a Purchase row of any other
+        // source type (Manual, or a legacy null) structurally cannot have a committed ImportLine behind
+        // it; skipping the reverse-lookup call entirely for those rows is both a real optimization and
+        // what keeps this call off the hot path for every Pantry Detail render that carries no intake
+        // history at all.
+        var purchaseEntryIds = detail.History
+            .Where(h => h.Reason == StockReason.Purchase && h.SourceType == StockSourceType.Intake)
+            .Select(h => h.StockEntryId)
+            .Distinct()
+            .ToList();
+        AmendableLines = purchaseEntryIds.Count == 0
+            ? new Dictionary<Guid, Guid>()
+            : await amendableLineReader.ResolveAsync(purchaseEntryIds);
     }
 
     private Task<Plantry.SharedKernel.Result<ConsumeOutcome>> Run(
@@ -706,7 +883,10 @@ public sealed class DetailModel(
 /// (receipt-intake-history.md H11) for the History grid's Source column, keyed by journal row id.</summary>
 public sealed record StockDetailPartialModel(
     ProductStockDetail Detail, bool Oob, string? Notice,
-    IReadOnlyDictionary<Guid, ProvenanceChip> Chips);
+    IReadOnlyDictionary<Guid, ProvenanceChip> Chips,
+    /// <summary>Which Purchase rows earn the "Amend" action (ADR-023 §6/A11) — see
+    /// <see cref="DetailModel.AmendableLines"/>.</summary>
+    IReadOnlyDictionary<Guid, Guid> AmendableLines);
 
 /// <summary>View model for the price-line fragment (plantry-3fqm). <see cref="Oob"/> drives the htmx
 /// out-of-band swap after a "Set price" submission — mirrors <see cref="StockDetailPartialModel.Oob"/>'s
@@ -759,3 +939,39 @@ public sealed record MoveSheetViewModel(
     string ThawNote,
     IReadOnlyList<MoveDestinationOption> Destinations,
     Guid DefaultDestinationId);
+
+/// <summary>
+/// View model for the Amend sheet (ADR-023 §6/A11) — everything <c>_AmendSheet.cshtml</c> needs,
+/// precomputed server-side (see <see cref="DetailModel.BuildAmendSheetAsync"/>): the receipt-provenance
+/// strip's facts (joined from Intake's <see cref="AmendableLine"/>) plus the Inventory-side ledger-
+/// semantic eligibility (<see cref="AmendEligibility"/>). The "Effect of this fix" preview itself is
+/// computed client-side (Alpine, mirrors <see cref="MoveSheetViewModel"/>'s precompute-then-let-Alpine-
+/// pick pattern) from <see cref="Price"/>/<see cref="EnteredQuantity"/>/<see cref="PreviouslyFixedQuantity"/>/
+/// <see cref="ConsumedTotal"/> — pure arithmetic, no round trip needed per keystroke.
+/// </summary>
+public sealed record AmendSheetViewModel(
+    Guid EntryId,
+    /// <summary>True once the amendment window is closed (ADR-023 A4-iv) — the sheet renders the
+    /// explaining/blocked state instead of the form (spec: never a disabled/hidden button).</summary>
+    bool Blocked,
+    /// <summary>Set only when <see cref="Blocked"/> — the same copy as the domain error
+    /// (<c>Inventory.AmendmentClosedByCorrection</c>).</summary>
+    string? BlockedMessage,
+    string? MerchantText,
+    string ReceiptDateDisplay,
+    string ReceiptLineText,
+    /// <summary>The receipt line's total price, or null if none was recorded — the unit-price row of the
+    /// preview is omitted client-side when this is null.</summary>
+    decimal? Price,
+    /// <summary>The quantity entered at review (spec: "entered as X").</summary>
+    decimal EnteredQuantity,
+    /// <summary>The most recent prior amendment, or null if never amended (spec: "· previously fixed to
+    /// Y", A3 repeats).</summary>
+    decimal? PreviouslyFixedQuantity,
+    /// <summary>Total already consumed from the lot — the below-consumed guard floor
+    /// (<c>Inventory.AmendBelowConsumed</c>), enforced client-side as the user types.</summary>
+    decimal ConsumedTotal,
+    string UnitCode,
+    /// <summary>The household's display-currency symbol (plantry-2x6e.2) — the preview never hardcodes a
+    /// dollar glyph.</summary>
+    string CurrencySymbol);

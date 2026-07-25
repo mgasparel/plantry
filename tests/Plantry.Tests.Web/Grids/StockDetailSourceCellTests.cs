@@ -14,7 +14,7 @@ namespace Plantry.Tests.Web.Grids;
 public sealed class StockDetailSourceCellTests
 {
     private static StockJournalRow Row(Guid journalId, StockSourceType? sourceType, Guid? sourceRef) =>
-        new(journalId, 1m, "ea", StockReason.Purchase, sourceType, sourceRef, DateTimeOffset.UtcNow);
+        new(journalId, 1m, "ea", StockReason.Purchase, sourceType, sourceRef, DateTimeOffset.UtcNow, Guid.NewGuid());
 
     // A stub hrefFor stands in for the Razor call site's Url.Page-backed builder (plantry-72c6):
     // SourceCell itself stays pure and doesn't know how a chip's ids turn into a URL.
