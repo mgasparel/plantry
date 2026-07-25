@@ -248,7 +248,7 @@ public sealed class IndexModel(
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var weekStart = week is not null && DateOnly.TryParse(week, out var parsed)
             ? DomainMealPlan.NormalizeToMonday(parsed)
-            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(DateTime.Today));
+            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(clock.UtcNow.UtcDateTime));
 
         // Ensure session is started and cookie issued so Session.Id is stable across requests.
         await EnsureSessionStartedAsync(ct);
@@ -264,12 +264,12 @@ public sealed class IndexModel(
         // Resolve scope date (L2 per-day scope targeting, P3-6b):
         //   • Per-day header buttons post scope=today&week=<that day's ISO date> — derive from week
         //     so clicking "Auto-fill Thursday" fills Thursday, not the live current date.
-        //   • Popover "Just today" posts scope=today with no explicit week — fall back to DateTime.Today.
+        //   • Popover "Just today" posts scope=today with no explicit week — fall back to the clock's today.
         //   • Whole-week (default): scopeDate stays null (all empty cells in the week).
         DateOnly? scopeDate = null;
         if (scope == "today")
         {
-            scopeDate = (week is not null && DateOnly.TryParse(week, out var sd)) ? sd : DateOnly.FromDateTime(DateTime.Today);
+            scopeDate = (week is not null && DateOnly.TryParse(week, out var sd)) ? sd : DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         }
 
         var storeKey = BuildStoreKey(householdId);
@@ -361,7 +361,7 @@ public sealed class IndexModel(
         // Normalise week so the override targets the correct Monday.
         var weekStart = week is not null && DateOnly.TryParse(week, out var parsed)
             ? DomainMealPlan.NormalizeToMonday(parsed)
-            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(DateTime.Today));
+            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(clock.UtcNow.UtcDateTime));
 
         // Resolve the submitted budget: positive value → Money stamped with the household's display
         // currency (plantry-2x6e.1); zero or null → clear.
@@ -622,7 +622,7 @@ public sealed class IndexModel(
     public async Task<IActionResult> OnPostShopAsync(CancellationToken ct = default)
     {
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var weekStart = DomainMealPlan.NormalizeToMonday(today);
 
         // Allow the week query param to be forwarded so "shop for another week" works too.
@@ -665,7 +665,7 @@ public sealed class IndexModel(
             var meal = plan?.PlannedMeals.FirstOrDefault(m => m.Id.Value == mealId.Value);
             if (meal is not null)
             {
-                var today = DateOnly.FromDateTime(DateTime.Today);
+                var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
                 var dishes = new List<EditorDishVm>();
                 foreach (var d in meal.PlannedDishes.OrderBy(d => d.Ordinal))
                 {
@@ -729,7 +729,7 @@ public sealed class IndexModel(
             initialRollupHtml = await RenderPartialToStringAsync("_EditorRollup", rollupVm, ct);
         }
 
-        var today2 = DateOnly.FromDateTime(DateTime.Today);
+        var today2 = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var dow = parsedDate.DayOfWeek.ToString()[..3];
         var monthDay = parsedDate.ToString("MMM d");
 
@@ -875,7 +875,7 @@ public sealed class IndexModel(
         // Build a transient in-memory meal for rollup projection only.
         // No SaveChangesAsync → no DB write.
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         // Use today as date for the rollup (not date-specific since we just need fulfillment)
         var rollupDate = today;
         var rollupSid = MealSlotId.From(Guid.NewGuid()); // ephemeral slot id — rollup only
@@ -908,7 +908,7 @@ public sealed class IndexModel(
     /// </summary>
     public async Task<IActionResult> OnGetSearchJsonAsync(string q, CancellationToken ct = default)
     {
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var recipes = await recipeReader.SearchAsync(q, 6, ct);
 
         var hits = new List<object>(recipes.Count);
@@ -953,7 +953,7 @@ public sealed class IndexModel(
 
     private async Task LoadWeekAsync(string? weekParam, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         ThisWeekStart = DomainMealPlan.NormalizeToMonday(today);
 
         WeekStart = weekParam is not null && DateOnly.TryParse(weekParam, out var parsed)
@@ -1340,7 +1340,7 @@ public sealed class IndexModel(
             WeekStart,
             clock);
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var insights = await planInsightsService.InspectAsync(
             effectivePlan,
             allCells,
@@ -1407,7 +1407,7 @@ public sealed class IndexModel(
         GhostEnrichments = [];
         if (PendingProposals.Count == 0) return Task.CompletedTask;
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         foreach (var (key, proposal) in PendingProposals)
         {
             var enrichment = BuildGhostEnrichmentFromBag(enricher, proposal, today);
@@ -1492,7 +1492,7 @@ public sealed class IndexModel(
             var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == pending.Date && m.MealSlotId == pending.MealSlotId);
             if (tempMeal is null) return null;
 
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
             var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
             var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
             return new MealFulfillmentVm(

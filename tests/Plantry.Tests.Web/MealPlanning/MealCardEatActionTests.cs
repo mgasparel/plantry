@@ -272,7 +272,7 @@ public sealed class EatActionMealPlanRepo : IMealPlanRepository
     public EatActionMealPlanRepo()
     {
         var clock = SharedSystemClock.Instance;
-        Today = DateOnly.FromDateTime(DateTime.Today);
+        Today = DateOnly.FromDateTime(SharedSystemClock.Instance.UtcNow.UtcDateTime);
         WeekMonday = MealPlan.NormalizeToMonday(Today);
 
         Plan = MealPlan.Start(_household, WeekMonday, clock);
