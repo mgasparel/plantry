@@ -99,7 +99,15 @@ public sealed record StockJournalRow(
     StockReason Reason,
     StockSourceType? SourceType,
     Guid? SourceRef,
-    DateTimeOffset OccurredAt);
+    DateTimeOffset OccurredAt,
+    /// <summary>
+    /// The lot this row belongs to (ADR-023 §6/A11) — <c>StockJournalEntry.StockEntryId</c>, exposed here
+    /// so the Web-side "Amend" reverse-lookup can key off it. NOT the same value as <see cref="JournalId"/>
+    /// (the journal row's own id): a Purchase row's <c>StockEntryId</c> is the lot it created, which is
+    /// exactly the value <c>ImportLine.JournalId</c> was stamped with by <c>CommitSessionCommand</c>
+    /// (confusingly named — see <c>AmendCommittedLineCommand</c>'s interpretation note, plantry-hitc).
+    /// </summary>
+    Guid StockEntryId);
 
 /// <summary>
 /// One row in the expiring-soon widget on the Today page (SPEC Page 0 §0d).
@@ -133,6 +141,21 @@ public sealed record ProductStockDetail(
     decimal? LowStockThreshold = null,
     /// <summary>True when <see cref="TotalQuantity"/> ≤ <see cref="LowStockThreshold"/> and a threshold is set.</summary>
     bool IsRunningLow = false);
+
+/// <summary>
+/// Ledger-semantic facts for the "Amend" sheet's eligibility preview (ADR-023 §6/A11) — see
+/// <see cref="InventoryQueryService.GetAmendEligibilityAsync"/>.
+/// </summary>
+/// <param name="ConsumedTotal">Total already consumed from the lot (Σ true removals, excluding prior
+/// Amendment rows) — the below-consumed guard floor (<c>Inventory.AmendBelowConsumed</c>).</param>
+/// <param name="ClosedByCorrection">True once any <see cref="StockReason.Correction"/> row exists on the
+/// product dated after the Purchase row — the amendment window is closed
+/// (<c>Inventory.AmendmentClosedByCorrection</c>); the sheet renders the explaining/blocked state.</param>
+/// <param name="Depleted">True when the lot itself is no longer active (consumed to zero, or the lot
+/// record is otherwise gone) — resurrecting a depleted lot is out of scope for v1 (spec acceptance #8,
+/// A4-iii); the sheet renders the same kind of explaining/blocked state as <see cref="ClosedByCorrection"/>
+/// rather than letting the user discover <c>Inventory.LotNotActive</c> only at submit time.</param>
+public sealed record AmendEligibility(decimal ConsumedTotal, bool ClosedByCorrection, bool Depleted);
 
 /// <summary>
 /// Builds the pantry list and product-stock detail read models. Inventory owns the lots/journal; the
@@ -382,7 +405,8 @@ public class InventoryQueryService(
                 j.Reason,
                 j.SourceType,
                 j.SourceRef,
-                j.OccurredAt))
+                j.OccurredAt,
+                j.StockEntryId.Value))
             .ToList();
 
         return new ProductStockDetail(
@@ -396,6 +420,50 @@ public class InventoryQueryService(
             CategoryHue: product?.CategoryHue,
             LowStockThreshold: stock.LowStockThreshold,
             IsRunningLow: stock.IsRunningLow(total));
+    }
+
+    /// <summary>
+    /// Read-only eligibility preview for the Pantry Product Detail "Amend" sheet (ADR-023 §6/A11) — the
+    /// ledger-semantic facts <see cref="ProductStock.AmendPurchase"/> itself guards on (A4), computed
+    /// here so the Web sheet can render the CLOSED explanation or the below-consumed guard message BEFORE
+    /// the user submits anything, rather than only discovering it from the command's rejected result.
+    /// Mirrors <c>AmendPurchase</c>'s own guard computations exactly (kept in sync by hand — both read the
+    /// same <see cref="ProductStock.Journal"/> shape); this method never mutates anything.
+    /// Returns null when <paramref name="entryId"/> has no Purchase row on this product's stock (a
+    /// manually-added lot, an id from another product, or no stock record at all).
+    /// </summary>
+    public async Task<AmendEligibility?> GetAmendEligibilityAsync(
+        Guid productId, Guid entryId, CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return null;
+
+        var stock = await stocks.FindWithHistoryAsync(HouseholdId.From(householdId), productId, ct);
+        if (stock is null)
+            return null;
+
+        var id = StockEntryId.From(entryId);
+        var purchaseRow = stock.Journal
+            .Where(j => j.StockEntryId == id && j.Reason == StockReason.Purchase)
+            .OrderBy(j => j.OccurredAt)
+            .FirstOrDefault();
+        if (purchaseRow is null)
+            return null;
+
+        var consumedTotal = stock.Journal
+            .Where(j => j.StockEntryId == id && j.Reason != StockReason.Amendment && j.Delta < 0m)
+            .Sum(j => -j.Delta);
+
+        var closedByCorrection = stock.Journal.Any(j =>
+            j.Reason == StockReason.Correction && j.OccurredAt > purchaseRow.OccurredAt);
+
+        // A depleted lot (consumed to zero) is out of scope for v1 (spec acceptance #8, A4-iii) — a
+        // missing lot record counts as depleted too, since ProductStock.AmendPurchase's own
+        // Inventory.LotNotFound guard would otherwise be the only thing catching it, and only at submit.
+        var lot = stock.Entries.FirstOrDefault(e => e.Id == id);
+        var depleted = lot is null || !lot.IsActive;
+
+        return new AmendEligibility(consumedTotal, closedByCorrection, depleted);
     }
 
     /// <summary>

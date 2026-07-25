@@ -18,7 +18,17 @@ public sealed record AmendableLine(
     Guid UnitId,
     decimal? AmendedQuantity,
     DateTimeOffset? AmendedAt,
-    string ReceiptText);
+    string ReceiptText,
+    /// <summary>The receipt line's total price (<see cref="ImportLine.Price"/>), null if none was
+    /// entered at review — the amend sheet's "Effect of this fix" unit-price preview is purely
+    /// informational client-side arithmetic (price ÷ quantity), so no Pricing dependency is needed here.</summary>
+    decimal? Price,
+    /// <summary>The owning session's merchant name, or null (sheet renders "Unknown store").</summary>
+    string? MerchantText,
+    /// <summary>The owning session's (possibly user-corrected) purchase date, falling back to the
+    /// session's creation date — mirrors <c>StockProvenanceReaderAdapter.ResolveIntakeAsync</c>'s same
+    /// date-display fallback.</summary>
+    DateOnly ReceiptDate);
 
 /// <summary>
 /// Reverse-lookup read for the web layer (ADR-023 §6): given the <see cref="ImportLine.JournalId"/> value
@@ -50,6 +60,13 @@ public sealed class GetCommittedLineByJournalIdQuery(
         if (productId is null || line.Quantity is null || line.UnitId is null)
             return Error.Custom("Intake.LineIncomplete", "This line is missing required fields to amend.");
 
+        // The session carries the receipt-context strip's display facts (merchant/date) — ImportLine
+        // itself doesn't. A missing session (shouldn't happen for a committed line) degrades gracefully
+        // to "Unknown store" / today, rather than failing the whole reverse lookup.
+        var session = await sessions.FindAsync(line.SessionId, ct);
+        var receiptDate = session?.PurchaseDate
+            ?? DateOnly.FromDateTime((session?.CreatedAt ?? DateTimeOffset.UtcNow).LocalDateTime);
+
         return new AmendableLine(
             line.Id.Value,
             line.SessionId.Value,
@@ -58,6 +75,9 @@ public sealed class GetCommittedLineByJournalIdQuery(
             line.UnitId.Value,
             line.AmendedQuantity,
             line.AmendedAt,
-            line.ReceiptText);
+            line.ReceiptText,
+            line.Price,
+            session?.MerchantText,
+            receiptDate);
     }
 }

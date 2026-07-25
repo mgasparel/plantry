@@ -63,7 +63,7 @@
    is exactly what recipe costing will pick up. OOB-refreshed by _PriceDisplay after a "Set price" submit. *@
 <partial name="_PriceDisplay" model="new Plantry.Web.Pages.Pantry.Products.PriceDisplayPartialModel(Model.PriceDisplayText, false)" />
 
-<partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null, Model.Chips)" />
+<partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null, Model.Chips, Model.AmendableLines)" />
 
 @* Product→recipes cross-context read (plantry-o0r8): every household recipe that directly references
    this product, either as an ingredient ("Used in") or as its declared cook yield ("Made by"). *@

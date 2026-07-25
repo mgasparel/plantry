@@ -1324,6 +1324,26 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .move-preview__arrow { color: var(--color-text-faint); margin: 0 6px; }
 .move-preview__note { font-size: var(--font-size-xs); color: var(--color-text-faint); }
 
+/* Receipt-context strip inside the amend sheet (ADR-023 A11) — where a mis-entered purchase came from.
+   Same surface-2/key-facts shape as .move-context above; reuses the receipt facsimile tone (mono line)
+   at sheet scale. Prototype: .preview/amend-purchase-entry.html. */
+.amend-context { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
+.amend-context__store { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-bottom: 4px; }
+.amend-context__line { font-family: var(--font-mono); font-size: 12.5px; display: flex; justify-content: space-between; gap: 12px; color: var(--color-text); }
+.amend-context__entered { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 6px; }
+.amend-context__entered b { color: var(--color-text); }
+
+/* Live "Effect of this fix" preview (ADR-023 A11) — what the fix changes, in user terms only (no
+   ledger/append-only language). Same dashed-border "not yet real" convention as .move-preview above. */
+.amend-preview { border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); padding: var(--space-4); margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.amend-preview__label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--color-text-faint); }
+.amend-preview__grid { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-5); align-items: baseline; }
+.amend-preview__k { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-muted); }
+.amend-preview__v { font-size: var(--font-size-sm); }
+.amend-preview__delta--add { color: var(--color-success); font-weight: 700; }
+.amend-preview__delta--remove { color: var(--color-danger); font-weight: 700; }
+.amend-preview__note { font-size: var(--font-size-xs); color: var(--color-text-faint); }
+
 .data-grid__action + .data-grid__action { margin-left: var(--space-2); }
 
 /* Icon-only row action (plantry-sjfn) — the quiet ghost-icon treatment for a trailing Actions cell

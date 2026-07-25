@@ -1,5 +1,6 @@
 @model Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel
 @using Plantry.Inventory.Application
+@using Plantry.Inventory.Domain
 @using Plantry.Web.Pages.Shared
 @{
     var id = Model.Detail.ProductId;
@@ -54,13 +55,23 @@
             new("Change"),
             new("Reason"),
             new("Source"),
+            new("", Align: GridAlign.End),
         ],
         Rows: [.. Model.Detail.History.Select(row => new GridRow(
         [
             GridCell.Text(row.OccurredAt.ToLocalTime().ToString("d MMM yyyy HH:mm")),
             GridCell.Text(DeltaText(row)),
+            // Amendment renders as plain text like every other reason (ADR-023 A11) — no badge.
             GridCell.Text(row.Reason.ToString()),
             DetailModel.SourceCell(row, Model.Chips, chip => DetailModel.HrefFor(chip, Url)),
+            // "Amend" — single entry point (ADR-023 §6/A11), rendered only when the reverse-lookup
+            // resolved a committed ImportLine for this row's lot (intake-sourced). Eligibility
+            // (closed-by-Correction / below-consumed) is evaluated when the sheet opens, not here.
+            row.Reason == StockReason.Purchase && Model.AmendableLines.ContainsKey(row.StockEntryId)
+                ? GridCell.Actions(GridAction.HxGet("Amend",
+                    Url.Page("./Detail", "AmendSheet", new { id, entryId = row.StockEntryId })!,
+                    "#sheet-host"))
+                : GridCell.Actions(),
         ]))],
         EmptyMessage: "No movements recorded yet.");
 }

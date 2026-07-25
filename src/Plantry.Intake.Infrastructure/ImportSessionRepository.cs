@@ -135,4 +135,22 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
         HouseholdId householdId, Guid journalId, CancellationToken ct = default) =>
         db.ImportLines.FirstOrDefaultAsync(
             l => l.HouseholdId == householdId && l.Status == LineStatus.Committed && l.JournalId == journalId, ct);
+
+    public async Task<IReadOnlyDictionary<Guid, Guid>> FindCommittedLineIdsByJournalIdsAsync(
+        HouseholdId householdId, IReadOnlyCollection<Guid> journalIds, CancellationToken ct = default)
+    {
+        if (journalIds.Count == 0)
+            return new Dictionary<Guid, Guid>();
+
+        // EF translates Contains against a value-converted id column as a SQL IN (...) clause (mirrors
+        // FindLinesForProvenanceAsync above).
+        var wanted = journalIds.ToHashSet();
+        var rows = await db.ImportLines
+            .Where(l => l.HouseholdId == householdId && l.Status == LineStatus.Committed &&
+                        l.JournalId != null && wanted.Contains(l.JournalId.Value))
+            .Select(l => new { l.Id, JournalId = l.JournalId!.Value })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(r => r.JournalId, r => r.Id.Value);
+    }
 }

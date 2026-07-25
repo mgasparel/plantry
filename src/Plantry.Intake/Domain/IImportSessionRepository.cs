@@ -109,4 +109,30 @@ public interface IImportSessionRepository
     /// </summary>
     Task<ImportLine?> FindCommittedLineByJournalIdAsync(
         HouseholdId householdId, Guid journalId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batch form of <see cref="FindCommittedLineByJournalIdAsync"/> (ADR-023 §6) — the Pantry Product
+    /// Detail History grid's render pass needs to know, for every Purchase row on the page in one shot,
+    /// whether it earns the "Amend" action, rather than issuing one query per row. Returns each matched
+    /// journalId mapped to its committed line's own id; a journalId with no committed line is simply
+    /// absent from the result (mirrors <see cref="FindCommittedLineByJournalIdAsync"/>'s null-means-
+    /// unresolvable semantics).
+    ///
+    /// <para>Default implementation loops <see cref="FindCommittedLineByJournalIdAsync"/> per id, so
+    /// existing test doubles need not reimplement it (same default-interface-method precedent as
+    /// <c>IProductStockRepository.ListProductIdsWithStockAsync</c>); the EF repository overrides this
+    /// with one batched query.</para>
+    /// </summary>
+    async Task<IReadOnlyDictionary<Guid, Guid>> FindCommittedLineIdsByJournalIdsAsync(
+        HouseholdId householdId, IReadOnlyCollection<Guid> journalIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, Guid>();
+        foreach (var journalId in journalIds)
+        {
+            var line = await FindCommittedLineByJournalIdAsync(householdId, journalId, ct);
+            if (line is not null)
+                result[journalId] = line.Id.Value;
+        }
+        return result;
+    }
 }
