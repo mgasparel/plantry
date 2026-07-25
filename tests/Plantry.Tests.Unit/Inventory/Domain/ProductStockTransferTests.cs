@@ -97,9 +97,108 @@ public sealed class ProductStockTransferTests
         Assert.Equal(2m, newLot.Quantity);
         Assert.Equal(Unit, newLot.UnitId);
         Assert.Equal(Day(-1), newLot.PurchasedAt);
+        Assert.False(newLot.IsOpen); // Freeze is a transition — IsOpen stays default false (plantry-xw4m)
 
         // Quantities sum to the original.
         Assert.Equal(5m, lot.Quantity + newLot.Quantity);
+    }
+
+    [Fact(DisplayName = "Partial thaw split: the moved portion is not open (regression — a transition split never inherits IsOpen)")]
+    public void Partial_Thaw_Splits_NewLotNotOpen()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(5m, Unit, Freezer, User, clock, expiryDate: Day(90));
+
+        var result = stock.Transfer(
+            lot.Id, Fridge, sourceIsFrozen: true, destinationIsFrozen: false,
+            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+
+        Assert.True(result.IsSuccess);
+        var newLot = stock.Entries.Single(e => e.Id == result.Value.SplitEntryId!.Value);
+        Assert.NotNull(newLot.ThawedAt);
+        Assert.False(newLot.IsOpen);
+    }
+
+    // ── Partial Move split inherits source provenance (plantry-xw4m) ────────────
+
+    [Fact(DisplayName = "Partial Move split (frozen→frozen): the moved lot inherits the source's FrozenAt verbatim, not null and not now")]
+    public void Partial_Move_FrozenToFrozen_MovedLotInheritsFrozenAt()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(5m, Unit, Fridge, User, clock, expiryDate: Day(90), purchasedAt: Day(-1));
+
+        // Freeze the full lot first so it carries a real FrozenAt.
+        stock.Transfer(
+            lot.Id, Freezer, sourceIsFrozen: false, destinationIsFrozen: true,
+            quantity: 5m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+        var frozenAt = lot.FrozenAt;
+        Assert.NotNull(frozenAt);
+
+        clock.Advance(TimeSpan.FromMinutes(5));
+        var otherFreezer = Guid.NewGuid();
+        var result = stock.Transfer(
+            lot.Id, otherFreezer, sourceIsFrozen: true, destinationIsFrozen: true,
+            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TransferKind.Move, result.Value.Kind);
+        Assert.NotNull(result.Value.SplitEntryId);
+
+        // Source remainder: FrozenAt/ThawedAt/IsOpen unchanged.
+        Assert.Equal(frozenAt, lot.FrozenAt);
+        Assert.Null(lot.ThawedAt);
+        Assert.False(lot.IsOpen);
+
+        // Moved portion: inherits the source's FrozenAt verbatim — not null, not the move's `now`.
+        var newLot = stock.Entries.Single(e => e.Id == result.Value.SplitEntryId!.Value);
+        Assert.Equal(frozenAt, newLot.FrozenAt);
+        Assert.NotEqual(clock.UtcNow, newLot.FrozenAt);
+    }
+
+    [Fact(DisplayName = "Partial Move split (previously-thawed lot): the moved lot inherits the source's ThawedAt verbatim")]
+    public void Partial_Move_PreviouslyThawed_MovedLotInheritsThawedAt()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(5m, Unit, Freezer, User, clock, expiryDate: Day(90));
+
+        // Thaw the full lot first so it carries a real ThawedAt.
+        stock.Transfer(
+            lot.Id, Fridge, sourceIsFrozen: true, destinationIsFrozen: false,
+            quantity: 5m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+        var thawedAt = lot.ThawedAt;
+        Assert.NotNull(thawedAt);
+
+        clock.Advance(TimeSpan.FromMinutes(5));
+        var result = stock.Transfer(
+            lot.Id, Pantry, sourceIsFrozen: false, destinationIsFrozen: false,
+            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TransferKind.Move, result.Value.Kind);
+
+        var newLot = stock.Entries.Single(e => e.Id == result.Value.SplitEntryId!.Value);
+        Assert.Equal(thawedAt, newLot.ThawedAt);
+        Assert.Equal(thawedAt, lot.ThawedAt); // source remainder unchanged
+    }
+
+    [Fact(DisplayName = "Partial Move split (ambient→ambient, opened lot): the moved lot keeps IsOpen == true")]
+    public void Partial_Move_AmbientToAmbient_OpenedLot_MovedLotKeepsIsOpen()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(5m, Unit, Fridge, User, clock, expiryDate: Day(14));
+        stock.MarkOpened(lot.Id, dueDaysAfterOpening: null, clock);
+        Assert.True(lot.IsOpen);
+
+        var result = stock.Transfer(
+            lot.Id, Pantry, sourceIsFrozen: false, destinationIsFrozen: false,
+            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TransferKind.Move, result.Value.Kind);
+
+        var newLot = stock.Entries.Single(e => e.Id == result.Value.SplitEntryId!.Value);
+        Assert.True(newLot.IsOpen);
+        Assert.True(lot.IsOpen); // source remainder unchanged
     }
 
     // ── Plain move ────────────────────────────────────────────────────────────────
