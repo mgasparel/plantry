@@ -223,6 +223,113 @@ public sealed class UnitConverterTests
         Assert.True(result.IsSuccess);
         Assert.Equal(120m, result.Value);
     }
+
+    // ── plantry-xddq: multi-hop graph-walk composition ─────────────────────────
+
+    /// <summary>
+    /// plantry-xddq bug-report shape exactly: product 019f9a21-... has cup=105g, srv=0.75cup,
+    /// pk=600g on file — no direct srv↔pk conversion. Converting srv → pk must chain THREE
+    /// edges (srv --same-dimension--> cup is wrong; srv/cup are both Count/Volume respectively
+    /// via the conversion, so the real path is srv --conv--> cup --conv--> g --conv(inverse)--> pk)
+    /// rather than colliding on the old same-dimension Count fast path.
+    /// </summary>
+    [Fact]
+    public void MultiHopProductConversions_Compose_Through_SharedPivotUnit()
+    {
+        var cups = MakeUnit("cup", Dimension.Volume, 240m);
+        var grams = MakeUnit("g", Dimension.Mass, 1m, isBase: true);
+        var servings = MakeUnit("srv", Dimension.Count, 1m, isBase: true);
+        var packs = MakeUnit("pk", Dimension.Count, 1m, isBase: true);
+        var product = Product.Create(HouseholdId, "Oat Bar", servings.Id, SystemClock.Instance);
+        var cupToGrams = MakeConversion(product, cups.Id, grams.Id, 105m);       // 1 cup = 105 g
+        var srvToCup = MakeConversion(product, servings.Id, cups.Id, 0.75m);     // 1 srv = 0.75 cup
+        var pkToGrams = MakeConversion(product, packs.Id, grams.Id, 600m);       // 1 pk = 600 g
+        var allUnits = new[] { cups, grams, servings, packs };
+        var allConversions = new[] { cupToGrams, srvToCup, pkToGrams };
+
+        // 1 srv = 0.75 cup = 0.75 * 105 g = 78.75 g; 78.75 g / 600 g/pk = 0.13125 pk.
+        var srvToPk = UnitConverter.Convert(1m, servings.Id.Value, packs.Id.Value, allUnits, allConversions);
+        Assert.True(srvToPk.IsSuccess);
+        Assert.Equal(0.13125m, srvToPk.Value);
+
+        // g -> srv: 105 g -> 1 cup -> 1/0.75 srv = 1.3333... srv.
+        var gToSrv = UnitConverter.Convert(105m, grams.Id.Value, servings.Id.Value, allUnits, allConversions);
+        Assert.True(gToSrv.IsSuccess);
+        Assert.Equal(1m / 0.75m, gToSrv.Value);
+
+        // pk -> srv (both directions of the 3-hop chain): 1 pk = 600 g = 600/105 cup = /0.75 srv.
+        var pkToSrv = UnitConverter.Convert(1m, packs.Id.Value, servings.Id.Value, allUnits, allConversions);
+        Assert.True(pkToSrv.IsSuccess);
+        Assert.Equal(600m / 105m / 0.75m, pkToSrv.Value);
+    }
+
+    /// <summary>
+    /// Regression for the exact collision this bug report root-caused: two DIFFERENT
+    /// Dimension.Count units on the same product, with NO ProductConversion linking them, must
+    /// fail loudly — not silently return fromUnit.FactorToBase / toUnit.FactorToBase (which
+    /// defaults to 1/1 = 1 for freshly-created units, i.e. a bogus "1:1" conversion).
+    /// </summary>
+    [Fact]
+    public void TwoDistinctCountUnits_WithNoConnectingConversion_FailsLoudly()
+    {
+        var servings = MakeUnit("srv", Dimension.Count, 1m, isBase: true);
+        var packs = MakeUnit("pk", Dimension.Count, 1m);
+
+        var result = UnitConverter.Convert(1m, servings.Id.Value, packs.Id.Value, [servings, packs], []);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
+    }
+
+    /// <summary>
+    /// Same collision, but with non-trivial FactorToBase values on the Count units, to prove the
+    /// fail-loud path isn't merely an artifact of both units defaulting to factor 1.
+    /// </summary>
+    [Fact]
+    public void TwoDistinctCountUnits_WithDifferentFactorToBase_StillFailLoudly_NotByCoincidence()
+    {
+        var dozens = MakeUnit("dz", Dimension.Count, 12m);
+        var each = MakeUnit("each", Dimension.Count, 1m, isBase: true);
+        var cases = MakeUnit("case", Dimension.Count, 24m);
+
+        var result = UnitConverter.Convert(1m, dozens.Id.Value, cases.Id.Value, [dozens, each, cases], []);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
+    }
+
+    /// <summary>
+    /// A Count unit remains freely convertible with itself (identity short-circuit) even though
+    /// Count no longer gets a free same-dimension edge to OTHER Count units.
+    /// </summary>
+    [Fact]
+    public void SameCountUnit_StillResolvesToIdentity()
+    {
+        var servings = MakeUnit("srv", Dimension.Count, 1m, isBase: true);
+
+        var result = UnitConverter.Convert(3m, servings.Id.Value, servings.Id.Value, [servings], []);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3m, result.Value);
+    }
+
+    /// <summary>
+    /// A Count unit CAN still reach another Count unit when a ProductConversion explicitly
+    /// connects them directly (not merely via a shared-dimension freebie).
+    /// </summary>
+    [Fact]
+    public void TwoDistinctCountUnits_WithDirectProductConversion_Resolve()
+    {
+        var servings = MakeUnit("srv", Dimension.Count, 1m, isBase: true);
+        var packs = MakeUnit("pk", Dimension.Count, 1m);
+        var product = Product.Create(HouseholdId, "Snack Bar", servings.Id, SystemClock.Instance);
+        var conversion = MakeConversion(product, packs.Id, servings.Id, 6m); // 1 pk = 6 srv
+
+        var result = UnitConverter.Convert(2m, packs.Id.Value, servings.Id.Value, [servings, packs], [conversion]);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(12m, result.Value);
+    }
 }
 
 /// <summary>
