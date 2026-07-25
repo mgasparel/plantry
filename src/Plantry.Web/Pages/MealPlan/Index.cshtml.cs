@@ -1133,13 +1133,21 @@ public sealed class IndexModel(
 
                     foreach (var dish in meal.PlannedDishes)
                     {
+                        // plantry-2ics: a dish already cooked/eaten must not contribute to the
+                        // "Use soon" badge — its expiring ingredients have already been consumed.
+                        // A dish id present in cookStatusByDish is done (see
+                        // IMealPlanCookStatusReader.GetStatusesAsync); only the badge gate is
+                        // affected — fulfillment% and cost still roll up every dish in the meal
+                        // regardless of cook status.
+                        var dishIsConsumed = cookStatusByDish.ContainsKey(dish.Id.Value);
+
                         if (dish.RecipeId.HasValue)
                         {
                             var dishEnr = enricher.Enrich(dish.RecipeId.Value, dish.Servings, today);
                             if (dishEnr is not null)
                             {
                                 totalFulfillmentPct += dishEnr.FulfillmentPercent;
-                                if (dishEnr.HasExpiringIngredients) hasExpiring = true;
+                                if (dishEnr.HasExpiringIngredients && !dishIsConsumed) hasExpiring = true;
                                 if (dishEnr.TotalCost.HasValue)
                                 {
                                     mealCostAmount = (mealCostAmount ?? 0m) + dishEnr.TotalCost.Value;
@@ -1169,7 +1177,7 @@ public sealed class IndexModel(
                                 var dishCost = await costingService.RollUpMealAsync(singleDishMeal, ct);
 
                                 totalFulfillmentPct += dishFulfillment.FulfillmentPercent;
-                                if (dishFulfillment.HasExpiringIngredients) hasExpiring = true;
+                                if (dishFulfillment.HasExpiringIngredients && !dishIsConsumed) hasExpiring = true;
                                 if (dishCost.Amount.HasValue)
                                 {
                                     mealCostAmount = (mealCostAmount ?? 0m) + dishCost.Amount.Value;
