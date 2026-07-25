@@ -27,7 +27,15 @@ public interface IMealPlanPriceReader
 /// <param name="Quantity">Quantity purchased (in <see cref="UnitId"/>).</param>
 /// <param name="UnitId">Unit of the observation.</param>
 /// <param name="UnitPrice">
-/// Pre-computed price per single unit when available; prefer this over recomputing from Price/Quantity.
+/// Pricing's pre-computed price per BASE unit of the dimension (per gram, per ml — see
+/// <c>UnitPriceCalculatorAdapter</c>: <c>price / (quantity × unit.FactorToBase)</c>), if the
+/// normalisation succeeded (soft-fail per pricing.md resolved-call #2 — null means normalisation
+/// failed, not that the price is zero). This is <b>not</b> price per <see cref="UnitId"/> whenever
+/// that unit's <c>FactorToBase != 1</c> (kg, lb, L, ...) — it is a different, larger unit basis.
+/// <see cref="Plantry.MealPlanning.Domain.PlanCostingService"/> does not use this field for costing
+/// math (it derives cost from <see cref="Price"/> / <see cref="Quantity"/>, converted to the
+/// product's default unit); treat it as a display/persistence concern for other readers
+/// (plantry-9n7l — mirrors plantry-1oca's fix to <c>Plantry.Recipes.Application.PricePoint</c>).
 /// </param>
 public sealed record MealPlanPricePoint(
     Guid ProductId,

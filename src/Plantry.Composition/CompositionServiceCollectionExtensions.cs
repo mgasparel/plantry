@@ -73,6 +73,10 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<IMealPlanCatalogProductReader, MealPlanCatalogProductReaderAdapter>();
         services.AddScoped<IMealPlanStockReader, MealPlanStockReaderAdapter>();
         services.AddScoped<IMealPlanPriceReader, MealPlanPriceReaderAdapter>();
+        // Product-dish costing unit conversion (plantry-9n7l): converts a price observation's unit
+        // onto a product's default unit before PlanCostingService multiplies by Servings — mirrors
+        // Recipes' IUnitConverter wiring above, a separate MealPlanning-owned copy (DM-3).
+        services.AddScoped<IMealPlanUnitConverter, MealPlanUnitConverterAdapter>();
         services.AddScoped<IMealPlanShoppingWriter, MealPlanShoppingWriterAdapter>();
         services.AddScoped<IMealPlanExpiringStockReader, MealPlanExpiringStockReaderAdapter>();
         // Cook-status read port (plantry-0eut): joins Recipes CookEvent + Inventory journal — neither

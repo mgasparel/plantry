@@ -10,13 +10,18 @@ namespace Plantry.MealPlanning.Domain;
 ///
 /// Recipe dishes: borrows <c>CostPerServing × servings</c> from Recipes' read models via
 /// <see cref="IRecipeReadModel.GetEnrichmentAsync"/>. Product dishes: price × quantity via
-/// <see cref="IMealPlanPriceReader"/>. Note-meals contribute nothing.
+/// <see cref="IMealPlanPriceReader"/>, converting the observation's unit onto the product's default
+/// unit via <see cref="IMealPlanCatalogProductReader.FindDefaultUnitIdAsync"/> +
+/// <see cref="IMealPlanUnitConverter"/> before multiplying by <c>Servings</c> (plantry-9n7l). Note-meals
+/// contribute nothing.
 ///
 /// MealPlanning owns no costing engine — it rolls up what Recipes already computes (domain-model §1).
 /// </summary>
 public sealed class PlanCostingService(
     IRecipeReadModel recipeReader,
-    IMealPlanPriceReader priceReader)
+    IMealPlanPriceReader priceReader,
+    IMealPlanCatalogProductReader catalogReader,
+    IMealPlanUnitConverter unitConverter)
 {
     /// <summary>
     /// Computes the rolled-up cost for a single <see cref="PlannedMeal"/>.
@@ -83,29 +88,49 @@ public sealed class PlanCostingService(
             if (price is null)
                 return new DishCost(null, false);
 
-            // Use pre-computed UnitPrice when available; otherwise derive from Price / Quantity.
-            // KNOWN BUG (plantry-9n7l, follow-up to plantry-1oca): UnitPrice is Pricing's price per
-            // BASE unit of the dimension (per gram, per ml), not per price.UnitId — the same
-            // unit-basis mismatch CostingService.ComputeLineCore had, fixed in plantry-1oca. If the
-            // product's default unit (what dish.Servings is expressed in) has FactorToBase != 1
-            // (kg, lb, L), this line is wrong by that factor. Not fixed here — needs a conversion
-            // step this path doesn't have; see plantry-9n7l.
-            decimal unitPrice;
-            if (price.UnitPrice.HasValue)
+            // Always derive from Price / Quantity — price per ONE price.UnitId. Deliberately NOT
+            // price.UnitPrice: that field is Pricing's normalized price per BASE unit of the
+            // dimension (per gram, per ml), a different basis than price.UnitId whenever that unit's
+            // FactorToBase != 1 (kg, lb, L, ...). Using it directly understated kg/lb-priced product
+            // dishes by exactly that factor (~1000x for kg) — plantry-9n7l, the same unit-basis
+            // mismatch CostingService.ComputeLineCore had, fixed in plantry-1oca. See
+            // MealPlanPricePoint.UnitPrice's doc for the full explanation.
+            if (price.Quantity <= 0m)
+                return new DishCost(null, false); // degenerate observation — never fabricate a number
+
+            var unitPrice = price.Price / price.Quantity;
+
+            // dish.Servings = quantity in the product's DEFAULT unit (domain-model §3.3). A price
+            // observation can be recorded in a different unit than the default (e.g. a weight-priced
+            // Intake line records the receipt's resolved weight unit independent of the product's own
+            // default) — convert price.UnitId -> the default unit, mirroring CostingService's
+            // per-line conversion, before multiplying by Servings.
+            var defaultUnitId = await catalogReader.FindDefaultUnitIdAsync(dish.ProductId.Value, ct);
+            if (defaultUnitId is null)
+                return new DishCost(null, false); // product unresolvable — never fabricate a number
+
+            decimal costPerDefaultUnit;
+            if (price.UnitId == defaultUnitId.Value)
             {
-                unitPrice = price.UnitPrice.Value;
-            }
-            else if (price.Quantity > 0m)
-            {
-                unitPrice = price.Price / price.Quantity;
+                // Common case: the observation is already in the default unit — no conversion, no
+                // extra IO round trip.
+                costPerDefaultUnit = unitPrice;
             }
             else
             {
-                return new DishCost(null, false);
+                var conversion = await unitConverter.ConvertAsync(
+                    dish.ProductId.Value, 1m, price.UnitId, defaultUnitId.Value, ct);
+                if (conversion.IsFailure || conversion.Value <= 0m)
+                    // No conversion path — e.g. the default unit is mass/volume and the observation
+                    // was recorded in an incompatible unit, so "N default units" has no resolvable
+                    // magnitude. Never fabricate a number; flag the dish as unpriced instead.
+                    return new DishCost(null, false);
+
+                // conversion.Value = how many default units 1 price.UnitId converts to.
+                costPerDefaultUnit = unitPrice / conversion.Value;
             }
 
-            // dish.Servings = quantity in the product's default unit (domain-model §3.3)
-            var cost = unitPrice * dish.Servings;
+            var cost = costPerDefaultUnit * dish.Servings;
             return new DishCost(cost, false);
         }
 
