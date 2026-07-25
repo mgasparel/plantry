@@ -120,6 +120,47 @@ public sealed class MealCardEnrichmentTests(MealCardEnrichmentFactory factory)
         Assert.Contains("€12.50", text);
         Assert.DoesNotContain("$12.50", text);
     }
+
+    /// <summary>
+    /// plantry-tyvg: a meal tile whose primary recipe dish has a stored photo must render that
+    /// photo via the Recipes photo endpoint (an &lt;img&gt; carrying .mc-photo-img, lazy-loaded,
+    /// with the dish name as alt text) instead of the gradient placeholder.
+    /// </summary>
+    [Fact(DisplayName = "GET /MealPlan grid shows the real recipe photo when the dish has one (plantry-tyvg)")]
+    public async Task Get_MealPlan_Grid_Shows_Recipe_Photo_When_Present()
+    {
+        await using var photoFactory = new MealCardEnrichmentFactory(
+            useExpiring: false, fulfillmentPct: 100, totalCost: 8.00m, hasPhoto: true);
+        var client = photoFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EnrichmentFixture.HouseholdId.ToString());
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains($"<img class=\"mc-photo-img\" src=\"/Recipes/{EnrichmentFixture.RecipeId}?handler=Photo\"", html);
+        Assert.Contains("alt=\"Test Recipe\"", html);
+        Assert.Contains("loading=\"lazy\"", html);
+        Assert.DoesNotContain("mc-photo-img placeholder", html);
+    }
+
+    /// <summary>
+    /// plantry-tyvg: a dish with no stored photo must keep rendering the existing gradient
+    /// placeholder — no broken-image &lt;img&gt; tag.
+    /// </summary>
+    [Fact(DisplayName = "GET /MealPlan grid keeps the gradient placeholder when the dish has no photo (plantry-tyvg)")]
+    public async Task Get_MealPlan_Grid_Shows_Placeholder_When_No_Photo()
+    {
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EnrichmentFixture.HouseholdId.ToString());
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("mc-photo-img placeholder", html);
+        Assert.DoesNotContain("?handler=Photo", html);
+    }
 }
 
 [CollectionDefinition(nameof(MealCardEnrichmentCollection))]
@@ -135,6 +176,7 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
     private readonly int _fulfillmentPct;
     private readonly decimal _totalCost;
     private readonly string _displayCurrency;
+    private readonly bool _hasPhoto;
 
     /// <summary>
     /// Parameterless constructor required by xUnit collection fixtures (only a single
@@ -145,12 +187,14 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
         : this(useExpiring: true, fulfillmentPct: 80, totalCost: 12.50m) { }
 
     internal MealCardEnrichmentFactory(
-        bool useExpiring, int fulfillmentPct, decimal totalCost, string displayCurrency = "USD")
+        bool useExpiring, int fulfillmentPct, decimal totalCost, string displayCurrency = "USD",
+        bool hasPhoto = false)
     {
         _useExpiring = useExpiring;
         _fulfillmentPct = fulfillmentPct;
         _totalCost = totalCost;
         _displayCurrency = displayCurrency;
+        _hasPhoto = hasPhoto;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -195,7 +239,7 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
             // produce exactly (_fulfillmentPct, _totalCost, _useExpiring) without touching the DB.
             services.RemoveAll<IMealPlanWeekReadModel>();
             services.AddSingleton<IMealPlanWeekReadModel>(
-                new FakeEnrichmentWeekReadModel(_useExpiring, _fulfillmentPct, _totalCost));
+                new FakeEnrichmentWeekReadModel(_useExpiring, _fulfillmentPct, _totalCost, _hasPhoto));
 
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FakeCatalogProductReaderW(existsResult: true));
@@ -336,7 +380,8 @@ internal static class EnrichmentFixture
 /// Layout for 100 % / $8.00 / hasExpiring=false (2 tracked ingredients, both in stock):
 ///   - 2 ingredients × $4.00 unit-price each → $8.00 total cost
 /// </summary>
-internal sealed class FakeEnrichmentWeekReadModel(bool useExpiring, int fulfillmentPct, decimal totalCost)
+internal sealed class FakeEnrichmentWeekReadModel(
+    bool useExpiring, int fulfillmentPct, decimal totalCost, bool hasPhoto = false)
     : IMealPlanWeekReadModel
 {
     // Stable IDs shared by all builders.
@@ -371,7 +416,7 @@ internal sealed class FakeEnrichmentWeekReadModel(bool useExpiring, int fulfillm
 
         // Recipe: defaultServings=2 matches the meal plan fixture (servings=2).
         // scale = desiredServings / defaultServings = 2/2 = 1.0 — all quantities are net.
-        var recipeFact = new RecipeFact(EnrichmentFixture.RecipeId, "Test Recipe", 2);
+        var recipeFact = new RecipeFact(EnrichmentFixture.RecipeId, "Test Recipe", 2, hasPhoto);
         var recipes = new Dictionary<Guid, RecipeFact> { [EnrichmentFixture.RecipeId] = recipeFact };
 
         // Build ingredients, products, stock, prices based on the desired enrichment scenario.

@@ -1093,27 +1093,31 @@ public sealed class IndexModel(
                         string name;
                         DishKind kind;
                         Guid itemId;
+                        bool hasPhoto;
                         if (d.RecipeId.HasValue)
                         {
                             name = enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
                             kind = DishKind.Recipe;
                             itemId = d.RecipeId.Value;
+                            hasPhoto = enricher.GetRecipeHasPhoto(d.RecipeId.Value);
                         }
                         else if (d.ProductId.HasValue)
                         {
                             name = productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product");
                             kind = DishKind.Product;
                             itemId = d.ProductId.Value;
+                            hasPhoto = false; // product-dish photos are out of scope (plantry-tyvg)
                         }
                         else
                         {
                             name = "Unknown";
                             kind = DishKind.Recipe;
                             itemId = Guid.Empty;
+                            hasPhoto = false;
                         }
 
                         var status = cookStatusByDish.GetValueOrDefault(d.Id.Value);
-                        return new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At);
+                        return new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto);
                     })
                     .ToList();
                 var dishNames = dishVms.Select(v => v.Name).ToList();
@@ -1755,8 +1759,14 @@ public sealed class IndexModel(
     /// set the dish renders as done — a recipe dish's latest matching CookEvent's CookedAt, or a
     /// product dish's latest net-consuming Inventory journal movement's OccurredAt.
     /// </summary>
+    /// <param name="HasPhoto">
+    /// True when this is a recipe dish with a stored photo (plantry-tyvg) — always false for product
+    /// dishes (out of scope) and for recipes not carrying a photo. Gates the real <c>&lt;img&gt;</c>
+    /// on the meal tile vs. the gradient placeholder.
+    /// </param>
     public sealed record MealCardDishVm(
-        Guid DishId, DishKind Kind, Guid ItemId, string Name, int Servings, DateTimeOffset? CookedAt);
+        Guid DishId, DishKind Kind, Guid ItemId, string Name, int Servings, DateTimeOffset? CookedAt,
+        bool HasPhoto = false);
 
     public sealed record MealEditorVm(
         Guid? MealId,

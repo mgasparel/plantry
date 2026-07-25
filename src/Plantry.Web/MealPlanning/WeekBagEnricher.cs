@@ -49,6 +49,14 @@ internal sealed class WeekBagEnricher
         _bag.GetRecipe(recipeId)?.Name;
 
     /// <summary>
+    /// Returns true when the recipe has a stored photo (plantry-tyvg), or false when the recipe is
+    /// not loaded in the bag (e.g. archived between load and render) — the caller falls back to the
+    /// gradient placeholder in that case, same as a missing name.
+    /// </summary>
+    public bool GetRecipeHasPhoto(Guid recipeId) =>
+        _bag.GetRecipe(recipeId)?.HasPhoto ?? false;
+
+    /// <summary>
     /// Computes (or returns memoized) fulfillment+cost enrichment for a recipe dish.
     /// Returns null when the recipe is not in the bag (e.g. archived between load and render).
     /// </summary>
