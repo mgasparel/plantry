@@ -263,4 +263,38 @@ public sealed class ProductStockMarkOpenedTests
         var opened = Assert.Single(result.Value.AutoOpened);
         Assert.Equal(lotB.Id, opened.EntryId);
     }
+
+    [Fact(DisplayName = "A partial Correction reduce on a sealed lot does NOT auto-open it (plantry-3gyb)")]
+    public void Consume_Partial_Correction_Does_Not_AutoOpen()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(10m, Unit, Location, User, clock, expiryDate: Day(90));
+
+        var result = stock.Consume(
+            4m, Unit, StockReason.Correction, new IdentityQuantityConverter(), User, clock,
+            dueDaysAfterOpening: 5);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(lot.IsOpen);
+        Assert.Equal(Day(90), lot.ExpiryDate); // untouched — a miscount does not mean the package was opened
+        Assert.Equal(6m, lot.Quantity);
+        Assert.Empty(result.Value.AutoOpened);
+    }
+
+    [Fact(DisplayName = "A partial Discarded reduce on a sealed lot does NOT auto-open it (plantry-3gyb)")]
+    public void Consume_Partial_Discarded_Does_Not_AutoOpen()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(10m, Unit, Location, User, clock, expiryDate: Day(90));
+
+        var result = stock.Consume(
+            4m, Unit, StockReason.Discarded, new IdentityQuantityConverter(), User, clock,
+            dueDaysAfterOpening: 5);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(lot.IsOpen);
+        Assert.Equal(Day(90), lot.ExpiryDate); // untouched — discarding means you no longer care about expiry
+        Assert.Equal(6m, lot.Quantity);
+        Assert.Empty(result.Value.AutoOpened);
+    }
 }

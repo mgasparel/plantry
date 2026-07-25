@@ -184,7 +184,9 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(InWindow);
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
-            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock));
+            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
+            new FakeMealPlanCatalogProductReader(UnitId),
+            new IdentityMealPlanUnitConverter());
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
@@ -200,7 +202,9 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(AfterWindow);
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
-            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock));
+            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
+            new FakeMealPlanCatalogProductReader(UnitId),
+            new IdentityMealPlanUnitConverter());
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
@@ -227,7 +231,9 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(InWindow);
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
-            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock));
+            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
+            new FakeMealPlanCatalogProductReader(UnitId),
+            new IdentityMealPlanUnitConverter());
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
@@ -357,5 +363,30 @@ public sealed class DealAwareCostingAdapterTests
             => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
         public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
             => Task.FromResult(false);
+    }
+
+    /// <summary>Catalog reader whose default unit is always <see cref="UnitId"/> — the recipe/deal
+    /// fixtures in this file price every product in that same unit (identity conversion, plantry-9n7l).</summary>
+    private sealed class FakeMealPlanCatalogProductReader(Guid defaultUnitId) : IMealPlanCatalogProductReader
+    {
+        public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<MealPlanProductReadModel>>([]);
+        public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+        public Task<Guid?> FindDefaultUnitIdAsync(Guid productId, CancellationToken ct = default)
+            => Task.FromResult<Guid?>(defaultUnitId);
+    }
+
+    /// <summary>Identity unit converter for MealPlanning — never actually invoked in this file's
+    /// fixtures since every price observation is already recorded in the product's default unit.</summary>
+    private sealed class IdentityMealPlanUnitConverter : IMealPlanUnitConverter
+    {
+        public Task<Result<decimal>> ConvertAsync(
+            Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
+            Task.FromResult(fromUnitId == toUnitId
+                ? Result<decimal>.Success(amount)
+                : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No conversion path.")));
     }
 }

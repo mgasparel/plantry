@@ -62,4 +62,13 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
 
         return products.ToDictionary(p => p.Id.Value, p => p.Name);
     }
+
+    public async Task<Guid?> FindDefaultUnitIdAsync(Guid productId, CancellationToken ct = default)
+    {
+        // Same key-comparison caveat as ExistsAsync above.
+        var pid = ProductId.From(productId);
+        var product = await db.Products.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == pid && p.ArchivedAt == null, ct);
+        return product?.DefaultUnitId.Value;
+    }
 }

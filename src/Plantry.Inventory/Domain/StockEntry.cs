@@ -160,9 +160,13 @@ public sealed class StockEntry : Entity<StockEntryId>
     /// Creates the new lot a partial transfer's moved portion becomes (plantry-6owm rule 1) —
     /// inherits <paramref name="source"/>'s household/product/sku/unit/PurchasedAt, lands at
     /// <paramref name="destinationLocationId"/> with the already-recomputed <paramref name="expiryDate"/>,
-    /// and sets FrozenAt/ThawedAt per <paramref name="kind"/> (mirroring <see cref="MoveTo"/>'s own-field
-    /// independence — the new lot starts with neither set, then picks up whichever this transfer's kind
-    /// implies). Called only by the root, keeping the aggregate boundary intact.
+    /// and sets FrozenAt/ThawedAt/IsOpen per <paramref name="kind"/>: <see cref="TransferKind.Freeze"/>
+    /// and <see cref="TransferKind.Thaw"/> are state transitions, so the new lot starts with neither
+    /// FrozenAt/ThawedAt set (mirroring <see cref="MoveTo"/>) and picks up only the one this transfer's
+    /// kind implies, with IsOpen left at its default false. <see cref="TransferKind.Move"/> is NOT a
+    /// state transition — the moved portion is the same physical stuff as the remainder — so it instead
+    /// inherits the source lot's FrozenAt, ThawedAt, AND IsOpen verbatim (plantry-xw4m). Called only by
+    /// the root, keeping the aggregate boundary intact.
     /// </summary>
     internal static StockEntry CreateSplit(
         StockEntry source, decimal quantity, Guid destinationLocationId, DateOnly? expiryDate,
@@ -173,6 +177,13 @@ public sealed class StockEntry : Entity<StockEntryId>
             destinationLocationId, expiryDate, source.PurchasedAt, now);
         if (kind == TransferKind.Freeze) entry.FrozenAt = now;
         else if (kind == TransferKind.Thaw) entry.ThawedAt = now;
+        else if (kind == TransferKind.Move)
+        {
+            // Move is not a transition — the moved portion carries the source lot's provenance.
+            entry.FrozenAt = source.FrozenAt;
+            entry.ThawedAt = source.ThawedAt;
+            entry.IsOpen = source.IsOpen;
+        }
         return entry;
     }
 }

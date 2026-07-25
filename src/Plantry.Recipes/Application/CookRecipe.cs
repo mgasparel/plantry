@@ -161,7 +161,7 @@ public sealed class CookRecipe(
         // unit are used unchanged (854a, untouched below). When it does not, and the user is storing a
         // positive quantity, resolve — and persist onto the recipe via SetYield so future cooks skip the
         // prompt (Y1) — either the existing product the user picked or a freshly minted
-        // "«Recipe» (leftovers)" tracked product (unit = the household's count unit, "ea"). Resolution
+        // "«Recipe» (leftovers)" tracked product (unit = the household's serving unit, "srv"). Resolution
         // failure never blocks the cook (C8/R9 mirror): nothing is persisted, and the produce line staged
         // below carries Guid.Empty when nothing resolved — Inventory's own unknown-product check
         // (Catalog.UnknownProduct) then marks it Failed exactly like today's unknown-yield-product path.
@@ -204,8 +204,8 @@ public sealed class CookRecipe(
                 {
                     var leftoverName = $"{recipe.Name} (leftovers)";
                     var units = await products.ListUnitsAsync(ct);
-                    var countUnit = units.FirstOrDefault(u => u.Code == "ea")
-                        ?? throw new InvalidOperationException("No count unit available for the leftovers product.");
+                    var countUnit = units.FirstOrDefault(u => u.Code == "srv")
+                        ?? throw new InvalidOperationException("No serving unit available for the leftovers product.");
 
                     var matches = await products.SearchAsync(leftoverName, ct);
                     var match = matches.FirstOrDefault(m =>
@@ -244,6 +244,19 @@ public sealed class CookRecipe(
                 resolvedYieldUnitId ?? Guid.Empty,
                 command.StoredYieldExpiry);
 
+        // Blessed multi-aggregate co-commit (plantry-kw52, ADR-010): when the just-in-time yield
+        // resolution above called recipe.SetYield(...) (:182/:216), that Recipe-aggregate mutation is
+        // still tracked, unsaved, on this same scoped RecipesDbContext (recipes/cookEvents share one
+        // context, ctor above). The SaveChangesAsync below therefore flushes BOTH the Recipe (SetYield)
+        // and this CookEvent anchor in ONE transaction. This is intentional, not an oversight: it is
+        // part of the sanctioned cook-orchestration fan-out ADR-010 names, not the "each downstream call
+        // is its own transaction" case (that clause governs the Inventory/Shopping calls AFTER this
+        // anchor, not the anchor commit itself — see ADR-010's Recipes aggregate bullet and its
+        // 2026-07-25 amendment). No invariant spans Recipe and CookEvent, so atomicity is strictly
+        // desirable here: splitting SetYield into its own prior transaction would let a yield-product
+        // mapping persist for a cook that then fails to anchor (recorded a yield for a cook that never
+        // happened), while splitting it after would let the anchor commit while SetYield fails
+        // (cook happened, yield forgotten). One flush guarantees both are durable together or not at all.
         await cookEvents.AddAsync(cookEvent, ct);
         await cookEvents.SaveChangesAsync(ct); // ← anchor commit: CookEvent + Pending consume & produce lines are durable
 

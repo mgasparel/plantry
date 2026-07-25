@@ -101,16 +101,16 @@ public sealed class CookOnPostYieldCreationTests : IDisposable
 
         var created = Assert.Single(_factory.CatalogWriter.TrackedProductsCreated);
         Assert.Equal($"{_factory.Recipe.Name} (leftovers)", created.Name);
-        Assert.Equal(CookConfirmFixture.EachUnitId, created.DefaultUnitId);
+        Assert.Equal(CookConfirmFixture.ServingsUnitId, created.DefaultUnitId);
 
         var produceCall = Assert.Single(_factory.Producer.Calls);
         Assert.Equal(3m, produceCall.Quantity);
-        Assert.Equal(CookConfirmFixture.EachUnitId, produceCall.UnitId);
+        Assert.Equal(CookConfirmFixture.ServingsUnitId, produceCall.UnitId);
         Assert.Equal(new DateOnly(2026, 8, 1), produceCall.ExpiryDate);
 
         // Persisted onto the recipe — the next cook shows the normal declared-yield block, no prompt.
         Assert.Equal(produceCall.ProductId, _factory.Recipe.YieldProductId);
-        Assert.Equal(CookConfirmFixture.EachUnitId, _factory.Recipe.YieldUnitId);
+        Assert.Equal(CookConfirmFixture.ServingsUnitId, _factory.Recipe.YieldUnitId);
         Assert.True(_factory.Recipe.HasYield);
     }
 
@@ -147,7 +147,7 @@ public sealed class CookOnPostYieldCreationTests : IDisposable
 /// <see cref="WebApplicationFactory{TEntryPoint}"/> for the no-yield-product-gap OnPost tests
 /// (plantry-iejb). Uses the plain <see cref="CookConfirmFixture.Build"/> recipe (no declared yield) and
 /// wires <see cref="CookConfirmFixture.Units"/> so CookRecipe's just-in-time creation can resolve the
-/// household's "ea" count unit. Mirrors <see cref="CookYieldPostFactory"/>'s seam replacements.
+/// household's "srv" serving unit. Mirrors <see cref="CookYieldPostFactory"/>'s seam replacements.
 /// </summary>
 internal sealed class CookNoYieldPostFactory : WebApplicationFactory<Program>
 {

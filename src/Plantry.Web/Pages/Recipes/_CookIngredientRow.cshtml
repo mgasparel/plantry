@@ -24,6 +24,21 @@
     // Untracked row's amount reads the same simplified/sibling-unit display code as a tracked line when
     // available, falling back to the authored unit code (plantry-cbww).
     var untrackedUnitCode = line.DisplayUnitCode ?? line.UnitCode;
+    // "Use it up" (plantry-1dnk): the stepper's increase control additionally disables at the
+    // on-hand ceiling for an eligible line (a no-op for every other line — atUseUpCeiling() always
+    // returns false when this._onHand[lineKey] is undefined). Parenthesised so it composes safely
+    // with skippedExpr, which may itself already contain an ' || ' for inclusion lines.
+    var increaseDisabledExpr = line.IsUseUpEligible
+        ? $"({skippedExpr}) || atUseUpCeiling('{key}')"
+        : skippedExpr;
+    // Reactive class toggle on the modified-quantity display (plantry-1dnk): once snapped to the
+    // full on-hand amount, the override display gets a slightly stronger visual weight (matches
+    // the prototype's dispEl override styling). Raw/null so non-eligible lines emit no extra
+    // markup at all, mirroring skipDisabledAttr's pattern just above.
+    var useUpOverrideClassAttr = line.IsUseUpEligible
+        ? new Microsoft.AspNetCore.Html.HtmlString(
+            $":class=\"{{ 'cook-ing-row__qty-display--override': showUseUpChip('{key}') }}\"")
+        : null;
 }
 
 @if (line.IsUntracked)
@@ -114,7 +129,9 @@ else
                     @* DisplayQuantity is set whenever the line carries a unit (R5 makes qty/unit both-or-neither),
                        so the fallback only guards a defensive null — mirrors the Details row's decimal fallback. *@
                     <span class="cook-ing-row__qty-display" x-show="!isModified('@key')">@(line.DisplayQuantity ?? FormatQty(line.ScaledQuantity!.Value))@(string.IsNullOrEmpty(line.DisplayUnitCode) ? "" : " " + line.DisplayUnitCode)</span>
-                    <span class="cook-ing-row__qty-display" x-show="isModified('@key')" x-cloak><span x-text="quantity('@key')"></span>@(string.IsNullOrEmpty(line.UnitCode) ? "" : " " + line.UnitCode)</span>
+                    <span class="cook-ing-row__qty-display"
+                          x-show="isModified('@key')" x-cloak
+                          @useUpOverrideClassAttr><span x-text="quantity('@key')"></span>@(string.IsNullOrEmpty(line.UnitCode) ? "" : " " + line.UnitCode)</span>
                     <div class="cook-ing-row__qty-edit">
                         <stepper name=""
                                  value-bind="quantity('@key')"
@@ -123,7 +140,7 @@ else
                                  decrease-click="adjustQty('@key', -1)"
                                  decrease-disabled="@skippedExpr"
                                  increase-click="adjustQty('@key', 1)"
-                                 increase-disabled="@skippedExpr"
+                                 increase-disabled="@increaseDisabledExpr"
                                  decrease-label="Decrease"
                                  increase-label="Increase" />
                         @if (!string.IsNullOrEmpty(line.UnitCode))
@@ -131,6 +148,27 @@ else
                             <span class="cook-ing-row__unit">@line.UnitCode</span>
                         }
                     </div>
+
+                    @* "Use it up" (plantry-1dnk): inline pill (sliver zone) / confirmed chip (snapped to
+                       full on-hand), anchored to the qty control per the ratified prototype
+                       (.preview/1dnk-cook-use-it-up.html). Emitted only for an eligible line — for every
+                       other line neither element is rendered at all, so their markup is unchanged. *@
+                    @if (line.IsUseUpEligible)
+                    {
+                        <button type="button" class="cook-useup"
+                                x-show="showUseUpPill('@key')" x-cloak
+                                @@click="useItUp('@key')"
+                                title="Consume the full @(FormatQty(line.AvailableQuantity!.Value)) @line.UnitCode on hand">
+                            <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg>
+                            Use it up
+                            <span class="cook-useup__left">&middot; only <span x-text="useUpLeft('@key')"></span> @line.UnitCode would be left</span>
+                        </button>
+                        <span class="useup-chip" x-show="showUseUpChip('@key')" x-cloak>
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                            Using all @(FormatQty(line.AvailableQuantity!.Value)) @line.UnitCode on hand
+                            <button type="button" @@click="undoUseItUp('@key')">Undo</button>
+                        </span>
+                    }
                 </div>
             }
 

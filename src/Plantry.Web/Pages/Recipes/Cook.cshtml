@@ -27,7 +27,13 @@
             variantId = l.IsParent && l.VariantOptions.Any(v => v.IsAutoSelected)
                 ? l.VariantOptions.First(v => v.IsAutoSelected).VariantId.ToString()
                 : (string?)null,
-            qty = l.ScaledQuantity.HasValue ? (object)l.ScaledQuantity.Value : null
+            qty = l.ScaledQuantity.HasValue ? (object)l.ScaledQuantity.Value : null,
+            // "Use it up" (plantry-1dnk): the on-hand ceiling, seeded only for lines eligible for
+            // the affordance (CookLineView.IsUseUpEligible — the single source of truth also
+            // consulted by _CookIngredientRow's pill/chip/clamp markup). Null for everything else
+            // (parent/variant lines, shortfall, unit-gap, or missing qty/availability) so those
+            // lines keep their exact pre-feature stepper/display behaviour untouched.
+            onHand = l.IsUseUpEligible ? (object)l.AvailableQuantity!.Value : null
         }));
     var unitsJson = System.Text.Json.JsonSerializer.Serialize(
         Model.UnitOptions.Select(u => new { id = u.Value, code = u.Text }));
@@ -480,6 +486,13 @@ function cookConfirm(lines, units) {
         ),
         // Every tracked line key, seeded once — the authoritative set the active count reduces over.
         _lineKeys: lines.map(l => l.id),
+        // "Use it up" (plantry-1dnk): on-hand ceiling, seeded ONLY for lines eligible for the
+        // affordance (server-gated via IsUseUpEligible, Cook.cshtml). Absent (undefined) for every
+        // other line, which is how the pill/chip/clamp methods below (checking `this._onHand[lineKey]
+        // == null`) tell an eligible line apart from one that keeps its exact pre-feature behaviour.
+        _onHand: Object.fromEntries(
+            lines.filter(l => l.onHand != null).map(l => [l.id, l.onHand])
+        ),
 
         // ── Added products (plantry-7zjm) ─────────────────────────────────────
         // Existing catalog products the user added to just this cook. Each row posts as
@@ -526,12 +539,64 @@ function cookConfirm(lines, units) {
         },
         setQuantity(lineKey, raw) {
             const n = parseFloat(raw);
-            this._quantities[lineKey] = (!isNaN(n) && n >= 0) ? n : null;
+            if (isNaN(n) || n < 0) { this._quantities[lineKey] = null; return; }
+            // "On-hand is the hard max" (plantry-1dnk) — clamp to the ceiling for eligible lines;
+            // a no-op ceiling (floor at 0 only) for every other line, so behaviour there is unchanged.
+            this._quantities[lineKey] = CookLogic.clampToOnHand(n, this._onHand[lineKey]);
         },
         adjustQty(lineKey, delta) {
             const cur = this._quantities[lineKey] ?? this._origQuantities[lineKey] ?? 0;
             const next = Math.max(0, cur + delta);
-            this._quantities[lineKey] = next;
+            this._quantities[lineKey] = CookLogic.clampToOnHand(next, this._onHand[lineKey]);
+        },
+
+        // ── "Use it up" (plantry-1dnk) ──────────────────────────────────────────
+        // See cook-logic.js for the pure sliver/ceiling predicates this delegates to.
+        _qtyFor(lineKey) { return this._quantities[lineKey] ?? this._origQuantities[lineKey] ?? 0; },
+        // Remainder if the ingredient's quantity stayed as-is — rounded for display only (the
+        // held state itself stays an exact float; this never feeds back into a comparison).
+        useUpLeft(lineKey) {
+            const oh = this._onHand[lineKey];
+            if (oh == null) return 0;
+            const left = Math.max(0, oh - this._qtyFor(lineKey));
+            return Math.round(left * 1000) / 1000;
+        },
+        // The inline pill: shown only in the sliver zone, and never once already at full on-hand
+        // (that's the confirmed chip's job instead).
+        showUseUpPill(lineKey) {
+            const oh = this._onHand[lineKey];
+            if (oh == null || this.isSkipped(lineKey)) return false;
+            const q = this._qtyFor(lineKey);
+            return CookLogic.isInUseUpZone(oh, q) && !CookLogic.isUsingAllOnHand(oh, q);
+        },
+        // The confirmed "Using all X · Undo" chip once the quantity has snapped to on-hand. Delegates
+        // to CookLogic.isUseUpConfirmed, which additionally requires onHand > need (the ratified
+        // prototype's `atMax && onHand > need` gate) — see that function's doc for why a line whose
+        // need already exactly equals on-hand must NOT show the chip.
+        showUseUpChip(lineKey) {
+            const oh = this._onHand[lineKey];
+            if (oh == null || this.isSkipped(lineKey)) return false;
+            const def = this._origQuantities[lineKey]; // scaled recipe default (need)
+            if (def == null) return false;
+            return CookLogic.isUseUpConfirmed(oh, this._qtyFor(lineKey), def);
+        },
+        // Stepper ceiling check — disables the Increase control once this line is at its on-hand max.
+        atUseUpCeiling(lineKey) {
+            const oh = this._onHand[lineKey];
+            if (oh == null) return false;
+            return CookLogic.isUsingAllOnHand(oh, this._qtyFor(lineKey));
+        },
+        // Pill tap: snap this line's consume to the full on-hand amount (one-off for this cook only —
+        // never edits the recipe's authored quantity).
+        useItUp(lineKey) {
+            const oh = this._onHand[lineKey];
+            if (oh == null) return;
+            this.setQuantity(lineKey, oh);
+        },
+        // Chip "Undo": revert to the scaled recipe default.
+        undoUseItUp(lineKey) {
+            const def = this._origQuantities[lineKey];
+            if (def != null) this.setQuantity(lineKey, def);
         },
 
         // Append an added product from a pick-product event dispatched by the search picker.
