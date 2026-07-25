@@ -169,6 +169,76 @@ public sealed class AmendCommittedLineTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(3m, live.Quantity);
     }
 
+    [Fact(DisplayName = "A10 stale-id forward-walk: AmendPriceAdapter chains a NEW correction off the live tail, not the stale id ImportLine still holds")]
+    public async Task StaleObservationId_ForwardWalks_To_Live_Tail_Before_Recording_A_New_Amendment()
+    {
+        var tenant = new TestTenant(_household.Value);
+        var (_, lineId, originalObservationId) = await CommitOneLine(
+            tenant, "ONIONS YELLOW 1 LB", _onionsId.Value, 1m, _lbUnitId.Value, price: 3.98m);
+
+        // Manufacture the exact A10 gap the documented production path describes: the price leg of a prior
+        // amend attempt landed in Pricing (superseding the original observation) but the Intake side's save
+        // was lost before ImportLine.PriceObservationId could advance to the new row — done here by driving
+        // Pricing's OWN command directly, out-of-band of AmendCommittedLineCommand, so the Intake line is
+        // left holding `originalObservationId`, which is now stale (superseded).
+        Guid intermediateObservationId;
+        await using (var catalogDb = NewCatalogDb())
+        await using (var pricingDb = NewPricingDb())
+        {
+            var outOfBandAmend = new RecordAmendedObservationCommand(
+                PriceObservationId.From(originalObservationId), 3m, _userId,
+                new PriceObservationRepository(pricingDb), new UnitPriceCalculatorAdapter(new UnitRepository(catalogDb)),
+                tenant, NullLogger<RecordAmendedObservationCommand>.Instance);
+            var outOfBandResult = await outOfBandAmend.ExecuteAsync();
+            Assert.True(outOfBandResult.IsSuccess);
+            intermediateObservationId = outOfBandResult.Value.Value;
+        }
+
+        await using (var verifyStale = NewIntakeDb())
+        {
+            var line = await verifyStale.ImportLines.SingleAsync(l => l.Id == ImportLineId.From(lineId));
+            Assert.Equal(originalObservationId, line.PriceObservationId); // still stale — nothing touched Intake yet
+        }
+
+        // Drive a genuinely NEW correction through the real orchestrator, handing AmendPriceAdapter the
+        // STALE id. If the adapter used it as-is, PriceObservation.Supersede would throw (it's already
+        // superseded) and this would fail; the forward-walk must resolve it to the live tail first.
+        var result = await RunAmend(tenant, lineId, 5m);
+        Assert.True(result.IsSuccess);
+
+        await using (var verifyPricing = NewPricingDb())
+        {
+            Assert.Equal(3, await verifyPricing.PriceObservations.CountAsync()); // exactly ONE new row was added
+
+            var original = await verifyPricing.PriceObservations.SingleAsync(o => o.Id == PriceObservationId.From(originalObservationId));
+            Assert.Equal(intermediateObservationId, original.SupersededById!.Value.Value); // untouched by the walk
+
+            var intermediate = await verifyPricing.PriceObservations.SingleAsync(o => o.Id == PriceObservationId.From(intermediateObservationId));
+            Assert.NotNull(intermediate.SupersededById); // the LIVE TAIL is what got superseded this time...
+
+            var live = Assert.Single(await verifyPricing.PriceObservations.Where(o => o.SupersededById == null).ToListAsync());
+            Assert.Equal(intermediate.SupersededById, live.Id); // ...consistent view: tail's successor IS the live row
+            Assert.Equal(intermediateObservationId, live.AmendsId!.Value.Value); // chained off the TAIL, not the stale original
+            Assert.Equal(5m, live.Quantity);
+        }
+
+        await using (var verifyInventory = NewInventoryDb())
+        {
+            var stock = await verifyInventory.ProductStocks
+                .Include(p => p.Entries)
+                .SingleAsync(p => p.ProductId == _onionsId.Value);
+            Assert.Equal(5m, Assert.Single(stock.Entries).Quantity); // the stock leg amended independently, as normal
+        }
+
+        await using (var verifyIntake = NewIntakeDb())
+        {
+            var line = await verifyIntake.ImportLines.SingleAsync(l => l.Id == ImportLineId.From(lineId));
+            Assert.Equal(5m, line.AmendedQuantity);
+            Assert.NotEqual(originalObservationId, line.PriceObservationId);
+            Assert.NotEqual(intermediateObservationId, line.PriceObservationId); // advanced past the walked-through row too
+        }
+    }
+
     [Fact(DisplayName = "Weight-priced line (spec acceptance #5, A8): an each-count fix leaves the weight-denominated observation untouched")]
     public async Task WeightPricedLine_EachCount_Amendment_Leaves_Price_Untouched()
     {
