@@ -21,6 +21,9 @@ internal sealed class FakeStoreSubscriptionRepository : IStoreSubscriptionReposi
     public Task<List<StoreSubscription>> ListActiveAsync(CancellationToken ct = default) =>
         Task.FromResult(Items.Where(s => s.IsActive).OrderBy(s => s.CreatedAt).ToList());
 
+    public Task<DateTimeOffset?> GetLastPulledAtAcrossHouseholdsAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items.Select(s => s.LastPulledAt).Max());
+
     public Task AddAsync(StoreSubscription subscription, CancellationToken ct = default)
     {
         Items.Add(subscription);

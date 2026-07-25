@@ -84,17 +84,36 @@ public sealed class DealsSchemaTests(PostgresFixture db) : IAsyncLifetime
         Assert.DoesNotContain(seen, id => id == _householdB.Value);
     }
 
-    [Fact(DisplayName = "RLS backstop (live path): no tenant context => strict policy returns no rows")]
-    public async Task Interceptor_NoTenantContext_StrictPolicy_ReturnsNoRows()
+    [Fact(DisplayName =
+        "RLS backstop (live path): no-context carve-out (plantry-rb36) permits the worker's boot due-check; tenant context isolates")]
+    public async Task Interceptor_NoTenantContext_CarveOutPermitsCrossTenantRead_AndIsolatesWhenScoped()
     {
-        var tenant = new TenantContext(); // never set
+        // No tenant context — the P5-6 worker's boot due-check (AllowCrossHouseholdStoreSubscriptionRead
+        // migration extends the policy the same way identity.households already carves out for its own
+        // pre-auth cross-tenant read). Every household's subscription is visible.
+        var noTenant = new TenantContext();
+        await using (var unarmed = new DealsDbContext(
+            BuildOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(noTenant))))
+        {
+            var subs = await unarmed.StoreSubscriptions.IgnoreQueryFilters().ToListAsync();
 
-        var opts = BuildOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var ctx = new DealsDbContext(opts);
+            Assert.Equal(2, subs.Count);
+            Assert.Contains(subs, s => s.HouseholdId == _householdA);
+            Assert.Contains(subs, s => s.HouseholdId == _householdB);
+        }
 
-        var subs = await ctx.StoreSubscriptions.IgnoreQueryFilters().ToListAsync();
+        // Household A active — RLS alone (IgnoreQueryFilters removes the EF-layer filter) collapses the
+        // read to A's own row only, proving the carve-out never leaks another household's once scoped.
+        var tenantA = new TenantContext();
+        tenantA.Set(_householdA.Value);
+        await using (var armed = new DealsDbContext(
+            BuildOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenantA))))
+        {
+            var subs = await armed.StoreSubscriptions.IgnoreQueryFilters().ToListAsync();
 
-        Assert.Empty(subs);
+            var sub = Assert.Single(subs);
+            Assert.Equal(_householdA, sub.HouseholdId);
+        }
     }
 
     [Fact(DisplayName = "Unique (household_id, store_id): a duplicate subscription is rejected (DD9)")]
