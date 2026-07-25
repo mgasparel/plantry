@@ -94,5 +94,84 @@
     return n;
   }
 
-  root.CookLogic = { pathKeyOf, isPathUnderSkip, isAncestorSkipped, activeLineCount };
+  // ── "Use it up" (plantry-1dnk) ─────────────────────────────────────────────────
+  //
+  // A per-line affordance anchored to the quantity control: on-hand is the hard consume
+  // ceiling, and when the remainder after consuming would be a small sliver (<=10% of
+  // on-hand) an inline pill offers to round up to the full on-hand amount in one tap. See
+  // the ratified prototype (.preview/1dnk-cook-use-it-up.html) for the UX model. These are
+  // pure functions of (onHand, qty) so the sliver/ceiling math is unit-tested independently
+  // of Alpine; the Cook page (cookConfirm() in Cook.cshtml) gates WHICH lines carry an
+  // on-hand ceiling at all (tracked, non-parent, non-shortfall, non-unit-gap lines with both
+  // ScaledQuantity and AvailableQuantity known) and calls these for the eligible ones.
+
+  /**
+   * Clamp a candidate consume quantity to the hard on-hand ceiling (never below 0). "On-hand
+   * is the hard max" — a cook can never consume more than what's physically in stock; a
+   * genuine "I had more than the system thought" correction is a Take Stock recount, not a
+   * cook-time entry. Passing a non-finite/absent onHand is a no-op ceiling (floor at 0 only).
+   * @param {number} value
+   * @param {number|null|undefined} onHand
+   * @returns {number}
+   */
+  function clampToOnHand(value, onHand) {
+    if (typeof onHand !== "number" || !Number.isFinite(onHand)) return Math.max(0, value);
+    return Math.max(0, Math.min(value, onHand));
+  }
+
+  /**
+   * True when qty sits in the "use it up" sliver zone: strictly less than on-hand (there is
+   * something left to use up) but the remainder is small — at most `threshold` (default 10%)
+   * of on-hand. Covers BOTH triggers: the recipe default already leaving a sliver on load, and
+   * the user dialing the quantity up toward on-hand via the stepper.
+   * @param {number} onHand
+   * @param {number} qty
+   * @param {number} [threshold]
+   * @returns {boolean}
+   */
+  function isInUseUpZone(onHand, qty, threshold = 0.10) {
+    if (!(onHand > 0)) return false;
+    const left = onHand - qty;
+    return left > 1e-9 && left <= onHand * threshold + 1e-9;
+  }
+
+  /**
+   * True once qty has reached the full on-hand amount — the stepper's at-ceiling check (drives
+   * the Increase button's :disabled). Epsilon-compared for float safety. NOTE: this alone is
+   * NOT the confirmed-chip condition — see isUseUpConfirmed, which additionally requires there
+   * to have been something to round up to in the first place.
+   * @param {number} onHand
+   * @param {number} qty
+   * @returns {boolean}
+   */
+  function isUsingAllOnHand(onHand, qty) {
+    return Math.abs(onHand - qty) < 1e-9 || qty > onHand;
+  }
+
+  /**
+   * True when the confirmed "Using all X · Undo" chip should show: the quantity has reached the
+   * full on-hand amount AND onHand is strictly greater than the scaled recipe default (need) —
+   * i.e. there was actually a sliver to round up. Per the ratified prototype (dispEl override /
+   * confirmed-chip branch: `atMax && onHand > need`), a line whose need already exactly equals
+   * on-hand loads "at max" with nothing rounded up — the chip must NOT show there (and Undo would
+   * be a no-op back to the same clamped value, a false confirmation).
+   * @param {number} onHand
+   * @param {number} qty
+   * @param {number} need
+   * @returns {boolean}
+   */
+  function isUseUpConfirmed(onHand, qty, need) {
+    return onHand > need && isUsingAllOnHand(onHand, qty);
+  }
+
+  root.CookLogic = {
+    pathKeyOf,
+    isPathUnderSkip,
+    isAncestorSkipped,
+    activeLineCount,
+    clampToOnHand,
+    isInUseUpZone,
+    isUsingAllOnHand,
+    isUseUpConfirmed,
+  };
 })(typeof globalThis !== "undefined" ? globalThis : this);

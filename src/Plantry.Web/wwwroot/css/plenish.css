@@ -3802,6 +3802,59 @@ details.rd-sub-fold[open] .rd-sub-fold__chev { transform: rotate(90deg); }
   white-space: nowrap;
 }
 
+/* "Use it up" (plantry-1dnk) — anchored to the qty control, per the ratified prototype
+   (.preview/1dnk-cook-use-it-up.html). The pill IS the button (informs + acts in one control);
+   the chip is its calm post-tap confirmation with an Undo. CSS addition approved by Michael
+   2026-07-25 (see the bead's comment trail). */
+.cook-useup {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 5px 11px 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent-subtle) 70%, var(--color-surface));
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.cook-useup:hover {
+  background: var(--color-accent-subtle);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+}
+.cook-useup .icon { width: 13px; height: 13px; flex: none; }
+.cook-useup__left { font-weight: 600; color: color-mix(in srgb, var(--color-accent) 72%, var(--color-text-muted)); }
+
+.useup-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-success);
+}
+.useup-chip .icon { width: 13px; height: 13px; }
+.useup-chip button {
+  background: none;
+  border: none;
+  color: var(--color-text-faint);
+  font-weight: 600;
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 0;
+}
+.useup-chip button:hover { color: var(--color-text); text-decoration: underline; }
+
+/* Slightly stronger visual weight on the modified-quantity display once it's snapped to the
+   full on-hand amount (the confirmed "using all" state). */
+.cook-ing-row__qty-display--override { color: var(--color-text); font-weight: 700; }
+
 .cook-ing-row__actions {
   display: flex;
   align-items: flex-start;

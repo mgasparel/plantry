@@ -986,7 +986,27 @@ public sealed record CookLineView(
     decimal? StockQuantity = null,
     string? StockUnitCode = null,
     string? DisplayQuantity = null,
-    string? DisplayUnitCode = null);
+    string? DisplayUnitCode = null)
+{
+    /// <summary>
+    /// "Use it up" (plantry-1dnk) eligibility — the single source of truth Cook.cshtml's Alpine
+    /// on-hand seed and _CookIngredientRow's pill/chip/clamp markup both gate on, so they can never
+    /// disagree about which lines carry the affordance. True only for a plain tracked line with both
+    /// a scaled quantity and a known availability. Excludes:
+    /// <list type="bullet">
+    ///   <item>parent/variant-picker lines (<see cref="IsParent"/>) — <see cref="AvailableQuantity"/>
+    ///     there is summed across ALL variant children, but a cook only ever consumes from the ONE
+    ///     selected variant, so there is no single physical container to clamp/snap to;</item>
+    ///   <item>shortfall lines (<see cref="IsShortfall"/>) — kept in their existing state untouched
+    ///     (no pill, no ceiling change);</item>
+    ///   <item>unit-gap lines (<see cref="IsUnitGap"/>) — <see cref="AvailableQuantity"/> is a
+    ///     defensive 0 there (no real on-hand comparison is possible in the recipe unit), so
+    ///     clamping to it would wrongly cap the stepper at zero.</item>
+    /// </list>
+    /// </summary>
+    public bool IsUseUpEligible =>
+        !IsParent && !IsShortfall && !IsUnitGap && ScaledQuantity.HasValue && AvailableQuantity.HasValue;
+}
 
 /// <summary>One variant option within a parent-product ingredient's Variant Disambiguation Picker (C7/C11).</summary>
 public sealed record VariantOptionView(

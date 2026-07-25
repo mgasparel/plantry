@@ -14,8 +14,16 @@ import assert from "node:assert/strict";
 
 import "../cook-logic.js";
 
-const { pathKeyOf, isPathUnderSkip, isAncestorSkipped, activeLineCount } =
-  /** @type {any} */ (globalThis).CookLogic;
+const {
+  pathKeyOf,
+  isPathUnderSkip,
+  isAncestorSkipped,
+  activeLineCount,
+  clampToOnHand,
+  isInUseUpZone,
+  isUsingAllOnHand,
+  isUseUpConfirmed,
+} = /** @type {any} */ (globalThis).CookLogic;
 
 // ── path identity ────────────────────────────────────────────────────────────
 
@@ -143,5 +151,92 @@ describe("activeLineCount", () => {
   it("nested: nested-line-skip + ancestor whole-skip still drops each line once", () => {
     // Individually skip A/B|b1, then whole-skip ancestor A. Result: only d1 active.
     assert.equal(activeLineCount(nested, ["A/B|b1"], ["A"]), 1);
+  });
+});
+
+// ── "use it up" sliver/ceiling predicates (plantry-1dnk) ───────────────────────
+
+describe("clampToOnHand", () => {
+  it("passes a value through unchanged when it is below on-hand", () => {
+    assert.equal(clampToOnHand(2, 5), 2);
+  });
+
+  it("clamps a value above on-hand down to on-hand", () => {
+    assert.equal(clampToOnHand(7, 5), 5);
+  });
+
+  it("clamps exactly to on-hand at the boundary", () => {
+    assert.equal(clampToOnHand(5, 5), 5);
+  });
+
+  it("floors at 0, never negative", () => {
+    assert.equal(clampToOnHand(-3, 5), 0);
+  });
+
+  it("only floors at 0 when on-hand is absent (no ceiling to apply)", () => {
+    assert.equal(clampToOnHand(100, null), 100);
+    assert.equal(clampToOnHand(100, undefined), 100);
+    assert.equal(clampToOnHand(-1, null), 0);
+  });
+});
+
+describe("isInUseUpZone", () => {
+  it("is false when nothing would be left (qty already at on-hand)", () => {
+    assert.equal(isInUseUpZone(3.3, 3.3), false);
+  });
+
+  it("is true when the remainder is within the default 10% threshold", () => {
+    // Ground beef: 3.3 on hand, recipe default 3 lb → 0.3 left, 0.3 <= 0.33 (10% of 3.3).
+    assert.equal(isInUseUpZone(3.3, 3), true);
+  });
+
+  it("is false when the remainder exceeds the 10% threshold", () => {
+    // Pasta: 600 on hand, need 400 → 200 left, well above 60 (10% of 600).
+    assert.equal(isInUseUpZone(600, 400), false);
+  });
+
+  it("is true right at the threshold boundary", () => {
+    // Onion: 10 on hand, stepped to 9 → 1 left == exactly 10% of 10.
+    assert.equal(isInUseUpZone(10, 9), true);
+  });
+
+  it("is false when on-hand is zero or negative (nothing to use up)", () => {
+    assert.equal(isInUseUpZone(0, 0), false);
+    assert.equal(isInUseUpZone(-1, -2), false);
+  });
+
+  it("honours a custom threshold", () => {
+    assert.equal(isInUseUpZone(10, 8, 0.25), true); // 2 left, 25% of 10
+    assert.equal(isInUseUpZone(10, 7, 0.25), false); // 3 left, above 25% of 10
+  });
+});
+
+describe("isUsingAllOnHand", () => {
+  it("is true when qty exactly equals on-hand", () => {
+    assert.equal(isUsingAllOnHand(3.3, 3.3), true);
+  });
+
+  it("is false when qty is below on-hand", () => {
+    assert.equal(isUsingAllOnHand(3.3, 3), false);
+  });
+
+  it("is true within floating-point epsilon of on-hand", () => {
+    assert.equal(isUsingAllOnHand(0.1 + 0.2, 0.3), true);
+  });
+});
+
+describe("isUseUpConfirmed", () => {
+  it("is false at the ceiling when on-hand exactly equals need (nothing was rounded up)", () => {
+    // A line whose scaled default already equals on-hand loads "at max" with nothing to confirm —
+    // the confirmed chip must not show, and Undo would otherwise be a no-op back to the same value.
+    assert.equal(isUseUpConfirmed(3.3, 3.3, 3.3), false);
+  });
+
+  it("is true at the ceiling when on-hand exceeds need (a real use-it-up was accepted)", () => {
+    assert.equal(isUseUpConfirmed(3.3, 3.3, 3), true);
+  });
+
+  it("is false below the ceiling even when on-hand exceeds need", () => {
+    assert.equal(isUseUpConfirmed(3.3, 3, 3), false);
   });
 });

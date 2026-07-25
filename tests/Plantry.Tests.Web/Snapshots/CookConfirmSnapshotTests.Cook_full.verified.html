@@ -1,4 +1,4 @@
-﻿<div id="cook-confirm" x-data="cookConfirm([{&quot;id&quot;:&quot;Guid_1&quot;,&quot;variantId&quot;:null,&quot;qty&quot;:400},{&quot;id&quot;:&quot;Guid_2&quot;,&quot;variantId&quot;:null,&quot;qty&quot;:500},{&quot;id&quot;:&quot;Guid_3&quot;,&quot;variantId&quot;:&quot;Guid_4&quot;,&quot;qty&quot;:3}], [])">
+﻿<div id="cook-confirm" x-data="cookConfirm([{&quot;id&quot;:&quot;Guid_1&quot;,&quot;variantId&quot;:null,&quot;qty&quot;:400,&quot;onHand&quot;:600},{&quot;id&quot;:&quot;Guid_2&quot;,&quot;variantId&quot;:null,&quot;qty&quot;:500,&quot;onHand&quot;:null},{&quot;id&quot;:&quot;Guid_3&quot;,&quot;variantId&quot;:&quot;Guid_4&quot;,&quot;qty&quot;:3,&quot;onHand&quot;:null}], [])">
 	<div class="rd-wrap">
 		<a href="/Recipes/Guid_5" class="rd-back">
 			<svg class="icon" aria-hidden="true">
@@ -50,7 +50,7 @@
 								</div>
 								<div class="cook-ing-row__qty">
 									<span class="cook-ing-row__qty-display" x-show="!isModified('Guid_1')">400 g</span>
-									<span class="cook-ing-row__qty-display" x-show="isModified('Guid_1')" x-cloak="">
+									<span class="cook-ing-row__qty-display" x-show="isModified('Guid_1')" x-cloak="" :class="{ 'cook-ing-row__qty-display--override': showUseUpChip('Guid_1') }">
 										<span x-text="quantity('Guid_1')"></span>
 										g</span>
 									<div class="cook-ing-row__qty-edit">
@@ -61,7 +61,7 @@
 												</svg>
 											</button>
 											<input class="stepper__val" type="number" name="" min="0" step="any" :value="quantity('Guid_1')" @input="setQuantity('Guid_1', $event.target.value)" :disabled="isSkipped('Guid_1')">
-											<button type="button" class="stepper__btn" aria-label="Increase" @click="adjustQty('Guid_1', 1)" :disabled="isSkipped('Guid_1')">
+											<button type="button" class="stepper__btn" aria-label="Increase" @click="adjustQty('Guid_1', 1)" :disabled="(isSkipped('Guid_1')) || atUseUpCeiling('Guid_1')">
 												<svg class="icon" aria-hidden="true">
 													<use href="#i-plus"></use>
 												</svg>
@@ -69,6 +69,22 @@
 										</div>
 										<span class="cook-ing-row__unit">g</span>
 									</div>
+									<button type="button" class="cook-useup" x-show="showUseUpPill('Guid_1')" x-cloak="" @click="useItUp('Guid_1')" title="Consume the full 600 g on hand">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-sparkle"></use>
+										</svg>
+										Use it up
+										<span class="cook-useup__left">· only
+											<span x-text="useUpLeft('Guid_1')"></span>
+											g would be left</span>
+									</button>
+									<span class="useup-chip" x-show="showUseUpChip('Guid_1')" x-cloak="">
+										<svg class="icon" aria-hidden="true">
+											<use href="#i-check"></use>
+										</svg>
+										Using all 600 g on hand
+										<button type="button" @click="undoUseItUp('Guid_1')">Undo</button>
+									</span>
 								</div>
 							</div>
 							<div class="cook-ing-row__actions">
