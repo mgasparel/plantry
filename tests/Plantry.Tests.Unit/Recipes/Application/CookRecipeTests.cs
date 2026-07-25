@@ -27,9 +27,9 @@ public sealed class CookRecipeTests
 
     // ── Harness ─────────────────────────────────────────────────────────────────
 
-    /// <summary>The household's "ea" count unit, seeded into every harness's catalog reader (plantry-iejb
-    /// just-in-time yield-product creation resolves the count unit via <c>ListUnitsAsync</c>).</summary>
-    private static readonly Guid EachUnitId = Guid.CreateVersion7();
+    /// <summary>The household's "srv" serving unit, seeded into every harness's catalog reader (plantry-iejb/
+    /// plantry-2hzp just-in-time yield-product creation resolves the serving unit via <c>ListUnitsAsync</c>).</summary>
+    private static readonly Guid ServingUnitId = Guid.CreateVersion7();
 
     private sealed class Harness
     {
@@ -50,7 +50,7 @@ public sealed class CookRecipeTests
         var consumer = new FakeInventoryConsumer();
         var producer = new FakeInventoryProducer();
         var products = new FakeCatalogProductReader();
-        products.RegisterUnit(EachUnitId, "ea");
+        products.RegisterUnit(ServingUnitId, "srv");
         var converter = new FakeUnitConverter();
         var catalogWriter = new FakeCatalogWriter(products, converter);
         var dispatcher = new FakeDomainEventDispatcher();
@@ -586,25 +586,48 @@ public sealed class CookRecipeTests
 
         Assert.IsType<CookRecipeResult.Cooked>(result);
 
-        // One-tap default: a tracked "«Recipe» (leftovers)" product is minted in the household's count unit.
+        // One-tap default: a tracked "«Recipe» (leftovers)" product is minted in the household's serving unit.
         var created = Assert.Single(h.CatalogWriter.TrackedProductsCreated);
         Assert.Equal("Test Recipe (leftovers)", created.Name);
-        Assert.Equal(EachUnitId, created.DefaultUnitId);
+        Assert.Equal(ServingUnitId, created.DefaultUnitId);
 
         // It is produced into inventory this cook...
         var produceCall = Assert.Single(h.Producer.Calls);
         Assert.NotEqual(Guid.Empty, produceCall.ProductId);
         Assert.Equal(3m, produceCall.Quantity);
-        Assert.Equal(EachUnitId, produceCall.UnitId);
+        Assert.Equal(ServingUnitId, produceCall.UnitId);
         Assert.Equal(expiry, produceCall.ExpiryDate);
 
         // ...and persisted onto the recipe so the next cook shows the normal yield block, no prompt.
         Assert.Equal(produceCall.ProductId, recipe.YieldProductId);
-        Assert.Equal(EachUnitId, recipe.YieldUnitId);
+        Assert.Equal(ServingUnitId, recipe.YieldUnitId);
         Assert.True(recipe.HasYield);
         // DesiredServings == DefaultServings here (scale 1), so the declared-for-default-servings
         // quantity equals the stored amount verbatim.
         Assert.Equal(3m, recipe.YieldQuantity);
+    }
+
+    [Fact]
+    public async Task Cook_NoYield_AutoCreate_Resolves_Serving_Unit_Not_Each_Unit_When_Both_Are_Seeded()
+    {
+        // plantry-2hzp: a household has both "ea" (general count) and "srv" (serving) units seeded — the
+        // just-in-time leftovers auto-create must resolve "srv" specifically, never fall back to "ea".
+        var h = BuildHarness();
+        var eachUnitId = Guid.CreateVersion7();
+        h.Products.RegisterUnit(eachUnitId, "ea");
+        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 4, quantity: 200m); // no yield declared
+
+        var command = new CookRecipeCommand(
+            recipe.Id, DesiredServings: 4, _userId, Resolutions: [],
+            StoredYieldQuantity: 2m);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<CookRecipeResult.Cooked>(result);
+        var created = Assert.Single(h.CatalogWriter.TrackedProductsCreated);
+        Assert.Equal(ServingUnitId, created.DefaultUnitId);
+        Assert.NotEqual(eachUnitId, created.DefaultUnitId);
+        Assert.Equal(ServingUnitId, recipe.YieldUnitId);
     }
 
     [Fact]

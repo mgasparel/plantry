@@ -429,7 +429,7 @@ public sealed class CookModel(
         {
             // No declared yield yet: display against the recipe's own name (there is no product to
             // name it after until the inline prompt creates or picks one) in a "servings"-labelled
-            // count, matching the create default's own unit (household count unit "ea", plantry-iejb) —
+            // count, matching the create default's own unit (household serving unit "srv", plantry-2hzp) —
             // "servings" is display copy only here; the persisted unit is resolved at cook-confirm time.
             yieldProductName = recipe.Name;
             yieldUnitCode = "servings";

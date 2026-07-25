@@ -114,12 +114,13 @@ public static class CookConfirmFixture
 
     /// <summary>
     /// The household's unit list, for <see cref="ICatalogProductReader.ListUnitsAsync"/> — needed by
-    /// CookRecipe's just-in-time yield-product creation (plantry-iejb), which resolves the "ea" count
-    /// unit this way. Only the yield-creation OnPost tests need this; other fixture consumers pass an
-    /// empty list (the default) since GET-only rendering never calls ListUnitsAsync for this purpose.
+    /// CookRecipe's just-in-time yield-product creation (plantry-iejb/plantry-2hzp), which resolves the
+    /// "srv" serving unit this way. Only the yield-creation OnPost tests need this; other fixture
+    /// consumers pass an empty list (the default) since GET-only rendering never calls ListUnitsAsync
+    /// for this purpose.
     /// </summary>
     public static IReadOnlyList<CatalogUnitOption> Units() =>
-        [new CatalogUnitOption(EachUnitId, "ea", "count")];
+        [new CatalogUnitOption(ServingsUnitId, "srv", "count")];
 
     /// <summary>
     /// Pasta: 600g (InStock).  Tomatoes: 200g (Shortfall — need 500g).

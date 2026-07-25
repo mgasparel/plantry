@@ -161,7 +161,7 @@ public sealed class CookRecipe(
         // unit are used unchanged (854a, untouched below). When it does not, and the user is storing a
         // positive quantity, resolve — and persist onto the recipe via SetYield so future cooks skip the
         // prompt (Y1) — either the existing product the user picked or a freshly minted
-        // "«Recipe» (leftovers)" tracked product (unit = the household's count unit, "ea"). Resolution
+        // "«Recipe» (leftovers)" tracked product (unit = the household's serving unit, "srv"). Resolution
         // failure never blocks the cook (C8/R9 mirror): nothing is persisted, and the produce line staged
         // below carries Guid.Empty when nothing resolved — Inventory's own unknown-product check
         // (Catalog.UnknownProduct) then marks it Failed exactly like today's unknown-yield-product path.
@@ -204,8 +204,8 @@ public sealed class CookRecipe(
                 {
                     var leftoverName = $"{recipe.Name} (leftovers)";
                     var units = await products.ListUnitsAsync(ct);
-                    var countUnit = units.FirstOrDefault(u => u.Code == "ea")
-                        ?? throw new InvalidOperationException("No count unit available for the leftovers product.");
+                    var countUnit = units.FirstOrDefault(u => u.Code == "srv")
+                        ?? throw new InvalidOperationException("No serving unit available for the leftovers product.");
 
                     var matches = await products.SearchAsync(leftoverName, ct);
                     var match = matches.FirstOrDefault(m =>
