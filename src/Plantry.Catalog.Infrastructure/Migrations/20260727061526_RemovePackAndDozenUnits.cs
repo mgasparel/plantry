@@ -55,8 +55,12 @@ namespace Plantry.Catalog.Infrastructure.Migrations
             // already targets the same (product_id, from_unit_id, to_unit_id) pair post-relabel — e.g.
             // a household with both `doz->g = 600` and `ea->g = 50` on the same product ends up with
             // two `ea->g` rows once `doz` relabels, and UnitConverter.Convert (BFS, first-matching-edge)
-            // silently picks whichever EF materializes first. Drop the pk/doz-sourced row in that case,
-            // keeping the pre-existing (already-'ea') row, BEFORE the relabel UPDATEs below run.
+            // silently picks whichever EF materializes first. Prefer the row that was ALREADY on 'ea':
+            // drop the pk/doz-sourced row in that case, keeping the pre-existing (already-'ea') row,
+            // BEFORE the relabel UPDATEs below run. This must run before the relabel: once both UPDATEs
+            // below have applied, a row's pk/doz provenance is unrecoverable, so a guard here is the
+            // only way to deterministically prefer the pre-existing 'ea' row over an arbitrary
+            // creation-order tie-break.
             migrationBuilder.Sql(dozPkCte +
                 "DELETE FROM catalog.product_conversions c " +
                 "USING doz_pk d JOIN ea_units e ON e.household_id = d.household_id " +
@@ -78,14 +82,32 @@ namespace Plantry.Catalog.Infrastructure.Migrations
                 "FROM doz_pk d JOIN ea_units e ON e.household_id = d.household_id " +
                 "WHERE c.to_unit_id = d.id;");
 
+            // The guard above only catches a pk/doz-sourced row colliding with a row that was ALREADY on
+            // 'ea' before this migration ran. It does not catch TWO pk/doz-sourced rows colliding with
+            // EACH OTHER — e.g. a household with both `pk->g` and `doz->g` on the same product: neither
+            // side is 'ea' before the UPDATEs above run, so the guard's "already-'ea'" check never fires
+            // for either row, and both land on `ea->g` once the UPDATEs complete. There is no unique
+            // index on (product_id, from_unit_id, to_unit_id) to stop it (see
+            // CatalogDbContextModelSnapshot.cs), so this backstop dedupe runs AFTER both relabel UPDATEs
+            // and, for each remaining duplicate pair, keeps the lowest `id` (the longest-standing row)
+            // and drops the rest. This is deliberately the fallback, not the primary mechanism: it can no
+            // longer distinguish "was already ea" from "just relabeled", so it is not a substitute for
+            // the guard above for the pre-existing-'ea' collision case.
+            migrationBuilder.Sql(
+                "DELETE FROM catalog.product_conversions c " +
+                "USING catalog.product_conversions o " +
+                "WHERE o.product_id = c.product_id " +
+                "  AND o.from_unit_id = c.from_unit_id " +
+                "  AND o.to_unit_id = c.to_unit_id " +
+                "  AND o.id < c.id;");
+
             // Relabeling both sides of a product_conversions row to 'ea' can leave a self-conversion
             // (from_unit_id = to_unit_id) — e.g. a household with an explicit doz->ea conversion that
             // becomes ea->ea once doz is relabeled. Product.AddConversion's Create() forbids this
             // invariant going forward (ProductConversion.Create throws on fromUnitId == toUnitId); a
             // self-conversion left behind by a raw-SQL relabel is meaningless, so it is dropped. This is
-            // distinct from the duplicate-pair collision handled above: this catches from==to on a
-            // SINGLE row (both sides were pk/doz); the DELETE above catches two DIFFERENT rows landing
-            // on the same pair after only one side relabels.
+            // distinct from the duplicate-pair dedupe above: this catches from==to on a SINGLE row (both
+            // sides were pk/doz); the dedupe above catches two DIFFERENT rows landing on the same pair.
             migrationBuilder.Sql(
                 "DELETE FROM catalog.product_conversions WHERE from_unit_id = to_unit_id;");
         }
