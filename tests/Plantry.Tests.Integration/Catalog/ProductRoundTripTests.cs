@@ -143,6 +143,139 @@ public sealed class ProductRoundTripTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal("23514", ex.SqlState); // check_violation
     }
 
+    // ── Unordered-pair unique index (ADR-022 amendment, plantry-pcfe) ─────────
+
+    [Fact(DisplayName = "Unique expression index rejects a SAME-direction duplicate conversion for an existing pair")]
+    public async Task UniqueIndex_Rejects_SameDirection_Duplicate_ConversionPair()
+    {
+        ProductId productId;
+        await using var db1 = NewCatalogDb();
+        var product = Product.Create(_household, "Flour", _gramsId, SystemClock.Instance);
+        await db1.Products.AddAsync(product);
+        await db1.SaveChangesAsync();
+        productId = product.Id;
+
+        await db1.Database.ExecuteSqlRawAsync(
+            "INSERT INTO catalog.product_conversions (id, household_id, product_id, from_unit_id, to_unit_id, factor, source) " +
+            "VALUES ({0}, {1}, {2}, {3}, {4}, {5}, 'user_confirmed')",
+            Guid.CreateVersion7(), _household.Value, productId.Value, _cupsId.Value, _gramsId.Value, 120m);
+
+        // Bypasses Product.AddConversion's own in-memory guard on purpose, to prove the DATABASE
+        // itself enforces the invariant independently of the domain layer (defense in depth).
+        var ex = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db1.Database.ExecuteSqlRawAsync(
+            "INSERT INTO catalog.product_conversions (id, household_id, product_id, from_unit_id, to_unit_id, factor, source) " +
+            "VALUES ({0}, {1}, {2}, {3}, {4}, {5}, 'user_confirmed')",
+            Guid.CreateVersion7(), _household.Value, productId.Value, _cupsId.Value, _gramsId.Value, 100m));
+
+        Assert.Equal("23505", ex.SqlState); // unique_violation
+    }
+
+    [Fact(DisplayName = "Unique expression index rejects a REVERSE-direction duplicate conversion for an existing pair")]
+    public async Task UniqueIndex_Rejects_ReverseDirection_Duplicate_ConversionPair()
+    {
+        ProductId productId;
+        await using var db1 = NewCatalogDb();
+        var product = Product.Create(_household, "Flour", _gramsId, SystemClock.Instance);
+        await db1.Products.AddAsync(product);
+        await db1.SaveChangesAsync();
+        productId = product.Id;
+
+        await db1.Database.ExecuteSqlRawAsync(
+            "INSERT INTO catalog.product_conversions (id, household_id, product_id, from_unit_id, to_unit_id, factor, source) " +
+            "VALUES ({0}, {1}, {2}, {3}, {4}, {5}, 'user_confirmed')",
+            Guid.CreateVersion7(), _household.Value, productId.Value, _cupsId.Value, _gramsId.Value, 120m);
+
+        // Same unordered pair {cup, g}, opposite direction — the exact shape rule 4's old
+        // directional lookup let through (the ADR-022 hole this ticket closes). The expression
+        // index canonicalises via LEAST/GREATEST, so it catches this regardless of direction.
+        var ex = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db1.Database.ExecuteSqlRawAsync(
+            "INSERT INTO catalog.product_conversions (id, household_id, product_id, from_unit_id, to_unit_id, factor, source) " +
+            "VALUES ({0}, {1}, {2}, {3}, {4}, {5}, 'user_confirmed')",
+            Guid.CreateVersion7(), _household.Value, productId.Value, _gramsId.Value, _cupsId.Value, 1m / 120m));
+
+        Assert.Equal("23505", ex.SqlState); // unique_violation
+    }
+
+    // ── Replace-on-confirm round-trips through EF (ADR-022 amendment, plantry-pcfe) ──
+    //
+    // The unique expression index is intentionally absent from CatalogDbContext's model (an
+    // expression index cannot be declared via HasIndex — see the comment there), which means EF
+    // Core's model-declared-unique-index ordering guarantee does NOT cover it: when
+    // Product.AddConversion replaces an existing row for the same unordered pair, the resulting
+    // DELETE + INSERT against product_conversions in one SaveChangesAsync falls through to EF's
+    // incidental EntityState-based command ordering instead of an index-aware one. These Facts
+    // prove that ordering actually puts the DELETE first against the real database — not merely
+    // that Product's in-memory list looks right (ProductTests already covers that) or that the raw
+    // SQL-level index rejects a naked duplicate insert (the two Facts above) — closing the gap
+    // between "the aggregate's invariant is correct" and "persisting it doesn't 23505."
+
+    [Fact(DisplayName = "A same-direction user-confirmed replace round-trips through EF without a unique-index violation")]
+    public async Task UserConfirmed_Replace_SameDirection_RoundTrips()
+    {
+        ProductId productId;
+        Guid originalConversionId;
+
+        await using (var db1 = NewCatalogDb())
+        {
+            var product = Product.Create(_household, "Flour", _gramsId, SystemClock.Instance);
+            var original = product.AddConversion(_cupsId, _gramsId, 120m, SystemClock.Instance);
+            await db1.Products.AddAsync(product);
+            await db1.SaveChangesAsync();
+            productId = product.Id;
+            originalConversionId = original.Id.Value;
+        }
+
+        await using (var db2 = NewCatalogDb())
+        {
+            var loaded = await db2.Products.Include(p => p.Conversions).SingleAsync(p => p.Id == productId);
+
+            // Same direction, same unordered pair, re-confirmed with a corrected factor — must
+            // replace the existing row in the SAME SaveChangesAsync, not throw 23505.
+            loaded.AddConversion(_cupsId, _gramsId, 150m, SystemClock.Instance);
+            await db2.SaveChangesAsync();
+        }
+
+        await using var db3 = NewCatalogDb();
+        var reloaded = await db3.Products.Include(p => p.Conversions).SingleAsync(p => p.Id == productId);
+        var surviving = Assert.Single(reloaded.Conversions);
+        Assert.Equal(150m, surviving.Factor);
+        Assert.NotEqual(originalConversionId, surviving.Id.Value);
+    }
+
+    [Fact(DisplayName = "A reverse-direction user-confirmed replace round-trips through EF without a unique-index violation")]
+    public async Task UserConfirmed_Replace_ReverseDirection_RoundTrips()
+    {
+        ProductId productId;
+        Guid originalConversionId;
+
+        await using (var db1 = NewCatalogDb())
+        {
+            var product = Product.Create(_household, "Flour", _gramsId, SystemClock.Instance);
+            var original = product.AddConversion(_cupsId, _gramsId, 120m, SystemClock.Instance);
+            await db1.Products.AddAsync(product);
+            await db1.SaveChangesAsync();
+            productId = product.Id;
+            originalConversionId = original.Id.Value;
+        }
+
+        await using (var db2 = NewCatalogDb())
+        {
+            var loaded = await db2.Products.Include(p => p.Conversions).SingleAsync(p => p.Id == productId);
+
+            // Reverse direction, same unordered pair {cup, g} — must still replace, not throw.
+            loaded.AddConversion(_gramsId, _cupsId, 0.008m, SystemClock.Instance);
+            await db2.SaveChangesAsync();
+        }
+
+        await using var db3 = NewCatalogDb();
+        var reloaded = await db3.Products.Include(p => p.Conversions).SingleAsync(p => p.Id == productId);
+        var surviving = Assert.Single(reloaded.Conversions);
+        Assert.Equal(_gramsId, surviving.FromUnitId);
+        Assert.Equal(_cupsId, surviving.ToUnitId);
+        Assert.Equal(0.008m, surviving.Factor);
+        Assert.NotEqual(originalConversionId, surviving.Id.Value);
+    }
+
     [Fact(DisplayName = "Self-referencing FK enforces parent and variant share a household")]
     public async Task SelfReferencingForeignKey_Requires_Parent_In_Same_Household()
     {

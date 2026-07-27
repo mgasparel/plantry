@@ -264,6 +264,16 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             b.HasIndex(c => c.HouseholdId);
             b.HasIndex(c => c.ProductId);
 
+            // ADR-022 amendment (plantry-pcfe): a product may hold at most one conversion per
+            // UNORDERED unit pair. That is enforced by a unique EXPRESSION index over
+            // (product_id, LEAST(from_unit_id, to_unit_id), GREATEST(from_unit_id, to_unit_id)),
+            // added by migration 20260727194353_AddProductConversionUnorderedPairUniqueIndex via
+            // raw SQL — HasIndex/the fluent API cannot express an expression index, so it is
+            // intentionally absent here and from CatalogDbContextModelSnapshot. Do NOT add a plain
+            // HasIndex on the ordered (FromUnitId, ToUnitId) triple as a "fix" for this gap — it
+            // would be redundant with the ProductId index above and would wrongly imply
+            // ordered-triple semantics, which Product.AddConversion's merge rule explicitly rejects.
+
             b.HasQueryFilter(c => c.HouseholdId == HouseholdId.From(_householdId));
         });
     }

@@ -210,8 +210,13 @@ public sealed class UnitConverterTests
     [Fact]
     public void DirectProductConversion_PreferredOver_Inverse_When_Both_Match()
     {
-        // Pathological double-entry data: both directions stored. Direct must win, by
-        // resolution-order contract, so behaviour stays deterministic.
+        // Pathological double-entry data, constructed directly (NOT via product.Conversions) to
+        // pin UnitConverter's own resolution-order contract at the pure-function level: given both
+        // directions in its input collection, direct must win. Product.AddConversion's
+        // unordered-pair invariant (ADR-022 amendment, plantry-pcfe) means a real product's own
+        // Conversions can no longer produce this shape — see
+        // ProductConversions_NeverContainContradictingDuplicatePair_SoResolutionIsAlwaysDeterministic
+        // below for the invariant-preserving version of this same scenario.
         var cups = MakeUnit("cup", Dimension.Volume, 240m);
         var grams = MakeUnit("g", Dimension.Mass, 1m, isBase: true);
         var product = Product.Create(HouseholdId, "Flour", grams.Id, SystemClock.Instance);
@@ -222,6 +227,49 @@ public sealed class UnitConverterTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(120m, result.Value);
+    }
+
+    /// <summary>
+    /// plantry-pcfe (ADR-022 amendment): the old pathological "both directions stored" case above
+    /// could only ever happen with a hand-built input array — a real product's own
+    /// <see cref="Product.Conversions"/> can no longer contain it, because
+    /// <see cref="Product.AddConversion"/> now replaces any existing row for the same UNORDERED
+    /// pair rather than allowing a second, contradicting row to coexist. This test drives
+    /// <see cref="UnitConverter.Convert"/> off the real aggregate collection — not a hand-built
+    /// array — to prove the result is deterministic by construction (exactly one edge pair backs
+    /// any product/unit-pair combination), regardless of which direction was entered last or how
+    /// EF materializes the (now-singular) row.
+    /// </summary>
+    [Fact]
+    public void ProductConversions_NeverContainContradictingDuplicatePair_SoResolutionIsAlwaysDeterministic()
+    {
+        var cups = MakeUnit("cup", Dimension.Volume, 240m);
+        var grams = MakeUnit("g", Dimension.Mass, 1m, isBase: true);
+        var product = Product.Create(HouseholdId, "Flour", grams.Id, SystemClock.Instance);
+
+        MakeConversion(product, cups.Id, grams.Id, 8m); // "1 cup = 8 g" — superseded below
+        // Reverse direction, same unordered pair — supersedes the row above rather than adding a
+        // second, contradicting one (this exact "both directions stored" shape was previously
+        // pathological — see DirectProductConversion_PreferredOver_Inverse_When_Both_Match above).
+        // 0.125 = 1/8 is an exact terminating decimal — deliberately chosen so this test isolates
+        // the invariant (exactly one row survives) from decimal-division rounding, which is a
+        // different, already-covered concern (see UnitConverter's own precision note and the
+        // 1/600 example it cites).
+        MakeConversion(product, grams.Id, cups.Id, 0.125m); // "1 g = 0.125 cup" (consistent reciprocal)
+
+        var onlyConversion = Assert.Single(product.Conversions);
+        Assert.Equal(grams.Id, onlyConversion.FromUnitId);
+        Assert.Equal(cups.Id, onlyConversion.ToUnitId);
+
+        var cupsToGrams = UnitConverter.Convert(1m, cups.Id.Value, grams.Id.Value, [cups, grams], product.Conversions);
+        var gramsToCups = UnitConverter.Convert(8m, grams.Id.Value, cups.Id.Value, [cups, grams], product.Conversions);
+
+        Assert.True(cupsToGrams.IsSuccess);
+        Assert.True(gramsToCups.IsSuccess);
+        // Deterministic because there is exactly one row (the reverse-entered "1 g = 0.125 cup"
+        // fact), not because BFS happened to prefer one edge over another among duplicates.
+        Assert.Equal(8m, cupsToGrams.Value);  // 1 cup / 0.125 = 8 g
+        Assert.Equal(1m, gramsToCups.Value);  // 8 g * 0.125 cup/g = 1 cup
     }
 
     // ── plantry-xddq: multi-hop graph-walk composition ─────────────────────────
