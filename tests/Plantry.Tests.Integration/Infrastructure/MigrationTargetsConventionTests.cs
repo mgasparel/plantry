@@ -47,6 +47,20 @@ public sealed class MigrationTargetsConventionTests
             "Plantry.Migrator.MigrationTargets.All: " + string.Join(", ", missing));
     }
 
+    [Fact(DisplayName = "Identity is first and Housekeeping is last in MigrationTargets.All (ORDER IS LOAD-BEARING)")]
+    public void OrderingInvariants_IdentityFirst_HousekeepingLast()
+    {
+        // MigrationTargets.All's doc comment names two load-bearing ordering constraints: Identity
+        // must run first (it creates the app_user role every other schema's RLS depends on), and —
+        // as of plantry-qszb — Housekeeping must run last (its DeletePackAndDozenUnits migration
+        // deletes catalog.units rows only after every other context has relabeled its own pk/doz
+        // references; a context appended after it, or a reorder, would delete units still referenced
+        // by an un-relabeled schema). This test pins both so a future reorder fails loudly instead of
+        // silently reintroducing either bug class.
+        Assert.Equal("Plantry.Identity.Infrastructure", MigrationTargets.All[0].MigrationsAssembly);
+        Assert.Equal("Plantry.Housekeeping.Infrastructure", MigrationTargets.All[^1].MigrationsAssembly);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

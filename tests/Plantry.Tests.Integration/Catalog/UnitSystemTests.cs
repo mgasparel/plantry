@@ -102,12 +102,20 @@ public sealed class UnitSystemTests(PostgresFixture db) : IAsyncLifetime
         await using var db2 = NewCatalogDb();
         var byCode = await db2.Units.ToDictionaryAsync(u => u.Code, u => u);
 
+        // plantry-qszb: pk/doz are no longer seeded — Count units get no free same-dimension ratio,
+        // so a seeded FactorToBase on them was always inert. Pins the seed set, not just its systems.
+        Assert.DoesNotContain("pk", byCode.Keys);
+        Assert.DoesNotContain("doz", byCode.Keys);
+        Assert.Equal(["ea", "srv"], byCode.Values.Where(u => u.Dimension == Dimension.Count)
+            .Select(u => u.Code).OrderBy(c => c, StringComparer.Ordinal));
+
         // System classification.
         foreach (var code in new[] { "g", "kg", "mg", "ml", "l" })
             Assert.Equal(UnitSystem.Metric, byCode[code].UnitSystem);
         foreach (var code in new[] { "oz", "lb", "fl oz", "cup", "tsp", "tbsp" })
             Assert.Equal(UnitSystem.UsCustomary, byCode[code].UnitSystem);
-        foreach (var code in new[] { "ea", "pk", "doz" })
+        // pk/doz are no longer seeded (plantry-qszb) — see CatalogReferenceDataSeeder.BuildUnits.
+        foreach (var code in new[] { "ea", "srv" })
             Assert.Equal(UnitSystem.Unspecified, byCode[code].UnitSystem);
 
         // Nutrition-label volume factors (cup already 240) — the exact 3 / 2 / 8 / 16 family ratios.

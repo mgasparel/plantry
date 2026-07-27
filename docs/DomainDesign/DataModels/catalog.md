@@ -109,7 +109,7 @@ The merchant **identity** — stable per-household reference data of the same sh
 
 ---
 
-**Dividing line for conversions:** anything *universal* (`kg = 1000 g`, `dozen = 12`) is a `factor_to_base` value on `unit`; anything that *depends on the product* (`1 cup flour = 120 g`, `1 egg = 50 g`) is a `product_conversion` row.
+**Dividing line for conversions:** universal Mass/Volume ratios (`kg = 1000 g`) are a `factor_to_base` value on `unit`. **`Dimension.Count` units never scale against each other via `factor_to_base`** — `UnitConverter.BuildConversionGraph` excludes Count from same-dimension edges — so any count-to-count ratio, including `dozen = 12`, must be a `product_conversion` row (plantry-xddq, plantry-qszb). Product-dependent ratios (`1 cup flour = 120 g`, `1 egg = 50 g`) are likewise a `product_conversion` row.
 
 ---
 

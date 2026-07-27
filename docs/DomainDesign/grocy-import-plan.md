@@ -83,7 +83,7 @@ Unused Grocy product features confirmed empty (→ safe to drop, no fidelity los
 
 **The core mismatch:** Plantry units = `dimension ∈ {mass,volume,count}` + `factor_to_base` (within-dimension conversion is pure linear scaling; there is **no pairwise table** — `catalog.md` simplification #1). Grocy units have **neither** — all conversion is pairwise rows. So the importer must (a) **assign a dimension** to each Grocy unit and (b) **derive `factor_to_base`** by walking Grocy's global conversion graph to a base unit.
 
-Plantry already **seeds** units per household (`CatalogReferenceDataSeeder`): `g, kg, mg, oz` (mass); `ml, l, fl oz, cup, tsp, tbsp` (volume); `ea, pk, doz` (count). So most Grocy units **match an existing seeded unit**; the rest are **created**.
+Plantry already **seeds** units per household (`CatalogReferenceDataSeeder`): `g, kg, mg, oz` (mass); `ml, l, fl oz, cup, tsp, tbsp` (volume); `ea, srv` (count — `pk`/`doz` are no longer seeded as of plantry-qszb). So most Grocy units **match an existing seeded unit**; the rest are **created**.
 
 | Grocy unit (id) | Dimension | → Plantry unit | factor_to_base | Disposition |
 |---|---|---|---|---|
@@ -100,15 +100,15 @@ Plantry already **seeds** units per household (`CatalogReferenceDataSeeder`): `g
 | 1/2 Cup (26) | volume | *drop → use `cup`×0.5* | — | redundant fraction (§8-T9) |
 | 1/4 Cup (27) | volume | *drop → use `cup`×0.25* | — | redundant fraction (§8-T9) |
 | Piece (2) | count | `ea` (base) | 1 | match seed |
-| Pack (3) | count | `pk` | 1 | match seed |
-| Case12 (6) | count | **create** `case12` | 12 | new (dozen-like) |
-| Case24 (21) | count | **create** `case24` | 24 | new |
+| Pack (3) | count | **create** `pk` | 1 | new unit (plantry-qszb: `pk` is no longer seeded) |
+| Case12 (6) | count | **create** `case12` | 1* | new (*not 12 — plantry-qszb: Count units never get a free same-dimension ratio; add a per-product `ProductConversion` for the real 12:1 ratio) |
+| Case24 (21) | count | **create** `case24` | 1* | new (*not 24 — same reason as Case12) |
 | Can (4), Jar (7), Bottle (8), Head (5), Clove (14), Bulb (22), Bunch (23), Portion (20), Recipe (28) | count | **create** each | 1 | discrete count units; no within-dimension scaling |
 
 **Dimension assignment algorithm (auto, user-confirmable):**
 1. Seed-match by name/synonym first (Gram→g, Kg→kg, Liter→l, Piece→ea …) — inherits the seed's dimension + factor.
 2. For the rest, build the **global conversion graph** (22 edges). Find connected components. A component containing a known mass unit (Gram) ⇒ mass; containing ml ⇒ volume; otherwise ⇒ count. `factor_to_base` = product of edge factors along the path to the component's base unit.
-3. Units in **no** global conversion (Can, Jar, Bottle, Head, Clove, Bulb, Bunch, Portion, Recipe) ⇒ **count, factor 1** (Plantry treats discrete packaging as count units; this is exactly how `ea`/`pk` are seeded).
+3. Units in **no** global conversion (Can, Jar, Bottle, Head, Clove, Bulb, Bunch, Portion, Recipe) ⇒ **count, factor 1** (Plantry treats discrete packaging as count units; this is exactly how `ea` is seeded).
 4. Present every assignment on the **Unit Mapping grid** (§6) for confirm/override. This is the one screen the user should expect to actually think on.
 
 **Decision — "Recipe" unit (28):** Grocy's `Recipe` quantity unit (used by produces-product recipes) → import as a **count** unit `recipe`, factor 1. It only appears on the 21 produces-product links we are dropping (§5.2) and on no in-scope ingredient, so practically inert; create it for completeness, flag low-value.

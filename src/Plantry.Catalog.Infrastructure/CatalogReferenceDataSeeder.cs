@@ -49,10 +49,19 @@ public sealed class CatalogReferenceDataSeeder(CatalogDbContext db) : IReference
         tbsp.SetDisplayStyle(DisplayStyle.Fraction);
 
         // Count units (base: each) stay UnitSystem.Unspecified — count-dimension simplification
-        // (12 ea → 1 doz) is deliberately out of scope (quantity-display.md §6).
+        // (12 ea → 1 doz) is deliberately out of scope (quantity-display.md §6). Only 'ea' and 'srv'
+        // are seeded (plantry-qszb): UnitConverter.BuildConversionGraph never gives Count units a free
+        // same-dimension ratio (plantry-xddq), so a seeded 'pk'/'doz' with a FactorToBase was always
+        // inert/misleading — it looked live because the field existed, but ea<->doz/pk resolution
+        // always required an explicit ProductConversion, same as any user-created count unit. Dropped
+        // rather than special-cased; a household that wants dozen-style tracking creates a custom unit
+        // via Catalog -> Units and adds a ProductConversion, same as any other product-specific count
+        // unit. Existing households are relabeled from pk/doz to ea by a set of one-time data
+        // migrations — 20260727061526_RemovePackAndDozenUnits.cs (Catalog) plus a
+        // RelabelPackAndDozenUnitReferences migration in Inventory/Pricing/Intake/Recipes/Shopping/
+        // Deals, with the catalog.units rows finally deleted by Housekeeping's
+        // 20260727062625_DeletePackAndDozenUnits.cs.
         var each    = Unit.Create(hid, "ea",  "each",    Dimension.Count, 1m, isBase: true);
-        var pack    = Unit.Create(hid, "pk",  "pack",    Dimension.Count, 1m);
-        var dozen   = Unit.Create(hid, "doz", "dozen",   Dimension.Count, 12m);
         // Serving (plantry-n1za): seeded so the recipe editor's Yield card can prefill "Yield unit"
         // to a count unit that reads naturally for stored-leftovers recipes (the DefaultServings
         // count is servings, not "each"). A one-time data migration backfills existing households
@@ -61,7 +70,7 @@ public sealed class CatalogReferenceDataSeeder(CatalogDbContext db) : IReference
 
         return [gram, kilogram, milligram, ounce, pound,
                 ml, litre, flOz, cup, tsp, tbsp,
-                each, pack, dozen, serving];
+                each, serving];
     }
 
     private static List<Category> BuildCategories(HouseholdId hid)
