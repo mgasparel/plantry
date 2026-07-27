@@ -176,18 +176,27 @@ docker compose \
   up -d
 ```
 
-**Footprint:** ~0.5–1 GB RAM + an `lgtm_data` volume.  Configure retention to
-bound disk use (defaults: Loki ~31 days, Prometheus 30 days):
+**Footprint:** ~0.5–1 GB RAM + an `lgtm_data` volume.  Current retention
+defaults: Prometheus 30 days; **Loki: unbounded — `LOKI_RETENTION_PERIOD`
+currently has no effect** (see below).
 
 ```
-LOKI_RETENTION_PERIOD=744h       # Loki: hours or days (e.g. 744h ≈ 31d)
 PROMETHEUS_RETENTION_TIME=30d    # Prometheus: days or weeks (e.g. 30d, 4w)
 ```
 
-These are interpolated into the `LOKI_EXTRA_ARGS` and `PROMETHEUS_EXTRA_ARGS`
-environment variables that `grafana/otel-lgtm` passes to the bundled daemons.
-Setting them directly (e.g. `LOKI_RETENTION_PERIOD=744h` without `EXTRA_ARGS`)
+`PROMETHEUS_RETENTION_TIME` is interpolated into the `PROMETHEUS_EXTRA_ARGS`
+environment variable that `grafana/otel-lgtm` passes to the bundled Prometheus.
+Setting it directly (e.g. `PROMETHEUS_RETENTION_TIME=30d` without `EXTRA_ARGS`)
 has no effect — the compose file handles the translation.
+
+`LOKI_EXTRA_ARGS` (and the `LOKI_RETENTION_PERIOD` knob that fed it) was
+removed from `docker-compose.observability.yml` and `docker-compose.prod.yml`
+in `plantry-e4z0` — it carried an invalid Loki CLI flag
+(`--limits.retention-period`, guessed from the YAML config key) that Loki 3.7.1
+rejects at startup, which crashed the whole Loki process on every deploy.
+Loki now starts and runs with its built-in default (unbounded) retention.
+Bounded Loki retention (the real `-store.retention` flag plus the compactor
+flags it requires) is tracked separately in `plantry-032n`.
 
 Tempo block-retention is not exposed as a CLI flag in the bundled
 `grafana/otel-lgtm` image; the image's built-in default retention applies.  If
