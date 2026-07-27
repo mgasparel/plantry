@@ -7,31 +7,43 @@
     The containing page sets asp-page-handler="AddVariant" and asp-route-id.
 *@
 <form method="post" asp-page-handler="AddVariant" asp-route-id="@Model.Id.Value" class="form-stack">
-    <h4 class="form-stack__label">Add a variant</h4>
+    <h4 class="field__label">Add a variant</h4>
     <div class="form-grid">
         <field asp-for="AddVariantInput.Name" stacked full>
             <input asp-for="AddVariantInput.Name" class="field__input" />
             <span asp-validation-for="AddVariantInput.Name" class="field__error"></span>
         </field>
     </div>
-    <details>
-        <summary class="form-stack__disclosure-toggle">Override inherited defaults</summary>
-        <div class="form-grid">
-            <field asp-for="AddVariantInput.DefaultUnitId" stacked>
-                <select asp-for="AddVariantInput.DefaultUnitId" class="field__input" asp-items="Model.UnitOptions">
-                    <option value="">— Inherit from parent —</option>
-                </select>
-            </field>
-            <field asp-for="AddVariantInput.CategoryId" stacked>
-                <select asp-for="AddVariantInput.CategoryId" class="field__input" asp-items="Model.CategoryOptions">
-                    <option value="">— Inherit from parent —</option>
-                </select>
-            </field>
-            <field asp-for="AddVariantInput.DefaultLocationId" stacked full>
-                <select asp-for="AddVariantInput.DefaultLocationId" class="field__input" asp-items="Model.LocationOptions">
-                    <option value="">— Inherit from parent —</option>
-                </select>
-            </field>
+    @*
+        Canonical chevron disclosure (plantry-grvy pattern, reused here per plantry-c8ua) — the
+        disclosure marker is the app's canonical chevron (#i-chevron), which rotates on [open] via
+        the details[open].sheet-defaults selector; the native marker is suppressed in CSS. Collapsed
+        by default (no `open` attribute) since these are optional overrides, unlike the create-sheet's
+        open-by-default Defaults.
+    *@
+    <details class="sheet-defaults">
+        <summary class="sheet-defaults__summary">
+            <svg class="icon sheet-defaults__chev" aria-hidden="true"><use href="#i-chevron" /></svg>
+            <span>Override inherited defaults</span>
+        </summary>
+        <div class="sheet-defaults__body">
+            <div class="form-grid">
+                <field asp-for="AddVariantInput.DefaultUnitId" stacked>
+                    <select asp-for="AddVariantInput.DefaultUnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Inherit from parent —</option>
+                    </select>
+                </field>
+                <field asp-for="AddVariantInput.CategoryId" stacked>
+                    <select asp-for="AddVariantInput.CategoryId" class="field__input" asp-items="Model.CategoryOptions">
+                        <option value="">— Inherit from parent —</option>
+                    </select>
+                </field>
+                <field asp-for="AddVariantInput.DefaultLocationId" stacked full>
+                    <select asp-for="AddVariantInput.DefaultLocationId" class="field__input" asp-items="Model.LocationOptions">
+                        <option value="">— Inherit from parent —</option>
+                    </select>
+                </field>
+            </div>
         </div>
     </details>
     <div>

@@ -65,6 +65,7 @@ public sealed class MealPlanPersistenceTests(PostgresFixture db) : IAsyncLifetim
     }
 
     private static DishSpec RecipeDish() => new(DishKind.Recipe, Guid.NewGuid(), 2);
+    private static DishSpec RecipeDish(Guid recipeId) => new(DishKind.Recipe, recipeId, 2);
     private static readonly Guid UserId = Guid.NewGuid();
 
     // ── write + read round-trips ──────────────────────────────────────────────
@@ -257,6 +258,138 @@ public sealed class MealPlanPersistenceTests(PostgresFixture db) : IAsyncLifetim
         Assert.Equal(2, cell[1].Ordinal);
         Assert.Equal("Breakfast A", cell[0].Note);
         Assert.Equal("Breakfast B", cell[1].Note);
+    }
+
+    // ── UpdateDishes — diff instead of replace (plantry-0tnx) ─────────────────
+    // These exercise the actual persistence boundary: UpdateDishes now emits in-place UPDATEs of
+    // planned_dish.ordinal for kept dishes instead of delete-all + insert-all, which is where the
+    // ux_planned_dish_meal_ordinal unique index risk lives (see PlannedMeal.UpdateDishes doc).
+
+    [Fact(DisplayName = "UpdateDishes: kept dish's id survives an edit that replaces another dish")]
+    public async Task UpdateDishes_PreservesKeptDishId_AcrossReload()
+    {
+        var recipeA = Guid.NewGuid();
+        var recipeB = Guid.NewGuid();
+        MealPlanId planId;
+        PlannedMealId mealId;
+        Guid keptDishId;
+
+        await using (var writeDb = NewDb(_household))
+        {
+            var plan = MealPlan.Start(_household, Monday, Clock);
+            planId = plan.Id;
+            plan.AssignMeal(Monday, _slotId, [RecipeDish(recipeA), RecipeDish(recipeB)], null, "manual", UserId, Clock);
+            mealId = plan.PlannedMeals[0].Id;
+            keptDishId = plan.PlannedMeals[0].PlannedDishes.Single(d => d.RecipeId == recipeA).Id.Value;
+            writeDb.MealPlans.Add(plan);
+            await writeDb.SaveChangesAsync();
+        }
+
+        var recipeC = Guid.NewGuid();
+        await using (var editDb = NewDb(_household))
+        {
+            var plan = await editDb.MealPlans
+                .Include(mp => mp.PlannedMeals).ThenInclude(pm => pm.PlannedDishes)
+                .SingleAsync(mp => mp.Id == planId);
+            plan.AssignMeal(Monday, _slotId, [RecipeDish(recipeA), RecipeDish(recipeC)], null, "manual", UserId, Clock, mealId: mealId);
+            await editDb.SaveChangesAsync();
+        }
+
+        await using var readDb = NewDb(_household);
+        var loaded = await readDb.MealPlans
+            .Include(mp => mp.PlannedMeals).ThenInclude(pm => pm.PlannedDishes)
+            .SingleAsync(mp => mp.Id == planId);
+        var meal = Assert.Single(loaded.PlannedMeals);
+
+        Assert.Equal(2, meal.PlannedDishes.Count);
+        var keptDish = Assert.Single(meal.PlannedDishes, d => d.RecipeId == recipeA);
+        Assert.Equal(keptDishId, keptDish.Id.Value);
+        Assert.DoesNotContain(meal.PlannedDishes, d => d.RecipeId == recipeB);
+        Assert.Contains(meal.PlannedDishes, d => d.RecipeId == recipeC);
+    }
+
+    [Fact(DisplayName = "UpdateDishes: removing the leading dish shifts the kept dish's ordinal down and saves")]
+    public async Task UpdateDishes_RemovingLeadingDish_ShiftsKeptDishOrdinalDown()
+    {
+        var recipeA = Guid.NewGuid();
+        var recipeB = Guid.NewGuid();
+        MealPlanId planId;
+        PlannedMealId mealId;
+
+        await using (var writeDb = NewDb(_household))
+        {
+            var plan = MealPlan.Start(_household, Monday, Clock);
+            planId = plan.Id;
+            plan.AssignMeal(Monday, _slotId, [RecipeDish(recipeA), RecipeDish(recipeB)], null, "manual", UserId, Clock);
+            mealId = plan.PlannedMeals[0].Id;
+            writeDb.MealPlans.Add(plan);
+            await writeDb.SaveChangesAsync();
+        }
+
+        await using (var editDb = NewDb(_household))
+        {
+            var plan = await editDb.MealPlans
+                .Include(mp => mp.PlannedMeals).ThenInclude(pm => pm.PlannedDishes)
+                .SingleAsync(mp => mp.Id == planId);
+            // Drop A (ordinal 1), keep only B — B must move from ordinal 2 to ordinal 1 while its
+            // row (still holding ordinal 2) is the only remaining row.
+            plan.AssignMeal(Monday, _slotId, [RecipeDish(recipeB)], null, "manual", UserId, Clock, mealId: mealId);
+            await editDb.SaveChangesAsync();
+        }
+
+        await using var readDb = NewDb(_household);
+        var loaded = await readDb.MealPlans
+            .Include(mp => mp.PlannedMeals).ThenInclude(pm => pm.PlannedDishes)
+            .SingleAsync(mp => mp.Id == planId);
+        var meal = Assert.Single(loaded.PlannedMeals);
+        var dish = Assert.Single(meal.PlannedDishes);
+
+        Assert.Equal(recipeB, dish.RecipeId);
+        Assert.Equal(1, dish.Ordinal);
+    }
+
+    [Fact(DisplayName = "UpdateDishes: remove-then-re-add spec order does not collide on the ordinal unique index")]
+    public async Task UpdateDishes_RemoveThenReAddSpecOrder_DoesNotCollideOnOrdinalUniqueIndex()
+    {
+        var recipeA = Guid.NewGuid();
+        var recipeB = Guid.NewGuid();
+        MealPlanId planId;
+        PlannedMealId mealId;
+
+        await using (var writeDb = NewDb(_household))
+        {
+            var plan = MealPlan.Start(_household, Monday, Clock);
+            planId = plan.Id;
+            plan.AssignMeal(Monday, _slotId, [RecipeDish(recipeA), RecipeDish(recipeB)], null, "manual", UserId, Clock);
+            mealId = plan.PlannedMeals[0].Id;
+            writeDb.MealPlans.Add(plan);
+            await writeDb.SaveChangesAsync();
+        }
+
+        await using (var editDb = NewDb(_household))
+        {
+            var plan = await editDb.MealPlans
+                .Include(mp => mp.PlannedMeals).ThenInclude(pm => pm.PlannedDishes)
+                .SingleAsync(mp => mp.Id == planId);
+            // Spec order [B, A] mirrors a user removing A (ordinal 1) then re-adding it: the
+            // editor round-trips the remaining dishes first, so B leads. Without the monotonic
+            // match constraint this would try to swap A and B's ordinals in one SaveChanges and
+            // collide against the non-deferrable ux_planned_dish_meal_ordinal unique index.
+            plan.AssignMeal(Monday, _slotId, [RecipeDish(recipeB), RecipeDish(recipeA)], null, "manual", UserId, Clock, mealId: mealId);
+
+            // Should not throw.
+            await editDb.SaveChangesAsync();
+        }
+
+        await using var readDb = NewDb(_household);
+        var loaded = await readDb.MealPlans
+            .Include(mp => mp.PlannedMeals).ThenInclude(pm => pm.PlannedDishes)
+            .SingleAsync(mp => mp.Id == planId);
+        var meal = Assert.Single(loaded.PlannedMeals);
+
+        Assert.Equal(2, meal.PlannedDishes.Count);
+        Assert.Contains(meal.PlannedDishes, d => d.RecipeId == recipeA);
+        Assert.Contains(meal.PlannedDishes, d => d.RecipeId == recipeB);
     }
 
     [Fact(DisplayName = "MP-O8: duplicate (plan, date, slot, ordinal) is rejected by the unique index")]

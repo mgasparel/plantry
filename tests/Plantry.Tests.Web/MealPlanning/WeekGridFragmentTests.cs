@@ -418,13 +418,15 @@ public static class WeekGridFixture
     /// <summary>Shared singleton config so slot IDs are stable within a test run.</summary>
     public static readonly MealSlotConfig SharedConfig = MealSlotConfig.CreateWithDefaults(HhId, Clock);
 
-    public static IReadOnlyList<HouseholdMember> Members =>
+    public static readonly Guid RecipeId = Guid.Parse("dddddddd-0000-0000-0000-000000000001");
+
+    public static readonly IReadOnlyList<HouseholdMember> Members =
         [new HouseholdMember(Guid.Parse("bbbbbbbb-0000-0000-0000-000000000001"), "Alice", "A")];
 
-    public static IReadOnlyList<RecipeReadModel> Recipes =>
-        [new RecipeReadModel(Guid.NewGuid(), "Pasta Bolognese", [], 4)];
+    public static readonly IReadOnlyList<RecipeReadModel> Recipes =
+        [new RecipeReadModel(RecipeId, "Pasta Bolognese", [], 4)];
 
-    public static IReadOnlyList<MealPlanProductReadModel> Products => [];
+    public static readonly IReadOnlyList<MealPlanProductReadModel> Products = [];
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────

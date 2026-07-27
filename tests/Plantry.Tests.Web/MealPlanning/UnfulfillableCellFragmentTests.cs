@@ -257,8 +257,7 @@ internal static class UnfulfillableCellFixture
         get
         {
             var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
-            var offset = ((int)today.DayOfWeek + 6) % 7;
-            return today.AddDays(-offset);
+            return MealPlan.NormalizeToMonday(today);
         }
     }
 

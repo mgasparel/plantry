@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
+using Plantry.MealPlanning.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.Preferences;
 using Xunit;
@@ -79,7 +80,7 @@ public sealed class InsightsRailFragmentTests : IClassFixture<InsightsRailFragme
         // suppressed for past weeks). Monday of the current week is a safe choice — the server
         // also treats the current week as non-historical regardless of the exact weekday.
         var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
-        var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
+        var monday = MealPlan.NormalizeToMonday(today);
         var payload = new { date = monday.ToString("yyyy-MM-dd"), slotId = slot.Id.Value, mode = "note", note = "Takeout" };
         var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         content.Headers.Add("RequestVerificationToken", token);

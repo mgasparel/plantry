@@ -52,8 +52,7 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         get
         {
             var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
-            var offset = ((int)today.DayOfWeek + 6) % 7;
-            return today.AddDays(-offset).ToString("yyyy-MM-dd");
+            return MealPlan.NormalizeToMonday(today).ToString("yyyy-MM-dd");
         }
     }
 
@@ -63,8 +62,7 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         get
         {
             var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
-            var offset = ((int)today.DayOfWeek + 6) % 7;
-            return today.AddDays(-offset + 2).ToString("yyyy-MM-dd");
+            return MealPlan.NormalizeToMonday(today).AddDays(2).ToString("yyyy-MM-dd");
         }
     }
 
@@ -269,8 +267,7 @@ internal static class TwoProposalFixture
         get
         {
             var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
-            var offset = ((int)today.DayOfWeek + 6) % 7;
-            return today.AddDays(-offset);
+            return MealPlan.NormalizeToMonday(today);
         }
     }
 

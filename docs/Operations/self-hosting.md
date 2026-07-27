@@ -176,18 +176,31 @@ docker compose \
   up -d
 ```
 
-**Footprint:** ~0.5–1 GB RAM + an `lgtm_data` volume.  Configure retention to
-bound disk use (defaults: Loki ~31 days, Prometheus 30 days):
+**Footprint:** ~0.5–1 GB RAM + an `lgtm_data` volume.  Current retention
+defaults: Prometheus 30 days; Loki 744h (~31 days), enforced by Loki's
+compactor (see below).
 
 ```
 LOKI_RETENTION_PERIOD=744h       # Loki: hours or days (e.g. 744h ≈ 31d)
 PROMETHEUS_RETENTION_TIME=30d    # Prometheus: days or weeks (e.g. 30d, 4w)
 ```
 
-These are interpolated into the `LOKI_EXTRA_ARGS` and `PROMETHEUS_EXTRA_ARGS`
-environment variables that `grafana/otel-lgtm` passes to the bundled daemons.
-Setting them directly (e.g. `LOKI_RETENTION_PERIOD=744h` without `EXTRA_ARGS`)
+`PROMETHEUS_RETENTION_TIME` is interpolated into the `PROMETHEUS_EXTRA_ARGS`
+environment variable that `grafana/otel-lgtm` passes to the bundled Prometheus.
+Setting it directly (e.g. `PROMETHEUS_RETENTION_TIME=30d` without `EXTRA_ARGS`)
 has no effect — the compose file handles the translation.
+
+`LOKI_EXTRA_ARGS` originally carried an invalid Loki CLI flag
+(`--limits.retention-period`, guessed from the YAML config key) that Loki 3.7.1
+rejects at startup, which crashed the whole Loki process on every deploy
+(`plantry-e4z0` removed the invalid flag so Loki could start at all).
+`plantry-032n` wired `LOKI_EXTRA_ARGS` back up with the real flags: Loki's
+retention window is set via `-store.retention` (fed by `LOKI_RETENTION_PERIOD`,
+default `744h`), and its compactor is enabled with `-compactor.retention-enabled`,
+a `-compactor.working-directory` pointed under the persisted `lgtm_data` volume,
+and `-compactor.delete-request-store=filesystem` (required by Loki 3.7.1 whenever
+retention is enabled). `LOKI_RETENTION_PERIOD` now does what it always claimed to
+do — set it in `.env` to change the window.
 
 Tempo block-retention is not exposed as a CLI flag in the bundled
 `grafana/otel-lgtm` image; the image's built-in default retention applies.  If

@@ -89,6 +89,29 @@ public sealed class ProductDetailMoveTests : IDisposable
         Assert.Contains("hasThawedAt: false", html, StringComparison.Ordinal);
     }
 
+    [Fact(DisplayName = "MoveSheet — string x-data fields are HTML-encoded so the attribute is not truncated (plantry-gcpb)")]
+    public async Task MoveSheet_XData_IsHtmlEncoded_AndAttributeSpansWholeObject()
+    {
+        var client = AuthClient();
+
+        var response = await client.GetAsync(
+            $"/Pantry/Products/Detail/{ProductDetailMoveFixture.ProductId}?handler=MoveSheet&entryId={_factory.LotEntryId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        // A string-valued seed must arrive HTML-encoded — a raw `"` would terminate the
+        // x-data="..." attribute early (the plantry-gcpb regression).
+        Assert.Contains("unit: &quot;kg&quot;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("unit: \"kg\"", html, StringComparison.Ordinal);
+
+        // The attribute value must span the *entire* object literal: [^"]* stops at the first
+        // raw double quote, so this only matches if nothing truncated it mid-object.
+        var xData = Regex.Match(html, "x-data=\"([^\"]*)\"");
+        Assert.True(xData.Success, "No x-data attribute found on the Move sheet.");
+        Assert.Contains("bumpQty(delta)", xData.Groups[1].Value, StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "MoveSheet — a previously-thawed lot's sheet emits hasThawedAt:true, gating the refreeze warning on (UI spec §5)")]
     public async Task MoveSheet_ThawedLot_EmitsHasThawedAtTrue()
     {
