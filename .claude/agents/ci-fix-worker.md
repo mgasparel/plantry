@@ -126,7 +126,10 @@ Run from `../worktrees/<issue-id>/`.
 repowise distill dotnet test Plantry.sln --nologo
 ```
 
-Run from `../worktrees/<issue-id>/` with `timeout: 600000` (10 min).
+Run from `../worktrees/<issue-id>/` with `timeout: 600000` (10 min). **This call MUST be
+synchronous — do not pass `run_in_background: true`.** The dispatcher's ability to tell you
+apart from a stalled agent depends on this call either finishing or timing out within 10
+minutes; backgrounding it removes that supervision even if the run itself succeeds.
 
 Check for infrastructure failures before retrying:
 - `password authentication failed` / `28P01`

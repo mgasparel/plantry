@@ -93,8 +93,11 @@ Working entirely within `../worktrees/<issue-id>/`:
 - Read `CLAUDE.md` and `.claude/CLAUDE.md` for conventions.
 - Implement the full scope described in the issue.
 - Follow all Plantry architectural conventions (see `.claude/review-criteria.md`).
-- Do not stage or commit yet — the pre-flight loop must pass first, and all fix cycles
-  fold into a single commit.
+- You will commit a WIP snapshot before every critic handoff (see Step 4c) so the diff a
+  critic reviews is always complete, including brand-new files — `git diff` cannot show an
+  untracked file, and reviewing an incomplete diff has shipped bugs before. These WIP commits
+  are squashed into one final commit at Step 5, so the ticket still lands as a single commit;
+  don't hand-craft commit messages for them, any placeholder is fine.
 
 **Non-interactive rules:**
 
@@ -131,6 +134,15 @@ Run the full solution using `repowise distill` so errors appear first in the out
 Bash tool with `timeout: 600000` (10 minutes) — the E2E suite boots a live Aspire stack and
 takes ~90s on a clean run; the default 2-minute Bash timeout is too tight and will cause
 spurious failures that accumulate zombie shells.
+
+**This call MUST be synchronous — do not pass `run_in_background: true`, and do not launch
+the test run as a detached/nohup'd process to poll later.** The whole point of the 10-minute
+timeout is that it caps how long you can go quiet without your dispatcher seeing a result —
+backgrounding it defeats that supervision even though the run itself might finish fine, and
+your dispatcher has no reliable way to know you're still alive versus stalled. If you expect
+the run to be slow, that is exactly what the timeout is for: let it either finish within 10
+minutes or hit the timeout, and handle the timeout per the table below. Do not pre-empt a
+timeout you haven't hit yet by switching modes.
 
 ```bash
 repowise distill dotnet test Plantry.sln --nologo
@@ -173,6 +185,19 @@ fix and loop back to 4a as normal.
 ### 4c. Opus critic review (handoff — you cannot spawn your own subagent)
 
 Increment `pass_count`.
+
+**Commit a WIP snapshot before requesting review — every pass, including the first:**
+
+```bash
+git -C ../worktrees/<issue-id> add -A
+git -C ../worktrees/<issue-id> commit -m "wip: pre-flight pass <pass_count>"
+```
+
+This makes `git diff <base-branch>` complete for the critic, including any file you created
+this pass — an untracked file is invisible to `git diff` no matter how thorough the reviewer
+is, so committing (not just staging) closes that gap at the source rather than relying on the
+critic to separately check `git status`. Step 5 squashes all of these WIP commits into one
+final commit, so this doesn't change what lands.
 
 **You cannot spawn the Opus critic yourself.** A dispatched subagent has no access to the
 `Agent` tool — it cannot spawn a further subagent of its own. Instead, hand control back to
@@ -237,12 +262,22 @@ above):
 >
 > ```bash
 > git -C <worktree-path> diff <base-branch>
+> git -C <worktree-path> status --porcelain
 > ```
 >
 > Diff against `<base-branch>` — the branch this issue was cut from. In the loop that
 > is `epic/<parent-id>`, so the diff shows only THIS child's changes, not the siblings
 > already staged in the epic; for a direct invocation it is `origin/main`. Do not diff
 > against local `main`, which may lag the base and pollute the diff.
+>
+> **`git diff` never shows brand-new files that haven't been `git add`'d — and staging is
+> deliberately deferred to Step 5, after your review, so any file the implementer created
+> this pass is invisible to the diff by construction.** Always also run `status --porcelain`
+> and read the full contents of every `??` entry that plausibly belongs to this ticket's
+> scope (a new migration, a new test file, a new fixture class, etc.) — do not review only
+> what `git diff` happened to show you. A ticket that creates new files but never stages
+> them is a **FIX** under the scope-delivery check below (the change would not ship), not
+> a NOTE.
 >
 > ## Step C — Review
 >
@@ -353,10 +388,12 @@ DEFER and NOTE findings never block PASS and never trigger another loop; only FI
 
 ## Step 5 — Commit
 
-Stage and create a single commit folding all fix cycles:
+Squash the WIP commits from every pass (Step 4c) into one final commit — `reset --soft` to
+`<base-branch>` keeps the full working-tree state staged, discarding only the WIP commit
+history, then recommit with the real message:
 
 ```bash
-git -C ../worktrees/<issue-id> add -A
+git -C ../worktrees/<issue-id> reset --soft <base-branch>
 git -C ../worktrees/<issue-id> commit -m "$(cat <<'EOF'
 <type>(<scope>): <title from issue>
 
